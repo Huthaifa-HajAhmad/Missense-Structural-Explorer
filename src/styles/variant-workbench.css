@@ -26,7 +26,6 @@
 .workbench-section-heading { display: flex; align-items: center; gap: .75rem; padding: .875rem var(--workbench-pad); border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-index { font-family: var(--cs-font-mono); font-size: 10px; color: var(--cs-text-accent); font-variant-numeric: tabular-nums; }
 .workbench-section-heading h2, .workbench-rail-heading h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
-.workbench-section-note { margin-inline-start: auto; font-size: 11px; color: var(--cs-text-muted); }
 .workbench-query-body { display: flex; flex-direction: column; gap: .875rem; min-inline-size: 0; padding: 1.25rem var(--workbench-pad) 1rem; }
 .workbench-query-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; padding: .5rem var(--workbench-pad); border-block-start: 1px solid var(--cs-border-subtle); }
 .workbench-query-footer > p { flex: 1 1 20rem; }
@@ -35,10 +34,15 @@
 .workbench-recents-heading > button { min-block-size: 2.75rem; }
 .workbench-recents-heading > button:first-of-type { margin-inline-start: auto; }
 .workbench-recents-count { margin-inline-start: .375rem; color: var(--cs-text-muted); font-family: var(--cs-font-mono); font-size: 11px; font-weight: 400; }
-.workbench-recents-note { margin: 0; padding-inline: var(--workbench-pad); font-size: 12px; color: var(--cs-text-muted); }
-.workbench-recent-list { display: flex; flex-direction: column; margin: 0; padding: 0 var(--workbench-pad) .75rem; list-style: none; }
+/* About three rows (3.5rem each, plus their rules) and a peek of the fourth, so a longer history scrolls inside the
+   card instead of stretching the deck. A peek, not a clean cut, is what tells the reader there is more. */
+.workbench-recent-list { display: flex; flex-direction: column; max-block-size: 12.5rem; overflow-y: auto; scrollbar-width: thin; margin: 0; padding: .25rem var(--workbench-pad) .75rem; list-style: none; }
 .workbench-recent-list > li { min-inline-size: 0; }
 .workbench-recent-list > li + li { border-block-start: 1px solid var(--cs-border-subtle); }
+/* The current row is a tinted band, so its edges are its own: the rule above it and the rule below it would each sit
+   against the band's edge as a second line. Transparent, not removed, so the rows keep their height. */
+.workbench-recent-list > li:has(> .workbench-recent[aria-pressed="true"]),
+.workbench-recent-list > li:has(> .workbench-recent[aria-pressed="true"]) + li { border-block-start-color: transparent; }
 .workbench-recent { display: flex; align-items: center; gap: 1rem; inline-size: 100%; min-block-size: 3.5rem; padding: .5rem; border: 1px solid transparent; border-radius: 6px; text-align: start; background: transparent; color: var(--cs-text-primary); cursor: pointer; }
 .workbench-recent-number { flex: none; color: var(--cs-text-muted); font: 10px var(--cs-font-mono); }
 .workbench-history-clear { display: inline-flex; align-items: center; gap: .375rem; padding-inline: .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 11px; cursor: pointer; }
@@ -136,7 +140,6 @@
 .qe-input::placeholder { color: var(--cs-text-muted); font-weight: 400; text-transform: none; letter-spacing: normal; }
 .qe-input:focus-visible { outline-color: var(--cs-accent-clay); border-color: var(--cs-border); }
 .qe-input[aria-invalid="true"] { border-color: color-mix(in oklch, var(--cs-text-warning) 55%, var(--cs-border)); }
-.qe-input--placeholder { display: flex; align-items: center; border-style: dashed; border-color: var(--cs-border-subtle); background: transparent; color: var(--cs-text-muted); font-size: 12px; }
 .qe-input__tool { position: absolute; inset-block: 0; inset-inline-end: .375rem; z-index: 1; margin-block: auto; display: inline-flex; align-items: center; justify-content: center; inline-size: 1.75rem; block-size: 1.75rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }
 .qe-input__tool:active { background: var(--cs-bg-subtle); }
 /* The build select, in two sizes: an input-shaped row and a label-slot chip. Neither is tinted; a clay
@@ -156,9 +159,8 @@
 .qe-select--chip .qe-select__caret { inset-inline-end: 0; inline-size: .75rem; block-size: .75rem; }
 
 /* Optional controls sit on ruled rows. Opening either reveals its own editing surface. */
-.qe-fields { border-block-start: 1px solid var(--cs-border-subtle); }
-/* The ticket's own bottom edge already closes the parse, so the disclosure does not add a second rule under it. */
-.qe:has(> .qe__ticket) + .qe-fields { border-block-start: 0; }
+/* No rule above the fields disclosure: the examples (or the ticket's own bottom edge) already close the composer, and
+   the AI row below carries the one rule that separates the optional rows from it. */
 .qe-fields__summary, .workbench-ai-summary { display: flex; align-items: center; gap: .5rem; min-block-size: 2.75rem; list-style: none; cursor: pointer; user-select: none; font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
 .qe-fields__summary::-webkit-details-marker, .workbench-ai-summary::-webkit-details-marker { display: none; }
 .qe-fields__chevron { inline-size: .875rem; block-size: .875rem; flex: none; color: var(--cs-text-muted); }
@@ -193,7 +195,7 @@
 }
 @container (width < 30rem) {
   .workbench-heading { gap: .5rem; }
-  .workbench-section-note, .qe-fields__hint { display: none; }
+  .qe-fields__hint { display: none; }
   .qe__example { flex-basis: 100%; flex-direction: row; align-items: center; min-block-size: 2.75rem; }
   .qe__example-note { flex: 0 0 4rem; }
   .qe__example-value { flex: 1; }

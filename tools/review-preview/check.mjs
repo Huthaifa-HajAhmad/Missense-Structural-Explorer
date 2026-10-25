@@ -200,13 +200,14 @@ try {
  await accession.focus();
  check('Query accession is keyboard reachable', await accession.evaluate(e => e === document.activeElement));
  await accession.fill('Q9H8M5');
- // The two route columns share row baselines: the notation field (left, row 2) sits level with the
- // coordinate field (right, row 2), at the same height. The accession now lives under them (left, row 3).
+ // The fields are one grid, so rows share baselines: the notation field (left, row 2) sits level with the
+ // coordinate field (right, row 2), at the same height. The accession sits on row 1, beside the gene.
  const inputRows = await page.locator('#input-variant-notation, #input-genomic-coords').evaluateAll(elements => elements.map(e => { const r = e.getBoundingClientRect(); return { top: r.top, height: r.height, width: r.width }; }));
  const wide = (await page.viewportSize()).width >= 1024;
  check('Query notation and coordinate fields share a baseline', inputRows.length === 2 && (!wide || (Math.abs(inputRows[0].top - inputRows[1].top) < 1 && Math.abs(inputRows[0].height - inputRows[1].height) < 1)));
  const accessionBox = await accession.boundingBox();
- check('Query accession sits below the notation field', accessionBox !== null && accessionBox.y > inputRows[0].top + inputRows[0].height);
+ const geneBox = await page.locator('#input-gene-symbol').boundingBox();
+ check('Query accession sits beside the gene, above the notation field', accessionBox !== null && geneBox !== null && Math.abs(accessionBox.y - geneBox.y) < 1 && accessionBox.y + accessionBox.height < inputRows[0].top);
  // The state reads from the label row, above the control — and above its own input's top edge.
  const state = page.locator('#input-uniprot-acc-status');
  const stateBox = await state.boundingBox();

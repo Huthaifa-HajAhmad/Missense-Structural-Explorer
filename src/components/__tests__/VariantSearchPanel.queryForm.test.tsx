@@ -264,8 +264,8 @@ describe("UniProt state takes the label-row slot (UI-5)", () => {
     fireEvent.click(screen.getByText("Edit parsed fields"));
 
     const input = document.getElementById("input-uniprot-acc") as HTMLInputElement;
-    // The accession belongs to the left fieldset, beside Gene and Protein or cDNA.
-    expect(input.closest(".query-route:not(.query-route--coordinate)")).not.toBeNull();
+    // The accession sits in the one fields grid, on the gene's row.
+    expect(input.closest("#workspace-accepted-inputs")).not.toBeNull();
     // No reveal step: the input is there on first paint, empty or filled.
     expect(input).toBeVisible();
 
@@ -324,28 +324,27 @@ describe("workspace deck: the recent card is a row of its own, not the form's co
 });
 
 /**
- * The reserved band under row 1's controls. It exists to keep the two columns' row-2 labels on one
- * baseline, but reserving two lines unconditionally put 32px of dead air under the first control in
- * the ordinary state (no hint on either side) — 54px in total, three times every other gap in the
- * form. The band now follows what is actually shown.
+ * The fields are one grid, so a row shares its baseline by construction. The old two-column layout reserved a
+ * helper band (`data-help-lines`) to keep the columns level, and gave the coordinate a column of its own with a
+ * "Genome build" row that read "Follows the coordinate you enter" until a build existed.
  */
-describe("form rhythm: the reserved helper band follows the hints (UI-10)", () => {
+describe("form layout: one grid, no reserved band, no separate coordinate column (UI-10)", () => {
   const band = () => document.getElementById("workspace-accepted-inputs") as HTMLElement;
 
-  it("reserves nothing when neither column shows a hint", () => {
+  it("holds all four fields in one group, without a reserved helper band", () => {
     act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly" }));
     renderPanel();
-    expect(band()).toHaveAttribute("data-help-lines", "0");
+    for (const id of ["input-gene-symbol", "input-uniprot-acc", "input-variant-notation", "input-genomic-coords"]) {
+      expect(band()).toContainElement(document.getElementById(id));
+    }
+    expect(band()).not.toHaveAttribute("data-help-lines");
+    expect(band().querySelector("fieldset, legend")).toBeNull();
   });
 
-  it("reserves one line for a build hint and two for the gene hint", () => {
-    act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A", customVariant: "" }));
+  it("does not print a build row for a coordinate that cannot carry one", () => {
     renderPanel();
-    expect(band()).toHaveAttribute("data-help-lines", "1");
-
-    // A bare cDNA names no transcript, so it needs the gene — and that hint is a full sentence.
-    act(() => useVariantAnalysisStore.setState({ customGenomic: "", customGene: "", customVariant: "c.347A>G" }));
-    expect(band()).toHaveAttribute("data-help-lines", "2");
+    expect(screen.queryByText("Genome build")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Follows the coordinate you enter/)).not.toBeInTheDocument();
   });
 });
 
@@ -470,14 +469,16 @@ describe("Parsed fields speak the composer's grammar", () => {
     expect(derived.className).not.toContain("bg-");
   });
 
-  it("labels the genome-build select from its visible caption", () => {
+  it("puts the genome-build select in the coordinate label's slot, named for assistive tech", () => {
     act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A" }));
     renderPanel();
 
-    const label = document.querySelector('label[for="input-genomic-build"]');
-    expect(label).toHaveTextContent("Genome build");
     const select = document.getElementById("input-genomic-build") as HTMLSelectElement;
     expect(select.tagName).toBe("SELECT");
     expect(select.closest(".qe-select")).not.toBeNull();
+    expect(select).toHaveAccessibleName("Genome build this coordinate is expressed in");
+    // Beside the label it describes, the way the notation field carries its build: not a row of its own.
+    const labelRow = screen.getByText("Genomic coordinates").closest(".qe-field-label") as HTMLElement;
+    expect(labelRow).toContainElement(select);
   });
 });

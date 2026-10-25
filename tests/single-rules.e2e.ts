@@ -7,10 +7,14 @@ import { skipTour } from './support.js';
  * Measured as rendered borders, because the defect was a pair of 1px rules a few pixels apart.
  */
 
-test('the parse ticket and the fields disclosure share one rule', { tags: ['search'] }, async ({ app, browser, screen }) => {
+test('the fields disclosure adds no rule of its own, with or without a ticket above it', { tags: ['search'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1753, height: 981 });
   await app.open('/');
+  const fieldsTop = () => browser.evaluate(() => getComputedStyle(document.querySelector('.qe-fields')!).borderTopWidth);
+  expect(await fieldsTop(), 'under the example chips there is no rule above the disclosure').toBe('0px');
+  await app.screenshot('single-rule-examples');
+
   await screen.getByRole('textbox', /^Variant/).fill('NAE1 p.Asp116Gly');
   await expect(screen.getByText(/^Edit parsed fields/)).toBeVisible();
   const rules = await browser.evaluate(() => {

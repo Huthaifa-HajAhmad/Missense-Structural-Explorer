@@ -482,16 +482,9 @@ const BuildSelect: React.FC<{
    * has to tell them apart — two identically named selects in one form is a coin flip.
    */
   subject: "coordinate" | "cDNA";
-  /**
-   * `chip` (the default) lives in a label's pinned 20px slot. `field` is a 40px row of its own, used by
-   * the coordinate route's "Reference build" row so the control lines up with the Gene input beside it
-   * instead of floating as a badge. The state (default vs stated) reads the same in both.
-   */
-  size?: "chip" | "field";
-  /** For a visible `<label htmlFor>`; the `field` size sits under one. */
   id?: string;
   onChange: (build: GenomeAssembly) => void;
-}> = ({ value, source, subject, size = "chip", id, onChange }) => {
+}> = ({ value, source, subject, id, onChange }) => {
   const stated = source !== "default";
   const title = stated
     ? `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${source === "accession" ? "by the RefSeq accession" : "in the notation"})`
@@ -509,18 +502,6 @@ const BuildSelect: React.FC<{
       <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
     </select>
   );
-
-  if (size === "field") {
-    // An input-shaped select: the same box as the fields beside it. A clay dot (the ticket's mark for
-    // a value the notation itself states) answers "did the caller say this, or is it the fallback?".
-    return (
-      <span className="qe-select" data-stated={stated || undefined}>
-        <span className="qe__kind" data-tone={stated ? "clay" : undefined} aria-hidden="true" />
-        {select("qe-select__control")}
-        <ChevronDown className="qe-select__caret" aria-hidden="true" />
-      </span>
-    );
-  }
 
   return (
     // The label-slot form: badge metrics (20px row, 11px text), a dot for the state, and a caret drawn
@@ -579,9 +560,6 @@ const ExampleRow: React.FC<{
     </details>
   </div>;
 };
-
-const RECENTS_VISIBLE = 3;
-const RECENTS_MAX = 8;
 
 function VariantSearchPanel({
   customGene: propsCustomGene,
@@ -1065,12 +1043,6 @@ function VariantSearchPanel({
   const hasDirections = userDirections.trim().length > 0;
 
   /**
-   * dbSNP and ClinVar identifiers name a variant rather than spell it, and resolve to a GRCh38 coordinate
-   * on the server. They carry no build the reader can state, so they get the verdict badge, not the build row.
-   */
-  const genomicIdentifier = genomicNotation?.kind === "rsid" || genomicNotation?.kind === "clinvar-vcv";
-
-  /**
    * Which route the submit takes, for the strip under the coordinate field. The coordinate field wins whenever
    * it has text (the submit reads it first), so a protein/cDNA entry beside it is ignored; the strip says so
    * rather than letting that happen silently.
@@ -1117,22 +1089,6 @@ function VariantSearchPanel({
     !sameSubstitution(typedSubstitution, resolvedSubstitution)
       ? { resolved: resolvedForCoordinate, typed: customVariant.trim() }
       : null;
-
-  /**
-   * How many lines of helper text the row-1 controls must reserve under themselves.
-   *
-   * The reservation is what keeps "Protein or cDNA notation" and "Genomic coordinates" on one baseline
-   * when ONE column shows a hint the other does not — so it has to be a fact of the ROW, not of a
-   * column, which is why it is computed here and applied to `.query-routes`.
-   *
-   * It used to be unconditional at two lines, and with no hint on either side (the ordinary case: a
-   * gene typed, a protein notation typed, no coordinate) that bought 32px of dead air between the
-   * first control and the next label — 54px in total, three times every other gap in the form, with
-   * nothing in it. Now each state pays only for what it shows: 2 lines for the gene hint (a full
-   * sentence at this width), 1 for a build hint (it fits on one line), 0 when there is no hint at all.
-   */
-  const reservedHelpLines: 0 | 1 | 2 =
-    bareCdnaNeedsGene || variantIsBareCdna ? 2 : genomicBuildControllable ? 1 : 0;
 
   /**
    * Fills a field from the example catalogue.
@@ -1193,11 +1149,6 @@ function VariantSearchPanel({
   const quickReading = readQuickEntry(quickDraft);
   // The fields are folded away by default; anything that needs a decision in them opens them.
   const [fieldsOpen, setFieldsOpen] = useState(false);
-  /* Three recents keep the query and monitor above the fold; the rest open on request instead of
-     an inner scroller competing with the page's. */
-  const [showAllRecents, setShowAllRecents] = useState(false);
-  const recentCount = Math.min(history.length, RECENTS_MAX);
-  const hiddenRecents = recentCount - RECENTS_VISIBLE;
   const fieldsNeedAttention =
     Boolean(routeConflict) ||
     bareCdnaNeedsGene ||
@@ -1262,7 +1213,6 @@ function VariantSearchPanel({
           <div className="workbench-section-heading">
             <span className="workbench-index" aria-hidden="true">01</span>
             <h2 id="variant-form-title">Variant query</h2>
-            <span className="workbench-section-note">Start with what you know</span>
           </div>
 
           <form onSubmit={onFormSubmit} className="flex flex-col flex-1">
@@ -1596,22 +1546,19 @@ function VariantSearchPanel({
                   </span>
                 </summary>
                 <div className="qe-fields__body">
-              {/* `data-help-lines` (0/1/2) is on the CONTAINER because the reserved helper band is a
-                  property of the row: both columns must reserve the same space or their row-2 labels
-                  stop sharing a baseline. See `reservedHelpLines`. */}
+              {/* One two-column grid, so each row shares a baseline by construction: identity on top (gene,
+                  accession), the two ways of naming the change beneath (protein/cDNA, or a coordinate), and the
+                  route status across the foot. The coordinate used to have a column of its own, with a build row
+                  whose only content was "Follows the coordinate you enter" and a field that repeated the line
+                  above; the build now sits in the coordinate label's slot, as it does on the notation field. */}
               <div
                 className="query-routes"
                 id="workspace-accepted-inputs"
-                data-help-lines={reservedHelpLines}
+                role="group"
+                aria-label="Parsed query fields"
               >
-                <fieldset className="query-route">
-                  <legend>Gene &amp; protein change</legend>
-                  <div className="query-route__fields">
-                    {/* Row 1: the gene. Its helper line is reserved band-wise at the row's own height in
-                        both columns (see `reservedHelpLines` / `.query-route__help`), so row 2 starts on
-                        the same baseline as the coordinate column's row 2 whatever either hint says — and
-                        costs nothing when neither column has a hint. */}
-                    <div className="flex flex-col gap-1.5">
+                    {/* Row 1: the gene. */}
+                    <div className="flex flex-col gap-1.5 min-w-0">
                       <FieldLabel
                         htmlFor="input-gene-symbol"
                         required={isGeneRequired}
@@ -1647,6 +1594,53 @@ function VariantSearchPanel({
                           <span>Resolves on {customGene.trim().toUpperCase()}&apos;s MANE Select transcript.</span>
                         ) : null}
                       </p>
+                    </div>
+
+                    {/* Row 1, beside the gene: the optional UniProt accession.
+                        The field is always the editable input — collapsed it was a 40px summary button
+                        ("Resolved automatically"), open it is a 40px input, so the reveal step bought
+                        no space and one extra click. Its STATE sits in the label row's slot, which is the
+                        one place this form states a field's verdict ("Derived", "Optional", "Protein HGVS"). */}
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <FieldLabel
+                        htmlFor="input-uniprot-acc"
+                        badge={
+                          <FieldBadge
+                            id="input-uniprot-acc-status"
+                            /**
+                             * `warn` is the only loud state this slot has. A well-formed accession is not
+                             * a state worth a green chip: it is the ordinary case, the chip was the
+                             * loudest colour in a row that is otherwise grey, and it said nothing the
+                             * input's own text does not. `neutral` renders as plain muted text.
+                             */
+                            tone={uniprotLooksValid ? "neutral" : "warn"}
+                            title={
+                              uniprotLooksValid
+                                ? "Optional: the accession is auto-resolved from the gene when omitted."
+                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                            }
+                          >
+                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                          </FieldBadge>
+                        }
+                      >
+                        UniProt accession
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-uniprot-acc"
+                          type="text"
+                          placeholder="e.g. Q9H8M5"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customUniprot}
+                          onChange={(e) => setCustomUniprot(e.target.value)}
+                          aria-invalid={!uniprotLooksValid || undefined}
+                          aria-describedby="input-uniprot-acc-status"
+                          className={inputBase + " font-mono uppercase"}
+                        />
+                        <PasteBtn setter={setCustomUniprot} />
+                      </div>
                     </div>
 
                     {/* Row 2: the protein or cDNA notation, with its examples directly beneath. */}
@@ -1711,100 +1705,29 @@ function VariantSearchPanel({
                       <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
                     </div>
 
-                    {/* Row 3: the optional UniProt accession.
-                        The field is always the editable input — collapsed it was a 40px summary button
-                        ("Resolved automatically"), open it is a 40px input, so the reveal step bought
-                        no space and one extra click. Its STATE now sits in the label row's slot, which
-                        is the one place this form states a field's verdict ("Derived", "Optional",
-                        "Protein HGVS") — in place of the Hide/Set link that used to occupy that slot:
-                        the state is the more useful fact there, and collapsing only re-printed the
-                        accession the input was already showing. */}
-                    <div className="query-reference query-route__aside">
-                      <FieldLabel
-                        htmlFor="input-uniprot-acc"
-                        badge={
-                          <FieldBadge
-                            id="input-uniprot-acc-status"
-                            /**
-                             * `warn` is the only loud state this slot has. A well-formed accession is not
-                             * a state worth a green chip: it is the ordinary case, the chip was the
-                             * loudest colour in a row that is otherwise grey, and it said nothing the
-                             * input's own text does not. `neutral` renders as plain muted text.
-                             */
-                            tone={uniprotLooksValid ? "neutral" : "warn"}
-                            title={
-                              uniprotLooksValid
-                                ? "Optional: the accession is auto-resolved from the gene when omitted."
-                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
-                            }
-                          >
-                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                          </FieldBadge>
-                        }
-                      >
-                        UniProt accession
-                      </FieldLabel>
-                      <div className="relative">
-                        <input
-                          id="input-uniprot-acc"
-                          type="text"
-                          placeholder="e.g. Q9H8M5"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={customUniprot}
-                          onChange={(e) => setCustomUniprot(e.target.value)}
-                          aria-invalid={!uniprotLooksValid || undefined}
-                          aria-describedby="input-uniprot-acc-status"
-                          className={inputBase + " font-mono uppercase"}
-                        />
-                        <PasteBtn setter={setCustomUniprot} />
-                      </div>
-                    </div>
-                  </div>
-                </fieldset>
-
-                <fieldset className="query-route query-route--coordinate">
-                  <legend>Or use coordinates</legend>
-                  <div className="query-route__fields">
-                    {/* Row 1: the build the coordinate is expressed in, at the Gene input's 40px height. It is DERIVED
-                        from the text (see BuildSelect), so this row holds no state; the quiet box keeps the height
-                        when no coordinate can carry a build. */}
-                    <div className="flex flex-col gap-1.5 min-w-0">
-                      {genomicBuildControllable ? (
-                        <label htmlFor="input-genomic-build" className="qe-field-label">Genome build</label>
-                      ) : (
-                        <span className="qe-field-label">Genome build</span>
-                      )}
-                      {genomicBuildControllable ? (
-                        <BuildSelect
-                          id="input-genomic-build"
-                          value={genomicBuild}
-                          source={genomicBuildSource}
-                          subject="coordinate"
-                          size="field"
-                          onChange={applyGenomicBuild}
-                        />
-                      ) : (
-                        <div className="qe-input qe-input--placeholder">
-                          {genomicIdentifier ? "GRCh38, set by the identifier" : "Follows the coordinate you enter"}
-                        </div>
-                      )}
-                      <p className="query-route__help">
-                        {genomicBuildControllable
-                          ? genomicBuildSource === "default"
-                            ? "Default build. Choose one to state it in the coordinate."
-                            : "Stated in the coordinate."
-                          : null}
-                      </p>
-                    </div>
-
-                    {/* Row 2: the coordinate, with its examples directly beneath. */}
+                    {/* Row 2, beside the notation: the coordinate, with its examples directly beneath. */}
                     <div className="flex flex-col gap-1.5 min-w-0">
                       <FieldLabel
                         htmlFor="input-genomic-coords"
+                        /**
+                         * The build the coordinate is expressed in. It is DERIVED from the text (see BuildSelect), so it
+                         * holds no state of its own, and it takes the same label slot as on the notation field. It was a
+                         * 40px row above this field that read "Follows the coordinate you enter" until a build existed.
+                         */
+                        action={
+                          genomicBuildControllable ? (
+                            <BuildSelect
+                              id="input-genomic-build"
+                              value={genomicBuild}
+                              source={genomicBuildSource}
+                              subject="coordinate"
+                              onChange={applyGenomicBuild}
+                            />
+                          ) : undefined
+                        }
                         badge={
                           /**
-                           * ONE thing in this slot. When the build row is showing it already states the build,
+                           * ONE thing in this slot. When the build control is showing it already states the build,
                            * so no badge here. Otherwise the slot names what the text is: a verdict for a
                            * recognised notation, or "Optional" while the field is empty.
                            */
@@ -1840,11 +1763,11 @@ function VariantSearchPanel({
                       <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                     </div>
 
-                    {/* Row 3: which route the submit takes. A live region, so a change of route is announced.
-                        "Both filled" splits in two: a KNOWN disagreement wears amber and offers the way out,
+                    {/* Row 3, across both columns: which route the submit takes. A live region, so a change of route is
+                        announced. "Both filled" splits in two: a KNOWN disagreement wears amber and offers the way out,
                         while agreement (or an unknown coordinate) gets the same quiet line an empty field
                         gets — information without an alarm. */}
-                    <div className="query-route__aside" id="coordinate-route-status" role="status" aria-live="polite">
+                    <div className="query-routes__status" id="coordinate-route-status" role="status" aria-live="polite">
                       {coordinateRoute === "both" ? (
                         routeConflict ? (
                           <div className="query-route-status query-route-status--warn">
@@ -1884,8 +1807,6 @@ function VariantSearchPanel({
                         <p className="query-route-status query-route-status--quiet">{COORDINATE_ACCEPTS_COPY}</p>
                       )}
                     </div>
-                  </div>
-                </fieldset>
               </div>
                 </div>
               </details>
@@ -1995,17 +1916,6 @@ function VariantSearchPanel({
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">
                   Recent analyses <span className="workbench-recents-count">{history.length}</span>
                 </h2>
-                {hiddenRecents > 0 && (
-                  <button
-                    type="button"
-                    className="workbench-history-clear"
-                    aria-expanded={showAllRecents}
-                    aria-controls="workbench-recent-list"
-                    onClick={() => setShowAllRecents(open => !open)}
-                  >
-                    {showAllRecents ? "Show fewer" : `Show ${hiddenRecents} more`}
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={clearHistory}
@@ -2018,9 +1928,10 @@ function VariantSearchPanel({
                 </button>
               </div>
 
-              <p className="workbench-recents-note">Your latest variants, ready to revisit.</p>
+              {/* Every entry stays in the list (the store keeps ten); the list scrolls inside its own box past
+                  about three rows, so a longer history never pushes the deck or the monitor down the page. */}
               <ol className="workbench-recent-list" id="workbench-recent-list">
-                {history.slice(0, showAllRecents ? RECENTS_MAX : RECENTS_VISIBLE).map((item, idx) => {
+                {history.map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
                   return (
                     <li key={`${item.gene}_${item.variant}_${idx}`}>
