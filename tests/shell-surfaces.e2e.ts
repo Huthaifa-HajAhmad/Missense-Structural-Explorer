@@ -26,7 +26,7 @@ test('the query and monitor clear the viewport bottom with three recent analyses
   await app.screenshot('query-panels-three-recents');
 });
 
-test('a long history keeps the deck in place and opens the rest on request', { tags: ['shell'] }, async ({ app, browser, screen }) => {
+test('a long history scrolls inside its card and keeps the deck in place', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.addInitScript(() => {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
@@ -38,19 +38,21 @@ test('a long history keeps the deck in place and opens the rest on request', { t
   await browser.setViewport({ width: 1753, height: 981 });
   await app.open('/');
   await expect(screen.getByRole('heading', 'Recent analyses 8')).toBeVisible();
+  await browser.evaluate(() => document.fonts.ready.then(() => true));
   const deck = () => browser.evaluate(() => {
     const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
     const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
+    const list = document.querySelector<HTMLElement>('.workbench-recent-list')!;
     return {
-      rows: document.querySelectorAll('.workbench-recent-list > li').length,
+      rows: list.querySelectorAll(':scope > li').length,
+      scrolls: list.scrollHeight > list.clientHeight + 1 && getComputedStyle(list).overflowY === 'auto',
       aligned: Math.abs(recents.bottom - monitor.bottom) <= 1,
       fits: monitor.bottom <= innerHeight - 20,
     };
   });
-  expect(await deck(), 'three rows, aligned, above the fold').toEqual({ rows: 3, aligned: true, fits: true });
-  await screen.getByRole('button', 'Show 5 more').tap();
-  expect((await deck()).rows, 'the rest open in place').toBe(8);
-  await expect(screen.getByRole('button', 'Show fewer')).toBeExpanded();
+  expect(await deck(), 'all eight rows, in a scrolling list, aligned, above the fold').toEqual({ rows: 8, scrolls: true, aligned: true, fits: true });
+  await expect(screen.getByRole('button', /^Show \d+ more$/)).toHaveCount(0);
+  await app.screenshot('query-panels-long-history');
 });
 
 test('Search has one page scroller and opens the palette directly', { tags: ['shell'] }, async ({ app, browser, screen }) => {

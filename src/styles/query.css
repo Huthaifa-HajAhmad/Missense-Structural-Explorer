@@ -1,15 +1,13 @@
-/* Parsed query routes, shared by the quick-entry drawer. */
+/* The parsed fields: one two-column grid, so each row shares a baseline by construction (identity on top, the two ways
+   of naming the change beneath) and the route status runs across the foot. Stacked, the order stays gene, accession,
+   notation, coordinate. */
 .query-routes {
   container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
-  gap: 1.5rem;
+  gap: 1rem 1.5rem;
 }
-.query-route { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
-.query-route legend { padding: 0; margin-block-end: .875rem; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
-.query-route--coordinate legend { color: var(--cs-text-secondary); }
-.query-route__fields { display: flex; flex-direction: column; gap: 1rem; }
-.query-reference { display: flex; flex-direction: column; gap: .375rem; }
+.query-routes__status { grid-column: 1 / -1; min-inline-size: 0; }
 /* The chip row and the disclosure share ONE line: they are one cluster ("try this, or see the rest"), and
    stacking them put the disclosure further from the chip than the chip was from its input — which inverted
    the hierarchy and added a row of chrome under every notation field. The OPEN panel takes the full row, so
@@ -23,21 +21,6 @@
 .query-examples summary { min-block-size: 1.75rem; align-content: center; cursor: pointer; }
 /* Helper line under a row's control. */
 .query-route__help { margin: 0; font-size: 11px; line-height: 1rem; color: var(--cs-text-muted); }
-/* Row 3 of each column: a hairline, then the optional (UniProt) or route (coordinate) content. The min-height
-   keeps the two columns' row-3 hairlines on one line even when one column's content is a single line. */
-.query-route__aside { display: flex; flex-direction: column; gap: .375rem; padding-block-start: .75rem; border-top: 1px solid var(--cs-border-subtle); }
-/* Reserved heights only while the two columns sit SIDE BY SIDE — the grid's own threshold, 2 × 16rem + the
-   1.5rem gap. They exist to keep rows on one baseline across the columns; stacked, they are empty space.
-   The reservation is driven by `data-help-lines` on `.query-routes` (0/1/2, from the panel): the gene hint is
-   a full sentence at this width, so it needs two lines, and a build hint fits on one. Reserving two lines
-   unconditionally cost 32px of dead air under the first control in the ordinary no-hint state — three times
-   every other gap in the form. Row 3 keeps a flat floor instead: both hairlines land on one line whether the
-   column's content is an input plus a badge or a single status sentence. */
-@container (min-width: 33.5rem) {
-  .query-routes[data-help-lines="1"] .query-route__help { min-block-size: 1rem; }
-  .query-routes[data-help-lines="2"] .query-route__help { min-block-size: 2rem; }
-  .query-route__aside { min-block-size: 4.25rem; }
-}
 /* The route strip. A status line, not a control: nominal text is quiet, a route that overrides the other field is
    amber so the reader sees what the submit will ignore. */
 .query-route-status { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 0; font-size: 12px; line-height: 1.375; color: var(--cs-text-secondary); }
