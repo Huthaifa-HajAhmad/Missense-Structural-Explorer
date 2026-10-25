@@ -5,10 +5,13 @@ import { createPortal } from "react-dom";
 import {
   BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
-  PanelLeftClose, PanelLeftOpen, BookOpen, Info, X,
+  BookOpen, Info, X,
+  Users, Dna, AudioWaveform, PawPrint, Blocks, Cpu, Sparkles, Scissors,
+  Crosshair, Waves, Link2, Box, Boxes,
 } from "lucide-react";
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
 import { BrandMark } from "./ui/BrandMark";
+import { SidebarToggleIcon } from "./ui/SidebarToggleIcon";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import type { FoldxPhase } from "../shared/foldxPhase";
@@ -179,6 +182,25 @@ export const STRUCTURE_SUB_ITEMS: { id: MasterView; label: string }[] = [
   { id: "structure_esmfold",   label: "ESMFold"    },
 ];
 
+type RowIcon = React.ComponentType<{ className?: string }>;
+
+/** Leading icon for every nested page, keyed by Evidence tab id or structure view id. */
+const SUB_ICONS: Record<string, RowIcon> = {
+  clinical: Users,
+  "gene-disease": Dna,
+  "expression-models": AudioWaveform,
+  "species-models": PawPrint,
+  function: Blocks,
+  predictors: Cpu,
+  alphagenome: Sparkles,
+  splicing: Scissors,
+  structure: Crosshair,
+  perturbation: Waves,
+  interfaces: Link2,
+  structure_alphafold: Box,
+  structure_esmfold: Boxes,
+};
+
 /**
  * Whether a registry row stands for the view on screen. The 3D structure row covers both model
  * sub-views — the sidebar, the header and the palette all need that merge, so it is written once.
@@ -219,11 +241,13 @@ function StepIcon({ status }: { status: WorkflowStatusType }) {
 /** One sub-navigation row, shared by the Evidence tabs and the structure models. */
 function SubNavItem({
   label,
+  Icon,
   isActive,
   isStreaming = false,
   onClick,
 }: {
   label: string;
+  Icon?: RowIcon;
   isActive: boolean;
   isStreaming?: boolean;
   onClick: () => void;
@@ -236,6 +260,7 @@ function SubNavItem({
       data-active={isActive}
       aria-current={isActive ? "page" : undefined}
     >
+      {Icon && <Icon className="ms-sub-icon" />}
       <span className="ms-sub-label">{label}</span>
       {isStreaming && (
         <span className="ms-step ml-auto" data-status="progress" role="img" aria-label="Loading" title="Loading in background" />
@@ -578,7 +603,7 @@ function MasterSidebar({
               data-expander="true"
             >
               <BrandMark size={32} className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
-              <PanelLeftOpen className="absolute w-4 h-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
+              <SidebarToggleIcon className="absolute w-4 h-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </button>
           ) : (
             <button
@@ -618,7 +643,7 @@ function MasterSidebar({
                 aria-label="Collapse sidebar"
                 aria-keyshortcuts={toggleHint === "⌘B" ? "Meta+B" : "Control+B"}
               >
-                <PanelLeftClose className="w-4 h-4" />
+                <SidebarToggleIcon className="w-4 h-4" />
               </button>
             )
           )}
@@ -641,6 +666,8 @@ function MasterSidebar({
                     : <span className="ms-zone-label" aria-hidden="true">{zone.zoneLabel}</span>
                 )}
 
+                {/* A labelled group hangs its rows off one guide line; the unlabelled Search zone has none. */}
+                <div className="ms-zone-items" data-tree={zone.zoneLabel ? "true" : undefined}>
                 {zone.items.map((item) => {
                   const { id } = item;
                   const isActive = isViewActive(id, activeView);
@@ -678,6 +705,7 @@ function MasterSidebar({
                             <SubNavItem
                               key={sub.id}
                               label={sub.label}
+                              Icon={SUB_ICONS[sub.id]}
                               isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
                               isStreaming={isEvidenceTabLoading(sub.id, isBiophysicalLoading, analysisResult, geneContextLoading)}
                               onClick={() => {
@@ -695,6 +723,7 @@ function MasterSidebar({
                             <SubNavItem
                               key={sub.id}
                               label={sub.label}
+                              Icon={SUB_ICONS[sub.id]}
                               isActive={activeView === sub.id}
                               onClick={() => navigate(sub.id)}
                             />
@@ -704,6 +733,7 @@ function MasterSidebar({
                     </div>
                   );
                 })}
+                </div>
               </div>
             ))}
           </div>
