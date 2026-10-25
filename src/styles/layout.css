@@ -1724,7 +1724,7 @@
 .about-credit-note {
   padding: 8px 10px;
   border-left: 2px solid var(--cs-accent-clay);
-  background: var(--cs-surface-2);
+  background: var(--cs-accent-wash);
   border-radius: 0 var(--cs-radius-badge) var(--cs-radius-badge) 0;
   color: var(--cs-text-secondary);
 }

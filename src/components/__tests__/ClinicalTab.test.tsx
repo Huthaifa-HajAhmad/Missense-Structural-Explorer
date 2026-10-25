@@ -82,7 +82,7 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
     // criteria, so it is what the frequency SUPPORTS, not a confirmed engine verdict.
     const chip = screen.getByTestId("verdict-chip");
     expect(chip.textContent).toBe("PM2 · Supporting");
-    expect(chip.getAttribute("style") ?? "").toContain("dashed");
+    expect(chip).toHaveAttribute("data-unconfirmed", "true");
     // Both gnomAD datasets report the same classified cause.
     expect(screen.getAllByText(/holds no record of this variant/i).length).toBe(2);
     // A confirmed absence is a result, not a fault: no incomplete-read notice.
@@ -170,7 +170,7 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     // paragraph explaining the "?".
     const chip = screen.getByTestId("verdict-chip");
     expect(chip.textContent).toBe("PM2 · Supporting");
-    expect(chip.getAttribute("style") ?? "").toContain("dashed");
+    expect(chip).toHaveAttribute("data-unconfirmed", "true");
     expect(screen.queryByText(/rather than a confirmed engine decision/)).toBeNull();
     // The prose states the finding WITHOUT restating the lead value. The headline is its own
     // emphasis span, so the two halves are asserted separately (a single regex cannot cross the
@@ -304,7 +304,7 @@ describe("ClinicalTab — the verdict is the engine's, and a disagreement is sta
     renderTab(gzf1Result({ ruleBasedInsights: { acmgCriteria: [{ code: "PM2", reason: "rare" }] } }));
     const chip = screen.getByTestId("verdict-chip");
     expect(chip.textContent).toBe("PM2 · Supporting");
-    expect(chip.getAttribute("style") ?? "").not.toContain("dashed");
+    expect(chip).not.toHaveAttribute("data-unconfirmed");
     expect(screen.queryByText(/The engine applied no frequency criterion/)).toBeNull();
   });
 
@@ -339,7 +339,7 @@ describe("ClinicalTab — the verdict is the engine's, and a disagreement is sta
     // The dashed border IS the "suggested, not confirmed" state; the qualifier lives in the
     // accessible name and the hover title, so the screen no longer says it twice.
     const chip = screen.getByTestId("verdict-chip");
-    expect(chip.getAttribute("style") ?? "").toContain("dashed");
+    expect(chip).toHaveAttribute("data-unconfirmed", "true");
     expect(chip.getAttribute("aria-label") ?? "").toMatch(/unconfirmed by the engine record/);
     expect(chip.getAttribute("title") ?? "").toMatch(/no engine record to confirm it against/);
   });

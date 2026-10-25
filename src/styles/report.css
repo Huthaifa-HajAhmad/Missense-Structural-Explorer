@@ -235,7 +235,7 @@
 .rpt-contents-label input:focus-visible, .rpt-tick input:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .rpt-tick { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; cursor: pointer; }
 .rpt-list__row { min-height: 38px; gap: 6px; padding: 4px; margin-inline: 0; }
-.rpt-list__row[data-active] { background: var(--cs-surface-2); border-radius: 6px; }
+.rpt-list__row[data-active] { background: var(--cs-accent-wash); border-radius: 6px; }
 .rpt-list__meta { max-width: 82px; white-space: normal; text-align: right; overflow-wrap: anywhere; }
 .rpt-jump { flex: none; display: grid; place-items: center; width: 28px; min-height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--cs-text-accent); font: inherit; cursor: pointer; }
 @media (hover: hover) and (pointer: fine) {

@@ -80,7 +80,7 @@ function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
         className="ev-tier prd-verdict chip-code shrink-0"
         data-tone="accent"
         data-testid="predictor-verdict"
-        style={{ borderStyle: "dashed" }}
+        data-unconfirmed="true"
         title={`${vote.code} is what the vote supports — this payload carries no engine record to confirm it against`}
         aria-label={`${vote.code}, supported by the vote, unconfirmed by the engine record`}
       >
@@ -242,7 +242,7 @@ function DecimalScore({ text }: { text: string }) {
 function CaveatChips({ reading }: { reading: PredictorReading }) {
   if (reading.caveats.length === 0) return null;
   return (
-    <span className="prd-caveats">
+    <span className="prd-caveats ev-caveats">
       {reading.caveats.map(c => (
         <span key={c} className="ev-tier" data-tone="warning" title={CAVEAT_TEXT[c].detail}>
           {CAVEAT_TEXT[c].label}
@@ -443,7 +443,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
   };
 
   return (
-    <div className="prd-screen @container" data-comparison={workspace.comparison || undefined}>
+    <div data-evidence-screen className="prd-screen @container" data-comparison={workspace.comparison || undefined}>
       {knowledgeKey && (
         <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />
       )}

@@ -388,7 +388,7 @@ function AlphaGenomeTabBody({
   const lm = ev.largestMolecular;
 
   return (
-    <div className="ag-screen @container" data-testid="alphagenome-screen" data-comparison={workspace.comparison || undefined}>
+    <div data-evidence-screen className="ag-screen @container" data-testid="alphagenome-screen" data-comparison={workspace.comparison || undefined}>
       <header>
         <h1 className="screen-title">AlphaGenome</h1>
         <p className="screen-tab-description">

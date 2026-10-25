@@ -4,7 +4,7 @@ import { buildFrequencyEvidence, frequencyEvidenceInputFromResult } from '../sha
 import { buildPredictorEvidence } from '../shared/predictorEvidence';
 import { buildLadderEvidence } from '../shared/ladderEvidence';
 import { buildAlphaGenomeEvidence, aviFinding } from '../shared/alphagenomeEvidence';
-import { buildAttributionComparison, buildPopulationComparison, buildPredictorComparison, formatAttributionValue } from '../shared/evidenceComparison';
+import { buildAttributionComparison, buildPopulationComparison, buildPredictorComparison, formatAttributionValue, populationLabelWidth, populationRowLabel, POPULATION_LABEL_MAX_PX, POPULATION_LABEL_MIN_PX } from '../shared/evidenceComparison';
 
 describe('Evidence comparison contracts', () => {
   it('keeps the group maximum separate from dataset counts and expands to every positive frequency', () => {
@@ -103,5 +103,21 @@ describe('Evidence comparison contracts', () => {
       expect(row.name.match(/gnomAD/g)?.length ?? 0).toBeLessThanOrEqual(1);
       if (row.name.includes('local dbNSFP')) expect(row.name).not.toContain('gnomAD gnomad');
     }
+  });
+  it('sizes the Population label column to the longest source name instead of clipping it', () => {
+    const long = 'gnomAD (local dbNSFP, cohorts combined)';
+    expect(populationLabelWidth(['gnomAD exomes', 'Engine frequency input'])).toBe(POPULATION_LABEL_MIN_PX);
+    // 39 characters at ~6.4px plus the 12px label offset and tick gutter: wider than the old fixed 175px column.
+    const width = populationLabelWidth([long, 'All of Us']);
+    expect(width).toBeGreaterThan(long.length * 6);
+    expect(width).toBeLessThanOrEqual(POPULATION_LABEL_MAX_PX);
+    expect(populationRowLabel(long)).toBe(long);
+  });
+  it('ellipsizes only a name no column can hold, and the label then fits the cap', () => {
+    const absurd = 'gnomAD (local dbNSFP, cohorts combined, ancestry-grouped maximum across every released cohort)';
+    expect(populationLabelWidth([absurd])).toBe(POPULATION_LABEL_MAX_PX);
+    const shown = populationRowLabel(absurd);
+    expect(shown.endsWith('…')).toBe(true);
+    expect(shown.length * 6.4 + 28).toBeLessThanOrEqual(POPULATION_LABEL_MAX_PX);
   });
 });

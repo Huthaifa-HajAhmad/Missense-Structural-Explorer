@@ -354,7 +354,7 @@ function StructureFact({ evidence }: { evidence: EnergeticsEvidence }) {
 function CaveatChips({ caveats, inline = false }: { caveats: EnergeticsReading["caveats"]; inline?: boolean }) {
   if (caveats.length === 0) return null;
   return (
-    <span className={`nrg-caveats${inline ? " nrg-caveats--inline" : ""}`}>
+    <span className={`nrg-caveats ev-caveats${inline ? " nrg-caveats--inline" : ""}`}>
       {caveats.map(c => (
         <span
           key={c}

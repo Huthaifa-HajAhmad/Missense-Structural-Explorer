@@ -36,6 +36,23 @@ export function formatFrequencyPercent(af: number): string {
   return `${pct < .001 ? pct.toExponential(2) : Number(pct.toPrecision(4))}%`;
 }
 
+/* The Population chart's row labels are SVG text, which cannot wrap, and source names are not a fixed length
+   ("gnomAD exomes" vs "gnomAD (local dbNSFP, cohorts combined)"). The label column fits the longest name; only a
+   name past the cap ends in an ellipsis (its full text stays the reading's name in the inspector). */
+const LABEL_CHAR_PX = 6.4;
+const LABEL_GUTTER_PX = 28;
+export const POPULATION_LABEL_MIN_PX = 175;
+export const POPULATION_LABEL_MAX_PX = 300;
+const labelFit = (name: string) => Math.ceil(name.length * LABEL_CHAR_PX) + LABEL_GUTTER_PX;
+export function populationLabelWidth(names: readonly string[]): number {
+  return Math.min(POPULATION_LABEL_MAX_PX, Math.max(POPULATION_LABEL_MIN_PX, ...names.map(labelFit)));
+}
+export function populationRowLabel(name: string): string {
+  return labelFit(name) > POPULATION_LABEL_MAX_PX
+    ? `${name.slice(0, Math.floor((POPULATION_LABEL_MAX_PX - LABEL_GUTTER_PX) / LABEL_CHAR_PX) - 1)}…`
+    : name;
+}
+
 export function buildPopulationComparison(evidence: FrequencyEvidence): EvidenceChartModel {
   const rows: EvidenceChartRow[] = evidence.observations.map(o => ({
     knowledgeKey: 'allele_frequency', key: o.key, name: frequencyObservationName(o),

@@ -243,9 +243,6 @@
 .prd-info:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
 .prd-caveats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-/* Caveats stay visible on every row they apply to, but as outlined chips: a filled yellow chip on
-   seven rows read as seven alarms. */
-.prd-caveats .ev-tier { cursor: help; background: transparent; border: 1px solid color-mix(in srgb, var(--cs-text-warning) 45%, transparent); color: var(--cs-text-warning-on-soft); }
 
 .prd-link {
   display: inline-flex; align-items: center; gap: 4px; min-height: 24px; margin-top: 2px; padding: 0;

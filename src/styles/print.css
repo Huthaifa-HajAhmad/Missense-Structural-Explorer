@@ -122,6 +122,8 @@
     --cs-bg-subtle: #E7EAEE !important;
     --cs-surface: #FFFFFF !important;
     --cs-surface-2: #EFF1F4 !important;
+    /* The accent strip prints as the same faint wash from either theme, not as a recomputed dark mix. */
+    --cs-accent-wash: #F8EEF0 !important;
     --cs-border: #C8CDD6 !important;
     --cs-border-subtle: #DBDFE5 !important;
     --cs-text-primary: #111827 !important;

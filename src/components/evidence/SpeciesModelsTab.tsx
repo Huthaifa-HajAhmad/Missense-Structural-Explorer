@@ -22,7 +22,7 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
   const phenotypes = c.phenotypesLoad?.data;
   const incomplete = phenotypes?.species.filter(s => s.status === 'error') ?? [];
   const omitted = phenotypes?.species.reduce((n, s) => n + (s.status === 'ready' ? Math.max(0, s.total - s.phenotypes.length) : 0), 0) ?? 0;
-  return <div className="ctx-screen cx-screen sm-workspace" data-testid="species-models-screen" data-comparison={w.comparison || undefined}>
+  return <div data-evidence-screen className="ctx-screen cx-screen sm-workspace" data-testid="species-models-screen" data-comparison={w.comparison || undefined}>
     <header><h1 className="screen-title">Species &amp; models</h1><p className="screen-tab-description">Explore orthologs, the aligned variant site, and curated animal phenotypes.</p></header>
     <EvidenceViewTabs tab="species-models" comparisonLabel="Species explorer" />
     {c.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices remain with their original transcript, isoform and assembly.</p>}

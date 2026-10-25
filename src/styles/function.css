@@ -84,7 +84,6 @@
 .fnd-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 .fnd-verdict { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); padding: 3px 10px; }
-.fnd-verdict[data-unconfirmed] { border-style: dashed; border-color: color-mix(in srgb, var(--cs-accent-clay) 55%, transparent); }
 
 .fnd-figure-block { margin: 0; border-top: 1px solid var(--cs-border-subtle); }
 /* The controls sit above the drawing they change: layers on the left, the window on the right. */

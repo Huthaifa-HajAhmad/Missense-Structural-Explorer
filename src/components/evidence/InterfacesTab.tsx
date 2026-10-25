@@ -361,7 +361,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
   ) : null;
 
   return (
-    <div data-mechanism="interfaces" className={`ifc-screen @container${workspace.enabled ? " ifc-workspace" : ""}`}>
+    <div data-evidence-screen data-mechanism="interfaces" className={`ifc-screen @container${workspace.enabled ? " ifc-workspace" : ""}`}>
       <div role="status" aria-live="polite" className="sr-only">
         {iface.verdict === "pending" ? "" : `${ev.finding.headline}`}
       </div>

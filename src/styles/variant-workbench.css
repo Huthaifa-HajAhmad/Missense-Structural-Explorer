@@ -44,7 +44,8 @@
 .workbench-history-clear { display: inline-flex; align-items: center; gap: .375rem; padding-inline: .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 11px; cursor: pointer; }
 .workbench-history-clear:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .workbench-history-clear:active { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
-.workbench-recent[aria-pressed="true"] { border-color: var(--cs-border); box-shadow: inset 2px 0 0 var(--cs-accent-clay); }
+/* The list rules are the only row lines: a boxed current row would sit against its neighbour's rule as a double line. */
+.workbench-recent[aria-pressed="true"] { background: var(--cs-surface-2); box-shadow: inset 2px 0 0 var(--cs-accent-clay); }
 .workbench-recent-identity { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr); align-items: baseline; gap: .125rem 1rem; flex: 1; min-inline-size: 0; }
 .workbench-recent-gene { font-size: 13px; font-weight: 600; }
 .workbench-recent-variant { font-family: var(--cs-font-mono); font-size: 12px; overflow-wrap: anywhere; }
@@ -102,6 +103,9 @@
 .qe__submit:active:not(:disabled) { filter: brightness(.94); }
 .qe__status { display: flex; align-items: start; gap: .375rem; margin: 0; min-block-size: 1rem; font-size: 11px; line-height: 1.5; color: var(--cs-text-muted); }
 .qe__status svg { margin-block-start: .125rem; }
+/* Heard, not drawn: the parse ticket below already shows what the line reads as, and this live region still
+   announces it. A component class rather than the utility `sr-only`, which this sheet's unlayered rules outrank. */
+.qe__status--assistive { position: absolute; inline-size: 1px; block-size: 1px; min-block-size: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .qe__status[data-tone="ok"] { color: var(--cs-text-success); }
 .qe__status[data-tone="pending"] { color: var(--cs-text-secondary); }
 .qe__status-dot { inline-size: .375rem; block-size: .375rem; margin-block-start: .375rem; border-radius: 50%; background: var(--cs-text-warning); flex: none; }
@@ -153,6 +157,8 @@
 
 /* Optional controls sit on ruled rows. Opening either reveals its own editing surface. */
 .qe-fields { border-block-start: 1px solid var(--cs-border-subtle); }
+/* The ticket's own bottom edge already closes the parse, so the disclosure does not add a second rule under it. */
+.qe:has(> .qe__ticket) + .qe-fields { border-block-start: 0; }
 .qe-fields__summary, .workbench-ai-summary { display: flex; align-items: center; gap: .5rem; min-block-size: 2.75rem; list-style: none; cursor: pointer; user-select: none; font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
 .qe-fields__summary::-webkit-details-marker, .workbench-ai-summary::-webkit-details-marker { display: none; }
 .qe-fields__chevron { inline-size: .875rem; block-size: .875rem; flex: none; color: var(--cs-text-muted); }
@@ -167,7 +173,7 @@
 .workbench-ai[open] .workbench-ai-chevron { transform: rotate(180deg); }
 .qe-ai { display: flex; flex-direction: column; gap: .625rem; min-inline-size: 0; margin: 0; padding-block: .5rem 1rem; border: 0; }
 .qe-ai__label { font-size: 12px; color: var(--cs-text-secondary); }
-.qe-ai__textarea { inline-size: 100%; field-sizing: content; min-block-size: 5rem; max-block-size: 13rem; resize: vertical; padding: .75rem; border: 1px solid var(--cs-border); border-radius: 8px; background: color-mix(in oklch, var(--cs-surface-2) 45%, var(--cs-surface)); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; user-select: text; }
+.qe-ai__textarea { inline-size: 100%; field-sizing: content; min-block-size: 5rem; max-block-size: 13rem; resize: vertical; padding: .75rem; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-accent-wash); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; user-select: text; }
 .qe-ai__textarea::placeholder { color: var(--cs-text-muted); }
 .variant-workbench :is(.qe__input, .qe__tool, .qe__submit, .qe__example, .qe-fields__summary, .workbench-ai-summary, .qe-ai__textarea):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .qe__tool:active, .qe__example:active, .qe-fields__summary:active, .workbench-ai-summary:active { background: var(--cs-bg-subtle); }
@@ -196,7 +202,7 @@
   .workbench-recent { gap: .625rem; }
 }
 @media (hover: hover) and (pointer: fine) {
-  .workbench-recent:hover { border-color: var(--cs-border); background: var(--cs-surface-2); }
+  .workbench-recent:hover { background: var(--cs-surface-2); }
   .workbench-history-clear:hover { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
   .workbench-monitor-tab:hover { color: var(--cs-text-primary); background: var(--cs-workbench-header-surface); }
   .qe__bar:hover { border-color: color-mix(in oklch, var(--cs-text-muted) 55%, var(--cs-border)); }

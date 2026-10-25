@@ -5,7 +5,7 @@ import { scaleLinear } from '@tanstack/charts/scales/linear';
 import { decorative } from '@tanstack/charts/mark/decorative';
 import { ChartFrame } from '../charts/ChartFrame';
 import { chartTheme } from '../charts/chartTheme';
-import type { EvidenceChartModel, EvidenceWorkspaceTab, AttributionFilter } from '../../shared/evidenceComparison';
+import { populationLabelWidth, populationRowLabel, type EvidenceChartModel, type EvidenceWorkspaceTab, type AttributionFilter } from '../../shared/evidenceComparison';
 import { AVI_GROUP_LABEL } from '../../shared/alphagenomeEvidence';
 import { useEvidenceWorkspace } from './EvidenceWorkspace';
 
@@ -21,8 +21,10 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const limit = tab === 'alphagenome' && !expanded ? 8 : Infinity;
   const returned = model.rows.filter(r => r.value !== null).length;
   const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models', 'perturbation'].includes(tab);
-  const margin = { top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
-    left: tab === 'expression-models' ? 245 : tab === 'clinical' ? 175 : labelled ? 150 : 135 };
+  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
+    left: tab === 'expression-models' ? 245 : tab === 'clinical' ? populationLabelWidth(model.rows.filter(r => r.value !== null).map(r => r.name)) : labelled ? 150 : 135 }),
+    [tab, labelled, model]);
+  const rowLabel = useMemo(() => (name: string) => tab === 'clinical' ? populationRowLabel(name) : name, [tab]);
   const plotted = useMemo(() => model.rows.filter(r => r.value !== null).slice(0, limit).map((r, row) => ({ ...r, value: r.value as number, row })), [model, limit]);
   const missing = model.rows.filter(r => r.value === null);
   const selected = model.rows.find(r => r.key === w.selected);
@@ -34,7 +36,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         axis: { label: { text: '', opacity: 1 }, ticks: { values: model.ticks, size: tab === 'predictors' ? 0 : 4, format: (v: number) => model.tickLabels[model.ticks.indexOf(v)] ?? '' },
           line: tab !== 'predictors', tickLabels: { fontSize: 11, opacity: tab === 'predictors' ? 0 : 1 } } },
       y: { scale: scaleLinear().domain([Math.max(plotted.length - .5, .5), -.5]),
-        axis: { line: false, ticks: { values: plotted.map(p => p.row), size: 0, format: (v: number) => plotted[v] ? `${plotted[v].name}${plotted[v].counted === false ? ' *' : ''}` : '' }, tickLabels: { fontSize: 12, opacity: 1, dx: labelled ? -12 : 0 } } },
+        axis: { line: false, ticks: { values: plotted.map(p => p.row), size: 0, format: (v: number) => plotted[v] ? `${rowLabel(plotted[v].name)}${plotted[v].counted === false ? ' *' : ''}` : '' }, tickLabels: { fontSize: 12, opacity: 1, dx: labelled ? -12 : 0 } } },
     },
     marks: [
       ...(tab === 'alphagenome' || tab === 'perturbation' || tab === 'expression-models' ? [ruleX([0], { stroke: 'var(--cs-text-secondary)', strokeWidth: 1.5 }),
@@ -55,7 +57,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
     ],
     svgAnimation: false, maxFocusDistance: 24,
     focusRing: { fill: 'none', stroke: 'var(--cs-text-primary)', radius: 9, strokeWidth: 2 },
-  }), [model, plotted, tab, w.selected]);
+  }), [model, plotted, tab, w.selected, margin, rowLabel]);
   // Activating the pinned reading again clears the pin — the chart offered no way back.
   const toggleSelect = (key: string) => w.select(key === w.selected ? null : key);
   return <div className="evw-comparison" data-tab={tab} data-story={labelled || undefined}><ChartFrame title={title} description={description} summary={model.summary}

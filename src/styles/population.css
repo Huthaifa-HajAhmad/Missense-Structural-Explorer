@@ -146,13 +146,24 @@
 
 .pop-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
-.pop-hero__scale { padding: 18px 20px 18px; }
+/* The finding's foot: homozygotes and the thresholds are strips on the header wash, like the card heads. */
+.pop-hero__strip,
+.pop-hero__scale {
+  margin: 0;
+  padding-inline: 20px;
+  border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface);
+}
+.pop-hero__hom { display: flex; align-items: center; gap: 8px; min-block-size: 44px; font-size: var(--cs-font-size-prose); color: var(--cs-text-secondary); }
+.pop-hero__hom > .ev-tier { margin-inline-start: auto; }
+.pop-hero__scale[open] { padding-block-end: 18px; }
 
 .pop-hero__footnote {
   margin: 0;
   padding: 10px 20px;
   font-size: var(--cs-font-size-caption);
   color: var(--cs-text-muted);
+  background: var(--cs-workbench-header-surface);
   border-top: 1px solid var(--cs-border-subtle);
 }
 

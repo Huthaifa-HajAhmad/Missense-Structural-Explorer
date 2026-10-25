@@ -14,7 +14,7 @@
 .cx-coverage-table button:focus-visible, .sm-review > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) { .cx-coverage-table button:hover { border-color: var(--cs-accent-clay); } }
 .sm-review > summary { padding: 10px 0; cursor: pointer; min-height: 44px; color: var(--cs-text-primary); }
-.sm-finding { margin: 0; padding: 16px 20px; border-inline-start: 3px solid var(--cs-accent-clay); background: var(--cs-surface-2); line-height: 1.6; }
+.sm-finding { margin: 0; padding: 16px 20px; border-inline-start: 3px solid var(--cs-accent-clay); background: var(--cs-accent-wash); line-height: 1.6; }
 .sm-finding strong { color: var(--cs-text-primary); }
 .sm-workspace[data-comparison] { gap: 16px; }
 .sm-workspace[data-comparison] .cx-explorer { gap: 8px; }

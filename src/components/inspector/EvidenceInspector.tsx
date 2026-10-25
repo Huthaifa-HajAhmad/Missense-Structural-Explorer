@@ -72,7 +72,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
             Evidence Subtab Telemetry
           </span>
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[11px] text-cs-text-secondary">
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-workbench-header-surface space-y-1.5 text-[11px] text-cs-text-secondary">
             {/*
               * This box previously claimed "Deep-dive domain calibrations and metrics are populated
               * dynamically from live backend microservices" while rendering a static sentence with

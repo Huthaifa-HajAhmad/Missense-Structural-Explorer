@@ -256,8 +256,6 @@ interface NavRowProps {
   status?: WorkflowStatusType;
   showStatus?: boolean;
   badgeCount?: number;
-  expanded?: boolean;
-  controls?: string;
   buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
@@ -276,8 +274,6 @@ function NavRow({
   status = "pending",
   showStatus = false,
   badgeCount = 0,
-  expanded,
-  controls,
   buttonRef,
 }: NavRowProps) {
   const { id, label, sublabel, Icon } = item;
@@ -300,8 +296,6 @@ function NavRow({
       data-view={id}
       data-collapsed={collapsed}
       aria-current={current ? "page" : undefined}
-      aria-expanded={expanded}
-      aria-controls={controls}
       /* Collapsed rows have no visible text, so they carry the name. Expanded rows are named by
          their content, which is what lets the live status line reach a screen reader. */
       aria-label={collapsed ? `${label}${statusSuffix}${hasBadge ? `, ${badgeText} unread` : ""}` : undefined}
@@ -387,7 +381,6 @@ function MasterSidebar({
     settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
   const navRef = useRef<HTMLElement>(null);
   const activeRowRef = useRef<HTMLButtonElement>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [isResizing, setIsResizing] = useState(false);
   useScrollEdges(navRef);
 
@@ -655,77 +648,57 @@ function MasterSidebar({
                   /* While a stage is running, degraded or failed, its own live sentence discloses
                      under the label; otherwise the row stays one line. */
                   const isLive = status === "progress" || status === "degraded" || status === "error";
-                  const hasChildren = id === 'evidence' || id === 'structure';
-                  const subOpen = !collapsed && isActive && (expandedGroups[id] ?? true);
                   const childIsPage = id === "evidence"
-                    ? EVIDENCE_SUB_ITEMS.some(sub => sub.id === activeEvidenceTab)
+                    ? activeView === "evidence" && EVIDENCE_SUB_ITEMS.some(sub => sub.id === activeEvidenceTab)
                     : STRUCTURE_SUB_ITEMS.some(sub => sub.id === activeView);
 
                   return (
                     <div key={id} className="ms-row">
-                      <div className="ms-parent-row">
                       <NavRow
                         item={item}
                         isActive={isActive}
                         collapsed={collapsed}
                         buttonRef={isActive ? activeRowRef : undefined}
                         onClick={() => {
-                          // Collapsed, the rail has no pages to reveal: a parent is a plain link.
-                          if (hasChildren && !collapsed) {
-                            setExpandedGroups(groups => ({ ...groups, [id]: isActive ? !subOpen : true }));
-                            if (isActive) return;
-                            // Keep the drawer open so the newly revealed pages remain reachable.
-                            onViewChange(id === "structure" ? defaultStructureView : id);
-                            return;
-                          }
-                          if (!hasChildren) navigate(id);
-                          else if (!isActive) navigate(id === "structure" ? defaultStructureView : id);
+                          if (!isActive) navigate(id === "structure" ? defaultStructureView : id);
                         }}
-                        current={isActive && !(subOpen && childIsPage)}
+                        /* A parent whose own page is open on screen is not itself current. Collapsed,
+                           the pages are not drawn, so the parent is the only mark there is. */
+                        current={isActive && (collapsed || !childIsPage)}
                         liveText={isLive && desc ? desc : undefined}
                         status={status}
                         showStatus={hasRun && id !== "search"}
-                        expanded={hasChildren && !collapsed ? subOpen : undefined}
-                        controls={hasChildren && !collapsed ? `ms-children-${id}` : undefined}
                       />
-                      </div>
 
-                      {/* Closed groups leave both the layout and keyboard navigation. */}
-                      {id === "evidence" && (
-                        <div id="ms-children-evidence" className="ms-sub-list" data-open={subOpen}>
-                          <div className="ms-sub-list-inner">
-                            <div className="ms-sub-list-items">
-                              {EVIDENCE_SUB_ITEMS.map((sub) => (
-                                <SubNavItem
-                                  key={sub.id}
-                                  label={sub.label}
-                                  isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
-                                  isStreaming={isEvidenceTabLoading(sub.id, isBiophysicalLoading, analysisResult, geneContextLoading)}
-                                  onClick={() => {
-                                    navigate("evidence");
-                                    onEvidenceTabChange(sub.id);
-                                  }}
-                                />
-                              ))}
-                            </div>
-                          </div>
+                      {/* The pages are always listed: a group that opens only under the current view hides
+                          where the other views lead. The collapsed rail has no room for them. */}
+                      {id === "evidence" && !collapsed && (
+                        <div id="ms-children-evidence" className="ms-sub-list" role="group" aria-label="Evidence pages">
+                          {EVIDENCE_SUB_ITEMS.map((sub) => (
+                            <SubNavItem
+                              key={sub.id}
+                              label={sub.label}
+                              isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
+                              isStreaming={isEvidenceTabLoading(sub.id, isBiophysicalLoading, analysisResult, geneContextLoading)}
+                              onClick={() => {
+                                navigate("evidence");
+                                onEvidenceTabChange(sub.id);
+                              }}
+                            />
+                          ))}
                         </div>
                       )}
 
-                      {id === "structure" && (
-                        <div id="ms-children-structure" className="ms-sub-list" data-open={subOpen}>
-                          <div className="ms-sub-list-inner">
-                            <div className="ms-sub-list-items">
-                              {STRUCTURE_SUB_ITEMS.map((sub) => (
-                                <SubNavItem
-                                  key={sub.id}
-                                  label={sub.label}
-                                  isActive={activeView === sub.id}
-                                  onClick={() => navigate(sub.id)}
-                                />
-                              ))}
-                            </div>
-                          </div>
+                      {id === "structure" && !collapsed && (
+                        <div id="ms-children-structure" className="ms-sub-list" role="group" aria-label="3D structure models">
+                          {STRUCTURE_SUB_ITEMS.map((sub) => (
+                            <SubNavItem
+                              key={sub.id}
+                              label={sub.label}
+                              isActive={activeView === sub.id}
+                              onClick={() => navigate(sub.id)}
+                            />
+                          ))}
                         </div>
                       )}
                     </div>

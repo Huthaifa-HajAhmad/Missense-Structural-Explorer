@@ -418,7 +418,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   }, [orderedPositions]);
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-cs-border-subtle bg-cs-surface-2 p-3 transition-colors mt-2">
+    <div className="flex flex-col gap-2 rounded-xl border border-cs-border-subtle bg-cs-surface p-3 transition-colors mt-2">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-cs-border-subtle/80">
         <div className="flex items-center gap-2">
