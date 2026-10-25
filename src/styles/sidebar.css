@@ -11,22 +11,21 @@
    stayed light-mode clay in dark mode). Clay AS TEXT uses --cs-text-accent,
    which is the AA-safe variant; raw clay is for fills, icons and rails only.
 
-   The index rail. The rail borrows a terminal's STRUCTURE, not its type: zones
-   are numbered the way the workspace numbers its panels (01, 02 in the mono
-   index face the panels already use), nested pages hang off one guide line
-   under their parent's icon (always listed, never a toggle), and the current
-   page is a cursor — a clay segment on that line, or a clay bar on a top-level
-   row's edge, over a faint tint — instead of a raised white chip, which read
-   as a button sitting on the rail rather than a position in it.
+   The grouped tree. Each zone is a plain muted label with its rows hanging off one thin
+   guide line; nested pages hang off a second line under their parent's icon (always listed,
+   never a toggle). The current page is a soft grey pill with ink text and an ink icon — every
+   other row is quiet muted text. The Search row at the top keeps its own clay cursor.
    ============================================================ */
 
 .ms-root {
-  --ms-row-h: 36px;
+  --ms-row-h: 30px;
   --ms-pad-x: 8px;
   --ms-row-pad-x: 12px;
-  --ms-tint-strong: color-mix(in oklch, var(--cs-accent-clay) 14%, transparent);
-  /* The current page: a cursor bar on the leading edge over a faint clay tint. The bar carries the
-     state on its own (a fill alone is ~1.05:1 against the canvas); the tint only groups the row. */
+  /* The current page's pill, and the lighter wash under a hovered row. */
+  --ms-pill-fill: var(--cs-bg-subtle);
+  --ms-pill-hover: color-mix(in oklch, var(--cs-bg-subtle) 55%, transparent);
+  --ms-pill-press: color-mix(in oklch, var(--cs-text-primary) 9%, transparent);
+  /* The Search row's cursor: a bar on the leading edge over a faint clay tint. */
   --ms-cursor-fill: color-mix(in oklch, var(--cs-accent-clay) 8%, transparent);
   --ms-cursor-bar: inset 2px 0 0 var(--cs-accent-clay);
   /* Tree lines sit between the hairline and muted text so they stay legible on the canvas. */
@@ -139,39 +138,39 @@
   display: flex;
   flex-direction: column;
   padding: 8px var(--ms-pad-x) 12px;
-  counter-reset: ms-zone;
 }
 .ms-zone {
   display: flex;
   flex-direction: column;
-  gap: 1px;
 }
-.ms-zone + .ms-zone:not(:has(> .ms-zone-divider)) {
-  border-block-start: 1px solid var(--cs-border-subtle);
-  margin-block-start: 10px;
-}
+/* Zone label: plain muted text, no number, no rule between zones — whitespace separates them. */
 .ms-zone-label {
   display: block;
-  counter-increment: ms-zone;
-  padding: 18px var(--ms-row-pad-x) 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  text-transform: none;
+  padding: 22px var(--ms-row-pad-x) 8px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
   color: var(--cs-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The zone's number, in the panels' index face (`.workbench-index`): 01 Evidence & modelling. */
-.ms-zone-label::before {
-  content: counter(ms-zone, decimal-leading-zero);
-  margin-inline-end: 8px;
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-  color: var(--cs-text-accent);
+/* A labelled zone's rows hang off one guide line, indented under the label. */
+.ms-zone-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ms-zone-items[data-tree] {
+  margin-inline-start: 12px;
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--ms-branch-color);
+}
+/* The collapsed rail has no room for the line; its zone dividers carry the grouping. */
+.ms-root[data-collapsed="true"] .ms-zone-items[data-tree] {
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+  border-inline-start: 0;
 }
 /* Collapsed rail: zones keep their grouping as hairlines instead of vanishing. */
 .ms-zone-divider {
@@ -185,7 +184,7 @@
   display: flex;
   flex-direction: column;
 }
-.ms-nav-btn:active, .ms-sub-btn:active { background: var(--ms-tint-strong); }
+.ms-nav-btn:active, .ms-sub-btn:active { background: var(--ms-pill-press); }
 
 /* ── Row ── */
 .ms-nav-btn {
@@ -195,25 +194,24 @@
   gap: 10px;
   width: 100%;
   min-height: var(--ms-row-h);
-  padding: 7px var(--ms-row-pad-x);
-  border-radius: var(--cs-radius-input);
+  padding: 5px var(--ms-row-pad-x);
+  border-radius: 8px;
 
   text-align: left;
-  color: var(--cs-text-secondary);
+  color: var(--cs-text-muted);
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
 @media (hover: hover) and (pointer: fine) {
   .ms-nav-btn:hover {
-  background: var(--cs-bg-subtle);
-  color: var(--cs-text-primary);
-}
+    background: var(--ms-pill-hover);
+    color: var(--cs-text-primary);
+  }
 }
 .ms-nav-btn[data-active="true"] { color: var(--cs-text-primary); }
 .ms-nav-btn[data-current="true"],
 .ms-nav-btn[data-current="true"]:hover {
-  background: var(--ms-cursor-fill);
-  box-shadow: var(--ms-cursor-bar);
+  background: var(--ms-pill-fill);
 }
 
 .ms-nav-icon {
@@ -225,12 +223,30 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .ms-nav-btn:hover .ms-nav-icon {
-  color: var(--cs-text-secondary);
-}
+    color: var(--cs-text-primary);
+  }
 }
 .ms-nav-btn[data-active="true"] .ms-nav-icon {
+  color: var(--cs-text-primary);
+}
+
+/* Search is the front door and sits with the brand above the tree: it keeps its clay cursor. */
+.ms-nav-btn[data-view="search"] {
+  min-height: 36px;
+  padding-block: 7px;
+  border-radius: var(--cs-radius-input);
+  color: var(--cs-text-secondary);
+}
+.ms-nav-btn[data-view="search"][data-current="true"],
+.ms-nav-btn[data-view="search"][data-current="true"]:hover {
+  background: var(--ms-cursor-fill);
+  box-shadow: var(--ms-cursor-bar);
+}
+.ms-nav-btn[data-view="search"][data-active="true"] .ms-nav-icon {
   color: var(--cs-accent-clay);
 }
+.ms-nav-btn[data-view="search"] .ms-nav-label { font-weight: 500; }
+.ms-nav-btn[data-view="search"][data-active="true"] .ms-nav-label { font-weight: 600; }
 /* Collapsed: stage status and unread count ride on the icon's corner. */
 .ms-nav-icon-status {
   position: absolute;
@@ -260,14 +276,14 @@
 }
 .ms-nav-label {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 20px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ms-nav-btn[data-active="true"] .ms-nav-label {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* Second line: what the view is for — or, while its stage is running, degraded or failed, the
@@ -366,57 +382,58 @@
 }
 
 /* Nested pages hang off ONE guide line that runs under the parent's icon (the icon's centre is
-   --ms-guide-x from the nav edge). The line is the list's own border, so it is continuous and
-   cannot drift off the rows; the current page lays a 2px clay segment over it. The groups are
-   always listed, so the line never changes with the view. */
+   --ms-guide-x from the row's edge). The line is the list's own border, so it is continuous and
+   cannot drift off the rows. The groups are always listed, so the line never changes with the
+   view. */
 .ms-sub-list {
   --ms-guide-x: 20px;
   display: flex;
   flex-direction: column;
   gap: 1px;
   margin-inline-start: var(--ms-guide-x);
-  padding: 2px 0 8px 10px;
+  padding: 2px 0 8px 8px;
   border-inline-start: 1px solid var(--ms-branch-color);
 }
 .ms-sub-btn {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   min-block-size: 28px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 8px;
   text-align: left;
   cursor: pointer;
-  color: var(--cs-text-secondary);
+  color: var(--cs-text-muted);
   transition: background-color 120ms ease, color 120ms ease;
 }
 @media (hover: hover) and (pointer: fine) {
   .ms-sub-btn:hover {
-  background: var(--cs-bg-subtle);
-  color: var(--cs-text-primary);
+    background: var(--ms-pill-hover);
+    color: var(--cs-text-primary);
+  }
 }
-}
+/* The current page is the same grey pill as a top-level row. */
 .ms-sub-btn[data-active="true"],
 .ms-sub-btn[data-active="true"]:hover {
   color: var(--cs-text-primary);
-  background: var(--ms-cursor-fill);
+  background: var(--ms-pill-fill);
 }
-/* The current page's marker sits ON the guide line (the list's border is 1px wide, the marker 2px,
-   centred on it), so the line itself says where you are. */
-.ms-sub-btn[data-active="true"]::before {
-  content: "";
-  position: absolute;
-  inset-block: 4px;
-  inset-inline-start: -11.5px;
-  inline-size: 2px;
-  border-radius: 1px;
-  background: var(--cs-accent-clay);
-  pointer-events: none;
+/* Same icon-then-label anatomy as a top-level row, one size down. */
+.ms-sub-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--cs-text-muted);
+  transition: color 120ms ease;
+}
+.ms-sub-btn:hover .ms-sub-icon,
+.ms-sub-btn[data-active="true"] .ms-sub-icon {
+  color: var(--cs-text-primary);
 }
 .ms-sub-label {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -542,10 +559,10 @@
 /* Always-listed groups make the rail ~730px tall. On a short desktop window the rows tighten (still above the
    24px target size) so the zones stay within reach before the nav starts to scroll. */
 @media (min-width: 900px) and (max-height: 820px) {
-  .ms-root { --ms-row-h: 34px; }
+  .ms-root { --ms-row-h: 28px; }
   .ms-sub-btn { min-block-size: 26px; }
   .ms-sub-list { padding-block: 1px 4px; }
-  .ms-zone-label { padding-block-start: 12px; }
+  .ms-zone-label { padding-block-start: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

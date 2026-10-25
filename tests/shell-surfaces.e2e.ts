@@ -113,7 +113,9 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
   await screen.getByRole('button', 'Evidence', { exact: true }).tap();
   await expect(screen.getByRole('button', 'Population data', { exact: true })).toBeVisible();
   for (const theme of ['light', 'dark']) {
-    const result = await browser.evaluate(() => {
+    const result = await browser.evaluate(async () => {
+      // A row just activated is still fading its pill in; read the settled style, not frame zero.
+      await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
       // Resolve any CSS colour (oklch, color-mix) to sRGB through a canvas.
       const ctx = document.createElement('canvas').getContext('2d')!;
       const rgb = (color: string) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3); };
@@ -126,6 +128,7 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
       const current = [...nav.querySelectorAll('[aria-current="page"]')];
       const active = nav.querySelector<HTMLElement>('.ms-sub-btn[data-active="true"]')!;
       const marker = getComputedStyle(active, '::before');
+      const label = nav.querySelector('.ms-zone-label')!;
       const guide = getComputedStyle(nav.querySelector('.ms-sub-list')!);
       return {
         quietDivider: rootStyle.borderInlineEndWidth === '1px' && rootStyle.boxShadow === 'none',
@@ -133,12 +136,16 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
         noChevrons: nav.querySelectorAll('.lucide-chevron-down, .lucide-chevron-right').length === 0,
         oneCurrent: current.length === 1 && current[0] === active,
         cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow === 'none',
-        markerOnGuide: marker.width === '2px' && marker.backgroundColor !== guide.borderLeftColor,
+        pillNotMarker: marker.content === 'none' && getComputedStyle(active).borderRadius === '8px',
+        subRowsHaveIconsOnOneLine: [...nav.querySelectorAll('.ms-sub-btn')].every(b => b.querySelector('svg.ms-sub-icon') !== null && b.getBoundingClientRect().height < 32),
+        plainZoneLabel: getComputedStyle(label, '::before').content === 'none' && getComputedStyle(label).fontWeight === '400',
+        groupGuide: getComputedStyle(nav.querySelector('.ms-zone-items[data-tree]')!).borderLeftWidth === '1px',
         guideLegible: contrast(guide.borderLeftColor, canvas) >= 1.5,
       };
     });
     expect(result, `${theme} sidebar contract`).toEqual({
-      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, markerOnGuide: true, guideLegible: true,
+      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, pillNotMarker: true,
+      subRowsHaveIconsOnOneLine: true, plainZoneLabel: true, groupGuide: true, guideLegible: true,
     });
     await app.screenshot(`sidebar-tree-${theme}`);
     if (theme === 'light') await screen.getByRole('button', 'Switch to dark mode').tap();
