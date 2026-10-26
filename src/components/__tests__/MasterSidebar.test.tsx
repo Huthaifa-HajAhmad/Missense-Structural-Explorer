@@ -66,6 +66,24 @@ describe("MasterSidebar — expanded rail", () => {
     expect(onViewChange).toHaveBeenCalledWith("structure_alphafold");
   });
 
+  it("opens the Evidence group on its first page, not the last one visited", () => {
+    const onViewChange = vi.fn();
+    const onEvidenceTabChange = vi.fn();
+    render(<MasterSidebar {...setup({ activeView: "search", activeEvidenceTab: "splicing", onViewChange, onEvidenceTabChange })} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Evidence/ }));
+    expect(onEvidenceTabChange).toHaveBeenCalledWith("clinical");
+    expect(onViewChange).toHaveBeenCalledWith("evidence");
+  });
+
+  it("leaves the reader's current Evidence page alone when the group is already open", () => {
+    const onViewChange = vi.fn();
+    const onEvidenceTabChange = vi.fn();
+    render(<MasterSidebar {...setup({ activeView: "evidence", activeEvidenceTab: "splicing", onViewChange, onEvidenceTabChange })} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Evidence/ }));
+    expect(onEvidenceTabChange).not.toHaveBeenCalled();
+    expect(onViewChange).not.toHaveBeenCalled();
+  });
+
   it("collapses through the toggle", () => {
     const onToggleCollapse = vi.fn();
     render(<MasterSidebar {...setup({ onToggleCollapse })} />);

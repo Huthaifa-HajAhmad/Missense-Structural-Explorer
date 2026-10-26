@@ -149,3 +149,11 @@ Primary documentation checked during this pass:
 
 The GenCC FAQ fetch was blocked (403); no new assertion about its criteria was derived from that
 page. This pass adds no numerical scientific cut-points and therefore no new calibration citation.
+
+## Context loading and Gene-disease spacing (26 October 2026)
+
+- Context requests begin during a submitted analysis as soon as its gene is available, before core evidence returns. Draft edits do not trigger prefetch. The first result joins the same gene-keyed requests.
+- Background prefetch owns cached-error recovery; opening a context tab preserves the existing failure and its explicit retry action rather than restarting the request.
+- Gene-disease separates disease scope, evidence navigation, findings and source records. Comparison/Records, record count and right-aligned search share one toolbar. Dosage has an explicit section heading even before a disease is selected.
+- Biological readings, source categories, disease selection and ACMG classification are unchanged. No new scientific cut-points or contextual entry points were introduced.
+- Regression coverage: EvidenceContextPrefetch.test.tsx (before-result requests and deduplication), useEvidenceContext.test.ts (tab entry and explicit retry), gene-disease-workspace.e2e.ts (toolbar alignment, themes and narrow layouts).

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import VariantSearchPanel from "../VariantSearchPanel";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { SettingsProvider } from "../../context/SettingsContext";
@@ -20,6 +20,25 @@ function seed() {
   return store;
 }
 describe("pipeline rail engine-state parity", () => {
+  it("shows delayed readiness guidance in the progress summary and lets the reader dismiss it", () => {
+    vi.useFakeTimers();
+    try {
+      const store = seed();
+      store.setFoldingStatus("loading");
+      store.setIsFolding(true);
+      renderPipeline();
+      expect(screen.queryByText(/No need to wait/)).toBeNull();
+      act(() => { vi.advanceTimersByTime(10_000); });
+      const notice = screen.getByText(/No need to wait/).closest('[role="status"]');
+      expect(notice).not.toBeNull();
+      expect(notice?.closest('.workbench-pipeline-summary')).not.toBeNull();
+      expect(notice).toHaveTextContent('Evidence');
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }));
+      expect(screen.queryByText(/No need to wait/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("shows real stored energy values without copying them into core evidence", () => {
     const store = seed();
     store.setFoldingStatus("success");

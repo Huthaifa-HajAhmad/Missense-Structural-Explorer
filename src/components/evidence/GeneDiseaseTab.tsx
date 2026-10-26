@@ -40,8 +40,8 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
     setFocusRequest(null);
   }, [focusRequest]);
   const dosage = <section className="gd-section" aria-labelledby="gd-dosage-title">
-    <h2 id="gd-dosage-title">Gene dosage</h2>
-    <p className="detail-prose">Whole-gene copy-number evidence; independent of disease selection.</p>
+    <div className="gd-section-heading"><h2 id="gd-dosage-title">Gene dosage</h2>
+      <p className="detail-prose">Whole-gene copy-number evidence; independent of disease selection.</p></div>
     {model.dosage.state === 'ready' ? <GeneDiseaseReadings model={model} section="dosage" onRetryDosage={context.retryDosage} />
       : <div data-testid="dosage-card"><ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage}
         loadingMessage={`Checking ClinGen dosage curation for ${context.gene}. This may take a few moments.`} />
@@ -50,6 +50,11 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   </section>;
   const mechanism = selected && <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />;
   const variant = selected && <VariantLocusCard clinvar={result.clinvar} frame={selected} />;
+
+  const presentation = workspace.enabled && model.assertions.length > 0 ? <div className="gd-view-control" role="group" aria-label="Validity presentation">
+    <button type="button" aria-pressed={workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('comparison')}>Comparison</button>
+    <button type="button" aria-pressed={!workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('records')}>Records</button>
+  </div> : null;
 
   return <div ref={root} data-evidence-screen className="gd-screen cx-screen" data-testid="gene-disease-screen" data-comparison={workspace.comparison || undefined}>
     <header><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Review the gene–disease relationship, then its relevance to this variant.</p></header>
@@ -79,12 +84,9 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
               <p className="detail-prose gd-hero__finding">{model.sentence}</p>
             </div>
           </section>
-          {workspace.enabled && model.assertions.length > 0 && <div className="gd-view-control" role="group" aria-label="Validity presentation">
-            <button type="button" aria-pressed={workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('comparison')}>Comparison</button>
-            <button type="button" aria-pressed={!workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('records')}>Records</button>
-          </div>}
+          {!workspace.comparison && presentation}
           <div id="gd-validity-representation" className="gd-validity-representation">
-            {workspace.comparison ? <ContextExplorer tab="gene-disease" rows={rows.filter(r => r.group === 'validity')} groups={[{ id: 'validity', label: 'Validity' }]} empty={model.sentence} />
+            {workspace.comparison ? <ContextExplorer toolbarStart={presentation} tab="gene-disease" rows={rows.filter(r => r.group === 'validity')} groups={[{ id: 'validity', label: 'Validity' }]} empty={model.sentence} />
               : <GeneDiseaseReadings model={model} section="validity" />}
           </div>
         </>}

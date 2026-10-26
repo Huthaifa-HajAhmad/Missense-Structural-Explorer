@@ -676,7 +676,10 @@ function MasterSidebar({
                         collapsed={collapsed}
                         buttonRef={isActive ? activeRowRef : undefined}
                         onClick={() => {
-                          if (!isActive) navigate(id === "structure" ? defaultStructureView : id);
+                          if (isActive) return;
+                          /* The Evidence group opens on its first page, not on the one last visited. */
+                          if (id === "evidence") onEvidenceTabChange(EVIDENCE_SUB_ITEMS[0].id);
+                          navigate(id === "structure" ? defaultStructureView : id);
                         }}
                         /* A parent whose own page is open on screen is not itself current. Collapsed,
                            the pages are not drawn, so the parent is the only mark there is. */

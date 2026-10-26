@@ -14,7 +14,6 @@ import { hpaResponseSchema } from '../shared/hpa';
 import { pextResponseSchema } from '../shared/pext';
 import { modelOrganismResponseSchema } from '../shared/modelOrganisms';
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
-import type { AnalysisResult } from '../types';
 import type { ContextLoad } from '../stores/slices/evidenceContextSlice';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
 import { extraContextKey, type ExtraContextKind } from '../shared/evidenceKeys';
@@ -22,7 +21,9 @@ import { ContextHttpError, contextRequestFailure } from '../shared/contextReques
 const EMPTY_SELECTION = emptyPhenotypeSelection();
 /** Alignment slots that already had their one automatic re-read after a failure. */
 const alignmentAutoRetried = new Set<string>();
-export function useEvidenceContext(result: AnalysisResult, expression = false, dosage = false, models = expression) {
+export type EvidenceContextInput = Parameters<typeof evidenceContextIdentity>[0];
+
+export function useEvidenceContext(result: EvidenceContextInput, expression = false, dosage = false, models = expression, recoverCached = true) {
   const { fetchWithAuth } = useApiClient();
   const storeGene = useVariantAnalysisStore(s => s.gene);
   const storeVariant = useVariantAnalysisStore(s => s.variant);
@@ -124,20 +125,21 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
   }, [key]);
   useEffect(() => {
     // A cached "not installed" or failed read is not a fact about the gene: the snapshot can be
-    // installed (or the server recovered) while this session is open, so re-ask on mount.
+    // installed (or the server recovered) mid-session. Background prefetch owns recovery;
+    // visiting a tab joins its cached outcome instead of starting another read.
     const cachedDisease = useVariantAnalysisStore.getState().diseaseContexts[gene];
-    if (!cachedDisease || cachedDisease.status === 'error' || cachedDisease.data?.status === 'not-installed') void loadDisease();
+    if (!cachedDisease || (recoverCached && (cachedDisease.status === 'error' || cachedDisease.data?.status === 'not-installed'))) void loadDisease();
     const cachedDosage = useVariantAnalysisStore.getState().dosageContexts[gene];
-    if (dosage && (!cachedDosage || cachedDosage.status === 'error')) void loadDosage();
-    if (expression && (!useVariantAnalysisStore.getState().expressionContexts[gene] || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'error')) void loadExpression();
-    if (expression && (!useVariantAnalysisStore.getState().developmentalContexts[gene] || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'error' || useVariantAnalysisStore.getState().developmentalContexts[gene]?.data?.status === 'not-installed')) void loadDevelopment();
+    if (dosage && (!cachedDosage || (recoverCached && cachedDosage.status === 'error'))) void loadDosage();
+    if (expression && (!useVariantAnalysisStore.getState().expressionContexts[gene] || (recoverCached && useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'error'))) void loadExpression();
+    if (expression && (!useVariantAnalysisStore.getState().developmentalContexts[gene] || (recoverCached && (useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'error' || useVariantAnalysisStore.getState().developmentalContexts[gene]?.data?.status === 'not-installed')))) void loadDevelopment();
     // Alignment is prefetched when a result lands and can lose that race, so a failed read gets one
     // automatic re-read; after that, entering a tab must not restart it (retryAlignment is explicit).
     for (const [kind, load] of [['alignment', loadAlignment], ['pext', loadPext], ['phenotypes', loadPhenotypes], ['hpa', loadHpa]] as const) {
       const cached = useVariantAnalysisStore.getState().extraContexts[extraContextKey(kind, gene)];
       const slot = extraContextKey(kind, gene);
       const failed = cached?.status === 'error';
-      const mayRetry = failed && (kind !== 'alignment' || !alignmentAutoRetried.has(slot));
+      const mayRetry = recoverCached && failed && (kind !== 'alignment' || !alignmentAutoRetried.has(slot));
       if ((kind === 'alignment' || kind === 'phenotypes' ? models : expression) && (!cached || mayRetry)) {
         if (failed && kind === 'alignment') alignmentAutoRetried.add(slot);
         void load();
@@ -145,11 +147,11 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
     }
     if ((expression || models) && selection.diseaseKey && hpoIds) {
       const cached = useVariantAnalysisStore.getState().extraContexts[hpoSlot];
-      if (!cached || cached.status === 'error') void loadHpo();
+      if (!cached || (recoverCached && cached.status === 'error')) void loadHpo();
     }
     const cachedModels = useVariantAnalysisStore.getState().modelContexts[gene];
-    if (models && (!cachedModels || cachedModels.status === 'error' || cachedModels.data?.impc?.status === 'error')) void loadModels();
-  }, [gene, expression, dosage, models, fetchWithAuth, hpoSlot, selection.diseaseKey]);
+    if (models && (!cachedModels || (recoverCached && (cachedModels.status === 'error' || cachedModels.data?.impc?.status === 'error')))) void loadModels();
+  }, [gene, expression, dosage, models, recoverCached, fetchWithAuth, hpoSlot, selection.diseaseKey]);
   return { gene, key, selection, diseaseLoad, dosageLoad, expressionLoad, developmentalLoad, modelLoad, alignmentLoad, pextLoad, hpaLoad, phenotypesLoad, hpoLoad, hpoIds,
     identityChanged: refinedIdentity === key,
     setSelection: (value: typeof selection) => { actions.setPhenotypeSelection(key, value); setRefinedIdentity(null); },

@@ -16,11 +16,14 @@ const TAB_CONFIG: Record<ContextTab, {
   hideControlsWhenEmpty: boolean;
   canRevealPin: boolean;
   searchPlaceholder: string;
+  /** The count caption sits beside a leading toolbar control instead of after the filters. */
+  captionBeforeControls?: boolean;
 }> = {
   'gene-disease': {
     hideControlsWhenEmpty: true,
     canRevealPin: true,
     searchPlaceholder: 'Submitter or assertion',
+    captionBeforeControls: true,
   },
   'expression-models': {
     hideControlsWhenEmpty: true,
@@ -50,7 +53,8 @@ export function ContextDisclosure({ tab, id, title, children }: { tab: ContextTa
 
 /** Both representations select the same record keys. Bounds are presentation only;
  * searching resets the visible page but never changes the quantitative source domain. */
-export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Review systems only', hasReviewSystems = true, onChooseSystems }: {
+export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Review systems only', hasReviewSystems = true, onChooseSystems, toolbarStart }: {
+  toolbarStart?: React.ReactNode;
   tab: ContextTab; rows: ContextReading[]; groups: { id: string; label: string }[]; empty?: React.ReactNode; relevantLabel?: string; hasReviewSystems?: boolean; onChooseSystems?: () => void;
 }) {
   const w = useEvidenceWorkspace(tab);
@@ -81,17 +85,20 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       unplottedBody: 'These tissues have no returned gene median. Missing measurements are not zero.',
       emptyCopy: 'No returned tissue values can plot on this axis. Select a tissue to inspect its sampling context.' };
   }, [page]);
+  const caption = (!config.hideControlsWhenEmpty || page.sourceCount > 0) && <p className="cx-caption" role="status">{page.rows.length} of {page.sourceCount} records shown{page.total !== page.sourceCount ? `; ${page.total} match the filters` : ''}.</p>;
   return <section ref={explorerRef} className="cx-explorer" aria-label="Explore source readings">
     {groups.length > 1 && <WorkspaceTabs id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
     <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
       <div className="cx-record-toolbar">
+      {toolbarStart}
+      {config.captionBeforeControls && caption}
       {(!config.hideControlsWhenEmpty || page.sourceCount > 0) && <div className="cx-controls">
         <label>Search records<input type="search" value={w.query} placeholder={config.searchPlaceholder} onChange={e => w.setOptions({ query: e.target.value })} /></label>
         {group === 'developmental' && <label>Sampled age cohort<select value={w.cohort} onChange={e => w.setOptions({ cohort: e.target.value })}><option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {(tab === 'expression-models' || group === 'phenotypes') && <label className="cx-check"><input type="checkbox" disabled={expression && !hasReviewSystems} checked={relevantOnly} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />{expression ? 'Selected systems only' : relevantLabel}</label>}
         {expression && !hasReviewSystems && onChooseSystems && <button type="button" className="viz-action" onClick={onChooseSystems}>Choose systems</button>}
       </div>}
-      {(!config.hideControlsWhenEmpty || page.sourceCount > 0) && <p className="cx-caption" role="status">{page.rows.length} of {page.sourceCount} records shown{page.total !== page.sourceCount ? `; ${page.total} match the filters` : ''}.</p>}
+      {!config.captionBeforeControls && caption}
       </div>
       {group === 'developmental' && page.sourceCount > 0 && <p className="cx-caption">Sampled age is independent of disease onset. Cohorts are descriptive, not a developmental trajectory.</p>}
       {selected && !page.rows.some(r => r.key === selected.key) && <p className="cx-notice">The pinned record is outside this view. Its details remain in the inspector. {config.canRevealPin && <button type="button" className="viz-action" onClick={() => {

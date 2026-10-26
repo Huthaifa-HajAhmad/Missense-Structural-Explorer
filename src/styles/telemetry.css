@@ -16,8 +16,6 @@
 .telemetry-service[data-expanded]:active { background: var(--cs-bg-subtle); }
 .telemetry-detail { display: flex; flex-direction: column; gap: .625rem; margin: .375rem .25rem .875rem; padding: .75rem; border-inline-start: 2px solid var(--cs-accent-clay); border-radius: 0 6px 6px 0; background: var(--cs-workbench-header-surface); }
 .telemetry-detail-meta { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0; font-family: var(--cs-font-mono); font-size: 10px; color: var(--cs-text-muted); }
-.telemetry-footer { display: flex; flex-wrap: wrap; gap: .25rem .75rem; flex: none; padding-block-start: .625rem; border-block-start: 1px solid var(--cs-border-subtle); }
-.telemetry-footer > span { font-size: 10px; }
 @media (hover: hover) and (pointer: fine) {
   .telemetry-service[data-expanded]:hover { background: var(--cs-workbench-header-surface); }
 }

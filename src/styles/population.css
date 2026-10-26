@@ -133,9 +133,13 @@
 
 .pop-hero__finding { margin: 0; color: var(--cs-text-secondary); max-width: none; }
 .pop-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+/* Headline on its own line, the rule it reports beneath it. */
+.pop-hero__finding-lead, .pop-hero__finding-rule { display: block; }
 
 /* The comparison opens with a compact finding; the plot carries the quantitative detail. */
-.pop-screen[data-comparison] .pop-hero__body { padding: 16px 20px; display: grid; grid-template-columns: minmax(240px, .85fr) minmax(0, 1.15fr); gap: 12px 24px; align-items: center; }
+/* One column split shared by the finding and the homozygote row below it, so the count starts where the sentence does. */
+.pop-screen[data-comparison] { --pop-hero-cols: minmax(240px, 1.25fr) minmax(0, 1fr); }
+.pop-screen[data-comparison] .pop-hero__body { padding: 16px 20px; display: grid; grid-template-columns: var(--pop-hero-cols); gap: 12px 24px; align-items: center; }
 .pop-screen[data-comparison] .pop-hero__top, .pop-screen[data-comparison] .pop-callout { grid-column: 1 / -1; }
 .pop-screen[data-comparison] .pop-hero__figure { flex-direction: column; align-items: start; }
 .pop-screen[data-comparison] .pop-figure { font-size: 25px; letter-spacing: -.025em; }
@@ -146,16 +150,30 @@
 
 .pop-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
-/* The finding's foot: homozygotes and the thresholds are strips on the header wash, like the card heads. */
-.pop-hero__strip,
+/* The finding's foot: the thresholds disclosure is a strip on the header wash, like the card heads. The
+   homozygote count is a data row in the white body, so it stays clear of the wash. */
 .pop-hero__scale {
   margin: 0;
   padding-inline: 20px;
   border-top: 1px solid var(--cs-border-subtle);
   background: var(--cs-workbench-header-surface);
 }
-.pop-hero__hom { display: flex; align-items: center; gap: 8px; min-block-size: 44px; font-size: var(--cs-font-size-prose); color: var(--cs-text-secondary); }
-.pop-hero__hom > .ev-tier { margin-inline-start: auto; }
+/* Label on the left; the count and its BS2 call sit together on the right edge. */
+.pop-hero__hom { display: flex; align-items: center; gap: 8px; margin: 0; padding-inline: 20px; min-block-size: 44px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-prose); color: var(--cs-text-secondary); }
+.pop-hero__hom > .pop-strong { margin-inline-start: auto; }
+/* In the comparison the row takes the finding's columns: label under the figure, count under the sentence's
+   first letter, BS2 call at the right edge. */
+.pop-screen[data-comparison] .pop-hero__hom { display: grid; grid-template-columns: var(--pop-hero-cols); column-gap: 24px; }
+.pop-screen[data-comparison] .pop-hero__hom > * { grid-row: 1; align-self: center; }
+.pop-screen[data-comparison] .pop-hero__hom > :first-child { grid-column: 1; }
+.pop-screen[data-comparison] .pop-hero__hom > .pop-strong { grid-column: 2; justify-self: start; margin-inline-start: 0; }
+.pop-screen[data-comparison] .pop-hero__hom > .ev-tier { grid-column: 2; justify-self: end; }
+@container (max-width: 650px) {
+  .pop-screen[data-comparison] .pop-hero__hom { grid-template-columns: minmax(0, 1fr); row-gap: 4px; }
+  .pop-screen[data-comparison] .pop-hero__hom > *,
+  .pop-screen[data-comparison] .pop-hero__hom > .pop-strong,
+  .pop-screen[data-comparison] .pop-hero__hom > .ev-tier { grid-column: 1; grid-row: auto; justify-self: start; }
+}
 .pop-hero__scale[open] { padding-block-end: 18px; }
 
 .pop-hero__footnote {

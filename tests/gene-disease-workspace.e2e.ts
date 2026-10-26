@@ -17,6 +17,11 @@ test('gene-disease finding, hidden pins and empty states remain legible', { tags
       await expect(screen.getByRole('region', 'Submitted validity assertion matrix')).toBeVisible();
       expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       if (width === 1440) {
+        const search = await screen.getByRole('searchbox').boundingBox();
+        const matrix = await screen.getByRole('region', 'Submitted validity assertion matrix').boundingBox();
+        const mode = await screen.getByRole('group', 'Validity presentation').boundingBox();
+        expect(Boolean(search && matrix && Math.abs(search.x + search.width - matrix.x - matrix.width) <= 2), 'record search anchors to the right edge of the figure').toBe(true);
+        expect(Boolean(search && mode && Math.abs(search.y + search.height / 2 - mode.y - mode.height / 2) <= 2), 'representation and search share one toolbar').toBe(true);
         expect(await browser.evaluate(() => {
           const last = document.querySelector('.cx-matrix tbody tr:last-child')!.getBoundingClientRect();
           return last.bottom < window.innerHeight - 16;
