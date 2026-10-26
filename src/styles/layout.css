@@ -1119,7 +1119,6 @@
 }
 .about-section-blurb {
   margin: 0 0 1.25rem;
-  max-width: 78ch;
   font-size: 13px;
   line-height: 1.65;
   color: var(--cs-text-secondary);
@@ -1675,7 +1674,6 @@
   align-items: baseline;
   gap: 8px;
   margin: 10px 0 0;
-  max-width: 78ch;
   font-size: var(--cs-font-size-caption);
   line-height: 1.6;
   color: var(--cs-text-muted);
