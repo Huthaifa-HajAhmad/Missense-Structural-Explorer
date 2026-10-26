@@ -627,7 +627,8 @@ function CreditToolbar({
             </button>
           ))}
         </div>
-        <div className="about-topic-chips" role="group" aria-label="Topic quick presets">
+        <div className="about-topic-chips" role="group" aria-labelledby="about-topic-chips-label">
+          <span id="about-topic-chips-label" className="about-topic-chips-label">Topics</span>
           {TOPIC_PRESETS.map((preset) => {
             const isActive = query.toLowerCase() === preset.query.toLowerCase();
             return (
@@ -825,7 +826,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
               id="about-workflow"
               index={2}
               title="Workspace map"
-              blurb="The sidebar, zone by zone. Views open from here as they do from the sidebar."
+              blurb="Follow the workflow from a variant query to evidence, modelling and interpretation."
             >
               <ol className="about-zones">
                 {WORKSPACE_ZONES.map((zone) => (

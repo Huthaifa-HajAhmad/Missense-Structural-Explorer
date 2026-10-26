@@ -316,7 +316,7 @@ function NavRow({
       title={tooltip}
     >
       <span className="ms-nav-icon">
-        <Icon className="w-4 h-4" />
+        <Icon />
         {collapsed && showStatus && status !== "pending" && (
           <span className="ms-nav-icon-status">
             <StepIcon status={status} />

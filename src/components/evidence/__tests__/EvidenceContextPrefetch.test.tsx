@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { EvidenceContextPrefetch } from "../EvidenceContextPrefetch";
 import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
@@ -13,20 +13,17 @@ vi.mock("../../../stores/useVariantAnalysisStore", async () => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 it("warms human and model context without opening a tab and deduplicates remounts", () => {
-  vi.useFakeTimers();
   useVariantAnalysisStore.setState({ diseaseContexts: {}, dosageContexts: {}, expressionContexts: {}, developmentalContexts: {}, modelContexts: {}, extraContexts: {}, phenotypeSelections: {} });
   const result = { metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" } } as any;
   const first = render(<EvidenceContextPrefetch result={result} />);
-  expect(fetchWithAuth).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(1200));
   const urls = fetchWithAuth.mock.calls.map((call: any) => call[0]);
   expect(urls).toEqual(expect.arrayContaining([
     "/api/v1/evidence-context/PAH", "/api/v1/evidence-context/PAH/expression",
-    "/api/v1/evidence-context/PAH/models", "/api/v1/evidence-context/PAH/dosage"
+    "/api/v1/evidence-context/PAH/models", "/api/v1/evidence-context/PAH/dosage",
+    "/api/v1/evidence-context/PAH/alignment"
   ]));
   const count = urls.length;
   first.unmount();
   render(<EvidenceContextPrefetch result={result} />);
-  act(() => vi.advanceTimersByTime(1200));
   expect(fetchWithAuth).toHaveBeenCalledTimes(count);
 });

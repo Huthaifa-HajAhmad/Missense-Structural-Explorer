@@ -237,6 +237,7 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
    column of the rows below it — the legend names that column's direction, so it must sit over it. */
 function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   const rail = host.querySelector(".vh-rail");
+  const heading = host.querySelector(".vcs-panel-heading");
   const head = host.querySelector(".vh-rail-head");
   const list = host.querySelector(".vh-metrics");
   if (!rail || !head || !list) {
@@ -244,8 +245,8 @@ function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   }
   const checks: GeometryCheck[] = [{
     name: `${id}: rail opens with its scope caption`,
-    pass: rail.firstElementChild === head && head.nextElementSibling === list,
-    detail: "caption, then list",
+    pass: rail.firstElementChild === heading && heading?.nextElementSibling === head && head.nextElementSibling === list,
+    detail: "scope heading, column labels, then list",
   }];
   const axis = host.querySelector(".vh-rail-axis");
   const scale = host.querySelector("li.vh-metric .vh-scale");
@@ -294,7 +295,7 @@ function checkShellFrame(): GeometryCheck[] {
     pass: Math.abs(hb.bottom - sb.top) <= 1 &&
       Math.abs(hb.left - sb.left) <= 1 && Math.abs(hb.right - sb.right) <= 1 &&
       sStyle.borderBlockStartWidth === "0px" &&
-      hStyle.borderBlockEndWidth === "0px" &&
+      hStyle.borderBlockEndWidth === "1px" &&
       hStyle.backgroundColor === "rgba(0, 0, 0, 0)" && sStyle.backgroundColor === "rgba(0, 0, 0, 0)",
     detail: `dy=${(sb.top - hb.bottom).toFixed(2)} dxL=${(sb.left - hb.left).toFixed(2)} seam=${sStyle.borderBlockStartWidth}`,
   });
@@ -303,8 +304,8 @@ function checkShellFrame(): GeometryCheck[] {
   const st = getComputedStyle(standalone);
   const radii = [st.borderStartStartRadius, st.borderStartEndRadius, st.borderEndStartRadius, st.borderEndEndRadius];
   checks.push({
-    name: "shell: standalone toolbar stays unframed and keeps its gutter",
-    pass: radii.every(v => v === "0px") && st.borderWidth === "0px" && parseFloat(st.marginBlockEnd) > 0,
+    name: "shell: standalone toolbar keeps one baseline and its gutter",
+    pass: radii.every(v => v === "0px") && st.borderBlockStartWidth === "0px" && st.borderInlineStartWidth === "0px" && st.borderInlineEndWidth === "0px" && st.borderBlockEndWidth === "1px" && parseFloat(st.marginBlockEnd) > 0,
     detail: `radii=${radii.join("/")} margin=${st.marginBlockEnd}`,
   });
 

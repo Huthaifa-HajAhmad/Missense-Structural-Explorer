@@ -605,7 +605,7 @@ export default function DevConsolePanel() {
                         })
                       }
                     >
-                      Cache Hits ({liveStats.cached})
+                      Cache hits ({liveStats.cached})
                     </button>
                     <button
                       type="button"

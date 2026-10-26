@@ -15,7 +15,7 @@ function atomColor(status: GlyphStatus): string {
     case "gained":
       return "var(--cs-accent-clay)";
     case "lost":
-      return "var(--cs-text-muted)";
+      return "var(--cs-text-secondary)";
     case "kept":
     default:
       return "var(--cs-text-secondary)";
@@ -27,7 +27,7 @@ function bondStroke(status: GlyphStatus): string {
     case "gained":
       return "var(--cs-accent-clay)";
     case "lost":
-      return "var(--cs-border)";
+      return "var(--cs-text-muted)";
     case "kept":
     default:
       return "var(--cs-text-muted)";
@@ -90,7 +90,7 @@ function SingleGlyphSvg({
             stroke={bondStroke(bond.status)}
             strokeWidth={bond.status === "gained" ? "0.14" : "0.12"}
             strokeLinecap="round"
-            opacity={bond.status === "lost" ? 0.4 : 1}
+            strokeDasharray={bond.status === "lost" ? "0.18 0.12" : undefined}
           />
         );
       })}
@@ -147,7 +147,7 @@ function SingleGlyphSvg({
               fill={isLost ? "var(--cs-surface)" : atomColor(atom.status)}
               stroke={atomColor(atom.status)}
               strokeWidth={isLost ? "0.08" : "0.04"}
-              opacity={isLost ? 0.6 : 1}
+              opacity={1}
             />
             <text
               x={atom.x}
@@ -155,7 +155,7 @@ function SingleGlyphSvg({
               fontSize="0.26"
               fontFamily="var(--cs-font-mono)"
               fontWeight={isGained ? "600" : "400"}
-              fill={isLost ? "var(--cs-text-muted)" : "var(--cs-text-primary)"}
+              fill="var(--cs-text-primary)"
               textAnchor="middle"
             >
               {atom.name}
@@ -192,6 +192,7 @@ export function ResidueGlyph({
               label={`Side-chain topology of wild-type ${wildType}`}
             />
           </div>
+          {diff.wildType.atoms.length === 0 && <span className="rsx-glyph-empty">No heavy side-chain atoms</span>}
         </div>
 
         <div className="rsx-glyph-divider" aria-hidden="true">
@@ -211,8 +212,10 @@ export function ResidueGlyph({
               label={`Side-chain topology of variant ${mutant}`}
             />
           </div>
+          {diff.mutant.atoms.length === 0 && <span className="rsx-glyph-empty">No heavy side-chain atoms</span>}
         </div>
       </div>
+      <p className="rsx-glyph-note">Side-chain schematic, shown at the same scale. Dashed bonds mark atoms lost; accent marks atoms gained.</p>
 
       {diff.summary && (
         <div className="rsx-glyph-summary" data-testid="glyph-diff-summary">

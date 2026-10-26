@@ -1,6 +1,6 @@
 import { constraintSourceLabel } from "./header/constraintMetrics";
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, RotateCw, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, RotateCw, Search, X } from "lucide-react";
 import { AnalysisResult } from "../types";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { ConstraintMetric, MiniTrack } from "./header/ConstraintTrack";
@@ -112,9 +112,18 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
       {open && metrics.length > 0 && (
         <div ref={panelRef} id={panelId} className="vcs-panel" role="region" aria-label="Gene constraint reference ranges">
           <div className="vh-rail">
+            <div className="vcs-panel-heading">
+              <div>
+                <h2>Gene constraint</h2>
+                <p>Population reference ranges · {source}</p>
+              </div>
+              <button type="button" className="vcs-close" aria-label="Close gene constraint details" onClick={() => close(true)}>
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
             <div className="vh-rail-head">
               <span className="vh-rail-title">
-                Gene constraint <span className="vh-rail-source">· {source}</span>
+                Metric / value
               </span>
               <span className="vh-rail-axis" aria-hidden="true">
                 <span>less depleted</span>

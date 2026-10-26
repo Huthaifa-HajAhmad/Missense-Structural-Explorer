@@ -135,29 +135,20 @@
 .gd-screen.cx-screen .viz-frame__head { padding-block: 12px; padding-inline: 16px; }
 
 .gd-screen.cx-screen .cx-controls { flex: 0 1 330px; }
-.gd-screen.cx-screen .cx-matrix :is(th, td) { padding-block: 8px; padding-inline: 16px; }
+/* Cells are read-only, so the tighter 4px row padding costs no touch target; it is what lets the
+   matrix fit the viewport without a second scroll region. */
+.gd-screen.cx-screen .cx-matrix :is(th, td) { padding-block: 4px; padding-inline: 16px; }
 
 .gd-screen.cx-screen .cx-controls label { flex-wrap: nowrap; }
 .gd-screen.cx-screen .cx-controls input { min-inline-size: 0; flex: 1 1 160px; }
 
 /* Evidence type is navigation; representation is a local, labelled control. */
 .gd-section-panel, .gd-reference, .gd-review-overview, .gd-validity-representation { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
-.gd-view-control { display: flex; align-items: center; gap: 12px; font-size: var(--cs-font-size-prose); }
-.gd-view-control > span { margin-inline-end: 8px; color: var(--cs-text-muted); }
-.gd-view-control button {
-  min-block-size: 36px;
-  padding-inline: 4px;
-  border: 0;
-  background: transparent;
-  color: var(--cs-text-muted);
-  cursor: pointer;
-  text-decoration: underline 2px transparent;
-  text-underline-offset: 7px;
-}
-/* A representation switch, quieter than the tabs above it: words, with the chosen one inked and
-   underlined in clay. No box or fill, so it never reads as a second row of tabs. */
-.gd-screen .gd-view-control button:active { background: transparent; color: var(--cs-text-accent); }
-.gd-view-control button[aria-pressed="true"] { color: var(--cs-text-primary); text-decoration-color: var(--cs-accent-clay); }
+.gd-view-control { display: inline-flex; align-self: start; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-bg); font-size: var(--cs-font-size-prose); }
+.gd-view-control button { min-block-size: 32px; padding-inline: 14px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--cs-text-secondary); cursor: pointer; }
+.gd-view-control button[aria-pressed="true"] { background: var(--cs-surface); border-color: var(--cs-border-subtle); color: var(--cs-text-primary); font-weight: 600; box-shadow: 0 1px 3px oklch(0 0 none / .06); }
+.gd-screen .gd-view-control button:active { background: var(--cs-bg-subtle); }
+.gd-view-control button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .gd-pin-notice { font-size: var(--cs-font-size-caption); padding-block: 8px; }
 .gd-disease-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; }
 .gd-disease-choice > div { flex: 1 1 30ch; min-inline-size: 0; }

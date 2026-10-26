@@ -20,6 +20,8 @@ import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
 import { extraContextKey, type ExtraContextKind } from '../shared/evidenceKeys';
 import { ContextHttpError, contextRequestFailure } from '../shared/contextRequest';
 const EMPTY_SELECTION = emptyPhenotypeSelection();
+/** Alignment slots that already had their one automatic re-read after a failure. */
+const alignmentAutoRetried = new Set<string>();
 export function useEvidenceContext(result: AnalysisResult, expression = false, dosage = false, models = expression) {
   const { fetchWithAuth } = useApiClient();
   const storeGene = useVariantAnalysisStore(s => s.gene);
@@ -129,9 +131,17 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
     if (dosage && (!cachedDosage || cachedDosage.status === 'error')) void loadDosage();
     if (expression && (!useVariantAnalysisStore.getState().expressionContexts[gene] || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'error')) void loadExpression();
     if (expression && (!useVariantAnalysisStore.getState().developmentalContexts[gene] || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'error' || useVariantAnalysisStore.getState().developmentalContexts[gene]?.data?.status === 'not-installed')) void loadDevelopment();
+    // Alignment is prefetched when a result lands and can lose that race, so a failed read gets one
+    // automatic re-read; after that, entering a tab must not restart it (retryAlignment is explicit).
     for (const [kind, load] of [['alignment', loadAlignment], ['pext', loadPext], ['phenotypes', loadPhenotypes], ['hpa', loadHpa]] as const) {
       const cached = useVariantAnalysisStore.getState().extraContexts[extraContextKey(kind, gene)];
-      if ((kind === 'alignment' || kind === 'phenotypes' ? models : expression) && (!cached || cached.status === 'error')) void load();
+      const slot = extraContextKey(kind, gene);
+      const failed = cached?.status === 'error';
+      const mayRetry = failed && (kind !== 'alignment' || !alignmentAutoRetried.has(slot));
+      if ((kind === 'alignment' || kind === 'phenotypes' ? models : expression) && (!cached || mayRetry)) {
+        if (failed && kind === 'alignment') alignmentAutoRetried.add(slot);
+        void load();
+      }
     }
     if ((expression || models) && selection.diseaseKey && hpoIds) {
       const cached = useVariantAnalysisStore.getState().extraContexts[hpoSlot];

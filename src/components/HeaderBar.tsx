@@ -105,18 +105,17 @@ export function HeaderBar({
   const errorText = error?.replace(/^Error:\s*/i, "") ?? "";
   const errorIsKey = /unauthori[sz]ed|api key/i.test(errorText);
 
-  const paletteTrigger = (prominent: boolean) => (
+  const paletteTrigger = () => (
     <button
       type="button"
       onClick={onOpenPalette}
-      className={prominent ? "header-search" : HEADER_ICON_BUTTON}
+      className={HEADER_ICON_BUTTON}
       data-palette-trigger
       title={`Search views or run a variant (${paletteHint})`}
       aria-label={`Search views or run a variant (${paletteHint})`}
       aria-keyshortcuts={paletteHint.includes("Ctrl") ? "Control+K" : "Meta+K"}
     >
       <Search className="w-4 h-4 shrink-0" />
-      {prominent && <><span>Search views or run a variant</span><kbd className="cs-kbd">{paletteHint}</kbd></>}
     </button>
   );
 
@@ -141,7 +140,7 @@ export function HeaderBar({
             <PanelLeft className="w-4 h-4" />
           </button>
         )}
-        {showIdentity ? <VariantIdentity model={variantModel} /> : paletteTrigger(true)}
+        {showIdentity && <VariantIdentity model={variantModel} />}
       </div>
 
       {/* ── Right: state, then actions ── */}
@@ -216,7 +215,7 @@ export function HeaderBar({
           <span className={`${CHROME_DIVIDER} mx-1.5`} aria-hidden="true" />
         )}
 
-        {showIdentity && paletteTrigger(false)}
+        {paletteTrigger()}
 
         {canShare && (
           <button

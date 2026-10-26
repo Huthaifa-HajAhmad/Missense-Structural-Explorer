@@ -20,7 +20,6 @@ import {
   FileText,
   AlertTriangle,
   Compass,
-  CornerDownLeft,
   X,
   Eraser,
   ExternalLink,
@@ -1163,7 +1162,7 @@ function VariantSearchPanel({
     if (read.uniprot) setCustomUniprot(read.uniprot);
   };
   const quickStatus = !quickDraft.trim()
-    ? "Gene and protein change, a coordinate, or an rsID. The fields below fill in as you type."
+    ? ""
     : quickReading.recognised
       ? `Reads as ${[quickReading.gene, quickReading.variant || quickReading.genomic].filter(Boolean).join(" · ")}`
       : quickReading.gene && !quickReading.variant
@@ -1456,7 +1455,7 @@ function VariantSearchPanel({
                   id="input-quick-entry-status"
                   role="status"
                   aria-live="polite"
-                  className={quickDraft.trim() && quickReading.recognised ? "qe__status qe__status--assistive" : "qe__status"}
+                  className={!quickDraft.trim() || quickReading.recognised ? "qe__status qe__status--assistive" : "qe__status"}
                   data-tone={!quickDraft.trim() ? "idle" : quickReading.recognised ? "ok" : "pending"}
                 >
                   {quickDraft.trim() ? (
@@ -1804,7 +1803,7 @@ function VariantSearchPanel({
                           ) : null}
                         </div>
                       ) : (
-                        <p className="query-route-status query-route-status--quiet">{COORDINATE_ACCEPTS_COPY}</p>
+                        null
                       )}
                     </div>
               </div>
@@ -1853,16 +1852,7 @@ function VariantSearchPanel({
                   designed "AI not configured" report (rule-based ACMG from database metrics). The key
                   only adds the written interpretation, so it is a note here, never a gate — a gate
                   here was also bypassed by the history chips and the benchmarks, which always ran. */}
-              {/* The Enter hint is a fact about the form, not about the key, so it sits beside the note on every
-                  path. It used to appear only with a Gemini key, and a keyless reader had no cue that Enter runs. */}
               <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="inline-flex items-center gap-1.5">
-                  <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
-                    <CornerDownLeft className="w-3 h-3" aria-hidden="true" />
-                    Enter
-                  </kbd>
-                  runs from a query field
-                </span>
                 <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   {settings?.narrativeMode === "off" ? (
                     <span>AI synthesis is off. Evidence and classification remain available.</span>

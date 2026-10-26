@@ -127,11 +127,11 @@ describe("bare c. notation requires a gene (UI-6)", () => {
 });
 
 describe("coordinate route status strip (UI-3)", () => {
-  it("states the accepted formats when the coordinate field is empty", () => {
+  it("keeps the empty route quiet until there is actionable feedback", () => {
     renderPanel();
     expect(routeStatus()).toHaveAttribute("role", "status");
     expect(routeStatus()).toHaveAttribute("aria-live", "polite");
-    expect(routeStatus()).toHaveTextContent("Accepts chr-pos-ref-alt, VCF rows, rsIDs or ClinVar VCV IDs.");
+    expect(routeStatus()).toBeEmptyDOMElement();
     expect(screen.queryByRole("button", { name: "Clear coordinate" })).not.toBeInTheDocument();
   });
 
@@ -378,11 +378,11 @@ describe("benchmark cards run, like Recent analyses (UI-7)", () => {
   });
 });
 
-describe("the Enter hint is a fact about the form (UI-8)", () => {
-  it("shows the Enter hint without a Gemini key", () => {
+describe("query footer", () => {
+  it("omits redundant keyboard guidance while retaining key setup", () => {
     renderPanel();
-    expect(screen.getByText("runs from a query field")).toBeInTheDocument();
-    expect(screen.getByText("Enter", { selector: "kbd" })).toBeInTheDocument();
+    expect(screen.queryByText("runs from a query field")).not.toBeInTheDocument();
+    expect(screen.queryByText("Enter", { selector: "kbd" })).not.toBeInTheDocument();
     // The keyless note still follows it.
     expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
   });

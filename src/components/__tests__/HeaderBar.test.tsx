@@ -58,8 +58,10 @@ describe("HeaderBar Component Tests (C-7)", () => {
     const onOpenPalette = vi.fn();
     render(<HeaderBar {...base} onOpenPalette={onOpenPalette} />);
     const search = screen.getByRole("button", { name: /search views or run a variant/i });
-    expect(search).toHaveTextContent("Search views or run a variant");
-    expect(search.querySelector("kbd")).toBeInTheDocument();
+    expect(search.textContent).toBe("");
+    expect(search.querySelectorAll("svg")).toHaveLength(1);
+    expect(search).toHaveAttribute("aria-keyshortcuts");
+    expect(search.querySelector("kbd")).not.toBeInTheDocument();
     fireEvent.click(search);
     expect(onOpenPalette).toHaveBeenCalledTimes(1);
   });
