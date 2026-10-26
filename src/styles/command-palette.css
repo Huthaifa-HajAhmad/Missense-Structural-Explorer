@@ -33,27 +33,28 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 12vh 16px 16px;
-  background: rgba(25, 24, 22, 0.32);
+  padding-block: clamp(12px, 10dvh, 96px) 16px;
+  padding-inline: 16px;
+  background: oklch(0.22 0.005 85 / .32);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
 }
 .dark .cs-palette-overlay {
-  background: rgba(8, 7, 6, 0.55);
+  background: oklch(0.1 0.005 85 / .55);
 }
 @media (max-height: 500px) {
   .cs-palette-overlay {
-    padding-top: 12px;
+    padding-block-start: 12px;
   }
 }
 
 .cs-palette {
-  width: min(640px, 100%);
-  max-height: min(560px, 76dvh);
+  inline-size: min(640px, 100%);
+  max-block-size: min(640px, 80dvh);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  border-radius: var(--cs-radius-panel);
+  overflow: clip;
+  border-radius: 18px;
   border: 1px solid var(--cs-border);
   background: var(--cs-surface);
   /* The one elevated surface in a shadowless system: it floats above everything. */
@@ -73,9 +74,12 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  height: 64px;
-  padding: 0 14px 0 18px;
-  border-bottom: 1px solid var(--cs-border-subtle);
+  min-block-size: 48px;
+  margin: 12px;
+  padding-inline: 14px 10px;
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  background: var(--cs-bg);
 }
 .cs-palette-search-icon {
   width: 18px;
@@ -86,7 +90,7 @@
 }
 .cs-palette-search:focus-within {
   outline: 2px solid var(--cs-accent-clay);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 .cs-palette-search:focus-within .cs-palette-search-icon {
   color: var(--cs-accent-clay);
@@ -94,9 +98,13 @@
 .cs-palette-input {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  block-size: 46px;
   border: 0;
-  outline: 0;
+  /* The search wrapper supplies the visible focus ring. */
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  appearance: none;
+  box-shadow: none;
   background: transparent;
   font-family: var(--cs-font-sans);
   font-size: 15px;
@@ -125,19 +133,19 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding: 8px;
-  padding: 6px 8px 8px;
+  padding: 0 12px 12px;
   scrollbar-width: thin;
   scrollbar-color: var(--cs-border) transparent;
 }
 .cs-palette [cmdk-group] + [cmdk-group] {
-  margin-top: 4px;
+  margin-block-start: 12px;
 }
 .cs-palette [cmdk-group-heading] {
-  padding: 10px 10px 6px;
+  padding: 12px 10px 8px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  text-transform: none;
+  letter-spacing: .07em;
+  text-transform: uppercase;
   color: var(--cs-text-muted);
   user-select: none;
 }
@@ -146,9 +154,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 6px 10px 6px 8px;
+  gap: 12px;
+  min-block-size: 48px;
+  padding: 10px;
   border-radius: var(--cs-radius-input);
   font-size: 13.5px;
   font-weight: 500;
@@ -161,11 +169,11 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  inline-size: 32px;
+  block-size: 32px;
   border-radius: 7px;
-  border: 1px solid var(--cs-border-subtle);
-  background: var(--cs-surface-2);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--cs-text-muted);
   transition: color 100ms ease, background-color 100ms ease, border-color 100ms ease;
 }
@@ -176,31 +184,28 @@
 }
 .cs-palette-item-label {
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cs-palette-item-label.font-mono {
   font-size: 12.5px;
 }
 /* Trailing cluster: meta text, then the ↵ keycap on the selected row. */
 .cs-palette-item-trail {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  max-width: 55%;
-  padding-left: 12px;
+  flex: none;
 }
 .cs-palette-item-meta {
   min-width: 0;
   font-size: 12px;
   font-weight: 400;
   color: var(--cs-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cs-palette-item-meta.font-mono {
   font-size: 11px;
@@ -208,7 +213,8 @@
 }
 /* ↵ keycap: present on the selected row only, so the eye finds the target. */
 .cs-palette-item-enter {
-  display: none;
+  display: inline-flex;
+  visibility: hidden;
   flex-shrink: 0;
 }
 
@@ -227,19 +233,20 @@
 
 /* Selected (keyboard or pointer) */
 .cs-palette-item[data-selected="true"] {
-  background: var(--cs-bg-subtle);
+  background: color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface));
+  box-shadow: inset 2px 0 var(--cs-accent-clay);
 }
 .cs-palette-item[data-selected="true"] .cs-palette-item-icon {
   color: var(--cs-accent-clay);
-  border-color: color-mix(in srgb, var(--cs-accent-clay) 30%, transparent);
-  background: color-mix(in srgb, var(--cs-accent-clay) 10%, var(--cs-surface));
+  border-color: transparent;
+  background: transparent;
 }
 .cs-palette-item[data-primary][data-selected="true"] .cs-palette-item-icon {
   background: var(--cs-accent-clay);
   color: #fff;
 }
 .cs-palette-item[data-selected="true"] .cs-palette-item-enter {
-  display: inline-flex;
+  visibility: visible;
 }
 .cs-palette-item[data-disabled="true"] {
   opacity: 0.5;
@@ -268,9 +275,10 @@
 .cs-palette-footer {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
   flex-shrink: 0;
-  padding: 9px 14px;
+  padding: 12px 20px;
   border-top: 1px solid var(--cs-border-subtle);
   background: var(--cs-surface-2);
   font-size: 11.5px;
@@ -290,17 +298,24 @@
 
 @media (max-width: 520px) {
   .cs-palette-overlay {
-    padding-top: 8px;
+    padding-block-start: 8px;
   }
   .cs-palette {
-    max-height: calc(100dvh - 16px);
+    max-block-size: calc(100dvh - 24px);
   }
   /* Touch has no arrow keys; keep the footer to what applies. */
   .cs-palette-hint:first-child,
   .cs-palette-hint:last-child {
     display: none;
   }
-  .cs-palette-item-meta {
-    display: none;
-  }
+  .cs-palette-item-trail { gap: 4px; }
+  .cs-palette-item-enter { display: none; }
 }
+
+.cs-palette-intro { margin: 0; padding: 0 24px 12px; color: var(--cs-text-secondary); font-size: 12px; line-height: 1.6; }
+.cs-palette-intro code { font-family: var(--cs-font-mono); font-size: 11px; }
+.cs-palette-item-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-inline-size: 0; line-height: 1.4; }
+.cs-palette-item-icon > svg { inline-size: 1.125rem; block-size: 1.125rem; }
+.cs-palette-esc { min-block-size: 28px; min-inline-size: 32px; }
+.cs-palette-esc:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.cs-palette-item:active, .cs-palette-esc:active { background: var(--cs-bg-subtle); }

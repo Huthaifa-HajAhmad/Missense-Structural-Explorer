@@ -161,9 +161,12 @@ describe("top bar", () => {
     expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   });
 
-  it("offers the labelled search, not a breadcrumb, when no variant is on screen", () => {
+  it("offers the icon search, not a breadcrumb, when no variant is on screen", () => {
     render(<HeaderBar {...base} variant={null} />);
-    expect(screen.getByRole("button", { name: /search views or run a variant/i })).toHaveTextContent("Search views or run a variant");
+    const search = screen.getByRole("button", { name: /search views or run a variant/i });
+    expect(search.textContent).toBe("");
+    expect(search.querySelectorAll("svg")).toHaveLength(1);
+    expect(search.querySelector("kbd")).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Active variant" })).toBeNull();
   });

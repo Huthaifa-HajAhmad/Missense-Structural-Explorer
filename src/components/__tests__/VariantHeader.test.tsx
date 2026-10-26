@@ -250,7 +250,8 @@ describe("VariantHeader Component Tests", () => {
     // The rows are scoped as GENE constraint in a visible caption, so a verdict beside the HGVS
     // cannot be read as a call on the variant.
     expect(screen.getByRole("list", { name: /gnomAD v4.1.2 population constraint/ })).toBeInTheDocument();
-    expect(container.querySelector(".vh-rail-title")).toHaveTextContent("Gene constraint · gnomAD v4.1.2");
+    expect(panel().getByRole("heading", { name: "Gene constraint" })).toBeInTheDocument();
+    expect(container.querySelector(".vcs-panel-heading")).toHaveTextContent("gnomAD v4.1.2");
     expect(container.querySelector(".vh-rail-axis")).toHaveTextContent(/less depleted.*constrained/);
     expect(container.querySelector(".vh-rail-meta")).not.toBeInTheDocument();
 
@@ -796,6 +797,19 @@ describe("VariantHeader Component Tests", () => {
     expect(rmcMarker).toBeGreaterThan(rmcBaseline);
   });
 
+
+  it("closes constraint details and returns keyboard focus to the disclosure", () => {
+    render(<Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} />);
+    const trigger = screen.getByRole("button", { name: /^Details/ });
+    fireEvent.click(panel().getByRole("button", { name: "Close gene constraint details" }));
+    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
 
   it("should handle copy to clipboard interaction and update screen reader feedback", async () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined);

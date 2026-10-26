@@ -348,13 +348,13 @@
   border-radius: var(--cs-radius-sm, 8px); background: var(--cs-accent-wash);
 }
 .rsx-glyph-pair {
-  display: flex; align-items: center; justify-content: center; gap: 16px;
+  display: flex; align-items: flex-start; justify-content: center; gap: 16px;
 }
 .rsx-glyph-card {
   display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0;
 }
 .rsx-glyph-caption {
-  display: flex; align-items: baseline; gap: 6px; font-size: var(--cs-font-size-caption);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 4px 8px; font-size: var(--cs-font-size-caption);
 }
 .rsx-glyph-code {
   font-family: var(--cs-font-mono); font-size: 15px; font-weight: var(--cs-font-weight-semibold);
@@ -367,20 +367,20 @@
 }
 .rsx-glyph-name { color: var(--cs-text-secondary); }
 .rsx-glyph-frame {
-  width: 100%; max-width: 120px; height: 80px;
+  inline-size: 100%; max-inline-size: 240px; block-size: clamp(160px, 17vw, 210px);
   display: flex; align-items: center; justify-content: center;
 }
 .rsx-glyph-svg {
-  width: 100%; height: 100%; max-height: 80px;
+  inline-size: 100%; block-size: 100%;
 }
 .rsx-glyph-divider {
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-self: center; align-items: center; justify-content: center;
   color: var(--cs-text-muted); font-size: 16px;
 }
 .rsx-glyph-arrow { font-size: 16px; }
 .rsx-glyph-summary {
-  display: flex; align-items: center; gap: 8px; font-size: 12px;
-  padding-top: 6px; border-top: 1px solid var(--cs-border-subtle);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px;
+  padding-block-start: 10px; border-top: 1px solid var(--cs-border-subtle);
 }
 .rsx-glyph-badge {
   font-family: var(--cs-font-sans); font-size: 10px; font-weight: var(--cs-font-weight-semibold);
@@ -437,3 +437,6 @@
   background: var(--cs-surface); border: 1px solid var(--cs-border-subtle);
   border-radius: var(--cs-radius-sm, 8px); overflow: hidden;
 }
+
+.rsx-glyph-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
+.rsx-glyph-empty { font-size: 12px; color: var(--cs-text-secondary); }

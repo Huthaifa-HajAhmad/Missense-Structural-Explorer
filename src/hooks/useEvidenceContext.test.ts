@@ -2,6 +2,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEvidenceContext } from './useEvidenceContext';
+import { extraContextKey } from '../shared/evidenceKeys';
 import { useVariantAnalysisStore } from '../stores/useVariantAnalysisStore';
 const { fetchWithAuth } = vi.hoisted(() => ({ fetchWithAuth: vi.fn() }));
 vi.mock('../apiClient', () => ({ useApiClient: () => ({ fetchWithAuth }) }));
@@ -54,6 +55,20 @@ describe('authenticated context loading and gene isolation', () => {
     first.unmount();
     renderHook(() => useEvidenceContext(result('A'), true, false, false));
     expect(fetchWithAuth).toHaveBeenCalledTimes(5);
+  });
+  it('re-reads a failed background alignment once, then leaves further attempts to the explicit retry', async () => {
+    const failed = { status: 'error', data: null, error: 'Timed out' } as const;
+    const alignmentCalls = () => fetchWithAuth.mock.calls.filter(c => c[0].endsWith('/alignment'));
+    useVariantAnalysisStore.setState({ extraContexts: { [extraContextKey('alignment', 'RETRY1')]: failed } });
+    fetchWithAuth.mockImplementation(() => new Promise(() => {}));
+    const first = renderHook(() => useEvidenceContext(result('RETRY1'), false, false, true));
+    expect(alignmentCalls()).toHaveLength(1);
+    first.unmount();
+    useVariantAnalysisStore.setState({ extraContexts: { [extraContextKey('alignment', 'RETRY1')]: failed } });
+    const second = renderHook(() => useEvidenceContext(result('RETRY1'), false, false, true));
+    expect(alignmentCalls()).toHaveLength(1);
+    act(() => { void second.result.current.retryAlignment(); });
+    expect(alignmentCalls()).toHaveLength(2);
   });
   it('loads animal sources without starting human expression providers', async () => {
     fetchWithAuth.mockImplementation(() => new Promise(() => {}));

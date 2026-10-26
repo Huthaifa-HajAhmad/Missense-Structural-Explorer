@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import {
-  BarChart2, Settings, Sun, Moon, History, Sparkles, Trash2, ArrowUpRight, Compass,
-  Search, Layers, PanelLeft, SearchX,
-} from "lucide-react";
+  RiSettings3Line as Settings, RiSunLine as Sun, RiMoonLine as Moon,
+  RiHistoryLine as History, RiSparklingLine as Sparkles, RiDeleteBinLine as Trash2,
+  RiArrowRightUpLine as ArrowUpRight, RiCompass3Line as Compass,
+  RiSearchLine as Search, RiSideBarLine as PanelLeft, RiSearchEyeLine as SearchX,
+} from "@remixicon/react";
+import { SUB_NAV_ICONS } from "./ui/navIcons";
 import {
   MasterView,
   MASTER_VIEW_ITEMS,
@@ -127,12 +130,14 @@ function PaletteItem({
       onSelect={onSelect}
     >
       <span className="cs-palette-item-icon" aria-hidden="true">{icon}</span>
-      <span className={mono ? "cs-palette-item-label font-mono" : "cs-palette-item-label"}>{label}</span>
-      {isCurrent && <span className="cs-palette-badge">current</span>}
-      <span className="cs-palette-item-trail">
+      <span className="cs-palette-item-copy">
+        <span className={mono ? "cs-palette-item-label font-mono" : "cs-palette-item-label"}>{label}</span>
         {meta && (
           <span className={metaMono ? "cs-palette-item-meta font-mono" : "cs-palette-item-meta"}>{meta}</span>
         )}
+      </span>
+      <span className="cs-palette-item-trail">
+        {isCurrent && <span className="cs-palette-badge">current</span>}
         <kbd className="cs-kbd cs-palette-item-enter" aria-hidden="true">↵</kbd>
       </span>
     </Command.Item>
@@ -320,7 +325,6 @@ export default function CommandPalette({
     runAndClose(() => onViewChange("search"));
   };
 
-  const iconCls = "w-4 h-4";
 
   return open
     ? createPortal(
@@ -347,7 +351,7 @@ export default function CommandPalette({
                 value={query}
                 onValueChange={setQuery}
                 className="cs-palette-input"
-                placeholder="Search views and actions, or type BRCA1 R175H"
+                placeholder="Search views, actions or a variant…"
                 aria-describedby="cs-palette-hints"
               />
               <button
@@ -360,6 +364,7 @@ export default function CommandPalette({
                 Esc
               </button>
             </div>
+            {isBrowsing && <p className="cs-palette-intro">Jump to a workspace, or analyse a variant such as <code>NAE1 p.Asp116Gly</code>.</p>}
 
             <Command.List className="cs-palette-list">
               <Command.Empty className="cs-palette-empty">
@@ -377,7 +382,7 @@ export default function CommandPalette({
                       primary={!isPipelineActive}
                       value={`analyze ${parsed.label} ${query}`}
                       label={isPipelineActive ? `${parsed.label} · analysis already running` : parsed.label}
-                      icon={<Sparkles className={iconCls} />}
+                      icon={<Sparkles />}
                       meta={isPipelineActive ? "Busy" : parsed.needsResolution ? "VEP resolve" : "Analyse"}
                       onSelect={
                         isPipelineActive
@@ -389,7 +394,7 @@ export default function CommandPalette({
                     <PaletteItem
                       value={`open search ${query}`}
                       label={`Open in Variant query · ${parsed.label}`}
-                      icon={<ArrowUpRight className={iconCls} />}
+                      icon={<ArrowUpRight />}
                       meta="Fill fields"
                       onSelect={fillSearchFields}
                     />
@@ -407,7 +412,7 @@ export default function CommandPalette({
                       metaMono
                       value={`recent ${item.gene} ${item.variant} ${item.uniprotId}`}
                       label={`${item.gene} · ${item.variant}`}
-                      icon={<History className={iconCls} />}
+                      icon={<History />}
                       meta={item.uniprotId || undefined}
                       onSelect={() => runAndClose(() => onSelectHistory(item))}
                     />
@@ -422,7 +427,7 @@ export default function CommandPalette({
                     key={`view-${view.id}`}
                     value={`view ${view.label} ${view.sublabel ?? ""}`}
                     label={view.label}
-                    icon={<view.Icon className={iconCls} />}
+                    icon={<view.Icon />}
                     isCurrent={isViewActive(view.id, activeView)}
                     meta={view.sublabel}
                     onSelect={() =>
@@ -437,7 +442,7 @@ export default function CommandPalette({
                       key={`model-${model.id}`}
                       value={`structure model 3d ${model.label}`}
                       label={`3D structure · ${model.label}`}
-                      icon={<Layers className={iconCls} />}
+                      icon={React.createElement(SUB_NAV_ICONS[model.id], {})}
                       isCurrent={activeView === model.id}
                       meta="Model"
                       onSelect={() => runAndClose(() => onViewChange(model.id))}
@@ -455,7 +460,7 @@ export default function CommandPalette({
                       value={`evidence ${tab.label} ${tab.id}`}
                       keywords={[tab.id]}
                       label={tab.label}
-                      icon={<BarChart2 className={iconCls} />}
+                      icon={React.createElement(SUB_NAV_ICONS[tab.id], {})}
                       isCurrent={activeView === "evidence" && tab.id === activeEvidenceTab}
                       meta="Evidence"
                       onSelect={() => runAndClose(() => onEvidenceTabChange(tab.id))}
@@ -469,20 +474,20 @@ export default function CommandPalette({
                   <PaletteItem
                     value="open settings preferences"
                     label="Open settings"
-                    icon={<Settings className={iconCls} />}
+                    icon={<Settings />}
                     onSelect={() => runAndClose(() => setIsSettingsOpen(true))}
                   />
                   <PaletteItem
                     value="toggle theme dark light mode appearance"
                     label={`Switch to ${isDark ? "light" : "dark"} mode`}
-                    icon={isDark ? <Sun className={iconCls} /> : <Moon className={iconCls} />}
+                    icon={isDark ? <Sun /> : <Moon />}
                     onSelect={() => runAndClose(() => toggleTheme())}
                   />
                   {onToggleSidebar && (
                     <PaletteItem
                       value="toggle sidebar collapse expand navigation rail"
                       label="Toggle sidebar"
-                      icon={<PanelLeft className={iconCls} />}
+                      icon={<PanelLeft />}
                       meta={sidebarToggleHint()}
                       onSelect={() => runAndClose(() => onToggleSidebar())}
                     />
@@ -491,7 +496,7 @@ export default function CommandPalette({
                     <PaletteItem
                       value="workspace tour onboarding guide help start keys orientation"
                       label="Take the tour"
-                      icon={<Compass className={iconCls} />}
+                      icon={<Compass />}
                       onSelect={() => runAndClose(() => onOpenOnboarding())}
                     />
                   )}
@@ -499,7 +504,7 @@ export default function CommandPalette({
                     <PaletteItem
                       value="clear recent history reset list"
                       label="Clear recent analyses"
-                      icon={<Trash2 className={iconCls} />}
+                      icon={<Trash2 />}
                       onSelect={() => runAndClose(() => actions.clearHistory())}
                     />
                   )}
@@ -517,7 +522,7 @@ export default function CommandPalette({
               </span>
               <span className="cs-palette-hint">
                 <kbd className="cs-kbd">↵</kbd>
-                {canRun ? "analyse" : "open"}
+                {canRun && !isPipelineActive ? "analyse" : "open"}
               </span>
               <span className="cs-palette-hint">
                 <kbd className="cs-kbd">Esc</kbd>

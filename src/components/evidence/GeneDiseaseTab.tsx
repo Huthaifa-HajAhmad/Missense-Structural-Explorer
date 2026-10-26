@@ -79,7 +79,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
               <p className="detail-prose gd-hero__finding">{model.sentence}</p>
             </div>
           </section>
-          {workspace.enabled && model.assertions.length > 0 && <div className="gd-view-control" role="group" aria-label="Validity presentation"><span>View</span>
+          {workspace.enabled && model.assertions.length > 0 && <div className="gd-view-control" role="group" aria-label="Validity presentation">
             <button type="button" aria-pressed={workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('comparison')}>Comparison</button>
             <button type="button" aria-pressed={!workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('records')}>Records</button>
           </div>}
