@@ -142,7 +142,8 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
         // had to guess.
         noChevrons: [...nav.querySelectorAll('.ms-nav-btn, .ms-sub-btn')].every(b => b.querySelectorAll('svg').length === 1),
         oneCurrent: current.length === 1 && current[0] === active,
-        cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow !== 'none',
+        // The tinted pill alone marks the current page: no left bar.
+        cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow === 'none',
         pillNotMarker: marker.content === 'none' && getComputedStyle(active).borderRadius === '8px',
         subRowsHaveIconsOnOneLine: [...nav.querySelectorAll('.ms-sub-btn')].every(b => b.querySelector('svg.ms-sub-icon') !== null && b.getBoundingClientRect().height < 32),
         distinctZoneLabel: getComputedStyle(label, '::before').content === 'none' && getComputedStyle(label).fontWeight === '600',
