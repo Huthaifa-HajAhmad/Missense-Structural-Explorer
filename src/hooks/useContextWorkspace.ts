@@ -39,7 +39,7 @@ export function useContextWorkspaceRead(result: AnalysisResult, tab: ContextTab)
 /** The inspector uses the same selector/model without issuing requests. Memoisation depends
  * on source slots, not hover, filters or the whole analysis store. */
 export function useContextWorkspace(result: AnalysisResult, tab: ContextTab) {
-  const context = useEvidenceContext(result, tab === 'expression-models', tab === 'gene-disease', tab === 'species-models');
+  const context = useEvidenceContext(result, tab === 'expression-models', tab === 'gene-disease', tab === 'species-models', false);
   return useContextModels(result, tab, context);
 }
 function useContextModels<T extends ContextData>(result: AnalysisResult, tab: ContextTab, context: T) {

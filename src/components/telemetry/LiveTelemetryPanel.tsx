@@ -850,25 +850,12 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     { id: "compute", label: "Models & engines", items: services.filter(s => s.category === "compute") },
   ];
 
-  /**
-   * Sweep footer facts, both derived rather than tracked: the diagnostics payload carries the
-   * sweep's own timestamp, and the slowest responder falls out of the latencies already on the
-   * cards. This anchors the rail's bottom edge — the height-locked rail always has some slack
-   * below the list, and an unanchored gap read as dead space; one settled line of facts makes
-   * the same slack read as breathing room above a finished edge.
-   */
+  // Expanded service details retain the timestamp of their reachability check.
   const sweptAtRaw = diagnostics?.timestamp ? new Date(diagnostics.timestamp) : null;
   const sweptAtLabel =
     sweptAtRaw && !isNaN(sweptAtRaw.getTime())
       ? sweptAtRaw.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : null;
-  const slowestSweep = services
-    .map(s => ({ name: s.name, ms: typeof s.latency === "string" ? parseInt(s.latency, 10) : NaN }))
-    .filter(s => !isNaN(s.ms))
-    .reduce<{ name: string; ms: number } | null>(
-      (best, s) => (best === null || s.ms > best.ms ? s : best),
-      null
-    );
 
   return (
     <div className={`telemetry-panel ${className}`}>
@@ -1107,25 +1094,6 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       </div>
       </div>
 
-      {/* ── Sweep footer ── pinned to the panel's bottom edge, outside the scroll container, so it
-          stays put on short viewports where the list scrolls above it. Quietest possible voice:
-          11px muted, tabular figures, no chip — it is context, not a state. */}
-      <div className="telemetry-footer">
-        <span
-          className="text-[11px] text-cs-text-muted tabular-nums whitespace-nowrap"
-          title="Time of the last service reachability sweep"
-        >
-          Last sweep {sweptAtLabel ?? "—"}
-        </span>
-        {slowestSweep && (
-          <span
-            className="text-[11px] text-cs-text-muted tabular-nums truncate"
-            title={`${slowestSweep.name} answered slowest in the last sweep (${slowestSweep.ms}ms)`}
-          >
-            Slowest {slowestSweep.name} {slowestSweep.ms}ms
-          </span>
-        )}
-      </div>
     </div>
   );
 };

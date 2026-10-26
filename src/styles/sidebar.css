@@ -188,11 +188,10 @@
   }
 }
 .ms-nav-btn[data-active="true"] { color: var(--cs-text-primary); }
-/* The current page carries two signals: the pill and a clay bar. Its label stays ink. */
+/* The tinted pill and ink label identify the current page. */
 .ms-nav-btn[data-current="true"],
 .ms-nav-btn[data-current="true"]:hover {
   background: var(--ms-pill-fill);
-  box-shadow: inset 2px 0 var(--cs-accent-clay);
 }
 
 .ms-nav-icon {
@@ -385,7 +384,6 @@
 .ms-sub-btn[data-active="true"]:hover {
   color: var(--cs-text-primary);
   background: var(--ms-pill-fill);
-  box-shadow: inset 2px 0 var(--cs-accent-clay);
 }
 /* Same icon-then-label anatomy as a top-level row, one size down. */
 .ms-sub-icon {

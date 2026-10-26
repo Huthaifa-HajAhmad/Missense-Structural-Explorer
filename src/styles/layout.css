@@ -74,6 +74,8 @@
 /* Bare glyphs on the canvas: the header is chrome, not a row of cards. A fill appears only
    under the pointer or on press, so the icons never compete with the workspace panels. */
 .header-actions .header-action {
+  flex-shrink: 0;
+  min-block-size: 32px;
   border-radius: var(--cs-radius-input);
   background: transparent;
   box-shadow: none;

@@ -18,6 +18,22 @@ beforeEach(() => {
   useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, dosageContexts: {}, modelContexts: {}, extraContexts: {}, phenotypeSelections: {} });
 });
 describe('authenticated context loading and gene isolation', () => {
+  it('tab entry keeps cached failures visible until an explicit retry', async () => {
+    const failed = { status: 'error', data: null, error: 'Request limit reached' } as const;
+    useVariantAnalysisStore.setState({ diseaseContexts: { UROD: failed }, dosageContexts: { UROD: failed }, modelContexts: { UROD: failed }, extraContexts: {
+      [extraContextKey('alignment', 'UROD')]: failed, [extraContextKey('phenotypes', 'UROD')]: failed
+    } });
+    fetchWithAuth.mockImplementation(() => new Promise(() => {}));
+    const first = renderHook(() => useEvidenceContext(result('UROD'), false, true, true, false));
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+    first.unmount();
+    const second = renderHook(() => useEvidenceContext(result('UROD'), false, true, true, false));
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+    act(() => { void second.result.current.retryDisease(); });
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
+    expect(fetchWithAuth.mock.calls[0][0]).toBe('/api/v1/evidence-context/UROD');
+  });
+
   it('keeps failed dosage distinct from a complete negative lookup and coalesces manual retries', async () => {
     useVariantAnalysisStore.setState({ diseaseContexts: { NAE1: { status: 'ready', data: data('NAE1') as any } } });
     fetchWithAuth.mockResolvedValueOnce({ ok: true, json: async () => ({ gene: 'NAE1', status: 'error', record: null, provenance: null, message: 'ClinGen dosage request timed out.' }) });

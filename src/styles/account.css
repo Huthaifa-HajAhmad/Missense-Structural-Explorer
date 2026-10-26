@@ -225,7 +225,7 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
 }
 .acct-signin-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
-.acct-menu-anchor { position: relative; flex-shrink: 0; margin-left: 4px; }
+.acct-menu-anchor { position: relative; display: flex; align-items: center; flex-shrink: 0; }
 .acct-avatar-btn {
   display: grid;
   place-items: center;

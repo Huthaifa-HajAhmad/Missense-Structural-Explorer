@@ -245,7 +245,7 @@ export default function App() {
   return (
     <MotionConfig reducedMotion={settings.reducedMotion ? "always" : "user"}>
       <VariantAnalysisProvider>
-        {analysisState.result && !analysisState.result.isDemoData && <EvidenceContextPrefetch key={analysisState.result.metadata?.gene} result={analysisState.result} />}
+        <EvidenceContextPrefetch result={analysisState.result} pendingGene={analysisState.isLoading ? gene : undefined} pendingVariant={variant} pendingUniprotId={uniprotId} />
         <div
           className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}
           /* The variant strip's block reservation lives in CSS (.app-shell[data-variant-chrome]);
