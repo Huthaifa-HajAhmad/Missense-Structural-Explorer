@@ -352,9 +352,8 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           <Prose className="detail-prose pop-hero__finding">
             {criterion.headline !== null && criterion.predicate !== null ? (
               <>
-                <strong>{criterion.headline}</strong>
-                {" — "}
-                {criterion.predicate}.
+                <strong className="pop-hero__finding-lead">{criterion.headline}</strong>
+                <span className="pop-hero__finding-rule">{criterion.predicate}.</span>
               </>
             ) : (
               criterion.statement
@@ -380,7 +379,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
             finding, not to a loose line under the chart. It shows in every workspace view (the finding card does);
             the standalone readings table carries it in its own foot. */}
         {workspace.enabled && evidence.gnomadHomozygotes !== null && (
-          <p className="pop-hero__strip pop-hero__hom">
+          <p className="pop-hero__hom">
             <span>gnomAD homozygotes</span>
             <span className="pop-mono pop-strong">{formatCount(evidence.gnomadHomozygotes)}</span>
             {bs2 !== null && (
