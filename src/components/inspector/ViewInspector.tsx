@@ -3,18 +3,11 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   PanelRightClose,
   PanelRightOpen,
-  Layers,
-  BarChart2,
-  Activity,
-  Map,
-  FlaskConical,
-  FileText,
-  BookOpen,
   SlidersHorizontal,
-  Info
 } from "lucide-react";
 import { AnalysisResult, PdbHomolog, EnergeticsData, PocketResult } from "../../types";
 import { MasterView } from "../MasterSidebar";
+import { NAV_ICONS, SUB_NAV_ICONS, type NavIcon } from "../ui/navIcons";
 import { revealInspectorSection, useInspectorFocus } from "../../lib/inspectorFocus";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { useSettings } from "../../context/SettingsContext";
@@ -85,28 +78,49 @@ export interface ViewInspectorProps {
   onRetryNarrative?: () => void | Promise<void>;
 }
 
-const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  search: { title: "Variant Workspace", subtitle: "Query & History", Icon: SlidersHorizontal },
-  evidence: { title: "Evidence Lineage", subtitle: "Genomic & Database Provenance", Icon: BarChart2 },
+const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string }> = {
+  search: { title: "Variant Workspace", subtitle: "Query & History" },
+  evidence: { title: "Evidence Lineage", subtitle: "Genomic & Database Provenance" },
   /*
    * Named for the view, not for a model: "AlphaFold Inspector · Full-Length 3D Model" stayed on screen
    * over a FoldX variant built on a crystal template, and "ESMFold-2 Inspector" over structures the
    * ESM Atlas's ESMFold v1 had folded. The rail itself names what is on the canvas.
    */
-  structure: { title: "3D structure", subtitle: "Coordinates, comparison & provenance", Icon: Layers },
-  structure_alphafold: { title: "3D structure · AlphaFold2 view", subtitle: "AlphaFold model, FoldX variant", Icon: Layers },
-  structure_esmfold: { title: "3D structure · ESMFold view", subtitle: "De novo wild type and variant", Icon: Layers },
+  structure: { title: "3D structure", subtitle: "Coordinates, comparison & provenance" },
+  structure_alphafold: { title: "3D structure · AlphaFold2 view", subtitle: "AlphaFold model, FoldX variant" },
+  structure_esmfold: { title: "3D structure · ESMFold view", subtitle: "De novo wild type and variant" },
   /* Main renamed `energetics` and `landscape`; the 3D branch renamed the three structure entries.
      Each side's renames are kept. */
-  energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached", Icon: Activity },
-  landscape: { title: "Residue inspector", subtitle: "Selection, scores & provenance", Icon: Map },
-  insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
-  report: { title: "Report builder", subtitle: "Export, contents & review", Icon: FileText },
-  literature: { title: "Evidence Lineage", subtitle: "How this list was obtained", Icon: BookOpen },
-  console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
+  energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached" },
+  landscape: { title: "Residue inspector", subtitle: "Selection, scores & provenance" },
+  insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace" },
+  report: { title: "Report builder", subtitle: "Export, contents & review" },
+  literature: { title: "Evidence Lineage", subtitle: "How this list was obtained" },
+  console: { title: "Developer Console", subtitle: "Telemetry & Logs" },
   /* The inspector rail is hidden on the About view, but the record is exhaustive
      by type — a programmatic navigation must not render an undefined title. */
-  about: { title: "Workspace Guide", subtitle: "Version & Data Sources", Icon: Info },
+  about: { title: "Workspace Guide", subtitle: "Version & Data Sources" },
+};
+
+/**
+ * The rail names the page the sidebar just marked, so it uses the same glyph: one view, one shape.
+ * A lookalike lucide icon here put two near-identical-but-different glyphs for the same page a few
+ * hundred pixels apart — and `Layers` for all three structure views, where the rail now shows the
+ * cube, the atom and the brain the sidebar shows. `Record<MasterView, …>` keeps it exhaustive.
+ */
+const VIEW_ICONS: Record<MasterView, NavIcon> = {
+  search: NAV_ICONS.query,
+  evidence: NAV_ICONS.evidence,
+  structure: NAV_ICONS.structure,
+  structure_alphafold: SUB_NAV_ICONS.structure_alphafold,
+  structure_esmfold: SUB_NAV_ICONS.structure_esmfold,
+  energetics: NAV_ICONS.energetics,
+  landscape: NAV_ICONS.landscape,
+  insights: NAV_ICONS.insights,
+  report: NAV_ICONS.report,
+  literature: NAV_ICONS.literature,
+  console: NAV_ICONS.console,
+  about: NAV_ICONS.about,
 };
 
 /**
@@ -354,7 +368,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   const headerInfo = VIEW_TITLES[activeView] || {
     title: "Inspector Panel",
     subtitle: "Context & Controls",
-    Icon: SlidersHorizontal
   };
 
   /** Evidence tabs override the static subtitle with the active surface. */
@@ -365,7 +378,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   const headerSubtitle = evidenceSubtitle ?? headerInfo.subtitle;
   const headerTitle = activeView === "evidence" && activeEvidenceTab === "gene-disease" ? "Evidence inspector" : headerInfo.title;
 
-  const Icon = headerInfo.Icon;
+  const Icon = VIEW_ICONS[activeView] ?? SlidersHorizontal;
 
   if (isCollapsed) {
     return (

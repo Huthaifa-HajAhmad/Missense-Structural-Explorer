@@ -39,40 +39,46 @@ import {
   NAV_ZONES,
   STRUCTURE_SUB_ITEMS,
   type MasterView,
-  type NavItem
+  type NavItem,
+  type NavZone
 } from "./MasterSidebar";
 
 /**
  * What each sidebar zone is for. The views listed under each zone are read from the sidebar's
  * own registry (`NAV_ZONES`), so the map on this page cannot drift from the navigation it
  * describes — only this one sentence per zone is written here.
+ *
+ * Keyed by the zone's stable id, not by the label it prints: naming the heading once renamed it
+ * ("Search" → "Variant query") and silently deleted this paragraph from the page.
  */
-const ZONE_PURPOSE: Record<string, string> = {
-  Search:
+const ZONE_PURPOSE: Record<NavZone["id"] | "tools", string> = {
+  query:
     "Enter a gene symbol and an HGVS missense notation. The workspace resolves the transcript, UniProt accession and genomic coordinates before the pipeline runs.",
-  "Evidence & modelling":
+  evidence:
     "What is known and what can be modelled: population data, predictors, splicing and the structural tabs, the 3D models, ΔΔG energetics and the residue landscape.",
-  Synthesis:
+  synthesis:
     "The run's evidence assembled for a reader: ACMG criteria and interpretation, the literature behind the gene, and the exportable clinical report.",
-  Tools: "Pinned at the foot of the sidebar: the network and error telemetry behind the pipeline, and this guide."
+  tools: "Pinned at the foot of the sidebar: the network and error telemetry behind the pipeline, and this guide."
 };
 
 const FOOTER_VIEW_IDS: MasterView[] = ["console", "about"];
 
 /**
  * `index` is the number the sidebar prints beside the zone (its CSS counter counts labelled zones
- * only), so the map and the rail never disagree: Search and the pinned tools carry no number there,
+ * only), so the map and the rail never disagree: the query page and the pinned tools carry no number there,
  * and none here.
  */
-const WORKSPACE_ZONES: { title: string; index?: string; items: NavItem[] }[] = [
+const WORKSPACE_ZONES: { id: NavZone["id"] | "tools"; title: string; index?: string; items: NavItem[] }[] = [
   ...NAV_ZONES.map((zone) => ({
-    title: zone.zoneLabel ?? "Search",
+    id: zone.id,
+    /* An unlabelled zone is named after the page it holds, so the rail's rename reaches the map. */
+    title: zone.zoneLabel ?? zone.items[0].label,
     index: zone.zoneLabel
       ? String(NAV_ZONES.filter((z) => z.zoneLabel).indexOf(zone) + 1).padStart(2, "0")
       : undefined,
     items: zone.items
   })),
-  { title: "Tools", items: MASTER_VIEW_ITEMS.filter((item) => FOOTER_VIEW_IDS.includes(item.id)) }
+  { id: "tools", title: "Tools", items: MASTER_VIEW_ITEMS.filter((item) => FOOTER_VIEW_IDS.includes(item.id)) }
 ];
 
 /** Sub-tabs a top-level view opens onto, named so the map shows where each tab lives. */
@@ -312,7 +318,7 @@ function GroupHeading({ children, id, count }: { children: React.ReactNode; id: 
 }
 
 /**
- * One numbered About section, in the workspace's panel grammar (the Search composer is the
+ * One numbered About section, in the workspace's panel grammar (the Variant query composer is the
  * reference): a header strip carrying the index and the title, then a bright body. The section id
  * stays on the outer element, so the contents list and deep links land on the panel's top edge.
  */
@@ -823,7 +829,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
             >
               <ol className="about-zones">
                 {WORKSPACE_ZONES.map((zone) => (
-                  <li key={zone.title} className="about-zone">
+                  <li key={zone.id} className="about-zone">
                     <div className="about-zone-head">
                       {zone.index && (
                         <span className="about-zone-index" aria-hidden="true">
@@ -832,14 +838,15 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                       )}
                       <h3 className="about-zone-name">{zone.title}</h3>
                     </div>
-                    {ZONE_PURPOSE[zone.title] && <p className="about-zone-desc">{ZONE_PURPOSE[zone.title]}</p>}
+                    {ZONE_PURPOSE[zone.id] && <p className="about-zone-desc">{ZONE_PURPOSE[zone.id]}</p>}
                     <ul className="about-zone-views">
                       {zone.items.map((item) => {
                         const subItems = VIEW_SUB_ITEMS[item.id];
                         const navigable = Boolean(onNavigateToView) && item.id !== "about";
                         const body = (
                           <>
-                            <item.Icon className="about-view-icon" aria-hidden="true" />
+                            {/* The glyph is aria-hidden inside the registry; the label carries the name. */}
+                            <item.Icon className="about-view-icon" />
                             <span className="min-w-0">
                               <span className="about-view-label">{item.label}</span>
                               {item.sublabel && <span className="about-view-sub">{item.sublabel}</span>}

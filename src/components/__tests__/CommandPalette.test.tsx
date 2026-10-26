@@ -302,19 +302,19 @@ describe("CommandPalette — Run group", () => {
     const onViewChange = vi.fn();
     render(<CommandPalette {...setup({ onRunQuery, onViewChange })} />);
     typeLine("BRCA1");
-    fireEvent.click(screen.getByText(/Open in Search · BRCA1/));
+    fireEvent.click(screen.getByText(/Open in Variant query · BRCA1/));
     expect(mocks.actions.setCustomGene).toHaveBeenCalledWith("BRCA1");
     expect(onRunQuery).not.toHaveBeenCalled();
     expect(onViewChange).toHaveBeenCalledWith("search");
   });
 
   /* Writing only the slots the query filled left the previous run's variant sitting in the
-     form, so `Open in Search · BRCA1` would stack BRCA1 on top of a stale R175H. The label
+     form, so `Open in Variant query · BRCA1` would stack BRCA1 on top of a stale R175H. The label
      promises what the form will hold, so the fields have to agree with it. */
   it("clears the slots a partial query says nothing about", () => {
     render(<CommandPalette {...setup()} />);
     typeLine("BRCA1");
-    fireEvent.click(screen.getByText(/Open in Search · BRCA1/));
+    fireEvent.click(screen.getByText(/Open in Variant query · BRCA1/));
     expect(mocks.actions.setCustomVariant).toHaveBeenCalledWith("");
     expect(mocks.actions.setCustomGenomic).toHaveBeenCalledWith("");
     expect(mocks.actions.setCustomUniprot).toHaveBeenCalledWith("");

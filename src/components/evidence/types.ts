@@ -1,7 +1,13 @@
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult, StructuralMetrics } from "../../types";
 import { MasterView } from "../MasterSidebar";
+import type { EvidenceTabId } from "../../shared/insightsEvidence";
 
-export type TabType = "clinical" | "gene-disease" | "expression-models" | "species-models" | "predictors" | "structure" | "perturbation" | "function" | "interfaces" | "splicing" | "alphagenome";
+/**
+ * Evidence tab ids. One union, not a second hand-copied list: it is the same set the sidebar's
+ * `EVIDENCE_SUB_ITEMS` renders and the Insights lanes link to (`shared/insightsEvidence.ts`), so a
+ * tab added in one place cannot be missing from the others.
+ */
+export type TabType = EvidenceTabId;
 
 /**
  * Ids of evidence tabs that no longer exist, and the tab that took over. "Score thresholds" repeated

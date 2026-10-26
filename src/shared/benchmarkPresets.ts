@@ -1,7 +1,7 @@
 /**
  * Curated rare-disease missense controls.
  *
- * Shared by the onboarding tour and the Search workspace's empty state. Each preset is a COMPLETE,
+ * Shared by the onboarding tour and the Variant query page's empty state. Each preset is a COMPLETE,
  * runnable query (gene + protein notation + accession) — unlike the notation-format examples, which
  * fill a single field and cannot be submitted on their own.
  */

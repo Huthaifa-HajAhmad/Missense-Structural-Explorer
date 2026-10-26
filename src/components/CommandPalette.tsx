@@ -30,7 +30,7 @@ interface CommandPaletteProps {
   /**
    * The App-level submit handler, which closes over the analysis pipeline. The palette writes
    * the parsed fields into the store itself, but running has to go through this so the run is
-   * wired to fetch/auth/settings the same way the Search tab's own form is.
+   * wired to fetch/auth/settings the same way the Variant query form is.
    */
   onRunQuery: (e: React.FormEvent) => void;
   /** The view on screen — the matching row is badged `current` instead of being another jump. */
@@ -170,7 +170,7 @@ export default function CommandPalette({
   const history = useVariantAnalysisStore((s) => s.history);
 
   /**
-   * Whether an analysis is already in flight — the same flags the Search form aggregates for its
+   * Whether an analysis is already in flight — the same flags the Variant query form aggregates for its
    * own disabled submit button. A run launched from here would otherwise abort the first one
    * mid-flight with nothing on screen to say why the stages went quiet.
    */
@@ -306,7 +306,7 @@ export default function CommandPalette({
   /** Write the parsed line into the query fields and launch the pipeline. */
   const analyzeQuery = () => {
     writeParsedFields();
-    /* The Search workspace is where the pipeline reports its stages, so a run started from
+    /* The Variant query page is where the pipeline reports its stages, so a run started from
        any view lands where its progress is legible. */
     runAndClose(() => {
       onViewChange("search");
@@ -314,7 +314,7 @@ export default function CommandPalette({
     });
   };
 
-  /** Fill the Search fields without running — the cue for a real but incomplete query. */
+  /** Fill the Variant query fields without running - the cue for a real but incomplete query. */
   const fillSearchFields = () => {
     writeParsedFields();
     runAndClose(() => onViewChange("search"));
@@ -388,7 +388,7 @@ export default function CommandPalette({
                   ) : (
                     <PaletteItem
                       value={`open search ${query}`}
-                      label={`Open in Search · ${parsed.label}`}
+                      label={`Open in Variant query · ${parsed.label}`}
                       icon={<ArrowUpRight className={iconCls} />}
                       meta="Fill fields"
                       onSelect={fillSearchFields}

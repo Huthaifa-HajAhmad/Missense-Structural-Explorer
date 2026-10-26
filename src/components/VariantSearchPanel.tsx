@@ -50,7 +50,7 @@ import BuildMismatchPrompt from "./BuildMismatchPrompt";
 import type { BuildHint, NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
-/* Search workbench: serif heading, a primary query composer, and a separate status rail.
+/* Variant query workbench: serif heading, a primary query composer, and a separate status rail.
    Theme tokens carry colour; optional editors expand without stretching the empty form. */
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (

@@ -4,7 +4,7 @@
  * WHY THIS MODULE EXISTS
  * ----------------------
  * The command palette accepts a whole query in a single line ("BRCA1 R175H"), where the
- * Search tab has always had one field per part. A single line has to be split back into
+ * Variant query form has always had one field per part. A single line has to be split back into
  * gene / substitution / coordinates / accession, and doing that with a naive `split(" ")`
  * guesses wrong in exactly the cases users paste: `Q9Y305` looks numeric, `20-23365054-G-A`
  * contains no spaces at all, and every English word matches a gene-symbol shape. So the
@@ -95,7 +95,7 @@ export interface VariantQuery {
   /**
    * Enough input to launch the pipeline.
    *
-   * Not a copy of the Search form's rule — that form has no such rule beyond its disabled
+   * Not a copy of the Variant query form's rule — that form has no such rule beyond its disabled
    * button, so this is stated here against what the pipeline actually does with the fields:
    * Stage 1 resolves a gene out of coordinates, and nothing resolves a gene out of an accession.
    * See the `runnable` computation below.
@@ -119,7 +119,7 @@ const EMPTY_QUERY: VariantQuery = {
 };
 
 /**
- * Split a free-text palette line into the four fields the Search tab collects.
+ * Split a free-text palette line into the four fields the Variant query form collects.
  *
  * Never throws and never guesses a variant: unrecognised input comes back with
  * `recognised: false`, which is the caller's cue to stay out of the way.
@@ -177,7 +177,7 @@ export function parseVariantQuery(raw: string | null | undefined): VariantQuery 
 
   /* Every part the run will actually use, in the order a person reads them. The accession
      belongs in the label: `P51587 R175H` used to render as plain `R175H`, and a bare
-     accession rendered as an empty string — a row reading `Open in Search · ` with nothing
+     accession rendered as an empty string — a row reading `Open in Variant query · ` with nothing
      after it. */
   const labelParts = [gene, target, uniprot].filter((part): part is string => Boolean(part));
   const label = labelParts.join(" · ");
