@@ -62,7 +62,7 @@
   /* The top bar prints only the variant identity it titles itself with (`.vid-zone`): search,
      actions and notices are screen chrome, but the variant is what a printed page is about. */
   header.app-header > :not(.vid-zone),
-  .vcs-details,
+  .vcs-card,
   .vcs-runstate-action,
   /*
    * The two `aside` selectors here used to be `aside.app-sidebar` and

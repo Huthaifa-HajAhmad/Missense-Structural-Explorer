@@ -1,9 +1,11 @@
-import { constraintSourceLabel } from "./header/constraintMetrics";
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, RotateCw, Search, X } from "lucide-react";
+import { AlertTriangle, RotateCw, Search } from "lucide-react";
 import { AnalysisResult } from "../types";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
-import { ConstraintMetric, MiniTrack } from "./header/ConstraintTrack";
+import { constraintSourceLabel, releaseTag, type ConstraintMetricKey } from "./header/constraintMetrics";
+import { MiniTrack } from "./header/ConstraintTrack";
+import { ConstraintCard } from "./header/ConstraintCard";
+import { focusConstraintChip } from "./header/constraintFocus";
 import { useVariantHeaderModel, type VariantHeaderModel } from "./header/variantHeaderModel";
 
 interface VariantHeaderProps {
@@ -14,6 +16,20 @@ interface VariantHeaderProps {
   onProvideAllele?: () => void;
 }
 
+/** Must match `.vcs-card`'s inline size in layout.css; used to keep the card inside the strip. */
+const CARD_WIDTH = 360;
+const CARD_EDGE = 8;
+
+/** Keyboard focus opens a card; a pointer focus does not (the click that follows decides). */
+function isKeyboardFocus(el: HTMLElement): boolean {
+  if (el.dataset.quietFocus) return false;
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The variant CONTEXT strip: one 44px line under the top bar.
  *
@@ -21,134 +37,153 @@ interface VariantHeaderProps {
  * moved into the top bar (`header/VariantIdentity.tsx`); what stays here is context that applies
  * to every evidence page:
  *
- *   Gene constraint  [Missense Z +1.09 ━●━ tolerant] [LOEUF 0.94 ━●━ Not LoF constrained] [Regional O/E —]  Details ▾   … numbering · run state
+ *   GENE CONSTRAINT gnomAD v4.1.2  [Missense Z +1.09 ━●━ Not constrained] [LOEUF …] [Regional O/E … v4.1.1]   … numbering · run state
  *
- * - Each metric is a chip with a micro-track: same axis, direction and bands as the full track.
- * - "Details" discloses the full tracks — cut-points, threshold numerals, reference text — in an
- *   anchored panel. A disclosure, not a modal: Escape or a click outside closes it and returns focus.
+ * - Each reading is a button with a micro-track: same axis, direction and bands as the full track.
+ *   Values are ink; the verdict and the dot carry the tone, so each reading is coloured once.
+ * - A reading whose release differs from the group's (Regional O/E is v4.1.1) carries its own tag.
+ * - Keyboard focus or a click opens that reading's CARD (`header/ConstraintCard.tsx`): its full track,
+ *   cut-point origin and facts. The card's "Open in inspector" hands the reading to the right rail
+ *   (`inspector/ConstraintInspector.tsx`) through the store's `constraintFocus`, and the chip stays
+ *   marked as inspected while the rail shows it. Escape or a click outside closes the card.
  * - The notes slot carries the numbering basis, then the run state.
  * - The RUN STATE slot is fixed at the strip's end, so a degraded run (a fallback locus, a gnomAD
  *   outage) can never look like a clean one, and offers the re-run when one could help.
  *
- * Replaced a two-band 124px header plus a 52px top bar (176px) with 56 + 44 = 100px, and removed the
- * compact-on-scroll mode, which existed only because the old header was too tall to keep.
+ * Replaced the "Details" dropdown, which opened ~900px from its button and covered the page.
  */
 function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAllele }: VariantHeaderProps) {
   const model = useVariantHeaderModel({ gene, variant, uniprotId, analysisResult });
   const requestRerun = useVariantAnalysisStore((s) => s.requestRerun);
-  const [open, setOpen] = useState(false);
-  const panelId = useId();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const inspected = useVariantAnalysisStore((s) => s.constraintFocus);
+  const setConstraintFocus = useVariantAnalysisStore((s) => s.setConstraintFocus);
+  const [openKey, setOpenKey] = useState<ConstraintMetricKey | null>(null);
+  const [cardLeft, setCardLeft] = useState(0);
+  const baseId = useId();
+  const stripRef = useRef<HTMLDivElement>(null);
+  const chipsRef = useRef<HTMLUListElement>(null);
+  const chipRefs = useRef<Partial<Record<ConstraintMetricKey, HTMLButtonElement | null>>>({});
 
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false);
-    if (returnFocus) buttonRef.current?.focus();
+  const openCard = useCallback((key: ConstraintMetricKey) => {
+    const chip = chipRefs.current[key];
+    const strip = stripRef.current;
+    if (chip && strip) {
+      const offset = chip.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+      setCardLeft(Math.max(CARD_EDGE, Math.min(offset, strip.clientWidth - CARD_WIDTH - CARD_EDGE)));
+    }
+    setOpenKey(key);
+  }, []);
+
+  const openKeyRef = useRef(openKey);
+  openKeyRef.current = openKey;
+  const closeCard = useCallback((returnFocus: boolean) => {
+    const key = openKeyRef.current;
+    setOpenKey(null);
+    if (returnFocus && key) focusConstraintChip(key);
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!openKey) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close(true);
+      if (e.key === "Escape") closeCard(true);
     };
     const onPointer = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!panelRef.current?.contains(t) && !buttonRef.current?.contains(t)) close(false);
+      const item = chipRefs.current[openKey]?.closest("li");
+      if (!item?.contains(e.target as Node)) closeCard(false);
     };
+    // The card is placed from the chip's position; a resize or a sideways scroll of the chip row
+    // would leave it pointing at the wrong reading, so it closes instead of drifting.
+    const onMove = () => closeCard(false);
+    const chips = chipsRef.current;
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onPointer);
+    window.addEventListener("resize", onMove);
+    chips?.addEventListener("scroll", onMove);
     return () => {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("resize", onMove);
+      chips?.removeEventListener("scroll", onMove);
     };
-  }, [open, close]);
+  }, [openKey, closeCard]);
 
-  // A new variant starts with the panel closed.
-  useEffect(() => setOpen(false), [gene, variant]);
+  // A new variant starts with no card open and the inspector back on the page's own rail.
+  useEffect(() => {
+    setOpenKey(null);
+    setConstraintFocus(null);
+  }, [gene, variant, setConstraintFocus]);
 
   const { metrics } = model;
   const source = constraintSourceLabel(analysisResult);
-  const provenance = analysisResult?.gnomadConstraint?.provenance;
 
   return (
-    <div className="variant-header" role="region" aria-label="Variant context">
+    <div ref={stripRef} className="variant-header" role="region" aria-label="Variant context">
       {metrics.length > 0 && (
         <>
           <span className="vcs-title">
-            Gene constraint <span className="vcs-source">· {source}</span>
+            Gene constraint <span className="vcs-source">{source}</span>
           </span>
           {/* Explicit role: `list-style: none` drops list semantics in WebKit. */}
-          <ul className="vcs-chips" role="list" aria-label={`Gene constraint, ${source}`}>
-            {metrics.map((m) => (
-              <li key={m.key} className="vcs-chip" title={m.tooltip}>
-                <span className="vcs-chip-label">{m.label}</span>
-                <span className="vcs-chip-value" data-tone={m.tone}>
-                  {m.value}
-                </span>
-                <MiniTrack metric={m} />
-                <span className="vcs-chip-verdict" data-tone={m.tone}>
-                  {m.verdict}
-                </span>
-                <span className="vh-sr-only">{m.detail}</span>
-              </li>
-            ))}
+          <ul ref={chipsRef} className="vcs-chips" role="list" aria-label={`Gene constraint, ${source}`}>
+            {metrics.map((m) => {
+              const open = openKey === m.key;
+              const cardId = `${baseId}-card-${m.key}`;
+              const isInspected = inspected === m.key;
+              const tag = releaseTag(m, source);
+              return (
+                <li
+                  key={m.key}
+                  className="vcs-chip"
+                  onBlur={(e) => {
+                    // Focus left the chip and its card for somewhere else: the card goes with it.
+                    if (open && !e.currentTarget.contains(e.relatedTarget as Node | null)) setOpenKey(null);
+                  }}
+                >
+                  <button
+                    ref={(el) => {
+                      chipRefs.current[m.key] = el;
+                    }}
+                    type="button"
+                    className="vcs-chip-btn"
+                    aria-expanded={open}
+                    aria-controls={open ? cardId : undefined}
+                    data-constraint-chip={m.key}
+                    data-inspected={isInspected || undefined}
+                    onFocus={(e) => {
+                      if (!open && isKeyboardFocus(e.currentTarget)) openCard(m.key);
+                    }}
+                    onClick={() => (open ? setOpenKey(null) : openCard(m.key))}
+                  >
+                    <span className="vcs-chip-label">{m.label}</span>
+                    <span className="vcs-chip-value" data-tone={m.tone}>
+                      {m.value}
+                    </span>
+                    <MiniTrack metric={m} />
+                    <span className="vcs-chip-verdict" data-tone={m.tone}>
+                      {m.verdict}
+                    </span>
+                    {tag && <span className="vcs-chip-release">{tag}</span>}
+                    {isInspected && <span className="vh-sr-only">, shown in the inspector</span>}
+                  </button>
+                  {open && (
+                    <ConstraintCard
+                      metric={m}
+                      id={cardId}
+                      left={cardLeft}
+                      onInspect={() => {
+                        setOpenKey(null);
+                        setConstraintFocus(m.key);
+                      }}
+                    />
+                  )}
+                </li>
+              );
+            })}
           </ul>
-          <button
-            ref={buttonRef}
-            type="button"
-            className="vcs-details"
-            aria-expanded={open}
-            aria-controls={panelId}
-            onClick={() => setOpen((v) => !v)}
-          >
-            Details
-            <ChevronDown size={14} data-open={open || undefined} aria-hidden="true" />
-          </button>
         </>
       )}
 
       <Notes model={model} onRerun={requestRerun} onProvideAllele={onProvideAllele} />
-
-      {open && metrics.length > 0 && (
-        <div ref={panelRef} id={panelId} className="vcs-panel" role="region" aria-label="Gene constraint reference ranges">
-          <div className="vh-rail">
-            <div className="vcs-panel-heading">
-              <div>
-                <h2>Gene constraint</h2>
-                <p>Population reference ranges · {source}</p>
-              </div>
-              <button type="button" className="vcs-close" aria-label="Close gene constraint details" onClick={() => close(true)}>
-                <X size={18} aria-hidden="true" />
-              </button>
-            </div>
-            <div className="vh-rail-head">
-              <span className="vh-rail-title">
-                Metric / value
-              </span>
-              <span className="vh-rail-axis" aria-hidden="true">
-                <span>less depleted</span>
-                <span>constrained →</span>
-              </span>
-            </div>
-            <ul className="vh-metrics" role="list" aria-label={`${source} population constraint and reference ranges`}>
-              {metrics.map((metric) => (
-                <ConstraintMetric key={metric.key} metric={metric} />
-              ))}
-            </ul>
-            {provenance && <p className="vcs-panel-note">
-              Gene metrics: <a href={`https://gnomad.broadinstitute.org/gene/${provenance.geneId}?dataset=gnomad_r4`} target="_blank" rel="noopener noreferrer">{source}</a>, {provenance.assembly}, {provenance.transcriptId}.{provenance.transcriptVersion} ({provenance.selection === "matched" ? "annotated transcript" : provenance.selection === "mane-select" ? "MANE Select reference" : provenance.selection === "sole-transcript" ? "sole protein-coding transcript" : "canonical reference"}).
-              {analysisResult?.gnomadConstraint?.regionalRelease && <> Regional metrics: gnomAD v{analysisResult.gnomadConstraint.regionalRelease}.</>}
-            </p>}
-            <p className="vcs-panel-note">
-              Population constraint does not classify this variant. Every track reads less depleted on the left and
-              constrained on the right; LOEUF and O/E fall as constraint rises, so their axes are reversed.
-              {provenance?.release === "4.1.2" && <> Missense Z bands are app-defined (dashed marks).
-                LOEUF uses <a href="https://gnomad.broadinstitute.org/news/2026-03-gnomad-v4-1-1/" target="_blank" rel="noopener noreferrer">gnomAD's current guidance</a>.
-                Regional calls require depletion, significance and passed QC.</>}
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

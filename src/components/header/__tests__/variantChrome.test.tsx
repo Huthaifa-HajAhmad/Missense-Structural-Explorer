@@ -61,28 +61,115 @@ describe("context strip", () => {
     expect(chips[0].querySelector(".vcs-mini-dot")).not.toBeNull();
   });
 
-  it("discloses the full tracks from Details, and closes on Escape with focus returned", () => {
+  it("opens a reading's card on a click, and a second click closes it", () => {
     render(<VariantHeader {...props(clean)} />);
-    const details = screen.getByRole("button", { name: /^Details/ });
-    expect(details).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).toBeNull();
+    const chip = screen.getByRole("button", { name: /^LOEUF/ });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(chip).not.toHaveAttribute("aria-controls");
 
-    fireEvent.click(details);
-    expect(details).toHaveAttribute("aria-expanded", "true");
-    const panel = screen.getByRole("region", { name: "Gene constraint reference ranges" });
-    expect(details).toHaveAttribute("aria-controls", panel.id);
-    expect(panel.querySelectorAll("li.vh-metric")).toHaveLength(3);
+    fireEvent.click(chip);
+    const card = screen.getByTestId("constraint-card");
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    expect(chip).toHaveAttribute("aria-controls", card.id);
+    expect(card).toHaveAttribute("data-metric", "loeuf");
+    // One reading per card: its own full track, and who set its cut-points.
+    expect(card.querySelectorAll("li.vh-metric")).toHaveLength(1);
+    expect(within(card).getByText("gnomAD", { selector: ".cx-origin" })).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: /gnomAD guidance/ })).toHaveAttribute("target", "_blank");
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).toBeNull();
-    expect(document.activeElement).toBe(details);
+    fireEvent.click(chip);
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
   });
 
-  it("closes the panel on a click outside it", () => {
+  it("opens a reading's card on keyboard focus, and Tab reaches the card's action next", () => {
+    render(<VariantHeader {...props(clean)} />);
+    const chip = screen.getByRole("button", { name: /^Missense Z/ });
+    const matches = vi.spyOn(chip, "matches").mockImplementation((selector: string) => selector === ":focus-visible");
+    fireEvent.focus(chip);
+    matches.mockRestore();
+    const card = screen.getByTestId("constraint-card");
+    expect(within(card).getByText(/App PP2 proxy not met/)).toBeInTheDocument();
+    // The card sits right after its chip in the DOM, so Tab order runs chip → card action → next chip.
+    const inspect = within(card).getByRole("button", { name: "Open in inspector" });
+    expect(chip.compareDocumentPosition(inspect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chip.closest("li")?.contains(inspect)).toBe(true);
+  });
+
+  it("does not open a card when focus arrives from a pointer", () => {
+    render(<VariantHeader {...props(clean)} />);
+    const chip = screen.getByRole("button", { name: /^Missense Z/ });
+    vi.spyOn(chip, "matches").mockReturnValue(false);
+    fireEvent.focus(chip);
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+  });
+
+  it("closes the card on Escape with focus returned to its chip", () => {
+    render(<VariantHeader {...props(clean)} />);
+    const chip = screen.getByRole("button", { name: /^Missense Z/ });
+    fireEvent.click(chip);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
+
+  it("closes the card on a click outside it, but not on a click inside it", () => {
     render(<div><VariantHeader {...props(clean)} /><p>page</p></div>);
-    fireEvent.click(screen.getByRole("button", { name: /^Details/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Missense Z/ }));
+    fireEvent.mouseDown(screen.getByTestId("constraint-card"));
+    expect(screen.getByTestId("constraint-card")).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByText("page"));
-    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).toBeNull();
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+  });
+
+  it("closes the card when focus leaves the chip and its card", () => {
+    render(<VariantHeader {...props(clean)} />);
+    const chip = screen.getByRole("button", { name: /^Missense Z/ });
+    fireEvent.click(chip);
+    fireEvent.blur(chip, { relatedTarget: screen.getByRole("button", { name: /^LOEUF/ }) });
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+  });
+
+  it("keeps the card open when a press on its text moves focus from the chip to the card", () => {
+    render(<VariantHeader {...props(clean)} />);
+    const chip = screen.getByRole("button", { name: /^Missense Z/ });
+    fireEvent.click(chip);
+    const card = screen.getByTestId("constraint-card");
+    // Chromium focuses the nearest focusable ancestor on a press; without one the blur has
+    // `relatedTarget === null` and closes the card under the pointer. The card is that target.
+    expect(card).toHaveAttribute("tabindex", "-1");
+    fireEvent.blur(chip, { relatedTarget: card });
+    expect(screen.getByTestId("constraint-card")).toBeInTheDocument();
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    // Leaving for somewhere else, or for nowhere, still closes it.
+    fireEvent.blur(card, { relatedTarget: null });
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+  });
+
+  it("hands a reading to the inspector and marks its chip as inspected", () => {
+    useVariantAnalysisStore.getState().setConstraintFocus(null);
+    render(<VariantHeader {...props(clean)} />);
+    const chip = screen.getByRole("button", { name: /^Regional O\/E/ });
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("button", { name: "Open in inspector" }));
+    expect(useVariantAnalysisStore.getState().constraintFocus).toBe("regional-oe");
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+    expect(chip).toHaveAttribute("data-inspected", "true");
+    expect(chip).toHaveAccessibleName(/shown in the inspector/);
+  });
+
+  it("tags a measured reading whose release differs from the group's label, and nothing else", () => {
+    const measured = {
+      ...clean,
+      gnomadConstraint: { ...constraint, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "Ala1 to Gly9" } },
+    } as unknown as AnalysisResult;
+    const { unmount } = render(<VariantHeader {...props(measured)} />);
+    expect(screen.getByRole("button", { name: /^Regional O\/E/ })).toHaveTextContent("v4.1.1");
+    unmount();
+    // No regional value, so no release to attribute.
+    render(<VariantHeader {...props(clean)} />);
+    expect(screen.getByRole("button", { name: /^Regional O\/E/ }).querySelector(".vcs-chip-release")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Missense Z/ }).querySelector(".vcs-chip-release")).toBeNull();
+    expect(screen.getByRole("button", { name: /^LOEUF/ }).querySelector(".vcs-chip-release")).toBeNull();
   });
 
   it("has no run state on a clean run", () => {
@@ -90,13 +177,15 @@ describe("context strip", () => {
     expect(screen.queryByTestId("run-state")).toBeNull();
   });
 
-  it("auto-closes the panel when switching variants", () => {
+  it("closes the card and gives the rail back when switching variants", () => {
     const { rerender } = render(<VariantHeader {...props(clean)} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Details/ }));
-    expect(screen.getByRole("region", { name: "Gene constraint reference ranges" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Missense Z/ }));
+    useVariantAnalysisStore.getState().setConstraintFocus("missense-z");
+    expect(screen.getByTestId("constraint-card")).toBeInTheDocument();
 
     rerender(<VariantHeader {...props(clean)} variant="p.Arg175His" />);
-    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).toBeNull();
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+    expect(useVariantAnalysisStore.getState().constraintFocus).toBeNull();
   });
 });
 

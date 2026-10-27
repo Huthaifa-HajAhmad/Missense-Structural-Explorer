@@ -4,12 +4,14 @@
  * Pure: no React. Each builder turns one gnomAD signal into a `VhMetric` — value, tone, verdict, the
  * reference track (domain, direction, bands, ticks) and the full sentences for tooltips and assistive
  * tech. Moved out of `VariantHeader.tsx` unchanged when the header split into a top-bar identity and a
- * one-line context strip, so both the strip's micro-tracks and the Details panel's full tracks read the
+ * one-line context strip, so the strip's micro-tracks, its reading cards and the inspector's full tracks read the
  * same metric objects.
  */
 import { THRESHOLDS } from "../../shared/thresholds";
 import { resolveEvidenceAvailability } from "../../shared/evidenceAvailability";
-import { CONSTRAINT_RELEASE, type RegionalConstraintStatus } from "../../shared/constraintSource";
+import { CONSTRAINT_GUIDANCE_URL, CONSTRAINT_RELEASE, type ConstraintMetricKey, type RegionalConstraintStatus } from "../../shared/constraintSource";
+
+export type { ConstraintMetricKey };
 import type { AnalysisResult } from "../../types";
 
 // ─────────────────────────────────────────────
@@ -30,6 +32,29 @@ const RMC_DOMAIN: readonly [number, number] = [0, 1.5];
 
 export type VhTone = "path" | "warn" | "good" | "muted";
 
+/**
+ * Who set a track's cut-points. The reader has to know this to weigh a band: an app-defined display
+ * band, a cut gnomAD publishes, and a neutral baseline are three different kinds of line.
+ */
+export type VhCutPointOrigin = "app" | "gnomad" | "baseline";
+
+export interface VhCutPoints {
+  origin: VhCutPointOrigin;
+  /** The cut-points as drawn, e.g. "2.0 · 3.09". */
+  label: string;
+  /** One sentence on what the lines are and where they come from. */
+  text: string;
+  /** The published guidance behind the lines, when there is one. */
+  href?: string;
+}
+
+/** Visible names for the cut-point origins, shared by the card and the inspector. */
+export const CUT_POINT_ORIGIN_LABELS: Record<VhCutPointOrigin, string> = {
+  app: "App-defined",
+  gnomad: "gnomAD",
+  baseline: "Baseline",
+};
+
 export interface VhBand {
   from: number;
   to: number;
@@ -44,9 +69,23 @@ export interface VhTick {
 
 /** One metric rendered as a threshold track inside the constraint rail. */
 export interface VhMetric {
-  key: string;
-  /** Compact visual label; the full metric name lives in `tooltip`/`detail`. */
+  key: ConstraintMetricKey;
+  /** Compact visual label; the full metric name lives in `name`, `tooltip` and `detail`. */
   label: string;
+  /** Full metric name, for the card and inspector headings. */
+  name: string;
+  /**
+   * The release this reading comes from. Regional O/E has its own (v4.1.1), so it must not inherit
+   * the gene metrics' label — the strip tags any metric whose release differs from the group's.
+   */
+  release: string;
+  /** Where the cut-points come from; null when interpretation is withheld (no bands are drawn). */
+  cutPoints: VhCutPoints | null;
+  /**
+   * Visible facts about this reading beyond value and verdict — PP2 proxy status, the RMC block and
+   * its p-value, why a call is absent. They used to live only in tooltips.
+   */
+  facts: string[];
   value: string;
   tone: VhTone;
   verdict: string;
@@ -152,10 +191,23 @@ export function buildMissenseZMetric(
     ],
   };
   const refRange =
-    "Reference: app-defined display bands at Z 2.0 and 3.09; these are not ClinGen cutoffs. Positive Z means fewer missense variants than expected; Z of 0 or less does not establish tolerance.";
+    `Reference: app-defined display bands at Z ${supporting.toFixed(1)} and ${strong}; these are not ClinGen cutoffs. Positive Z means fewer missense variants than expected; Z of 0 or less does not establish tolerance.`;
+  const pp2 = THRESHOLDS.pp2Constraint;
+  const reference = {
+    name: "Missense Z score",
+    release: "gnomAD v4.1.2",
+    cutPoints: {
+      origin: "app" as const,
+      label: `${supporting.toFixed(1)} · ${strong}`,
+      text: "Display bands drawn as dashed marks; they are not ClinGen cutoffs.",
+    },
+  };
+  const pp2Fact = isPP2Constrained
+    ? `App PP2 proxy met: Z ≥ ${pp2.missenseZ} and missense O/E < ${pp2.oeMisBelow}. This is not the recorded ACMG criterion.`
+    : `App PP2 proxy not met: it needs Z ≥ ${pp2.missenseZ} and missense O/E < ${pp2.oeMisBelow}.`;
   const pp2Clause = isPP2Constrained
-    ? " App-defined PP2 proxy is met (Z ≥ 3.09 and missense O/E < 0.6); this is not the recorded ACMG criterion or a ClinGen genome-wide cutoff."
-    : " App-defined PP2 proxy is not met (it also requires missense O/E < 0.6); this is not a ClinGen genome-wide cutoff.";
+    ? ` App-defined PP2 proxy is met (Z ≥ ${pp2.missenseZ} and missense O/E < ${pp2.oeMisBelow}); this is not the recorded ACMG criterion or a ClinGen genome-wide cutoff.`
+    : ` App-defined PP2 proxy is not met (it also requires missense O/E < ${pp2.oeMisBelow}); this is not a ClinGen genome-wide cutoff.`;
 
   const z = typeof missenseZ === "number" ? missenseZ : null;
 
@@ -163,6 +215,8 @@ export function buildMissenseZMetric(
     return {
       key: "missense-z",
       label: "Missense Z",
+      ...reference,
+      facts: [],
       value: VH_NO_VALUE,
       tone: "muted",
       verdict: "No data",
@@ -195,6 +249,8 @@ export function buildMissenseZMetric(
   return {
     key: "missense-z",
     label: "Missense Z",
+    ...reference,
+    facts: [pp2Fact],
     value,
     tone: tier.tone,
     verdict: tier.verdict,
@@ -226,12 +282,25 @@ export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
   const refRange =
     `Reference: strongest 10% of MANE Select genes below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut, v4.1.1 guidance retained in v4.1.2; an optional prioritization threshold); at or above ${constrained.toFixed(2)} the gene is not shown to be constrained, which is not the same as tolerating loss of function.`;
 
+  const reference = {
+    name: "LOEUF · loss-of-function observed/expected upper bound",
+    release: "gnomAD v4.1.2",
+    cutPoints: {
+      origin: "gnomad" as const,
+      label: `${strong} · ${constrained.toFixed(2)}`,
+      text: `${strong}: the strongest 10% of MANE Select genes. ${constrained.toFixed(2)}: gnomAD's suggested cut, an optional prioritisation threshold. Axis reversed.`,
+      href: CONSTRAINT_GUIDANCE_URL,
+    },
+  };
+
   const v = typeof loeuf === "number" ? loeuf : null;
 
   if (v === null || !Number.isFinite(v)) {
     return {
       key: "loeuf",
       label: "LOEUF",
+      ...reference,
+      facts: [],
       value: VH_NO_VALUE,
       tone: "muted",
       verdict: "No data",
@@ -259,6 +328,8 @@ export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
   return {
     key: "loeuf",
     label: "LOEUF",
+    ...reference,
+    facts: [],
     value,
     tone: tier.tone,
     verdict: tier.verdict,
@@ -284,6 +355,15 @@ export function buildRmcMetric(
     ticks: [{ at: 1.0, label: "1.0" }],
   };
   const refRange = "Reference: O/E = 1.0 is the neutral baseline. A regional call requires verified GRCh38 transcript/locus identity and passed QC.";
+  const reference = {
+    name: "Regional missense O/E (RMC)",
+    release: source,
+    cutPoints: {
+      origin: "baseline" as const,
+      label: "O/E 1.0",
+      text: "The neutral baseline. A regional call needs depletion, significance and passed QC on a verified GRCh38 locus. Axis reversed.",
+    },
+  };
   const unavailable: Partial<Record<RegionalConstraintStatus, [string, string]>> = {
     "unverified-locus": ["Unverified locus", "A verified GRCh38 single-nucleotide locus and transcript are required; protein residue numbers alone are insufficient."],
     "transcript-mismatch": ["Transcript mismatch", "The annotated transcript is absent from this gene's constraint release; regional evidence is withheld."],
@@ -293,7 +373,7 @@ export function buildRmcMetric(
     "outside-region": ["Outside regions", "The verified locus lies outside the released intervals; this does not establish tolerance."],
   };
   const absence = status ? unavailable[status] : undefined;
-  if (absence) return { key: "regional-oe", label: "Regional O/E", value: VH_NO_VALUE, tone: "muted", verdict: absence[0], marker: null, ...domains, tooltip: `${source}: ${absence[1]}`, detail: `${absence[1]} ${refRange}` };
+  if (absence) return { key: "regional-oe", label: "Regional O/E", ...reference, facts: [absence[1]], value: VH_NO_VALUE, tone: "muted", verdict: absence[0], marker: null, ...domains, tooltip: `${source}: ${absence[1]}`, detail: `${absence[1]} ${refRange}` };
 
   if (!regional) {
     // `regional` is null in two different situations, and they mean opposite things:
@@ -315,6 +395,8 @@ export function buildRmcMetric(
     return {
       key: "regional-oe",
       label: "Regional O/E",
+      ...reference,
+      facts: [noCall.sentence],
       value: VH_NO_VALUE,
       tone: "muted",
       verdict: noCall.verdict,
@@ -339,11 +421,15 @@ export function buildRmcMetric(
   // would hand the third row a second text line the other rows don't have,
   // breaking the row rhythm. The released p-value is a regional chi-square statistic.
   const pClause = pText ? `, regional chi-square p = ${pText} (approximate)` : "";
+  const blockSpan = region ? region.replace("–", " to ") : null;
+  const pFact = pText ? `Regional chi-square p = ${pText} (approximate).` : null;
 
   if (regional.isConstrained) {
     return {
       key: "regional-oe",
       label: "Regional O/E",
+      ...reference,
+      facts: [blockSpan ? `Constrained block ${blockSpan}.` : "Constrained sub-region.", ...(pFact ? [pFact] : [])],
       value,
       tone: "path",
       verdict: "Subgenic constrained",
@@ -362,6 +448,8 @@ export function buildRmcMetric(
     return {
       key: "regional-oe",
       label: "Regional O/E",
+      ...reference,
+      facts: [`Candidate window ${blockSpan}; it did not reach significance, so this is not a constrained call.`, ...(pFact ? [pFact] : [])],
       value,
       tone: "muted",
       verdict: "Sub-threshold window",
@@ -378,6 +466,8 @@ export function buildRmcMetric(
   return {
     key: "regional-oe",
     label: "Regional O/E",
+    ...reference,
+    facts: ["The residue sits outside every constrained sub-region; this does not establish tolerance."],
     value,
     tone: "muted",
     verdict: "Outside regions",
@@ -415,20 +505,69 @@ export function buildConstraintMetrics(analysisResult: AnalysisResult | null | u
   const qc = gnomad?.qualityFlags?.length ? `QC warning: ${gnomad.qualityFlags.map(f => flagLabels[f] ?? f.replaceAll("_", " ")).join(", ")}. Constraint interpretation withheld.` : null;
   for (const metric of metrics) {
     if (metric.key !== "regional-oe") {
+      metric.release = source;
       metric.tooltip = metric.tooltip.replace("gnomAD v4.1.2", source);
-      if (qc) Object.assign(metric, { value: VH_NO_VALUE, marker: null, tone: "muted", verdict: "QC warning", tooltip: `${source}: ${qc}`, detail: qc });
+      if (qc) Object.assign(metric, { value: VH_NO_VALUE, marker: null, tone: "muted", verdict: "QC warning", tooltip: `${source}: ${qc}`, detail: qc, facts: [qc] });
     }
-    if (legacy) Object.assign(metric, { bands: [], ticks: [], tone: "muted", verdict: gnomad?.provenance ? "Different release" : "Release unreported", tooltip: "Constraint values require the pinned release and transcript provenance for interpretation. Re-run the analysis to use current data.", detail: "Interpretation withheld until current source provenance is available." });
+    if (legacy) Object.assign(metric, { bands: [], ticks: [], cutPoints: null, facts: [], tone: "muted", verdict: gnomad?.provenance ? "Different release" : "Release unreported", tooltip: "Constraint values require the pinned release and transcript provenance for interpretation. Re-run the analysis to use current data.", detail: "Interpretation withheld until current source provenance is available." });
     if (!gnomad) {
       const failed = status === "error" || status === "timeout";
       const availability = resolveEvidenceAvailability({ status: failed ? "unavailable" : status, value: null,
         message: failed ? "The constraint source could not be loaded. Re-run the analysis." : null });
-      Object.assign(metric, { verdict: availability.label ?? "No result", tone: "muted", tooltip: `${source}: ${availability.reason ?? availability.label ?? "No result"}`, detail: availability.reason ?? "No constraint result was returned." });
+      Object.assign(metric, { verdict: availability.label ?? "No result", tone: "muted", facts: [], tooltip: `${source}: ${availability.reason ?? availability.label ?? "No result"}`, detail: availability.reason ?? "No constraint result was returned." });
     }
     if (metric.marker !== null && (metric.marker < metric.domain[0] || metric.marker > metric.domain[1])) {
       metric.detail += " Value outside the display range; the marker is clamped at the edge.";
       metric.tooltip += " Value outside the display range; the marker is clamped at the edge.";
+      metric.facts.push("Value outside the display range; the marker is clamped at the edge.");
     }
   }
   return metrics;
+}
+
+/**
+ * The short release tag a reading carries when its release differs from the group's label
+ * ("v4.1.1" on Regional O/E under "gnomAD v4.1.2"), or null when there is nothing to attribute:
+ * the release matches the group's, no value was measured, or interpretation is withheld
+ * (`cutPoints` null — a legacy or different release), where a tag would only contradict the verdict.
+ */
+export function releaseTag(metric: Pick<VhMetric, "release" | "marker" | "cutPoints">, groupSource: string): string | null {
+  if (metric.marker === null || metric.cutPoints === null || metric.release === groupSource) return null;
+  return metric.release.replace(/^gnomAD \((.*)\)$/, "$1").replace(/^gnomAD /, "");
+}
+
+/** Where the constraint numbers came from, as the inspector's Source section lists them. */
+export interface ConstraintProvenanceView {
+  /** "gnomAD v4.1.2" — the gene metrics' release. */
+  geneSource: string;
+  /** The gene's gnomAD browser page. */
+  geneHref: string;
+  assembly: string;
+  /** "ENST….9" */
+  transcript: string;
+  /** How that transcript was chosen, in words. */
+  selection: string;
+  /** "gnomAD v4.1.1", or null when the payload carries no regional release. */
+  regionalSource: string | null;
+}
+
+const TRANSCRIPT_SELECTION_LABELS: Record<string, string> = {
+  matched: "Annotated transcript",
+  "mane-select": "MANE Select reference",
+  "sole-transcript": "Sole protein-coding transcript",
+};
+
+/** Null when the payload has no provenance (a legacy payload): the inspector then names no source. */
+export function buildConstraintProvenance(result: AnalysisResult | null | undefined): ConstraintProvenanceView | null {
+  const provenance = result?.gnomadConstraint?.provenance;
+  if (!provenance) return null;
+  const regionalRelease = result?.gnomadConstraint?.regionalRelease;
+  return {
+    geneSource: constraintSourceLabel(result),
+    geneHref: `https://gnomad.broadinstitute.org/gene/${encodeURIComponent(provenance.geneId)}?dataset=gnomad_r4`,
+    assembly: provenance.assembly,
+    transcript: `${provenance.transcriptId}.${provenance.transcriptVersion}`,
+    selection: TRANSCRIPT_SELECTION_LABELS[provenance.selection] ?? "Canonical reference",
+    regionalSource: regionalRelease ? `gnomAD v${regionalRelease}` : null,
+  };
 }

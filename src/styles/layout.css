@@ -61,7 +61,9 @@
 }
 
 /* Identity and constraint context stay together above the workspace. */
-.app-header:has(+ .variant-header) { margin-block-end: 0; }
+/* One masthead: the constraint row describes the gene named above it, so no rule divides them;
+   the strip's own rule closes both rows. */
+.app-header:has(+ .variant-header) { margin-block-end: 0; border-block-end-color: transparent; }
 
 .header-actions {
   display: flex;
@@ -265,7 +267,8 @@
    and constrained on the right (LOEUF and O/E axes are reversed).
    ============================================================ */
 .variant-header,
-.vid-zone {
+.vid-zone,
+.cx-inspector {
   /* Constraint tone palette. Scoped to the header so it maps 1:1 onto the
      gnomAD severity bands without adding new globals to the design system.
      The -fg values clear WCAG AA on --cs-surface-2, which the raw
@@ -306,7 +309,8 @@
 }
 
 .dark .variant-header,
-.dark .vid-zone {
+.dark .vid-zone,
+.dark .cx-inspector {
   --vh-good-fg: #4ADE80;
   --vh-warn-fg: #FBBF24;
   --vh-path-fg: #F87171;
@@ -399,51 +403,153 @@
   .vid .vh-icon-btn:focus-visible { opacity: 1; }
 }
 
-/* ── Details panel ──
-   The full tracks, disclosed from the strip. Anchored under the strip's left
-   edge, above the page; a disclosure, not a dialog (Escape or an outside click
-   closes it and returns focus to "Details"). */
-.vcs-panel {
+/* ── Reading card ──
+   One reading explained in place, opened from its chip by keyboard focus or a
+   click (header/ConstraintCard.tsx). Anchored under the strip at the chip's
+   x, clamped inside the strip; a disclosure, not a dialog. Two-tone: wash head
+   and foot strips, white body. Its containing block is `.variant-header`, so
+   the chip row's sideways scroll cannot clip it. */
+.vcs-card {
   position: absolute;
-  inset-block-start: calc(100% + 8px);
-  inset-inline-start: 12px;
-  inline-size: min(740px, calc(100% - 24px));
-  max-block-size: calc(100dvh - 160px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 20px;
+  inset-block-start: calc(100% + 6px);
+  /* Must match CARD_WIDTH in VariantHeader.tsx. */
+  inline-size: min(360px, calc(100% - 16px));
+  z-index: 30;
+  overflow: hidden;
   background: var(--cs-surface);
   border: 1px solid var(--cs-border-subtle);
-  border-radius: 16px;
-  box-shadow: 0 16px 48px oklch(0 0 none / .14), 0 2px 8px oklch(0 0 none / .06);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px oklch(0 0 none / .12), 0 2px 6px oklch(0 0 none / .05);
   white-space: normal;
-  /* Required: the @container (max-width: 600px) block below sizes .vh-rail-head and .vh-metric
-     against this panel's width, not the viewport's. */
+  text-align: start;
+  /* The single track row restacks against the card's width (the @container rule below). */
   container-type: inline-size;
 }
-.dark .vcs-panel { box-shadow: 0 16px 48px oklch(0 0 none / .4); }
-.vh-rail { display: flex; flex-direction: column; min-inline-size: 0; }
-.vcs-panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-block-end: 20px; }
-.vcs-panel-heading h2 { margin: 0; font-size: 17px; font-weight: 600; color: var(--cs-text-primary); }
-.vcs-panel-heading p { margin-block: 4px 0; font-size: 12px; color: var(--cs-text-secondary); }
-.vcs-close { display: grid; place-items: center; flex: none; inline-size: 32px; block-size: 32px; border-radius: 8px; color: var(--cs-text-secondary); cursor: pointer; }
-.vcs-close:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
-.vcs-close:active { background: var(--cs-bg-subtle); }
-@media (hover: hover) and (pointer: fine) {
-  .vcs-close:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.dark .vcs-card { box-shadow: 0 12px 32px oklch(0 0 none / .4); }
+@media (prefers-reduced-motion: no-preference) {
+  .vcs-card { animation: vcs-card-in 120ms ease-out; }
 }
-.vcs-panel-note {
-  margin: 12px 0 0;
-  font-size: 12px;
-  line-height: 1.65;
+@keyframes vcs-card-in { from { opacity: 0; transform: translateY(-4px); } }
+.vcs-card-head,
+.vcs-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--cs-workbench-header-surface);
+  font-size: 11.5px;
   color: var(--cs-text-secondary);
 }
-.vcs-panel-note:last-child { padding-block-start: 12px; border-block-start: 1px solid var(--cs-border-subtle); }
+.vcs-card-head { border-block-end: 1px solid var(--cs-border-subtle); }
+.vcs-card-foot { border-block-start: 1px solid var(--cs-border-subtle); }
+.vcs-card-name { font-size: 12.5px; font-weight: 600; color: var(--cs-text-primary); }
+.vcs-card-release { flex: none; font-family: var(--cs-font-mono); font-size: 10.5px; color: var(--vh-muted-fg); }
+.vcs-card-body { padding: 4px 14px 12px; }
+.vcs-card .vh-metrics { background: transparent; }
+.vcs-card-inspect {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-block-size: 28px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--vh-clay-fg);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .vcs-card-inspect:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+.vcs-card-inspect:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+.vh-rail { display: flex; flex-direction: column; min-inline-size: 0; }
 .vh-tick[data-kind="app"] {
   background: transparent;
   border-left: 1px dashed var(--vh-muted-fg);
 }
-.vcs-panel-note a { color: var(--cs-text-primary); text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── Cut-point origin and reading facts ──
+   Shared by the card and the inspector (ConstraintReference). */
+.cx-ref { display: flex; flex-direction: column; gap: 6px; margin-block-start: 8px; }
+.cx-cuts { margin: 0; font-size: 12px; line-height: 1.55; color: var(--cs-text-secondary); }
+.cx-origin {
+  display: inline-block;
+  margin-inline-end: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  vertical-align: 1px;
+}
+.cx-origin[data-origin="app"]      { background: var(--vh-clay-soft);  color: var(--vh-clay-fg); }
+.cx-origin[data-origin="gnomad"]   { background: var(--vh-good-soft);  color: var(--vh-good-fg); }
+.cx-origin[data-origin="baseline"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
+.cx-cuts-values {
+  margin-inline-end: 6px;
+  font-family: var(--cs-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.cx-facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.cx-facts li { position: relative; padding-inline-start: 12px; font-size: 12px; line-height: 1.5; color: var(--cs-text-primary); }
+.cx-facts li::before { content: ""; position: absolute; inset-inline-start: 2px; inset-block-start: .62em; inline-size: 4px; block-size: 4px; border-radius: 50%; background: var(--vh-muted-fg); }
+.cx-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--cs-text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cx-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 2px; }
+
+/* ── Gene constraint in the inspector ──
+   inspector/ConstraintInspector.tsx; the rail lends itself to a reading sent
+   from the strip. The track rows restack against the rail's width. */
+.cx-inspector { display: flex; flex-direction: column; gap: 16px; container-type: inline-size; }
+.cx-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 28px;
+  padding: 0 4px;
+  margin-inline-start: -4px;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vh-clay-fg);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cx-back:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+.cx-back:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.cx-scope { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--cs-text-secondary); }
+.cx-scope strong { font-weight: 600; color: var(--cs-text-primary); }
+.cx-inspector .vh-metric[data-focused] {
+  margin-inline: -8px;
+  padding-inline: 8px;
+  background: var(--cs-workbench-header-surface);
+}
+.cx-inspector .vh-metric:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+.cx-inspector .vh-metric:focus:not(:focus-visible) { outline: none; }
+.cx-section { display: flex; flex-direction: column; gap: 8px; }
+.cx-sources { margin: 0; padding: 0; list-style: none; }
+.cx-source { padding-block: 10px; border-block-start: 1px solid var(--cs-border-subtle); }
+.cx-source .cx-ref { margin-block-start: 4px; }
+.cx-source-name { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--cs-text-primary); }
+.cx-note { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--cs-text-muted); }
+.cx-mono { font-family: var(--cs-font-mono); font-size: 11.5px; }
 
 /* ── Rail caption ──
    One line on the rows' own grid. The left cell scopes the rows ("Gene
@@ -757,14 +863,23 @@
 @container (max-width: 560px) { .vid-chip--coordinate { display: none; } }
 @container (max-width: 400px) { .vid-chip--transcript { display: none; } }
 
-/* ── Context strip ── */
+/* ── Context strip ──
+   The scope reads as a label (the rail's eyebrow style), not as a fourth reading. */
 .vcs-title {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--cs-text-primary);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--vh-muted-fg);
 }
-.vcs-source { font-weight: 400; color: var(--vh-muted-fg); }
+.vcs-source {
+  margin-inline-start: 4px;
+  font-family: var(--cs-font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
 
 .vcs-chips {
   display: flex;
@@ -779,24 +894,62 @@
 .vcs-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 14px;
+  padding: 0 6px;
   font-size: 12px;
 }
 .vcs-chip:first-child { padding-left: 0; }
 .vcs-chip + .vcs-chip { border-left: 1px solid var(--cs-border-subtle); }
+/* Each reading is a button: keyboard focus or a click opens its card. The fill
+   appears only under the pointer, while open, or while the inspector shows it. */
+.vcs-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  block-size: 32px;
+  padding: 0 8px;
+  border-radius: var(--cs-radius-input);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .vcs-chip-btn:hover { background: var(--vh-muted-soft); }
+}
+.vcs-chip-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.vcs-chip-btn[aria-expanded="true"] { background: var(--cs-workbench-header-surface); }
+.vcs-chip-btn[data-inspected] {
+  background: var(--cs-workbench-header-surface);
+  box-shadow: inset 0 -2px 0 var(--vh-clay-fg);
+}
 .vcs-chip-label { color: var(--vh-muted-fg); }
+/* Values are ink: the verdict and the dot carry the tone, so each reading is coloured once. */
 .vcs-chip-value {
   font-family: var(--cs-font-mono);
   font-size: 12.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
 }
+.vcs-chip-value[data-tone="muted"] { color: var(--vh-muted-fg); }
 .vcs-chip-verdict { font-weight: 600; }
-.vcs-chip-value[data-tone="good"],  .vcs-chip-verdict[data-tone="good"]  { color: var(--vh-good-fg); }
-.vcs-chip-value[data-tone="warn"],  .vcs-chip-verdict[data-tone="warn"]  { color: var(--vh-warn-fg); }
-.vcs-chip-value[data-tone="path"],  .vcs-chip-verdict[data-tone="path"]  { color: var(--vh-path-fg); }
-.vcs-chip-value[data-tone="muted"], .vcs-chip-verdict[data-tone="muted"] { color: var(--vh-muted-fg); }
+.vcs-chip-verdict[data-tone="good"]  { color: var(--vh-good-fg); }
+.vcs-chip-verdict[data-tone="warn"]  { color: var(--vh-warn-fg); }
+.vcs-chip-verdict[data-tone="path"]  { color: var(--vh-path-fg); }
+.vcs-chip-verdict[data-tone="muted"] { color: var(--vh-muted-fg); }
+/* A reading from a different release than the group's label (Regional O/E: v4.1.1). */
+.vcs-chip-release {
+  padding: 0 4px;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 4px;
+  background: var(--cs-surface);
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--vh-muted-fg);
+}
 
 /* Micro-track: the full track's axis, direction and bands, at chip size. */
 .vcs-mini {
@@ -828,33 +981,6 @@
 .vcs-mini-dot[data-tone="warn"]  { background: var(--vh-warn-fg); }
 .vcs-mini-dot[data-tone="path"]  { background: var(--vh-path-fg); }
 .vcs-mini-dot[data-tone="muted"] { background: var(--vh-muted-fg); }
-
-.vcs-details {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: var(--cs-radius-input);
-  background: var(--cs-surface);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  /* The AA-tuned clay, not the raw accent (3.9:1 at 12px). */
-  color: var(--vh-clay-fg);
-  cursor: pointer;
-}
-@media (hover: hover) and (pointer: fine) {
-  .vcs-details:hover { background: var(--vh-clay-soft); }
-}
-.vcs-details:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
-.vcs-details:active, .vcs-details[aria-expanded="true"] { background: var(--vh-clay-soft); }
-@media (prefers-reduced-motion: no-preference) {
-  .vcs-details svg { transition: transform 150ms ease-out; }
-}
-.vcs-details svg[data-open] { transform: rotate(180deg); }
 
 /* Notes and the run state sit at the strip's end. */
 .vcs-notes {
@@ -903,7 +1029,7 @@
    title. Labels never drop — a bare number is not a reading — so when three
    labelled chips still do not fit, the chip row scrolls sideways instead. */
 /* Recovery has priority over repeated prose and decorative tracks, even in a nominally wide
-   strip. Keep measured values and Details; never overprint the actionable recovery chrome. */
+   strip. Keep measured values (each still opens its card); never overprint the actionable recovery chrome. */
 .variant-header:has(.vcs-runstate) .vcs-chip-verdict,
 .variant-header:has(.vcs-runstate) .vcs-mini,
 .variant-header:has(.vcs-runstate) .vcs-source { display: none; }

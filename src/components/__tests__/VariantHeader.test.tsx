@@ -5,14 +5,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import VariantHeader from "../VariantHeader";
 import { VariantIdentity } from "../header/VariantIdentity";
 import { buildVariantHeaderModel } from "../header/variantHeaderModel";
+import { ConstraintInspector } from "../inspector/ConstraintInspector";
 import { AnalysisResult } from "../../types";
 
 /**
- * The variant chrome as the app renders it: the identity (top bar) above the context strip.
- * The identity and the strip were one component before the option-B redesign; these tests kept
- * their assertions and render both, with the strip's Details panel OPEN so the full tracks are in
- * the DOM. A chip and its panel row both state the value, so value/verdict assertions are scoped
- * to the panel (`panel()`), the surface that carries the full reading.
+ * The variant chrome as the app renders it: the identity (top bar) above the context strip, plus the
+ * inspector's Gene constraint view, which carries the full tracks (they lived in the strip's Details
+ * panel before the card/inspector redesign). A chip and its inspector row both state the value, so
+ * value/verdict assertions are scoped to the inspector (`panel()`), the surface with the full reading.
  */
 type ChromeProps = { gene: string; variant: string; uniprotId: string; analysisResult: AnalysisResult | null };
 function Chrome(props: ChromeProps) {
@@ -20,23 +20,13 @@ function Chrome(props: ChromeProps) {
     <>
       <VariantIdentity model={buildVariantHeaderModel(props)} />
       <VariantHeader {...props} />
+      {/* As in the app: the inspector shows gene constraint only once there is a result. */}
+      {props.analysisResult && <ConstraintInspector {...props} focus={null} />}
     </>
   );
 }
-function openDetails() {
-  const button = screen.queryByRole("button", { name: /^Details/ });
-  if (button && button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
-}
-function render(ui: React.ReactElement) {
-  const result = rtlRender(ui);
-  openDetails();
-  const rerender = (next: React.ReactElement) => {
-    result.rerender(next);
-    openDetails();
-  };
-  return { ...result, rerender };
-}
-/** The Details panel: the full tracks, cut-points and verdicts. */
+const render = rtlRender;
+/** The inspector's Gene constraint view: the full tracks, cut-points and verdicts. */
 const panel = () => within(screen.getByRole("region", { name: "Gene constraint reference ranges" }));
 
 describe("VariantHeader Component Tests", () => {
@@ -127,8 +117,9 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByText("BRAF")).toBeInTheDocument();
-    expect(screen.getByText("p.Val600Glu")).toBeInTheDocument();
+    const identity = within(screen.getByRole("group", { name: "Active variant" }));
+    expect(identity.getByText("BRAF")).toBeInTheDocument();
+    expect(identity.getByText("p.Val600Glu")).toBeInTheDocument();
   });
 
   it("should render lineage and identifier chips (Transcript, GRCh38, UniProt)", () => {
@@ -146,11 +137,11 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.getByText("7-140753336-A-T")).toBeInTheDocument();
     expect(screen.getByText("P15056")).toBeInTheDocument();
     // The build is named in the field's own terms ("GRCh38", not UCSC "hg38") in front of the coordinate
-    expect(screen.getByText("GRCh38")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Active variant" })).getByText("GRCh38")).toBeInTheDocument();
     expect(screen.queryByText("hg38")).not.toBeInTheDocument();
 
     // The keyword labels are now conveyed to assistive tech instead of printed
-    expect(screen.getByText("Transcript")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Active variant" })).getByText("Transcript")).toBeInTheDocument();
     expect(screen.getByText("GRCh38 coordinates")).toBeInTheDocument();
     expect(screen.getByText("UniProt accession")).toBeInTheDocument();
 
@@ -250,8 +241,8 @@ describe("VariantHeader Component Tests", () => {
     // The rows are scoped as GENE constraint in a visible caption, so a verdict beside the HGVS
     // cannot be read as a call on the variant.
     expect(screen.getByRole("list", { name: /gnomAD v4.1.2 population constraint/ })).toBeInTheDocument();
-    expect(panel().getByRole("heading", { name: "Gene constraint" })).toBeInTheDocument();
-    expect(container.querySelector(".vcs-panel-heading")).toHaveTextContent("gnomAD v4.1.2");
+    expect(panel().getByText(/Gene-level context for/)).toHaveTextContent("It does not classify p.Val600Glu");
+    expect(panel().getByRole("link", { name: /gnomAD v4\.1\.2/ })).toBeInTheDocument();
     expect(container.querySelector(".vh-rail-axis")).toHaveTextContent(/less depleted.*constrained/);
     expect(container.querySelector(".vh-rail-meta")).not.toBeInTheDocument();
 
@@ -528,7 +519,7 @@ describe("VariantHeader Component Tests", () => {
     // The gene must NOT be described as lacking blocks: only this residue was unresolved.
     expect(panel().queryByText(/no gnomAD constraint blocks/i)).not.toBeInTheDocument();
     expect(panel().queryByText("No gnomAD blocks")).not.toBeInTheDocument();
-    expect(panel().getByText(/No sub-regional call was returned for this residue/)).toBeInTheDocument();
+    expect(panel().getByText(/No sub-regional call was returned for this residue/, { selector: ".cx-facts li" })).toBeInTheDocument();
     expect(panel().getByTitle(/no sub-regional call was returned for this residue/)).toBeInTheDocument();
   });
 
@@ -557,7 +548,7 @@ describe("VariantHeader Component Tests", () => {
     );
 
     expect(panel().getByText("No gnomAD blocks")).toBeInTheDocument();
-    expect(panel().getByText(/The gene has no gnomAD constraint blocks/)).toBeInTheDocument();
+    expect(panel().getByText(/The gene has no gnomAD constraint blocks/, { selector: ".cx-facts li" })).toBeInTheDocument();
   });
 
   it.each([
@@ -798,17 +789,21 @@ describe("VariantHeader Component Tests", () => {
   });
 
 
-  it("closes constraint details and returns keyboard focus to the disclosure", () => {
+  it("opens a reading's card from its chip, closes it on Escape and returns focus to the chip", () => {
     render(<Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} />);
-    const trigger = screen.getByRole("button", { name: /^Details/ });
-    fireEvent.click(panel().getByRole("button", { name: "Close gene constraint details" }));
-    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).not.toBeInTheDocument();
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveFocus();
-    fireEvent.click(trigger);
+    const chip = screen.getByRole("button", { name: /^Regional O\/E/ });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    const card = screen.getByTestId("constraint-card");
+    expect(chip).toHaveAttribute("aria-controls", card.id);
+    // The card shows the facts that used to be tooltip-only.
+    expect(within(card).getByText("Constrained block 460 to 600.")).toBeInTheDocument();
+    expect(within(card).getByText("Regional chi-square p = 0.002 (approximate).")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(trigger).toHaveFocus();
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("constraint-card")).toBeNull();
+    expect(chip).toHaveFocus();
+    expect(chip).toHaveAttribute("aria-expanded", "false");
   });
 
   it("should handle copy to clipboard interaction and update screen reader feedback", async () => {

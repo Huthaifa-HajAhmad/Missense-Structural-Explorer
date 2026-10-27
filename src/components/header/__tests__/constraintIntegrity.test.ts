@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildConstraintMetrics, buildLoeufMetric } from "../constraintMetrics";
+import { buildConstraintMetrics, buildLoeufMetric, buildMissenseZMetric, constraintSourceLabel, releaseTag } from "../constraintMetrics";
+import { THRESHOLDS } from "../../../shared/thresholds";
 import { buildVariantHeaderModel } from "../variantHeaderModel";
 import type { AnalysisResult } from "../../../types";
 const constraint = {
@@ -39,6 +40,38 @@ describe("constraint source, precision and availability", () => {
   it("withholds release-specific interpretation for a legacy payload", () => {
     const { provenance, ...legacy } = constraint;
     expect(buildConstraintMetrics(result(legacy)).every(m => m.verdict === "Release unreported" && m.bands.length === 0)).toBe(true);
+  });
+  it("words the PP2 proxy and the display bands from THRESHOLDS, so they cannot drift from the rule", () => {
+    const { missenseZ, oeMisBelow } = THRESHOLDS.pp2Constraint;
+    for (const met of [true, false]) {
+      const metric = buildMissenseZMetric(3.5, met);
+      for (const text of [metric.tooltip, metric.detail, metric.facts.join(" ")]) {
+        expect(text).toContain(String(oeMisBelow));
+      }
+      expect(metric.detail).toContain(`Z ${THRESHOLDS.misZ.pathogenicSupporting.toFixed(1)} and ${THRESHOLDS.misZ.pathogenicStrong}`);
+    }
+    expect(buildMissenseZMetric(3.5, true).detail).toContain(`Z ≥ ${missenseZ}`);
+  });
+  it("tags only a reading whose release differs from the group's, and only when it has a value and an interpretation", () => {
+    const res = result();
+    const [z, loeuf, rmc] = buildConstraintMetrics(res);
+    const group = constraintSourceLabel(res);
+    expect(releaseTag(z, group)).toBeNull();
+    expect(releaseTag(loeuf, group)).toBeNull();
+    // Regional O/E is measured against its own release; here it has no value (unverified locus).
+    expect(releaseTag(rmc, group)).toBeNull();
+    const measured = buildConstraintMetrics(result({ ...constraint, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } }))[2];
+    expect(releaseTag(measured, group)).toBe("v4.1.1");
+  });
+  it("words an unreported regional release without the wrapper parentheses", () => {
+    const gc = { ...constraint, regionalRelease: undefined, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
+    const res = result(gc);
+    expect(releaseTag(buildConstraintMetrics(res)[2], constraintSourceLabel(res))).toBe("regional release unreported");
+  });
+  it("shows no tag when interpretation is withheld, where it would contradict the verdict", () => {
+    const older = { ...constraint, provenance: { ...constraint.provenance, release: "2.1.1" }, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
+    const res = result(older);
+    for (const metric of buildConstraintMetrics(res)) expect(releaseTag(metric, constraintSourceLabel(res))).toBeNull();
   });
   it("describes clamped off-scale values", () => {
     expect(buildConstraintMetrics(result({ ...constraint, missense_z: -2 }))[0].detail).toContain("outside the display range");
