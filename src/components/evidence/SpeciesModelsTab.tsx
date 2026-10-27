@@ -8,6 +8,7 @@ import { ModelOrganismsCard } from './ModelOrganismsCard';
 import { ModelPhenotypesCard } from './ModelPhenotypesCard';
 import { ResidueAlignmentCard } from './ResidueAlignmentCard';
 import { SpeciesCoverage } from './ContextFigures';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 export function SpeciesModelsTab({ analysisState }: TabComponentProps) {
   return analysisState.result ? <SpeciesContent result={analysisState.result} /> : null;
@@ -23,7 +24,7 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
   const incomplete = phenotypes?.species.filter(s => s.status === 'error') ?? [];
   const omitted = phenotypes?.species.reduce((n, s) => n + (s.status === 'ready' ? Math.max(0, s.total - s.phenotypes.length) : 0), 0) ?? 0;
   return <div data-evidence-screen className="ctx-screen cx-screen sm-workspace" data-testid="species-models-screen" data-comparison={w.comparison || undefined}>
-    <header><h1 className="screen-title">Species &amp; models</h1><p className="screen-tab-description">Explore orthologs, the aligned variant site, and curated animal phenotypes.</p></header>
+    <header><h1 className="screen-title">{evidenceTab('species-models').label}</h1><p className="screen-tab-description">Explore orthologs, the aligned variant site, and curated animal phenotypes.</p></header>
     <EvidenceViewTabs tab="species-models" comparisonLabel="Species explorer" />
     {c.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices remain with their original transcript, isoform and assembly.</p>}
     <details className="sm-review" open={!w.enabled || undefined}><summary>Review context · {model.selected ? `${model.selected.label} · ${model.selected.inheritance.label}` : 'No disease selected'}</summary><ReviewFrame compact={w.enabled} gene={c.gene} load={c.diseaseLoad} selection={c.selection} onChange={c.setSelection} onRetry={c.retryDisease} /></details>

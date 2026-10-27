@@ -1,6 +1,6 @@
 import React from "react";
 import { THRESHOLDS } from "../../../shared/thresholds";
-import { formatAlleleFrequency, type FrequencyCriterion } from "../../../shared/frequencyEvidence";
+import { formatAlleleFrequency, formatCutPoint, type FrequencyCriterion } from "../../../shared/frequencyEvidence";
 
 /**
  * FrequencyScale — where this variant's frequency sits against the ACMG cut-points.
@@ -86,7 +86,7 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
     af === null
       ? "Frequency scale: no frequency was read, so the reading is not placed against the ACMG cut-points."
       : criterion.absent
-        ? `Frequency scale: not observed in gnomAD, which falls in the PM2 zone at or below ${formatAlleleFrequency(ceiling)}.`
+        ? `Frequency scale: not observed in gnomAD, which falls in the PM2 zone at or below ${formatCutPoint(ceiling)}.`
         : `Frequency scale: the rule read ${formatAlleleFrequency(af)}, in the ${activeZone === "none" ? "no-criterion" : activeZone} zone.`;
 
   return (
@@ -118,7 +118,7 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
         <span
           className="pop-scale__alt-ceiling"
           style={{ left: `${position(otherCeiling)}%` }}
-          title={`Alternative ${otherReading} local PM2 ceiling: ${formatAlleleFrequency(otherCeiling)}`}
+          title={`Alternative ${otherReading} local PM2 ceiling: ${formatCutPoint(otherCeiling)}`}
         />
         {readings.map(r => (
           <span

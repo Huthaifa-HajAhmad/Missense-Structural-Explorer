@@ -365,6 +365,9 @@ export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
   };
 }
 
+/** Display-only depth band for a significant RMC call's tone; app-defined, feeds no rule. */
+export const RMC_DEEP_DISPLAY_BAND = 0.6;
+
 export function buildRmcMetric(
   hasRegionalData: boolean,
   regional: { isConstrained: boolean; oeRatio: number | null; pValue: number | null; regionText: string | null } | null,
@@ -450,13 +453,24 @@ export function buildRmcMetric(
   const pFact = pText ? `Regional chi-square p = ${pText} (approximate).` : null;
 
   if (regional.isConstrained) {
+    /*
+     * The call is gnomAD's (significant depletion on a verified locus) and stays a call. Its TONE is
+     * graded by depth: an O/E of 0.81 printed in the same pathogenic red as 0.3 overstated a shallow
+     * depletion. The 0.6 mark is an app-defined DISPLAY band, stated as such in the facts, and it
+     * changes no verdict and feeds no rule.
+     */
+    const shallow = oe !== null && oe >= RMC_DEEP_DISPLAY_BAND;
     return {
       key: "regional-oe",
       label: "Regional O/E",
       ...reference,
-      facts: [blockSpan ? `Constrained block ${blockSpan}.` : "Constrained sub-region.", ...(pFact ? [pFact] : [])],
+      facts: [
+        blockSpan ? `Constrained block ${blockSpan}.` : "Constrained sub-region.",
+        ...(pFact ? [pFact] : []),
+        ...(shallow ? [`O/E ${value} is a shallow depletion (app-defined display band: deep below ${RMC_DEEP_DISPLAY_BAND}; not a calibrated cut-point).`] : []),
+      ],
       value,
-      tone: "path",
+      tone: shallow ? "warn" : "path",
       verdict: "Subgenic constrained",
       marker: oe,
       ...domains,

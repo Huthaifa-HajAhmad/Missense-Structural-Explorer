@@ -25,6 +25,7 @@ import { Prose } from "../ui/Prose";
 import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { SplicingRecords } from './splicing/SplicingRecords';
 import { splicingReadings, spliceRequestIdentity } from '../../shared/splicingWorkspace';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * RNA splicing.
@@ -350,7 +351,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
       {knowledgeKey && <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />}
 
       <header>
-        <h1 className="screen-title">RNA splicing</h1>
+        <h1 className="screen-title">{evidenceTab('splicing').label}</h1>
         <p className="screen-tab-description">
           Whether this variant is predicted to change pre-mRNA splicing, and what the ClinGen splicing rule
           would make of it.

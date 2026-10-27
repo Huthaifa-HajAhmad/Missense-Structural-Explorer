@@ -11,6 +11,7 @@ import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from '../Eviden
 import { domainRowKeyResolver } from './architectureLayout';
 import { safeExternalHref } from '../../../shared/externalLink';
 import { FunctionWindowControl } from './FunctionWindowControl';
+import { evidenceTab } from '../../../shared/evidenceTabs';
 
 /**
  * Functional domains.
@@ -376,7 +377,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   return (
     <div data-evidence-screen className="fnd-screen @container" data-comparison={workspace.comparison || undefined}>
       <header className="fnd-header">
-        <h1 className="screen-title">Functional domains</h1>
+        <h1 className="screen-title">{evidenceTab('function').label}</h1>
         <p className="screen-tab-description">
           What UniProtKB and InterPro annotate at and around the variant residue, and whether it meets PM1.
         </p>

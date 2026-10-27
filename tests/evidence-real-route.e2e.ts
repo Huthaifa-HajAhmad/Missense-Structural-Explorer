@@ -2,6 +2,7 @@ import { describe, beforeEach, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { skipTour } from './support.js';
 import { EVIDENCE_GUIDES, RESEARCH_GUIDES } from '../src/shared/researchGuides.js';
+import { EVIDENCE_TABS as TAB_REGISTRY } from '../src/shared/evidenceTabs.js';
 
 /**
  * The real route, not the preview harness: a benchmark is run from Search and the Evidence
@@ -16,19 +17,9 @@ import { EVIDENCE_GUIDES, RESEARCH_GUIDES } from '../src/shared/researchGuides.j
 
 // Sidebar button -> [workspace heading, EVIDENCE_GUIDES key]. The guide key ties each tab to the
 // "About <title>" button the evidence card renders, so a tab that mounts another tab's body fails.
-const EVIDENCE_TABS: Array<[button: string, heading: string, guide: string]> = [
-  ['Population data', 'Population Data', 'clinical'],
-  ['Gene–disease', 'Gene–disease', 'gene-disease'],
-  ['Expression', 'Expression', 'expression-models'],
-  ['Species & models', 'Species & models', 'species-models'],
-  ['Functional domains', 'Functional domains', 'function'],
-  ['In-silico predictors', 'Predictors', 'predictors'],
-  ['AlphaGenome', 'AlphaGenome', 'alphagenome'],
-  ['RNA splicing', 'RNA splicing', 'splicing'],
-  ['Residue shifts & pockets', 'Residue shifts and pockets', 'structure'],
-  ['Structural perturbation', 'Structural perturbation', 'perturbation'],
-  ['Interfaces & PPI', 'Interfaces & PPI', 'interfaces'],
-];
+// The sidebar label and the screen heading are the same registry string (src/shared/evidenceTabs.ts).
+const EVIDENCE_TABS: Array<[button: string, heading: string, guide: string]> =
+  TAB_REGISTRY.map(t => [t.label, t.label, t.id]);
 
 const aboutLabel = (guideKey: string): string => `About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[guideKey]].title}`;
 

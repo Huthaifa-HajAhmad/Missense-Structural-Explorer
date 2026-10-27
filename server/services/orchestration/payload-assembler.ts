@@ -1,4 +1,5 @@
 import { CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
+import type { CuratedInheritance } from "../../../src/shared/inheritanceBasis.ts";
 import { generateAltVariants } from "../../routes/shared.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
@@ -21,7 +22,13 @@ import { currentCacheScope } from "../infra/cache-scope.ts";
  * second as the first: a confirmed absence, a zero frequency, and **PM2 awarded for a variant no
  * database had been queried about**.
  */
-export type ServiceFetchStatus = "ok" | "not_found" | "timeout" | "error" | "unsupported-build";
+/**
+ * `stand-in` is gnomADFrequency-only: the run returned a frequency from the local dbNSFP ingest
+ * because the remote record did not answer (the 8 s grace elapsed, or the query faulted — the cause
+ * is on the record itself as `GnomadFrequencyData.standIn`). It is NOT a fault: the classifier still
+ * reads the data, exactly as `ok`, and the record is disclosed as the combined local ingest.
+ */
+export type ServiceFetchStatus = "ok" | "not_found" | "timeout" | "error" | "unsupported-build" | "stand-in";
 
 export interface ServiceStatusMap {
   clinvar: ServiceFetchStatus;
@@ -50,6 +57,8 @@ export interface CoreAnalysisData {
   aouFrequency: ConservationData["aouFrequency"] | null;
   /** What the All of Us lookup consulted, so an empty row can name its absence. Optional: older records lack it. */
   aouLookup?: AouLookup | null;
+  /** Curated GenCC inheritance for the frequency rules. Optional: older records lack it. */
+  curatedInheritance?: CuratedInheritance | null;
   resolvedPdbId: string | null;
   resolvedPdbSource: PdbSource;
   ruleBasedInsights: RuleBasedInsights | null;
@@ -185,6 +194,7 @@ export function assembleCoreResponsePayload(
     gnomadFrequency: coreData.gnomadFrequency ?? null,
     aouFrequency: coreData.aouFrequency ?? null,
     aouLookup: coreData.aouLookup ?? null,
+    curatedInheritance: coreData.curatedInheritance ?? null,
     esm2: coreData.esm2 ?? null,
     esm3Eval: null,
     esmcEval: null,

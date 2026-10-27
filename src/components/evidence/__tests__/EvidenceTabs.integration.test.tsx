@@ -26,8 +26,9 @@ const cases = [
   { name: 'AlphaGenome', Tab: AlphaGenomeTab, Rail: AlphaGenomeRail, title: /What contributes to this score/, record: /^AlphaMissense$/, pinned: /^AlphaMissense$/ },
 ];
 describe('Production evidence tabs and their inspectors', () => {
-  // The first case pays the cold React.lazy + transform cost of the chart chunk; the testing-library
-  // default of 1s expired intermittently under a loaded worker and made this suite flaky.
+  // The chart renders eagerly (no lazy chunk remains), but the fixture build and the multi-tab
+  // interaction are heavy; the testing-library default of 1s expired intermittently under a
+  // loaded worker and made this suite flaky.
   const FIND = { timeout: 6000 } as const;
 
   it.each(cases)('$name connects chart and source-record selections to the same inspector', async ({ name, Tab, Rail, title, record, pinned }) => {

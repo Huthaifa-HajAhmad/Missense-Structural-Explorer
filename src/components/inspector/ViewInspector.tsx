@@ -15,9 +15,8 @@ import type { FoldxProgress } from "../../shared/foldxPhase";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
-import PerturbationRail from "./PerturbationRail";
-import ResidueShiftInspector from "./ResidueShiftInspector";
-import SplicingRail from "./SplicingRail";
+import { findEvidenceTab } from "../../shared/evidenceTabs";
+import { normalizeEvidenceTab } from "../evidence/types";
 import EnergeticsInspector from "./EnergeticsInspector";
 import type { EnergyEngineId } from '../../shared/engineStatus';
 import LandscapeInspector from "./LandscapeInspector";
@@ -124,23 +123,6 @@ const VIEW_ICONS: Record<MasterView, NavIcon> = {
   literature: NAV_ICONS.literature,
   console: NAV_ICONS.console,
   about: NAV_ICONS.about,
-};
-
-/**
- * Per-subtab inspector subtitles for the Evidence view. The static
- * "Genomic & Database Provenance" line gave no orientation as the reader moved
- * between the ten evidence tabs; naming the active surface does.
- */
-const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
-  "gene-disease": "Gene–disease · records & sources",
-  clinical: "Population Data & Clinical DBs",
-  predictors: "In-Silico Ensemble Calibration",
-  alphagenome: "AlphaGenome variant impact (AVI)",
-  splicing: "Splice rule & junction geometry",
-  structure: "Residue Shifts & Pocket Provenance",
-  perturbation: "Structural perturbation trace",
-  function: "Functional Domains & Features",
-  interfaces: "Interfaces & partner provenance"
 };
 
 /** Panel width bounds. Previously duplicated as literals in the initializer and the drag. */
@@ -416,7 +398,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   /** Evidence tabs override the static subtitle with the active surface. */
   const evidenceSubtitle =
     activeView === "evidence"
-      ? EVIDENCE_TAB_SUBTITLES[(activeEvidenceTab || "").toLowerCase()]
+      ? findEvidenceTab(normalizeEvidenceTab(activeEvidenceTab || ""))?.subtitle
       : undefined;
   const headerSubtitle = evidenceSubtitle ?? headerInfo.subtitle;
   const pageTitle = activeView === "evidence" && activeEvidenceTab === "gene-disease" ? "Evidence inspector" : headerInfo.title;
@@ -533,31 +515,17 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           />
         )}
 
-        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "splicing" && (
-          analysisResult ? (
-            <SplicingRail
-              analysisResult={analysisResult}
-              isBiophysicalLoading={isBiophysicalLoading}
-            />
-          ) : null
-        )}
-
-        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "structure" && (
-          <ResidueShiftInspector
+        {activeView === "evidence" && (
+          <EvidenceInspector
             analysisResult={analysisResult}
+            activeEvidenceTab={activeEvidenceTab}
+            isBiophysicalLoading={isBiophysicalLoading}
             computedPocket={computedPocket}
             isPocketLoading={isPocketLoading}
             pocketError={pocketError}
-            isBiophysicalLoading={isBiophysicalLoading}
             isNarrativeLoading={isNarrativeLoading}
             onRetryPocket={onRetryPocket}
             onRetryNarrative={onRetryNarrative}
-          />
-        )}
-
-        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "perturbation" && (
-          <PerturbationRail
-            analysisResult={analysisResult}
             activePerturbationModel={activePerturbationModel}
             saprotEngine={saprotEngine}
             foldingEnergetics={foldingEnergetics}
@@ -566,16 +534,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             isFolding={isFolding}
             foldingStatus={foldingStatus}
             foldingError={foldingError}
-          />
-        )}
-
-        {activeView === "evidence" &&
-          (activeEvidenceTab || "").toLowerCase() !== "splicing" &&
-          (activeEvidenceTab || "").toLowerCase() !== "structure" &&
-          (activeEvidenceTab || "").toLowerCase() !== "perturbation" && (
-          <EvidenceInspector
-            analysisResult={analysisResult}
-            activeEvidenceTab={activeEvidenceTab}
           />
         )}
 

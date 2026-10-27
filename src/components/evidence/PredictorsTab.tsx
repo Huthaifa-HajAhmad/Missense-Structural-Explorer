@@ -22,7 +22,8 @@ import { ScoreRuler } from "./predictors/ScoreRuler";
 import { StrengthLadder } from "./predictors/StrengthLadder";
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { buildPredictorComparison } from '../../shared/evidenceComparison';
-const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
+import EvidenceComparison from './EvidenceComparison';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * In-silico predictors.
@@ -413,13 +414,23 @@ function InformationalCard({ evidence }: { evidence: PredictorEvidence }) {
   );
 }
 
-export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSettings, onTabChange }: TabComponentProps) {
+/**
+ * The guard lives in a wrapper so every hook below runs on every render. The guard used to sit
+ * between hooks, so a result that went from present to absent (a new query clearing the store)
+ * rendered fewer hooks than the previous pass, and React threw "Rendered fewer hooks than expected".
+ */
+export function PredictorsTab(props: TabComponentProps) {
+  if (!props.analysisState.result) return null;
+  return <PredictorsTabContent {...props} />;
+}
+
+function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSettings, onTabChange }: TabComponentProps) {
   const workspace = useEvidenceWorkspace('predictors');
   const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const { settings, openSettingsTab } = useSettings();
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
-  const result = analysisState.result;
-  if (!result) return null;
+  // Non-null: the PredictorsTab wrapper renders this only when a result exists.
+  const result = analysisState.result!;
 
   const alphagenomeConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
   const evidence = useMemo(() => buildPredictorEvidence({
@@ -449,7 +460,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       )}
 
       <header>
-        <h1 className="screen-title">Predictors</h1>
+        <h1 className="screen-title">{evidenceTab('predictors').label}</h1>
         <p className="screen-tab-description">
           What computational predictors say about this substitution, and how the ACMG PP3/BP4 rule
           counted them.
@@ -495,7 +506,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       </section>
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
-      {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." /></React.Suspense>}
+      {workspace.comparison && <EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." />}
       {workspace.comparison && <section className="prd-card" aria-label="How the engine used these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
       {(!workspace.enabled || workspace.view === 'records') && <>
       <InformationalCard evidence={evidence} />

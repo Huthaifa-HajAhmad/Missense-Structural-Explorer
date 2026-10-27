@@ -29,6 +29,7 @@ import { MechanismSelection } from "./MechanismSelection";
 import { interfaceWorkspaceReadings, interfaceMapView, interfaceNumberingNote } from "../../shared/mechanismWorkspace";
 import { InterfaceOverview } from "./interfaces/InterfaceOverview";
 import { Prose } from "../ui/Prose";
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * Interfaces & PPI.
@@ -367,7 +368,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
       </div>
 
       <header className="ifc-header">
-        <h1 className="screen-title">Interfaces &amp; PPI</h1>
+        <h1 className="screen-title">{evidenceTab('interfaces').label}</h1>
         <p className="screen-tab-description">
           Whether the variant residue sits where another protein touches {ev.gene}, how well that is attested, which proteins it binds, and any predicted change in binding.
         </p>

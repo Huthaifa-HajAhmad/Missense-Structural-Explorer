@@ -143,8 +143,8 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
   });
 });
 
-describe("ClinicalTab — the governing reading is on the screen, counts first", () => {
-  it("shows the counts, their source, and the frequency the rule read beneath them", () => {
+describe("ClinicalTab — the governing reading is the headline, counts beneath it", () => {
+  it("leads with the frequency the rule read, and labels the busiest cohort's counts on their own line", () => {
     const { container } = renderTab(gzf1Result());
 
     // The row subject and its two figures: the counts (the screen's answer) and the frequency it
@@ -156,9 +156,12 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
      * stopped rolling the busiest cohort up — or started showing the grouped maximum's frequency
      * again — has to fail here rather than find the text in a row below it.
      */
+    // The headline is the answer the verdict turned on, not a cohort's counts: for UROD p.Gly318Arg
+    // the counts headline was All of Us's while the verdict was computed from gnomAD.
     const figure = container.querySelector(".figure-headline") as HTMLElement;
-    expect(figure.textContent).toBe("AC 8 · AN 1,459,156");
-    expect(screen.getByText(/Exomes · most copies in any one cohort/)).toBeTruthy();
+    expect(figure.textContent).toBe("5.50e-6");
+    expect(screen.getByText(/gnomAD ancestry-grouped maximum · the frequency the rule read/)).toBeTruthy();
+    expect(screen.getByTestId("most-copies").textContent).toBe("Most copies in one cohort: AC 8 · AN 1,459,156 · Exomes");
     // The rule's own input, labelled as its own line inside the same card.
     const headlineCard = screen.getByTestId("population-finding");
     // Stated once, in the scale's legend, beside the words saying what it is.
@@ -176,7 +179,7 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     // emphasis span, so the two halves are asserted separately (a single regex cannot cross the
     // element boundary).
     expect(screen.getByText("Extremely rare")).toBeTruthy();
-    expect(screen.getByText(/at or below the 0\.10% PM2 ceiling/)).toBeTruthy();
+    expect(screen.getByText(/at or below the 0\.1% PM2 ceiling/)).toBeTruthy();
   });
 
   it("makes the value the criterion used traceable in the cards", () => {
@@ -467,5 +470,54 @@ describe("ClinicalTab — source readings split into observed and no reading", (
     renderTab(gzf1Result({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "not_found", clinvar: "ok" }, aouLookup: { localTable: "absent", remoteDbnsfp: "not-reported" } }));
     expect(screen.getByText("No source reported this allele.")).toBeTruthy();
     expect(screen.getByTestId("population-readings").querySelector("table")).toBeNull();
+  });
+});
+
+describe("ClinicalTab — hook order", () => {
+  it("survives the result being cleared after a render", () => {
+    const { rerender, container } = renderTab(gzf1Result());
+    // A new query clears the result. The guard used to sit between hooks, so this threw
+    // "Rendered fewer hooks than expected".
+    expect(() => rerender(<ClinicalTab {...({ analysisState: { result: null } } as any)} />)).not.toThrow();
+    expect(container.textContent).toBe("");
+    expect(() => rerender(<ClinicalTab {...({ analysisState: { result: gzf1Result() } } as any)} />)).not.toThrow();
+  });
+});
+
+/** UROD p.Gly318Arg as gnomAD r4 serves it (joint grpmax afr 1.70%, FAF95 1.62%), with curated GenCC inheritance. */
+describe("ClinicalTab — UROD p.Gly318Arg from gnomAD r4", () => {
+  const urod = (overrides: Record<string, unknown> = {}) => gzf1Result({
+    metadata: { gene: "UROD", variant: "p.Gly318Arg", uniprotId: "P06132" },
+    gnomadFrequency: {
+      maxAF: 0.004872, groupMaxAF: 1272 / 75018, genomeAF: 0.004872, exomeAF: 0.000638,
+      genomeAC: 742, exomeAC: 932, genomeAN: 152292, exomeAN: 1461706, nHomozygous: 15,
+      dataset: "gnomad_r4", groupMaxPopulation: "afr", faf95: 0.01618, faf95Population: "afr",
+    },
+    aouFrequency: { aouAC: 2085, aouAN: 490780, aouHet: null, aouHom: null },
+    aouLookup: { localTable: "found", remoteDbnsfp: "not-reported" },
+    gnomadConstraint: { pli: 0 },
+    curatedInheritance: { source: "GenCC", modes: ["Autosomal dominant", "Autosomal recessive", "Semidominant"], recessiveOnly: false, sexOrMitoOnly: false, records: 3 },
+    ruleBasedInsights: { acmgCriteria: [{ code: "BS1" }, { code: "BS2" }] },
+    ...overrides,
+  });
+
+  it("leads with FAF95, the number BS1 turned on, and names its group", () => {
+    const { container } = renderTab(urod());
+    expect((container.querySelector(".figure-headline") as HTMLElement).textContent).toBe("1.62%");
+    expect(screen.getByText(/gnomAD filtering allele frequency \(FAF95\) · African\/African American \(afr\) · the frequency the rule read/)).toBeTruthy();
+    expect(screen.getByTestId("verdict-chip").textContent).toBe("BS1");
+  });
+
+  it("flags a cohort several-fold above a combined local figure, as context only", () => {
+    renderTab(urod({
+      gnomadFrequency: { maxAF: 1674 / 1613998, groupMaxAF: 1674 / 1613998, genomeAF: 1674 / 1613998, exomeAF: null, genomeAC: 1674, genomeAN: 1613998, exomeAC: null, exomeAN: null, nHomozygous: 15, dataset: "gnomad_r4_local" },
+      ruleBasedInsights: { acmgCriteria: [{ code: "BS2" }] },
+    }));
+    expect(screen.getByTestId("cohort-disagreement").textContent).toMatch(/All of Us reports 0\.425%, 4\.1× the frequency the rule read/);
+  });
+
+  it("raises no disagreement when the rule read the grouped maximum", () => {
+    renderTab(urod());
+    expect(screen.queryByTestId("cohort-disagreement")).toBeNull();
   });
 });

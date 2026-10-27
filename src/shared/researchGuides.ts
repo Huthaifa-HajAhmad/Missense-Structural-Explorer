@@ -1,4 +1,5 @@
 import type { PhysicalReading } from './perturbationEvidence';
+import { EVIDENCE_TABS } from './evidenceTabs';
 import { ALPHAGENOME_SOURCES } from './alphagenomeEvidence';
 import { BURIAL_RSA_BANDS, PACKING_NEIGHBOUR_BANDS } from './burialEvidence';
 
@@ -464,11 +465,8 @@ export const RESEARCH_GUIDES: Record<string, ResearchGuide> = {
 };
 
 /** Subject-specific explanation for each Evidence workspace. */
-export const EVIDENCE_GUIDES: Record<string, string> = {
-  clinical: 'population', 'gene-disease': 'gene_disease', 'expression-models': 'expression',
-  'species-models': 'species', predictors: 'predictors', alphagenome: 'alphagenome',
-  structure: 'residue', perturbation: 'perturbation', function: 'function', splicing: 'splicing', interfaces: 'interfaces',
-};
+/** Evidence tab id → its research guide, read from the tab registry. */
+export const EVIDENCE_GUIDES: Record<string, string> = Object.fromEntries(EVIDENCE_TABS.map(t => [t.id, t.guide]));
 export const GUIDE_ALIASES: Record<string, string> = { esm: 'esm1b', esmc_llr: 'esmc', gerp_rs: 'gerp', phyloP: 'phylop', alphaMissense: 'am' };
 export function resolveResearchGuide(key: string): ResearchGuide | undefined {
   return RESEARCH_GUIDES[GUIDE_ALIASES[key] ?? key];

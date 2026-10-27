@@ -345,6 +345,46 @@ describe("Shared Zod API Contracts", () => {
     ).toThrow();
   });
 
+  /**
+   * The gnomAD frequency provenance keys, whose declared-but-unasserted shape was the exact class
+   * of defect this file's note warns about: `groupMaxAFIsFallback` WAS silently stripped by zod here
+   * (the other keys were added in the same repair), and the fallback note could not render. Round-trip
+   * every one, so removing a key from the schema fails instead of silently dropping a claim.
+   */
+  it("round-trips the gnomAD frequency provenance keys through analyzeVariantResponseSchema", () => {
+    const parsed = analyzeVariantResponseSchema.parse({
+      analysis: "Test narrative",
+      metadata: { gene: "UROD", variant: "p.Gly318Arg", uniprotId: "P06132", residueIndex: 318, wildType: "G", mutant: "R" },
+      gnomadFrequency: {
+        maxAF: 0.01618107, groupMaxAF: 1272 / 75018, genomeAF: 0.004872, exomeAF: 0.000638,
+        genomeAC: 742, exomeAC: 932, genomeAN: 152292, exomeAN: 1461706, nHomozygous: 15,
+        dataset: "gnomad_r4", groupMaxAFIsFallback: false, groupMaxPopulation: "afr",
+        faf95: 0.016181, faf95Population: "afr", standIn: null,
+      },
+      curatedInheritance: {
+        source: "GenCC", modes: ["Autosomal dominant", "Autosomal recessive"], recessiveOnly: false, sexOrMitoOnly: false, records: 2,
+      },
+    });
+    expect(parsed.gnomadFrequency?.groupMaxAFIsFallback).toBe(false);
+    expect(parsed.gnomadFrequency?.groupMaxPopulation).toBe("afr");
+    expect(parsed.gnomadFrequency?.faf95).toBeCloseTo(0.016181);
+    expect(parsed.gnomadFrequency?.faf95Population).toBe("afr");
+    expect(parsed.gnomadFrequency?.standIn).toBeNull();
+    expect(parsed.curatedInheritance?.records).toBe(2);
+
+    // And a payload that survives the schema still carries the fake-stand-in shape used by the
+    // local-stand-in path, so the rail can word "grace elapsed" apart from "the query failed".
+    const stoodIn = analyzeVariantResponseSchema.parse({
+      analysis: "Test narrative",
+      metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", residueIndex: 408, wildType: "R", mutant: "W" },
+      gnomadFrequency: {
+        maxAF: 0.01, groupMaxAF: null, genomeAF: 0.01, exomeAF: null, genomeAC: 10, exomeAC: null,
+        genomeAN: 1000, exomeAN: null, nHomozygous: 0, dataset: "gnomad_r4_local", standIn: "grace",
+      },
+    });
+    expect(stoodIn.gnomadFrequency?.standIn).toBe("grace");
+  });
+
   it("should normalize flat biophysical response into insights object", () => {
     const flatPayload = {
       biochemicalShift: "Polar to Nonpolar",

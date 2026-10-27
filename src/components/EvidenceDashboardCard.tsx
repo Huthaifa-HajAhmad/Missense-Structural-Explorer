@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { Database } from "lucide-react";
+import { AlertTriangle, Database } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { EvidenceDashboardCardProps, TabType, normalizeEvidenceTab } from "./evidence/types";
 import { formatDdg } from "../shared/engineStatus";
@@ -159,79 +159,50 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     setSelectedMetric
   ]);
 
+  /*
+   * The loading and no-result states. They used to print hard-coded progress chips ("Coordinates",
+   * "Clinical & Frequencies", "Biophysics") that were never read from the pipeline, in Tailwind
+   * palette colours with emoji and pulse loaders, and the no-result state said "Evidence Dashboard
+   * Ready · Submit a variant query" even when it was reached because the last query FAILED (the idle
+   * empty state in AppViews handles the never-queried case). Both now state only what is known.
+   */
   if (!result) {
     if (analysisState.isLoading) {
       return (
-        <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
+        <div className={`${classCard} overflow-hidden flex flex-col`} id="evidence-dashboard-card" aria-busy="true">
           <div className="p-6 flex-1 flex flex-col gap-5 overflow-y-auto">
-            {/* Live Module Readiness Status Bar */}
-            <div className="p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(196,104,73,0.12)" }}>
-                  <Database className="w-4 h-4 animate-pulse" style={{ color: "var(--cs-accent-clay)" }} />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold tracking-tight" style={{ color: "var(--cs-text-primary)" }}>Loading Evidence Modules</h4>
-                  <p className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Populating multi-modal dataset groups sequentially based on API readiness...</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] font-mono flex-wrap justify-end">
-                <span className="px-2 py-1 rounded border bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-bold">
-                  ✓ Coordinates
-                </span>
-                <span className="px-2 py-1 rounded border bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold animate-pulse">
-                  ⚡ Clinical &amp; Frequencies
-                </span>
-                <span className="px-2 py-1 rounded border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-bold">
-                  ⏳ Biophysics (Background)
-                </span>
-              </div>
+            <div role="status" className="pop-callout" data-tone="neutral">
+              <Database className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                Loading evidence. Each tab fills in as its own sources answer; the sidebar marks the tabs still loading.
+              </span>
             </div>
-
-            {/* Skeleton cards row */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4" aria-hidden="true">
               {[1, 2, 3].map(i => (
-                <div key={i} className="p-4 rounded-xl border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                  <div className="h-2 w-24 rounded animate-pulse mb-4" style={{ background: "var(--cs-surface-2)" }} />
+                <div key={i} className="p-4 rounded-xl border border-cs-border bg-cs-surface">
+                  <div className="h-2 w-24 rounded mb-4 bg-cs-surface-2" />
                   <div className="space-y-2">
-                    <div className="h-7 rounded animate-pulse" style={{ background: "var(--cs-surface-2)" }} />
-                    <div className="h-3 w-3/4 rounded animate-pulse" style={{ background: "var(--cs-surface-2)" }} />
-                    <div className="h-3 w-1/2 rounded animate-pulse" style={{ background: "var(--cs-surface-2)" }} />
+                    <div className="h-7 rounded bg-cs-surface-2" />
+                    <div className="h-3 w-3/4 rounded bg-cs-surface-2" />
+                    <div className="h-3 w-1/2 rounded bg-cs-surface-2" />
                   </div>
                 </div>
               ))}
             </div>
-
-            {/* Skeleton second row */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4">
-              {[1, 2].map(i => (
-                <div key={i} className="p-4 rounded-xl border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                  <div className="h-2 w-20 rounded animate-pulse mb-3" style={{ background: "var(--cs-surface-2)" }} />
-                  <div className="space-y-1.5">
-                    {[1,2,3,4].map(j => (
-                      <div key={j} className="h-2.5 rounded animate-pulse" style={{ background: "var(--cs-surface-2)", width: `${60 + j * 8}%` }} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <p className="text-[11px] font-mono text-center animate-pulse" style={{ color: "var(--cs-text-muted)" }}>
-              Fetching clinical annotations, ClinVar, gnomAD &amp; All of Us frequencies…
-            </p>
           </div>
         </div>
       );
     }
 
     return (
-      <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
-        <div className="p-5 flex-1 flex flex-col justify-center text-center py-12 text-slate-500">
-          <Database className="w-10 h-10 mx-auto text-indigo-500 stroke-[1.5] mb-2 animate-pulse" />
-          <p className="text-sm font-semibold font-mono uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Evidence Dashboard Ready</p>
-          <div className="w-16 h-[1px] bg-slate-800/10 dark:bg-slate-800/60 mx-auto my-3"></div>
-          <p className="text-xs max-w-sm mx-auto mt-1 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-            Submit a variant query to load multi-modal predictors, conservation, energetics and structural pocket evidence.
+      <div className={`${classCard} overflow-hidden flex flex-col`} id="evidence-dashboard-card">
+        <div className="p-5 flex-1 flex flex-col justify-center text-center py-12">
+          <Database className="w-10 h-10 mx-auto stroke-[1.5] mb-2 text-cs-text-muted" aria-hidden="true" />
+          <p className="card-title">No evidence to show</p>
+          <p className="text-xs max-w-sm mx-auto mt-2 leading-relaxed text-cs-text-secondary">
+            {analysisState.error
+              ? "The last query did not return an analysis. Run it again, or start a new one from Variant query."
+              : "Run a variant query to load the evidence."}
           </p>
         </div>
       </div>
@@ -239,18 +210,13 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
   }
 
   return (
-    <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
+    <div className={`${classCard} overflow-hidden flex flex-col`} id="evidence-dashboard-card">
       {result.isDemoData && (
-        <div className={`mx-5 mt-4 p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed transition-all flex items-center gap-2 ${
-          isDark 
-            ? "bg-amber-500/10 border-amber-500/20 text-amber-300" 
-            : "bg-amber-50 border-amber-200 text-amber-700"
-        }`}>
-          <span>⚠ Demo data — example preset; not a live backend analysis</span>
-        </div>
+        <p role="note" className="pop-callout mx-5 mt-4" data-tone="warning">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>Demo data: an example preset, not a live analysis.</span>
+        </p>
       )}
-
-
 
       <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
         <div className="rgd-context-action"><ResearchGuideButton topic={EVIDENCE_GUIDES[activeTab]} label={`About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[activeTab]].title}`} /></div>

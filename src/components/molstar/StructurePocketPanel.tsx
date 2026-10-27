@@ -134,7 +134,7 @@ export function StructurePocketPanel({
         )}
         {onOpenTab && (
           <button type="button" className="s3d-link" onClick={onOpenTab}>
-            Residue shifts and pockets
+            Residue shifts &amp; pockets
             <ArrowRight aria-hidden="true" />
           </button>
         )}

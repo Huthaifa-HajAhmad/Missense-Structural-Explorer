@@ -2,20 +2,22 @@ import React from 'react';
 import { Activity, ArrowRight, BarChart2, BookOpen, FileText, FlaskConical, Layers, Map, type LucideIcon } from 'lucide-react';
 import type { MasterView } from '../MasterSidebar';
 import '../../styles/analysis-empty-state.css';
+import { findEvidenceTab, type EvidenceTabId } from '../../shared/evidenceTabs';
 
 type EmptyWorkspace = { title: string; description: string; Icon: LucideIcon; topics: [string, string, string] };
-const EVIDENCE: Record<string, Omit<EmptyWorkspace, 'Icon'>> = {
-  clinical: { title: 'Population data', description: 'See how often a variant appears in population cohorts and review its clinical assertions.', topics: ['Population frequencies', 'ClinVar assertions', 'Evidence sources'] },
-  'gene-disease': { title: 'Gene–disease', description: 'Explore curated links between the gene and disease, including inheritance and mechanism.', topics: ['Gene–disease validity', 'Inheritance and mechanism', 'Submitted assertions'] },
-  'expression-models': { title: 'Expression', description: 'Explore where the gene is expressed across tissues, ages and available protein measurements.', topics: ['Tissue expression', 'Sampling and coverage', 'Protein measurements'] },
-  'species-models': { title: 'Species & models', description: 'Put the variant in context with orthologs, aligned residues and experimental models.', topics: ['Orthologs and screens', 'Protein alignments', 'Model phenotypes'] },
-  function: { title: 'Functional domains', description: 'Locate the variant within the protein’s annotated domains and functional regions.', topics: ['Protein annotations', 'Variant-site context', 'Functional evidence'] },
-  predictors: { title: 'In-silico predictors', description: 'Compare computational predictions and the evidence-strength bands they reach.', topics: ['Predictor comparison', 'Native score scales', 'Evidence-strength bands'] },
-  alphagenome: { title: 'AlphaGenome', description: 'Explore predicted regulatory effects when a supported genomic variant is available.', topics: ['Variant impact score', 'Feature contributions', 'Genomic context'] },
-  splicing: { title: 'RNA splicing', description: 'Examine predicted splice changes in their transcript and junction context.', topics: ['Splice-site predictions', 'Transcript geometry', 'Splicing evidence'] },
-  structure: { title: 'Residue shifts & pockets', description: 'Compare side-chain properties and locate the variant relative to predicted pockets.', topics: ['Residue properties', 'Structural context', 'Nearby pockets'] },
-  perturbation: { title: 'Structural perturbation', description: 'Compare sequence-model readings with available changes in local packing and geometry.', topics: ['Sequence-model scores', 'Packing and geometry', 'Model availability'] },
-  interfaces: { title: 'Interfaces & PPI', description: 'Explore protein interfaces, interacting partners and the variant’s available assembly context.', topics: ['Protein partners', 'Interface context', 'Assembly evidence'] },
+/** Copy per tab; the title comes from the tab registry so it matches the sidebar and the screen. */
+const EVIDENCE: Record<EvidenceTabId, Omit<EmptyWorkspace, 'Icon' | 'title'>> = {
+  clinical: { description: 'See how often a variant appears in population cohorts and review its clinical assertions.', topics: ['Population frequencies', 'ClinVar assertions', 'Evidence sources'] },
+  'gene-disease': { description: 'Explore curated links between the gene and disease, including inheritance and mechanism.', topics: ['Gene–disease validity', 'Inheritance and mechanism', 'Submitted assertions'] },
+  'expression-models': { description: 'Explore where the gene is expressed across tissues, ages and available protein measurements.', topics: ['Tissue expression', 'Sampling and coverage', 'Protein measurements'] },
+  'species-models': { description: 'Put the variant in context with orthologs, aligned residues and experimental models.', topics: ['Orthologs and screens', 'Protein alignments', 'Model phenotypes'] },
+  function: { description: 'Locate the variant within the protein’s annotated domains and functional regions.', topics: ['Protein annotations', 'Variant-site context', 'Functional evidence'] },
+  predictors: { description: 'Compare computational predictions and the evidence-strength bands they reach.', topics: ['Predictor comparison', 'Native score scales', 'Evidence-strength bands'] },
+  alphagenome: { description: 'Explore predicted regulatory effects when a supported genomic variant is available.', topics: ['Variant impact score', 'Feature contributions', 'Genomic context'] },
+  splicing: { description: 'Examine predicted splice changes in their transcript and junction context.', topics: ['Splice-site predictions', 'Transcript geometry', 'Splicing evidence'] },
+  structure: { description: 'Compare side-chain properties and locate the variant relative to predicted pockets.', topics: ['Residue properties', 'Structural context', 'Nearby pockets'] },
+  perturbation: { description: 'Compare sequence-model readings with available changes in local packing and geometry.', topics: ['Sequence-model scores', 'Packing and geometry', 'Model availability'] },
+  interfaces: { description: 'Explore protein interfaces, interacting partners and the variant’s available assembly context.', topics: ['Protein partners', 'Interface context', 'Assembly evidence'] },
 };
 const WORKSPACES: Partial<Record<MasterView, EmptyWorkspace>> = {
   energetics: { title: 'Energetics', description: 'Compare predicted changes in folding stability and inspect the methods behind each estimate.', Icon: Activity, topics: ['Stability estimates', 'Agreement between methods', 'Engine records'] },
@@ -26,7 +28,10 @@ const WORKSPACES: Partial<Record<MasterView, EmptyWorkspace>> = {
 };
 
 export function emptyWorkspace(view: MasterView, evidenceTab: string): EmptyWorkspace | null {
-  if (view === 'evidence') return { ...(EVIDENCE[evidenceTab] ?? EVIDENCE.clinical), Icon: BarChart2 };
+  if (view === 'evidence') {
+    const tab = findEvidenceTab(evidenceTab) ?? findEvidenceTab('clinical')!;
+    return { ...EVIDENCE[tab.id], title: tab.label, Icon: BarChart2 };
+  }
   if (view === 'structure' || view === 'structure_alphafold' || view === 'structure_esmfold') return {
     title: '3D structure', Icon: Layers,
     description: 'Inspect the variant in a three-dimensional model and compare available wild-type and variant structures.',

@@ -25,6 +25,7 @@ import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from './Evidenc
 import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
 
 import { PHYSICAL_EXPLANATIONS } from '../../shared/researchGuides';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * Structural perturbation.
@@ -652,7 +653,7 @@ export function PerturbationTab({
   return (
     <div data-evidence-screen className="ptb-screen" data-comparison={workspace.comparison || undefined}>
       <header className="ptb-header">
-        <h1 className="screen-title">Structural perturbation</h1>
+        <h1 className="screen-title">{evidenceTab('perturbation').label}</h1>
         <p className="screen-tab-description">
           What protein language models expect at this residue, and how FoldX&apos;s mutant model packs. Context for
           curation — none of these scores is an ACMG input.

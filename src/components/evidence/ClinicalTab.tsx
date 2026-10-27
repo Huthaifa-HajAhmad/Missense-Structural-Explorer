@@ -3,8 +3,6 @@ import { AlertTriangle, Database, ExternalLink, Gauge, Search, RotateCw, Scale, 
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { TabComponentProps } from "./types";
 import {
-  buildFrequencyEvidence,
-  formatAlleleCounts,
   formatAlleleFrequency,
   formatCount,
   frequencyObservationName,
@@ -12,7 +10,8 @@ import {
   observationAbsence,
   type FrequencyApplication,
   type FrequencyCriterion,
-  type FrequencyObservation, frequencyEvidenceInputFromResult, summariseReadings } from "../../shared/frequencyEvidence";
+  type FrequencyObservation, frequencyEvidenceForResult, summariseReadings, cohortDisagreement } from "../../shared/frequencyEvidence";
+import { gnomadGroupLabel } from "../../shared/gnomadGroups";
 import type { EvidenceAvailabilityState } from "../../shared/evidenceAvailability";
 import { THRESHOLDS } from "../../shared/thresholds";
 import { FrequencyScale, type ScaleReading } from "./population/FrequencyScale";
@@ -21,7 +20,8 @@ import { Prose } from "../ui/Prose";
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { buildPopulationComparison } from '../../shared/evidenceComparison';
-const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
+import EvidenceComparison from './EvidenceComparison';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * Population Data.
@@ -204,13 +204,23 @@ function Stars({ count }: { count: number }) {
   );
 }
 
-export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentProps) {
+/**
+ * The guard lives in a wrapper so every hook below runs on every render. The guard used to sit
+ * between hooks, so a result that went from present to absent (a new query clearing the store)
+ * rendered fewer hooks than the previous pass, and React threw "Rendered fewer hooks than expected".
+ */
+export function ClinicalTab(props: TabComponentProps) {
+  if (!props.analysisState.result) return null;
+  return <ClinicalTabContent {...props} />;
+}
+
+function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentProps) {
   const workspace = useEvidenceWorkspace('clinical');
   const requestRerun = useVariantAnalysisStore(s => s.requestRerun);
   const setCustomGene = useVariantAnalysisStore(s => s.setCustomGene);
   const setShowCustomInputs = useVariantAnalysisStore(s => s.setShowCustomInputs);
-  const result = analysisState.result;
-  if (!result) return null;
+  // Non-null: the ClinicalTab wrapper renders this only when a result exists.
+  const result = analysisState.result!;
 
   const provideAllele = () => {
     // Keep the current notation and gene context; never choose or submit a candidate allele.
@@ -219,7 +229,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
     onNavigateToView?.("search");
   };
 
-  const evidence = useMemo(() => buildFrequencyEvidence(frequencyEvidenceInputFromResult(result)), [result]);
+  const evidence = frequencyEvidenceForResult(result);
 
   const { criterion, applied, clinvar } = evidence;
   const FREQ = THRESHOLDS.populationFrequency;
@@ -235,18 +245,24 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
 
   const reading = populationReading(evidence);
 
-  // The headline figure: the busiest cohort's counts; the rule's frequency when no cohort has counts;
-  // and for a recorded absence, the words — a bare "0" read as a measured frequency of zero.
-  const leadFigure = reading.mostCopies
-    ? reading.mostCopies.counts
-    : criterion.absent ? "Not observed"
+  /*
+   * The headline figure is the number the verdict turned on — the design standard's "one headline
+   * figure = the answer". It used to be the busiest cohort's counts, which for UROD p.Gly318Arg put
+   * All of Us's AC 2,085 · AN 490,780 above a verdict computed from gnomAD. The counts are now the
+   * second line, labelled with their cohort; a recorded absence is words, never a bare "0".
+   */
+  const leadFigure = criterion.absent ? "Not observed"
     : reading.ruleAf !== null ? formatAlleleFrequency(reading.ruleAf)
+    : reading.mostCopies ? reading.mostCopies.counts
     : "No reading";
-  const leadLabel = reading.mostCopies
-    ? `${reading.mostCopies.label} · most copies in any one cohort`
-    : criterion.absent ? "in gnomAD — no record of this variant"
-    : reading.ruleAf !== null ? reading.ruleSource
+  const leadLabel = criterion.absent ? "in gnomAD — no record of this variant"
+    : reading.ruleAf !== null ? `${reading.ruleSource} · the frequency the rule read`
+    : reading.mostCopies ? `${reading.mostCopies.label} · most copies in any one cohort`
     : null;
+  const countsLine = reading.ruleAf !== null && reading.mostCopies
+    ? `Most copies in one cohort: ${reading.mostCopies.counts} · ${reading.mostCopies.label}`
+    : null;
+  const disagreement = cohortDisagreement(evidence);
 
 
   const scaleReadings: ScaleReading[] = evidence.observations
@@ -272,6 +288,8 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
     observation: o,
     name: o.id === "gnomad-local" ? o.label : frequencyObservationName(o),
     source: "gnomad",
+    // The local ingest's combined AF IS the rule input; it has no separate grouped-maximum row.
+    ruleInput: criterion.combinedCohorts && o.id === "gnomad-local",
   }));
   const groupedLine: SourceLine | null = groupedMaxAf !== null
     ? {
@@ -281,9 +299,25 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           availability: { ...(gnomadRows[0]?.availability ?? {}), state: "available", label: null, reason: null, hasValue: true } as FrequencyObservation["availability"],
         },
         name: "gnomAD grouped maximum",
+        qualifier: gnomadGroupLabel(criterion.groupMaxPopulation) ?? undefined,
         source: "gnomad",
-        ruleInput: true,
-        note: <>Frequency only, across ancestry groups of ≥ {formatCount(FREQ.groupMinAn)} alleles</>,
+        // PM2's input. When FAF95 decided BA1/BS1, that row carries the dot instead.
+        ruleInput: !(criterion.inputs?.benignStatistic === "faf95" && (criterion.code === "BA1" || criterion.code === "BS1")),
+        note: <>Frequency only, the highest of gnomAD&apos;s grpmax groups with ≥ {formatCount(FREQ.groupMinAn)} alleles · PM2 input</>,
+      }
+    : null;
+  const fafLine: SourceLine | null = criterion.inputs?.benignStatistic === "faf95"
+    ? {
+        observation: {
+          key: "gnomad-faf95", id: "gnomad-faf95", label: "Filtering allele frequency (FAF95)", dataset: gnomadRelease ?? "",
+          af: criterion.inputs.benignAf, ac: null, an: null, homozygotes: null, heterozygotes: null,
+          availability: { ...(gnomadRows[0]?.availability ?? {}), state: "available", label: null, reason: null, hasValue: true } as FrequencyObservation["availability"],
+        },
+        name: "gnomAD FAF95",
+        qualifier: gnomadGroupLabel(criterion.faf95Population) ?? undefined,
+        source: "gnomad",
+        ruleInput: criterion.code === "BA1" || criterion.code === "BS1",
+        note: <>Lower 95% bound of the grouped maximum · BA1/BS1 input (ClinGen SVI)</>,
       }
     : null;
   const aouLine: SourceLine | null = aouRow
@@ -306,6 +340,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
   const allLines = [
     ...gnomadLines,
     ...(groupedLine ? [groupedLine] : []),
+    ...(fafLine ? [fafLine] : []),
     ...(aouLine ? [aouLine] : []),
     ...clinvarLines,
   ];
@@ -318,7 +353,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
   return (
     <div data-evidence-screen className="pop-screen @container" data-comparison={workspace.comparison || undefined}>
       <header>
-        <h1 className="screen-title">Population Data</h1>
+        <h1 className="screen-title">{evidenceTab('clinical').label}</h1>
         <p className="screen-tab-description">
           How often this allele has been seen in gnomAD, All of Us and ClinVar submissions — and which
           ACMG frequency criterion that supports.
@@ -341,12 +376,14 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           <div className="pop-hero__figure">
             <span
               className="figure-headline pop-figure"
-              data-absent={criterion.absent && !reading.mostCopies ? true : undefined}
-              title={reading.mostCopies ? "Allele count · allele number" : "The frequency the ACMG rule read"}
+              data-testid="figure-headline"
+              data-absent={criterion.absent ? true : undefined}
+              title={reading.ruleAf !== null ? "The frequency the ACMG rule read" : "Allele count · allele number"}
             >
               {leadFigure}
             </span>
             {leadLabel && <span className="pop-hero__figure-label">{leadLabel}</span>}
+            {countsLine && <span className="pop-hero__figure-label pop-mono" data-testid="most-copies">{countsLine}</span>}
           </div>
 
           <Prose className="detail-prose pop-hero__finding">
@@ -359,6 +396,17 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
               criterion.statement
             )}
           </Prose>
+
+          {disagreement && (
+            <p className="pop-callout" data-tone="neutral" data-testid="cohort-disagreement">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                {disagreement.label} reports {formatAlleleFrequency(disagreement.af)},{" "}
+                {disagreement.ratio.toFixed(1)}× the frequency the rule read. The rule reads gnomAD only; a higher
+                figure elsewhere can mean the allele is enriched in a group this input dilutes. Context, not a criterion.
+              </span>
+            </p>
+          )}
 
           {applied.suppressed && (
             <p className="pop-callout" data-tone="warning">
@@ -386,10 +434,10 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
               <span
                 className="ev-tier chip-code"
                 data-tone={bs2 ? "good" : "muted"}
-                title={bs2 ? "The engine recorded BS2 for this run" : "The engine did not record BS2 for this run"}
+                title={bs2 ? "The engine recorded BS2 for this run" : evidence.homozygoteCriterion.reason ? `BS2 not applied: ${evidence.homozygoteCriterion.reason}` : "The engine did not record BS2 for this run"}
               >
-                {bs2 ? "BS2" : "No BS2"}
-                <span className="sr-only">{bs2 ? " — the engine recorded BS2 for this run" : " — the engine did not record BS2 for this run"}</span>
+                {bs2 ? "BS2" : evidence.homozygoteCriterion.applicable ? "No BS2" : "BS2 not applicable"}
+                <span className="sr-only">{bs2 ? " — the engine recorded BS2 for this run" : evidence.homozygoteCriterion.reason ? ` — not applied: ${evidence.homozygoteCriterion.reason}` : " — the engine did not record BS2 for this run"}</span>
               </span>
             )}
           </p>
@@ -442,7 +490,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
       </section>
 
       {workspace.comparison && (populationModel.rows.some(row => row.value !== null)
-        ? <React.Suspense fallback={<p>Loading frequency comparison…</p>}><EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." /></React.Suspense>
+        ? <EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." />
         : <section className="pop-card pop-availability" aria-labelledby="pop-availability-title">
             <h2 id="pop-availability-title">Population source coverage</h2>
             <p>No positive allele frequencies were returned. Select a source to inspect its exact record.</p>
@@ -517,9 +565,9 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
                       <span
                         className="ev-tier chip-code"
                         data-tone={bs2 ? "good" : "muted"}
-                        title={bs2 ? "The engine recorded BS2 for this run" : "The engine did not record BS2 for this run"}
+                        title={bs2 ? "The engine recorded BS2 for this run" : evidence.homozygoteCriterion.reason ? `BS2 not applied: ${evidence.homozygoteCriterion.reason}` : "The engine did not record BS2 for this run"}
                       >
-                        {bs2 ? "BS2" : "No BS2"}
+                        {bs2 ? "BS2" : evidence.homozygoteCriterion.applicable ? "No BS2" : "BS2 not applicable"}
                       </span>
                     )}
                   </span>

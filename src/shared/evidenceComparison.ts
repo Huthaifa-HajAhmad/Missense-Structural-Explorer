@@ -6,8 +6,10 @@ import { AVI_FEATURES, AVI_GROUP_LABEL, fmtShare, type AlphaGenomeEvidence, type
 import { CAVEAT_TEXT, type PredictorEvidence } from './predictorEvidence';
 import type { LadderEvidence } from './ladderEvidence';
 import { formatEvidenceCode } from './thresholds';
+import type { EvidenceTabId } from './evidenceTabs';
 
-export type EvidenceWorkspaceTab = 'clinical' | 'predictors' | 'alphagenome' | 'gene-disease' | 'expression-models' | 'species-models' | 'structure' | 'perturbation' | 'function' | 'splicing' | 'interfaces';
+/** Every Evidence tab has a workspace; the set is the registry's (`evidenceTabs.ts`). */
+export type EvidenceWorkspaceTab = EvidenceTabId;
 export interface EvidenceChartRow {
   /** Educational topic only; never changes a reading or the engine's recorded interpretation. */
   knowledgeKey?: string;

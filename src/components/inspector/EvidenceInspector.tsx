@@ -1,21 +1,9 @@
 import React from "react";
-import {
-  ShieldAlert,
-  Zap,
-  Box,
-  Info,
-  Cpu,
-  Sparkles,
-  ArrowRight,
-  Gauge
-} from "lucide-react";
-import { AnalysisResult } from "../../types";
-import {
-  THRESHOLDS,
-  STRING_CONFIDENCE_BANDS,
-} from "../../shared/thresholds";
-import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
-import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
+import type { AnalysisResult, EnergeticsData, PocketResult } from "../../types";
+import type { PerturbationModelId } from "../../shared/perturbationModels";
+import { findEvidenceTab, type EvidenceTabId } from "../../shared/evidenceTabs";
+import SplicingRail from "./SplicingRail";
+import PerturbationRail from "./PerturbationRail";
 import { FunctionRail } from "./FunctionRail";
 import { PopulationRail } from "./PopulationRail";
 import { EvidenceContextRail } from './EvidenceContextRail';
@@ -25,81 +13,95 @@ import { normalizeEvidenceTab } from "../evidence/types";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
 import ResidueShiftInspector from "./ResidueShiftInspector";
 
+/**
+ * The props the heavier rails need beyond the payload. They are flat (not one object) so the
+ * `React.memo` below still compares them one by one.
+ */
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
   activeEvidenceTab?: string;
+  isBiophysicalLoading?: boolean;
+  computedPocket?: PocketResult | null;
+  isPocketLoading?: boolean;
+  pocketError?: string | null;
+  isNarrativeLoading?: boolean;
+  onRetryPocket?: () => void | Promise<void>;
+  onRetryNarrative?: () => void | Promise<void>;
+  activePerturbationModel?: PerturbationModelId;
+  saprotEngine?: string | null;
+  foldingEnergetics?: EnergeticsData | null;
+  structuralDiff?: unknown;
+  metrics?: unknown;
+  isFolding?: boolean;
+  foldingStatus?: "success" | "failed" | "unavailable" | null;
+  foldingError?: string | null;
 }
+
+type RailProps = Omit<EvidenceInspectorProps, "analysisResult" | "activeEvidenceTab"> & { analysisResult: AnalysisResult };
+
+/**
+ * One rail per Evidence tab, and the ONLY place the routing lives.
+ *
+ * It used to be split: `ViewInspector` routed splicing, structure and perturbation, this file routed
+ * the rest, its own `structure` branch could never render, and an unknown id fell through to a
+ * "placeholder telemetry" box. The map is keyed by the registry's id type, so a new tab does not
+ * build until it has a rail; an unrecognised id falls back to Population, as the tab body does.
+ */
+const RAILS: Record<EvidenceTabId, (p: RailProps) => React.ReactNode> = {
+  clinical: p => <PopulationRail analysisResult={p.analysisResult} />,
+  "gene-disease": p => <EvidenceContextRail analysisResult={p.analysisResult} expression={false} species={false} />,
+  "expression-models": p => <EvidenceContextRail analysisResult={p.analysisResult} expression species={false} />,
+  "species-models": p => <EvidenceContextRail analysisResult={p.analysisResult} expression={false} species />,
+  function: p => <FunctionRail analysisResult={p.analysisResult} />,
+  predictors: p => <PredictorsRail analysisResult={p.analysisResult} />,
+  alphagenome: p => <AlphaGenomeRail analysisResult={p.analysisResult} />,
+  splicing: p => <SplicingRail analysisResult={p.analysisResult} isBiophysicalLoading={p.isBiophysicalLoading} />,
+  structure: p => (
+    <ResidueShiftInspector
+      analysisResult={p.analysisResult}
+      computedPocket={p.computedPocket}
+      isPocketLoading={p.isPocketLoading}
+      pocketError={p.pocketError}
+      isBiophysicalLoading={p.isBiophysicalLoading}
+      isNarrativeLoading={p.isNarrativeLoading}
+      onRetryPocket={p.onRetryPocket}
+      onRetryNarrative={p.onRetryNarrative}
+    />
+  ),
+  perturbation: p => (
+    <PerturbationRail
+      analysisResult={p.analysisResult}
+      activePerturbationModel={p.activePerturbationModel}
+      saprotEngine={p.saprotEngine}
+      foldingEnergetics={p.foldingEnergetics}
+      structuralDiff={p.structuralDiff}
+      metrics={p.metrics}
+      isFolding={p.isFolding}
+      foldingStatus={p.foldingStatus}
+      foldingError={p.foldingError}
+    />
+  ),
+  interfaces: p => <InterfacesRail analysisResult={p.analysisResult} />,
+};
 
 export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   analysisResult,
   activeEvidenceTab = "clinical",
+  ...rest
 }) => {
   if (!analysisResult) {
     return (
-      <div className="text-xs text-cs-text-muted italic p-2">
-        Awaiting variant analysis data...
-      </div>
+      <p className="text-xs text-cs-text-muted p-2">
+        No analysis loaded. Run a variant query to see how this evidence was traced.
+      </p>
     );
   }
-
-  /** Per-source build-gate refusals recorded server-side (unmapping defect F-13). */
-  const assemblyRefusals = analysisResult.conservationData?.assemblyRefusals ?? null;
-  const conservationData = analysisResult.conservationData;
-
-  // Active subtab category normalization
-  const tab = normalizeEvidenceTab(activeEvidenceTab?.toLowerCase() || "clinical");
-
+  const tab = findEvidenceTab(normalizeEvidenceTab(activeEvidenceTab?.toLowerCase() || "clinical"))?.id ?? "clinical";
   return (
-    <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Dynamic Tab-Aware Contextual Intelligence ── */}
-      {tab === "interfaces" && <InterfacesRail analysisResult={analysisResult} />}
-
-      {tab === "function" && <FunctionRail analysisResult={analysisResult} />}
-
-      {tab === "clinical" && <PopulationRail analysisResult={analysisResult} />}
-      {(tab === 'gene-disease' || tab === 'expression-models' || tab === 'species-models') && <EvidenceContextRail analysisResult={analysisResult} expression={tab === 'expression-models'} species={tab === 'species-models'} />}
-
-      {tab === "predictors" && <PredictorsRail analysisResult={analysisResult} />}
-
-      {tab === "alphagenome" && <AlphaGenomeRail analysisResult={analysisResult} />}
-
-      {tab === "structure" && <ResidueShiftInspector analysisResult={analysisResult} />}
-
-      {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "structure" && tab !== 'gene-disease' && tab !== 'expression-models' && tab !== 'species-models' && (
-        <div className="flex flex-col gap-3">
-          <span className="eyebrow">
-            <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Evidence Subtab Telemetry
-          </span>
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-workbench-header-surface space-y-1.5 text-[11px] text-cs-text-secondary">
-            {/*
-              * This box previously claimed "Deep-dive domain calibrations and metrics are populated
-              * dynamically from live backend microservices" while rendering a static sentence with
-              * one interpolated tab id — a placeholder asserting that it was a feature, on the very
-              * tab where the pipeline had refused to compute anything. It now says what it is, and
-              * reports the refusals the server actually recorded.
-              */}
-            <p>This panel carries no per-tab telemetry yet — what you see here is a placeholder, not a measurement.</p>
-            {assemblyRefusals && assemblyRefusals.length > 0 && (
-              <div className="space-y-1 pt-1">
-                <p className="text-[10px] font-mono uppercase tracking-wider text-cs-text-muted">
-                  Sources that declined this coordinate
-                </p>
-                {assemblyRefusals.map((refusal) => (
-                  <p key={refusal.source} className="text-[11px] text-cs-text-muted leading-snug">
-                    {humaniseAnyRefusal(refusal.reason)}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
+    <div className="flex flex-col gap-4 text-xs font-sans" data-evidence-rail={tab}>
+      {RAILS[tab]({ ...rest, analysisResult })}
     </div>
   );
 };
 
 export default React.memo(EvidenceInspector);
-
