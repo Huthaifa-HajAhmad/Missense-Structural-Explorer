@@ -711,6 +711,10 @@
 .vh-marker[data-tone="muted"] { background: var(--vh-muted-fg); }
 .dark .vh-marker { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
 
+/* Close ticks fan their numerals outwards (tickLabelAlignments): the left one ends at its tick, the
+   right one starts at its tick. The 3px lets the numeral's edge touch the tick it names. */
+.vh-axis-label[data-align="end"]   { transform: translateX(calc(-100% + 3px)); }
+.vh-axis-label[data-align="start"] { transform: translateX(-3px); }
 .vh-axis-label {
   position: absolute;
   top: 18.5px;

@@ -1,6 +1,6 @@
 import React from "react";
 import { ExternalLink } from "lucide-react";
-import { vhPos, vhMarkerPct, CUT_POINT_ORIGIN_LABELS, type VhMetric } from "./constraintMetrics";
+import { vhPos, vhMarkerPct, tickLabelAlignments, CUT_POINT_ORIGIN_LABELS, type VhMetric } from "./constraintMetrics";
 
 /**
  * One metric as a list row: label, value, reference track, threshold legend, verdict.
@@ -23,6 +23,7 @@ export function ConstraintMetric({
 }) {
   const { bands, ticks, marker, tone } = metric;
   const markerLeft = marker === null ? null : vhMarkerPct(marker, metric);
+  const labelAlign = tickLabelAlignments(metric);
   // DOM order follows the drawn order, left to right, whichever way the axis runs.
   const drawnBands = bands
     .map((band) => {
@@ -61,8 +62,13 @@ export function ConstraintMetric({
           <span key={tick.at} className="vh-tick" data-kind={tick.kind} style={{ left: `${vhPos(tick.at, metric)}%` }} />
         ))}
         {markerLeft !== null && <span className="vh-marker" data-tone={tone} style={{ left: `${markerLeft}%` }} />}
-        {ticks.map((tick) => (
-          <span key={`label-${tick.at}`} className="vh-axis-label" style={{ left: `${vhPos(tick.at, metric)}%` }}>
+        {ticks.map((tick, i) => (
+          <span
+            key={`label-${tick.at}`}
+            className="vh-axis-label"
+            data-align={labelAlign[i] === "center" ? undefined : labelAlign[i]}
+            style={{ left: `${vhPos(tick.at, metric)}%` }}
+          >
             {tick.label}
           </span>
         ))}

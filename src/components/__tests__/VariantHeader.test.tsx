@@ -766,6 +766,22 @@ describe("VariantHeader Component Tests", () => {
     expect(tonesOf("Regional O/E")).toEqual([]);
   });
 
+  it("anchors close threshold numerals away from each other, so they cannot overprint", () => {
+    const { container } = render(
+      <Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} />
+    );
+    const aligns = (label: string) => {
+      const row = Array.from(container.querySelectorAll("li.vh-metric")).find(
+        (li) => li.querySelector(".vh-metric-label")?.textContent === label
+      );
+      return Array.from(row?.querySelectorAll<HTMLElement>(".vh-axis-label") ?? []).map((el) => el.dataset.align ?? "center");
+    };
+    // LOEUF's two cut-points are 6% of the track apart: the left numeral ends at its tick, the right starts at its.
+    expect(aligns("LOEUF")).toEqual(["start", "end"]);
+    expect(aligns("Missense Z")).toEqual(["center", "center"]);
+    expect(aligns("Regional O/E")).toEqual(["center"]);
+  });
+
   it("draws every track in the same direction: constrained values sit right", () => {
     const { container } = render(
       <Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} />

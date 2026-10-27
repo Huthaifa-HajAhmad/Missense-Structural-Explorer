@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildConstraintMetrics, buildLoeufMetric, buildMissenseZMetric, constraintSourceLabel, releaseTag } from "../constraintMetrics";
+import { buildConstraintMetrics, buildLoeufMetric, buildMissenseZMetric, buildRmcMetric, constraintSourceLabel, releaseTag, tickLabelAlignments } from "../constraintMetrics";
 import { THRESHOLDS } from "../../../shared/thresholds";
 import { buildVariantHeaderModel } from "../variantHeaderModel";
 import type { AnalysisResult } from "../../../types";
@@ -72,6 +72,16 @@ describe("constraint source, precision and availability", () => {
     const older = { ...constraint, provenance: { ...constraint.provenance, release: "2.1.1" }, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
     const res = result(older);
     for (const metric of buildConstraintMetrics(res)) expect(releaseTag(metric, constraintSourceLabel(res))).toBeNull();
+  });
+  it("fans close tick numerals outwards so LOEUF's 0.36 and 0.45 never overprint", () => {
+    const loeuf = buildLoeufMetric(0.96);
+    // Reversed axis: 0.45 is drawn left of 0.36. The left numeral ends at its tick, the right starts at its.
+    expect(loeuf.ticks.map((t) => t.label)).toEqual(["0.36", "0.45"]);
+    expect(tickLabelAlignments(loeuf)).toEqual(["start", "end"]);
+    // Well-separated ticks and single ticks stay centred.
+    expect(tickLabelAlignments(buildMissenseZMetric(1, false))).toEqual(["center", "center"]);
+    expect(tickLabelAlignments(buildRmcMetric(true, null))).toEqual(["center"]);
+    expect(tickLabelAlignments({ ...loeuf, ticks: [] })).toEqual([]);
   });
   it("describes clamped off-scale values", () => {
     expect(buildConstraintMetrics(result({ ...constraint, missense_z: -2 }))[0].detail).toContain("outside the display range");

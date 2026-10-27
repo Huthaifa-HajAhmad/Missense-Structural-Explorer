@@ -5,6 +5,21 @@ import { skipTour } from './support.js';
 // Live: needs a real analysis for the gene-constraint strip. Select with `--tag live` or `--tag constraint`.
 // The strip's readings open a card (click or keyboard focus); the card hands the reading to the
 // inspector rail, which Back returns to the page.
+/** Threshold numerals on every visible track, as pairs that intersect (should be none). */
+const overlappingNumerals = () =>
+  Array.from(document.querySelectorAll('.vh-scale')).flatMap((scale) => {
+    const boxes = Array.from(scale.querySelectorAll('.vh-axis-label')).map((el) => ({ text: el.textContent, r: el.getBoundingClientRect() }));
+    const pairs: string[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].r;
+        const b = boxes[j].r;
+        if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) pairs.push(`${boxes[i].text}/${boxes[j].text}`);
+      }
+    }
+    return pairs;
+  });
+
 test('a constraint reading opens its card, then borrows the inspector rail and gives it back', { tags: ['live', 'constraint'], timeout: 180_000 }, async ({ app, screen, browser }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1600, height: 1000 });
@@ -34,6 +49,8 @@ test('a constraint reading opens its card, then borrows the inspector rail and g
   });
   expect(placement.below).toBe(true);
   expect(placement.dx).toBeLessThan(40);
+  // LOEUF's 0.36 and 0.45 sit 6% apart; their numerals must not overprint.
+  expect(await browser.evaluate(overlappingNumerals)).toEqual([]);
   await app.screenshot('constraint-card-loeuf');
 
   await card.getByRole('button', 'Open in inspector').tap();
@@ -41,6 +58,7 @@ test('a constraint reading opens its card, then borrows the inspector rail and g
   await expect(view).toBeVisible();
   await expect(chip).toHaveAttribute('data-inspected', 'true');
   await expect(view.getByText('Where the cut-points come from')).toBeVisible();
+  expect(await browser.evaluate(overlappingNumerals)).toEqual([]);
   await app.screenshot('constraint-inspector-loeuf');
 
   await screen.getByRole('button', /^Back to /).tap();

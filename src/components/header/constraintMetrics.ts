@@ -125,6 +125,31 @@ export function vhMarkerPct(value: number, metric: Pick<VhMetric, "domain" | "re
   return Math.max(2.5, Math.min(97.5, vhPos(value, metric)));
 }
 
+/**
+ * Two tick numerals closer than this (percent of the track) cannot both be centred on their ticks
+ * without overprinting: a numeral is ~24px, and the narrowest track the rail or the card gives
+ * them is ~220px. LOEUF's 0.36 and 0.45 sit 6% apart and used to read "0.450.36".
+ */
+const TICK_LABEL_SPLIT_PCT = 15;
+
+export type TickLabelAlign = "center" | "start" | "end";
+
+/**
+ * How each tick's numeral anchors to its tick, by tick position in `metric.ticks`. Numerals centre
+ * on their ticks unless a neighbour is too close; then the left one ends at its tick and the right
+ * one starts at its tick, so the pair fans outwards and can never touch, at any track width.
+ */
+export function tickLabelAlignments(metric: Pick<VhMetric, "ticks" | "domain" | "reversed">): TickLabelAlign[] {
+  const drawn = metric.ticks.map((tick, index) => ({ index, at: vhPos(tick.at, metric) })).sort((a, b) => a.at - b.at);
+  const align: TickLabelAlign[] = metric.ticks.map(() => "center");
+  for (let i = 1; i < drawn.length; i++) {
+    if (drawn[i].at - drawn[i - 1].at >= TICK_LABEL_SPLIT_PCT) continue;
+    if (align[drawn[i - 1].index] === "center") align[drawn[i - 1].index] = "end";
+    if (align[drawn[i].index] === "center") align[drawn[i].index] = "start";
+  }
+  return align;
+}
+
 const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
 
 /**
