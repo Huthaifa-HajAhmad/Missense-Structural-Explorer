@@ -7,6 +7,7 @@ import "@fontsource-variable/lora/wght-italic.css";
 import "./preview.css";
 import { ClinicalTab } from "../../src/components/evidence/ClinicalTab";
 import { PopulationRail } from "../../src/components/inspector/PopulationRail";
+import { ConstraintInspector } from "../../src/components/inspector/ConstraintInspector";
 import VariantHeader from "../../src/components/VariantHeader";
 import { VariantIdentity } from "../../src/components/header/VariantIdentity";
 import { buildVariantHeaderModel } from "../../src/components/header/variantHeaderModel";
@@ -134,6 +135,13 @@ const POPULATION_CASES = [
   { id: "population-narrow", width: 375, dark: false },
   { id: "population-dark", width: 375, dark: true },
 ];
+/** The inspector's Gene constraint rail: the three-row surface a strip card hands the reading to.
+ *  It is where the old Details panel's rows now live, so the cross-row and marker assertions run here. */
+const INSPECTOR_CASES: Array<{ id: string; width: number; dark: boolean }> = [
+  { id: "constraint-rail-320", width: 320, dark: false },
+  { id: "constraint-rail-375", width: 375, dark: false },
+  { id: "constraint-rail-dark", width: 375, dark: true },
+];
 
 /** The top-bar identity at the widths its zone takes as the bar narrows. */
 const IDENTITY_CASES: Array<{ id: string; width: number; expect: string[] }> = [
@@ -146,10 +154,20 @@ const IDENTITY_CASES: Array<{ id: string; width: number; expect: string[] }> = [
 const px = (n: number): number => Math.round(n * 10) / 10;
 const rect = (el: Element): DOMRect => el.getBoundingClientRect();
 
+/**
+ * The app puts the theme class on `<html>`, so `:root` and `.dark` are one element and
+ * `--cs-workbench-header-surface` (declared at `:root` as `var(--cs-accent-wash)`) re-resolves
+ * against the dark palette. A harness wrapper is a DESCENDANT of `:root`, where that derived token
+ * would keep its light computed value, so a dark wrapper re-declares it exactly as `:root.dark` does.
+ */
+const darkDerivedTokens = {
+  "--cs-workbench-header-surface": "var(--cs-accent-wash)",
+} as React.CSSProperties;
+
 /** Left/right edges of the four aligned line-1 columns, per metric row. */
-function columnEdges(header: Element): Record<string, Array<[number, number]>> {
+function columnEdges(root: Element): Record<string, Array<[number, number]>> {
   const out: Record<string, Array<[number, number]>> = {};
-  header.querySelectorAll("li.vh-metric").forEach((row) => {
+  root.querySelectorAll("li.vh-metric").forEach((row) => {
     (["vh-metric-label", "vh-metric-value", "vh-scale", "vh-verdict"] as const).forEach((cls) => {
       const cell = row.querySelector(`.${cls}`);
       if (!cell) return;
@@ -160,18 +178,20 @@ function columnEdges(header: Element): Record<string, Array<[number, number]>> {
   return out;
 }
 
-function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[] {
+/**
+ * The full-track checks, run against whatever root holds the rows. The strip holds none of its
+ * own any more: a strip root measures the single row of the card it has open, and the inspector
+ * host measures all three. Cross-row alignment needs two rows, so the inspector host is what keeps
+ * that assertion alive after the old Details panel's rows moved there.
+ */
+function trackRowChecks(root: HTMLElement, id: string): GeometryCheck[] {
   const checks: GeometryCheck[] = [];
-  const header = host.querySelector(".variant-header");
-  if (!header) {
-    return [{ name: `${id}: renders`, pass: false, detail: "no .variant-header in the host" }];
-  }
 
   // 1. Every metric row shares the same line-1 column edges. Each row is its own grid,
   //    so any content-sized column silently desynchronises the rails down the group.
   //    The verdict chip is content-sized and start-aligned, so only its left edge is
   //    expected to match; the other three columns stretch to their track.
-  const edges = columnEdges(header);
+  const edges = columnEdges(root);
   for (const [cls, rows] of Object.entries(edges)) {
     if (rows.length < 2) continue;
     const spread = Math.max(...rows.map((r) => r[0])) - Math.min(...rows.map((r) => r[0]));
@@ -184,27 +204,9 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
     });
   }
 
-  // 2. Nothing inside the header is wider than its box: a fixed column plus nowrap
-  //    would otherwise clip or overlap its neighbour.
-  //    `.vh-icon-btn::after` is a 4px hit-area halo, which is scrollable overflow by
-  //    definition and is not a layout defect, so it is excluded (and tracked as a known
-  //    LOW: the halo overlaps the neighbouring chip by 2px).
-  const spills: string[] = [];
-  header.querySelectorAll<HTMLElement>("*").forEach((el) => {
-    if (el.classList.contains("vh-sr-only") || el.classList.contains("vh-icon-btn")) return;
-    // A row that scrolls sideways by design (the strip's chips at narrow widths) is not a spill.
-    if (getComputedStyle(el).overflowX === "auto") return;
-    const overflow = el.scrollWidth - el.clientWidth;
-    if (overflow > 1) {
-      const hitAreaOnly = overflow <= 4 && el.querySelector(".vh-icon-btn") !== null;
-      if (!hitAreaOnly) spills.push(`${el.className || el.tagName}[${px(el.clientWidth)}<${px(el.scrollWidth)}]`);
-    }
-  });
-  checks.push({ name: `${id}: no content spills its box`, pass: spills.length === 0, detail: spills.join(" ") || "none" });
-
-  // 3. The value marker must not paint over the threshold numeral that names it.
+  // 2. The value marker must not paint over the threshold numeral that names it.
   const collisions: string[] = [];
-  header.querySelectorAll("li.vh-metric").forEach((row) => {
+  root.querySelectorAll("li.vh-metric").forEach((row) => {
     const marker = row.querySelector(".vh-marker");
     if (!marker) return;
     const m = rect(marker);
@@ -223,9 +225,9 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
     detail: collisions.join(" | ") || "none",
   });
 
-  // 4. An ellipsised label hides the metric name; an ellipsised verdict hides the call.
+  // 3. An ellipsised label hides the metric name; an ellipsised verdict hides the call.
   const clipped: string[] = [];
-  header.querySelectorAll<HTMLElement>(".vh-metric-label, .vh-verdict").forEach((el) => {
+  root.querySelectorAll<HTMLElement>(".vh-metric-label, .vh-verdict").forEach((el) => {
     if (el.scrollWidth - el.clientWidth > 1) clipped.push(`${el.className} "${el.textContent ?? ""}"`);
   });
   checks.push({ name: `${id}: labels and verdicts are not truncated`, pass: clipped.length === 0, detail: clipped.join(" | ") || "none" });
@@ -233,11 +235,80 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
   return checks;
 }
 
-/** The scope caption is the rail's first child, and its axis legend spans exactly the track
-   column of the rows below it — the legend names that column's direction, so it must sit over it. */
-function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
+/** Nothing inside the root is wider than its box: a fixed column plus nowrap would otherwise
+ *  clip or overlap its neighbour. `.vh-icon-btn::after` is a 4px hit-area halo, which is
+ *  scrollable overflow by definition and is not a layout defect, so it is excluded (and tracked
+ *  as a known LOW: the halo overlaps the neighbouring chip by 2px). Likewise the inspector's
+ *  focused row paints its tint 8px into the rail's gutter (`margin-inline: -8px`); that bleed is
+ *  the design and is absorbed by `.inspector-body`'s 16px padding, so containers whose only
+ *  overflow is that bleed are not spills. */
+function checkNoSpill(root: HTMLElement, id: string): GeometryCheck {
+  const spills: string[] = [];
+  root.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    if (el.classList.contains("vh-sr-only") || el.classList.contains("vh-icon-btn")) return;
+    // A row that scrolls sideways by design (the strip's chips at narrow widths) is not a spill.
+    if (getComputedStyle(el).overflowX === "auto") return;
+    const allowance = el.querySelector(".vh-metric[data-focused]") ? 8 : 0;
+    const overflow = el.scrollWidth - el.clientWidth;
+    if (overflow > allowance + 1) {
+      const hitAreaOnly = overflow <= 4 && el.querySelector(".vh-icon-btn") !== null;
+      if (!hitAreaOnly) spills.push(`${el.className || el.tagName}[${px(el.clientWidth)}<${px(el.scrollWidth)}]`);
+    }
+  });
+  return { name: `${id}: no content spills its box`, pass: spills.length === 0, detail: spills.join(" ") || "none" };
+}
+
+function checkCase(host: HTMLElement, id: string): GeometryCheck[] {
+  const header = host.querySelector<HTMLElement>(".variant-header");
+  if (!header) {
+    return [{ name: `${id}: renders`, pass: false, detail: "no .variant-header in the host" }];
+  }
+  return [...trackRowChecks(header, id), checkNoSpill(header, id)];
+}
+
+/**
+ * The card is now the strip's full reading: it must open from a chip, sit under it, and stay
+ * inside the strip's width (the clamp in VariantHeader.tsx). Its track row is measured through the
+ * same host by `trackRowChecks`, so this check covers what the strip itself no longer carries.
+ */
+function checkCardDisclosure(host: HTMLElement, id: string): GeometryCheck[] {
+  const strip = host.querySelector<HTMLElement>(".variant-header");
+  const card = host.querySelector<HTMLElement>('[data-testid="constraint-card"]');
+  const chip = card?.closest("li")?.querySelector<HTMLButtonElement>(".vcs-chip-btn") ?? null;
+  if (!strip || !card || !chip) {
+    return [{ name: `${id}: a reading's card opens under its chip`, pass: false, detail: "missing card/chip/strip" }];
+  }
+  const sb = rect(strip);
+  const cb = rect(card);
+  const chipBox = rect(chip);
+  const head = card.querySelector(".vcs-card-name");
+  const release = card.querySelector(".vcs-card-release");
+  const rows = card.querySelectorAll("li.vh-metric").length;
+  const origin = card.querySelector(".cx-origin");
+  const action = card.querySelector<HTMLElement>(".vcs-card-inspect");
+  return [
+    {
+      name: `${id}: a reading's card opens under its chip`,
+      pass: Boolean(head && release && action && origin) && rows === 1 && cb.top >= chipBox.bottom - 1,
+      detail: `${rows} row(s), head=${Boolean(head)}, release=${Boolean(release)}, origin=${Boolean(origin)}, action=${Boolean(action)}, top ${px(cb.top)} vs chip bottom ${px(chipBox.bottom)}`,
+    },
+    {
+      name: `${id}: the card stays inside the strip's width`,
+      pass: cb.left >= sb.left - 1 && cb.right <= sb.right + 1,
+      detail: `card ${px(cb.left)}..${px(cb.right)} in strip ${px(sb.left)}..${px(sb.right)}`,
+    },
+    {
+      name: `${id}: the card's action is legible`,
+      pass: Boolean(action) && action!.scrollWidth <= action!.clientWidth + 1,
+      detail: action ? `${action.scrollWidth} vs ${action.clientWidth}` : "missing action",
+    },
+  ];
+}
+
+/** The inspector rail is the column label row, then the list — and its axis legend spans exactly
+ *  the track column of the rows below it, because the legend names that column's direction. */
+function checkInspectorRail(host: HTMLElement, id: string): GeometryCheck[] {
   const rail = host.querySelector(".vh-rail");
-  const heading = host.querySelector(".vcs-panel-heading");
   const head = host.querySelector(".vh-rail-head");
   const list = host.querySelector(".vh-metrics");
   if (!rail || !head || !list) {
@@ -245,8 +316,8 @@ function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   }
   const checks: GeometryCheck[] = [{
     name: `${id}: rail opens with its scope caption`,
-    pass: rail.firstElementChild === heading && heading?.nextElementSibling === head && head.nextElementSibling === list,
-    detail: "scope heading, column labels, then list",
+    pass: rail.firstElementChild === head && head.nextElementSibling === list,
+    detail: "column labels, then list",
   }];
   const axis = host.querySelector(".vh-rail-axis");
   const scale = host.querySelector("li.vh-metric .vh-scale");
@@ -418,7 +489,7 @@ function checkContrast(host: HTMLElement, id: string, pageBackgroundHex: string)
   const selectors = [
     ".vh-metric-label", ".vh-axis-label", ".vh-metric-value", ".vh-verdict",
     ".vh-rail-source", ".vh-rail-axis",
-    ".vcs-chip-label", ".vcs-chip-value", ".vcs-chip-verdict", ".vcs-source", ".vcs-details",
+    ".vcs-chip-label", ".vcs-chip-value", ".vcs-chip-verdict", ".vcs-source", ".vcs-card-inspect",
   ];
   const checks: GeometryCheck[] = [];
   selectors.forEach((selector) => {
@@ -440,8 +511,11 @@ function App(): React.ReactElement {
   const [report, setReport] = React.useState<GeometryReport | null>(null);
 
   React.useEffect(() => {
-    // Open every Details panel: the full tracks are what the row/marker/numeral checks measure.
-    document.querySelectorAll<HTMLButtonElement>(".vcs-details").forEach((b) => b.click());
+    // Open one reading's card per strip: the strip's full-track checks then measure the card's
+    // row, and the contrast checks need the card's action on screen.
+    document.querySelectorAll<HTMLElement>(".vcs-chips").forEach((ul) => {
+      ul.querySelector<HTMLButtonElement>(".vcs-chip-btn")?.click();
+    });
     let active = true;
     const runMeasurements = () => {
       if (!active) return;
@@ -453,8 +527,8 @@ function App(): React.ReactElement {
       CASES.forEach((c) => {
         const host = document.getElementById(`host-${c.id}`);
         if (!host) return;
-        checks.push(...checkCase(host, c.id, c.width));
-        checks.push(...checkRailCaption(host, c.id));
+        checks.push(...checkCase(host, c.id));
+        checks.push(...checkCardDisclosure(host, c.id));
         checks.push(checkStripOneLine(host, c.id));
         const strip = host.querySelector(".variant-header");
         if (strip) heights[c.id] = px(rect(strip).height);
@@ -488,14 +562,24 @@ function App(): React.ReactElement {
           detail: state ? `${state.scrollWidth} vs ${state.clientWidth}` : "missing state",
         });
         if (c.width >= 820) {
+          // Recovery keeps its slot. A reading may scroll inside its own row, but the row's box and
+          // the run-state action must never overlap, and the action must stay inside the strip.
           const chips = host.querySelector<HTMLElement>(".vcs-chips");
-          const details = host.querySelector<HTMLElement>(".vcs-details");
-          const right = chips ? chips.getBoundingClientRect().left + chips.scrollWidth : Infinity;
-          const left = details?.getBoundingClientRect().left ?? -Infinity;
+          const state = host.querySelector<HTMLElement>(".vcs-runstate");
+          const strip = host.querySelector<HTMLElement>(".variant-header");
+          const chipsBox = chips?.getBoundingClientRect();
+          const stateBox = state?.getBoundingClientRect();
+          const stripBox = strip?.getBoundingClientRect();
+          const fitsOrScrolls = Boolean(chips) &&
+            (chips!.scrollWidth <= chips!.clientWidth + 1 || getComputedStyle(chips!).overflowX === "auto");
           checks.push({
-            name: `${c.id}: constraint readings do not overprint Details or recovery`,
-            pass: Boolean(chips && details) && right <= left + 1,
-            detail: `${right.toFixed(1)} vs ${left.toFixed(1)}`,
+            name: `${c.id}: readings stay clear of the recovery chrome`,
+            pass: Boolean(chipsBox && stateBox && stripBox) &&
+              stateBox!.right <= stripBox!.right + 1 &&
+              chipsBox!.right <= stateBox!.left + 1 && fitsOrScrolls,
+            detail: chipsBox && stateBox && stripBox
+              ? `chips end ${px(chipsBox.right)} vs state start ${px(stateBox.left)}; state ends ${px(stateBox.right)} vs strip ${px(stripBox.right)}`
+              : "missing chips/state/strip",
           });
         }
       });
@@ -522,6 +606,14 @@ function App(): React.ReactElement {
       IDENTITY_CASES.forEach((c) => {
         const host = document.getElementById(`host-${c.id}`);
         if (host) checks.push(...checkIdentity(host, c.id, c.expect));
+      });
+
+      INSPECTOR_CASES.forEach((c) => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (!host) return;
+        checks.push(...trackRowChecks(host, c.id));
+        checks.push(checkNoSpill(host, c.id));
+        checks.push(...checkInspectorRail(host, c.id));
       });
 
       const lightHost = document.getElementById("host-maco1-wide");
@@ -570,7 +662,7 @@ function App(): React.ReactElement {
           <header className="app-header" id="shell-standalone-header" />
         </div>
       </div>
-      {/* Each host reserves room under the strip for its open Details panel. */}
+      {/* Each host reserves room under the strip for its open reading card. */}
       {CASES.map((c) => (
         <div key={c.id} style={{ width: c.width, marginBottom: c.width <= 600 ? 380 : 230 }}>
           <div id={`host-${c.id}`}>{strip(c.gene, c.variant, c.uniprot, c.result)}</div>
@@ -590,6 +682,24 @@ function App(): React.ReactElement {
           <PopulationRail analysisResult={ambiguousAllele} />
         </div>
       ))}
+      {/* The inspector rail at the widths a real rail takes: the three-row track surface. The
+          inner padding is `.inspector-body`'s 16px gutter, which the focused row's -8px tint
+          bleeds into; without it the harness would report that designed bleed as a spill. */}
+      {INSPECTOR_CASES.map((c) => (
+        <div key={c.id} className={c.dark ? "dark" : undefined} style={{ width: c.width, background: "var(--cs-bg)", marginBottom: 20, ...(c.dark ? darkDerivedTokens : {}) }}>
+          <div id={`host-${c.id}`} style={{ padding: "0 16px" }}>
+            <ConstraintInspector
+              analysisResult={maco1}
+              gene="MACO1"
+              variant="p.Glu433Lys"
+              uniprotId="Q9NSG2"
+              focus="loeuf"
+              returnLabel="Population data"
+              onBack={() => {}}
+            />
+          </div>
+        </div>
+      ))}
       {IDENTITY_CASES.map((c) => (
         <div key={c.id} id={`host-${c.id}`} className="vid-zone" style={{ width: c.width, marginBottom: 12 }}>
           <VariantIdentity
@@ -598,7 +708,7 @@ function App(): React.ReactElement {
         </div>
       ))}
       {/* Same strip on the dark theme, for the contrast assertions. */}
-      <div className="dark" style={{ width: 1000, background: "var(--cs-bg)", paddingBottom: 230 }}>
+      <div className="dark" style={{ width: 1000, background: "var(--cs-bg)", paddingBottom: 230, ...darkDerivedTokens }}>
         <div id="host-maco1-dark">{strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1)}</div>
       </div>
     </div>
