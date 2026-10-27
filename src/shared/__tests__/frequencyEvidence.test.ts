@@ -275,7 +275,8 @@ describe("frequencyEvidence — cut-points come from the shared constants", () =
     const tooCommon = classifyAcmgFrequency(
       input({ gnomadFrequency: { ...GZF1_GNOMAD, maxAF: 0.02, groupMaxAF: 0.02 } }),
     );
-    expect(tooCommon.statement).toContain("1.0%");
+    // One cut-point format on every surface (`formatCutPoint`): "1%", never "1.0%" here and "1%" there.
+    expect(tooCommon.statement).toContain("above the 1% BS1 cut-point");
     expect(tooCommon.statement).not.toContain("0.1%");
     const pm2 = classifyAcmgFrequency(
       input({ gnomadFrequency: { ...GZF1_GNOMAD, maxAF: 0.00002, groupMaxAF: 0.00002 } }),
@@ -706,5 +707,37 @@ describe("formatAlleleCounts", () => {
     expect(formatAlleleCounts({ ac: null, an: null })).toBeNull();
     // A measured zero is a value, not an absence.
     expect(formatAlleleCounts({ ac: 0, an: 0 })).toBe("AC 0 · AN 0");
+  });
+});
+
+/**
+ * UROD p.Gly318Arg, served by the local dbNSFP ingest. That source has no ancestry breakdown, so the
+ * server copies its combined AF into `groupMaxAF` (AC 1,674 / AN 1,613,998 = 0.1037%). Every surface
+ * used to call that figure the "ancestry-grouped maximum", a statistic the payload never held.
+ */
+describe("frequencyEvidence — the local ingest's combined AF is not a grouped maximum", () => {
+  const combined = 1674 / 1613998;
+  const UROD_LOCAL = {
+    maxAF: combined, groupMaxAF: combined, genomeAF: combined, exomeAF: null,
+    genomeAC: 1674, exomeAC: null, genomeAN: 1613998, exomeAN: null,
+    nHomozygous: 15, dataset: "gnomad_r4_local",
+  };
+
+  it("reads the same number but names it as the combined frequency", () => {
+    const evidence = buildFrequencyEvidence(input({ gnomadFrequency: UROD_LOCAL, pli: 0 }));
+    expect(evidence.criterion.af).toBe(combined);
+    expect(evidence.criterion.combinedCohorts).toBe(true);
+    expect(evidence.criterion.usedGroupMax).toBe(false);
+    expect(evidence.criterion.fallback).toBe(false);
+    expect(frequencySourceLabel(evidence)).toMatch(/^gnomAD combined frequency/);
+    expect(frequencySourceLabel(evidence)).not.toMatch(/grouped|global/);
+    // The classification itself is unchanged: 0.1037% is above the 0.10% ceiling, below BS1's 1%.
+    expect(evidence.criterion.code).toBe("none");
+  });
+
+  it("still names a real gnomAD r4 grouped maximum as one", () => {
+    const evidence = buildFrequencyEvidence(input());
+    expect(evidence.criterion.combinedCohorts).toBe(false);
+    expect(evidence.criterion.usedGroupMax).toBe(true);
   });
 });

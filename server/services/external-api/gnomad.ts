@@ -5,6 +5,17 @@ import { buildGnomadFreqKey } from "../infra/cache-keys.ts";
 // The ancestry-group AN floor is shared with the surface that DESCRIBES it (the Population
 // Frequencies tab's grouped-maximum row), so the filter and the copy cannot drift apart.
 import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
+import { groupMaximum } from "../../../src/shared/gnomadGroups.ts";
+
+/**
+ * An answer gnomAD did not give: a transport failure or a non-OK response.
+ *
+ * Thrown, not returned as `null`, because the pipeline reads a `null` frequency as `not_found` — a
+ * confirmed absence that meets PM2. Before this, a gnomAD outage awarded PM2 (the invariant
+ * `server/invariants.test.ts` states for the classifier: a timeout never implies absence). `null`
+ * now means only what gnomAD itself says: "Variant not found".
+ */
+export class GnomadUnavailableError extends Error {}
 
 export interface FetchGnomadFrequencyOptions {
   l1Cache?: LRUCache<string, any>;
@@ -36,6 +47,16 @@ export interface GnomadVariantFrequency {
   dataset: string;
   /** Whether groupMaxAF fell back to global maxAF due to low population counts */
   groupMaxAFIsFallback?: boolean;
+  /** The genetic-ancestry group that holds `groupMaxAF` (e.g. "afr"), when it is a real group maximum. */
+  groupMaxPopulation?: string | null;
+  /**
+   * gnomAD's filtering allele frequency (FAF95) over the grpmax groups: the lower bound of the 95%
+   * confidence interval of the highest group frequency. ClinGen SVI's BA1/BS1 guidance reads this,
+   * not the raw AF, so a handful of chance observations in a small group cannot carry a benign call.
+   */
+  faf95?: number | null;
+  /** The group FAF95 was taken from. */
+  faf95Population?: string | null;
 }
 
 /**
@@ -87,6 +108,20 @@ export async function fetchGnomadVariantFrequency(
             an
           }
         }
+        joint {
+          ac
+          an
+          homozygote_count
+          faf95 {
+            popmax
+            popmax_population
+          }
+          populations {
+            id
+            ac
+            an
+          }
+        }
       }
     }
   `;
@@ -106,12 +141,15 @@ export async function fetchGnomadVariantFrequency(
 
     if (!resp.ok) {
       console.warn(`[gnomAD Freq] API responded ${resp.status} for variant ${variantId}`);
-      return null;
+      throw new GnomadUnavailableError(`gnomAD responded ${resp.status}`);
     }
 
     const json = await resp.json();
     const v = json?.data?.variant;
     if (!v) {
+      // Only gnomAD's own "Variant not found" is an absence; any other empty answer is a fault.
+      const notFound = Array.isArray(json?.errors) && json.errors.some((e: any) => /variant not found/i.test(String(e?.message ?? "")));
+      if (!notFound) throw new GnomadUnavailableError("gnomAD returned no variant and no 'not found' answer");
       console.warn(`[gnomAD Freq] No variant data returned for ${variantId}`);
       return null;
     }
@@ -127,6 +165,7 @@ export async function fetchGnomadVariantFrequency(
     // across genome and exome is therefore the correct approach and does NOT double-count.
     // Ref: gnomAD v4 release notes, Nov 2023 (https://gnomad.broadinstitute.org/news/2023-11-gnomad-v4-0).
     const nHomozygous: number | null =
+      typeof v.joint?.homozygote_count === "number" ? v.joint.homozygote_count :
       (v.genome?.homozygote_count != null || v.exome?.homozygote_count != null)
         ? (v.genome?.homozygote_count ?? 0) + (v.exome?.homozygote_count ?? 0)
         : null;
@@ -136,48 +175,30 @@ export async function fetchGnomadVariantFrequency(
       genomeAF !== null ? genomeAF :
       exomeAF  !== null ? exomeAF  : null;
 
-    // Compute ancestry-specific groupMaxAF (AN >= 2000)
-    const populations: { id: string; ac: number; an: number; af: number }[] = [];
-    if (v.genome?.populations) {
-      for (const p of v.genome.populations) {
-        populations.push({
-          id: p.id,
-          ac: p.ac,
-          an: p.an,
-          af: p.an > 0 ? p.ac / p.an : 0
-        });
-      }
-    }
-    if (v.exome?.populations) {
-      for (const p of v.exome.populations) {
-        populations.push({
-          id: p.id,
-          ac: p.ac,
-          an: p.an,
-          af: p.an > 0 ? p.ac / p.an : 0
-        });
-      }
-    }
-
-    const validPops = populations.filter(p => p.an >= THRESHOLDS.populationFrequency.groupMinAn && p.af !== null && p.af !== undefined);
+    /**
+     * The grouped maximum, over the groups gnomAD v4.1 itself uses (`GRPMAX_GROUPS`), from the JOINT
+     * exome + genome counts when gnomAD returns them. It used to be the maximum over every row of the
+     * population list — sex splits, founder groups, `remaining` — and over each cohort separately.
+     */
+    const minAn = THRESHOLDS.populationFrequency.groupMinAn;
+    const jointRows = Array.isArray(v.joint?.populations) ? v.joint.populations : null;
+    const perCohortRows = [...(v.genome?.populations ?? []), ...(v.exome?.populations ?? [])];
+    const grouped = groupMaximum(jointRows ?? perCohortRows, minAn);
     let groupMaxAF: number | null = null;
+    let groupMaxPopulation: string | null = null;
     let groupMaxAFIsFallback = false;
-    if (validPops.length > 0) {
-      let maxVal = 0;
-      for (const p of validPops) {
-        if (p.af > maxVal) {
-          maxVal = p.af;
-        }
-      }
-      groupMaxAF = maxVal;
+    if (grouped) {
+      groupMaxAF = grouped.af;
+      groupMaxPopulation = grouped.population;
     } else {
-      // NOTE (High #gnomAD-groupMaxAF-fallback): No population had AN >= 2000 (all too small to
-      // trust AF estimates for ACMG PS4/PM2/BS1/BA1 evaluation).  Falling back to global maxAF.
-      // Callers should be aware this is a coarser estimate; the fallback is logged to surface it.
-      console.warn(`[gnomAD] No populations with AN >= 2000 for variant ${variantId}; groupMaxAF falling back to global maxAF (${maxAF}).`);
+      // No grpmax group reached the AN floor; the global maximum is the coarser stand-in, flagged.
+      console.warn(`[gnomAD] No grpmax group with AN >= ${minAn} for variant ${variantId}; groupMaxAF falling back to global maxAF (${maxAF}).`);
       groupMaxAF = maxAF;
       groupMaxAFIsFallback = true;
     }
+    const fafRaw = v.joint?.faf95?.popmax;
+    const faf95: number | null = typeof fafRaw === "number" && Number.isFinite(fafRaw) ? fafRaw : null;
+    const faf95Population: string | null = faf95 !== null ? (v.joint?.faf95?.popmax_population ?? null) : null;
 
     const result: GnomadVariantFrequency = {
       maxAF,
@@ -191,12 +212,16 @@ export async function fetchGnomadVariantFrequency(
       nHomozygous,
       dataset: "gnomad_r4",
       groupMaxAFIsFallback,
+      groupMaxPopulation,
+      faf95,
+      faf95Population,
     };
 
     return result;
   } catch (err: any) {
     console.error(`[gnomAD Freq] Error fetching ${variantId}:`, err.message);
-    return null;
+    // Rethrown: an outage is not an absence (see GnomadUnavailableError).
+    throw err instanceof GnomadUnavailableError ? err : new GnomadUnavailableError(err?.message ?? "gnomAD request failed");
   }
     }
   });

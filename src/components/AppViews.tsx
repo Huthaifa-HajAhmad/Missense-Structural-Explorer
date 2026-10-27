@@ -13,6 +13,7 @@ import { EvidenceWorkspaceProvider } from './evidence/EvidenceWorkspace';
 import { WorkspaceSelection } from "./ui/WorkspaceSelection";
 import { WorkspaceTabs } from "./ui/WorkspaceTabs";
 import { AnalysisEmptyState, emptyWorkspace } from "./ui/AnalysisEmptyState";
+import { isEvidenceTabId } from "../shared/evidenceTabs";
 import type { EnergyEngineId } from '../shared/engineStatus';
 import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
 import { landscapeKey } from "../shared/landscapeEvidence";
@@ -394,16 +395,16 @@ export function AppViews({
   return (
     <main className="app-view flex-1 relative overflow-hidden transition-all duration-300">
       <Suspense fallback={
-        <div className="flex flex-col items-center justify-center h-full gap-3 bg-slate-950/20">
-          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin border-teal-500" />
-          <span className="text-xs font-mono text-slate-400">Loading view...</span>
+        // Tokens only: this fallback used Tailwind palette colours (slate/teal) and a spinner.
+        <div role="status" className="flex flex-col items-center justify-center h-full gap-3 bg-cs-surface">
+          <span className="text-xs text-cs-text-muted">Loading view…</span>
         </div>
       }>
         {idleWorkspace ? <AnalysisEmptyState workspace={idleWorkspace} onSearch={() => {
           setMasterView('search');
           requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.qe__input')?.focus());
         }} /> : <EvidenceWorkspaceProvider result={analysisState.result}>
-        <WorkspaceLayout kind={masterView === "insights" || masterView === "literature" ? "review" : masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && ['clinical', 'predictors', 'alphagenome', 'gene-disease', 'expression-models', 'species-models', 'structure', 'perturbation', 'function', 'splicing', 'interfaces'].includes(activeEvidenceTab) ? 'evidence' : undefined}>
+        <WorkspaceLayout kind={masterView === "insights" || masterView === "literature" ? "review" : masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && isEvidenceTabId(activeEvidenceTab) ? 'evidence' : undefined}>
           <div className="data-screen-primary">
             {/* VARIANT QUERY VIEW - high-density structured workspace */}
             {masterView === "search" && (

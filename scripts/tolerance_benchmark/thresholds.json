@@ -1,0 +1,36 @@
+{
+  "_comment": "Pre-registered before any candidate score was joined to a variant. benchmark.py reads this file and grades mechanically; editing it after results exist invalidates the decision record (doc/RESIDUE_TOLERANCE_DECISION.md quotes its sha256).",
+  "registered": "2026-10-26",
+  "genes": ["SOD1", "BRCA1", "RYR2", "LDLR"],
+  "candidates": {
+    "metadome": {"label": "MetaDome 2027 tolerance landscape (sw_dn_ds, 21-residue window)", "direction": "lower_is_intolerant"},
+    "mtr3daf2": {"label": "MTR3D-AF2, 11 A sphere (best published AUC, Kovacs 2024 Table 2)", "direction": "lower_is_intolerant"},
+    "ccr": {"label": "CCR percentile, max over codon bases (GRCh37, mapped through an identical-protein transcript)", "direction": "higher_is_intolerant"},
+    "inhouse": {"label": "In-house: MetaDome formula on gnomAD v4.1 counts from the Landscape source, leave-variant-out", "direction": "lower_is_intolerant"}
+  },
+  "baseline": {"rmc_oe": {"label": "gnomAD v4.1.1 regional missense O/E at the residue (already on the Landscape tab)", "direction": "lower_is_intolerant"}},
+  "primary_contrast": "plp_vs_gnomad_ac2",
+  "contrasts": {
+    "plp_vs_gnomad_ac2": "ClinVar P/LP missense (>=1 star) vs gnomAD v4.1 missense, joint AC>=2, not ClinVar P/LP or conflicting",
+    "plp_vs_gnomad_singleton": "ClinVar P/LP vs gnomAD missense with joint AC=1",
+    "plp_vs_gnomad_ac10": "ClinVar P/LP vs gnomAD missense with joint AC>=10",
+    "plp_vs_blb": "ClinVar P/LP vs ClinVar B/LB missense (>=1 star)"
+  },
+  "pass": {
+    "P1_coverage": {"rule": "scores >=90% of MANE Select residues, on GRCh38 with the Ensembl transcript id AND version equal to the pinned constraint snapshot's (or an identical protein, for a GRCh37 source), in >=3 of 4 genes", "min_residue_fraction": 0.90, "min_genes": 3},
+    "P2_traceable": {"rule": "the score can be recomputed from public primary inputs (decided by reproduce_metadome.py for MetaDome and in-house; by the published inputs for the others)"},
+    "P3_discrimination": {"rule": "primary contrast AUROC >=0.70 with bootstrap 95% CI lower bound >=0.60, in >=2 genes, one of which must be RYR2 (the only study gene with published RMC breakpoints)", "min_auroc": 0.70, "min_ci_low": 0.60, "min_genes": 2, "required_gene": "RYR2", "min_positives": 10, "min_negatives": 10},
+    "P5_incremental": {"rule": "in RYR2, primary-contrast AUROC exceeds the RMC-O/E baseline; paired bootstrap 95% CI of the difference excludes 0"}
+  },
+  "step3_gate": {
+    "P4_decile_lr": {"rule": "most-intolerant gene-internal decile: LR+ point estimate >=2.406 (Pejaver 2022 Table 1, Supporting) and lower 95% bound >1, in >=2 genes", "min_lr": 2.406, "min_genes": 2}
+  },
+  "decision_rule": "Adopt a candidate as non-voting Landscape context only if it passes P1, P2, P3 and P5. Propose a decile->ClinGen strength table only if it also passes P4. If more than one passes, prefer the one needing no new local store, then the higher RYR2 AUROC. If none passes, reject.",
+  "expected_from_published_region_calls": {
+    "SOD1": "v4.1.1 MCR: one interval spanning the transcript, O/E 0.70, p 3.7e-5. No internal breakpoint, so a residue-level population score is expected to be near AUROC 0.5 within the gene; that is the explanation if SOD1 is uninformative.",
+    "BRCA1": "v4.1.1 MCR: one interval, O/E 0.91, p 4.8e-5. Expected near 0.5; pathogenic missense in BRCA1 is concentrated in RING and BRCT by function, which population depletion has not resolved.",
+    "RYR2": "v4.1.1 MCR: 18 intervals, O/E from 0.06 to 0.92. Expected informative if any residue-level population score is.",
+    "LDLR": "v4.1.1 MCR: one interval, O/E 1.00, p 0.91 (no missense depletion at all). Expected near 0.5."
+  },
+  "bootstrap": {"iterations": 2000, "seed": 20261026}
+}

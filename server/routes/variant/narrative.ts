@@ -23,6 +23,7 @@ import { resolveGeneToUniprot } from "../../services/external.ts";
 import {
   buildFrequencyEvidence,
   formatAlleleFrequency,
+  frequencySourceLabel,
 } from "../../../src/shared/frequencyEvidence.ts";
 import {
   performGeminiAnalysis,
@@ -35,6 +36,7 @@ import {
   type GeminiFailureKind,
 } from "../../services/gemini.ts";
 import { computeRuleBasedACMG } from "../../services/acmg.ts";
+import { readCuratedInheritance } from "../../services/evidence-context/curatedInheritance.ts";
 import { type AnalysisResult, aouLookupSchema } from "../../../src/shared/contracts.ts";
 import {
   type NarrativeFallbackReason,
@@ -158,6 +160,13 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       const residueIndex = mutMatch[2];
       const mutant = mutMatch[3];
 
+      // Read here, not sent by the client: it is server-held reference data, and keeping it out of the
+      // request keeps the evidence hash both sides compute unchanged.
+      // Started, not awaited: synthesis must begin before this resolves. Each use awaits it.
+      // AFTER the variant validation, not before it — a request an unparseable notation is about to
+      // reject gets no reference read at all.
+      const curatedInheritanceRead = readCuratedInheritance(gene);
+
       /**
        * The evidence contract, from the SHARED declaration.
        *
@@ -266,7 +275,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           acmgWeighting,
           null,
           uniprotFeatures,
-          sequence
+          sequence,
+          await curatedInheritanceRead
         );
       }
 
@@ -345,6 +355,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           attemptedModels,
         });
 
+        const curatedInheritance = await curatedInheritanceRead;
         const ruleInsights = computeRuleBasedACMG({
           gene,
           variant,
@@ -353,6 +364,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           conservationData,
           gnomadConstraint,
           gnomadFrequency,
+          curatedInheritance,
           acmgWeighting,
           esm2: null,
           uniprotFeatures,
@@ -397,6 +409,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           clinvar,
           assembly: predictorData?.gnomadVariantAssembly ?? null,
           pli: gnomadConstraint?.pli ?? null,
+          curatedInheritance,
           engineCriteria: ruleInsights.acmgCriteria,
           acmgWeighting,
           // The report must say "lookup failed, re-run", not "this coordinate is GRCh37", on a fallback run.
@@ -405,16 +418,12 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         const freqText = (() => {
           const criterion = frequency.criterion;
           if (criterion.af === null) return criterion.statement;
-          const where =
-            criterion.sourceId === "clinvar-submissions"
-              ? "ClinVar-submitted data"
-              : criterion.usedGroupMax
-                ? "gnomAD (ancestry-grouped maximum)"
-                : "gnomAD (global maximum)";
+          // The same source name the Population tab and rail print (`frequencySourceLabel`), so the
+          // report cannot call FAF95 a grouped maximum or a combined figure a maximum.
           const observed =
             criterion.af === 0
-              ? `Not present in ${where.replace(" (ancestry-grouped maximum)", "").replace(" (global maximum)", "")} in the reference cohorts sampled (allele frequency 0).`
-              : `Observed in ${where} with an allele frequency of **${formatAlleleFrequency(criterion.af)}**.`;
+              ? "Not present in gnomAD in the reference cohorts sampled (allele frequency 0)."
+              : `Observed in ${criterion.sourceId === "clinvar-submissions" ? "ClinVar-submitted data" : frequencySourceLabel(frequency)} with an allele frequency of **${formatAlleleFrequency(criterion.af)}**.`;
           return `${observed} ${criterion.statement}${criterion.fallback ? " The grouped frequency fell back to the global maximum because no population was large enough to report." : ""}`;
         })();
 
@@ -507,7 +516,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         acmgWeighting,
         null,
         uniprotFeatures,
-        sequence
+        sequence,
+        await curatedInheritanceRead
       );
     } catch (error: any) {
       console.error("Narrative endpoint failure:", error);

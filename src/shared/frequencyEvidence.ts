@@ -43,7 +43,11 @@
  * scripts/check-boundaries.ts).
  */
 import { THRESHOLDS } from "./thresholds/constants.ts";
+import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, type FrequencyRuleInputs, type FrequencyStatistic } from "./frequencyRule.ts";
+import { pm2CeilingFor, homozygotesInformBs2, type CuratedInheritance, type Pm2CeilingBasis } from "./inheritanceBasis.ts";
+import { gnomadGroupLabel } from "./gnomadGroups.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { classifyClinvar } from "./clinvarClassification.ts";
 import { resolveEvidenceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { sourceSupportsAssembly, describeAssemblyRefusal, type AssemblyAwareSource } from "./assembly.ts";
 import type { GenomeAssembly } from "./variantNotation.ts";
@@ -66,10 +70,13 @@ import {
  */
 const GNOMAD_SOURCE: AssemblyAwareSource = "gnomad-variants";
 
-/** The sources this view distinguishes. Ids are stable; labels are for display only. */
+/** The sources this view distinguishes. Ids are stable; labels are for display only.
+ *  `gnomad-faf95` is FAF95's own row: a JOINT statistic — keying it to the exomes id made any
+ *  surface grouping by id count the BA1/BS1 input as an exomes reading. */
 export type FrequencySourceId =
   | "gnomad-genomes"
   | "gnomad-exomes"
+  | "gnomad-faf95"
   | "gnomad-local"
   | "all-of-us"
   | "clinvar-submissions";
@@ -137,6 +144,17 @@ export interface FrequencyCriterion {
   /** `groupMaxAF` fell back to the global `maxAF` because no population cleared the AN floor. */
   fallback: boolean;
   /**
+   * The reading is the local dbNSFP ingest's exome + genome COMBINED frequency.
+   *
+   * That ingest carries no ancestry breakdown, so the server copies the combined AF into
+   * `groupMaxAF` (`server/services/prediction/local-population.ts`). Every surface used to name it
+   * "ancestry-grouped maximum · highest across ancestry groups of ≥ 2,000 alleles" — a statistic
+   * the payload never held. For UROD p.Gly318Arg the "grouped maximum" was AC 1,674 / AN 1,613,998
+   * exactly. A combined AF is never above the true grouped maximum, so the label also hid the
+   * direction of the error: BS1/BA1 can be missed and PM2 can be met on a diluted figure.
+   */
+  combinedCohorts: boolean;
+  /**
    * The `af` of 0 is gnomAD's recorded ABSENCE (`not_found`), not a measured frequency.
    *
    * The engine reads a confirmed absence as the number zero, which is correct for the arithmetic but
@@ -149,6 +167,15 @@ export interface FrequencyCriterion {
   pm2Ceiling: number | null;
   /** Inheritance reading that selected the ceiling. */
   inheritance: "dominant" | "recessive" | "unknown";
+  /** What selected the ceiling: curated GenCC inheritance first, pLI only without it. */
+  ceilingBasis: Pm2CeilingBasis | null;
+  /** The ceiling's reason, in the engine's words ("lower ceiling: curated GenCC inheritance includes …"). */
+  ceilingText: string | null;
+  /** What BA1/BS1 and PM2 each read (`shared/frequencyRule.ts`); null when nothing was read. */
+  inputs: FrequencyRuleInputs | null;
+  /** The gnomAD group behind the grouped maximum and behind FAF95, e.g. "afr". */
+  groupMaxPopulation: string | null;
+  faf95Population: string | null;
 }
 
 /**
@@ -231,7 +258,14 @@ export interface FrequencyEvidence {
    * that count feeds was invisible on the population tab. `recorded` is `null` when the payload
    * carries no engine criteria (unknown, not "no").
    */
-  homozygoteCriterion: { code: "BS2"; recorded: boolean | null };
+  homozygoteCriterion: {
+    code: "BS2";
+    recorded: boolean | null;
+    /** False when the homozygote count is not the BS2 genotype here (sex chromosome, or an X/Y/mito-only gene). */
+    applicable: boolean;
+    /** Why it is not applicable, in the engine's words. */
+    reason: string | null;
+  };
 }
 
 export interface FrequencyEvidenceInput {
@@ -255,8 +289,10 @@ export interface FrequencyEvidenceInput {
    * no record", a zero frequency, and PM2 support. With it, the refusal is stated as a refusal.
    */
   assembly?: GenomeAssembly | null;
-  /** pLI, which selects the PM2 ceiling. Absent pLI reads as dominant/unknown. */
+  /** pLI, which selects the PM2 ceiling only when the gene has no curated inheritance. */
   pli?: number | null;
+  /** The gene's curated GenCC inheritance (`analysisResult.curatedInheritance`), the engine's first ceiling input. */
+  curatedInheritance?: CuratedInheritance | null;
   /** The engine's own recorded ACMG criteria (`ruleBasedInsights.acmgCriteria`). */
   engineCriteria?: ReadonlyArray<{ code?: string | null }> | null;
   /** The ACMG weighting this run used (`metadata.acmgWeighting`), for the suppression note. */
@@ -283,6 +319,7 @@ export interface FrequencyResultLike extends LocusResultLike {
     alleleFrequencies?: ReadonlyArray<{ source?: string | null; value?: unknown }> | null;
   } | null;
   gnomadConstraint?: { pli?: number | null } | null;
+  curatedInheritance?: CuratedInheritance | null;
   ruleBasedInsights?: { acmgCriteria?: ReadonlyArray<{ code?: string | null }> | null } | null;
   insights?: { acmgCriteria?: ReadonlyArray<{ code?: string | null }> | null } | null;
 }
@@ -309,6 +346,7 @@ export function frequencyEvidenceInputFromResult(
       : null,
     assembly: result.predictorData?.gnomadVariantAssembly ?? null,
     pli: result.gnomadConstraint?.pli ?? null,
+    curatedInheritance: result.curatedInheritance ?? null,
     engineCriteria: result.ruleBasedInsights?.acmgCriteria ?? result.insights?.acmgCriteria ?? null,
     acmgWeighting: result.metadata?.acmgWeighting ?? null,
     locus: { predictorData: result.predictorData ?? null, coordinateLift: result.coordinateLift ?? null },
@@ -331,10 +369,6 @@ function fallbackRefusal(input: FrequencyEvidenceInput): { sentence: string; ret
   return { sentence: fallbackLocusSentence(GNOMAD_DISPLAY, input.assembly ?? null, { retryable, failureKind: failureKind ?? undefined }), retryable, recoveryAction };
 }
 
-/** Percentage formatting for criterion sentences: `0.0001` → `"0.01%"`. */
-function pct(value: number, digits: number): string {
-  return `${(value * 100).toFixed(digits)}%`;
-}
 
 /**
  * A number, or `null` for anything that is not one.
@@ -427,12 +461,24 @@ export function frequencyObservationName(observation: Pick<FrequencyObservation,
 
 /** Where the rule's frequency came from, named so the number can be traced to a dataset. */
 export function frequencySourceLabel(evidence: FrequencyEvidence): string {
-  const { sourceId, usedGroupMax, fallback, absent } = evidence.criterion;
+  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, inputs, groupMaxPopulation, faf95Population } = evidence.criterion;
   // A recorded absence has no statistic behind it; naming "the global maximum" invented one.
   if (sourceId === "gnomad-group" && absent) return "gnomAD — no record (absence read as 0)";
+  if (sourceId === "gnomad-group" && combinedCohorts) return "gnomAD combined frequency (no ancestry groups in this source)";
+  // BA1/BS1 decided on FAF95: name it, and its group.
+  if (sourceId === "gnomad-group" && (code === "BA1" || code === "BS1") && inputs?.benignStatistic === "faf95") {
+    const group = gnomadGroupLabel(faf95Population);
+    return `gnomAD filtering allele frequency (FAF95)${group ? ` · ${group}` : ""}`;
+  }
+  if (sourceId === "gnomad-group" && usedGroupMax && groupMaxPopulation) {
+    return `gnomAD ancestry-grouped maximum · ${gnomadGroupLabel(groupMaxPopulation)}`;
+  }
   if (sourceId === "gnomad-group") {
-    const base = usedGroupMax ? "gnomAD ancestry-grouped maximum" : "gnomAD global maximum";
-    return fallback ? `${base} (fell back to the global maximum)` : base;
+    // `fallback` can only co-occur with the global maximum (the grouped maximum IS the fallback's
+    // opposite), so name the CAUSE here instead of appending a tautology — the old wording rendered
+    // "gnomAD global maximum (fell back to the global maximum)".
+    if (usedGroupMax) return "gnomAD ancestry-grouped maximum";
+    return fallback ? "gnomAD global maximum (no ancestry group reached the allele-number floor)" : "gnomAD global maximum";
   }
   if (sourceId === "clinvar-submissions") return "ClinVar-submitted frequency";
   return "No source";
@@ -529,9 +575,15 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   const base = {
     usedGroupMax: false,
     fallback: false,
+    combinedCohorts: false,
     absent: false,
     pm2Ceiling: null as number | null,
     inheritance: "unknown" as FrequencyCriterion["inheritance"],
+    ceilingBasis: null as Pm2CeilingBasis | null,
+    ceilingText: null as string | null,
+    inputs: null as FrequencyRuleInputs | null,
+    groupMaxPopulation: null as string | null,
+    faf95Population: null as string | null,
     headline: null as string | null,
     predicate: null as string | null,
   };
@@ -596,43 +648,20 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
     };
   }
 
-  let af: number | null = null;
-  let sourceId: FrequencyCriterion["sourceId"] = null;
-  let usedGroupMax = false;
-  let fallback = false;
-  let absent = false;
-
-  // 3/4. gnomAD: grouped maximum, then global maximum, then a confirmed absence.
-  const groupMaxAF = finite(gnomadFrequency?.groupMaxAF);
-  const globalMaxAF = finite(gnomadFrequency?.maxAF);
-  if (groupMaxAF !== null) {
-    af = groupMaxAF;
-    sourceId = "gnomad-group";
-    usedGroupMax = true;
-    fallback = Boolean(gnomadFrequency?.groupMaxAFIsFallback);
-  } else if (globalMaxAF !== null) {
-    af = globalMaxAF;
-    sourceId = "gnomad-group";
-  } else if (status === "not_found") {
-    af = 0;
-    sourceId = "gnomad-group";
-    absent = true;
-  } else {
-    // 5. ClinVar-submitted frequencies. Only a value that parses to a finite number is evidence:
-    //    the wire type is `{ source: string; value: any }` (`external-api/clinvar.ts:18`), so a
-    //    malformed value is reachable, and reading it as `0` would manufacture an "extremely rare"
-    //    finding — with PM2 support — out of a broken record.
+  // 3/4/5. What the rule reads, from the SAME function the engine calls (`shared/frequencyRule.ts`):
+  //        gnomAD (FAF95 for BA1/BS1, the grouped maximum for PM2), then a confirmed absence, then
+  //        ClinVar-submitted frequencies. Only a finite number is evidence.
+  let inputs: FrequencyRuleInputs | null = gnomadRuleInputs(gnomadFrequency);
+  if (!inputs && status === "not_found") inputs = singleRuleInput(0, "absent");
+  if (!inputs) {
     const submitted = (clinvar?.alleleFrequencies ?? [])
       .map(f => finite(typeof f.value === "string" ? parseFloat(f.value) : f.value))
       .filter((v): v is number => v !== null);
-    if (submitted.length > 0) {
-      af = Math.max(...submitted);
-      sourceId = "clinvar-submissions";
-    }
+    if (submitted.length > 0) inputs = singleRuleInput(Math.max(...submitted), "clinvar");
   }
 
   // 6. Nothing to classify on.
-  if (af === null) {
+  if (inputs === null) {
     return {
       ...base,
       code: "unknown",
@@ -643,17 +672,44 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
     };
   }
 
-  // PM2's ceiling is inheritance-aware; without a pLI the engine reads dominant/unknown.
-  const pli = finite(input.pli);
-  const recessive = pli !== null && pli < FREQ.recessivePlI;
-  const pm2Ceiling = recessive ? FREQ.extremelyRareRecessive : FREQ.extremelyRare;
-  const inheritance: FrequencyCriterion["inheritance"] = recessive
-    ? "recessive"
-    : pli === null
-      ? "unknown"
-      : "dominant";
+  const ceiling = pm2CeilingFor(
+    { inheritance: input.curatedInheritance ?? null, pli: finite(input.pli) },
+    { recessiveCeiling: FREQ.extremelyRareRecessive, dominantCeiling: FREQ.extremelyRare, pliCut: FREQ.recessivePlI },
+  );
+  const pm2Ceiling = ceiling.ceiling;
+  const inheritance: FrequencyCriterion["inheritance"] =
+    ceiling.basis === "curated-recessive" || ceiling.basis === "pli-recessive" ? "recessive"
+    : ceiling.basis === "unknown" ? "unknown" : "dominant";
+  const decision = decideFrequencyCriterion(inputs, {
+    standAloneBenign: FREQ.standAloneBenign, tooCommonForDisorder: FREQ.tooCommonForDisorder, pm2Ceiling,
+  });
 
-  const shared = { ...base, af, sourceId, usedGroupMax, fallback, absent };
+  const fromGnomad = inputs.pm2Statistic !== "clinvar";
+  const combinedCohorts = inputs.pm2Statistic === "combined";
+  const usedGroupMax = inputs.pm2Statistic === "group-max";
+  const benignSide = decision === "BA1" || decision === "BS1";
+  // `af` is the number that DECIDED: FAF95 (or its stand-in) for BA1/BS1, the PM2 input otherwise.
+  const af = benignSide ? inputs.benignAf : inputs.pm2Af;
+  const shared = {
+    ...base,
+    af,
+    sourceId: (fromGnomad ? "gnomad-group" : "clinvar-submissions") as FrequencyCriterion["sourceId"],
+    usedGroupMax,
+    fallback: Boolean(gnomadFrequency?.groupMaxAFIsFallback) && inputs.pm2Statistic === "global" && fromGnomad && finite(gnomadFrequency?.groupMaxAF) !== null,
+    combinedCohorts,
+    absent: inputs.pm2Statistic === "absent",
+    pm2Ceiling,
+    inheritance,
+    ceilingBasis: ceiling.basis,
+    ceilingText: ceiling.text,
+    inputs,
+    groupMaxPopulation: usedGroupMax ? (gnomadFrequency?.groupMaxPopulation ?? null) : null,
+    faf95Population: inputs.benignStatistic === "faf95" ? (gnomadFrequency?.faf95Population ?? null) : null,
+  };
+  /** "1.62% (gnomAD FAF95, African/African American (afr))" style qualifier for the benign input. */
+  const benignNote = inputs.benignStatistic === "faf95"
+    ? ` (${STATISTIC_LABEL.faf95}${shared.faf95Population ? `, ${gnomadGroupLabel(shared.faf95Population)}` : ""}; raw grouped maximum ${formatAlleleFrequency(inputs.pm2Af)})`
+    : "";
 
   /**
    * Each branch states its clause ONCE, and the full sentence is composed from it. The headline and
@@ -661,58 +717,35 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
    * summary card no longer prints its own number twice — and the composed `statement` cannot
    * disagree with them, because it is built from them.
    */
-  if (af > FREQ.standAloneBenign) {
+  if (decision === "BA1") {
     const headline = "Stand-alone benign";
-    const predicate = `above the ${pct(FREQ.standAloneBenign, 1)} BA1 cut-point`;
-    return {
-      ...shared,
-      code: "BA1",
-      headline,
-      predicate,
-      statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.`,
-    };
+    const predicate = `above the ${formatCutPoint(FREQ.standAloneBenign)} BA1 cut-point`;
+    return { ...shared, code: "BA1", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)}${benignNote} is ${predicate}.` };
   }
-  if (af > FREQ.tooCommonForDisorder) {
+  if (decision === "BS1") {
     const headline = "Too common for the disorder";
-    const predicate = `above the ${pct(FREQ.tooCommonForDisorder, 1)} BS1 cut-point`;
-    return {
-      ...shared,
-      code: "BS1",
-      headline,
-      predicate,
-      statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.`,
-    };
+    const predicate = `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point`;
+    return { ...shared, code: "BS1", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)}${benignNote} is ${predicate}.` };
   }
-  if (af <= pm2Ceiling) {
-    const reading = recessive
-      ? `higher local ceiling (pLI < ${FREQ.recessivePlI})`
-      : inheritance === "dominant"
-        ? `lower local ceiling (pLI ≥ ${FREQ.recessivePlI})`
-        : "lower local ceiling (pLI not available)";
+  if (decision === "PM2") {
     const headline = "Extremely rare";
-    const predicate = `at or below the ${pct(pm2Ceiling, 2)} PM2 ceiling under the app-defined policy: ${reading}`;
-    return {
-      ...shared,
-      code: "PM2",
-      pm2Ceiling,
-      inheritance,
-      headline,
-      predicate,
-      statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.`,
-    };
+    const predicate = `at or below the ${formatCutPoint(pm2Ceiling)} PM2 ceiling under the app-defined policy: ${ceiling.text}`;
+    return { ...shared, code: "PM2", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.` };
   }
 
   const headline = "Between the cut-points";
-  const predicate = `above the ${pct(pm2Ceiling, 2)} PM2 ceiling but below the ${pct(FREQ.tooCommonForDisorder, 1)} BS1 cut-point, so no frequency criterion applies`;
-  return {
-    ...shared,
-    code: "none",
-    pm2Ceiling,
-    inheritance,
-    headline,
-    predicate,
-    statement: `${formatAlleleFrequency(af)} sits ${predicate}.`,
-  };
+  const benignClause = inputs.benignStatistic === "faf95" ? `, and FAF95 ${formatAlleleFrequency(inputs.benignAf)} is` : " but";
+  const predicate = `above the ${formatCutPoint(pm2Ceiling)} PM2 ceiling${benignClause} below the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point, so no frequency criterion applies`;
+  return { ...shared, code: "none", headline, predicate, statement: `${formatAlleleFrequency(af)} sits ${predicate}.` };
+}
+
+/**
+ * A cut-point as a percentage with no trailing zeros: 0.0001 → "0.01%", 0.001 → "0.1%", 0.01 → "1%".
+ * The one format for thresholds on every surface; the rail and the hero used to print the same
+ * ceiling as "≤ 0.01%" and "≤ 0.100%".
+ */
+export function formatCutPoint(value: number): string {
+  return `${Number((value * 100).toPrecision(6))}%`;
 }
 
 /**
@@ -726,11 +759,19 @@ export function readAppliedCriterion(input: FrequencyEvidenceInput): FrequencyAp
   const supported = classifyAcmgFrequency(input);
   const weighting = input.acmgWeighting ?? null;
   /**
-   * Only these weightings suppress frequency evidence, so only these may be named as the reason a
-   * supported criterion went unrecorded. A `standard` run that records no PM2 has some other cause,
-   * and this module cannot see what it is.
+   * Only these conditions suppress frequency evidence, so only these may be named as the reason a
+   * supported criterion went unrecorded — MIRRORING the engine's own gates (`criteria.ts`,
+   * `skipPathogenicComp` / `skipBenignComp`): `strict-structural` suppresses both halves; under
+   * `conservative` the PATHOGENIC half is suppressed only when ClinVar is not pathogenic, so
+   * attributing a withheld PM2 to the weighting with a pathogenic ClinVar record in hand would
+   * certify a suppression the engine did not perform. A `standard` run that records no PM2 has some
+   * other cause, and this module cannot see what it is.
    */
-  const weightingSuppresses = weighting === "strict-structural" || weighting === "conservative";
+  const clinvarClass = classifyClinvar(input.clinvar?.classification);
+  const weightingSuppressesThis =
+    weighting === "strict-structural"
+    || (weighting === "conservative"
+      && (supported.code === "PM2" ? clinvarClass !== "plp" : false));
   const criteria = input.engineCriteria;
   if (!criteria) {
     return { code: null, known: false, suppressed: false, withheldByWeighting: false, weighting };
@@ -746,7 +787,7 @@ export function readAppliedCriterion(input: FrequencyEvidenceInput): FrequencyAp
     code,
     known: true,
     suppressed: code === null && supportsCriterion,
-    withheldByWeighting: code === null && supportsCriterion && weightingSuppresses,
+    withheldByWeighting: code === null && supportsCriterion && weightingSuppressesThis,
     weighting,
   };
 }
@@ -905,6 +946,30 @@ export function aouSourceLabel(lookup: AouLookup | null | undefined, locus?: Loc
   if (lookup.localTable === "failed" || lookup.localTable === "timed-out") return "local frequency table (not read)";
   if (lookup.localTable === "not-installed") return "local table not installed";
   return "source not reported";
+}
+
+/**
+ * A cohort that reports the allele markedly MORE often than the frequency the rule read.
+ *
+ * The rule reads gnomAD only. When another cohort (All of Us, or one gnomAD dataset against a
+ * combined figure) is several-fold higher, the allele may be enriched in a group the rule's input
+ * dilutes — UROD p.Gly318Arg read 0.104% from a combined local figure while All of Us held 0.42% and
+ * gnomAD's African-ancestry group 1.70%. Context only: it never changes a criterion, and the surface
+ * words it as a reason to look, not as a finding.
+ */
+export const COHORT_DISAGREEMENT_RATIO = 3;
+export function cohortDisagreement(evidence: FrequencyEvidence): { label: string; af: number; ratio: number; ruleAf: number } | null {
+  const ruleAf = evidence.criterion.inputs?.pm2Af ?? null;
+  if (ruleAf === null || ruleAf <= 0 || evidence.criterion.sourceId !== "gnomad-group") return null;
+  let top: FrequencyObservation | null = null;
+  for (const o of evidence.observations) {
+    if (o.af === null || o.availability.state !== "available" || o.id === "clinvar-submissions") continue;
+    if (o.an !== null && o.an < THRESHOLDS.populationFrequency.groupMinAn) continue;
+    if (top === null || o.af > (top.af ?? 0)) top = o;
+  }
+  if (!top || top.af === null) return null;
+  const ratio = top.af / ruleAf;
+  return ratio >= COHORT_DISAGREEMENT_RATIO ? { label: frequencyObservationName(top), af: top.af, ratio, ruleAf } : null;
 }
 
 /** The one-line summary above the Source readings table when nothing was observed. */
@@ -1081,7 +1146,11 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     aouReason =
       "All of Us reports an allele count for this variant but no usable allele number, so no frequency can be derived.";
   } else {
-    aouReason = "The local All of Us frequency table holds no entry for this variant.";
+    // The only remaining shape is AC and a positive AN — exactly the shape `aouAF` derives above,
+    // so the value availability path wins and this reason never renders. (The previous sentence
+    // here asserted a "local table holds no entry" for a variant with counts — a fact this branch
+    // could never honestly carry.)
+    aouReason = "";
   }
 
   observations.push({
@@ -1151,11 +1220,31 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     hasPendingSource: runStates.includes("pending"),
     homozygoteCriterion: {
       code: "BS2",
+      ...(() => {
+        const g = homozygotesInformBs2({ variantId: input.locus?.predictorData?.gnomadVariantId ?? null, inheritance: input.curatedInheritance ?? null });
+        return { applicable: g.applies, reason: g.reason };
+      })(),
       recorded: input.engineCriteria
         ? input.engineCriteria.some(c => typeof c?.code === "string" && c.code.toUpperCase() === "BS2")
         : null,
     },
   };
+}
+
+/**
+ * The frequency evidence for one analysis result, built once per result object.
+ *
+ * The tab and its rail each rebuilt it on every render from the same payload. A result is replaced,
+ * never mutated, when evidence arrives (the store writes a new object), so identity is a safe key and
+ * a WeakMap lets old results be collected. Surfaces that pass overrides build their own.
+ */
+const evidenceByResult = new WeakMap<object, FrequencyEvidence>();
+export function frequencyEvidenceForResult(result: FrequencyResultLike): FrequencyEvidence {
+  const hit = evidenceByResult.get(result);
+  if (hit) return hit;
+  const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(result));
+  evidenceByResult.set(result, evidence);
+  return evidence;
 }
 
 /**

@@ -9,6 +9,7 @@ import { MechanismContextCard } from './MechanismContextCard';
 import { VariantLocusCard } from './VariantLocusCard';
 import { GeneDiseaseReadings } from './GeneDiseaseReadings';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 const SECTIONS = [
   { id: 'validity', label: 'Validity' },
@@ -57,7 +58,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   </div> : null;
 
   return <div ref={root} data-evidence-screen className="gd-screen cx-screen" data-testid="gene-disease-screen" data-comparison={workspace.comparison || undefined}>
-    <header><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Review the gene–disease relationship, then its relevance to this variant.</p></header>
+    <header><h1 className="screen-title">{evidenceTab('gene-disease').label}</h1><p className="screen-tab-description">Review the gene–disease relationship, then its relevance to this variant.</p></header>
     {context.identityChanged && <p className="gd-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker compact gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={selection => {
       context.setSelection(selection);

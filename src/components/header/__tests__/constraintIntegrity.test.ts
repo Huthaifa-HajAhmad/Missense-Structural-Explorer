@@ -91,3 +91,16 @@ describe("constraint source, precision and availability", () => {
     expect(buildConstraintMetrics(result(older)).every(m => m.verdict === "Different release" && m.bands.length === 0)).toBe(true);
   });
 });
+
+describe("Regional O/E tone is graded by depth, the call is not", () => {
+  // The screenshot: UROD's RMC block, O/E 0.81, significant — printed in the same pathogenic red as 0.3.
+  it("keeps a significant shallow block a constrained call, in the warning tone, with the display band named", () => {
+    const shallow = buildRmcMetric(true, { isConstrained: true, oeRatio: 0.81, pValue: 0.001, regionText: "1:100 to 200 (GRCh38)" });
+    expect(shallow.verdict).toBe("Subgenic constrained");
+    expect(shallow.tone).toBe("warn");
+    expect(shallow.facts.join(" ")).toMatch(/shallow depletion \(app-defined display band: deep below 0\.6; not a calibrated cut-point\)/);
+  });
+  it("keeps the pathogenic tone for a deep block", () => {
+    expect(buildRmcMetric(true, { isConstrained: true, oeRatio: 0.3, pValue: 0.001, regionText: null }).tone).toBe("path");
+  });
+});

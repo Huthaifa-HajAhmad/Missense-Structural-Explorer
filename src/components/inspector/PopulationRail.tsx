@@ -5,10 +5,11 @@ import { BookOpen, Database, Dna, ExternalLink, GitBranch, Ruler } from "lucide-
 import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds";
 import {
-  buildFrequencyEvidence,
   aouSourceLabel,
   formatAlleleFrequency,
-  populationReading, frequencyEvidenceInputFromResult } from "../../shared/frequencyEvidence";
+  formatCutPoint,
+  populationReading, frequencyEvidenceForResult } from "../../shared/frequencyEvidence";
+import { gnomadGroupLabel, GRPMAX_GROUPS } from "../../shared/gnomadGroups";
 import { variantNumberingView } from "../../shared/numbering";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
@@ -21,12 +22,19 @@ import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction }
  *
  * The column states WHAT was found; the rail states HOW the verdict was reached, as a four-step trace
  * (input → ceiling → test → engine), then the cut-points with the one that fired marked, then the
- * variant's lineage and the sources. It is built from the same `buildFrequencyEvidence` object as the
- * column, so the two panes cannot report different frequencies or criteria for one variant.
+ * variant's lineage and the sources. It is built from the same cached `frequencyEvidenceForResult`
+ * object as the column, so the two panes cannot report different frequencies or criteria for one variant.
  *
  * The previous rail repeated the header's transcript facts at the top and printed the criteria as a
  * static textbook paragraph list; the trace and the marked table replace both.
  */
+
+/** The papers the frequency rules follow, linked by DOI in the rail's Sources. */
+const FREQUENCY_REFERENCES: ReadonlyArray<{ short: string; title: string; doi: string }> = [
+  { short: "Richards 2015", title: "Standards and guidelines for the interpretation of sequence variants (ACMG/AMP)", doi: "10.1038/gim.2015.30" },
+  { short: "Ghosh 2018 (BA1)", title: "Updated recommendation for the benign stand-alone ACMG/AMP criterion", doi: "10.1002/humu.23642" },
+  { short: "Whiffin 2017 (BS1)", title: "Using high-resolution variant frequencies to empower clinical genome interpretation", doi: "10.1038/gim.2017.26" },
+];
 
 interface PopulationRailProps {
   analysisResult: AnalysisResult;
@@ -69,9 +77,14 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   const FREQ = THRESHOLDS.populationFrequency;
   const clinvar = analysisResult.clinvar;
 
-  const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(analysisResult));
+  const evidence = frequencyEvidenceForResult(analysisResult);
   const { criterion, applied } = evidence;
   const reading = populationReading(evidence);
+  /** The PM2 ceiling exists on every classification with a frequency, but the engine only
+   *  consulted it where PM2 was reachable: benign-side decisions (BA1/BS1) fired before any
+   *  ceiling was read. "Ceiling applied" may only mark a row where that is actually true. */
+  const pm2Reached = criterion.code === "PM2" || criterion.code === "none";
+  const standIn = analysisResult.gnomadFrequency?.standIn ?? null;
   const releaseRaw = evidence.observations.find(o => o.id.startsWith("gnomad"))?.dataset ?? null;
   const gnomadRelease = releaseRaw && releaseRaw !== "release not reported" ? releaseRaw : null;
   const ruleFrom = reading.ruleSource.startsWith("gnomAD") && gnomadRelease
@@ -124,17 +137,19 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
   const lastEvaluated = formatClinicalDate(clinvar?.lastEvaluated);
 
-  // The cut-point table, generated from the constant the engine branches on.
-  const cutPoints: ReadonlyArray<{ code: "BA1" | "BS1" | "PM2"; rule: string; meaning: string; tone: string }> = [
-    { code: "BA1", rule: `> ${(FREQ.standAloneBenign * 100).toFixed(0)}%`, meaning: "Stand-alone benign", tone: "good" },
-    { code: "BS1", rule: `> ${(FREQ.tooCommonForDisorder * 100).toFixed(1)}%`, meaning: "Greater than expected for the disorder", tone: "good" },
-    {
-      code: "PM2",
-      rule: `≤ ${(FREQ.extremelyRare * 100).toFixed(2)}%`,
-      meaning: `Supporting evidence; higher local ceiling ≤ ${(FREQ.extremelyRareRecessive * 100).toFixed(1)}% when pLI < ${FREQ.recessivePlI}. App-defined policy, not an inheritance assignment`,
-      tone: "danger",
-    },
+  /*
+   * The cut-point table, generated from the constant the engine branches on. PM2 has TWO ceilings and
+   * each gets its own row, with the one this run applied marked: the old single row printed "≤ 0.01%"
+   * and buried the 0.1% ceiling in prose, while the trace above it printed "≤ 0.100%".
+   */
+  const cutPoints: ReadonlyArray<{ key: string; code: "BA1" | "BS1" | "PM2"; ceiling?: number; rule: string; meaning: string; tone: string }> = [
+    { key: "BA1", code: "BA1", rule: `> ${formatCutPoint(FREQ.standAloneBenign)}`, meaning: "Stand-alone benign · read on FAF95 when gnomAD reports it", tone: "good" },
+    { key: "BS1", code: "BS1", rule: `> ${formatCutPoint(FREQ.tooCommonForDisorder)}`, meaning: "Greater than expected for the disorder · app-defined, not disease-specific", tone: "good" },
+    { key: "PM2-low", code: "PM2", ceiling: FREQ.extremelyRare, rule: `≤ ${formatCutPoint(FREQ.extremelyRare)}`, meaning: "Supporting · lower ceiling: any curated dominant-acting inheritance, or pLI ≥ 0.9 without one", tone: "danger" },
+    { key: "PM2-high", code: "PM2", ceiling: FREQ.extremelyRareRecessive, rule: `≤ ${formatCutPoint(FREQ.extremelyRareRecessive)}`, meaning: `Supporting · higher ceiling: curated autosomal recessive only, or pLI < ${FREQ.recessivePlI} without curated inheritance`, tone: "danger" },
   ];
+  const inputs = criterion.inputs;
+  const bs2Info = evidence.homozygoteCriterion;
 
   return (
     <div className="pop-rail" data-testid="population-rail">
@@ -150,26 +165,43 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
             <span>{criterion.af === null ? "No frequency to read" : ruleFrom}</span>
             {reading.mostCopies && (
               <span className="rail-step__sub">
-                Alleles observed: <span className="pop-mono">{reading.mostCopies.counts}</span> · {reading.mostCopies.label}
+                {/* "Alleles observed" under "Read from gnomAD" credited All of Us counts to the rule's source. */}
+                {reading.governs ? "Alleles observed" : "Most copies in any one cohort"}: <span className="pop-mono">{reading.mostCopies.counts}</span> · {reading.mostCopies.label}
               </span>
             )}
           </Step>
           {reading.ruleAf !== null && (
             <Step n={2} label="AF the rule read">
-              <span className="pop-mono">{criterion.absent ? "0 — no record" : formatAlleleFrequency(reading.ruleAf)}</span>
+              {inputs && inputs.benignStatistic !== inputs.pm2Statistic ? (
+                <>
+                  {/* Two inputs: FAF95 for BA1/BS1 (conservative for benign), the raw grouped maximum for PM2. */}
+                  <span><span className="pop-mono">{formatAlleleFrequency(inputs.benignAf)}</span> · BA1/BS1 read FAF95{criterion.faf95Population ? ` (${gnomadGroupLabel(criterion.faf95Population)})` : ""}</span>
+                  <span><span className="pop-mono">{formatAlleleFrequency(inputs.pm2Af)}</span> · PM2 reads the grouped maximum{criterion.groupMaxPopulation ? ` (${gnomadGroupLabel(criterion.groupMaxPopulation)})` : ""}</span>
+                </>
+              ) : (
+                <span className="pop-mono">{criterion.absent ? "0 — no record" : formatAlleleFrequency(reading.ruleAf)}</span>
+              )}
               {criterion.usedGroupMax && (
-                <span className="rail-step__sub">Highest across ancestry groups of ≥ {FREQ.groupMinAn.toLocaleString("en-GB")} alleles</span>
+                <span className="rail-step__sub">Highest of gnomAD&apos;s grpmax groups ({GRPMAX_GROUPS.join(", ")}) with ≥ {FREQ.groupMinAn.toLocaleString("en-GB")} alleles</span>
+              )}
+              {criterion.combinedCohorts && (
+                <span className="rail-step__warn">
+                  Exomes and genomes combined. This source has no ancestry breakdown, so the grouped maximum the rule is
+                  designed for was not available; an ancestry-enriched allele can sit above this figure.
+                </span>
               )}
             </Step>
           )}
           {criterion.pm2Ceiling !== null && (
-            <Step n={3} label="PM2 ceiling">
-              <span className="pop-mono">≤ {formatAlleleFrequency(criterion.pm2Ceiling)}</span>
-              <span className="rail-step__sub">
-                {criterion.inheritance === "unknown"
-                  ? "Lower local ceiling — pLI not available"
-                  : `pLI ${typeof pli === "number" ? pli.toFixed(2) : "—"} → ${criterion.inheritance === 'recessive' ? 'higher' : 'lower'} local ceiling`}
-              </span>
+            <Step n={3} label={pm2Reached ? "PM2 ceiling" : "PM2 ceiling (not reached)"}>
+              <span className="pop-mono">≤ {formatCutPoint(criterion.pm2Ceiling)}</span>
+              {pm2Reached ? (
+                /* The engine's own reason: curated GenCC inheritance first, pLI only without it. */
+                <span className="rail-step__sub" data-testid="ceiling-basis">{criterion.ceilingText ?? (typeof pli === "number" ? `pLI ${pli.toFixed(2)}` : "pLI not available")}</span>
+              ) : (
+                /* BA1/BS1 decided on FAF95 before any ceiling was read — say so instead of implying the ceiling contributed. */
+                <span className="rail-step__sub">The benign cut-points fired before the ceiling was consulted.</span>
+              )}
             </Step>
           )}
           <Step
@@ -190,6 +222,16 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
                 "Not classified"
               )}
             </span>
+            {/* BS2 is the other population criterion. "None recorded" alone hid a recorded BS2. */}
+            {bs2Info.recorded && (
+              <span className="rail-step__sub" data-testid="bs2-recorded">
+                Also recorded: <span className="ev-tier chip-code" data-tone="good">BS2</span> from{" "}
+                <span className="pop-mono">{evidence.gnomadHomozygotes ?? "—"}</span> gnomAD homozygotes
+              </span>
+            )}
+            {!bs2Info.recorded && !bs2Info.applicable && (evidence.gnomadHomozygotes ?? 0) >= 2 && (
+              <span className="rail-step__sub" data-testid="bs2-not-applicable">BS2 not applied: {bs2Info.reason}.</span>
+            )}
             {applied.weighting && (
               <span className="rail-step__sub">
                 ACMG weighting: <span data-testid="acmg-weighting">{applied.weighting}</span>
@@ -216,14 +258,16 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
         </h3>
         <ul className="rail-cuts" data-testid="cut-points">
           {cutPoints.map(cp => {
-            const active = criterion.code === cp.code;
+            const appliedCeiling = cp.ceiling !== undefined && pm2Reached && criterion.pm2Ceiling === cp.ceiling;
+            const active = criterion.code === cp.code && (cp.ceiling === undefined || appliedCeiling);
             return (
-              <li key={cp.code} className="rail-cut" data-active={active || undefined}>
+              <li key={cp.key} className="rail-cut" data-active={active || undefined}>
                 <span className="ev-tier chip-code" data-tone={active ? cp.tone : "muted"}>{cp.code}</span>
                 <span className="rail-cut__rule pop-mono">{cp.rule}</span>
                 <span className="rail-cut__meaning">
                   {cp.meaning}
                   {active && <span className="rail-cut__here"> · this variant</span>}
+                  {!active && appliedCeiling && <span className="rail-cut__here"> · ceiling applied</span>}
                 </span>
               </li>
             );
@@ -234,9 +278,21 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           <ul>
             <li>PM2 is applied at <em>Supporting</em> strength, as the ClinGen SVI (2020) recommends; Richards 2015 had it Moderate. Absence from a database is weak evidence on its own.</li>
             <li>BS1 uses a fixed {(FREQ.tooCommonForDisorder * 100).toFixed(0)}% cut-point, not a disorder-specific maximum credible allele frequency.</li>
-            <li>The rule reads gnomAD&apos;s raw grouped-maximum AF, not the filtering allele frequency (FAF95) ClinGen recommends for BA1/BS1.</li>
+            <li>
+              {criterion.combinedCohorts
+                ? `This run read gnomAD's combined exome + genome AF from the local ingest, because ${
+                    standIn === "fault"
+                      ? "the gnomAD query failed"
+                      : standIn === "grace"
+                      ? "gnomAD did not answer within the run's grace window"
+                      : "gnomAD itself was not available"
+                  }. It has no ancestry groups and no FAF95, so an ancestry-enriched allele can sit above it.`
+                : "BA1 and BS1 read gnomAD's filtering allele frequency (FAF95) when gnomAD reports it, as ClinGen SVI recommends; PM2 reads the raw grouped maximum, which is never lower. Without FAF95 both read the grouped maximum."}
+            </li>
+            <li>The grouped maximum is taken over gnomAD v4.1&apos;s grpmax groups only ({GRPMAX_GROUPS.join(", ")}), from joint exome + genome counts; founder groups (asj, fin, ami), &ldquo;remaining&rdquo; and sex splits are excluded.</li>
+            <li>PM2&apos;s ceiling comes from the gene&apos;s curated GenCC inheritance (Definitive, Strong or Moderate records): autosomal recessive only gives the higher ceiling; any other mode the lower one. pLI decides only when no curated record qualifies, and pLI does not establish inheritance.</li>
+            <li>BS2 is recorded from two or more gnomAD homozygotes on an autosome. It assumes full penetrance at an early age, which no source here curates, and gnomAD does not phenotype its participants.</li>
             <li>A gnomAD &ldquo;no record&rdquo; is not checked against site coverage; a poorly covered site can also return no record.</li>
-            <li>This app uses pLI to select a local frequency ceiling. pLI measures loss-of-function intolerance; it does not establish disease-specific inheritance.</li>
           </ul>
         </details>
       </section>
@@ -355,7 +411,17 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
             <span className="pop-mono">E-utilities esearch/esummary</span>
           </Row>
           <Row label="Framework">
-            <span>Richards et al. 2015 · ClinGen SVI</span>
+            <span>
+              {FREQUENCY_REFERENCES.map((ref, i) => (
+                <React.Fragment key={ref.doi}>
+                  {i > 0 && " · "}
+                  <a className="pop-link" href={`https://doi.org/${ref.doi}`} target="_blank" rel="noopener noreferrer" title={ref.title}>
+                    {ref.short}
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                </React.Fragment>
+              ))}
+            </span>
           </Row>
         </dl>
       </section>

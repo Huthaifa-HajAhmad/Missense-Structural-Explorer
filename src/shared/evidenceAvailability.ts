@@ -359,18 +359,6 @@ export function humaniseRefusal(source: AssemblyRefusalSource, reason: string): 
 }
 
 /**
- * The same, for a reason already in hand without its source — used by surfaces that received the
- * string through the resolver rather than straight off `assemblyRefusals`.
- */
-export function humaniseAnyRefusal(reason: string | null): string | null {
-  if (!reason) return reason;
-  for (const source of Object.keys(REFUSAL_SOURCE_DISPLAY) as AssemblyRefusalSource[]) {
-    if (reason.startsWith(source)) return humaniseRefusal(source, reason);
-  }
-  return reason;
-}
-
-/**
  * The sentence to render when a value is absent.
  *
  * Deliberately does not invent a cause when none is known: `reason` is only ever the server's

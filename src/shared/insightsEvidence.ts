@@ -51,7 +51,9 @@ export type LaneKey =
 export type Lean = "pathogenic" | "benign" | "none";
 
 /** Evidence tab ids, as `EVIDENCE_SUB_ITEMS` names them. */
-export type EvidenceTabId = "clinical" | "gene-disease" | "expression-models" | "species-models" | "function" | "predictors" | "alphagenome" | "splicing" | "structure" | "perturbation" | "interfaces";
+/** The tab ids, from the one registry (`evidenceTabs.ts`). Re-exported for existing importers. */
+export type { EvidenceTabId } from "./evidenceTabs.ts";
+import type { EvidenceTabId } from "./evidenceTabs.ts";
 
 export interface LaneLink { label: string; tab: EvidenceTabId }
 

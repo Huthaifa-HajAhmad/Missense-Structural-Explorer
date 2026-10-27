@@ -39,30 +39,68 @@ async function read(url: string, accept = 'application/json') {
 const sha = (...parts: string[]) => createHash('sha256').update(parts.join('\n')).digest('hex');
 const best = (v?: { name: string } | null) => v ? v.name === 'Yes' : null;
 
+/** HGNC identity + the Alliance stringent ortholog list: everything except the IMPC screen.
+ *  On a cache hit the raw pages are gone (only provenance is cached), so `raws` carries the hash
+ *  the cache recorded instead of fresh material to hash. */
+type OrthologCore =
+  | { status: 'not-found'; message: string }
+  | { status: 'ready'; hgncId: string; orthologs: Ortholog[]; raws: { hgnc: string; alliance: string; url: string; sha256?: string | null } };
+const coreFlights = new Map<string, Promise<OrthologCore>>();
+
+/**
+ * The ortholog list on its own, shared by the model-organism and model-phenotype reads.
+ *
+ * Phenotypes need orthologs and nothing else, but they used to wait for `loadModelOrganisms`, so the
+ * IMPC screen query sat on their critical path (on the Species & models tab, the slowest source). Both
+ * readers fire together when a result lands, so the in-flight read is shared; a completed full read is
+ * reused from the cache. Rejects on an invalid or incomplete response; the callers word the failure.
+ */
+export function loadOrthologCore(gene: string): Promise<OrthologCore> {
+  const hit = cache.get(gene);
+  if (hit?.status === 'ready' && hit.hgncId) {
+    // Re-report the hash the cached provenance holds. Hashing the empty strings below into a
+    // constant (`sha('','')`) would corrupt an audit field for any consumer that rebuilds
+    // provenance from a cache hit — `loadModelOrganisms` never does (it only rebuilds on a cache
+    // miss, where a fresh network read supplies `raws`), but the raws contract should not pretend
+    // material it no longer has.
+    return Promise.resolve({ status: 'ready', hgncId: hit.hgncId, orthologs: hit.orthologs, raws: { hgnc: '', alliance: '', url: hit.provenance[0]?.url ?? '', sha256: hit.provenance[0]?.sha256 ?? null } });
+  }
+  const running = coreFlights.get(gene); if (running) return running;
+  const task = (async (): Promise<OrthologCore> => {
+    // Exact approved symbol only: aliases and previous symbols are not resolved by guess.
+    const hgnc = await read(HGNC_URL + encodeURIComponent(gene));
+    const doc = hgncSchema.parse(hgnc.data).response.docs.find(d => d.symbol === gene && d.status === 'Approved');
+    if (!doc) return { status: 'not-found', message: 'No approved HGNC gene with this exact symbol.' };
+    const alliance = await read(`${ALLIANCE_URL}${doc.hgnc_id}/orthologs`);
+    const parsed = allianceSchema.parse(alliance.data);
+    // A truncated page must never read as "no ortholog".
+    if (parsed.results.length !== parsed.total) throw new Error('Incomplete orthology page');
+    const rows = parsed.results.filter(r => r.stringencyFilter === 'stringent');
+    if (rows.some(r => r.geneToGeneOrthologyGenerated.subjectGene.primaryExternalId !== doc.hgnc_id)) throw new Error('Orthology identity mismatch');
+    const orthologs: Ortholog[] = rows.map(({ geneToGeneOrthologyGenerated: g }) => ({
+      id: g.objectGene.primaryExternalId, symbol: g.objectGene.geneSymbol.displayText, taxonId: g.objectGene.taxon.curie,
+      species: speciesLabel(g.objectGene.taxon.curie, g.objectGene.taxon.name),
+      bestForward: best(g.isBestScore), bestReverse: best(g.isBestScoreReverse),
+      confidence: g.confidence?.name ?? null, methodCount: g.predictionMethodsMatched?.length ?? 0,
+    }));
+    return { status: 'ready', hgncId: doc.hgnc_id, orthologs, raws: { hgnc: hgnc.raw, alliance: alliance.raw, url: alliance.url } };
+  })().finally(() => { coreFlights.delete(gene); });
+  coreFlights.set(gene, task); return task;
+}
+
 export async function loadModelOrganisms(gene: string): Promise<ModelOrganismResponse> {
   const hit = cache.get(gene); if (hit) return hit;
   const running = flights.get(gene); if (running) return running;
   const task = (async (): Promise<ModelOrganismResponse> => {
     const fail = (message: string): ModelOrganismResponse => ({ gene, status: 'error', hgncId: null, orthologs: [], impc: null, provenance: [], message });
     try {
-      // Exact approved symbol only: aliases and previous symbols are not resolved by guess.
-      const hgnc = await read(HGNC_URL + encodeURIComponent(gene));
-      const doc = hgncSchema.parse(hgnc.data).response.docs.find(d => d.symbol === gene && d.status === 'Approved');
-      if (!doc) return { gene, status: 'not-found', hgncId: null, orthologs: [], impc: null, provenance: [], message: 'No approved HGNC gene with this exact symbol.' };
-      const alliance = await read(`${ALLIANCE_URL}${doc.hgnc_id}/orthologs`);
-      const parsed = allianceSchema.parse(alliance.data);
-      // A truncated page must never read as "no ortholog".
-      if (parsed.results.length !== parsed.total) throw new Error('Incomplete orthology page');
-      const rows = parsed.results.filter(r => r.stringencyFilter === 'stringent');
-      if (rows.some(r => r.geneToGeneOrthologyGenerated.subjectGene.primaryExternalId !== doc.hgnc_id)) throw new Error('Orthology identity mismatch');
-      const orthologs: Ortholog[] = rows.map(({ geneToGeneOrthologyGenerated: g }) => ({
-        id: g.objectGene.primaryExternalId, symbol: g.objectGene.geneSymbol.displayText, taxonId: g.objectGene.taxon.curie,
-        species: speciesLabel(g.objectGene.taxon.curie, g.objectGene.taxon.name),
-        bestForward: best(g.isBestScore), bestReverse: best(g.isBestScoreReverse),
-        confidence: g.confidence?.name ?? null, methodCount: g.predictionMethodsMatched?.length ?? 0,
-      }));
+      // The release lookup does not depend on the gene; start it beside the identity reads.
+      const release = loadAllianceRelease();
+      const core = await loadOrthologCore(gene);
+      if (core.status === 'not-found') return { gene, status: 'not-found', hgncId: null, orthologs: [], impc: null, provenance: [], message: core.message };
+      const { orthologs } = core;
       const provenance = [
-        { source: 'Alliance of Genome Resources orthology', url: alliance.url, licence: 'CC BY 4.0', release: await loadAllianceRelease(), retrievedAt: new Date().toISOString(), sha256: sha(hgnc.raw, alliance.raw), timestampBasis: 'download' as const },
+        { source: 'Alliance of Genome Resources orthology', url: core.raws.url, licence: 'CC BY 4.0', release: await release, retrievedAt: new Date().toISOString(), sha256: core.raws.sha256 ?? sha(core.raws.hgnc, core.raws.alliance), timestampBasis: 'download' as const },
       ];
       let impc: ModelOrganismResponse['impc'] = null;
       const mouse = [...new Set(orthologs.filter(o => o.taxonId === 'NCBITaxon:10090' && /^MGI:\d+$/.test(o.id)).map(o => o.id))];
@@ -85,7 +123,7 @@ export async function loadModelOrganisms(gene: string): Promise<ModelOrganismRes
           provenance.push({ source: 'IMPC gene summary', url: result.url, licence: 'IMPC data-release terms (open access)', release: null, retrievedAt: new Date().toISOString(), sha256: sha(result.raw), timestampBasis: 'download' as const });
         } catch { impc = { status: 'error', screens: [] }; }
       }
-      const response = modelOrganismResponseSchema.parse({ gene, status: 'ready', hgncId: doc.hgnc_id, orthologs, impc, provenance,
+      const response = modelOrganismResponseSchema.parse({ gene, status: 'ready', hgncId: core.hgncId, orthologs, impc, provenance,
         message: orthologs.length ? null : 'No stringent ortholog in this Alliance response.' });
       // A partial result (IMPC down) is shown but not cached, so the next visit re-asks.
       if (impc?.status !== 'error') cache.set(gene, response);

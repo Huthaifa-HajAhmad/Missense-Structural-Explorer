@@ -1,4 +1,6 @@
 import { fetchClinVarData, type ClinVarData } from "./clinvar.ts";
+import { readCuratedInheritance } from "../evidence-context/curatedInheritance.ts";
+import type { CuratedInheritance } from "../../../src/shared/inheritanceBasis.ts";
 import {
   fetchAlphafoldPdb,
   fetchBestPdbStructure,
@@ -20,7 +22,7 @@ import {
 } from "./gnomad.ts";
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
-import type { PredictorData, ConservationData, AouLookup } from "../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, AouLookup, GnomadFrequencyData } from "../../../src/shared/contracts.ts";
 import {
   predictorCoordinateFromContext,
   PDB_SOURCE_ALPHAFOLD,
@@ -356,6 +358,10 @@ async function runCoreFetch(
     speculationApplied
   );
 
+  /** Curated GenCC inheritance for PM2's ceiling and BS2 (null without a snapshot). Settles fast; read once. */
+  let curatedInheritance: CuratedInheritance | null = null;
+  const curatedInheritancePromise = readCuratedInheritance(gene).then(v => (curatedInheritance = v)).catch(() => null);
+
   let gnomadConstraintHasError = false;
   const gnomadConstraintPromise = timeTask("gnomadConstraint", locusRunner.run(locus => locus.then(pred => fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) }))).catch(err => {
     console.warn("[Gnomad Constraint Warning] Failed to fetch gnomad gene constraint:", err);
@@ -399,9 +405,24 @@ async function runCoreFetch(
    * variant gnomAD was never asked about (see `ServiceFetchStatus`).
    */
   let gnomadFreqBuildRefused = false;
-  const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then((localFreqs: any) => {
-    if (hasPopulationObservation(localFreqs?.gnomad)) return localFreqs.gnomad;
-    return locusRunner.run(locus => locus.then(async pred => {
+  /**
+   * How the local ingest came to stand in for gnomAD, recorded as it happens so the payload can say
+   * WHICH stand-in it was (`GnomadFrequencyData.standIn`). Three shapes collapse into "the local row
+   * was used" — the 8 s grace elapsed, the query faulted, and a build refusal — and a surface that
+   * words all three the same way explains a run with a fact it does not hold (the rail used to
+   * hard-code "did not answer in time" for every one of them).
+   */
+  let gnomadFreqStandIn: GnomadFrequencyData["standIn"] = null;
+  /**
+   * The remote gnomAD record starts at once, beside the local store, rather than only when the local
+   * store has no row. The local dbNSFP ingest sums exomes and genomes into one AC/AN and has NO
+   * ancestry breakdown and no FAF95, so when it answered first the frequency rule read the combined
+   * AF as if it were a grouped maximum. For UROD p.Gly318Arg that was 0.104% ("between the
+   * cut-points") against a gnomAD African-ancestry AF of 1.70% and FAF95 of 1.62% — BS1.
+   * The remote record wins whenever it has an observation; the local row stands in when gnomAD is
+   * unreachable, and the surfaces name it as the combined frequency it is.
+   */
+  const remoteGnomadPromise = locusRunner.run(locus => locus.then(async pred => {
       /**
        * Build gate on the coordinate before querying gnomAD.
        *
@@ -417,10 +438,47 @@ async function runCoreFetch(
       const coordinate = verifiedPopulationCoordinate(pred);
       if (!coordinate) return { refused: true, value: null };
       return { refused: false, value: await fetchGnomadVariantFrequency(pred!.gnomadVariantId!, { assembly: coordinate.assembly }) };
-    })).then(r => {
-      if (r.refused) gnomadFreqBuildRefused = true;
-      return r.value;
-    });
+    })).then(r => ({ ok: true as const, refused: r.refused, value: r.value }), (error: unknown) => ({ ok: false as const, refused: false, value: null, error }));
+  /**
+   * With a local row in hand, the remote record gets a bounded grace period, not its full retry budget
+   * (2 retries × 15 s): a slow gnomAD must not hold the whole frequency verdict. Past it, the local row
+   * stands in and is labelled as the combined frequency.
+   */
+  const REMOTE_GNOMAD_GRACE_MS = 8000;
+  const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then(async (localFreqs: any) => {
+    let remote: any;
+    let graceFired = false;
+    if (hasPopulationObservation(localFreqs?.gnomad)) {
+      let timer: any;
+      remote = await Promise.race([
+        remoteGnomadPromise,
+        new Promise(resolve => {
+          /**
+           * Cleared when the remote beat it, so a fast run leaves no 8 s timer armed.
+           * (`unref` kept for the case the clock fires into an already-settled race.)
+           */
+          timer = setTimeout(() => { graceFired = true; resolve({ ok: false, refused: false, value: null }); }, REMOTE_GNOMAD_GRACE_MS);
+          timer.unref?.();
+        }),
+      ]);
+      clearTimeout(timer);
+    } else {
+      remote = await remoteGnomadPromise;
+    }
+    // gnomAD's own "Variant not found" is the one true absence, and it outranks the local ingest:
+    // the ingest (a gnomAD derivative) can hold a stale row for a variant gnomAD r4 no longer has,
+    // and returning it here manufactured a frequency from a confirmed absence. A build refusal is
+    // NOT absence — the coordinate was never queried — so `refused` keeps the stand-in order below.
+    if (remote.ok && remote.value === null && !remote.refused) return null;
+    if (remote.ok && hasPopulationObservation(remote.value)) return remote.value;
+    if (hasPopulationObservation(localFreqs?.gnomad)) {
+      if (graceFired) gnomadFreqStandIn = "grace";
+      else if (!remote.ok) { gnomadFreqStandIn = "fault"; console.warn("[Gnomad Frequency Warning] Remote gnomAD failed; the local dbNSFP ingest stands in:", remote.error); }
+      return { ...localFreqs.gnomad, standIn: gnomadFreqStandIn };
+    }
+    if (!remote.ok) throw remote.error;
+    if (remote.refused) gnomadFreqBuildRefused = true;
+    return remote.value;
   }).catch(err => {
     console.warn("[Gnomad Frequency Warning] Error querying variant frequency:", err);
     gnomadFreqHasError = true;
@@ -609,6 +667,7 @@ async function runCoreFetch(
       raw === TIMEOUT_FLAG ? "timeout"
         : gnomadFreqHasError ? "error"
         : gnomadFreqBuildRefused ? "unsupported-build"
+        : gnomadFreqStandIn !== null ? "stand-in"
         : raw ? "ok"
         : "not_found",
     uniprotFeatures: (raw: unknown): ServiceFetchStatus =>
@@ -675,7 +734,8 @@ async function runCoreFetch(
         esm2: (partialData.esm2 as { llr: number | null; verdict: string } | null) ?? null,
         uniprotFeatures: (partialData.uniprotFeatures as UniprotFeaturesResult | null) ?? null,
         sequence,
-        serviceStatus: runningStatus
+        serviceStatus: runningStatus,
+        curatedInheritance
       });
     } catch (err: any) {
       // A preview is advisory: a failure here must not abort a run whose evidence is still arriving.
@@ -951,7 +1011,9 @@ async function runCoreFetch(
     pdbMapping: pdbMappingStatus
   };
 
+  await curatedInheritancePromise;
   const ruleBasedInsights = computeRuleBasedACMG({
+    curatedInheritance,
     gene,
     variant,
     residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
@@ -1034,6 +1096,7 @@ async function runCoreFetch(
     ruleBasedInsights,
     aouFrequency,
     aouLookup,
+    curatedInheritance,
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,

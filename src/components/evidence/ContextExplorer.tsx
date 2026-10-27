@@ -7,7 +7,7 @@ import { AssertionMatrix } from './ContextFigures';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { ExpressionRecords } from './expression/ExpressionRecords';
 import { validityPosition } from '../../shared/diseaseFrame';
-const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
+import EvidenceComparison from './EvidenceComparison';
 
 /** Page size for source records and the expression chart alike; one number, three captions. */
 const CX_PAGE_LIMIT = 20;
@@ -111,7 +111,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       }}>Show pinned record</button>}</p>}
       {!page.rows.length ? <div className="cx-empty">{page.sourceCount ? 'No records match these display filters. Clear the search or filters to see the source readings.' : empty === null ? null : empty ?? 'No returned readings in this source view. Check the source status below.'}</div>
         : <div className="cx-records" data-testid="context-records">
-          {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." /></React.Suspense>
+          {w.comparison && tab === 'expression-models' ? <EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." />
           : !w.comparison && expression ? <ExpressionRecords rows={page.rows} selected={w.selected} samplingOnly={w.enabled} />
           : w.comparison && tab === 'gene-disease' && group === 'validity' ? <AssertionMatrix rows={page.rows} levels={levels} selected={w.selected} onSelect={key => w.select(key)} />
           : w.comparison ? page.rows.map(r => <button key={r.key} type="button" className="cx-reading" aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}>

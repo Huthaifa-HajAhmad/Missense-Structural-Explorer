@@ -4,6 +4,7 @@
  * alt-variant generator. These utilities are consumed by multiple route files.
  */
 import express from "express";
+import type { CuratedInheritance } from "../../src/shared/inheritanceBasis.ts";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
@@ -153,7 +154,8 @@ export function handleNarrativeResponse(
   acmgWeighting: "standard" | "conservative" | "strict-structural",
   esm2?: { llr: number | null; verdict: string } | null,
   uniprotFeatures?: UniprotFeaturesResult | null,
-  sequence?: string | null
+  sequence?: string | null,
+  curatedInheritance?: CuratedInheritance | null
 ) {
   if (analysisResult.insights) {
     /**
@@ -184,6 +186,7 @@ export function handleNarrativeResponse(
     conservationData,
     gnomadConstraint,
     gnomadFrequency,
+    curatedInheritance: curatedInheritance ?? null,
     acmgWeighting,
     esm2,
     uniprotFeatures,

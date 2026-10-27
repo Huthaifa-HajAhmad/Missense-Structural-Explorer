@@ -12,6 +12,8 @@ import { isNullVariant, isInFrameIndel, isIndelInRepeatRegion } from "./syntax.t
 import type { ACMGItem } from "./classifier.ts";
 import { assessPm1, featureCoversResidue } from "../../../../src/shared/functionalSites.ts";
 import { classifyClinvar } from "../../../../src/shared/clinvarClassification.ts";
+import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
+import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
 
 export interface ACMGEvidenceInput {
   gene: string;
@@ -39,7 +41,13 @@ export interface ACMGEvidenceInput {
     nHomozygous: number | null;
     dataset: string;
     groupMaxAFIsFallback?: boolean;
+    faf95?: number | null;
   } | null;
+  /**
+   * The gene's curated GenCC inheritance (`summariseCuratedInheritance`), or null when it has no
+   * qualifying record. Sets PM2's ceiling ahead of pLI, and keeps BS2 off sex-chromosome genes.
+   */
+  curatedInheritance?: CuratedInheritance | null;
   acmgWeighting?: "standard" | "conservative" | "strict-structural";
   esm2?: { llr: number | null; verdict: string } | null;
   uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null;
@@ -76,7 +84,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     esmcEval = null,
     esm2Eval = null,
     saprotEval = null,
-    serviceStatus = null
+    serviceStatus = null,
+    curatedInheritance = null
   } = input;
   const criteria: ACMGItem[] = [];
 
@@ -280,8 +289,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // -------------------------------------------------------------------------
   // 2. PM2 / BS1 / BA1 — Population frequency
   // -------------------------------------------------------------------------
-  let maxFreq = 0;
-  let hasFreq = false;
+  /** What PM2 and BA1/BS1 read (`src/shared/frequencyRule.ts`), or null when there is nothing to read. */
+  let ruleInputs: FrequencyRuleInputs | null = null;
 
   const isGnomadTimeoutOrError = serviceStatus?.gnomadFrequency === "timeout" || serviceStatus?.gnomadFrequency === "error";
   /**
@@ -300,17 +309,13 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
    * A number, or `null` for anything that is not one.
    *
    * `groupMaxAF` and `maxAF` are `z.number().nullable().optional()` on the wire
-   * (`src/shared/contracts.ts`), and persisted payloads predate both keys. The previous guard tested
-   * `!== null`, which is TRUE for `undefined` — so a payload without `groupMaxAF` set
-   * `maxFreq = undefined`, every comparison below evaluated false, and **PM2 was silently dropped**
-   * (while `hasFreq` stayed true, so nothing reported that either). `NaN`/`Infinity` from an
-   * unguarded division had the same effect. Both are read as "no reading" here.
+   * (`src/shared/contracts.ts`), and persisted payloads predate both keys. An `undefined` or `NaN`
+   * used to make every comparison false and silently drop PM2; both are read as "no reading" here.
    */
   const finiteNumber = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
 
-  const groupedMaxAF = finiteNumber(gnomadFrequency?.groupMaxAF);
-  const globalMaxAF = finiteNumber(gnomadFrequency?.maxAF);
+  const gnomadInputs = gnomadRuleInputs(gnomadFrequency);
 
   if (isGnomadWithheld) {
     if (!unavailable.includes("GNOMAD_FREQUENCY")) {
@@ -320,87 +325,73 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
           : "GNOMAD_FREQUENCY (timeout/error — PM2 withheld)",
       );
     }
-  } else if (groupedMaxAF !== null) {
-    maxFreq = groupedMaxAF;
-    hasFreq = true;
-  } else if (globalMaxAF !== null) {
-    maxFreq = globalMaxAF;
-    hasFreq = true;
+  } else if (gnomadInputs) {
+    ruleInputs = gnomadInputs;
   } else if (serviceStatus?.gnomadFrequency === "not_found") {
     // Confirmed queried in gnomAD and explicitly absent from population reference
-    maxFreq = 0;
-    hasFreq = true;
+    ruleInputs = singleRuleInput(0, "absent");
   } else if (clinvar?.alleleFrequencies && Array.isArray(clinvar.alleleFrequencies)) {
     /**
-     * ClinVar-submitted frequencies.
-     *
-     * Only a value that parses to a FINITE number is evidence. The wire type is
-     * `{ source: string; value: any }` (`external-api/clinvar.ts:18`), so a malformed value is
-     * reachable; the previous revision counted any non-null value as "frequency present" with a
-     * magnitude of zero, which manufactured an "extremely rare" finding — PM2 — out of a broken
-     * record.
+     * ClinVar-submitted frequencies. Only a value that parses to a FINITE number is evidence: a
+     * malformed value used to be counted as a frequency of zero, which manufactured PM2.
      */
     const submitted = clinvar.alleleFrequencies
       .map(freq => finiteNumber(typeof freq.value === "string" ? parseFloat(freq.value) : freq.value))
       .filter((value): value is number => value !== null);
-    if (submitted.length > 0) {
-      hasFreq = true;
-      maxFreq = Math.max(...submitted);
-    }
+    if (submitted.length > 0) ruleInputs = singleRuleInput(Math.max(...submitted), "clinvar");
   }
 
-  if (hasFreq && !isGnomadWithheld) {
+  if (ruleInputs && !isGnomadWithheld) {
     const fallbackSuffix = gnomadFrequency?.groupMaxAFIsFallback
       ? " (note: groupMaxAF fell back to global maxAF due to low population counts)"
       : "";
+    const combinedSuffix = ruleInputs.pm2Statistic === "combined"
+      ? " (note: this source carries no ancestry groups or FAF95, so a group-enriched allele can sit above this figure)"
+      : "";
     /**
-     * Cut-points come from `THRESHOLDS.populationFrequency`, not from literals here.
-     *
-     * The engine and the Evidence Lineage card that documents it used to hold separate copies, and
-     * they disagreed: this branch tested BS1 at 1% while the card printed "MAF > 0.1%". Both the
-     * number and the percentages interpolated into the reason strings below are derived from the
-     * shared constant, so the sentence a clinician reads is generated by the rule that fired.
+     * Cut-points come from `THRESHOLDS.populationFrequency`; the decision from the shared
+     * `decideFrequencyCriterion`, so the tab that explains this verdict cannot compute another one.
      */
     const FREQ = THRESHOLDS.populationFrequency;
     const pct = (value: number, digits: number) => `${(value * 100).toFixed(digits)}%`;
+    const ceiling = pm2CeilingFor(
+      { inheritance: curatedInheritance, pli: gnomadConstraint?.pli ?? null },
+      { recessiveCeiling: FREQ.extremelyRareRecessive, dominantCeiling: FREQ.extremelyRare, pliCut: FREQ.recessivePlI },
+    );
+    const decision = decideFrequencyCriterion(ruleInputs, {
+      standAloneBenign: FREQ.standAloneBenign, tooCommonForDisorder: FREQ.tooCommonForDisorder, pm2Ceiling: ceiling.ceiling,
+    });
+    const benignName = STATISTIC_LABEL[ruleInputs.benignStatistic];
+    const pm2Name = STATISTIC_LABEL[ruleInputs.pm2Statistic];
 
-    if (maxFreq > FREQ.standAloneBenign) {
+    if (decision === "BA1") {
       criteria.push({
         code: "BA1",
-        reason: `Allele frequency is stand-alone benign (${pct(maxFreq, 3)} > ${pct(FREQ.standAloneBenign, 1)} in population database)${fallbackSuffix}.`,
+        reason: `Allele frequency is stand-alone benign (${benignName} ${pct(ruleInputs.benignAf, 3)} > ${pct(FREQ.standAloneBenign, 1)})${fallbackSuffix}${combinedSuffix}.`,
       });
-    } else if (maxFreq > FREQ.tooCommonForDisorder) {
+    } else if (decision === "BS1") {
       criteria.push({
         code: "BS1",
-        reason: `Allele frequency significantly higher than expected for disorder (${pct(maxFreq, 3)} > ${pct(FREQ.tooCommonForDisorder, 1)})${fallbackSuffix}.`,
+        reason: `Allele frequency greater than expected for the disorder (${benignName} ${pct(ruleInputs.benignAf, 3)} > ${pct(FREQ.tooCommonForDisorder, 1)} app-defined cut-point; not a disease-specific maximum credible allele frequency)${fallbackSuffix}${combinedSuffix}.`,
       });
-    } else {
-      // PM2 local pLI-based ceiling (lower: ≤ 0.01%, higher: ≤ 0.1%); this does not establish inheritance
-      let pm2Threshold: number = FREQ.extremelyRare;
-      let inheritanceModeText = "lower ceiling; pLI not available";
-      if (gnomadConstraint?.pli !== null && gnomadConstraint?.pli !== undefined) {
-        if (gnomadConstraint.pli < FREQ.recessivePlI) {
-          pm2Threshold = FREQ.extremelyRareRecessive;
-          inheritanceModeText = `higher ceiling (pLI < ${FREQ.recessivePlI})`;
-        } else {
-          inheritanceModeText = `lower ceiling (pLI ≥ ${FREQ.recessivePlI})`;
-        }
-      }
-
-      if (maxFreq <= pm2Threshold) {
-        if (!skipPathogenicComp) {
-          criteria.push({
-            code: "PM2",
-            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% app-defined threshold: ${inheritanceModeText}; pLI does not establish disease-specific inheritance)${fallbackSuffix}. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).`,
-          });
-        }
-      }
+    } else if (decision === "PM2" && !skipPathogenicComp) {
+      criteria.push({
+        code: "PM2",
+        reason: `Variant is extremely rare in population databases (${pm2Name} ${(ruleInputs.pm2Af * 100).toFixed(4)}% ≤ ${(ceiling.ceiling * 100).toFixed(2)}% app-defined threshold: ${ceiling.text})${fallbackSuffix}${combinedSuffix}. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).`,
+      });
     }
   }
 
   // -------------------------------------------------------------------------
   // BS2 — Observed in homozygous state in healthy population reference
   // -------------------------------------------------------------------------
+  /**
+   * Two or more gnomAD homozygotes, on an autosome, for a gene not curated as only X-linked, Y-linked
+   * or mitochondrial (`homozygotesInformBs2`). On those, the homozygote count is not the genotype BS2
+   * needs, and it used to be read anyway. BS2 also assumes full penetrance at an early age, which no
+   * source here curates; the surfaces state that caveat.
+   */
+  const bs2Genotype = homozygotesInformBs2({ variantId: predictorData?.gnomadVariantId ?? null, inheritance: curatedInheritance });
   if (
     gnomadFrequency &&
     gnomadFrequency.nHomozygous !== null &&
@@ -408,10 +399,14 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     gnomadFrequency.nHomozygous >= 2 &&
     !skipBenignComp
   ) {
-    criteria.push({
-      code: "BS2",
-      reason: `Observed in homozygous state in ${gnomadFrequency.nHomozygous} individuals in gnomAD general population reference cohort, arguing against fully penetrant severe pathogenic disease causality.`
-    });
+    if (bs2Genotype.applies) {
+      criteria.push({
+        code: "BS2",
+        reason: `Observed in homozygous state in ${gnomadFrequency.nHomozygous} individuals in gnomAD general population reference cohort, arguing against fully penetrant severe pathogenic disease causality. gnomAD does not phenotype its participants, and penetrance is not curated here.`
+      });
+    } else if (!unavailable.some(u => u.startsWith("BS2"))) {
+      unavailable.push(`BS2 (homozygote count not applied: ${bs2Genotype.reason})`);
+    }
   }
 
   // -------------------------------------------------------------------------

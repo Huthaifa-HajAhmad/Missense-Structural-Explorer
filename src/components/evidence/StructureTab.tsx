@@ -11,6 +11,7 @@ import { PropertyDumbbell, PropertyScaleReference } from "./residue/PropertyDumb
 import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { ResiduePropertyComparison } from './MolecularComparison';
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * Residue Shifts & Pockets — the tab.
@@ -481,7 +482,7 @@ export function StructureTab({
   return (
     <div data-evidence-screen className="rsx-screen" data-comparison={workspace.comparison || undefined} data-testid="residue-shifts-tab">
       <header>
-        <h1 className="screen-title">Residue shifts and pockets</h1>
+        <h1 className="screen-title">{evidenceTab('structure').label}</h1>
         <p className="screen-tab-description">
           What the substitution changes in the side chain, where the residue sits in the structure, and how close it is to a predicted ligand pocket.
         </p>

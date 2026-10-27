@@ -103,14 +103,15 @@ export default function EvidenceComparison({ tab, model, title, description }: {
     </div>}
     <p className="evw-readout" role="status">{(() => {
       const row = hovered ?? selected;
-      if (!row) return 'Select a reading to explore its meaning and source in the inspector.';
+      // The inspector already says what a pin shows; this line says what THIS line does, not the same thing twice.
+      if (!row) return 'Hover or focus a mark to read its value here; select it to pin the full record in the inspector.';
       // State, not just value: while this reading is the pin, say so — including when its dot is
       // itself hovered or keyboard-focused.
       return `${row.key === w.selected ? 'Pinned: ' : ''}${row.name} · ${row.valueText}`;
     })()}</p>
     {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All features to see it here.</p>}
     {tab === 'alphagenome' && selected?.value != null && !plotted.some(r => r.key === selected.key) && <p className="evw-caption">The pinned feature is outside the largest 8. Choose Show all to see it; its details remain in the inspector.</p>}
-    {tab === 'clinical' && <p className="evw-caption">AC counts copies; AN counts assessed alleles, not people. Cohorts can overlap. The engine input may be an ancestry-group maximum; it is not another cohort.</p>}
+    {tab === 'clinical' && <p className="evw-caption">AC counts copies; AN counts assessed alleles, not people. Cohorts can overlap. The engine input is the frequency the ACMG rule read; it is not another cohort.</p>}
     {/* The perturbation model strip pins its model id, which is an inspector row but not a dot on this
         chart; saying "outside this chart" for it fired on the normal path. Only a probability reading
         (`<model>:<amino acid>`) that this chart does not plot is genuinely outside it. */}

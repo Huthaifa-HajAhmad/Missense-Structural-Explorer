@@ -285,7 +285,7 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValue(null);
     });
 
-    it("uses local counts only after passing the canonical verified allele into the lookup", async () => {
+    it("passes the canonical verified allele into the local lookup and prefers the remote gnomAD record", async () => {
       const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
       const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
       const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
@@ -294,10 +294,75 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce(local);
       const result = await fetchCoreVariantData(baseContext, 2000);
       expect(fetchLocalPopulationFrequencies).toHaveBeenCalledWith("PAH", 408, "p.Arg408Trp", { chrom: "12", pos: 102845012, ref: "G", alt: "A", assembly: "GRCh38" });
-      expect(result.gnomadFrequency).toEqual(local.gnomad);
+      // The remote gnomAD record is preferred: the local ingest has no ancestry groups or FAF95, so its
+      // combined AF missed UROD p.Gly318Arg's 1.7% African-ancestry frequency (BS1). Local AoU stays.
+      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith("12-102845012-G-A", { assembly: "GRCh38" });
+      expect(result.gnomadFrequency?.dataset).not.toBe("gnomad_r4_local");
       expect(result.aouFrequency).toEqual(local.aou);
       expect(result.aouLookup?.localTable).toBe("found");
-      expect(fetchGnomadVariantFrequency).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the local combined counts when gnomAD itself is unreachable", async () => {
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      const local = { gnomad: { maxAF: 0.01, genomeAC: 10, genomeAN: 1000, dataset: "gnomad_r4_local" }, aou: null };
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce(local);
+      vi.mocked(fetchGnomadVariantFrequency).mockRejectedValueOnce(new Error("gnomAD down"));
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(result.gnomadFrequency).toEqual({ ...local.gnomad, standIn: "fault" });
+      expect(result.serviceStatus.gnomadFrequency).toBe("stand-in");
+    });
+
+    it("prefers gnomAD's confirmed absence over the local ingest's stale row", async () => {
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({
+        gnomad: { maxAF: 0.01, genomeAC: 10, genomeAN: 1000, dataset: "gnomad_r4_local" }, aou: null,
+      });
+      // The only shape a confirmed absence takes: gnomAD's own "Variant not found" resolves `null`.
+      // The local derivative must not overturn it — that manufactured a frequency from an absence
+      // and could flip a defensible PM2 (absence = 0 ≤ ceiling) into "none".
+      vi.mocked(fetchGnomadVariantFrequency).mockResolvedValueOnce(null as any);
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(result.gnomadFrequency).toBeNull();
+      expect(result.serviceStatus.gnomadFrequency).toBe("not_found");
+    });
+
+    it("names the grace deadline, not a fault, when the local ingest stands in for a slow gnomAD", async () => {
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      const local = { gnomad: { maxAF: 0.01, genomeAC: 10, genomeAN: 1000, dataset: "gnomad_r4_local" }, aou: null };
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce(local);
+      // A slow-but-healthy gnomAD: the 8 s grace window fires first, so the two must not be in
+      // the same vocabulary as a refused query or a transport failure. Fake timers advance the
+      // window instead of letting the test wait 8 real seconds.
+      vi.mocked(fetchGnomadVariantFrequency).mockImplementationOnce(() => new Promise(() => {}));
+      vi.useFakeTimers();
+      try {
+        // A core budget larger than the grace window — the real run orders them this way, and the
+        // test's 2 s default would expire before the 8 s grace the behaviour lives on.
+        const pending = fetchCoreVariantData(baseContext, 10_000);
+        await vi.advanceTimersByTimeAsync(8_000);
+        const result = await pending;
+        expect(result.gnomadFrequency).toEqual({ ...local.gnomad, standIn: "grace" });
+        expect(result.serviceStatus.gnomadFrequency).toBe("stand-in");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reports a gnomAD outage as an error, never as an absence, when there is no local row", async () => {
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(fetchGnomadVariantFrequency).mockRejectedValueOnce(new Error("gnomAD down"));
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(result.gnomadFrequency).toBeNull();
+      expect(result.serviceStatus.gnomadFrequency).toBe("error");
     });
 
     it("never binds protein-selected ALT A AoU to a healthy explicit ALT B, including partial frames", async () => {

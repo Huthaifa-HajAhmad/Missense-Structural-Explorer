@@ -4,16 +4,11 @@ import type { EvidenceWorkspaceTab, AttributionFilter } from '../../shared/evide
 import { useAlleleWorkspaceState } from '../../hooks/useAlleleWorkspaceState';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { ReviewWorkspaceProvider } from '../review/ReviewWorkspace';
+import { EVIDENCE_TABS, evidenceTab } from '../../shared/evidenceTabs';
 
 type View = 'comparison' | 'records' | 'partners' | 'strength' | 'protein' | 'pext' | 'alignment' | 'phenotypes' | 'embeddings' | 'scales';
 /** Topic views retain stable IDs so pinned readings and explicit reveal actions survive navigation. */
-export const EVIDENCE_DETAIL_LABELS: Record<EvidenceWorkspaceTab, string> = {
-  clinical: 'Clinical assertion', predictors: 'Native score scales', alphagenome: 'Rank & composition',
-  'gene-disease': 'Validity assertions', 'expression-models': 'Sampling & coverage',
-  'species-models': 'Orthology & screens', structure: 'Environment & pockets',
-  perturbation: 'Packing & geometry', function: 'Annotation details',
-  splicing: 'Channel details', interfaces: 'Assemblies & models',
-};
+export const EVIDENCE_DETAIL_LABELS = Object.fromEntries(EVIDENCE_TABS.map(t => [t.id, t.detailView])) as Record<EvidenceWorkspaceTab, string>;
 const extraViews: Partial<Record<EvidenceWorkspaceTab, { id: View; label: string }[]>> = {
   splicing: [{ id: 'scales', label: 'Score scales' }],
   predictors: [{ id: 'strength', label: 'Strength bands' }],
@@ -49,8 +44,7 @@ export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
 export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return null;
-  const names: Record<EvidenceWorkspaceTab, string> = { clinical: 'Population', predictors: 'Predictors', alphagenome: 'AlphaGenome', 'gene-disease': 'Gene–disease', 'expression-models': 'Expression', 'species-models': 'Species & models', structure: 'Residue shifts & pockets', perturbation: 'Structural perturbation', function: 'Functional domains', splicing: 'RNA splicing', interfaces: 'Interfaces & PPI' };
-  return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${names[tab]} views`}
+  return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${evidenceTab(tab).label} views`}
     tabs={[{ id: 'comparison', label: comparisonLabel }, ...(tab === 'interfaces' ? [{ id: 'partners' as const, label: 'Partners' }] : []), { id: 'records', label: EVIDENCE_DETAIL_LABELS[tab] }, ...(extraViews[tab] ?? [])]} value={w.view} onChange={w.setView} /></div>;
 }
 export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; children: ReactNode }) {

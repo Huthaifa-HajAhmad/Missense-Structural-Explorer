@@ -65,12 +65,13 @@ describe("EvidenceInspector — clinical pane", () => {
     // BS1 is the one that was wrong: the card said 0.1%, the engine tests 1%.
     expect(freq.tooCommonForDisorder).toBe(0.01);
     const cuts = screen.getByTestId("cut-points");
-    expect(within(cuts).getByText("> 1.0%")).toBeTruthy();
+    expect(within(cuts).getByText("> 1%")).toBeTruthy();
     expect(within(cuts).queryByText("> 0.1%")).toBeNull();
 
-    // PM2 documents both ceilings, including the recessive branch.
+    // PM2's two ceilings are two rows, each with what selects it (curated inheritance first, pLI only without it).
     expect(within(cuts).getByText("≤ 0.01%")).toBeTruthy();
-    expect(within(cuts).getByText(/higher local ceiling ≤ 0\.1% when pLI < 0\.9/)).toBeTruthy();
+    expect(within(cuts).getByText("≤ 0.1%")).toBeTruthy();
+    expect(within(cuts).getByText(/higher ceiling: curated autosomal recessive only, or pLI < 0\.9/)).toBeTruthy();
     expect(within(cuts).getByText("> 5%")).toBeTruthy();
     // The cut-point this variant's frequency supports is the one marked.
     const active = cuts.querySelectorAll("[data-active]");
@@ -168,7 +169,109 @@ describe("EvidenceInspector — clinical pane", () => {
     });
     const card = screen.getByTestId("rule-trace");
     expect(card.textContent).toMatch(/gnomAD — no record/);
-    expect(card.textContent).toMatch(/pLI 1\.00 → lower local ceiling/);
+    expect(card.textContent).toMatch(/lower ceiling \(no curated inheritance; pLI 1\.00 ≥ 0\.9\)/);
     expect(container.textContent).not.toMatch(/global maximum/);
+  });
+});
+
+/** UROD p.Gly318Arg as the local ingest serves it, with All of Us holding the most copies. */
+describe("EvidenceInspector — clinical pane, local ingest", () => {
+  const combined = 1674 / 1613998;
+  const UROD: any = {
+    ...CLINICAL_RESULT,
+    metadata: { variant: "p.Gly318Arg", uniprotId: "P06132" },
+    gnomadFrequency: {
+      maxAF: combined, groupMaxAF: combined, genomeAF: combined, exomeAF: null,
+      genomeAC: 1674, exomeAC: null, genomeAN: 1613998, exomeAN: null,
+      nHomozygous: 15, dataset: "gnomad_r4_local",
+    },
+    aouFrequency: { aouAC: 2085, aouAN: 490780, aouHet: null, aouHom: null },
+    aouLookup: { localTable: "found", remoteDbnsfp: "not-reported" },
+    gnomadConstraint: { pli: 0 },
+    ruleBasedInsights: { acmgCriteria: [{ code: "BS2", reason: "15 homozygotes" }] },
+  };
+
+  it("does not call the combined AF an ancestry-grouped maximum", () => {
+    render(<EvidenceInspector analysisResult={UROD} activeEvidenceTab="clinical" />);
+    const card = screen.getByTestId("rule-trace");
+    expect(card.textContent).toMatch(/gnomAD combined frequency/);
+    expect(card.textContent).not.toMatch(/Highest across ancestry groups/);
+    expect(card.textContent).toMatch(/no ancestry breakdown/);
+  });
+
+  it("does not credit another cohort's counts to the rule's source", () => {
+    render(<EvidenceInspector analysisResult={UROD} activeEvidenceTab="clinical" />);
+    const card = screen.getByTestId("rule-trace");
+    expect(card.textContent).toMatch(/Most copies in any one cohort: AC 2,085 · AN 490,780 · All of Us/);
+    expect(card.textContent).not.toMatch(/Alleles observed/);
+  });
+
+  it("shows a recorded BS2 beside an absent frequency criterion", () => {
+    render(<EvidenceInspector analysisResult={UROD} activeEvidenceTab="clinical" />);
+    expect(screen.getByText("None recorded")).toBeTruthy();
+    expect(screen.getByTestId("bs2-recorded").textContent).toMatch(/BS2 from 15 gnomAD homozygotes/);
+  });
+});
+
+describe("EvidenceInspector — clinical pane, UROD from gnomAD r4", () => {
+  const UROD_REMOTE: any = {
+    ...CLINICAL_RESULT,
+    metadata: { variant: "p.Gly318Arg", uniprotId: "P06132" },
+    gnomadFrequency: {
+      maxAF: 0.004872, groupMaxAF: 1272 / 75018, genomeAF: 0.004872, exomeAF: 0.000638,
+      genomeAC: 742, exomeAC: 932, genomeAN: 152292, exomeAN: 1461706, nHomozygous: 15,
+      dataset: "gnomad_r4", groupMaxPopulation: "afr", faf95: 0.01618, faf95Population: "afr",
+    },
+    gnomadConstraint: { pli: 0 },
+    curatedInheritance: { source: "GenCC", modes: ["Autosomal dominant", "Autosomal recessive", "Semidominant"], recessiveOnly: false, sexOrMitoOnly: false, records: 3 },
+    ruleBasedInsights: { acmgCriteria: [{ code: "BS1" }, { code: "BS2" }] },
+  };
+
+  it("traces both inputs: FAF95 for BA1/BS1 and the grouped maximum for PM2, each with its group", () => {
+    render(<EvidenceInspector analysisResult={UROD_REMOTE} activeEvidenceTab="clinical" />);
+    const card = screen.getByTestId("rule-trace");
+    expect(card.textContent).toMatch(/1\.62% · BA1\/BS1 read FAF95 \(African\/African American \(afr\)\)/);
+    expect(card.textContent).toMatch(/1\.70% · PM2 reads the grouped maximum \(African\/African American \(afr\)\)/);
+  });
+
+  /** A "none" verdict: FAF95 far under the BS1 cut-point, while the grouped maximum (0.05%) sits
+   *  above the 0.01% curated-dominant ceiling — so the ceiling is genuinely the threshold the
+   *  verdict failed, and the rail may say so. */
+  const UROD_NONE: any = {
+    ...UROD_REMOTE,
+    gnomadFrequency: {
+      maxAF: 0.0005, groupMaxAF: 0.0005, genomeAF: 0.0005, exomeAF: 0.0003,
+      genomeAC: 214, exomeAC: 96, genomeAN: 428482, exomeAN: 320000, nHomozygous: 0,
+      dataset: "gnomad_r4", groupMaxPopulation: "afr", faf95: 0.00001, faf95Population: "afr",
+    },
+    ruleBasedInsights: { acmgCriteria: [] },
+  };
+
+  it("names the curated inheritance that set the PM2 ceiling, ahead of pLI", () => {
+    render(<EvidenceInspector analysisResult={UROD_NONE} activeEvidenceTab="clinical" />);
+    expect(screen.getByTestId("ceiling-basis").textContent).toMatch(/curated GenCC inheritance includes Autosomal dominant/);
+  });
+
+  it("marks BS1 as this variant's cut-point", () => {
+    render(<EvidenceInspector analysisResult={UROD_REMOTE} activeEvidenceTab="clinical" />);
+    const active = screen.getByTestId("cut-points").querySelectorAll("[data-active]");
+    expect(active.length).toBe(1);
+    expect(active[0].textContent).toMatch(/^BS1/);
+  });
+
+  it("marks the PM2 ceiling as this verdict's threshold when no criterion fired between the cut-points", () => {
+    render(<EvidenceInspector analysisResult={UROD_NONE} activeEvidenceTab="clinical" />);
+    // No row is "active" (no criterion fired), but the ceiling the verdict failed IS marked as applied.
+    const cuts = screen.getByTestId("cut-points").textContent ?? "";
+    expect(cuts).toContain("ceiling applied");
+  });
+
+  it("does not claim a PM2 ceiling was applied to a benign-side verdict", () => {
+    render(<EvidenceInspector analysisResult={UROD_REMOTE} activeEvidenceTab="clinical" />);
+    // BA1/BS1 decided on FAF95 before any ceiling was read: marking a PM2 row "ceiling applied"
+    // (and rendering the basis as consulted) certified a step the engine never took.
+    expect(screen.getByTestId("cut-points").textContent).not.toMatch(/ceiling applied/);
+    expect(screen.getByTestId("rule-trace").textContent).toMatch(/PM2 ceiling \(not reached\)/);
+    expect(screen.getByTestId("rule-trace").textContent).toMatch(/The benign cut-points fired before the ceiling was consulted\./);
   });
 });

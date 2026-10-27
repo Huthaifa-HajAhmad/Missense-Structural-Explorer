@@ -72,3 +72,26 @@ describe('HPA adapter', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({}, 503))); expect((await loadHpa('HPA3')).status).toBe('error');
   });
 });
+
+describe('model phenotypes do not wait for the IMPC screen', () => {
+  it('lists phenotypes while the IMPC query is still unanswered', async () => {
+    let releaseImpc: () => void = () => {};
+    const impcGate = new Promise<void>(resolve => { releaseImpc = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('genenames')) return json({ response: { numFound: 1, docs: [{ hgnc_id: 'HGNC:1', symbol: 'MPHIMPC', status: 'Approved' }] } });
+      if (url.includes('/orthologs')) return json({ total: 1, results: [orthologRow('MGI:1', 'Gx', 'NCBITaxon:10090', 'Mus musculus')] });
+      // IMPC hangs until released: phenotypes used to sit behind it.
+      if (url.includes('mousephenotype') || url.includes('impc')) { await impcGate; return json({ response: { numFound: 0, docs: [] } }); }
+      if (url.includes('githubusercontent')) return new Response(SSSOM);
+      return json({ total: 0, results: [] });
+    }));
+    const { loadModelOrganisms } = await import('./modelOrganisms');
+    const organisms = loadModelOrganisms('MPHIMPC');
+    const phenotypes = await loadModelPhenotypes('MPHIMPC');
+    expect(phenotypes.status).toBe('ready');
+    expect(phenotypes.species.map(s => s.symbol)).toEqual(['Gx']);
+    releaseImpc();
+    expect((await organisms).status).toBe('ready');
+  });
+});

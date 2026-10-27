@@ -1,0 +1,269 @@
+{
+ "method": "Recompute MetaDome 2027's GRCh38 tolerance landscape from public gnomAD v4.1 and compare it with the",
+ "genes": {
+  "SOD1": {
+   "joint_pass_exome_ac": {
+    "codons": 154,
+    "exact": 133,
+    "exactFraction": 0.8636363636363636,
+    "maxAbsDiff": 0.03262411347517735,
+    "worstResidue": 92,
+    "worstRecomputed": 0.7503546099290781,
+    "worstDeposited": 0.7177304964539007
+   },
+   "joint_pass_exome_present": {
+    "codons": 154,
+    "exact": 133,
+    "exactFraction": 0.8636363636363636,
+    "maxAbsDiff": 0.03262411347517735,
+    "worstResidue": 92,
+    "worstRecomputed": 0.7503546099290781,
+    "worstDeposited": 0.7177304964539007
+   },
+   "joint_pass_any": {
+    "codons": 154,
+    "exact": 9,
+    "exactFraction": 0.05844155844155844,
+    "maxAbsDiff": 0.15925680159256805,
+    "worstResidue": 138,
+    "worstRecomputed": 0.7166556071665561,
+    "worstDeposited": 0.8759124087591241
+   },
+   "exome_pass_ac": {
+    "codons": 154,
+    "exact": 154,
+    "exactFraction": 1.0,
+    "maxAbsDiff": 0.0,
+    "worstResidue": 154,
+    "worstRecomputed": 0.4225352112676057,
+    "worstDeposited": 0.4225352112676057
+   },
+   "exome_present_any_filter": {
+    "codons": 154,
+    "exact": 25,
+    "exactFraction": 0.16233766233766234,
+    "maxAbsDiff": 0.10328638497652576,
+    "worstResidue": 68,
+    "worstRecomputed": 0.568075117370892,
+    "worstDeposited": 0.46478873239436624
+   },
+   "inhouse_exome_or_genome_pass": {
+    "codons": 154,
+    "exact": 6,
+    "exactFraction": 0.03896103896103896,
+    "maxAbsDiff": 0.15925680159256805,
+    "worstResidue": 138,
+    "worstRecomputed": 0.7166556071665561,
+    "worstDeposited": 0.8759124087591241
+   }
+  },
+  "BRCA1": {
+   "joint_pass_exome_ac": {
+    "codons": 1863,
+    "exact": 1385,
+    "exactFraction": 0.7434245840042941,
+    "maxAbsDiff": 0.16423357664233595,
+    "worstResidue": 1126,
+    "worstRecomputed": 2.545620437956204,
+    "worstDeposited": 2.3813868613138682
+   },
+   "joint_pass_exome_present": {
+    "codons": 1863,
+    "exact": 1385,
+    "exactFraction": 0.7434245840042941,
+    "maxAbsDiff": 0.16423357664233595,
+    "worstResidue": 1126,
+    "worstRecomputed": 2.545620437956204,
+    "worstDeposited": 2.3813868613138682
+   },
+   "joint_pass_any": {
+    "codons": 1863,
+    "exact": 118,
+    "exactFraction": 0.06333870101986044,
+    "maxAbsDiff": 0.9726190476190475,
+    "worstResidue": 1742,
+    "worstRecomputed": 1.9452380952380952,
+    "worstDeposited": 2.9178571428571427
+   },
+   "exome_pass_ac": {
+    "codons": 1863,
+    "exact": 1737,
+    "exactFraction": 0.9323671497584541,
+    "maxAbsDiff": 0.08211678832116842,
+    "worstResidue": 1126,
+    "worstRecomputed": 2.4635036496350367,
+    "worstDeposited": 2.3813868613138682
+   },
+   "exome_present_any_filter": {
+    "codons": 1863,
+    "exact": 723,
+    "exactFraction": 0.38808373590982287,
+    "maxAbsDiff": 0.505281690140845,
+    "worstResidue": 221,
+    "worstRecomputed": 1.1549295774647887,
+    "worstDeposited": 1.6602112676056338
+   },
+   "inhouse_exome_or_genome_pass": {
+    "codons": 1863,
+    "exact": 156,
+    "exactFraction": 0.08373590982286634,
+    "maxAbsDiff": 0.9726190476190475,
+    "worstResidue": 1742,
+    "worstRecomputed": 1.9452380952380952,
+    "worstDeposited": 2.9178571428571427
+   }
+  },
+  "RYR2": {
+   "joint_pass_exome_ac": {
+    "codons": 4967,
+    "exact": 2820,
+    "exactFraction": 0.5677471310650292,
+    "maxAbsDiff": 0.45862068965517244,
+    "worstResidue": 3119,
+    "worstRecomputed": 0.7862068965517243,
+    "worstDeposited": 1.2448275862068967
+   },
+   "joint_pass_exome_present": {
+    "codons": 4967,
+    "exact": 2820,
+    "exactFraction": 0.5677471310650292,
+    "maxAbsDiff": 0.45862068965517244,
+    "worstResidue": 3119,
+    "worstRecomputed": 0.7862068965517243,
+    "worstDeposited": 1.2448275862068967
+   },
+   "joint_pass_any": {
+    "codons": 4967,
+    "exact": 460,
+    "exactFraction": 0.09261123414535938,
+    "maxAbsDiff": 1.0023980815347724,
+    "worstResidue": 2995,
+    "worstRecomputed": 1.0023980815347724,
+    "worstDeposited": 2.004796163069545
+   },
+   "exome_pass_ac": {
+    "codons": 4967,
+    "exact": 4387,
+    "exactFraction": 0.8832293134688947,
+    "maxAbsDiff": 0.4149425287356322,
+    "worstResidue": 3119,
+    "worstRecomputed": 0.8298850574712645,
+    "worstDeposited": 1.2448275862068967
+   },
+   "exome_present_any_filter": {
+    "codons": 4967,
+    "exact": 698,
+    "exactFraction": 0.1405274813770888,
+    "maxAbsDiff": 1.5510948905109492,
+    "worstResidue": 2814,
+    "worstRecomputed": 1.0036496350364963,
+    "worstDeposited": 2.5547445255474455
+   },
+   "inhouse_exome_or_genome_pass": {
+    "codons": 4967,
+    "exact": 644,
+    "exactFraction": 0.12965572780350312,
+    "maxAbsDiff": 1.0023980815347724,
+    "worstResidue": 2995,
+    "worstRecomputed": 1.0023980815347724,
+    "worstDeposited": 2.004796163069545
+   }
+  },
+  "LDLR": {
+   "joint_pass_exome_ac": {
+    "codons": 860,
+    "exact": 585,
+    "exactFraction": 0.6802325581395349,
+    "maxAbsDiff": 0.4701536643026005,
+    "worstResidue": 529,
+    "worstRecomputed": 1.4104609929078014,
+    "worstDeposited": 1.8806146572104019
+   },
+   "joint_pass_exome_present": {
+    "codons": 860,
+    "exact": 585,
+    "exactFraction": 0.6802325581395349,
+    "maxAbsDiff": 0.4701536643026005,
+    "worstResidue": 529,
+    "worstRecomputed": 1.4104609929078014,
+    "worstDeposited": 1.8806146572104019
+   },
+   "joint_pass_any": {
+    "codons": 860,
+    "exact": 78,
+    "exactFraction": 0.09069767441860466,
+    "maxAbsDiff": 0.5852623456790123,
+    "worstResidue": 523,
+    "worstRecomputed": 1.2654320987654322,
+    "worstDeposited": 1.8506944444444444
+   },
+   "exome_pass_ac": {
+    "codons": 860,
+    "exact": 776,
+    "exactFraction": 0.9023255813953488,
+    "maxAbsDiff": 0.2686592367443432,
+    "worstResidue": 529,
+    "worstRecomputed": 1.6119554204660587,
+    "worstDeposited": 1.8806146572104019
+   },
+   "exome_present_any_filter": {
+    "codons": 860,
+    "exact": 235,
+    "exactFraction": 0.27325581395348836,
+    "maxAbsDiff": 0.5614241001564948,
+    "worstResidue": 528,
+    "worstRecomputed": 1.3153364632237872,
+    "worstDeposited": 1.876760563380282
+   },
+   "inhouse_exome_or_genome_pass": {
+    "codons": 860,
+    "exact": 91,
+    "exactFraction": 0.1058139534883721,
+    "maxAbsDiff": 0.42708333333333326,
+    "worstResidue": 523,
+    "worstRecomputed": 1.4236111111111112,
+    "worstDeposited": 1.8506944444444444
+   }
+  }
+ },
+ "bestRuleSOD1": "exome_pass_ac",
+ "verdict": "exact",
+ "sameRuleOtherGenes": {
+  "SOD1": {
+   "codons": 154,
+   "exact": 154,
+   "exactFraction": 1.0,
+   "maxAbsDiff": 0.0,
+   "worstResidue": 154,
+   "worstRecomputed": 0.4225352112676057,
+   "worstDeposited": 0.4225352112676057
+  },
+  "BRCA1": {
+   "codons": 1863,
+   "exact": 1737,
+   "exactFraction": 0.9323671497584541,
+   "maxAbsDiff": 0.08211678832116842,
+   "worstResidue": 1126,
+   "worstRecomputed": 2.4635036496350367,
+   "worstDeposited": 2.3813868613138682
+  },
+  "RYR2": {
+   "codons": 4967,
+   "exact": 4387,
+   "exactFraction": 0.8832293134688947,
+   "maxAbsDiff": 0.4149425287356322,
+   "worstResidue": 3119,
+   "worstRecomputed": 0.8298850574712645,
+   "worstDeposited": 1.2448275862068967
+  },
+  "LDLR": {
+   "codons": 860,
+   "exact": 776,
+   "exactFraction": 0.9023255813953488,
+   "maxAbsDiff": 0.2686592367443432,
+   "worstResidue": 529,
+   "worstRecomputed": 1.6119554204660587,
+   "worstDeposited": 1.8806146572104019
+  }
+ }
+}

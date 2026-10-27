@@ -124,6 +124,9 @@ data/benchmark-structures/
 
 # Agent-specific skill symlinks (absolute paths); canonical skills live in .agents/skills
 /.claude/skills/
+
+# Prior-session review artifacts (workflow state, not source)
+.clavix/
 .e2e/results/
 .e2e/cache/
 .e2e/sessions/

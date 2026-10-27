@@ -1816,7 +1816,14 @@ export const analyzeVariantResponseSchema = z.object({
     genomeAN: z.number().nullable().optional(),
     exomeAN: z.number().nullable().optional(),
     nHomozygous: z.number().nullable(),
-    dataset: z.string()
+    dataset: z.string(),
+    // Declared so the client keeps them: an undeclared key is stripped by this schema, which is
+    // how `groupMaxAFIsFallback` used to vanish before the fallback note could render.
+    groupMaxAFIsFallback: z.boolean().optional(),
+    groupMaxPopulation: z.string().nullable().optional(),
+    faf95: z.number().nullable().optional(),
+    faf95Population: z.string().nullable().optional(),
+    standIn: z.enum(["grace", "fault"]).nullable().optional(),
   }).nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable().optional(),
@@ -1825,6 +1832,10 @@ export const analyzeVariantResponseSchema = z.object({
     aouHom: z.number().nullable().optional()
   }).nullable().optional(),
   aouLookup: aouLookupSchema.nullable().optional(),
+  /** The gene's curated GenCC inheritance as the frequency rules read it (`shared/inheritanceBasis.ts`). */
+  curatedInheritance: z.object({
+    source: z.literal('GenCC'), modes: z.array(z.string()), recessiveOnly: z.boolean(), sexOrMitoOnly: z.boolean(), records: z.number(),
+  }).nullable().optional(),
   esm2: z.object({
     llr: z.number().nullable(),
     verdict: z.string().nullable().optional()
@@ -2658,6 +2669,18 @@ export interface GnomadFrequencyData {
   nHomozygous: number | null;
   dataset: string;
   groupMaxAFIsFallback?: boolean;
+  /** The gnomAD genetic-ancestry group holding `groupMaxAF` (gnomAD r4 only). */
+  groupMaxPopulation?: string | null;
+  /** gnomAD's joint filtering allele frequency (FAF95) over the grpmax groups, the BA1/BS1 input. */
+  faf95?: number | null;
+  faf95Population?: string | null;
+  /**
+   * Present only on the local dbNSFP record, naming WHY it stands in for the remote gnomAD query:
+   * `grace` — gnomAD did not answer within the run's 8 s grace window — or `fault` — the gnomAD
+   * query failed. Three stand-in shapes used to word all the same ("did not answer in time"), and
+   * one of them (a fault) was reported as a plain `ok` with no trace on the payload.
+   */
+  standIn?: "grace" | "fault" | null;
 }
 
 export interface AouFrequencyData {
@@ -2720,6 +2743,8 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
   aouLookup?: AouLookup | null;
+  /** The curated GenCC inheritance the ACMG frequency rules read; null when the gene has none. */
+  curatedInheritance?: import('./inheritanceBasis.ts').CuratedInheritance | null;
   serviceStatus?: Record<string, string>;
   inSilicoConcordance?: PredictorConcordance | null;
 }

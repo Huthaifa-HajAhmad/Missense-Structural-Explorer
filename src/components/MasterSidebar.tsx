@@ -8,7 +8,7 @@ import { NAV_ICONS, SUB_NAV_ICONS, type NavIcon, type StructureModelId } from ".
 import { BrandMark } from "./ui/BrandMark";
 import { SidebarToggleIcon } from "./ui/SidebarToggleIcon";
 import { AnalysisResult } from "../types";
-import type { EvidenceTabId } from "../shared/insightsEvidence";
+import { EVIDENCE_TABS, type EvidenceTabId } from "../shared/evidenceTabs";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import type { FoldxPhase } from "../shared/foldxPhase";
 import { useSettings } from "../context/SettingsContext";
@@ -171,19 +171,8 @@ export const MASTER_VIEW_ITEMS: NavItem[] = [
  * residue outward (residue → fold → interfaces and partners). Interfaces & PPI merged the former
  * Multimer assembly and Protein interactions tabs, which answered one question twice.
  */
-export const EVIDENCE_SUB_ITEMS: { id: EvidenceTabId; label: string }[] = [
-  { id: "clinical",     label: "Population data"          },
-  { id: "gene-disease", label: "Gene–disease"             },
-  { id: "expression-models", label: "Expression"          },
-  { id: "species-models", label: "Species & models"      },
-  { id: "function",     label: "Functional domains"       },
-  { id: "predictors",   label: "In-silico predictors"     },
-  { id: "alphagenome",  label: "AlphaGenome"              },
-  { id: "splicing",     label: "RNA splicing"             },
-  { id: "structure",    label: "Residue shifts & pockets" },
-  { id: "perturbation", label: "Structural perturbation"  },
-  { id: "interfaces",   label: "Interfaces & PPI"         },
-];
+/** The sidebar's Evidence rows, in registry order (`shared/evidenceTabs.ts`). */
+export const EVIDENCE_SUB_ITEMS: { id: EvidenceTabId; label: string }[] = EVIDENCE_TABS.map(({ id, label }) => ({ id, label }));
 
 export const STRUCTURE_SUB_ITEMS: { id: StructureModelId; label: string }[] = [
   { id: "structure_alphafold", label: "AlphaFold2" },

@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useMemo } from "react";
+import React, { useMemo } from "react";
 import type { LmReading, PerturbationEvidence } from "../../../shared/perturbationEvidence";
 import type { PerturbationModelId } from "../../../shared/perturbationModels";
 import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
@@ -6,7 +6,7 @@ import { oddsText } from "../../../shared/perturbationEvidence";
 import { probabilityOverview, residueProbabilityComparison } from '../../../shared/molecularWorkspace';
 import { useEvidenceWorkspace, InspectReadingButton } from '../EvidenceWorkspace';
 import { ResearchGuideButton } from '../../knowledge/ResearchGuideButton';
-const EvidenceComparison = lazy(() => import('../EvidenceComparison'));
+import EvidenceComparison from '../EvidenceComparison';
 
 /**
  * Residue-level detail for ONE language model: its distribution over the 20 residues at the site
@@ -183,8 +183,7 @@ export function ResidueDetail({
           <>
             <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
               <div>
-                {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distribution…</p>}>
-                  {comparison.rows.length > 8 && <div className="evw-figure-scope"><span>{overview.rows.length} of {comparison.rows.length} returned residues · {expanded ? 'full distribution' : 'six highest probabilities plus reference and variant'}</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => workspace.toggleGroup('all-probabilities')}>{expanded ? 'Show overview' : `Show all ${comparison.rows.length} residues`}</button></div>}
+                {workspace.comparison ? <>{comparison.rows.length > 8 && <div className="evw-figure-scope"><span>{overview.rows.length} of {comparison.rows.length} returned residues · {expanded ? 'full distribution' : 'six highest probabilities plus reference and variant'}</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => workspace.toggleGroup('all-probabilities')}>{expanded ? 'Show overview' : `Show all ${comparison.rows.length} residues`}</button></div>}
                   <div className="evw-controls"><label>Inspect amino acid <select
                     value={comparison.rows.some(r => r.key === workspace.selected) ? workspace.selected! : ''}
                     onChange={e => workspace.select(e.target.value || null)}>
@@ -192,8 +191,7 @@ export function ResidueDetail({
                     {comparison.rows.map(r => <option key={r.key} value={r.key}>{r.name}</option>)}
                   </select></label></div>
                   <EvidenceComparison tab="perturbation" model={overview} title={`${selected.family}: amino-acid preferences`}
-                    description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} />
-                </Suspense> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
+                    description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} /></> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
               </div>
               {selected.embedding.window.length > 0 && (
                 <div>

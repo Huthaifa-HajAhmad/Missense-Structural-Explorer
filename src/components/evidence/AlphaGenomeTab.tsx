@@ -8,7 +8,7 @@ import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { buildAttributionComparison, formatAttributionValue } from '../../shared/evidenceComparison';
 import { AlphaGenomeGuide } from './AlphaGenomeGuide';
-const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
+import EvidenceComparison from './EvidenceComparison';
 import {
   AVI_FEATURES,
   AVI_GROUP_LABEL,
@@ -25,6 +25,7 @@ import {
   type AviFeatureReading,
 } from "../../shared/alphagenomeEvidence";
 import { isConservationCompositePending, mergeAlphaGenomeReevaluation } from "../../shared/conservationProgress";
+import { evidenceTab } from '../../shared/evidenceTabs';
 
 /**
  * AlphaGenome.
@@ -390,7 +391,7 @@ function AlphaGenomeTabBody({
   return (
     <div data-evidence-screen className="ag-screen @container" data-testid="alphagenome-screen" data-comparison={workspace.comparison || undefined}>
       <header>
-        <h1 className="screen-title">AlphaGenome</h1>
+        <h1 className="screen-title">{evidenceTab('alphagenome').label}</h1>
         <p className="screen-tab-description">
           Explore this DNA change’s genome-wide rank and the inputs behind its predicted impact.
         </p>
@@ -540,7 +541,7 @@ function AlphaGenomeTabBody({
 
       {/* ── 2. What the score is made of ───────────────────────────────────────────────────── */}
       {workspace.comparison && <>
-        <React.Suspense fallback={<p>Loading feature contributions…</p>}><EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each mark is one input’s contribution to the raw AVI score. Molecular predictions are clay; other inputs are grey. Select a feature to understand it." /></React.Suspense>
+        <EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each mark is one input’s contribution to the raw AVI score. Molecular predictions are clay; other inputs are grey. Select a feature to understand it." />
         <AlphaGenomeGuide evidence={ev} />
       </>}
       {!workspace.comparison && ev.assessed && <Contributions ev={ev} />}
