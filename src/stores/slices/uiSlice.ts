@@ -2,6 +2,7 @@ import { StateCreator } from "zustand";
 import type { PerturbationModelId } from "../../shared/perturbationModels";
 import { defaultReportSections, sectionsForPreset, type BlockKey, type ReportGroupId, type ReportCitation, type ReportEdit, type ReportPresetId } from "../../shared/reportDocument";
 import type { ReportDraft } from "../../shared/reportInput";
+import type { ConstraintMetricKey } from "../../shared/constraintSource";
 
 export interface NotificationItem {
   id: string;
@@ -56,6 +57,14 @@ export interface UiState {
    * unable to say which model its notes referred to.
    */
   activePerturbationModel: PerturbationModelId;
+  /**
+   * The gene-constraint reading the inspector is showing, or null for the page's own rail.
+   *
+   * Store state for the same reason as `activePerturbationModel`: one pane asks (the context strip's
+   * card) and another answers (the inspector), and both must agree on which reading is selected —
+   * the strip marks that chip as inspected. Navigating to another page or variant clears it.
+   */
+  constraintFocus: ConstraintMetricKey | null;
 }
 
 export interface UiActions {
@@ -81,6 +90,7 @@ export interface UiActions {
   setReportDraftRecovery: (recovery: ReportDraftRecovery | null) => void;
   setReportView: (view: ReportView) => void;
   setActivePerturbationModel: (model: PerturbationModelId) => void;
+  setConstraintFocus: (key: ConstraintMetricKey | null) => void;
 }
 
 export type UiSlice = UiState & UiActions;
@@ -101,9 +111,11 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   reportCitations: [],
   reportView: "document",
   activePerturbationModel: "saprot",
+  constraintFocus: null,
 
   setViewMode: (viewMode) => set({ viewMode }),
   setActivePerturbationModel: (activePerturbationModel) => set({ activePerturbationModel }),
+  setConstraintFocus: (constraintFocus) => set({ constraintFocus }),
   setIsHowToInspectOpen: (isHowToInspectOpen) => set({ isHowToInspectOpen }),
   setIsLegendOpen: (isLegendOpen) => set({ isLegendOpen }),
   toggleReportSection: (key) => set((state) => ({

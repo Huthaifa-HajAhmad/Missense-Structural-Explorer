@@ -14,6 +14,9 @@ export const REGIONAL_SOURCE_SHA256 = "f31bbe463311487127c2b789faf1b358b962f4c59
 export const REGIONAL_STATUSES = ["measured", "no-regions", "outside-region", "unverified-locus", "transcript-mismatch", "failed-qc", "nonsignificant", "invalid-data"] as const;
 export type RegionalConstraintStatus = typeof REGIONAL_STATUSES[number];
 
+/** The three gene-constraint readings the app shows, in display order (strip, card, inspector). */
+export type ConstraintMetricKey = "missense-z" | "loeuf" | "regional-oe";
+
 export interface ConstraintProvenance {
   release: string;
   assembly: "GRCh38";

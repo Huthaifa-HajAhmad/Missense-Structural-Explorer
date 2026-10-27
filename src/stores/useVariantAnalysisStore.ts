@@ -46,7 +46,8 @@ export const useVariantAnalysisStore = create<VariantAnalysisStore>()((set, get,
       homologs: [],
       isHomologsLoading: false,
       disruptionPredictor: null,
-      triageOverride: false
+      triageOverride: false,
+      constraintFocus: null
     });
   }
 }));

@@ -25,6 +25,9 @@ import InsightsInspector from "./InsightsInspector";
 import LiteratureInspector from "./LiteratureInspector";
 import type { LiteratureEvidence } from "../../shared/literatureEvidence";
 import ReportInspector from "./ReportInspector";
+import ConstraintInspector from "./ConstraintInspector";
+import { constraintSourceLabel } from "../header/constraintMetrics";
+import { focusConstraintChip } from "../header/constraintFocus";
 
 export interface ViewInspectorProps {
   selectedEnergyEngine?: EnergyEngineId | null;
@@ -165,6 +168,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   isNarrativeLoading = false,
   gene,
   variant,
+  uniprotId = "",
   homologs = [],
   isHomologsLoading = false,
   customPdbUrl = null,
@@ -212,6 +216,21 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
    * the inspector's score decomposition in step with the verdict in the main column.
    */
   const primaryStructuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
+
+  /**
+   * A gene-constraint reading sent here from the context strip borrows the rail from the page
+   * (see ConstraintInspector). It is the reader's request, so a collapsed rail opens for it; and
+   * it is about the page they were on, so moving to another page or evidence tab gives the rail back.
+   */
+  const constraintFocus = useVariantAnalysisStore(s => s.constraintFocus);
+  const setConstraintFocus = useVariantAnalysisStore(s => s.setConstraintFocus);
+  const navKey = `${activeView}|${activeEvidenceTab ?? ""}`;
+  const lastNavKeyRef = useRef(navKey);
+  useEffect(() => {
+    if (lastNavKeyRef.current === navKey) return;
+    lastNavKeyRef.current = navKey;
+    if (useVariantAnalysisStore.getState().constraintFocus) setConstraintFocus(null);
+  }, [navKey, setConstraintFocus]);
 
   const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
     const saved = localStorage.getItem("cs-inspector-width");
@@ -365,6 +384,30 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
 
   useInspectorFocus(handleSectionFocusRequest);
 
+  /**
+   * The focus describes a reading of the current result; when the result is cleared (a re-run, a
+   * reset) it must not wait and resurface on the next one.
+   */
+  const hasResult = analysisResult !== null;
+  useEffect(() => {
+    if (!hasResult && useVariantAnalysisStore.getState().constraintFocus) setConstraintFocus(null);
+  }, [hasResult, setConstraintFocus]);
+
+  useEffect(() => {
+    if (!constraintFocus) return;
+    setIsCollapsed(prev => {
+      if (!prev) return prev;
+      localStorage.setItem("cs-inspector-collapsed", "false");
+      return false;
+    });
+  }, [constraintFocus]);
+
+  const closeConstraint = useCallback(() => {
+    const key = useVariantAnalysisStore.getState().constraintFocus;
+    setConstraintFocus(null);
+    if (key) focusConstraintChip(key);
+  }, [setConstraintFocus]);
+
   const headerInfo = VIEW_TITLES[activeView] || {
     title: "Inspector Panel",
     subtitle: "Context & Controls",
@@ -376,7 +419,11 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       ? EVIDENCE_TAB_SUBTITLES[(activeEvidenceTab || "").toLowerCase()]
       : undefined;
   const headerSubtitle = evidenceSubtitle ?? headerInfo.subtitle;
-  const headerTitle = activeView === "evidence" && activeEvidenceTab === "gene-disease" ? "Evidence inspector" : headerInfo.title;
+  const pageTitle = activeView === "evidence" && activeEvidenceTab === "gene-disease" ? "Evidence inspector" : headerInfo.title;
+  /** While a constraint reading has the rail, the heading names it; Back names the page. */
+  const showConstraint = constraintFocus !== null && analysisResult !== null;
+  const headerTitle = showConstraint ? "Gene constraint" : pageTitle;
+  const headerSubtitleShown = showConstraint ? `${constraintSourceLabel(analysisResult)} · gene-level context` : headerSubtitle;
 
   const Icon = VIEW_ICONS[activeView] ?? SlidersHorizontal;
 
@@ -447,7 +494,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
               {headerTitle}
             </span>
             <span className="text-[10px] text-cs-text-muted truncate font-sans">
-              {headerSubtitle}
+              {headerSubtitleShown}
             </span>
           </div>
         </div>
@@ -464,7 +511,20 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       </div>
 
       {/* ── Dynamic Inspector Sub-view ── */}
-      <div ref={bodyRef} className="inspector-body flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
+      <div ref={bodyRef} className="inspector-body flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4" data-inspector-mode={showConstraint ? "gene-constraint" : "page"}>
+        {showConstraint && (
+          <ConstraintInspector
+            analysisResult={analysisResult}
+            gene={gene}
+            variant={variant}
+            uniprotId={uniprotId}
+            focus={constraintFocus}
+            returnLabel={pageTitle}
+            onBack={closeConstraint}
+          />
+        )}
+
+        {!showConstraint && (<>
         {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
           <StructureInspector
             selection={structureSelection}
@@ -577,6 +637,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             onNavigateToView={onViewChange}
           />
         )}
+        </>)}
       </div>
     </aside>
   );

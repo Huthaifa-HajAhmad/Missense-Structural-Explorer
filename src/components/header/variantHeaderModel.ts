@@ -56,6 +56,21 @@ function hgvsp3(notation: string): string {
   }
 }
 
+/**
+ * The notation the header LEADS with: the lab's (reported) one when a remap converted it for
+ * modelling. Exported so the inspector can name the variant the same way without building the rest
+ * of the model.
+ */
+export function buildHeadlineVariant({ variant, uniprotId, analysisResult }: Pick<VariantHeaderInput, "variant" | "uniprotId" | "analysisResult">): string {
+  const numbering = variantNumberingView({
+    variant,
+    uniprotId,
+    numberingRemap: (analysisResult as any)?.numberingRemap ?? null,
+  });
+  const formatted = variant ? hgvsp3(variant) : "";
+  return numbering.remapped && numbering.reported ? hgvsp3(numbering.reported) : formatted;
+}
+
 export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResult }: VariantHeaderInput): VariantHeaderModel {
   const result = analysisResult;
   const pred = result?.predictorData;
@@ -66,8 +81,7 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
     uniprotId,
     numberingRemap: (result as any)?.numberingRemap ?? null,
   });
-  const formatted = variant ? hgvsp3(variant) : "";
-  const headlineVariant = numbering.remapped && numbering.reported ? hgvsp3(numbering.reported) : formatted;
+  const headlineVariant = buildHeadlineVariant({ variant, uniprotId, analysisResult });
   const modelledBasis =
     numbering.remapped && numbering.modelled
       ? { modelled: `${numbering.modelled}${uniprotId ? ` on canonical ${uniprotId}` : ""}`, note: numbering.basisNote ?? null }

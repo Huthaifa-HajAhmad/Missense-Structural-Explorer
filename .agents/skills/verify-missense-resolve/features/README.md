@@ -6,6 +6,7 @@
 | [Sidebar navigation](navigation.md) | `/` | `tests/navigation.e2e.ts` | tested |
 | [App shell controls](shell.md) | `/` | `tests/shell.e2e.ts`, `tests/tour.e2e.ts` | tested |
 | [Analysis pipeline](analysis.md) | `/` (Search → Evidence) | `tests/analysis.e2e.ts` | tested (live) |
+| [Gene constraint strip, cards, inspector](constraint.md) | `/` after an analysis | `tests/constraint-inspector.e2e.ts` | tested (live) |
 | [Evidence tabs and downstream views](evidence.md) | `/` after an analysis | `tests/evidence-real-route.e2e.ts` | mounts tested (live); tab contents untested |
 | 3D structure (Mol* viewer) | `/` after an analysis | opens only (evidence-real-route) | content untested |
 | Energetics, Landscape, Insights, Report content | `/` after an analysis | opens only (evidence-real-route) | content untested |
