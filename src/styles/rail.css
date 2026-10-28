@@ -110,6 +110,11 @@
 .ctx-definition dd { margin: 0; overflow-wrap: anywhere; }
 .ctx-details { padding: 0; }
 .ctx-details summary { cursor: pointer; min-height: 32px; display: list-item; color: var(--cs-text-primary); padding: 5px 0; }
+/* The same chevron as the inspector's source list and reading notes, not the browser's triangle. */
+.ctx-details > summary { display: flex; align-items: center; gap: 6px; list-style: none; }
+.ctx-details > summary::-webkit-details-marker { display: none; }
+.ctx-details > summary::before { content: '›'; color: var(--cs-text-muted); }
+.ctx-details[open] > summary::before { transform: rotate(90deg); }
 .ctx-details > p { margin-top: 8px; }
 .ctx-details--table > summary { padding: 12px 16px; border-top: 1px solid var(--cs-border-subtle); }
 .ctx-table-wrap { overflow: auto; }

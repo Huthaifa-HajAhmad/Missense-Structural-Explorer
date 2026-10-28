@@ -1,4 +1,5 @@
-import { ArrowUpRight, MousePointer2, Pin, X } from 'lucide-react';
+import { ArrowUpRight, MousePointer2, Pin } from 'lucide-react';
+import { ClearPinButton } from './PinHeader';
 import { useEvidenceWorkspace } from '../evidence/EvidenceWorkspace';
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 import { safeExternalHref } from '../../shared/externalLink';
@@ -21,7 +22,7 @@ export function SplicingReadingInspector({ rows }: { rows: SplicingWorkspaceRead
     <span className="sr-only" role="status">{row ? `${row.name} pinned in the inspector.` : 'No reading pinned.'}</span>
     <header className="spl-inspection__head">
       <span className="eyebrow"><Pin size={13} aria-hidden="true" />{row ? 'Pinned reading' : 'Explore a reading'}</span>
-      {workspace.selected && <button type="button" className="spl-inspection__clear" aria-label="Clear pin" title="Clear pin" onClick={() => workspace.select(null)}><X size={15} aria-hidden="true" /></button>}
+      {workspace.selected && <ClearPinButton onClear={() => workspace.select(null)} />}
     </header>
     {row ? <>
       <div className="spl-inspection__reading">

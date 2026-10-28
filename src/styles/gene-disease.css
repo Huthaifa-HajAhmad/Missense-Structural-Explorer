@@ -90,9 +90,12 @@
 /* Gene-disease figure styles live with their tab, after shared primitives. */
 .gd-screen[data-comparison] .cx-explorer { gap: 8px; }
 .gd-screen[data-comparison] .cx-records { border: 0; margin-block: 8px; }
-.gd-screen[data-comparison] .cx-matrix { min-width: 600px; }
+/* Fixed layout: the submitter column takes a set share and the four category columns plus the date split
+   the rest evenly, with each header centred over its own column (it sat at the left edge of a centred dot). */
+.gd-screen[data-comparison] .cx-matrix { min-width: 600px; table-layout: fixed; }
 .gd-screen[data-comparison] .cx-matrix thead { background: var(--cs-workbench-header-surface); text-transform: none; font-size: 12px; }
-.gd-screen[data-comparison] .cx-matrix td:not(:last-child) { border-inline-start: 1px solid var(--cs-border-subtle); }
+.gd-screen[data-comparison] .cx-matrix :is(th, td):first-child { width: 30%; }
+.gd-screen[data-comparison] .cx-matrix :is(th, td):not(:first-child) { text-align: center; border-inline-start: 1px solid var(--cs-border-subtle); }
 .gd-screen[data-comparison] .cx-matrix th { color: var(--cs-text-primary); }
 .gd-screen[data-comparison] .cx-matrix td:last-child { white-space: nowrap; }
 .cx-screen .gd-hero__body { padding: 16px 20px; }
@@ -132,7 +135,7 @@
 .gd-screen .gd-view-control button:active { background: var(--cs-bg-subtle); }
 .gd-view-control button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .gd-pin-notice { font-size: var(--cs-font-size-caption); padding-block: 8px; }
-.gd-disease-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; }
+.gd-disease-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-workbench-header-surface); }
 .gd-disease-choice > div { flex: 1 1 30ch; min-inline-size: 0; }
 .gd-disease-choice h2 { font-size: 18px; color: var(--cs-text-primary); overflow-wrap: anywhere; }
 .gd-disease-choice p { font-size: var(--cs-font-size-prose); }
@@ -148,7 +151,7 @@
 .gd-rail .xp-prov { border-block-end: 1px solid var(--cs-border-subtle); }
 .gd-rail .xp-prov > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-block-size: 44px; padding-block: 10px; cursor: pointer; }
 .gd-rail .xp-prov > summary::before { content: '›'; color: var(--cs-text-muted); }
-.gd-rail .xp-prov[open] > summary::before { content: '⌄'; }
+.gd-rail .xp-prov[open] > summary::before { transform: rotate(90deg); }
 .gd-rail .xp-prov__name { flex: 1; }
 .gd-rail .xp-prov__meta { flex-basis: 100%; margin-inline-start: 16px; text-align: start; }
 .gd-rail .gd-reference { padding-block: 12px; font-size: var(--cs-font-size-prose); }
@@ -161,7 +164,7 @@
 
 /* Scope, evidence navigation and findings are separate groups; record tools share one row. */
 .gd-screen > header { display: flex; flex-direction: column; gap: 8px; }
-.gd-screen .gd-picker { padding: 12px 16px; gap: 8px 16px; background: var(--cs-surface-2); }
+.gd-screen .gd-picker { padding: 12px 16px; gap: 8px 16px; background: var(--cs-workbench-header-surface); }
 .gd-screen .gd-picker__note { line-height: 1.6; }
 .gd-section-panel { display: flex; flex-direction: column; gap: 16px; min-inline-size: 0; }
 .gd-screen .gd-section { gap: 16px; }
@@ -173,5 +176,5 @@
 .gd-screen.cx-screen .cx-controls { flex: 1 1 18rem; max-inline-size: 24rem; margin: 0; margin-inline-start: auto; }
 .gd-screen.cx-screen .cx-controls label { display: flex; flex: 1; flex-direction: row; align-items: center; gap: 8px; white-space: nowrap; }
 .gd-screen.cx-screen .cx-controls input { flex: 1; inline-size: 100%; min-inline-size: 0; }
-.gd-screen.cx-screen .cx-matrix :is(th, td) { padding-block: 4px; padding-inline: 16px; }
+.gd-screen.cx-screen .cx-matrix :is(th, td) { padding-block: 4px; padding-inline: 16px; vertical-align: middle; }
 .gd-screen[data-comparison] .cx-records { margin: 0; }
