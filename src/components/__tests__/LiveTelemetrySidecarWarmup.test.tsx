@@ -95,8 +95,9 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     renderPanel();
 
     const row = within(sidecarRow());
-    expect(row.getByText("Starting up")).toBeInTheDocument();
-    expect(row.queryByText("Predictions ready")).not.toBeInTheDocument();
+    expect(row.getByText("Degraded")).toBeInTheDocument();
+    expect(row.getByText(/Starting up —/)).toBeInTheDocument();
+    expect(row.queryByText("Connected")).not.toBeInTheDocument();
 
     // 6 healthy services + FoldX + P2Rank = 8 of 10; the warming sidecar is deliberately not counted.
     expect(screen.getByTitle(/services online/i).textContent).toMatch(/8\/10/);
@@ -123,7 +124,7 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     });
     renderPanel();
 
-    expect(within(sidecarRow()).getByText("Starting up")).toBeInTheDocument();
+    expect(within(sidecarRow()).getByText("Degraded")).toBeInTheDocument();
     expect(screen.getByTitle(/services online/i).textContent).toMatch(/8\/10/);
   });
 
@@ -140,7 +141,7 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     };
     renderPanel();
 
-    expect(within(sidecarRow()).getByText("Starting up")).toBeInTheDocument();
+    expect(within(sidecarRow()).getByText("Degraded")).toBeInTheDocument();
     expect(screen.getByTitle(/services online/i).textContent).toMatch(/8\/10/);
   });
 
@@ -157,7 +158,7 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     expect(dot.className).not.toMatch(/cs-text-success/);
 
     // The pill is tinted rather than quiet text, so the state is visible without being loud.
-    const pill = within(sidecarRow()).getByText("Starting up");
+    const pill = within(sidecarRow()).getByText("Degraded");
     expect(pill.className).toMatch(/cs-bg-warning/);
   });
 
@@ -169,9 +170,9 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     renderPanel();
 
     const row = within(sidecarRow());
-    expect(row.getByText("Predictions ready")).toBeInTheDocument();
-    expect(row.queryByText("Starting up")).not.toBeInTheDocument();
-    expect(row.getByText("Protein language & stability models")).toBeInTheDocument();
+    expect(row.getByText("Connected")).toBeInTheDocument();
+    expect(row.queryByText("Degraded")).not.toBeInTheDocument();
+    expect(row.getByText(/Protein language & stability models · predictions ready/)).toBeInTheDocument();
     expect(sidecarDot().className).toMatch(/cs-text-success/);
     expect(sidecarDot().className).not.toMatch(/animate-pulse/);
     // The sidecar is counted once it can serve. 9 of 10 rather than 10 because Gemini carries no
@@ -182,18 +183,51 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     expect(screen.getByTitle(/services online/i).textContent).not.toMatch(/All \d+ services online/);
   });
 
-  it("an unreachable sidecar with no sovereign fallback is standby, not warming", () => {
+  it("an unreachable sidecar with no sovereign fallback is unreachable, not warming", () => {
     // Absence of signal must not read as "warming": an offline sidecar needs a different reaction
     // from a booting one, and `state` is absent here rather than set.
     h.diag.current = allReadyExcept({});
     renderPanel();
 
     const row = within(sidecarRow());
-    expect(row.getByText("Standby / Cloud")).toBeInTheDocument();
-    expect(row.queryByText("Starting up")).not.toBeInTheDocument();
+    expect(row.getByText("Unreachable")).toBeInTheDocument();
+    expect(row.queryByText("Degraded")).not.toBeInTheDocument();
     // Neutral, not amber: this is not a cold start and must not borrow its tone.
     expect(sidecarDot().className).not.toMatch(/cs-text-warning/);
     expect(screen.getByTitle(/services online/i).textContent).toMatch(/8\/10/);
+  });
+
+  // The sovereign fallback: a sidecar that is down while JapanFold (the cloud tier) serves is the same shape as
+  // Ensembl with VariantValidator — the reader can still get a prediction, so the row reads Degraded rather than
+  // Unreachable. What the header does with that was never pinned. The row is not counted as online, so the fraction
+  // names a deficit; the coverage note beside it is the only thing stopping that reading as "one service is broken",
+  // and if it ever stops naming this row the header claims a failure the app does not have.
+  it("names a JapanFold-covered sidecar in the header instead of letting it read as a plain deficit", () => {
+    h.diag.current = allReadyExcept({ modelServerReady: false });
+    h.caps.current = {
+      status: "ok",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      engines: [{ id: "japanfold", name: "JapanFold", category: "biophysical", status: "ready", details: {} }]
+    };
+    renderPanel();
+
+    const row = within(sidecarRow());
+    expect(row.getByText("Degraded")).toBeInTheDocument();
+    expect(row.queryByText("Unreachable")).not.toBeInTheDocument();
+    expect(row.getByText(/JapanFold cloud serving/)).toBeInTheDocument();
+
+    // Counted out of the online total — it is not the local tier — so the note has to carry the reason.
+    const summary = screen.getByTitle(/services online/i);
+    expect(summary.textContent).toMatch(/8\/10 online/);
+    expect(summary.textContent).toMatch(/1 on fallback/);
+    expect(summary.textContent).not.toMatch(/All \d+ services online/);
+
+    // The tooltip is where the reader learns which row "on fallback" refers to. Without the name it could be any of
+    // the ten, and the coverage claim would be unactionable.
+    const title = summary.getAttribute("title") ?? "";
+    expect(title).toMatch(/AI prediction models \/ JapanFold/);
+    expect(title).toMatch(/did not answer/i);
+    expect(title).toMatch(/JapanFold cloud serving/);
   });
 
   // ── Disclosure ────────────────────────────────────────────────────────────

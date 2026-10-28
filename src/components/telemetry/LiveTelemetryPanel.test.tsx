@@ -168,7 +168,17 @@ describe("LiveTelemetryPanel — FoldX and P2Rank are not configurable", () => {
     expect(configure).not.toHaveBeenCalled();
   });
 
-  it("names an installed FoldX that cannot run yet as incomplete, and says what is missing", () => {
+  it("reports an installed, runnable FoldX as Connected, with its description unchanged", () => {
+    h.state.current = allReady();
+    renderPanel();
+
+    const row = within(rowOf("foldx"));
+    expect(row.getByText("Connected")).toBeInTheDocument();
+    expect(row.getByText("Empirical structural ΔΔG forcefield")).toBeInTheDocument();
+    expect(row.queryByText("Not configured")).toBeNull();
+  });
+
+  it("names an installed FoldX that cannot run yet as degraded, and says what is missing", () => {
     h.state.current = allReady({
       foldxReady: false,
       foldxDetail: { binaryFound: true, rotabasePresent: false, box64Required: false, box64Present: false }
@@ -176,21 +186,23 @@ describe("LiveTelemetryPanel — FoldX and P2Rank are not configurable", () => {
     renderPanel();
 
     const row = within(rowOf("foldx"));
-    expect(row.getByText("Incomplete")).toBeInTheDocument();
-    expect(row.queryByText("Local Standby")).toBeNull();
+    expect(row.getByText("Degraded")).toBeInTheDocument();
+    expect(row.getByText(/cannot run yet/)).toBeInTheDocument();
+    expect(row.queryByText("Not configured")).toBeNull();
     fireEvent.click(rowOf("foldx"));
     expect(within(drawerOf("foldx")!).getByText("Installed, but cannot run yet")).toBeInTheDocument();
     expect(within(drawerOf("foldx")!).getByText(/rotabase\.txt/)).toBeInTheDocument();
   });
 
-  it("says FoldX is not installed when no program was found at all", () => {
+  it("says FoldX is not configured when no program was found at all", () => {
     h.state.current = allReady({
       foldxReady: false,
       foldxDetail: { binaryFound: false, rotabasePresent: false, box64Required: false, box64Present: false }
     });
     renderPanel();
 
-    expect(within(rowOf("foldx")).getByText("Local Standby")).toBeInTheDocument();
+    expect(within(rowOf("foldx")).getByText("Not configured")).toBeInTheDocument();
+    expect(within(rowOf("foldx")).queryByText("Degraded")).toBeNull();
     fireEvent.click(rowOf("foldx"));
     expect(within(drawerOf("foldx")!).getByText("Not installed in this setup")).toBeInTheDocument();
   });
@@ -215,36 +227,38 @@ describe("LiveTelemetryPanel — AlphaGenome and the key source", () => {
     sessionStorage.removeItem("missenseTransientCredentials");
   });
 
-  it("counts a key entered in this browser as ready when the server has no key", () => {
+  it("counts a key entered in this browser as connected when the server has no key", () => {
     sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ alphagenomeApiKey: "AG-browser-key" }));
     h.state.current = allReady({}, { alphagenome: svc(agDown) });
     renderPanel();
 
     const row = within(rowOf("alphagenome"));
-    expect(row.getByText("Key Ready")).toBeInTheDocument();
-    expect(row.queryByText("Standby")).toBeNull();
+    expect(row.getByText("Connected")).toBeInTheDocument();
+    expect(row.getByText(/key set in this browser/)).toBeInTheDocument();
+    expect(row.queryByText("Not configured")).toBeNull();
 
     fireEvent.click(rowOf("alphagenome"));
     expect(within(drawerOf("alphagenome")!).getByText("Working normally")).toBeInTheDocument();
     expect(within(drawerOf("alphagenome")!).getByText("API key configured (this browser)")).toBeInTheDocument();
   });
 
-  it("stays on Standby with no key anywhere, and says why", () => {
+  it("stays Not configured with no key anywhere, and says why", () => {
     h.state.current = allReady({}, { alphagenome: svc(agDown) });
     renderPanel();
 
-    expect(within(rowOf("alphagenome")).getByText("Standby")).toBeInTheDocument();
+    expect(within(rowOf("alphagenome")).getByText("Not configured")).toBeInTheDocument();
     fireEvent.click(rowOf("alphagenome"));
     expect(within(drawerOf("alphagenome")!).getByText("No API key connected")).toBeInTheDocument();
     expect(within(drawerOf("alphagenome")!).queryByText("API key configured (this browser)")).toBeNull();
   });
 
-  it("reports the server's own key as Bridge Active, without a browser-key line", () => {
+  it("reports the server's own key as Connected via the bridge, without a browser-key line", () => {
     sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ alphagenomeApiKey: "AG-browser-key" }));
     h.state.current = allReady({}, { alphagenome: svc({ healthy: true, keySource: "server" }) });
     renderPanel();
 
-    expect(within(rowOf("alphagenome")).getByText("Bridge Active")).toBeInTheDocument();
+    expect(within(rowOf("alphagenome")).getByText("Connected")).toBeInTheDocument();
+    expect(within(rowOf("alphagenome")).getByText(/via server bridge/)).toBeInTheDocument();
     fireEvent.click(rowOf("alphagenome"));
     expect(within(drawerOf("alphagenome")!).queryByText("API key configured (this browser)")).toBeNull();
   });
@@ -259,7 +273,42 @@ describe("LiveTelemetryPanel — service descriptions", () => {
     h.state.current = allReady();
     renderPanel();
 
-    expect(within(rowOf("uniprot")).getByText("Sequences & functional domains")).toBeInTheDocument();
-    expect(within(rowOf("europepmc")).getByText("Literature search & citations")).toBeInTheDocument();
+    expect(within(rowOf("uniprot")).getByText(/Sequences & functional domains/)).toBeInTheDocument();
+    expect(within(rowOf("europepmc")).getByText(/Literature search & citations/)).toBeInTheDocument();
+  });
+});
+
+describe("LiveTelemetryPanel — what a state may claim", () => {
+  beforeEach(() => {
+    h.state.current = null;
+    sessionStorage.removeItem("missenseTransientCredentials");
+  });
+
+  it("reports a service the server did not report on as Not configured, not as working", () => {
+    h.state.current = allReady({}, { clinvar: undefined });
+    renderPanel();
+
+    expect(within(rowOf("clinvar")).getByText("Not configured")).toBeInTheDocument();
+    fireEvent.click(rowOf("clinvar"));
+    expect(within(drawerOf("clinvar")!).getByText("Status not reported")).toBeInTheDocument();
+    expect(within(drawerOf("clinvar")!).queryByText("Working normally")).toBeNull();
+  });
+
+  it("reports a server key whose bridge does not answer as Unreachable, not as Not configured", () => {
+    h.state.current = allReady({}, { alphagenome: svc({ healthy: false, keySource: "server" }) });
+    renderPanel();
+
+    expect(within(rowOf("alphagenome")).getByText("Unreachable")).toBeInTheDocument();
+    expect(within(rowOf("alphagenome")).queryByText("Not configured")).toBeNull();
+  });
+
+  it("never says Not configured when the diagnostics request itself returned nothing", () => {
+    h.state.current = null;
+    renderPanel();
+
+    for (const id of ["ensembl", "clinvar", "uniprot"]) {
+      expect(within(rowOf(id)).getByText("Unreachable")).toBeInTheDocument();
+      expect(within(rowOf(id)).queryByText("Not configured")).toBeNull();
+    }
   });
 });

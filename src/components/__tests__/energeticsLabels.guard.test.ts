@@ -120,6 +120,10 @@ const GUARDED_SURFACES = [
   "src/shared/functionalSites.ts",
   "src/components/inspector/PopulationRail.tsx",
   "src/components/inspector/AlphaGenomeRail.tsx",
+  // The shared module behind the Population tab and its rail: it owns the ClinVar absence wording ("Not in ClinVar",
+  // "Query failed — not read", "Outcome not recorded"). It is listed because a status word written there reaches both
+  // panes at once, and the state-union rule below is what stops it drifting into a second vocabulary.
+  "src/components/evidence/population/populationFormat.ts",
   "src/components/inspector/PerturbationRail.tsx",
   "src/components/evidence/GeneDiseaseTab.tsx",
   "src/components/evidence/population/FrequencyScale.tsx",
@@ -127,20 +131,36 @@ const GUARDED_SURFACES = [
 ] as const;
 
 /**
- * Listed surfaces that do not import engineStatus. Their retired-label and own-vocabulary rules still run;
- * the import rule is skipped, and reported as skipped, until each one imports the module or gets a delegate
- * entry in the table below.
+ * The register of listed surfaces whose import rule is deferred. It is EMPTY, and that is the point: it exists so a
+ * future deferral has to be written down somewhere a reader will see it, next to the reason, instead of being made by
+ * silently leaving a surface out of GUARDED_SURFACES — which is how the three entries it used to hold accumulated.
+ *
+ * The three it held are gone. FunctionTab was bookkeeping (it already imported `buildFunctionEvidence`, which imports
+ * engineStatus; the table below simply had no entry). AlphaGenomeRail and PopulationRail each reach engineStatus through
+ * one intermediary, which the delegate check now follows hop by hop rather than requiring a direct import the surface
+ * does not need. PopulationRail's own wording is additionally pinned by the state-union rule below, so delegating it
+ * cannot hide a hand-written status word.
  */
-const SURFACES_PENDING_ENGINE_IMPORT: ReadonlySet<string> = new Set([
-  "src/components/evidence/function/FunctionTab.tsx",
-  "src/components/inspector/FunctionRail.tsx",
-  "src/shared/functionalSites.ts",
-  "src/components/inspector/PopulationRail.tsx",
-  "src/components/inspector/AlphaGenomeRail.tsx",
-  "src/components/inspector/PerturbationRail.tsx",
-  "src/components/evidence/GeneDiseaseTab.tsx",
-  "src/components/evidence/population/FrequencyScale.tsx",
-  "src/components/evidence/predictors/ScoreRuler.tsx",
+const SURFACES_PENDING_ENGINE_IMPORT: ReadonlySet<string> = new Set([]);
+
+/**
+ * Listed surfaces that render no engine state at all, so the import rule does not apply to them. They stay in
+ * GUARDED_SURFACES: the legacy-label and own-vocabulary rules still run. Each reason is asserted non-empty, and each
+ * file is asserted to contain no canonical label as a string literal.
+ */
+const SURFACES_WITHOUT_ENGINE_STATE: ReadonlyMap<string, string> = new Map([
+  [
+    "src/components/evidence/population/FrequencyScale.tsx",
+    "A log-scale ruler that places a frequency against the ACMG cut-point zones; its text is zone names, a frequency, a source name and a reported absence.",
+  ],
+  [
+    "src/components/evidence/predictors/ScoreRuler.tsx",
+    "A single-score axis that draws the cut-points it is given; its text is the score, the tick values and the band names.",
+  ],
+  [
+    "src/shared/functionalSites.ts",
+    "A UniProt feature and PM1 rule module with no UI state; its strings are evidence-level names and PM1 reasons, not engine statuses.",
+  ],
 ]);
 
 /**
@@ -167,6 +187,85 @@ function readSurface(relativePath: string): string {
   const absolute = path.join(REPO_ROOT, relativePath);
   expect(fs.existsSync(absolute), `${relativePath} should exist`).toBe(true);
   return stripCommentsForScan(fs.readFileSync(absolute, "utf-8"));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * True when `source` imports `token` with either quote style. The check used to match only single quotes, so a
+ * double-quoted import was invisible to it: a silent under-report of exactly the kind this guard exists to prevent.
+ */
+function importsModule(source: string, token: string): boolean {
+  return new RegExp(`from\\s+["']${escapeRegExp(token)}["']`).test(source);
+}
+
+/**
+ * Surfaces that render engine state through another module rather than importing `engineStatus` themselves.
+ *
+ * `token` is the module the surface imports, `file` the file behind it, and `usage` the symbol it must actually invoke
+ * (an import mention alone used to satisfy this check). `chain` names intermediaries between `file` and the canonical
+ * module, each of which must be imported by the file before it — so a two-hop path is verified hop by hop rather than
+ * asserted. A type-only import counts, because the type is what forces the surface to switch on every state.
+ */
+const DELEGATES: Record<
+  string,
+  { token: string; file: string; usage: string[]; chain?: readonly string[] }
+> = {
+  'src/components/evidence/ExpressionModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
+  'src/components/evidence/SpeciesModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
+  'src/components/inspector/EvidenceContextRail.tsx': { token: './RailParts', file: 'src/components/inspector/RailParts.tsx', usage: ['<Step', '<Provenance', 'slotState(', 'sourceReadingState('] },
+  // Rails that show a state word from a shared evidence model rather than writing one. Each model reads
+  // ENGINE_STATE_LABELS directly, and the rail invokes the builder that produces the state it prints.
+  'src/components/inspector/FunctionRail.tsx': { token: '../../shared/functionEvidence', file: 'src/shared/functionEvidence.ts', usage: ['buildFunctionEvidence('] },
+  'src/components/inspector/PerturbationRail.tsx': { token: '../../shared/perturbationEvidence', file: 'src/shared/perturbationEvidence.ts', usage: ['buildPerturbationEvidence('] },
+  'src/components/evidence/GeneDiseaseTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
+  // FunctionTab draws its states from the same model FunctionRail does. It was deferred as "the lead is editing it";
+  // that edit landed, and the file has imported the model all along.
+  'src/components/evidence/function/FunctionTab.tsx': { token: '../../../shared/functionEvidence', file: 'src/shared/functionEvidence.ts', usage: ['buildFunctionEvidence('] },
+  // AlphaGenomeRail prints `availability.label`, which alphagenomeEvidence takes from evidenceAvailability. The rail
+  // must not import engineStatus directly: it has no label of its own to take from it, and an unused import written
+  // to satisfy a test is exactly the kind of fake the rest of this guard exists to prevent.
+  'src/components/inspector/AlphaGenomeRail.tsx': {
+    token: '../../shared/alphagenomeEvidence',
+    file: 'src/shared/alphagenomeEvidence.ts',
+    usage: ['buildAlphaGenomeEvidence('],
+    chain: ['src/shared/evidenceAvailability.ts'],
+  },
+  // PopulationRail's ClinVar absence wording lives in populationFormat, which keys it on EvidenceAvailability.state.
+  // The state-union rule below pins that switch; this entry pins that the rail reads the function rather than
+  // re-spelling its outcomes.
+  'src/components/inspector/PopulationRail.tsx': {
+    token: '../evidence/population/populationFormat',
+    file: 'src/components/evidence/population/populationFormat.ts',
+    usage: ['clinvarAccessionNote('],
+    chain: ['src/shared/evidenceAvailability.ts'],
+  },
+  // populationFormat writes outcome words of its own, but every state it does not switch on falls through to
+  // `availability.label`, which is the canonical label. It therefore renders engine state without naming it.
+  'src/components/evidence/population/populationFormat.ts': {
+    token: '../../../shared/evidenceAvailability',
+    file: 'src/shared/evidenceAvailability.ts',
+    usage: ['availability.label'],
+  },
+};
+
+/**
+ * Walks `files` from the delegate to the canonical module. The last file must contain a canonical token; every earlier
+ * file must import the next one by name, so a chain entry cannot be added without the import that makes it true.
+ */
+function reachesCanonicalThrough(files: readonly string[]): boolean {
+  if (!files.length) return false;
+  if (!CANONICAL_MODULE_TOKENS.some(token => readSurface(files[files.length - 1]).includes(token))) return false;
+  for (let i = 0; i < files.length - 1; i += 1) {
+    const next = files[i + 1];
+    const basename = escapeRegExp(next.slice(next.lastIndexOf("/") + 1).replace(/\.tsx?$/, ""));
+    // Any relative path is fine — the hop is `../../../shared/evidenceAvailability` as often as `./evidenceAvailability`;
+    // what must be true is that the file names the next module at all.
+    if (!new RegExp(`from\\s+["'][^"']*${basename}["']`).test(readSurface(files[i]))) return false;
+  }
+  return true;
 }
 
 describe("Energetics label guardrail", () => {
@@ -262,23 +361,18 @@ describe("Energetics label guardrail", () => {
         ).toEqual([]);
       });
 
-      it.skipIf(SURFACES_PENDING_ENGINE_IMPORT.has(surface))("renders engine state from the canonical shared module", () => {
+      // Surfaces in SURFACES_WITHOUT_ENGINE_STATE are exempt from this rule, so no case is generated for them.
+      if (!SURFACES_WITHOUT_ENGINE_STATE.has(surface)) it.skipIf(SURFACES_PENDING_ENGINE_IMPORT.has(surface))("renders engine state from the canonical shared module", () => {
         const source = readSurface(surface);
-        // Composed context views delegate status rendering. Verify the actual import, that the
-        // imported symbol is really invoked (an import mention alone used to satisfy the check),
-        // and the delegate's canonical source; do not require unused imports in the parent.
-        const delegates: Record<string, { token: string; file: string; usage: string[] }> = {
-          'src/components/evidence/ExpressionModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
-          'src/components/evidence/SpeciesModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
-          'src/components/inspector/EvidenceContextRail.tsx': { token: './RailParts', file: 'src/components/inspector/RailParts.tsx', usage: ['<Step', '<Provenance', 'slotState(', 'sourceReadingState('] },
-        };
-        const delegate = delegates[surface];
-        const delegated = delegate && source.includes(`from '${delegate.token}'`) &&
-          CANONICAL_MODULE_TOKENS.some(token => readSurface(delegate.file).includes(token)) &&
-          delegate.usage.some(usage => source.includes(usage));
+        const delegate = DELEGATES[surface];
+        const delegated = delegate && importsModule(source, delegate.token) &&
+          delegate.usage.some(usage => source.includes(usage)) &&
+          reachesCanonicalThrough([delegate.file, ...(delegate.chain ?? [])]);
         expect(
           CANONICAL_MODULE_TOKENS.some(token => source.includes(token)) || !!delegated,
-          `${surface} must import from ${CANONICAL_MODULE_TOKENS.join(" or ")}`
+          `${surface} must import from ${CANONICAL_MODULE_TOKENS.join(" or ")}, or delegate to a module that does ` +
+            `(see DELEGATES). A delegate must import its module, call the symbol named in its \`usage\`, and reach ` +
+            `engineStatus through files that import one another.`
         ).toBe(true);
       });
 
@@ -294,6 +388,79 @@ describe("Energetics label guardrail", () => {
       });
     });
   }
+
+  describe("surfaces exempt from the import rule", () => {
+    for (const [surface, reason] of SURFACES_WITHOUT_ENGINE_STATE) {
+      describe(surface, () => {
+        it("states why it renders no engine state", () => {
+          expect(reason.trim(), `${surface} must say why it renders no engine state`).not.toBe("");
+        });
+
+        it("contains no canonical engine label as a string literal", () => {
+          const source = readSurface(surface);
+          for (const label of Object.values(ENGINE_STATE_LABELS)) {
+            expect(
+              new RegExp(`(["'\`])${escapeRegExp(label)}\\1`).test(source),
+              `${surface} contains the canonical label "${label}" as a literal, so it does render engine state; remove the exemption`
+            ).toBe(false);
+          }
+        });
+      });
+    }
+  });
+
+  /**
+   * The rule that lets PopulationRail delegate to `populationFormat.ts` without hiding a second vocabulary.
+   *
+   * populationFormat writes its own words for three outcomes — "Not in ClinVar", "Query failed — not read",
+   * "Accession not returned" — because those are per-row outcome descriptions, not statuses: the canonical module has no
+   * label meaning "the classification exists but the accession did not come back". Writing them is legitimate. Writing
+   * them for a state nobody enumerated is not, and that is what this pins: every state in the union is either answered
+   * explicitly, or falls through to `availability.label`, which is the canonical label. Add a seventh state without
+   * touching this function and the default branch still prints the canonical word; answer it by hand and the state
+   * joins the switch. Either way no state can end up with an invented word.
+   */
+  describe("a surface that spells outcomes of its own still answers every evidence state", () => {
+    const STATES_THAT_SPELL_ONE_WORD = new Map([
+      ["src/components/evidence/population/populationFormat.ts", "clinvarAccessionNote"],
+    ]);
+
+    /** The state union, read from its declaration so a new member cannot be forgotten here. */
+    function availabilityStates(): string[] {
+      const source = fs.readFileSync(path.join(REPO_ROOT, "src/shared/evidenceAvailability.ts"), "utf-8");
+      const from = source.indexOf("export type EvidenceAvailabilityState");
+      expect(from, "evidenceAvailability.ts must still declare EvidenceAvailabilityState").toBeGreaterThan(-1);
+      const body = source.slice(from, source.indexOf(";", from));
+      return [...body.matchAll(/"([a-z-]+)"/g)].map(match => match[1]);
+    }
+
+    it("reads a non-trivial state union", () => {
+      // Positive control: a parse that silently returned [] would make every assertion below vacuous.
+      expect(availabilityStates().length).toBeGreaterThanOrEqual(6);
+    });
+
+    for (const [file, fn] of STATES_THAT_SPELL_ONE_WORD) {
+      describe(file, () => {
+        it("is a guarded surface, so its words are scanned for retired labels too", () => {
+          expect(GUARDED_SURFACES as readonly string[]).toContain(file);
+        });
+
+        it(`${fn} answers every state, or falls back to the canonical label`, () => {
+          const source = readSurface(file);
+          expect(source, `${file} must still define ${fn}`).toContain(fn);
+          const fallsBackToLabel = source.includes("availability.label ??");
+          for (const state of availabilityStates()) {
+            const answered = source.includes(`case "${state}"`);
+            expect(
+              answered || fallsBackToLabel,
+              `${file} neither switches on "${state}" nor falls back to availability.label, so an absence in that ` +
+                `state reaches the reader in words nobody chose.`
+            ).toBe(true);
+          }
+        });
+      });
+    }
+  });
 });
 
 describe("Method documentation states the sign convention the code actually applies", () => {
