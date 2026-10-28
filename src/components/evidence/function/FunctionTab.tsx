@@ -10,6 +10,7 @@ import { Prose } from "../../ui/Prose";
 import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from '../EvidenceWorkspace';
 import { domainRowKeyResolver } from './architectureLayout';
 import { safeExternalHref } from '../../../shared/externalLink';
+import { disulfideSelection } from '../../../shared/residueFocus';
 import { FunctionWindowControl } from './FunctionWindowControl';
 import { evidenceTab } from '../../../shared/evidenceTabs';
 
@@ -236,7 +237,7 @@ function RowDetail({
         {onShow3d && (
           <button type="button" className="fnd-button" onClick={onShow3d}>
             <Box className="w-3.5 h-3.5" aria-hidden="true" />
-            Show in 3D
+            {row.isPair ? "Show both cysteines in 3D" : "Show in 3D"}
           </button>
         )}
       </td>
@@ -369,7 +370,8 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   const show3d = (row: AnnotationRow) =>
     onSelectResidue && onNavigateToView
       ? () => {
-          onSelectResidue(row.covers ? ev.residue : row.start);
+          const { index, focus } = disulfideSelection(row, ev.residue);
+          onSelectResidue(index, focus);
           onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
         }
       : null;

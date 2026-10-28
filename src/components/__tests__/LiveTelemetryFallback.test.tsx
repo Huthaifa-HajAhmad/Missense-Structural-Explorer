@@ -90,8 +90,8 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     renderPanel();
 
     const row = ensemblRowWithin();
-    expect(row.getByText("REST Live")).toBeInTheDocument();
-    expect(row.getByText("VEP, coordinates & cDNA translation")).toBeInTheDocument();
+    expect(row.getByText("Connected")).toBeInTheDocument();
+    expect(row.getByText(/REST · VEP, coordinates & cDNA translation/)).toBeInTheDocument();
     fireEvent.click(row.getByRole("button", { name: "Show details for Ensembl VEP" }));
     expect(screen.getByText("Response 16ms")).toBeInTheDocument();
     // Healthy rows are not actionable, so no re-check affordance is offered. Read off the element
@@ -99,14 +99,14 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     expect(ensemblRow().getAttribute("role")).toBeNull();
   });
 
-  it("reports a covered outage as Fallback Ready rather than Offline", () => {
+  it("reports a covered outage as Degraded with the backup named, rather than Unreachable", () => {
     setDiagnostics(svc({ healthy: false, latencyMs: 3802, fallback: fallback() }));
     renderPanel();
 
     const row = ensemblRowWithin();
-    expect(row.getByText("Fallback Ready")).toBeInTheDocument();
-    expect(row.queryByText("Offline")).not.toBeInTheDocument();
-    expect(row.getByText("VariantValidator taking over")).toBeInTheDocument();
+    expect(row.getByText("Degraded")).toBeInTheDocument();
+    expect(row.queryByText("Unreachable")).not.toBeInTheDocument();
+    expect(row.getByText(/Fallback ready — VariantValidator taking over/)).toBeInTheDocument();
     // The latency on show is the tier actually answering, not the dead primary's timeout.
     fireEvent.click(row.getByRole("button", { name: "Show details for Ensembl VEP" }));
     expect(screen.getByText("Response 1240ms")).toBeInTheDocument();
@@ -120,7 +120,7 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     renderPanel();
 
     const row = ensemblRowWithin();
-    expect(row.getByText("No Fallback")).toBeInTheDocument();
+    expect(row.getByText("Unreachable")).toBeInTheDocument();
     expect(row.getByText(/No provider reachable/i)).toBeInTheDocument();
   });
 
@@ -140,22 +140,21 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     renderPanel();
 
     const row = ensemblRowWithin();
-    expect(row.getByText("Coverage Unknown")).toBeInTheDocument();
-    expect(row.queryByText("No Fallback")).not.toBeInTheDocument();
+    expect(row.getByText("Degraded")).toBeInTheDocument();
+    expect(row.queryByText("Unreachable")).not.toBeInTheDocument();
     expect(row.queryByText(/No provider reachable/i)).not.toBeInTheDocument();
     expect(row.getByText(/may still work/i)).toBeInTheDocument();
   });
 
-  it("still shows Offline when the server reported no fallback block", () => {
+  it("still reports the primary as Unreachable when the server reported no fallback block", () => {
     // Backwards compatible: an older payload has no `fallback`, and that must not render as an
     // uncovered outage.
     setDiagnostics(svc({ healthy: false }));
     renderPanel();
 
     const row = ensemblRowWithin();
-    expect(row.getByText("Offline")).toBeInTheDocument();
-    expect(row.queryByText("No Fallback")).not.toBeInTheDocument();
-    expect(row.queryByText("Coverage Unknown")).not.toBeInTheDocument();
+    expect(row.getByText("Unreachable")).toBeInTheDocument();
+    expect(row.queryByText("Degraded")).not.toBeInTheDocument();
   });
 
   it("does not turn a malformed fallback block into a definite outage claim", () => {
@@ -165,8 +164,8 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     renderPanel();
 
     const row = ensemblRowWithin();
-    expect(row.queryByText("No Fallback")).not.toBeInTheDocument();
-    expect(row.getByText("Offline")).toBeInTheDocument();
+    expect(row.queryByText("Degraded")).not.toBeInTheDocument();
+    expect(row.getByText("Unreachable")).toBeInTheDocument();
   });
 
   it("never renders a literal 'undefined' for a fallback with no name", () => {
@@ -182,14 +181,14 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     setDiagnostics(svc({ healthy: false, fallback: fallback({ healthy: "yes" as any }) }));
     renderPanel();
 
-    expect(ensemblRowWithin().queryByText("Fallback Ready")).not.toBeInTheDocument();
+    expect(ensemblRowWithin().queryByText("Degraded")).not.toBeInTheDocument();
   });
 
   it("surfaces how old the coverage verdict is", () => {
     setDiagnostics(svc({ healthy: false, fallback: fallback({ ageMs: 45_000, stale: true }) }));
     renderPanel();
 
-    const detail = ensemblRowWithin().getByText("VariantValidator taking over");
+    const detail = ensemblRowWithin().getByText(/VariantValidator taking over/);
     expect(detail.getAttribute("title")).toMatch(/verified 45s ago/);
     expect(detail.getAttribute("title")).toMatch(/no longer current/);
   });
@@ -269,7 +268,7 @@ describe("LiveTelemetryPanel — summary tone", () => {
     setDiagnostics(svc());
     renderPanel();
 
-    const pill = ensemblRowWithin().getByText("REST Live");
+    const pill = ensemblRowWithin().getByText("Connected");
     expect(pill.className).not.toMatch(/bg-\[var\(--cs-bg-/);
   });
 
@@ -325,7 +324,7 @@ describe("LiveTelemetryPanel — Gemini session honesty", () => {
     sessionStorage.removeItem("missenseTransientCredentials");
   });
 
-  it("names a live session and counts down, because 'Session Active' alone cannot age", () => {
+  it("names a live session and counts down, because a bare 'Connected' cannot age", () => {
     sessionStorage.setItem(
       "missenseTransientCredentials",
       JSON.stringify({
@@ -337,8 +336,9 @@ describe("LiveTelemetryPanel — Gemini session honesty", () => {
     setDiagnostics(svc());
     renderPanel();
 
-    const status = within(geminiRow()).getByText(/^Session Active · \d+ min/);
-    expect(status.textContent).toMatch(/Session Active · 6 min/);
+    expect(within(geminiRow()).getByText("Connected")).toBeInTheDocument();
+    const status = within(geminiRow()).getByText(/session active, 6 min left/);
+    expect(status.textContent).toMatch(/session active, 6 min left/);
   });
 
   it("shows a lapsed-while-idle session in the warning tone with an inline relink", async () => {
@@ -378,7 +378,7 @@ describe("LiveTelemetryPanel — Gemini session honesty", () => {
     renderPanel();
 
     const row = geminiRow();
-    const pill = within(row).getByText("Session Lapsed — Relink");
+    const pill = within(row).getByText("Degraded");
     // The warning tint, not the nominal quiet text: a lapsed session needs the reader's eye.
     expect(pill.className).toMatch(/cs-bg-warning/);
     // Ready count reflects it: the summary no longer claims a service that lapses is online.
@@ -392,7 +392,7 @@ describe("LiveTelemetryPanel — Gemini session honesty", () => {
 
     // One click re-runs the same handshake Settings does.
     fireEvent.click(within(drawer).getByRole('button', { name: 'Relink the stored Gemini key now' }));
-    await screen.findByText(/^Session Active ·/);
+    await within(row).findByText("Connected");
 
     const linkCall = fetchMock.mock.calls.find((call: any[]) => call[0] === "/api/v1/session/keys");
     expect(linkCall).toBeDefined();

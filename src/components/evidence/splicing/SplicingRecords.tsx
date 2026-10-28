@@ -12,7 +12,7 @@ export function SplicingRecords({ rows }: { rows: SplicingWorkspaceReading[] }) 
         <thead><tr><th scope="col">Reading</th><th scope="col">Exact value</th><th scope="col">Position or context</th></tr></thead>
         {['SpliceAI channels'].filter(group => rows.some(r => r.group === group)).map(group => <tbody key={group}>
           <tr className="spl-group"><th scope="rowgroup" colSpan={3}>{group}</th></tr>
-          {rows.filter(r => r.group === group).map(r => <tr key={r.key} data-selected={workspace.selected === r.key || undefined} data-row-key={r.key}>
+          {rows.filter(r => r.group === group).map(r => <tr key={r.key} data-selected={workspace.selected === r.key || undefined} data-row-key={r.key} data-reading-key={r.key}>
             <th scope="row"><button type="button" className="spl-record-button" aria-pressed={workspace.selected === r.key}
               onClick={() => workspace.select(r.key)}>{r.name}</button></th>
             <td className="spl-mono">{r.valueText}</td>

@@ -326,7 +326,7 @@
 
 .ifc-link {
   display: inline-flex; align-items: center; gap: 4px; min-height: 24px; margin-left: auto; padding: 0 2px;
-  border: 0; background: none; border-radius: 4px; cursor: pointer; text-decoration: none;
+  border: 0; background: none; border-radius: var(--cs-radius-sm); cursor: pointer; text-decoration: none;
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
   color: var(--cs-text-accent);
 }
@@ -334,6 +334,9 @@
   .ifc-link:hover { text-decoration: underline; }
 }
 .ifc-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+/* "Show interface in 3D": under the partner's name, left-aligned, not pushed to a row's far edge. */
+.ifc-3d { margin: 4px 0 0; padding: 0; }
+.ifc-3d > svg { color: var(--cs-text-muted); }
 
 /* ── Statements (empty and not-yet states) ──────────────────── */
 .ifc-statement { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 16px; }
@@ -436,7 +439,7 @@
 .ifc-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .ifc-notes > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 24px; color: var(--cs-text-muted); border-radius: 4px;
+  min-height: 24px; color: var(--cs-text-muted); border-radius: var(--cs-radius-sm);
 }
 .ifc-notes > summary::-webkit-details-marker { display: none; }
 .ifc-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }
@@ -526,7 +529,7 @@
 .ifc-search input::placeholder { color: var(--cs-text-muted); }
 .ifc-search__clear {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--cs-radius-sm);
   background: none; color: var(--cs-text-muted); cursor: pointer;
 }
 @media (hover: hover) and (pointer: fine) {

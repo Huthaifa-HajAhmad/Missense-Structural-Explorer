@@ -8,6 +8,7 @@ import {
 import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
 import { useApiConnections } from "../../hooks/useApiConnections";
+import { PROVIDER_STATE_LABELS, type ProviderState } from "../../shared/providerStatus";
 import { getAuthLapse, subscribeAuthLapse } from "../../api/authSession";
 import "../../styles/telemetry.css";
 
@@ -29,7 +30,7 @@ interface ServiceDetailRow {
 /**
  * The plain-language explanation shown when a row is expanded.
  *
- * Split from `statusText` on purpose: the collapsed row has room for three or four words beside a
+ * Split from the state label on purpose: the collapsed row has room for three or four words beside a
  * dot, which is not enough to explain anything. Every row is therefore expandable, so a reader is
  * never left holding a status word with no way to find out what it means or whether they must act.
  */
@@ -45,7 +46,8 @@ interface ServiceStatusCard {
   name: string;
   category: "genomic" | "compute" | "literature";
   description: string;
-  statusText: string;
+  /** The provider state. Its word comes from PROVIDER_STATE_LABELS, never from a row-local string. */
+  state: ProviderState;
   isReady: boolean;
   isWarning?: boolean;
   /** Primary unreachable but its fallback tier is live: degraded, not broken. */
@@ -131,6 +133,23 @@ function isNominal(svc: ServiceStatusCard): boolean {
   );
 }
 
+/** Explanation for a row whose probe has not returned yet. */
+const CHECKING_EXPLAIN: ServiceExplanation = {
+  heading: "Checking now",
+  body: "This service is being checked. The row updates when the check finishes."
+};
+
+/**
+ * Explanation for a row the server reported nothing about. "Working normally" or "Not answering"
+ * here would state a probe result that does not exist.
+ */
+const NOT_REPORTED_EXPLAIN: ServiceExplanation = {
+  heading: "Status not reported",
+  body:
+    "The server has not reported on this service, so its state is not known yet. " +
+    "Re-check the service status to ask again."
+};
+
 export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   onConfigureClick,
   className = ""
@@ -177,6 +196,12 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   };
 
   const isLoaded = Boolean(diagnostics);
+  /**
+   * The diagnostics request itself finished without an answer. Nothing was reported, so no row may say
+   * "Not configured": that is a claim about setup, and none was read. The server that would have
+   * answered is the thing that is unreachable.
+   */
+  const noReadout = !isLoaded && !loading;
 
   /**
    * 1. Ensembl VEP — the head of the coordinate-translation ladder.
@@ -217,26 +242,26 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   const ensemblCoverageUnknown = Boolean(ensemblHealth && !ensemblReady && fallbackVerdict === "unknown");
   // While degraded, the latency that matters is the tier actually answering.
   const ensemblLatency = ensemblDegraded ? ensemblFallback?.latencyMs : ensemblHealth?.latencyMs;
-  const ensemblStatusText = !isLoaded && loading
-    ? "Connecting…"
+  const ensemblState: ProviderState = !isLoaded && loading
+    ? "checking"
     : ensemblReady
-    ? "REST Live"
-    : ensemblDegraded
-    ? "Fallback Ready"
-    : ensemblUncovered
-    ? "No Fallback"
-    : ensemblCoverageUnknown
-    ? "Coverage Unknown"
+    ? "connected"
+    : ensemblDegraded || ensemblCoverageUnknown
+    ? "degraded"
     : ensemblHealth
-    ? "Offline"
-    : "Standby";
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
   const ensemblFallbackName = ensemblFallback?.name || "the fallback provider";
   const ensemblDescription = ensemblDegraded
-    ? `${ensemblFallbackName} taking over`
+    ? `Fallback ready — ${ensemblFallbackName} taking over`
     : ensemblUncovered
-    ? "No provider reachable — use p.Glu433Lys style notation"
+    ? "No fallback — no provider reachable; use p.Glu433Lys style notation"
     : ensemblCoverageUnknown
-    ? "Fallback not verified — coordinate queries may still work"
+    ? "Coverage unknown — fallback not verified; coordinate queries may still work"
+    : ensemblReady
+    ? "REST · VEP, coordinates & cDNA translation"
     : "VEP, coordinates & cDNA translation";
   /** Age of the coverage verdict, so an old claim is not presented as a current one. */
   const ensemblCoverageTitle = ensemblFallback
@@ -266,46 +291,83 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   const browserKeyReady = hasBrowserAlphaGenomeKey && alphagenomeKeySource !== "server";
   const alphagenomeReady = Boolean(alphagenomeHealth?.healthy || browserKeyReady || hasBrowserAlphaGenomeUrl);
   const alphagenomeLatency = alphagenomeHealth?.latencyMs;
-  const alphagenomeStatusText = !isLoaded && loading
-    ? "Connecting…"
-    : alphagenomeHealth?.healthy
-    ? "Bridge Active"
+  /**
+   * Unreachable means a probe answered "down" while a key is in place. The server saying it has no
+   * key (`keySource: "none"`) is a configuration fact, so that case stays not-configured.
+   */
+  const alphagenomeState: ProviderState = !isLoaded && loading
+    ? "checking"
     : alphagenomeReady
-    ? "Key Ready"
-    : "Standby";
+    ? "connected"
+    : alphagenomeHealth && alphagenomeKeySource !== "none"
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
+  /** Where the connected state comes from, or why it is not connected, in the row's sub-line. */
+  const alphagenomeSource = alphagenomeHealth?.healthy
+    ? "via server bridge"
+    : browserKeyReady
+    ? "key set in this browser"
+    : alphagenomeReady
+    ? "endpoint set in this browser"
+    : alphagenomeState === "unreachable"
+    ? "server bridge not answering"
+    : null;
+  const alphagenomeDescription = alphagenomeSource
+    ? `DeepMind multimodal variant impact · ${alphagenomeSource}`
+    : "DeepMind multimodal variant impact";
 
   // 3. MyVariant.info & dbNSFP
   const myvariantHealth = diagnostics?.serviceHealth?.myvariant;
   const dbnsfpHealth = diagnostics?.serviceHealth?.dbnsfp;
   const myvariantReady = Boolean(myvariantHealth?.healthy || dbnsfpHealth?.healthy);
   const myvariantLatency = myvariantHealth?.latencyMs ?? dbnsfpHealth?.latencyMs;
-  const myvariantStatusText = !isLoaded && loading
-    ? "Connecting…"
-    : myvariantHealth?.healthy
-    ? "REST Live"
+  const myvariantState: ProviderState = !isLoaded && loading
+    ? "checking"
+    : myvariantReady
+    ? "connected"
+    : myvariantHealth || dbnsfpHealth
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
+  const myvariantSource = myvariantHealth?.healthy
+    ? "REST"
     : dbnsfpHealth?.healthy
     ? "Local dbNSFP"
-    : "Offline";
+    : null;
+  const myvariantDescription = myvariantSource
+    ? `${myvariantSource} · REVEL, CADD, AlphaMissense, MetaRNN`
+    : "REVEL, CADD, AlphaMissense, MetaRNN";
 
   // 4. NCBI ClinVar
   const clinvarHealth = diagnostics?.serviceHealth?.clinvar;
   const clinvarReady = Boolean(clinvarHealth?.healthy);
   const clinvarLatency = clinvarHealth?.latencyMs;
-  const clinvarStatusText = !isLoaded && loading
-    ? "Connecting…"
+  const clinvarState: ProviderState = !isLoaded && loading
+    ? "checking"
     : clinvarReady
-    ? "E-utilities live"
-    : "Offline";
+    ? "connected"
+    : clinvarHealth
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
 
   // 5. UniProtKB
   const uniprotHealth = diagnostics?.serviceHealth?.uniprot;
   const uniprotReady = Boolean(uniprotHealth?.healthy);
   const uniprotLatency = uniprotHealth?.latencyMs;
-  const uniprotStatusText = !isLoaded && loading
-    ? "Connecting…"
+  const uniprotState: ProviderState = !isLoaded && loading
+    ? "checking"
     : uniprotReady
-    ? "API Live"
-    : "Offline";
+    ? "connected"
+    : uniprotHealth
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
 
   // 6. Gemini Clinical AI
   //
@@ -331,19 +393,34 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   // that, and a live auth refusal, wear the warning.
   const geminiReady = serverGeminiReady || isGeminiSessionActive || (keyLinkable && !sessionLapsed);
   const geminiWarning = authLost || sessionLapsed || (!serverGeminiReady && !keyLinkable && !isGeminiSessionActive);
-  const geminiStatusText = linking
-    ? "Linking…"
+  // A refused or lapsed credential is degraded: the service exists and the key is on file, but it
+  // will not serve until the reader relinks. Neither is an unreachable service.
+  const geminiState: ProviderState = linking
+    ? "checking"
+    : authLost || sessionLapsed
+    ? "degraded"
+    : geminiReady
+    ? "connected"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
+  /** The credential's own state, shown under the row's name where the old pill carried it. */
+  const geminiDetail = linking
+    ? "linking the stored key"
     : authLost
-    ? "Authorization refused — Relink"
+    ? "authorization refused, relink"
     : serverGeminiReady
-    ? "Server Key Active"
+    ? "server key"
     : isGeminiSessionActive
-    ? `Session Active · ${sessionMinutesLeft} min`
+    ? `session active, ${sessionMinutesLeft} min left`
     : sessionLapsed
-    ? "Session Lapsed — Relink"
-    : settings.geminiApiKey
-    ? "Key Ready"
-    : "Key Required";
+    ? "session lapsed, relink"
+    : keyLinkable
+    ? "key stored in this browser"
+    : "no key connected";
+  const geminiDescription = `${linkError && !linking
+    ? `Relink failed: ${linkError}`
+    : "DeepMind clinical ACMG interpretation"} · ${geminiDetail}`;
 
   // 7. FoldX Biophysical Engine
   const foldxReady = Boolean(diagnostics?.foldxReady);
@@ -361,20 +438,47 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     ? foldxEngineCap?.id.includes("linux")
       ? "ELF x64"
       : "Windows EXE"
-    : "Standby";
+    : undefined;
+  // Installed but unable to run is "degraded"; absent is "not configured". Incomplete is not
+  // unreachable: the program is on disk, the server simply cannot start it yet.
+  const foldxState: ProviderState = !isLoaded && loading
+    ? "checking"
+    : foldxReady
+    ? "connected"
+    : foldxIncomplete
+    ? "degraded"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
+  const foldxBase = "Empirical structural ΔΔG forcefield";
+  const foldxDescription = foldxState === "degraded"
+    ? `${foldxBase} · installed, cannot run yet`
+    : foldxState === "not-configured" && isLoaded
+    ? `${foldxBase} · not installed here`
+    : foldxBase;
 
   // 8. P2Rank Pocket Engine
   const p2rankReady = Boolean(diagnostics?.p2rankReady);
   const p2rankJava = diagnostics?.p2rankJavaVersion
     ? `Java ${diagnostics.p2rankJavaVersion.split(".")[0]}`
     : "Java 17+";
-  const p2rankStatusText = !isLoaded && loading
-    ? "Checking…"
+  const p2rankState: ProviderState = !isLoaded && loading
+    ? "checking"
     : p2rankReady
-    ? `${p2rankJava} Live`
+    ? "connected"
     : diagnostics?.p2rankStatus === "unavailable"
-    ? "Java 17+ Missing"
-    : "Local Standby";
+    ? "degraded"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
+  const p2rankBase = "ML ligand binding site detection";
+  const p2rankDescription = p2rankState === "connected"
+    ? `${p2rankBase} · ${p2rankJava}`
+    : p2rankState === "degraded"
+    ? `${p2rankBase} · Java 17+ missing`
+    : p2rankState === "not-configured" && isLoaded
+    ? `${p2rankBase} · not installed here`
+    : p2rankBase;
   const p2rankWarning = !p2rankReady && diagnostics?.p2rankStatus === "unavailable";
 
   // 9. Python ML Sidecar & Sovereign Cloud
@@ -404,17 +508,39 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     !sidecarWarming && Boolean(diagnostics?.modelServerReady || sidecarHealth?.healthy);
   const japanFoldCap = capabilities?.engines?.find(e => e.id === "japanfold");
   const isJapanFoldReady = japanFoldCap?.status === "ready";
-  const sidecarStatusText = !isLoaded && loading
-    ? "Checking…"
+  /**
+   * Whether the server has said anything about the sidecar at all. Without a record, "not running"
+   * would be a claim about a probe that never reported.
+   */
+  const sidecarRecord =
+    Boolean(sidecarHealth) ||
+    typeof diagnostics?.modelServerReady === "boolean" ||
+    diagnostics?.modelServerState !== undefined;
+  /**
+   * A local sidecar that is down while JapanFold (the sovereign cloud tier) serves is degraded, the
+   * same shape as Ensembl with its fallback: the reader can still get predictions, from the cloud.
+   */
+  const sidecarState: ProviderState = !isLoaded && loading
+    ? "checking"
     : sidecarWarming
-    ? "Starting up"
+    ? "degraded"
     : sidecarReady
-    ? "Predictions ready"
+    ? "connected"
     : isJapanFoldReady
-    ? "JapanFold Sovereign"
-    : "Standby / Cloud";
-  const sidecarDescription = sidecarWarming
-    ? "Some models are loading; check individual availability"
+    ? "degraded"
+    : sidecarRecord
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
+  const sidecarDescription = sidecarState === "checking"
+    ? "Protein language & stability models"
+    : sidecarWarming
+    ? "Starting up — some models are loading; check individual availability"
+    : sidecarState === "degraded"
+    ? "Local models unavailable · JapanFold cloud serving"
+    : sidecarState === "connected"
+    ? "Protein language & stability models · predictions ready"
     : "Protein language & stability models";
   /**
    * What the row means when opened, in words that assume no knowledge of what a sidecar is.
@@ -430,7 +556,11 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
    * defect `doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md` records: a banner that guessed its stage from
    * elapsed seconds and drew a fake progress bar.
    */
-  const sidecarExplain: ServiceExplanation | undefined = sidecarWarming
+  const sidecarExplain: ServiceExplanation = sidecarState === "checking"
+    ? CHECKING_EXPLAIN
+    : sidecarState === "not-configured"
+    ? NOT_REPORTED_EXPLAIN
+    : sidecarWarming
     ? {
         heading: "Not broken — just starting up",
         body:
@@ -515,11 +645,15 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   const europePmcHealth = diagnostics?.serviceHealth?.europepmc;
   const europePmcReady = Boolean(europePmcHealth?.healthy);
   const europePmcLatency = europePmcHealth?.latencyMs;
-  const europePmcStatusText = !isLoaded && loading
-    ? "Connecting…"
+  const europePmcState: ProviderState = !isLoaded && loading
+    ? "checking"
     : europePmcReady
-    ? "REST Live"
-    : "Standby";
+    ? "connected"
+    : europePmcHealth
+    ? "unreachable"
+    : noReadout
+    ? "unreachable"
+    : "not-configured";
 
   const services: ServiceStatusCard[] = [
     {
@@ -527,7 +661,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       name: "Ensembl VEP",
       category: "genomic",
       description: ensemblDescription,
-      statusText: ensemblStatusText,
+      state: ensemblState,
       isReady: ensemblReady,
       isDegraded: ensemblDegraded,
       isDown: ensemblUncovered,
@@ -536,39 +670,55 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       detail: ensemblCoverageTitle,
       actionIcon: ensemblReady ? undefined : <RefreshCw className="w-3.5 h-3.5" />,
       // Only when the primary has failed: re-probing re-runs the whole ladder, including
-      // the conditional fallback check, so the pill can flip back to REST Live.
+      // the conditional fallback check, so the pill can flip back to Connected.
       actionLabel: "Re-check Ensembl VEP and its fallback",
       onAction: ensemblReady ? undefined : () => refresh(),
-      explain: {
-        heading: ensemblDegraded
-          ? "Answered by a backup service"
-          : ensemblUncovered
-          ? "Not answering"
-          : ensemblCoverageUnknown
-          ? "Could not be determined"
-          : "Working normally",
-        body:
-          "Translates the genomic position you searched for into the matching transcript and " +
-          "protein change, and checks the coordinates against the genome build. " +
-          (ensemblDegraded
-            ? "The main service did not answer. A backup service responded to the health check; coverage for your specific variant still depends on that source."
-            : ensemblUncovered
-            ? "Searches that need this translation will not complete until it responds again. Anything already on screen is unaffected."
-            : ensemblCoverageUnknown
-            ? "The main service did not answer and the backup could not be checked either. This is not confirmed as an outage — trying again may well succeed."
-            : "Genomic coordinates and protein changes are resolving normally.")
-      }
+      explain: ensemblState === "checking"
+        ? CHECKING_EXPLAIN
+        : ensemblState === "not-configured"
+        ? NOT_REPORTED_EXPLAIN
+        : {
+            heading: ensemblDegraded
+              ? "Answered by a backup service"
+              : ensemblCoverageUnknown
+              ? "Could not be determined"
+              : ensemblReady
+              ? "Working normally"
+              : "Not answering",
+            body:
+              "Translates the genomic position you searched for into the matching transcript and " +
+              "protein change, and checks the coordinates against the genome build. " +
+              (ensemblDegraded
+                ? "The main service did not answer. A backup service responded to the health check; coverage for your specific variant still depends on that source."
+                : ensemblUncovered
+                ? "Searches that need this translation will not complete until it responds again. Anything already on screen is unaffected."
+                : ensemblCoverageUnknown
+                ? "The main service did not answer and the backup could not be checked either. This is not confirmed as an outage — trying again may well succeed."
+                : ensemblReady
+                ? "Genomic coordinates and protein changes are resolving normally."
+                : "The main service did not answer, and the server reported no backup check. Searches that need this translation may not complete until it responds again. Anything already on screen is unaffected.")
+          }
     },
     {
       id: "alphagenome",
       name: "AlphaGenome Atlas",
       category: "compute",
-      description: "DeepMind multimodal variant impact",
-      statusText: alphagenomeStatusText,
+      description: alphagenomeDescription,
+      state: alphagenomeState,
       isReady: alphagenomeReady,
       latency: formatLatency(alphagenomeLatency),
       onAction: () => handleConfigure("connections"),
-      explain: alphagenomeReady
+      explain: alphagenomeState === "checking"
+        ? CHECKING_EXPLAIN
+        : alphagenomeState === "unreachable"
+        ? {
+            heading: "Not answering",
+            body:
+              "Regulatory-impact scoring is unavailable: the server's connection to AlphaGenome did not " +
+              "answer on the last check. This limits the Insights view only — every other view works " +
+              "normally. Try again later, or check the connection settings."
+          }
+        : alphagenomeReady
         ? {
             heading: "Working normally",
             body:
@@ -592,62 +742,76 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "myvariant",
       name: "MyVariant.info & dbNSFP",
       category: "genomic",
-      description: "REVEL, CADD, AlphaMissense, MetaRNN",
-      statusText: myvariantStatusText,
+      description: myvariantDescription,
+      state: myvariantState,
       isReady: myvariantReady,
       latency: formatLatency(myvariantLatency),
-      explain: {
-        heading: myvariantReady ? "Working normally" : "Not answering",
-        body: myvariantReady
-          ? "Supplies the published computational predictor scores you see in Evidence — REVEL, " +
-            "CADD, AlphaMissense and others. Each score keeps its own name and citation."
-          : "The published predictor scores are unavailable, so the Predictors view will be empty " +
-            "for now. A search or a retry may succeed — this is usually temporary."
-      }
+      explain: myvariantState === "checking"
+        ? CHECKING_EXPLAIN
+        : myvariantState === "not-configured"
+        ? NOT_REPORTED_EXPLAIN
+        : {
+            heading: myvariantReady ? "Working normally" : "Not answering",
+            body: myvariantReady
+              ? "Supplies the published computational predictor scores you see in Evidence — REVEL, " +
+                "CADD, AlphaMissense and others. Each score keeps its own name and citation."
+              : "The published predictor scores are unavailable, so the Predictors view will be empty " +
+                "for now. A search or a retry may succeed — this is usually temporary."
+          }
     },
     {
       id: "clinvar",
       name: "NCBI ClinVar",
       category: "genomic",
-      description: "Pathogenicity & VCV classifications",
-      statusText: clinvarStatusText,
+      description: clinvarReady
+        ? "E-utilities · Pathogenicity & VCV classifications"
+        : "Pathogenicity & VCV classifications",
+      state: clinvarState,
       isReady: clinvarReady,
       latency: formatLatency(clinvarLatency),
-      explain: {
-        heading: clinvarReady ? "Working normally" : "Not answering",
-        body: clinvarReady
-          ? "Aggregates submitted clinical classifications of a variant. Submissions can disagree " +
-            "or become outdated; review the condition, review status, dates and conflicts before " +
-            "interpreting a classification. A ClinVar record does not by itself establish causality."
-          : "Laboratory classifications are unavailable, so the Evidence view will not show how " +
-            "this change has been classified elsewhere. Everything else still works."
-      }
+      explain: clinvarState === "checking"
+        ? CHECKING_EXPLAIN
+        : clinvarState === "not-configured"
+        ? NOT_REPORTED_EXPLAIN
+        : {
+            heading: clinvarReady ? "Working normally" : "Not answering",
+            body: clinvarReady
+              ? "Aggregates submitted clinical classifications of a variant. Submissions can disagree " +
+                "or become outdated; review the condition, review status, dates and conflicts before " +
+                "interpreting a classification. A ClinVar record does not by itself establish causality."
+              : "Laboratory classifications are unavailable, so the Evidence view will not show how " +
+                "this change has been classified elsewhere. Everything else still works."
+          }
     },
     {
       id: "europepmc",
       name: "PubMed & Europe PMC",
       category: "literature",
-      description: "Literature search & citations",
-      statusText: europePmcStatusText,
+      description: europePmcReady
+        ? "REST · Literature search & citations"
+        : "Literature search & citations",
+      state: europePmcState,
       isReady: europePmcReady,
       latency: formatLatency(europePmcLatency),
-      explain: {
-        heading: europePmcReady ? "Working normally" : "Not answering",
-        body: europePmcReady
-          ? "Finds published papers about this gene or change, with their citations. Results are " +
-            "screened for relevance before they are shown."
-          : "Literature search is unavailable, so the Literature view will be empty. The evidence " +
-            "from every other source is unaffected."
-      }
+      explain: europePmcState === "checking"
+        ? CHECKING_EXPLAIN
+        : europePmcState === "not-configured"
+        ? NOT_REPORTED_EXPLAIN
+        : {
+            heading: europePmcReady ? "Working normally" : "Not answering",
+            body: europePmcReady
+              ? "Finds published papers about this gene or change, with their citations. Results are " +
+                "screened for relevance before they are shown."
+              : "Literature search is unavailable, so the Literature view will be empty. The evidence " +
+                "from every other source is unaffected."
+          }
     },
     {
       id: "gemini",
       name: "Gemini Clinical AI",
       category: "compute",
-      description: linkError && !linking
-        ? `Relink failed: ${linkError}`
-        : "DeepMind clinical ACMG interpretation",
-      statusText: geminiStatusText,
+      description: geminiDescription,
+      state: geminiState,
       isReady: geminiReady,
       isWarning: geminiWarning,
       actionLabel:
@@ -692,15 +856,19 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "foldx",
       name: "FoldX Engine",
       category: "compute",
-      description: "Empirical structural ΔΔG forcefield",
-      statusText: foldxReady ? "Forcefield Live" : foldxIncomplete ? "Incomplete" : "Local Standby",
+      description: foldxDescription,
+      state: foldxState,
       isReady: foldxReady,
       // Installed but unable to run is a state the operator must fix, so it earns the one warning chip.
       isWarning: foldxIncomplete,
       tag: foldxTag,
       // No `onAction`: FoldX is a server-side program. Client Settings cannot install it, so a
       // button here would only open a page that cannot fix the problem.
-      explain: foldxReady
+      explain: foldxState === "checking"
+        ? CHECKING_EXPLAIN
+        : !isLoaded
+        ? NOT_REPORTED_EXPLAIN
+        : foldxReady
         ? {
             heading: "Working normally",
             body:
@@ -733,12 +901,16 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "p2rank",
       name: "P2Rank Pocket Engine",
       category: "compute",
-      description: "ML ligand binding site detection",
-      statusText: p2rankStatusText,
+      description: p2rankDescription,
+      state: p2rankState,
       isReady: p2rankReady,
       isWarning: p2rankWarning,
       // No `onAction`: a server-side Java program, not something Settings can change.
-      explain: p2rankReady
+      explain: p2rankState === "checking"
+        ? CHECKING_EXPLAIN
+        : !isLoaded
+        ? NOT_REPORTED_EXPLAIN
+        : p2rankReady
         ? {
             heading: "Working normally",
             body:
@@ -764,9 +936,10 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       name: "AI prediction models / JapanFold",
       category: "compute",
       description: sidecarDescription,
-      statusText: sidecarStatusText,
-      isReady: !sidecarWarming && (sidecarReady || isJapanFoldReady),
+      state: sidecarState,
+      isReady: sidecarReady,
       isWarming: sidecarWarming,
+      isDegraded: sidecarState === "degraded" && !sidecarWarming,
       latency: sidecarLatency,
       explain: sidecarExplain,
       detailRows: sidecarDetailRows
@@ -775,19 +948,25 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "uniprot",
       name: "UniProtKB",
       category: "genomic",
-      description: "Sequences & functional domains",
-      statusText: uniprotStatusText,
+      description: uniprotReady
+        ? "API · Sequences & functional domains"
+        : "Sequences & functional domains",
+      state: uniprotState,
       isReady: uniprotReady,
       latency: formatLatency(uniprotLatency),
-      explain: {
-        heading: uniprotReady ? "Working normally" : "Not answering",
-        body: uniprotReady
-          ? "Provides the protein's known functional regions and active sites, which is how the app " +
-            "judges whether a change sits somewhere that matters. Domains and boundaries keep their " +
-            "source and the residue numbers they were defined on."
-          : "Functional regions and active sites are unavailable, so the app cannot yet say whether " +
-            "this change falls inside a known functional region. Every other source of evidence is unaffected."
-      }
+      explain: uniprotState === "checking"
+        ? CHECKING_EXPLAIN
+        : uniprotState === "not-configured"
+        ? NOT_REPORTED_EXPLAIN
+        : {
+            heading: uniprotReady ? "Working normally" : "Not answering",
+            body: uniprotReady
+              ? "Provides the protein's known functional regions and active sites, which is how the app " +
+                "judges whether a change sits somewhere that matters. Domains and boundaries keep their " +
+                "source and the residue numbers they were defined on."
+              : "Functional regions and active sites are unavailable, so the app cannot yet say whether " +
+                "this change falls inside a known functional region. Every other source of evidence is unaffected."
+          }
     }
   ];
 
@@ -798,9 +977,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   const uncoveredServices = services.filter(s => s.isDown);
   const unknownServices = services.filter(s => s.isUnknown);
   const coverageNote = [
-    ...degradedServices.map(s => `${s.name} offline — ${s.description}`),
+    ...degradedServices.map(s => `${s.name} primary did not answer — ${s.description}`),
     ...uncoveredServices.map(s => `${s.name} and its fallback are both unreachable`),
-    ...unknownServices.map(s => `${s.name} offline and its fallback could not be verified`)
+    ...unknownServices.map(s => `${s.name} primary did not answer and its fallback could not be verified`)
   ].join("; ");
   /**
    * A covered outage is degraded, not offline. Showing the plain online count made the header
@@ -986,7 +1165,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                             : `text-[11px] font-medium px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] whitespace-nowrap ${statusPillClass(svc)}`
                         }
                       >
-                        {svc.statusText}
+                        {PROVIDER_STATE_LABELS[svc.state]}
                       </span>
                       {/* A row whose whole surface is the action must SAY so. Only the non-expandable
                           case lands here: an expandable row's gutter is its one disclosure chevron

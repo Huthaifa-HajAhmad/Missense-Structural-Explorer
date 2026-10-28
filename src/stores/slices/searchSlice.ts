@@ -10,6 +10,7 @@ import { reportInputFromRun } from "../../shared/reportInput";
 import { renderReportText } from "../../shared/reportRender";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
 import type { LandscapeOverview, LandscapeResidueItem } from "../../shared/contracts";
+import type { ResidueFocus } from "../../shared/residueFocus";
 
 export interface LandscapeViewState {
   colorBy: "alphaMissense" | "revel";
@@ -39,6 +40,8 @@ export interface SearchState {
    */
   proteinSequence: { accession: string; sequence: string } | null;
   selectedResidueIndex: number | null;
+  /** Residues drawn with the selection on the canvas; any later selection clears it. */
+  residueFocus: ResidueFocus | null;
   hoveredResidueIndex: number | null;
   selectedGenomicVariant: any | null;
   /**
@@ -85,6 +88,8 @@ export interface SearchActions {
   setUniprotId: (uniprotId: string) => void;
   setProteinSequence: (accession: string, sequence: string) => void;
   setSelectedResidueIndex: (index: number | null) => void;
+  /** Selects `index` and draws `focus` with it, as one update. */
+  selectResidueWithFocus: (index: number, focus: ResidueFocus | null) => void;
   setHoveredResidueIndex: (index: number | null) => void;
   setSelectedGenomicVariant: (variant: any | null) => void;
   addLandscapeRows: (key: string, rows: LandscapeResidueItem[]) => void;
@@ -174,6 +179,7 @@ export const createSearchSlice: StateCreator<
   uniprotId: initial.uniprotId,
   proteinSequence: null,
   selectedResidueIndex: initialResidueIndex,
+  residueFocus: null,
   hoveredResidueIndex: null,
   selectedGenomicVariant: null,
   landscapeExtra: null,
@@ -201,7 +207,8 @@ export const createSearchSlice: StateCreator<
   setUniprotId: (uniprotId) => set({ uniprotId, proteinSequence: null }),
   setProteinSequence: (accession, sequence) =>
     set({ proteinSequence: accession ? { accession, sequence } : null }),
-  setSelectedResidueIndex: (selectedResidueIndex) => set({ selectedResidueIndex }),
+  setSelectedResidueIndex: (selectedResidueIndex) => set({ selectedResidueIndex, residueFocus: null }),
+  selectResidueWithFocus: (selectedResidueIndex, residueFocus) => set({ selectedResidueIndex, residueFocus }),
   setHoveredResidueIndex: (hoveredResidueIndex) => set({ hoveredResidueIndex }),
   setSelectedGenomicVariant: (selectedGenomicVariant) => set({ selectedGenomicVariant }),
   addLandscapeRows: (key, rows) =>
@@ -280,6 +287,7 @@ export const createSearchSlice: StateCreator<
       customGene: item.gene,
       customVariant: item.variant,
       selectedResidueIndex: resIdx,
+      residueFocus: null,
       selectedGenomicVariant: null,
       hoveredResidueIndex: null
     });
@@ -311,6 +319,7 @@ export const createSearchSlice: StateCreator<
       customGene: preset.gene,
       customVariant: preset.variant,
       selectedResidueIndex: resIdx,
+      residueFocus: null,
       selectedGenomicVariant: null,
       hoveredResidueIndex: null
     });

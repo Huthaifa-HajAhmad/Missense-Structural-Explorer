@@ -257,8 +257,7 @@
 /* A chip that may wrap is a rounded tag, not a pill (a pill's end caps swallow a second line), and its dot
    keeps to the first line. */
 .ev-tier--lg,
-.gd-table td .ev-tier,
-.ctx-table td .ev-tier { border-radius: 10px; }
+.gd-table td .ev-tier { border-radius: 10px; }
 .ev-tier--lg::before { align-self: flex-start; margin-block-start: .5em; }
 
 /* ── Data table ───────────────────────────────────────────────────────────── */
@@ -346,7 +345,7 @@
   font-weight: 600;
   color: var(--cs-text-primary);
   text-decoration: none;
-  border-radius: 4px;
+  border-radius: var(--cs-radius-sm);
 }
 @media (hover: hover) and (pointer: fine) {
   .ev-partner:hover { color: var(--cs-text-accent); text-decoration: underline; }

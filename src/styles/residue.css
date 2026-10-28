@@ -149,7 +149,7 @@
 .rsx-disclosure > summary::-webkit-details-marker { display: none; }
 .rsx-disclosure > summary::after { content: "+"; margin-left: auto; color: var(--cs-text-muted); font-family: var(--cs-font-mono); font-size: 14px; line-height: 1; }
 .rsx-disclosure[open] > summary::after { content: "–"; }
-.rsx-disclosure > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px; }
+.rsx-disclosure > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: var(--cs-radius-sm); }
 .rsx-disclosure > summary > h3 { margin: 0; flex: 1; }
 .rsx-disclosure > .rsx-refs { margin-top: 10px; }
 .rsx-reason { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
@@ -173,7 +173,7 @@
 /* display:block on the root and its two bands because this track is now a <span> (phrasing content,
    valid inside the comparison's button) rather than a <div>. */
 .rsx-track { position: relative; display: block; width: 100%; min-width: 140px; }
-.rsx-track__bar { position: relative; display: block; height: 8px; border-radius: 4px; background: var(--cs-bg-subtle); }
+.rsx-track__bar { position: relative; display: block; height: 8px; border-radius: var(--cs-radius-sm); background: var(--cs-bg-subtle); }
 .rsx-track__wt,
 .rsx-track__mut {
   position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
@@ -200,7 +200,7 @@
   .rsx-context > summary:hover { color: var(--cs-text-secondary); }
 }
 .rsx-context > summary:focus-visible {
-  outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px;
+  outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: var(--cs-radius-sm);
 }
 .rsx-context--card { flex: 1 0 100%; }
 .rsx-context__list { margin: 4px 0 0; }
@@ -287,7 +287,7 @@
 .rsx-rsec:first-child { padding-top: 0; border-top: 0; }
 .rsx-rsec > h3.eyebrow { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rsx-rsec > h3.eyebrow > span { display: inline-flex; align-items: center; gap: 6px; }
-.rsx-rsec:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: 4px; }
+.rsx-rsec:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: var(--cs-radius-sm); }
 
 .rsx-steps { list-style: none; margin: 0; padding: 12px; display: flex; flex-direction: column; border: 1px solid var(--cs-border-subtle); border-radius: 10px; }
 .rsx-step { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding-bottom: 12px; }
@@ -411,7 +411,7 @@
 .rsx-pocket-strip__origin-label { font-weight: var(--cs-font-weight-medium); }
 .rsx-pocket-strip__track { position: relative; width: 100%; margin: 6px 0; }
 .rsx-pocket-strip__bar {
-  position: relative; height: 8px; border-radius: 4px; background: var(--cs-bg-subtle);
+  position: relative; height: 8px; border-radius: var(--cs-radius-sm); background: var(--cs-bg-subtle);
 }
 .rsx-pocket-strip__origin-marker {
   position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;

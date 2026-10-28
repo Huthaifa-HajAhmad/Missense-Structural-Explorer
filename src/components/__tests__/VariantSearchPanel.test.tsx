@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import VariantSearchPanel, { WORKFLOW_STAGES, WORKFLOW_STAGE_COUNTS, formatVariantForDisplay } from "../VariantSearchPanel";
 import { ONBOARDING_BENCHMARK_PRESETS } from "../../shared/benchmarkPresets";
@@ -415,13 +415,20 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     expect(inactive.getAttribute("aria-controls")).toBeNull();
   });
 
-  it("displays Key Ready for AlphaGenome Atlas when configured in client settings", async () => {
+  it("shows AlphaGenome Atlas as Connected when a key is configured in client settings", async () => {
     sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ alphagenomeApiKey: "ag-secret-key-xyz" }));
 
     renderPanel();
 
     expect(screen.getByText("AlphaGenome Atlas")).toBeInTheDocument();
-    expect(await screen.findByText(/key ready/i)).toBeInTheDocument();
+    const row = await waitFor(() => {
+      const el = document.querySelector('[data-service-id="alphagenome"]') as HTMLElement | null;
+      expect(el?.textContent).toMatch(/key set in this browser/);
+      // The pill reads "Checking" until the diagnostics poll settles; wait for it rather than race it.
+      expect(within(el!).getByText("Connected")).toBeInTheDocument();
+      return el!;
+    });
+    expect(row).toBeInTheDocument();
 
     sessionStorage.removeItem("missenseTransientCredentials");
   });

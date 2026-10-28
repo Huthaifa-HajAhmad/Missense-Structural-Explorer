@@ -127,6 +127,8 @@
   --cs-radius-panel:  16px;
   --cs-radius-input:  8px;
   --cs-radius-badge:  6px;
+  /* Small controls, chips and table inner marks. */
+  --cs-radius-sm:     4px;
   --cs-radius-pill:   999px;
 
   --cs-shadow-card:   none;

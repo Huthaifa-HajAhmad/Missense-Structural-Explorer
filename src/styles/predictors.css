@@ -186,7 +186,7 @@
 }
 .prd-group__inner { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; width: 100%; }
 .prd-group__toggle {
-  margin-left: auto; min-height: 24px; padding: 0 6px; border: 0; border-radius: 4px; background: none; cursor: pointer;
+  margin-left: auto; min-height: 24px; padding: 0 6px; border: 0; border-radius: var(--cs-radius-sm); background: none; cursor: pointer;
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-accent);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -249,7 +249,7 @@
 
 .prd-link {
   display: inline-flex; align-items: center; gap: 4px; min-height: 24px; margin-top: 2px; padding: 0;
-  border: 0; background: none; border-radius: 4px; cursor: pointer;
+  border: 0; background: none; border-radius: var(--cs-radius-sm); cursor: pointer;
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
   color: var(--cs-text-accent);
 }
@@ -269,7 +269,7 @@
   background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .prd-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.prd-legend__swatch { display: inline-flex; width: 28px; height: 8px; border-radius: 4px; overflow: hidden; }
+.prd-legend__swatch { display: inline-flex; width: 28px; height: 8px; border-radius: var(--cs-radius-sm); overflow: hidden; }
 .prd-legend__swatch > i { flex: 1; background: var(--cs-text-danger); }
 .prd-legend__swatch[data-side="benign"] > i { background: var(--cs-text-success); }
 .prd-legend__swatch > i:nth-child(1) { opacity: 0.2; }
@@ -389,7 +389,7 @@
 .prd-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .prd-notes > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 24px; color: var(--cs-text-muted); border-radius: 4px;
+  min-height: 24px; color: var(--cs-text-muted); border-radius: var(--cs-radius-sm);
 }
 .prd-notes > summary::-webkit-details-marker { display: none; }
 .prd-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }

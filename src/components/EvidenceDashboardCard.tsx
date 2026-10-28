@@ -30,6 +30,11 @@ export function formatDdGValue(val: number | null | undefined, unit: "kcal/mol" 
   return formatDdg(val ?? null, unit);
 }
 
+/** evidence-workspace.css stacks the guide button above the title at this viewport width and below. */
+const GUIDE_STACKED_BELOW = 650;
+/** Panel width under which a button that shares the title row keeps only its icon. */
+const GUIDE_ICON_ONLY_BELOW = 900;
+
 function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
   const {
     isDark,
@@ -150,14 +155,25 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
    * to the box that holds it as `--rgd-action-width`, not assumed.
    */
   const actionRef = useRef<HTMLDivElement>(null);
+  /*
+   * Where the title row is shared with the button (wider than the stacked layout's 650px breakpoint), a narrow
+   * panel gives the title less room than its label costs, so the button keeps only its icon. The stacked layout
+   * has a row of its own and keeps the label.
+   */
+  const [compactGuide, setCompactGuide] = useState(false);
   useLayoutEffect(() => {
     const action = actionRef.current;
     const host = action?.parentElement;
     if (!action || !host || typeof ResizeObserver === "undefined") return;
-    const measure = () => host.style.setProperty("--rgd-action-width", `${action.offsetWidth}px`);
+    const measure = () => {
+      host.style.setProperty("--rgd-action-width", `${action.offsetWidth}px`);
+      const sharesTitleRow = typeof window.matchMedia !== "function" || window.matchMedia(`(min-width: ${GUIDE_STACKED_BELOW + 1}px)`).matches;
+      setCompactGuide(sharesTitleRow && host.clientWidth < GUIDE_ICON_ONLY_BELOW);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(action);
+    observer.observe(host);
     return () => observer.disconnect();
   }, [result, activeTab]);
 
@@ -220,8 +236,8 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         </p>
       )}
 
-      <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
-        <div className="rgd-context-action" ref={actionRef}><ResearchGuideButton topic={EVIDENCE_GUIDES[activeTab]} label={`About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[activeTab]].title}`} /></div>
+      <div className="p-5 flex-1 text-xs overflow-y-auto">
+        <div className="rgd-context-action" ref={actionRef}><ResearchGuideButton topic={EVIDENCE_GUIDES[activeTab]} label={`About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[activeTab]].title}`} iconOnly={compactGuide} /></div>
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
         {activeTab === 'gene-disease' && <GeneDiseaseTab {...tabProps} />}
         {activeTab === 'expression-models' && <ExpressionModelsTab {...tabProps} />}

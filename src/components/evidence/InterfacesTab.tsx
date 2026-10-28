@@ -1,6 +1,6 @@
 import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Waypoints, X, Zap } from "lucide-react";
+import { AlertTriangle, Box, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Waypoints, X, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { STRING_CONFIDENCE_CUTS } from "../../shared/thresholds";
@@ -30,6 +30,7 @@ import { interfaceWorkspaceReadings, interfaceMapView, interfaceNumberingNote } 
 import { InterfaceOverview } from "./interfaces/InterfaceOverview";
 import { Prose } from "../ui/Prose";
 import { evidenceTab } from '../../shared/evidenceTabs';
+import { interfaceSelection } from "../../shared/residueFocus";
 
 /**
  * Interfaces & PPI.
@@ -253,7 +254,7 @@ function ArtefactRow({ p }: { p: ObservedView }) {
   );
 }
 
-export function InterfacesTab({ analysisState }: TabComponentProps) {
+export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue, onNavigateToView }: TabComponentProps) {
   const result = analysisState.result;
   const data = useInterfacesData(result);
   const workspace = useEvidenceWorkspace('interfaces');
@@ -342,6 +343,15 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
   const refPhrase = iface.reference ? (iface.reference.partner === `${ev.gene}, other chain` ? `the other ${ev.gene} chain` : iface.reference.partner) : null;
   const callout = [iface.disagreement, iface.fibril?.sentence ?? null, iface.crystal?.sentence ?? null, iface.setAside].filter(Boolean).join(" ");
   const solvedRows: ObservedView[] = [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals];
+  // Native interfaces only: a fibril or crystal-packing contact is not an interface to draw on the monomer.
+  const show3d = onSelectResidue && onNavigateToView
+    ? (p: ObservedView) => {
+        const selection = interfaceSelection(p, ev.position);
+        if (!selection) return;
+        onSelectResidue(selection.index, selection.focus);
+        onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
+      }
+    : null;
   // When nothing on the track is a chart — no solved, fibril or predicted lane — the card says why
   // and offers the one chart that can exist (Boltz-2, on request). RGS9's track is otherwise three
   // UniProt range chips above silence, and silence reads as a broken graph, not as an absence.
@@ -589,6 +599,12 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                           {p.homomeric ? " · same protein" : ""}
                           {p.organism ? ` · ${p.organism}` : ""}
                         </span>
+                        {show3d && !fibril && !crystal && p.residues.length > 0 && (
+                          <button type="button" className="ifc-link ifc-3d" onClick={() => show3d(p)}>
+                            <Box className="w-3 h-3" aria-hidden="true" />
+                            Show interface in 3D
+                          </button>
+                        )}
                       </th>
                       <td className="ifc-reason">
                         {p.variantAtInterface ? (

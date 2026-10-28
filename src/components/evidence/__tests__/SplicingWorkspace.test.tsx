@@ -8,6 +8,7 @@ import { EvidenceWorkspaceProvider } from '../EvidenceWorkspace';
 import { useVariantAnalysisStore as store } from '../../../stores/useVariantAnalysisStore';
 import { splicingWorkspaceFixture } from '../../../test/splicingWorkspaceFixture';
 import type { TabComponentProps } from '../types';
+import { buildSplicingEvidence } from '../../../shared/splicingEvidence';
 
 const fetchWithAuth = vi.fn();
 const updateSetting = vi.fn();
@@ -146,5 +147,25 @@ describe('linked RNA splicing workspace', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Channel details' }));
     fireEvent.click(screen.getByRole('button', { name: 'Acceptor loss' }));
     expect(inspector()).toHaveTextContent(name === 'Zero' ? 'Measured zero' : name === 'Missing' ? 'No score returned' : name === 'Unknown strand' ? 'Strand unresolved' : 'Delta position not reported');
+  });
+  it('shows a pinned reading in the banner, and its Show selected reading action moves to that record', () => {
+    open();
+    fireEvent.click(pinned('ds_al'));
+    expect(screen.getByText(/is pinned\./)).toHaveTextContent('Acceptor loss is pinned.');
+    fireEvent.click(screen.getByRole('button', { name: 'Show selected reading' }));
+    expect(screen.getByRole('tab', { name: 'Channel details' })).toHaveAttribute('aria-selected', 'true');
+    const records = screen.getByRole('region', { name: 'Splicing channel details' });
+    expect(within(records).getByRole('button', { name: 'Acceptor loss' })).toHaveFocus();
+  });
+  it('seeds the view and map window from the share link, and removes them when the tab unmounts', () => {
+    const transcript = buildSplicingEvidence({ result: splicingWorkspaceFixture(), isLoading: false, alphagenomeConfigured: undefined }).geometry.transcriptId;
+    window.history.replaceState(window.history.state, '', `/?spv=records&spw=200&spt=${transcript}`);
+    open();
+    expect(screen.getByRole('tab', { name: 'Channel details' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Splice map' }));
+    expect(screen.getByLabelText('Map view')).toHaveValue('200');
+    expect(window.location.search).toContain('spw=200');
+    fireEvent.click(screen.getByText('Other evidence tab'));
+    expect(window.location.search).not.toContain('spw');
   });
 });

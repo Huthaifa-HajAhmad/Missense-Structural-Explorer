@@ -16,6 +16,7 @@ import { AnalysisEmptyState, emptyWorkspace } from "./ui/AnalysisEmptyState";
 import { isEvidenceTabId } from "../shared/evidenceTabs";
 import type { EnergyEngineId } from '../shared/engineStatus';
 import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
+import type { ResidueFocus } from "../shared/residueFocus";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -348,6 +349,12 @@ export function AppViews({
     setSelectedResidueIndex(idx);
   }, [setSelectedResidueIndex, gene, variant, uniprotId]);
 
+  /** An Evidence tab's "View in 3D": the same selection as a click, plus the residues it wants drawn with it. */
+  const handleSelectResidueWithFocus = useCallback((idx: number, focus?: ResidueFocus | null) => {
+    handleResidueClickMemo(idx);
+    if (focus) useVariantAnalysisStore.getState().selectResidueWithFocus(idx, focus);
+  }, [handleResidueClickMemo]);
+
   /** Returns to the queried substitution: same selection kind the Landscape's own "Query" buttons set. */
   const handleReturnToVariant = useCallback(() => {
     if (!variantPosition) return;
@@ -460,7 +467,7 @@ export function AppViews({
                   onOpenSettings={handleOpenSettingsMemo}
                   onRetryStructural={actions?.retryStructuralAnalysis}
                   onRetryPocket={handleRetryPocket}
-                  onSelectResidue={handleResidueClickMemo}
+                  onSelectResidue={handleSelectResidueWithFocus}
                   onNavigateToView={setMasterView}
                 />
               </ErrorBoundary>

@@ -50,6 +50,7 @@
     "search:index": "node tools/agent-tooling/cli.cjs zg index --embedding local/potion-code-16m-v2",
     "search:status": "node tools/agent-tooling/cli.cjs zg status",
     "test:geometry:review": "node tools/review-preview/check.mjs",
+    "test:geometry:focus": "node tools/structure-focus/check.mjs",
     "test:e2e": "e2e run"
   },
   "dependencies": {
