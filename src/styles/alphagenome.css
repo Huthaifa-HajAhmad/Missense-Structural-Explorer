@@ -290,7 +290,7 @@ p.ag-card__foot > span { display: inline; }
   font-weight: var(--cs-font-weight-regular);
   color: var(--cs-text-accent);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--cs-radius-sm);
   text-decoration: none;
 }
 @media (hover: hover) and (pointer: fine) {

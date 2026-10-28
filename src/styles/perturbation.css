@@ -56,7 +56,7 @@
 .ptb-primer { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: none; }
 .ptb-primer > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 24px; color: var(--cs-text-accent); border-radius: 4px;
+  min-height: 24px; color: var(--cs-text-accent); border-radius: var(--cs-radius-sm);
 }
 .ptb-primer > summary::-webkit-details-marker { display: none; }
 @media (hover: hover) and (pointer: fine) {
@@ -208,7 +208,7 @@
 .ptb-link,
 .ptb-select {
   display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0;
-  border: 0; background: none; border-radius: 4px; cursor: pointer;
+  border: 0; background: none; border-radius: var(--cs-radius-sm); cursor: pointer;
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
   color: var(--cs-text-accent);
 }
@@ -220,7 +220,7 @@
 .ptb-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
 
 .ptb-diag { margin-top: 6px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.ptb-diag > summary { cursor: pointer; min-height: 24px; display: inline-flex; align-items: center; border-radius: 4px; }
+.ptb-diag > summary { cursor: pointer; min-height: 24px; display: inline-flex; align-items: center; border-radius: var(--cs-radius-sm); }
 .ptb-diag > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .ptb-diag ul { margin: 4px 0 0; padding-left: 16px; overflow-wrap: anywhere; }
 
@@ -234,7 +234,7 @@
 .ptb-legend__tick { display: inline-block; width: 0; height: 12px; border-left: 1.5px dashed var(--cs-text-secondary); }
 .ptb-legend__marker { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--cs-accent-clay); }
 .ptb-legend__native { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--cs-text-primary); box-sizing: border-box; }
-.ptb-legend__band { display: inline-flex; width: 28px; height: 8px; border-radius: 4px; overflow: hidden; }
+.ptb-legend__band { display: inline-flex; width: 28px; height: 8px; border-radius: var(--cs-radius-sm); overflow: hidden; }
 .ptb-legend__band > i { flex: 1; background: var(--cs-text-secondary); }
 .ptb-legend__band > i:nth-child(1) { opacity: 0.06; }
 .ptb-legend__band > i:nth-child(2) { opacity: 0.12; }
@@ -326,8 +326,8 @@
 }
 .ptb-pref { display: grid; grid-template-columns: 44px minmax(0, 1fr) 52px; align-items: center; gap: 8px; font-size: var(--cs-font-size-caption); }
 .ptb-pref__aa { font-family: var(--cs-font-mono); color: var(--cs-text-secondary); white-space: nowrap; }
-.ptb-pref__bar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); overflow: hidden; }
-.ptb-pref__bar > i { display: block; height: 100%; min-width: 2px; border-radius: 4px; background: color-mix(in srgb, var(--cs-text-secondary) 38%, transparent); }
+.ptb-pref__bar { height: 8px; border-radius: var(--cs-radius-sm); background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); overflow: hidden; }
+.ptb-pref__bar > i { display: block; height: 100%; min-width: 2px; border-radius: var(--cs-radius-sm); background: color-mix(in srgb, var(--cs-text-secondary) 38%, transparent); }
 .ptb-pref__p { text-align: right; font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-muted); }
 .ptb-pref[data-role="native"] .ptb-pref__aa,
 .ptb-pref[data-role="native"] .ptb-pref__p { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
@@ -409,7 +409,7 @@
 .ptb-notes + .ptb-notes { margin-top: 4px; }
 .ptb-notes > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 24px; color: var(--cs-text-muted); border-radius: 4px;
+  min-height: 24px; color: var(--cs-text-muted); border-radius: var(--cs-radius-sm);
 }
 .ptb-notes > summary::-webkit-details-marker { display: none; }
 .ptb-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }

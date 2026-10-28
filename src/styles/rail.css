@@ -1,3 +1,82 @@
+/* ============================================================
+   SHARED INSPECTOR RAIL (rail-, xp-prov and ctx- classes)
+   Rules moved here from the tab stylesheets, in their original
+   order. Tab-scoped overrides (for example the gene-disease rail
+   rules) stay in their own tab file.
+   ============================================================ */
+
+.ctx-table td .ev-tier { border-radius: 10px; }
+
+.rail-section { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid var(--cs-border-subtle); }
+.rail-section:first-child { padding-top: 0; border-top: 0; }
+.rail-section > h3.eyebrow { margin: 0; }
+.rail-steps {
+  list-style: none; margin: 0; padding: 14px;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface);
+}
+.rail-step { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding-bottom: 14px; }
+.rail-step:last-child { padding-bottom: 0; }
+.rail-step:not(:last-child)::before { content: ""; position: absolute; left: 9.5px; top: 22px; bottom: 2px; width: 1px; background: var(--cs-border); }
+.rail-step__n {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-text-muted); background: var(--cs-surface); border: 1px solid var(--cs-border);
+}
+.rail-step:last-child .rail-step__n { color: var(--cs-surface); background: var(--cs-text-primary); border-color: transparent; }
+.rail-step[data-state="warn"] .rail-step__n { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); border-color: transparent; }
+.rail-step__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rail-step__label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 20px; }
+.rail-step__value { display: flex; flex-direction: column; gap: 2px; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+.rail-step__sub { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rail-step__verdict { display: inline-flex; align-items: center; gap: 6px; }
+.rail-step__warn {
+  margin: 4px 0 0; padding: 6px 8px; border-radius: 6px;
+  font-size: var(--cs-font-size-caption); line-height: 1.45;
+  color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning);
+}
+/* Cut-points: a plain three-row reference; the supported row is marked by weight and a dot, not a fill. */
+.rail-cuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rail-cut {
+  display: grid;
+  grid-template-columns: 44px 64px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: var(--cs-font-size-caption);
+  color: var(--cs-text-muted);
+}
+.rail-cut > .ev-tier { justify-self: start; }
+.rail-cut__rule { font-family: var(--cs-font-mono); color: var(--cs-text-secondary); }
+.rail-cut__meaning { line-height: 1.45; }
+.rail-cut__here { font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); white-space: nowrap; }
+.rail-cut[data-active] .rail-cut__rule,
+.rail-cut[data-active] .rail-cut__meaning { color: var(--cs-text-primary); }
+.rail-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.rail-notes > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 24px; color: var(--cs-text-muted); border-radius: var(--cs-radius-sm);
+}
+.rail-notes > summary::-webkit-details-marker { display: none; }
+.rail-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }
+.rail-notes[open] > summary::before { transform: rotate(90deg); }
+@media (hover: hover) and (pointer: fine) {
+  .rail-notes > summary:hover { color: var(--cs-text-primary); }
+}
+.rail-notes > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.rail-notes ul { margin: 6px 0 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
+@media (prefers-reduced-motion: reduce) { .rail-notes > summary::before { transition: none; } }
+.rail-kv { margin: 0; }
+.rail-kv__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 0; }
+.rail-kv__row > dt { flex: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rail-kv__row > dd {
+  margin: 0; min-width: 0;
+  display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px;
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-primary); text-align: right; overflow-wrap: anywhere;
+}
+.rail-kv--sources .rail-kv__row > dd { color: var(--cs-text-secondary); }
+
 /* Shared disease selector and context typography; isolated from other tabs' classes. */
 .ctx-screen, .ctx-rail { font-family: var(--cs-font-sans); font-size: var(--cs-font-size-prose); line-height: 1.5; color: var(--cs-text-secondary); }
 .ctx-screen { display: flex; flex-direction: column; gap: 24px; container-type: inline-size; }
@@ -59,11 +138,9 @@
 @container (max-width: 540px) { .ctx-definition > div { grid-template-columns: 1fr; gap: 4px; } .ctx-card__body { padding: 14px; } .ctx-finding { font-size: 20px; } }
 @media print { .ctx-button { display: none; } .ctx-table-wrap { overflow: visible; } .ctx-table { min-width: 0; } }
 .ctx-table td .ev-tier { white-space: normal; }
-
 .ctx-subhead { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
 .ctx-cell { display: inline-block; padding: 2px 9px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-badge); font-size: 12px; color: var(--cs-text-muted); }
 .ctx-cell[data-cell="significant"], .ctx-cell[data-cell="mixed"] { border-color: var(--cs-accent-clay); color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-accent-clay) 8%, var(--cs-surface)); }
-
 /* Charts: one accent, opacity or length for magnitude, never a good/bad colour. */
 .ctx-bar { display: block; height: 6px; margin-top: 5px; margin-left: auto; width: min(100%, 140px); border-radius: 3px; background: var(--cs-surface-2); overflow: hidden; }
 .ctx-bar--none { background: transparent; }
@@ -88,3 +165,29 @@
 .ctx-scale__rung[data-on] { height: 10px; background: var(--cs-accent-clay); border-color: var(--cs-accent-clay); }
 .ctx-scale__rung[data-quiet] { background: var(--cs-text-muted); border-color: var(--cs-text-muted); }
 .ctx-table td .ctx-scale { display: flex; margin-top: 6px; }
+
+.ctx-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ctx-field > .ctx-button { align-self: flex-start; }
+.ctx-status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.ctx-button--quiet { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+
+/* Provenance: one closed disclosure per source, so seven sources are not seven screens. */
+.xp-prov { border-top: 1px solid var(--cs-border-subtle); padding: 8px 0; }
+.xp-prov > summary { cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; color: var(--cs-text-primary); list-style: none; min-height: 28px; }
+.xp-prov > summary::-webkit-details-marker { display: none; }
+.xp-prov > summary::before { content: "›"; display: inline-block; margin-right: 6px; color: var(--cs-text-muted); transition: transform 150ms ease; }
+.xp-prov[open] > summary::before { transform: rotate(90deg); }
+.xp-prov__name { flex: 1; min-width: 0; }
+.xp-prov__meta { font-size: 12px; color: var(--cs-text-muted); }
+.xp-prov > :not(summary) { margin-top: 8px; }
+.xp-prov:focus-within > summary:focus-visible, .xp-prov > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+/* A label · value row in the inspector rail. The rail's boxes are 280px wide,
+   so its rows are a rank below the column's prose: a 13px label sitting on a
+   12px value inverts the emphasis and wraps the value mid-token. */
+.rail-row {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-regular);
+  line-height: 1.4;
+}

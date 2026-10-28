@@ -331,7 +331,7 @@
 .fnd-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .fnd-notes > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 24px; color: var(--cs-text-muted); border-radius: 4px;
+  min-height: 24px; color: var(--cs-text-muted); border-radius: var(--cs-radius-sm);
 }
 .fnd-notes > summary::-webkit-details-marker { display: none; }
 .fnd-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }
