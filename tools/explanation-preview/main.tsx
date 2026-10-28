@@ -41,7 +41,7 @@ function Preview() {
       <ResearchGuideButton topic="vesm_embedding" label="About VESM embeddings" />
     </div>
     <ModelKnowledgeModal isOpen={model !== null} modelKey={model} onClose={() => setModel(null)} />
-    <MetricExplanationModal selectedMetric={metric} setSelectedMetric={setMetric} isDark={false} />
+    <MetricExplanationModal selectedMetric={metric} setSelectedMetric={setMetric} />
     <HowToInspectModal isOpen={inspect} onClose={() => setInspect(false)} isDark={false} selectedResidueIndex={116} gene="NAE1" />
     <p>The surrounding research workspace remains visible through the dimmed backdrop.</p>
     <output aria-label="Sidebar toggle count">{sidebarToggles}</output>

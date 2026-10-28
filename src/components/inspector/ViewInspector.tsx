@@ -460,7 +460,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         aria-valuemin={INSPECTOR_MIN_WIDTH}
         aria-valuemax={INSPECTOR_MAX_WIDTH}
         tabIndex={0}
-        className="absolute top-0 left-0 w-1.5 h-full transition-colors hover:bg-slate-500/20 active:bg-cs-accent-clay/30 focus:bg-cs-accent-clay/40 focus:outline-none cursor-col-resize select-none"
+        className="absolute top-0 left-0 w-1.5 h-full transition-colors hover:bg-cs-border active:bg-cs-accent-clay/30 focus:bg-cs-accent-clay/40 focus:outline-none cursor-col-resize select-none"
         style={{ zIndex: 20 }}
         title="Drag to resize inspector panel (or focus and use arrow keys)"
       />

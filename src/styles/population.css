@@ -27,6 +27,10 @@
 }
 .pop-screen { display: flex; flex-direction: column; gap: 24px; }
 
+/* Screen-wide keyboard ring. :where() keeps it at the lowest specificity, so per-control rings below win. */
+.pop-screen :where(button, select, summary, a, [tabindex]:not([tabindex="-1"])):focus-visible,
+.pop-rail :where(button, summary, a):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
 .pop-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
 .pop-strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); }
 .pop-dim { color: var(--cs-text-muted); }
@@ -116,14 +120,14 @@
 .pop-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 
 /* No positive frequencies: readable source states replace an empty quantitative frame. */
-.pop-availability, .pop-clinvar-summary { padding: 20px; }
-.pop-availability h2, .pop-clinvar-summary h2 { font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-primary); margin: 0; }
-.pop-availability p, .pop-clinvar-summary p { margin-block: 6px 0; font-size: var(--cs-font-size-prose); line-height: 1.55; color: var(--cs-text-secondary); }
+.pop-availability { padding: 20px; }
+.pop-availability h2 { font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-primary); margin: 0; }
+.pop-availability p { margin-block: 6px 0; font-size: var(--cs-font-size-prose); line-height: 1.55; color: var(--cs-text-secondary); }
 .pop-availability ul { list-style: none; padding: 0; margin-block: 16px 0; }
 .pop-availability li { padding-block: 12px; border-block-start: 1px solid var(--cs-border-subtle); }
 .pop-availability li[data-rule] { border-block-start: 1px solid var(--cs-border); }
-.pop-availability li > div, .pop-clinvar-summary > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 20px; }
-.pop-availability strong, .pop-clinvar-summary strong { font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-primary); }
+.pop-availability li > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 20px; }
+.pop-availability strong { font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-primary); }
 .pop-availability .evw-reading-button { min-block-size: 44px; font-size: var(--cs-font-size-prose); font-weight: 600; }
 .pop-availability .evw-reading-button:active { color: var(--cs-text-accent); }
 .pop-thresholds > summary { min-block-size: 44px; align-content: center; cursor: pointer; color: var(--cs-text-secondary); font-size: var(--cs-font-size-prose); }

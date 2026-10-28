@@ -41,12 +41,9 @@ export interface EvidenceDashboardCardProps {
   foldingDdG: number | null;
   foldingStatus: "success" | "failed" | "unavailable" | null;
   foldingEnergetics?: EnergeticsData | null;
-  dynamut2Status?: "pending" | "unavailable" | "done" | null;
-  ddmutStatus?: "pending" | "unavailable" | "done" | null;
   computedPocket?: PocketResult | null;
   isPocketLoading?: boolean;
   pocketError?: string | null;
-  disruptionPredictor?: { level: "high" | "low" | "unknown"; reason: string; plddt: number | null } | null;
   isFolding?: boolean;
   foldingError?: string | null;
   structuralDiff?: StructuralDiffResult | null;
@@ -62,7 +59,5 @@ export interface EvidenceDashboardCardProps {
 }
 
 export interface TabComponentProps extends EvidenceDashboardCardProps {
-  energyUnit: "kcal/mol" | "kJ/mol";
-  formatDdGValue: (val: number | null, unit: "kcal/mol" | "kJ/mol") => string;
   setSelectedMetric: (metric: string | null) => void;
 }

@@ -50,9 +50,6 @@
 }
 .ptb-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ptb-section > h2.eyebrow { margin: 0; }
-.ptb-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.ptb-section__head > h2.eyebrow { margin: 0; }
-.ptb-section__meta { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 
 /* ── Header primer ──────────────────────────────────────────── */
 .ptb-header { display: flex; flex-direction: column; gap: 6px; }

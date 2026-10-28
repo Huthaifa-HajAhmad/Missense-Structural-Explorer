@@ -12,7 +12,7 @@
    ONE JOB PER COLOUR. Nothing on this screen is an ACMG call, so there is no red or green on it.
    Ink carries values; muted ink carries absence; clay marks what is NEW from AlphaGenome (and
    links); grey marks evidence already read on another tab. Direction on the contribution bars is
-   carried by side (left / right of the zero line), never by hue.
+   carried by words ("Raises score" / "Lowers score") and by the Comparison view, never by hue.
 
    CARDS follow the Population Data polish: one tint per card, on its 40px head bar and its foot bar
    only; flat rows on the card's 16px edge split by hairlines; empty states are sentences.
@@ -25,8 +25,13 @@
   line-height: 1.5;
   color: var(--cs-text-secondary);
 }
-.ag-screen { display: flex; flex-direction: column; gap: 20px; --ag-bar-h: 40px; }
+.ag-screen { display: flex; flex-direction: column; gap: 24px; --ag-bar-h: 40px; }
 .ag-rail { display: flex; flex-direction: column; }
+
+/* Screen-wide keyboard ring. :where() keeps it at the lowest specificity, so the card-inset ring on the
+   Atlas links (the cards clip an outside ring) and the per-control rings below still win. */
+.ag-screen :where(button, select, summary, a, [tabindex]:not([tabindex="-1"])):focus-visible,
+.ag-rail :where(button, summary, a):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 .ag-screen .eyebrow,
 .ag-rail .eyebrow,
@@ -123,6 +128,8 @@ p.ag-card__foot > span { display: inline; }
 
 .ag-screen[data-comparison] .ag-hero__body { display: grid; grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); align-items: center; gap: 24px; padding: 18px 20px; }
 .ag-screen[data-comparison] .ag-figure { flex-direction: column; align-items: start; gap: 5px; }
+/* No composition sentence (a score returned without its contributions): the figure takes the row. */
+.ag-screen[data-comparison] .ag-figure:only-child { grid-column: 1 / -1; }
 .ag-screen[data-comparison] .ag-figure__value { font-size: 30px; letter-spacing: -.025em; }
 @container (max-width: 650px) {
   .ag-screen[data-comparison] .ag-hero__body { grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -207,12 +214,10 @@ p.ag-card__foot > span { display: inline; }
 .ag-split__labels > [data-origin="new"] { color: var(--cs-text-accent); font-weight: var(--cs-font-weight-semibold); }
 @container (max-width: 640px) { .ag-split { grid-template-columns: minmax(0, 1fr); } .ag-split__labels { flex-wrap: wrap; } }
 
-/* Origin fills, shared by the split bar, the contribution bars and the legend keys. */
+/* Origin fills, shared by the split bar and the legend keys. */
 .ag-split__bar > [data-origin="new"],
-.ag-diverge__bar[data-origin="new"],
 .ag-key[data-origin="new"] { background: var(--cs-accent-clay); }
 .ag-split__bar > [data-origin="reused"],
-.ag-diverge__bar[data-origin="reused"],
 .ag-key[data-origin="reused"] { background: color-mix(in srgb, var(--cs-text-secondary) 40%, transparent); }
 .ag-split__bar > [data-group="coding"] { background: color-mix(in srgb, var(--cs-text-secondary) 26%, transparent); }
 .ag-split__bar > [data-group="indicator"] { background: color-mix(in srgb, var(--cs-text-secondary) 14%, transparent); }
@@ -297,7 +302,6 @@ p.ag-card__foot > span { display: inline; }
 .ag-table-wrap { overflow-x: auto; }
 .ag-table { width: 100%; min-width: 600px; border-collapse: collapse; table-layout: fixed; }
 .ag-col-feature { width: 320px; }
-.ag-col-value { width: 96px; }
 .ag-col-share { width: 76px; }
 .ag-table thead th {
   padding: 10px 16px 8px;
@@ -341,20 +345,6 @@ p.ag-card__foot > span { display: inline; }
   white-space: nowrap;
 }
 .ag-num--share { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-regular); }
-
-/* Contribution bar: the zero line sits where the data puts it (--ag-zero), not at the centre. */
-.ag-diverge { position: relative; height: 10px; }
-.ag-diverge::before {
-  content: "";
-  position: absolute;
-  top: -4px;
-  bottom: -4px;
-  left: var(--ag-zero, 0%);
-  border-left: 1px solid var(--cs-border);
-}
-.ag-diverge__bar { position: absolute; top: 1px; bottom: 1px; min-width: 2px; }
-.ag-diverge__bar[data-side="up"] { border-radius: 0 3px 3px 0; }
-.ag-diverge__bar[data-side="down"] { border-radius: 3px 0 0 3px; }
 
 .ag-key { display: inline-block; width: 14px; height: 8px; border-radius: 0 2px 2px 0; }
 
@@ -419,6 +409,6 @@ p.ag-card__foot > span { display: inline; }
   .ag-btn, .ag-atlas__item, .ag-fold__icon { transition: none; }
 }
 @media print {
-  .ag-diverge__bar, .ag-split__bar > i, .ag-key, .ag-rank__marker { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .ag-split__bar > i, .ag-key, .ag-rank__marker { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .ag-btn, .ag-actions { display: none; }
 }

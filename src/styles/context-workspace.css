@@ -4,7 +4,7 @@
 
 /* Context figures compare source categories; neither axis is an evidence score. */
 .cx-coverage-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 13px; }
-.cx-coverage-table :is(th, td) { padding: 12px 20px; border-bottom: 1px solid var(--cs-border-subtle); text-align: center; }
+.cx-coverage-table :is(th, td) { padding: 11px 16px; border-bottom: 1px solid var(--cs-border-subtle); text-align: center; }
 .cx-coverage-table th:first-child { text-align: start; }
 .cx-coverage-table thead { background: var(--cs-workbench-header-surface); font-size: 12px; color: var(--cs-text-secondary); }
 .cx-coverage-table tbody th { color: var(--cs-text-primary); font-weight: 600; }
@@ -61,7 +61,7 @@
 .cx-notice { padding: 12px 0; color: var(--cs-text-secondary); }
 .cx-table-scroll { max-width: 100%; overflow: auto; }
 .cx-table { border-collapse: collapse; width: 100%; min-width: 440px; text-align: left; }
-.cx-table th, .cx-table td { padding: 12px; border-bottom: 1px solid var(--cs-border); vertical-align: top; }
+.cx-table th, .cx-table td { padding: 11px 16px; border-bottom: 1px solid var(--cs-border); vertical-align: top; }
 .cx-table thead { font-size: 11px; text-transform: uppercase; color: var(--cs-text-secondary); }
 .cx-table td { font-variant-numeric: tabular-nums; }
 .cx-matrix caption { text-align: left; padding: 12px; font-size: 12px; }

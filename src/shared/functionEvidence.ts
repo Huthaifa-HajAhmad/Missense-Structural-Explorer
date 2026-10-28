@@ -26,6 +26,7 @@
 
 import type { DomainMatch, SecondaryStructureElement, UniprotFeaturesData, UniprotFeatureItem } from "./contracts.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "./aminoAcids.ts";
+import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
 import {
   assessPm1,
   EVIDENCE_LEVEL_LABEL,
@@ -534,17 +535,17 @@ function structureContext(ss: SecondaryStructureElement[], residue: number): { v
 }
 
 function availabilityOf(input: FunctionEvidenceInput): FunctionEvidence["availability"] {
-  if (input.uniprot) return { state: "ok", label: "Computed", reason: "" };
+  if (input.uniprot) return { state: "ok", label: ENGINE_STATE_LABELS.computed, reason: "" };
   const s = lower(input.serviceStatus);
   if (s === "timeout" || s === "error" || s === "failed" || s === "offline") {
     return {
       state: "error",
-      label: "Provider error",
+      label: ENGINE_STATE_LABELS["upstream-error"],
       reason: s === "timeout" ? "UniProtKB did not answer in time, so nothing is claimed about this residue." : "UniProtKB could not be reached, so nothing is claimed about this residue.",
     };
   }
-  if (s === "not_found") return { state: "error", label: "No result", reason: "UniProtKB has no feature table for this accession." };
-  return { state: "running", label: "Running", reason: "Reading the UniProtKB feature table and InterPro matches." };
+  if (s === "not_found") return { state: "error", label: ENGINE_STATE_LABELS["no-result"], reason: "UniProtKB has no feature table for this accession." };
+  return { state: "running", label: ENGINE_STATE_LABELS.running, reason: "Reading the UniProtKB feature table and InterPro matches." };
 }
 
 export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvidence {

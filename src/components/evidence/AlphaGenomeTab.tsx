@@ -40,7 +40,7 @@ import { evidenceTab } from '../../shared/evidenceTabs';
  *      standing caveat as the card's foot. When there is no score, the reason and the one remedy
  *      that can fix it, in the same card.
  *   2. WHAT THE SCORE IS MADE OF — the 18 SHAP contributions in one table, banded by origin, each
- *      with a bar on a zero line placed by the data, its value and its share of the total.
+ *      with its direction in words and its share of the total (signed magnitudes live in Comparison).
  *   3. THE ATLAS — deep links to this variant, built only from a GRCh38 coordinate.
  *
  * Method, provenance, the Phred arithmetic and the connection test live in the inspector
@@ -281,7 +281,7 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
       <div className="ag-card__foot">
         <span><i className="ag-key" data-origin="new" />New evidence</span>
         <span><i className="ag-key" data-origin="reused" />Read elsewhere</span>
-        <span>Right of the line raises the score, left lowers it · share = |value| over the summed |values|</span>
+        <span>Direction is the sign of the SHAP value · share = |value| over the summed |values|</span>
       </div>
     </section>
   );

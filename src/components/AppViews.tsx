@@ -447,19 +447,16 @@ export function AppViews({
                   foldingDdG={foldingDdG}
                   foldingStatus={foldingStatus as "failed" | "success" | "unavailable" | null}
                   foldingEnergetics={foldingEnergetics}
-                  dynamut2Status={dynamut2Status}
-                  ddmutStatus={ddmutStatus}
                   computedPocket={computedPocket}
                   isPocketLoading={isPocketLoading}
                   pocketError={pocketError}
-                  disruptionPredictor={disruptionPredictor}
                   isFolding={isFolding}
                   foldingError={foldingError}
                   structuralDiff={structuralDiff}
                   activeTab={activeEvidenceTab}
                   onTabChange={setActiveEvidenceTab}
                   active3dModelTab={active3dModelTab}
-                  metrics={active3dModelTab === "esm3" ? esmFoldMetrics : foldxMetrics}
+                  metrics={active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? esmFoldMetrics : foldxMetrics}
                   onOpenSettings={handleOpenSettingsMemo}
                   onRetryStructural={actions?.retryStructuralAnalysis}
                   onRetryPocket={handleRetryPocket}

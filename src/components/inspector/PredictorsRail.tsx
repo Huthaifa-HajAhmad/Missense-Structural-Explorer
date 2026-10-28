@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 import { buildPredictorComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, GitBranch, Ruler, Scale } from "lucide-react";
@@ -67,12 +67,15 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const { settings } = useSettings();
   const isLoading = useVariantAnalysisStore(s => s.analysisState?.isLoading ?? false);
   const isModelLoading = useVariantAnalysisStore(s => Boolean(s.isBiophysicalLoading || s.isStructuralLoading));
-  const evidence = buildPredictorEvidence({
+  // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
+  const alphagenomeConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
+  const evidence = useMemo(() => buildPredictorEvidence({
     result: analysisResult,
     isLoading, isModelLoading,
-    alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
-  });
-  const ev = buildLadderEvidence({ result: analysisResult, predictor: evidence });
+    alphagenomeConfigured,
+  }), [analysisResult, isLoading, isModelLoading, alphagenomeConfigured]);
+  const ev = useMemo(() => buildLadderEvidence({ result: analysisResult, predictor: evidence }), [analysisResult, evidence]);
+  const comparisonRows = useMemo(() => buildPredictorComparison(evidence, ev).rows, [evidence, ev]);
   const { constraint } = ev;
   const { vote, voters, engine } = evidence;
   // The engine's own PP3/BP4 on the point scale, as recorded: "PP3" is +1, "BP4_Strong" is -4.
@@ -115,7 +118,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
 
   return (
     <div className="prd-rail" data-testid="predictors-rail">
-      <EvidenceReadingInspector tab="predictors" rows={buildPredictorComparison(evidence, ev).rows} />
+      <EvidenceReadingInspector tab="predictors" rows={comparisonRows} />
       {/* ── 1. How the verdict was reached ── */}
       <section className="prd-rsec" aria-labelledby="prd-rail-trace">
         <h3 className="eyebrow" id="prd-rail-trace">
@@ -152,7 +155,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             </span>
             <span className="prd-step__sub">Rule: Z ≥ {PP2_RULE.missenseZ} and o/e &lt; {PP2_RULE.oeMisBelow} (local proxy)</span>
           </Step>
-          <Step n={5} label="BP1" state={ev.engine.bp1Stale ? "warn" : "done"}>
+          <Step n={5} label="BP1" state={ev.engine.bp1Stale ? "warn" : "idle"}>
             <span>Not assessed</span>
             <span className="prd-step__sub">Needs the gene&apos;s curated disease mechanism; pLI is not that fact.</span>
             {ev.engine.bp1Stale && (

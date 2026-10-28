@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
@@ -43,11 +43,14 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
   const { settings } = useSettings();
   // The same loading flags the tab composes, so the two panes agree on "running".
   const isAnalysisLoading = useVariantAnalysisStore(s => s.analysisState.isLoading);
-  const ev = buildSplicingEvidence({
+  const alphagenomeConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
+  // Same inputs as the tab's own builder, so the rail's evidence object is rebuilt only when they move.
+  const ev = useMemo(() => buildSplicingEvidence({
     result: analysisResult,
     isLoading: Boolean(isAnalysisLoading || isBiophysicalLoading),
-    alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
-  });
+    alphagenomeConfigured,
+  }), [analysisResult, isAnalysisLoading, isBiophysicalLoading, alphagenomeConfigured]);
+  const readings = useMemo(() => splicingReadings(ev, analysisResult), [ev, analysisResult]);
   const S = THRESHOLDS.spliceai;
   const { rule, geometry: g, engine } = ev;
   const pos = g.position !== null ? `${g.position > 0 ? "+" : "−"}${Math.abs(g.position)}` : null;
@@ -73,7 +76,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
 
   return (
     <div className="spl-rail" data-testid="splicing-rail">
-      <SplicingReadingInspector rows={splicingReadings(ev, analysisResult)} />
+      <SplicingReadingInspector rows={readings} />
       {/* ── 1. How the reading was reached ── */}
       <section className="spl-rsec" aria-labelledby="spl-rail-trace">
         <h3 className="eyebrow" id="spl-rail-trace">

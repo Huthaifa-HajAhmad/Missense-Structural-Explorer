@@ -1,5 +1,5 @@
 /* Expression & models: the review frame, the finding, and the coverage strip. Tokens only. */
-.xp-workspace.cx-screen { gap: 12px; }
+.xp-workspace.cx-screen { gap: 24px; }
 .xp-workspace .cx-empty { padding-block: 12px; }
 .xp-summary { padding-block: 4px 8px; display: grid; gap: 6px; }
 .xp-summary h2 { font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
@@ -15,7 +15,7 @@
 .xp-record-table { max-block-size: 640px; }
 .xp-record-table caption { text-align: start; padding-block: 8px 12px; font-size: 12px; }
 .xp-record-table thead { position: sticky; inset-block-start: 0; background: var(--cs-surface); z-index: 1; text-transform: none; font-size: 12px; }
-.xp-record-table :is(th, td) { padding-block: 8px; padding-inline: 12px; }
+.xp-record-table :is(th, td) { padding: 11px 16px; }
 .xp-record-table td { font-variant-numeric: tabular-nums; }
 .xp-record-table .evw-reading-button { min-block-size: 32px; }
 .xp-record-table .evw-reading-button:active { background: var(--cs-surface-2); }

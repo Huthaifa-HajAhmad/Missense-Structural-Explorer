@@ -1,9 +1,9 @@
 /* Shared disease selector and context typography; isolated from other tabs' classes. */
 .ctx-screen, .ctx-rail { font-family: var(--cs-font-sans); font-size: var(--cs-font-size-prose); line-height: 1.5; color: var(--cs-text-secondary); }
-.ctx-screen { display: flex; flex-direction: column; gap: 20px; container-type: inline-size; }
+.ctx-screen { display: flex; flex-direction: column; gap: 24px; container-type: inline-size; }
 .ctx-screen h1, .ctx-screen h2, .ctx-rail h2, .ctx-rail h3, .ctx-screen p, .ctx-rail p { margin: 0; }
 .ctx-card { background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-card); overflow: hidden; }
-.ctx-card__head { min-height: 42px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 16px; background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle); }
+.ctx-card__head { min-height: 40px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 16px; background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle); }
 .ctx-card__head h2, .ctx-eyebrow, .ctx-table thead th, .ctx-rail h2, .ctx-rail h3 { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }
 .ctx-card__body { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
 .ctx-card__foot { padding: 12px 16px; background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle); font-size: 12px; color: var(--cs-text-muted); }

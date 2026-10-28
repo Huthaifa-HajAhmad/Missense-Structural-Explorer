@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Info, ListChecks, MapPin, Scissors } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
@@ -324,22 +324,28 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
   const [localSmallSignals, setLocalSmallSignals] = useState(false);
   const result = analysisState.result;
-  if (!result) return null;
-
-  const base = buildSplicingEvidence({
-    result,
-    isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
-    // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
-    alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
-  });
-  const savedView = workspace.spliceMap?.transcript === base.geometry.transcriptId ? workspace.spliceMap : undefined;
-  const mapView = savedView ?? { transcript: base.geometry.transcriptId, halfWidth: null, focusedScore: false, showSmallSignals: false };
+  const loading = Boolean(analysisState.isLoading || isBiophysicalLoading);
+  // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
+  const alphagenomeConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
+  // The payload is large; rebuild the evidence only when an input to it moves.
+  const base = useMemo(
+    () => (result ? buildSplicingEvidence({ result, isLoading: loading, alphagenomeConfigured }) : null),
+    [result, loading, alphagenomeConfigured]
+  );
+  const savedView = base && workspace.spliceMap?.transcript === base.geometry.transcriptId ? workspace.spliceMap : undefined;
+  const mapView = savedView ?? { transcript: base?.geometry.transcriptId ?? null, halfWidth: null, focusedScore: false, showSmallSignals: false };
   const showSmallSignals = workspace.enabled ? mapView.showSmallSignals : localSmallSignals;
   const setShowSmallSignals = (value: boolean) => workspace.enabled ? workspace.setOptions({ spliceMap: { ...mapView, showSmallSignals: value } }) : setLocalSmallSignals(value);
-  const ev = showSmallSignals ? buildSplicingEvidence({ result, isLoading: base.pending, alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined, showSmallSignals }) : base;
+  const ev = useMemo(
+    () => (result && base
+      ? showSmallSignals ? buildSplicingEvidence({ result, isLoading: base.pending, alphagenomeConfigured, showSmallSignals }) : base
+      : null),
+    [result, base, alphagenomeConfigured, showSmallSignals]
+  );
+  const readings = useMemo(() => (ev && result ? splicingReadings(ev, result) : null), [ev, result]);
+  if (!result || !ev || !readings) return null;
   // The composite is still streaming: a re-score now would be overwritten by its next snapshot.
   const rescoreLocked = ev.pending || isConservationCompositePending(result, Boolean(analysisState.isLoading || isBiophysicalLoading));
-  const readings = splicingReadings(ev, result);
   const finding = splicingFinding(ev);
   const { geometry: g, rule } = ev;
   const spliceRow = ev.readings.find(r => r.key === "spliceai")!;

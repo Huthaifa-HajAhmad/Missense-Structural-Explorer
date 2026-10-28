@@ -405,7 +405,7 @@
 .viz-header-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .viz-mode { display: flex; background: var(--cs-surface-2); padding: 3px; border-radius: 10px; }
 .viz-mode button { padding: 3px 10px; font-size: 12px; cursor: pointer; border-radius: 7px; }
-.viz-mode button[aria-pressed="true"] { background: var(--cs-surface); box-shadow: 0 1px 3px #00000012; font-weight: 600; }
+.viz-mode button[aria-pressed="true"] { background: var(--cs-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--cs-text-primary) 7%, transparent); font-weight: 600; }
 .viz-range { font-size: 11px; color: var(--cs-text-secondary); }
 .viz-range summary { width: fit-content; cursor: pointer; border-radius: 4px; }
 .viz-range > div { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 12px; }

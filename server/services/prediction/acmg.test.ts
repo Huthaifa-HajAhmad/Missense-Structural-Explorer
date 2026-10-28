@@ -609,12 +609,12 @@ describe("PP3/BP4 over a salvaged conservation composite", () => {
     expect(run({ base: "settled", popeve: "settled", alphagenome: "settled" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
   });
 
-  it.each(["base", "popeve", "alphagenome"])("withholds PP3 when %s timed out, because the ensemble is incomplete", (model) => {
+  it.each(["base", "popeve"])("withholds PP3 when %s timed out, because the ensemble is incomplete", (model) => {
     const res = run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" });
     expect(res.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(false);
   });
 
-  it("is unaffected by a non-voting model (SpliceAI) that timed out", () => {
-    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", spliceai: "timeout" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+  it.each(["spliceai", "alphagenome"])("is unaffected by a non-voting model (%s) that timed out", (model) => {
+    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
   });
 });

@@ -46,7 +46,7 @@ describe('individual explanation drawers', () => {
   });
   it('migrates metric notices and handles native cancellation', () => {
     const close = vi.fn();
-    render(<MetricExplanationModal selectedMetric="rmsd" setSelectedMetric={close} isDark={false} />);
+    render(<MetricExplanationModal selectedMetric="rmsd" setSelectedMetric={close} />);
     fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
     expect(close).toHaveBeenCalledWith(null);
   });

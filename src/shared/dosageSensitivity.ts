@@ -69,7 +69,8 @@ export interface DosageReading {
   key: 'haploinsufficiency' | 'triplosensitivity'; name: string; asks: string;
   state: DosageScore['state']; code: DosageCode | null; call: string; tone: DosageTone;
   disease: string | null; diseaseId: string | null; history: string | null;
-  /** Exact-MONDO comparison with the selected disease; `unscoped` when either side has no ID. */
+  /** Exact-MONDO comparison with the selected disease (its own ID or a MONDO cross-reference);
+   * `unscoped` when either side has no MONDO ID, so an OMIM-keyed frame is never called "other". */
   scope: 'same-disease' | 'other-disease' | 'unscoped';
 }
 export interface DosageEvidence {
@@ -77,17 +78,23 @@ export interface DosageEvidence {
   readings: DosageReading[]; evaluatedAt: string | null; reportUrl: string | null; message: string | null;
 }
 
-function reading(key: DosageReading['key'], score: DosageScore, selectedDiseaseId: string | null): DosageReading {
+function reading(key: DosageReading['key'], score: DosageScore, selectedMondo: ReadonlySet<string>): DosageReading {
   const call = score.state === 'scored' ? `${score.code}: ${DOSAGE_CODE_LABELS[score.code as DosageCode]}`
     : score.state === 'not-evaluated' ? 'Not yet evaluated' : 'Not reported';
   return { key, name: key === 'haploinsufficiency' ? 'Haploinsufficiency' : 'Triplosensitivity',
     asks: key === 'haploinsufficiency' ? 'Does losing one gene copy cause disease?' : 'Does an extra gene copy cause disease?',
     state: score.state, code: score.code, call, tone: toneOf(score.code),
     disease: score.disease, diseaseId: score.diseaseId, history: score.history,
-    scope: !score.diseaseId || !selectedDiseaseId ? 'unscoped' : score.diseaseId === selectedDiseaseId ? 'same-disease' : 'other-disease' };
+    scope: !score.diseaseId || selectedMondo.size === 0 ? 'unscoped' : selectedMondo.has(score.diseaseId.toUpperCase()) ? 'same-disease' : 'other-disease' };
 }
 
-export function buildDosageEvidence(load: { status: 'loading' | 'ready' | 'error'; data: DosageResponse | null } | undefined, selectedDiseaseId: string | null): DosageEvidence {
+/** The selected frame's MONDO IDs: its own ID and its cross-references. Other namespaces (OMIM, Orphanet) are not compared. */
+function mondoIds(ids: string | readonly string[] | null): Set<string> {
+  const list = ids === null ? [] : typeof ids === 'string' ? [ids] : ids;
+  return new Set(list.map(id => id.trim().toUpperCase()).filter(id => id.startsWith('MONDO:')));
+}
+
+export function buildDosageEvidence(load: { status: 'loading' | 'ready' | 'error'; data: DosageResponse | null } | undefined, selectedDiseaseIds: string | readonly string[] | null): DosageEvidence {
   const empty = { readings: [], evaluatedAt: null, reportUrl: null };
   if (!load) return { ...empty, state: 'not-requested', message: null };
   if (load.status === 'loading') return { ...empty, state: 'loading', message: null };
@@ -99,6 +106,7 @@ export function buildDosageEvidence(load: { status: 'loading' | 'ready' | 'error
     : { ...empty, state: 'not-found', message: data.message };
   if (!data.record || data.record.symbol !== data.gene || !/^HGNC:\d+$/.test(data.record.geneId)) return { ...empty, state: 'error', message: 'The dosage response did not contain a valid record for this gene.' };
   const r = data.record;
+  const selectedMondo = mondoIds(selectedDiseaseIds);
   return { state: 'ready', evaluatedAt: r.evaluatedAt, reportUrl: r.reportUrl, message: null,
-    readings: [reading('haploinsufficiency', r.haploinsufficiency, selectedDiseaseId), reading('triplosensitivity', r.triplosensitivity, selectedDiseaseId)] };
+    readings: [reading('haploinsufficiency', r.haploinsufficiency, selectedMondo), reading('triplosensitivity', r.triplosensitivity, selectedMondo)] };
 }

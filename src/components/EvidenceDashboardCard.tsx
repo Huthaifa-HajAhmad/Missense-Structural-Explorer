@@ -1,6 +1,5 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useLayoutEffect, useRef } from "react";
 import { AlertTriangle, Database } from "lucide-react";
-import { useSettings } from "../context/SettingsContext";
 import { EvidenceDashboardCardProps, TabType, normalizeEvidenceTab } from "./evidence/types";
 import { formatDdg } from "../shared/engineStatus";
 import { ClinicalTab } from "./evidence/ClinicalTab";
@@ -47,12 +46,9 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     foldingDdG,
     foldingStatus,
     foldingEnergetics,
-    dynamut2Status,
-    ddmutStatus,
     computedPocket,
     isPocketLoading,
     pocketError,
-    disruptionPredictor,
     isFolding,
     foldingError,
     structuralDiff,
@@ -76,8 +72,6 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     }
   }, [onTabChange]);
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-  const { settings } = useSettings();
-  const energyUnit = settings.energyUnit;
 
   const result = analysisState.result;
 
@@ -105,12 +99,9 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     foldingDdG,
     foldingStatus,
     foldingEnergetics,
-    dynamut2Status,
-    ddmutStatus,
     computedPocket,
     isPocketLoading,
     pocketError,
-    disruptionPredictor,
     isFolding,
     foldingError,
     structuralDiff,
@@ -121,8 +112,6 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     onRetryPocket,
     onSelectResidue,
     onNavigateToView,
-    energyUnit,
-    formatDdGValue,
     setSelectedMetric
   }), [
     isDark,
@@ -139,12 +128,9 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     foldingDdG,
     foldingStatus,
     foldingEnergetics,
-    dynamut2Status,
-    ddmutStatus,
     computedPocket,
     isPocketLoading,
     pocketError,
-    disruptionPredictor,
     isFolding,
     foldingError,
     structuralDiff,
@@ -155,9 +141,25 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     onRetryPocket,
     onSelectResidue,
     onNavigateToView,
-    energyUnit,
     setSelectedMetric
   ]);
+
+  /*
+   * The guide button sits in the title row's right-hand column, and each Evidence header gives that room up
+   * (evidence-workspace.css). Its width follows the tab's own label, so it is measured on the button and handed
+   * to the box that holds it as `--rgd-action-width`, not assumed.
+   */
+  const actionRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const action = actionRef.current;
+    const host = action?.parentElement;
+    if (!action || !host || typeof ResizeObserver === "undefined") return;
+    const measure = () => host.style.setProperty("--rgd-action-width", `${action.offsetWidth}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(action);
+    return () => observer.disconnect();
+  }, [result, activeTab]);
 
   /*
    * The loading and no-result states. They used to print hard-coded progress chips ("Coordinates",
@@ -219,7 +221,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
       )}
 
       <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
-        <div className="rgd-context-action"><ResearchGuideButton topic={EVIDENCE_GUIDES[activeTab]} label={`About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[activeTab]].title}`} /></div>
+        <div className="rgd-context-action" ref={actionRef}><ResearchGuideButton topic={EVIDENCE_GUIDES[activeTab]} label={`About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[activeTab]].title}`} /></div>
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
         {activeTab === 'gene-disease' && <GeneDiseaseTab {...tabProps} />}
         {activeTab === 'expression-models' && <ExpressionModelsTab {...tabProps} />}
@@ -234,8 +236,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
 
         <MetricExplanationModal 
           selectedMetric={selectedMetric} 
-          setSelectedMetric={setSelectedMetric} 
-          isDark={isDark} 
+          setSelectedMetric={setSelectedMetric}
         />
       </div>
     </div>

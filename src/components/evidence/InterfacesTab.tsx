@@ -1,5 +1,5 @@
 import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Waypoints, X, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
@@ -23,7 +23,7 @@ import { InterfaceMapWorkspace } from "./interfaces/InterfaceMapWorkspace";
 import { AssemblyDiagram } from "./interfaces/AssemblyDiagram";
 import { PartnerTiers } from "./interfaces/PartnerTiers";
 import { BindingRuler, IptmRuler } from "./interfaces/Rulers";
-import { PPI_QUERY_PARAM, PPI_TIER_PARAM, parsePpiQuery, parsePpiTier, withPpiParams } from "./interfaces/viewUrlState";
+import { PPI_QUERY_PARAM, PPI_QUERY_MAX, PPI_TIER_PARAM, parsePpiQuery, parsePpiTier, withPpiParams } from "./interfaces/viewUrlState";
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from "./EvidenceWorkspace";
 import { MechanismSelection } from "./MechanismSelection";
 import { interfaceWorkspaceReadings, interfaceMapView, interfaceNumberingNote } from "../../shared/mechanismWorkspace";
@@ -313,24 +313,28 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
     setLit(key);
   }, [workspace.enabled, workspace.select]);
 
-  if (!result) return null;
-
-  const ev = buildInterfacesEvidence({
+  const { assembly, assemblyStatus, assemblyError, modelRequested, ppi, ppiStatus, ppiError, shift, shiftLoading, shiftError } = data;
+  // Hover, pin and filter changes re-render this tab; the evidence object is rebuilt only when its inputs move.
+  const ev = useMemo(() => (result ? buildInterfacesEvidence({
     result,
-    assembly: data.assembly,
-    assemblyStatus: data.assemblyStatus,
-    assemblyError: data.assemblyError,
-    modelRequested: data.modelRequested,
-    ppi: data.ppi,
-    ppiStatus: data.ppiStatus,
-    ppiError: data.ppiError,
-    shift: data.shift,
-    shiftLoading: data.shiftLoading,
-    shiftError: data.shiftError,
-  });
+    assembly,
+    assemblyStatus,
+    assemblyError,
+    modelRequested,
+    ppi,
+    ppiStatus,
+    ppiError,
+    shift,
+    shiftLoading,
+    shiftError,
+  }) : null), [result, assembly, assemblyStatus, assemblyError, modelRequested, ppi, ppiStatus, ppiError, shift, shiftLoading, shiftError]);
+  const rows = useMemo(() => (ev ? interfaceWorkspaceReadings(ev) : null), [ev]);
+  if (!result || !ev || !rows) return null;
   const { model, binding: b, interface: iface } = ev;
   const pdb = data.assembly?.status === "success" ? data.assembly.complexPdb : null;
   const visibleGroups = filterPartnerGroups(ev.groups, { tier, query });
+  // Every partner this filter leaves — shown, folded or listed on request — for the status region below the chart.
+  const matchedPartners = visibleGroups.reduce((n, g) => n + g.rows.length + (g.folded?.rows.length ?? 0), 0);
   const colCount = 4 + (ev.columns.solved ? 1 : 0) + (ev.columns.site ? 1 : 0);
   const partnerChain = ev.chains.length === 2 ? `${ev.chains[1].id} ${ev.chains[1].label}` : "another chain";
   const assemblyFailed = ev.status.assembly === "error";
@@ -454,7 +458,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
 
       {/* ── 2. Where on the sequence ──────────────────────────────────────────── */}
       <EvidenceViewTabs tab="interfaces" comparisonLabel="Interface map" />
-      <MechanismSelection tab="interfaces" rows={interfaceWorkspaceReadings(ev)} visibleKeys={workspace.view === 'partners' ? visibleGroups.flatMap(g => [...g.rows, ...(openFolds.has(g.id) ? g.folded?.rows ?? [] : [])].map(p => `partner:${p.key}`)) : workspace.comparison ? interfaceMapView(ev, workspace.window === 'near', workspace.hidden).visibleKeys : [...solvedRows.map(p => p.key), 'complex-model', 'binding-change']} />
+      <MechanismSelection tab="interfaces" rows={rows} visibleKeys={workspace.view === 'partners' ? visibleGroups.flatMap(g => [...g.rows, ...(openFolds.has(g.id) ? g.folded?.rows ?? [] : [])].map(p => `partner:${p.key}`)) : workspace.comparison ? interfaceMapView(ev, workspace.window === 'near', workspace.hidden).visibleKeys : [...solvedRows.map(p => p.key), 'complex-model', 'binding-change']} />
       <EvidencePanel tab="interfaces">
       {(!workspace.enabled || workspace.comparison) && <>
       <section className="ifc-section" aria-labelledby="ifc-track-title">
@@ -772,8 +776,9 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                       ref={searchInputRef}
                       value={query}
                       placeholder="Find a partner"
-                      onChange={e => setQuery(e.target.value.slice(0, 40))}
+                      onChange={e => setQuery(e.target.value.slice(0, PPI_QUERY_MAX))}
                       onKeyDown={e => { if (e.key === "Escape") setQuery(""); }}
+                      maxLength={PPI_QUERY_MAX}
                       aria-controls="ifc-partner-grid"
                     />
                     {query && (
@@ -797,6 +802,12 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                   )}
                 </div>
               </div>
+              {/* The tier and the query change what the grid holds; the resulting count is announced, not only redrawn. */}
+              <p className="sr-only" role="status" aria-live="polite" data-testid="partner-filter-status">
+                {matchedPartners === 0
+                  ? "No partner matches the current filter."
+                  : `Showing ${matchedPartners} partner${matchedPartners === 1 ? "" : "s"}${tier ? ` in “${ev.groups.find(g => g.id === tier)?.title ?? tier}”` : ""}.`}
+              </p>
               {visibleGroups.length ? (
                 <div className="ifc-table-wrap" role="region" aria-label={`Interaction partners of ${ev.gene}`} tabIndex={0}>
                   <table className="ifc-table ifc-table--partners" data-testid="partner-grid" id="ifc-partner-grid">

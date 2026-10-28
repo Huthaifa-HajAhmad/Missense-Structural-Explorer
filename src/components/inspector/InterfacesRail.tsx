@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { interfaceWorkspaceReadings } from "../../shared/mechanismWorkspace";
 import { EvidenceReadingInspector } from "./EvidenceReadingInspector";
 import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
@@ -47,19 +47,26 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
   // alone, e.g. in tests) it falls back to the stored result, applying the tab's staleness rules.
   const assemblyStatus = liveForVariant ? live.assemblyStatus : storedAsm && !isStaleAssembly(storedAsm) ? "ready" : "loading";
   const ppiStatus = liveForVariant ? live.ppiStatus : ppiForVariant && !isStalePpi(ppiForVariant) ? "ready" : "loading";
-  const ev = buildInterfacesEvidence({
+  const assemblyError = liveForVariant ? live.assemblyError : null;
+  const modelRequested = liveForVariant ? live.modelRequested : false;
+  const ppiError = liveForVariant ? live.ppiError : null;
+  const shiftLoading = liveForVariant ? live.shiftLoading : false;
+  const shiftError = liveForVariant ? live.shiftError : null;
+  // The tab builds the same object from the same inputs; memoise so a pin or a hover does not rebuild it.
+  const ev = useMemo(() => buildInterfacesEvidence({
     result: analysisResult,
     assembly: storedAsm,
     assemblyStatus,
-    assemblyError: liveForVariant ? live.assemblyError : null,
-    modelRequested: liveForVariant ? live.modelRequested : false,
+    assemblyError,
+    modelRequested,
     ppi: ppiForVariant,
     ppiStatus,
-    ppiError: liveForVariant ? live.ppiError : null,
+    ppiError,
     shift: shiftForVariant,
-    shiftLoading: liveForVariant ? live.shiftLoading : false,
-    shiftError: liveForVariant ? live.shiftError : null,
-  });
+    shiftLoading,
+    shiftError,
+  }), [analysisResult, storedAsm, assemblyStatus, assemblyError, modelRequested, ppiForVariant, ppiStatus, ppiError, shiftForVariant, shiftLoading, shiftError]);
+  const rows = useMemo(() => interfaceWorkspaceReadings(ev), [ev]);
   const assemblyPending = assemblyStatus === "loading";
   const lookupsPending = ppiStatus === "loading";
   const C = THRESHOLDS.complexConfidence;
@@ -86,7 +93,7 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
 
   return (
     <div className="ifc-rail" data-testid="interfaces-rail">
-      <EvidenceReadingInspector tab="interfaces" rows={interfaceWorkspaceReadings(ev)} />
+      <EvidenceReadingInspector tab="interfaces" rows={rows} />
       <section className="ifc-rsec" aria-labelledby="ifc-rail-trace">
         <h3 className="eyebrow" id="ifc-rail-trace">
           <GitBranch className="w-3.5 h-3.5" />

@@ -127,17 +127,22 @@ function Finding({ model, compact = false }: { model: ResidueContextEvidence; co
   );
 }
 
-function Properties({ model }: { model: ResidueContextEvidence }) {
+/**
+ * `compact` is the workspace's record of the scales: the comparison view already draws each scale
+ * (and the backbone caveat), so this drops the track column and keeps what only a table holds: native
+ * values, sources, the share-of-scale shift and the other amino acids' values.
+ */
+function Properties({ model, compact = false }: { model: ResidueContextEvidence; compact?: boolean }) {
   const { pair, properties } = model;
   return (
-    <section className="rsx-card" aria-label="Residue properties" data-testid="residue-properties">
+    <section className={compact ? undefined : "rsx-card"} aria-label="Residue properties" data-testid={compact ? undefined : "residue-properties"}>
       {properties ? (
         <div className="rsx-table-wrap">
-          <table className="rsx-table rsx-table--properties">
+          <table className={`rsx-table rsx-table--properties${compact ? " rsx-table--values" : ""}`}>
             <thead>
               <tr>
                 <th scope="col" className="rsx-col-name">Property</th>
-                <th scope="col" className="rsx-col-track">Position on the published scale</th>
+                {!compact && <th scope="col" className="rsx-col-track">Position on the published scale</th>}
                 <th scope="col" className="rsx-num rsx-col-val">{pair.wildType}</th>
                 <th scope="col" className="rsx-num rsx-col-val">{pair.mutant}</th>
                 <th scope="col" className="rsx-num rsx-col-shift">Shift</th>
@@ -150,13 +155,15 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
                     <span className="rsx-name"><InspectReadingButton tab="structure" readingKey={row.key}>{row.label}</InspectReadingButton></span>
                     <span className="rsx-note">{RESIDUE_SCALE_SOURCES[row.key].citation}{RESIDUE_SCALE_SOURCES[row.key].unit ? `, ${RESIDUE_SCALE_SOURCES[row.key].unit}` : ""}</span>
                   </td>
-                  <td>
-                    <PropertyDumbbell
-                      row={row}
-                      wildType={pair.wildType}
-                      mutant={pair.mutant}
-                    />
-                  </td>
+                  {!compact && (
+                    <td>
+                      <PropertyDumbbell
+                        row={row}
+                        wildType={pair.wildType}
+                        mutant={pair.mutant}
+                      />
+                    </td>
+                  )}
                   <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
                   <td className="rsx-num">{row.mutantNative ?? row.mutantValue}</td>
                   <td className="rsx-num">
@@ -180,7 +187,7 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
           </p>
         </div>
       )}
-      {model.backbone && (
+      {model.backbone && !compact && (
         <p className="rsx-caveat" data-testid="backbone-caveat">
           <span className="rsx-ring" aria-hidden="true" />
           <span>
@@ -189,10 +196,12 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
         </p>
       )}
       <div className="rsx-foot">
-        <span className="rsx-legend">
-          <span><i className="rsx-key-wt" aria-hidden="true" />{pair.wildType}, wild type</span>
-          <span><i className="rsx-key-mut" aria-hidden="true" />{pair.mutant}, variant</span>
-        </span>
+        {!compact && (
+          <span className="rsx-legend">
+            <span><i className="rsx-key-wt" aria-hidden="true" />{pair.wildType}, wild type</span>
+            <span><i className="rsx-key-mut" aria-hidden="true" />{pair.mutant}, variant</span>
+          </span>
+        )}
         <span>
           Shift is the share of each scale&apos;s range. The scales describe the two residues, not an effect on this protein.
         </span>
@@ -491,6 +500,12 @@ export function StructureTab({
       <EvidencePanel tab="structure">
       <Finding model={model} compact={workspace.comparison} />
       {workspace.comparison && <ResiduePropertyComparison model={model} />}
+      {workspace.comparison && model.properties && (
+        <details className="rsx-card rsx-values" data-testid="residue-property-values">
+          <summary>Scale values, shifts and sources</summary>
+          <Properties model={model} compact />
+        </details>
+      )}
       {!workspace.enabled && <Properties model={model} />}
       {(!workspace.enabled || workspace.view === 'records') && <Environment
         model={model}
