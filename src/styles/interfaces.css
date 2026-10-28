@@ -151,9 +151,13 @@
 .ifc-track__readout[data-hit] { color: var(--cs-text-accent); font-weight: var(--cs-font-weight-semibold); }
 .ifc-track__readout--head { font-size: 10px; font-weight: 600; color: var(--cs-text-accent); }
 .ifc-track__open {
+  position: relative;
   display: block; max-width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer;
   font: inherit; border-radius: 3px;
 }
+/* The name line is ~17px tall; the transparent overlay carries the hit target to 24px without
+   growing the row it sits in. */
+.ifc-track__open::after { content: ""; position: absolute; inset-block: -4px; inset-inline: 0; }
 @media (hover: hover) and (pointer: fine) {
   .ifc-track__open:hover { color: var(--cs-text-accent); }
 }

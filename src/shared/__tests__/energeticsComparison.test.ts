@@ -5,6 +5,78 @@ import { KJ_PER_KCAL } from '../engineStatus';
 
 const evidence = (extra = {}) => buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.62, foldxMean: 2.62, dynamut2: 0.36, ddmut: 0, thermompnn: 1.2, ...extra }, foldingStatus: 'success' });
 describe('Energetics comparison scientific display contract', () => {
+  it('stages a majority with its exception instead of calling four of five "disagree"', () => {
+    const urod = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        dynamut2: -0.528, ddmut: -0.03, rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034,
+        stabilityoracleStatus: 'done', raspStatus: 'done',
+      },
+      dynamut2Status: 'done',
+      ddmutStatus: 'done',
+      thermompnnStatus: 'done',
+    });
+    expect(energeticsComparisonHeadline(urod)).toBe('Mostly no destabilization');
+    expect(energeticsComparisonFinding(urod)).toBe(
+      'Most methods predict no destabilisation under their local marks; DynaMut2 gives a moderately destabilising reading. This does not establish that the variant is benign.'
+    );
+    // Mid-run the prominent sentence must not read as final.
+    const urodRunning = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        dynamut2: -0.528, ddmut: -0.03, rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034,
+        stabilityoracleStatus: 'done', raspStatus: 'done',
+      },
+      dynamut2Status: 'done',
+      ddmutStatus: 'done',
+      thermompnnStatus: 'done',
+      isFolding: true,
+    });
+    expect(energeticsComparisonFinding(urodRunning)).toContain('Other results are still being collected');
+  });
+  it('mirrors the majority rule for the destabilizing and moderate bands', () => {
+    // 4 past their destabilizing mark, DynaMut2 only moderate: a severity difference, not a split.
+    const mostlyHigh = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        foldx: 2.6, foldxMean: 2.6, rasp: 1.7, thermompnn: 1.9, stabilityoracle: 1.6, stabilityoracleStatus: 'done', raspStatus: 'done',
+        dynamut2: -0.7,
+      },
+      foldingStatus: 'success',
+      dynamut2Status: 'done',
+      ddmutStatus: 'done',
+      thermompnnStatus: 'done',
+    });
+    expect(mostlyHigh.agreement.direction).toBe('mostly-destabilizing');
+    expect(energeticsComparisonHeadline(mostlyHigh)).toBe('Mostly destabilizing');
+    expect(energeticsComparisonFinding(mostlyHigh)).toContain('DynaMut2 sits in the moderately destabilising band');
+    // 4 moderate, one neutral: still a majority reading, with the dissent named.
+    const mostlyModerate = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        foldx: 1.2, foldxMean: 1.2, rasp: 0.8, thermompnn: 0.9, stabilityoracle: 0.9, stabilityoracleStatus: 'done', raspStatus: 'done',
+        dynamut2: 0.1,
+      },
+      foldingStatus: 'success',
+      dynamut2Status: 'done',
+      ddmutStatus: 'done',
+      thermompnnStatus: 'done',
+    });
+    expect(mostlyModerate.agreement.direction).toBe('mostly-moderate');
+    expect(energeticsComparisonHeadline(mostlyModerate)).toBe('Mostly moderately destabilizing');
+    expect(energeticsComparisonFinding(mostlyModerate)).toContain('DynaMut2 predicts no destabilisation');
+  });
+  it('keeps a genuine contradiction split when the exception crosses two bands', () => {
+    // 4 moderate + 1 past a DESTABILIZING mark: the majority rule refuses to call it "mostly moderate".
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        foldx: 2.6, foldxMean: 2.6, rasp: 0.8, thermompnn: 0.9, stabilityoracle: 0.9, stabilityoracleStatus: 'done', raspStatus: 'done',
+        dynamut2: -0.6, ddmut: 0.4,
+      },
+      foldingStatus: 'success',
+      dynamut2Status: 'done',
+      ddmutStatus: 'done',
+      thermompnnStatus: 'done',
+    });
+    expect(ev.agreement.nCounted).toBe(6);
+    expect(ev.agreement.direction).toBe('split');
+  });
   it('qualifies sparse and excluded evidence in the prominent headline before showing a direction', () => {
     expect(energeticsComparisonHeadline(buildEnergeticsEvidence({}))).toBe('No usable estimate');
     expect(energeticsComparisonHeadline(buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2, foldxRepairFailed: true }, foldingStatus: 'success' }))).toBe('No usable estimate');

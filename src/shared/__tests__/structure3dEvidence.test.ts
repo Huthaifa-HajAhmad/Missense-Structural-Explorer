@@ -239,6 +239,53 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.plddtFilter.reason).toMatch(/most mobile atoms/);
   });
 
+  it("discloses an experimental entry that is not the wild-type sequence", () => {
+    const m = buildStructure3dEvidence(
+      baseInput({
+        wildType: {
+          provenance: {
+            source: "experimental",
+            pdbId: "1R3S",
+            chainId: "A",
+            resolution: 1.65,
+            sequenceDifferences: ["D86G (engineered mutation)"],
+          },
+          customPdbUrl: null,
+          scan: scanBFactors(CRYSTAL_TEXT),
+          site: readResidueAt(CRYSTAL_TEXT, 116),
+        },
+      })
+    );
+    const notice = m.notices.find(n => n.key === "template-differences");
+    expect(notice?.tone).toBe("warning");
+    expect(notice?.title).toMatch(/not the wild-type sequence/);
+    expect(notice?.body).toContain("D86G (engineered mutation)");
+    expect(m.canvas.primary?.detail).toContain("differs from UniProt at D86G");
+  });
+
+  it("says why the engines' template is AlphaFold and not the mutant crystal", () => {
+    const m = buildStructure3dEvidence(
+      baseInput({
+        foldx: {
+          ...baseInput().foldx,
+          template: {
+            source: "alphafold",
+            afdbVersion: "v6",
+            excludedExperimental: {
+              pdbId: "1R3S",
+              chainId: "A",
+              differences: ["D86G (engineered mutation)"],
+            },
+          },
+        },
+      })
+    );
+    const notice = m.notices.find(n => n.key === "excluded-template");
+    expect(notice?.title).toBe("The experimental entry is not the wild type");
+    expect(notice?.body).toContain("1R3S:A differs from UniProt at D86G (engineered mutation)");
+    expect(notice?.body).toContain("AF-Q13564-F1 v6");
+  });
+
   it("describes the FoldX variant by its template and its copied B-factor column", () => {
     const m = buildStructure3dEvidence(baseInput({ viewMode: "mutant" }));
     expect(m.viewMode).toBe("mutant");

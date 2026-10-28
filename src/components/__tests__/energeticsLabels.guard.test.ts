@@ -112,7 +112,36 @@ const GUARDED_SURFACES = [
   "src/components/molstar/StructureStatusOverlay.tsx",
   "src/components/molstar/StructurePocketPanel.tsx",
   "src/components/inspector/StructureInspector.tsx",
+  // Function, Population, AlphaGenome, Perturbation and Gene–disease surfaces and their rails: they render
+  // engine and source state too, and were never listed, so a retired label in any of them passed the guard.
+  "src/components/evidence/function/FunctionTab.tsx",
+  "src/components/inspector/FunctionRail.tsx",
+  "src/shared/functionEvidence.ts",
+  "src/shared/functionalSites.ts",
+  "src/components/inspector/PopulationRail.tsx",
+  "src/components/inspector/AlphaGenomeRail.tsx",
+  "src/components/inspector/PerturbationRail.tsx",
+  "src/components/evidence/GeneDiseaseTab.tsx",
+  "src/components/evidence/population/FrequencyScale.tsx",
+  "src/components/evidence/predictors/ScoreRuler.tsx",
 ] as const;
+
+/**
+ * Listed surfaces that do not import engineStatus. Their retired-label and own-vocabulary rules still run;
+ * the import rule is skipped, and reported as skipped, until each one imports the module or gets a delegate
+ * entry in the table below.
+ */
+const SURFACES_PENDING_ENGINE_IMPORT: ReadonlySet<string> = new Set([
+  "src/components/evidence/function/FunctionTab.tsx",
+  "src/components/inspector/FunctionRail.tsx",
+  "src/shared/functionalSites.ts",
+  "src/components/inspector/PopulationRail.tsx",
+  "src/components/inspector/AlphaGenomeRail.tsx",
+  "src/components/inspector/PerturbationRail.tsx",
+  "src/components/evidence/GeneDiseaseTab.tsx",
+  "src/components/evidence/population/FrequencyScale.tsx",
+  "src/components/evidence/predictors/ScoreRuler.tsx",
+]);
 
 /**
  * The canonical module every guarded surface must consume.
@@ -233,7 +262,7 @@ describe("Energetics label guardrail", () => {
         ).toEqual([]);
       });
 
-      it("renders engine state from the canonical shared module", () => {
+      it.skipIf(SURFACES_PENDING_ENGINE_IMPORT.has(surface))("renders engine state from the canonical shared module", () => {
         const source = readSurface(surface);
         // Composed context views delegate status rendering. Verify the actual import, that the
         // imported symbol is really invoked (an import mention alone used to satisfy the check),

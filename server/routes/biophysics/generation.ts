@@ -359,7 +359,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       if (!clientPdbValid) {
         // Resolve structure from PDBe / AlphaFold
         try {
-          resolvedStructure = await resolveStructure(uniprotId, posNum);
+          /**
+           * FoldX and the remote ΔΔG engines MUTATE this template. An experimental chain that
+           * already carries a substitution (UROD 1R3S is the D86G mutant) would be mutated a second
+           * time, so the resolver is asked for a wild-type chain and falls to the AlphaFold model
+           * when the crystal is not one. The provenance carries which entry was refused and why.
+           */
+          resolvedStructure = await resolveStructure(uniprotId, posNum, { requireWildType: true });
           if (resolvedStructure) {
             const residues = await parseResiduesFromPdbMaybeAsync(resolvedStructure.pdbText);
             const targetChain = resolvedStructure.provenance.chainId || chainParam;
@@ -372,7 +378,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               if (afData) {
                 resolvedStructure = {
                   pdbText: afData,
-                  provenance: { source: "alphafold" }
+                  // Keep the resolution's own disclosures (the wild-type refusal, the version): the
+                  // screen must still be able to say why the experimental entry is not the template.
+                  provenance: {
+                    source: "alphafold",
+                    ...(resolvedStructure.provenance.afdbVersion ? { afdbVersion: resolvedStructure.provenance.afdbVersion } : {}),
+                    ...(resolvedStructure.provenance.excludedExperimental ? { excludedExperimental: resolvedStructure.provenance.excludedExperimental } : {})
+                  }
                 };
               }
             }
@@ -496,6 +508,20 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           resolution: resolvedStructure?.provenance.resolution ?? null,
           method: resolvedStructure?.provenance.method ?? null,
           identity: resolvedStructure?.provenance.identity ?? null,
+          ...(resolvedStructure?.provenance.afdbVersion
+            ? { afdbVersion: resolvedStructure.provenance.afdbVersion }
+            : {}),
+          /**
+           * Why the screen does not show the experimental entry beside this AlphaFold template:
+           * the chain is not the wild type. `sequenceDifferences` is the other side of the same
+           * fact — an experimental template that WAS kept (a view) and the residues it departs by.
+           */
+          ...(resolvedStructure?.provenance.sequenceDifferences
+            ? { sequenceDifferences: resolvedStructure.provenance.sequenceDifferences }
+            : {}),
+          ...(resolvedStructure?.provenance.excludedExperimental
+            ? { excludedExperimental: resolvedStructure.provenance.excludedExperimental }
+            : {}),
           timestamp: new Date().toISOString()
         };
 
@@ -902,15 +928,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             protvarModel: cachedFoldx.energetics?.protvarModel ?? null,
             protvarReason: cachedFoldx.energetics?.protvarReason ?? null,
             protvarError: cachedFoldx.energetics?.protvarError ?? null
-          }, {
-            source: resolvedStructure?.provenance.source ?? "client-provided",
-            pdbId: resolvedStructure?.provenance.pdbId ?? null,
-            chainId: resolvedStructure?.provenance.chainId ?? null,
-            resolution: resolvedStructure?.provenance.resolution ?? null,
-            method: resolvedStructure?.provenance.method ?? null,
-            identity: resolvedStructure?.provenance.identity ?? null,
-            timestamp: new Date().toISOString()
-          }, posNum);
+          }, structureProvenance, posNum);
 
           /**
            * Engines whose submission has not returned an id yet: hand the client a token to collect

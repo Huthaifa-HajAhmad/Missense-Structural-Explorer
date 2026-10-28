@@ -7,14 +7,16 @@
 .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> [data-evidence-screen]) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; }
 .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> [data-evidence-screen]) > .rgd-context-action { grid-area: 1 / 2; z-index: 1; align-self: start; margin: 0; }
 .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > [data-evidence-screen] { grid-area: 1 / 1 / auto / -1; min-width: 0; }
-.evidence-workspace [data-evidence-screen] > header { padding-inline-end: 260px; }
+/* The title row gives up the guide button's measured width (EvidenceDashboardCard sets --rgd-action-width on the box
+   that holds it), and only while that button is there: a screen without one keeps its full header width. */
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> .rgd-context-action) > [data-evidence-screen] > header { padding-inline-end: calc(var(--rgd-action-width, 0px) + 16px); }
 /* The screens space their header, tabs and panels with one flex gap, so the description's own bottom margin was a
    second gap stacked on it (about 50px of void before the tabs). */
 .evidence-workspace [data-evidence-screen] > header > .screen-tab-description { margin-block-end: 0; }
 @media (max-width: 650px) {
   .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> [data-evidence-screen]) > .rgd-context-action { grid-area: 1 / 1 / auto / -1; margin-bottom: 12px; }
   .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > [data-evidence-screen] { grid-row: 2; }
-  .evidence-workspace [data-evidence-screen] > header { padding-inline-end: 0; }
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> .rgd-context-action) > [data-evidence-screen] > header { padding-inline-end: 0; }
 }
 /* The tabs' underline sits on this row's hairline, so the row has no bottom padding of its own. */
 .evw-navigation { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--cs-border-subtle); }

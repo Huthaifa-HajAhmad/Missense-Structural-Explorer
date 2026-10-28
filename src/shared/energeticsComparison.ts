@@ -1,5 +1,5 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
-import { AGREEMENT_CHIP, absenceText, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { AGREEMENT_CHIP, absenceText, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
  * Missing values never become points; filtering never changes agreement or the full-data axis.
@@ -90,6 +90,15 @@ export function energeticsComparisonFinding(evidence: EnergeticsEvidence): strin
   }
   if (a.direction === 'split') {
     return 'The methods give different stability readings. Inspect the individual estimates before drawing a conclusion.';
+  }
+  if (a.direction === 'mostly-not-destabilizing') {
+    return `Most methods predict no destabilisation under their local marks; ${listNames(a.moderate.map(r => r.name))} ${a.moderate.length === 1 ? 'gives' : 'give'} a moderately destabilising reading. This does not establish that the variant is benign.${running ? ' Other results are still being collected.' : ''}`;
+  }
+  if (a.direction === 'mostly-moderate') {
+    return `Most methods give a moderately destabilising reading under their local marks; ${listNames(a.notDestabilizing.map(r => r.name))} ${a.notDestabilizing.length === 1 ? 'predicts' : 'predict'} no destabilisation. This does not establish that the variant is benign.${running ? ' Other results are still being collected.' : ''}`;
+  }
+  if (a.direction === 'mostly-destabilizing') {
+    return `Most methods give a destabilising reading under their local marks; ${listNames(a.moderate.map(r => r.name))} ${a.moderate.length === 1 ? 'sits' : 'sit'} in the moderately destabilising band. This does not establish that the variant is pathogenic.${running ? ' Other results are still being collected.' : ''}`;
   }
   const pairWords: Record<'destabilizing' | 'moderate' | 'not-destabilizing', string> = {
     destabilizing: 'give a destabilising reading under their local marks.',

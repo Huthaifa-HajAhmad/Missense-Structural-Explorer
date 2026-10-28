@@ -2,7 +2,7 @@
    prefixed `gd-` so nothing here leaks into the Expression tab that shares the ctx-* primitives.
    Tokens only; one tint per card (head and foot bars); rows are flat and hairline-separated. */
 .gd-screen, .gd-rail { font-family: var(--cs-font-sans); font-size: var(--cs-font-size-prose); line-height: 1.5; color: var(--cs-text-secondary); }
-.gd-screen { --gd-bar-h: 40px; display: flex; flex-direction: column; gap: 20px; container-type: inline-size; min-width: 0; }
+.gd-screen { --gd-bar-h: 40px; display: flex; flex-direction: column; gap: 24px; container-type: inline-size; min-width: 0; }
 .gd-screen :is(h1, h2, p, dl, dd), .gd-rail :is(h2, h3, p, ol, dl, dd) { margin: 0; }
 .gd-screen .eyebrow, .gd-rail .eyebrow, .gd-table thead th, .gd-rail h2, .gd-rail h3 {
   font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
@@ -160,7 +160,6 @@
 }
 
 /* Scope, evidence navigation and findings are separate groups; record tools share one row. */
-.gd-screen.cx-screen { gap: 16px; }
 .gd-screen > header { display: flex; flex-direction: column; gap: 8px; }
 .gd-screen .gd-picker { padding: 12px 16px; gap: 8px 16px; background: var(--cs-surface-2); }
 .gd-screen .gd-picker__note { line-height: 1.6; }

@@ -895,7 +895,7 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
         ddG: 1.0,
         energetics: { foldx: 1.0, dynamut2: null }
       };
-      const getCacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(cachedMock as any);
+      const getCacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCacheForBackfill").mockResolvedValue(cachedMock as any);
       const writeCacheSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
 
       let jsonVal: any = null;
@@ -923,6 +923,50 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
       expect(jsonVal.prediction).toBe(-0.387);
       expect(writeCacheSpy).toHaveBeenCalledWith("test_cache_key_489", expect.objectContaining({
         energetics: expect.objectContaining({ dynamut2: -0.387 })
+      }));
+
+      pollSpy.mockRestore();
+      getCacheSpy.mockRestore();
+      writeCacheSpy.mockRestore();
+    });
+
+    it("backfills a completed ThermoMPNN prediction, so a cache hit stops re-submitting it", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-job/:jobId");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /thermompnn-job/:jobId not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const { recordJobInRegistry } = await import("./shared.ts");
+      await recordJobInRegistry("tm-job-318", "thermompnn", "RA318G", "test_cache_key_318");
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const pollSpy = vi.spyOn(biophysicsModule, "pollThermoMpnnJob").mockResolvedValue({
+        status: "done",
+        prediction: -0.106
+      } as any);
+
+      const cachedMock = {
+        pdb: "ATOM...",
+        ddG: 1.0,
+        energetics: { foldx: 1.0, thermompnn: null },
+      };
+      const getCacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCacheForBackfill").mockResolvedValue(cachedMock as any);
+      const writeCacheSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
+
+      const req: any = { params: { jobId: "tm-job-318" }, headers: {}, query: {} };
+      const res: any = {
+        status() {
+          return this;
+        },
+        json(body: any) {
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(writeCacheSpy).toHaveBeenCalledWith("test_cache_key_318", expect.objectContaining({
+        energetics: expect.objectContaining({ thermompnn: -0.106 })
       }));
 
       pollSpy.mockRestore();

@@ -70,6 +70,24 @@ describe('molecular workspace interaction contracts', () => {
     expect(inspector().getByText('−1')).toBeInTheDocument();
     expect(inspector().getByText('0')).toBeInTheDocument();
   });
+  it('keeps the share-of-scale shift and the reference amino-acid values reachable in the comparison view', () => {
+    render(<Harness result={molecularWorkspaceFixture()} tab="structure" />);
+    // Production always renders the workspace, so the old full table (residue-properties) never mounts.
+    expect(screen.queryByTestId('residue-properties')).not.toBeInTheDocument();
+    const values = within(screen.getByTestId('residue-property-values'));
+    expect(values.getByRole('columnheader', { name: 'Shift' })).toBeInTheDocument();
+    expect(values.getAllByText(/% of the scale/).length).toBeGreaterThan(0);
+    expect(values.getByText('Reference values for other amino acids')).toBeInTheDocument();
+    expect(values.getAllByText(/Grantham 1974/).length).toBeGreaterThan(0);
+    // The comparison already draws each scale and the backbone caveat; the record repeats neither.
+    expect(screen.getAllByText(/glycine frees the backbone/i)).toHaveLength(1);
+  });
+  it('names a language model whose row was taken from settings, in the workspace as well as the table', () => {
+    const result = molecularWorkspaceFixture();
+    const unnamed = { ...result, saprotEval: { ...(result as any).saprotEval, provenance: undefined } } as unknown as AnalysisResult;
+    render(<Harness result={unnamed} tab="perturbation" />);
+    expect(screen.getByTestId('ptb-caveat-saprot')).toHaveTextContent(/taken from your settings, not from what ran/);
+  });
   it('pins a probability through the real chart, then selects the same model-specific record', async () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
     // ResidueDetail lazy-loads the real chart stack. A one-second DOM query deadline can expire

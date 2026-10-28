@@ -60,6 +60,32 @@ describe("FoldX Modular Engine Tests", () => {
       expect(prov.source).toBe("alphafold");
       expect(prov.semantic).toBe("plddt");
     });
+
+    it("detects an AlphaFold DB accession, not any 'AF-' substring", () => {
+      const afPdb = "DBREF  XXXX A    1   367  UNP    P06132  AF-P06132-F1\nATOM      1  CA  ALA A   1      10.0 10.0 10.0  1.00 85.00           C";
+      expect(detectBFactorProvenance(afPdb).source).toBe("alphafold");
+    });
+
+    // 1R3S (UROD, X-ray 1.65 Å) read as AlphaFold: B-factors all under 100 plus the word MODEL in
+    // REMARK 3, so FoldX skipped RepairPDB and the tab said "pLDDT in B-factors" for a crystal.
+    it("reads an X-ray entry as experimental even when its B-factors fall in 0-100 and REMARK 3 names a MODEL", () => {
+      const xray = [
+        "HEADER    LYASE                                   03-OCT-03   1R3S              ",
+        "EXPDTA    X-RAY DIFFRACTION                                                     ",
+        "REMARK   3  FIT TO DATA USED IN REFINEMENT. MODEL : RESTRAINED                  ",
+        "DBREF  1R3S A    1   367  UNP    P06132   DCUP_HUMAN       1    367             ",
+        "ATOM      1  N   PHE A  11      21.425  47.902  66.423  1.00 37.52           N",
+        "ATOM      2  CA  PHE A  11      21.112  48.558  65.127  1.00 37.50           C",
+      ].join("\n");
+      expect(detectBFactorProvenance(xray)).toEqual({ source: "experimental", semantic: "temperature_factor", inherited: true });
+    });
+
+    it("reads an NMR or EM entry as experimental", () => {
+      for (const method of ["SOLUTION NMR", "ELECTRON MICROSCOPY"]) {
+        const pdb = `HEADER    TEST\nEXPDTA    ${method}\nATOM      1  CA  ALA A   1      10.0 10.0 10.0  1.00 50.00           C`;
+        expect(detectBFactorProvenance(pdb).source).toBe("experimental");
+      }
+    });
   });
 
   describe("pdb-utils.ts: countIncompleteResidues", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeStabilityConsensus } from "../thresholds";
 import {
+  AGREEMENT_CHIP,
   buildEnergeticsEvidence,
   energeticsAgreementText,
   energeticsSummary,
@@ -95,6 +96,45 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     expect([s.lead, ...s.rest].join(" ")).not.toMatch(/probab|calibrat|conformal/i);
   });
 
+  it("calls a two-thirds majority with one moderate exception 'mostly no destabilization'", () => {
+    // UROD p.Gly318Arg, the run that produced the exception: four engines below their supporting
+    // mark, DynaMut2 at +0.528 against its +0.50 moderate mark. One engine past a weaker mark is not
+    // "the engines disagree", but the exception must stay visible.
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        dynamut2: -0.528, ddmut: -0.03, rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034,
+        stabilityoracleStatus: "done", raspStatus: "done",
+      },
+      dynamut2Status: "done",
+      ddmutStatus: "done",
+      thermompnnStatus: "done",
+    });
+    expect(ev.agreement.nCounted).toBe(5);
+    expect(ev.agreement.moderate.map(r => r.key)).toEqual(["dynamut2"]);
+    expect(ev.agreement.direction).toBe("mostly-not-destabilizing");
+    expect(ev.agreement.verdict).toBe("No Destabilization Predicted (Most Engines)");
+    expect(AGREEMENT_CHIP[ev.agreement.direction].label).toBe("Mostly no destabilization");
+    const s = energeticsSummary(ev);
+    expect(s.lead).toContain("4 of the 5 counted engines");
+    expect(s.lead).toContain("DynaMut2 (+0.53 kcal/mol)");
+    expect(s.lead).toContain("moderately destabilizing band");
+    // A majority reading is still something to reconcile.
+    expect(s.tone).toBe("warning");
+  });
+
+  it("keeps a genuine contradiction split: one engine past a DESTABILIZING mark is not a majority", () => {
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: { foldx: 2.6, dynamut2: 0.21, ddmut: 0.03, thermompnn: -0.1, stabilityoracle: 0.2, stabilityoracleStatus: "done" },
+      foldingStatus: "success",
+      dynamut2Status: "done",
+      ddmutStatus: "done",
+      thermompnnStatus: "done",
+    });
+    expect(ev.agreement.nCounted).toBe(5);
+    expect(ev.agreement.direction).toBe("split");
+    expect(energeticsSummary(ev).lead).toContain("engines disagree");
+  });
+
   it("does not print an ensemble spread of 0.00 as an error bar", () => {
     const foldx = nae1().readings.find(r => r.key === "foldx")!;
     expect(foldx.note).toBe("Mean of 5 BuildModel runs; run-to-run spread 0.00 kcal/mol, not an error bar.");
@@ -157,7 +197,7 @@ describe("energeticsEvidence — edge cases", () => {
     const ev = buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.0, foldxMean: 2.0 }, foldingStatus: "success" });
     const s = energeticsSummary(ev);
     expect(ev.agreement.direction).toBe("destabilizing");
-    expect(s.lead).toBe("Only FoldX (+2.00 kcal/mol) returned a value, and it is past its destabilizing mark.");
+    expect(s.lead).toBe("FoldX (+2.00 kcal/mol) is the only counted engine, and it is past its destabilizing mark.");
     expect(s.rest[0]).toContain("too few to read as agreement");
     expect(s.tone).toBe("warning");
   });

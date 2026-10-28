@@ -230,6 +230,7 @@ function ModelCaveatCallouts({ evidence }: { evidence: PerturbationEvidence }) {
           </>
         );
       }
+      if (l.caveats.includes("inferred-model")) parts.push(<>was not named in the payload, so its row is taken from your settings, not from what ran</>);
       if (l.caveats.includes("sequence-only")) parts.push(<>had no structure token at this residue and read it from sequence alone</>);
       if (l.caveats.includes("flat") && l.entropy !== null) {
         parts.push(

@@ -39,8 +39,6 @@ export function useBiophysicalModeling(
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);
   const [foldingError, setFoldingError] = useState<string | null>(null);
-  const [foldingStatus, setFoldingStatus] = useState<string | null>(null);
-  const [foldingDdG, setFoldingDdG] = useState<number | null>(null);
 
   // Synchronize biophysical energetics and remote job states directly with global Zustand store
   const foldingEnergetics = useVariantAnalysisStore(s => s.foldingEnergetics);
@@ -342,10 +340,6 @@ export function useBiophysicalModeling(
     setIsFolding,
     foldingError,
     setFoldingError,
-    foldingStatus,
-    setFoldingStatus,
-    foldingDdG,
-    setFoldingDdG,
     foldingEnergetics,
     setFoldingEnergetics,
     dynamut2Status,

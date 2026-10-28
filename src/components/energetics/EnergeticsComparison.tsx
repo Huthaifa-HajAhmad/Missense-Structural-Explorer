@@ -79,7 +79,7 @@ export default function EnergeticsComparison({ evidence, unit, selected, onSelec
       <span>{evidence.foldxTemplateCheck.headline} {evidence.foldxTemplateCheck.detail}</span>
     </div>}
     {pinnedReading && <p className="nrg-comparison-caution" role="status">{pinnedReading.name} is excluded from the agreement, so "Counted only" hides it. Turn the filter off to see its value again.</p>}
-    {model.missing.length > 0 && <div className="nrg-missing-methods"><span>No point plotted</span>{model.missing.map(r => <button type="button" key={r.key} aria-pressed={selected === r.key} onClick={() => onSelect(r.key)}>{r.name}<small>{r.status}</small></button>)}</div>}
+    {model.missing.length > 0 && <div className="nrg-missing-methods"><span>No point plotted</span>{model.missing.map(r => <button type="button" key={r.key} aria-pressed={selected === r.key} onClick={() => onSelect(r.key)} title={r.reason}>{r.name}<small>{r.reason !== r.status ? `${r.status} — ${r.reason}` : r.status}</small></button>)}</div>}
     <details className="nrg-chart-help"><summary>How to read this comparison</summary><p>ΔΔG is the predicted change in folding free energy caused by this substitution. Zero means no predicted change; negative values point towards more stable folding and positive values towards less stable folding. Signs are normalised across methods.</p><p>Methods can disagree because their assumptions and training data differ. They are not independent experimental confirmations. Local guides explain the app's method calls; distance from zero is not a probability of disease. An empty row means no estimate, not a value of zero.</p></details>
   </ChartFrame></div>;
 }

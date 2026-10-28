@@ -1745,13 +1745,13 @@
 }
 /* The clay chip's soft tint has to change in dark mode, or a near-white chip sits on a dark
    surface. Indigo and success already ship paired tokens. Software keeps the neutral chip. */
-.about-kind-dataset { color: #166534; border-color: rgba(22, 163, 74, 0.2); background: var(--cs-bg-success); }
-.about-kind-model { color: var(--cs-text-accent); border-color: rgba(196, 104, 73, 0.2); background: color-mix(in srgb, var(--cs-accent-clay) 8%, var(--cs-surface)); }
-.about-kind-service { color: var(--cs-text-indigo-on-soft); border-color: rgba(99, 102, 241, 0.2); background: var(--cs-bg-indigo); }
+.about-kind-dataset { color: var(--cs-text-good-on-soft); border-color: color-mix(in srgb, var(--cs-text-success) 20%, transparent); background: var(--cs-bg-success); }
+.about-kind-model { color: var(--cs-text-accent); border-color: color-mix(in srgb, var(--cs-accent-clay) 20%, transparent); background: color-mix(in srgb, var(--cs-accent-clay) 8%, var(--cs-surface)); }
+.about-kind-service { color: var(--cs-text-indigo-on-soft); border-color: color-mix(in srgb, var(--cs-text-indigo-on-soft) 20%, transparent); background: var(--cs-bg-indigo); }
 .about-kind-software { color: var(--cs-text-secondary); }
-.dark .about-kind-dataset { color: #4ADE80; border-color: rgba(74, 222, 128, 0.25); }
-.dark .about-kind-model { color: #E08B66; border-color: rgba(224, 139, 102, 0.25); background: rgba(196, 104, 73, 0.14); }
-.dark .about-kind-service { color: #A5B4FC; border-color: rgba(165, 180, 252, 0.25); }
+.dark .about-kind-dataset { border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent); }
+.dark .about-kind-model { border-color: color-mix(in srgb, var(--cs-text-accent) 25%, transparent); background: color-mix(in srgb, var(--cs-accent-clay) 14%, transparent); }
+.dark .about-kind-service { border-color: color-mix(in srgb, var(--cs-text-indigo-on-soft) 25%, transparent); }
 .about-credit-host {
   font-family: var(--cs-font-mono);
   font-size: var(--cs-font-size-badge);

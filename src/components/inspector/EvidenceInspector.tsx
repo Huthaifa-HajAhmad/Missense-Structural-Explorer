@@ -54,7 +54,7 @@ const RAILS: Record<EvidenceTabId, (p: RailProps) => React.ReactNode> = {
   "species-models": p => <EvidenceContextRail analysisResult={p.analysisResult} expression={false} species />,
   function: p => <FunctionRail analysisResult={p.analysisResult} />,
   predictors: p => <PredictorsRail analysisResult={p.analysisResult} />,
-  alphagenome: p => <AlphaGenomeRail analysisResult={p.analysisResult} />,
+  alphagenome: p => <AlphaGenomeRail analysisResult={p.analysisResult} isBiophysicalLoading={p.isBiophysicalLoading} />,
   splicing: p => <SplicingRail analysisResult={p.analysisResult} isBiophysicalLoading={p.isBiophysicalLoading} />,
   structure: p => (
     <ResidueShiftInspector

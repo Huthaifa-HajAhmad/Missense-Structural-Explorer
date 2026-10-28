@@ -846,8 +846,6 @@ function propsFor(c: Case): TabComponentProps {
   const state: AnalysisState = { isLoading: false, error: null, result: resultFor(c) } as AnalysisState;
   return {
     analysisState: state,
-    energyUnit: "kcal/mol",
-    formatDdGValue: (v: number | null) => String(v ?? "—"),
     setSelectedMetric: () => {},
     onSelectResidue: () => {},
     onNavigateToView: () => {},

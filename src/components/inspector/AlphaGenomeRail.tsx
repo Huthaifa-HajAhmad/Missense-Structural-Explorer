@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 import { buildAttributionComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import {
   ALPHAGENOME_SOURCES,
   PHRED_RANK_ROWS,
@@ -44,10 +45,17 @@ function Step({ n, label, state = "done", children }: { n: number; label: string
   );
 }
 
-export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisResult }) {
+export function AlphaGenomeRail({ analysisResult, isBiophysicalLoading }: { analysisResult: AnalysisResult; isBiophysicalLoading?: boolean }) {
   const { settings } = useSettings();
+  const storeLoading = useVariantAnalysisStore(s => Boolean(s.isBiophysicalLoading));
+  // The same flag the tab passes, so the two panes cannot say "pending" and "no result" at once.
+  const isLoading = isBiophysicalLoading ?? storeLoading;
   const hasKey = Boolean(settings.alphagenomeApiKey?.trim());
-  const ev = buildAlphaGenomeEvidence({ result: analysisResult, configured: hasKey ? true : undefined });
+  const ev = useMemo(
+    () => buildAlphaGenomeEvidence({ result: analysisResult, configured: hasKey ? true : undefined, isLoading }),
+    [analysisResult, hasKey, isLoading]
+  );
+  const comparisonRows = useMemo(() => buildAttributionComparison(ev).rows, [ev]);
 
   const scored = ev.assessed && ev.phred !== null;
   // The reference row this variant sits in: the highest row at or below its Phred.
@@ -55,7 +63,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
 
   return (
     <div className="ag-rail" data-testid="alphagenome-rail">
-      <EvidenceReadingInspector tab="alphagenome" rows={buildAttributionComparison(ev).rows} />
+      <EvidenceReadingInspector tab="alphagenome" rows={comparisonRows} />
       {/* ── 1. How the rank was obtained ── */}
       <section className="rail-section" aria-labelledby="ag-rail-trace">
         <h3 className="eyebrow" id="ag-rail-trace">

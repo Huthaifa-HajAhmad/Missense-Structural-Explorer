@@ -60,6 +60,16 @@ describe("AlphaGenomeRail", () => {
     expect(screen.queryByText(/Key in this browser/)).not.toBeInTheDocument();
   });
 
+  it("states the same availability as the tab while the biophysical stage is still running", () => {
+    const bare: any = { metadata: { gene: "GZF1", variant: "p.Arg591Trp" }, conservationData: {} };
+    const { unmount } = render(<AlphaGenomeRail analysisResult={bare} isBiophysicalLoading />);
+    const pending = within(screen.getByTestId("avi-trace")).getAllByText(/./).map(n => n.textContent).join(" | ");
+    unmount();
+    render(<AlphaGenomeRail analysisResult={bare} isBiophysicalLoading={false} />);
+    const settled = within(screen.getByTestId("avi-trace")).getAllByText(/./).map(n => n.textContent).join(" | ");
+    expect(pending).not.toBe(settled);
+  });
+
   it("replaces the placeholder telemetry box on the AlphaGenome tab", () => {
     render(<EvidenceInspector analysisResult={result} activeEvidenceTab="alphagenome" />);
     expect(screen.getByTestId("alphagenome-rail")).toBeInTheDocument();

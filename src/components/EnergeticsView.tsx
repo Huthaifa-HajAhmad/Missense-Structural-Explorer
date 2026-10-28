@@ -334,6 +334,12 @@ function StructureFact({ evidence }: { evidence: EnergeticsEvidence }) {
             <ExternalLink className="inline w-3 h-3 ml-1 -mt-0.5" aria-hidden="true" />
             <span className="sr-only"> (opens in a new tab)</span>
           </a>
+        ) : s.href ? (
+          <a href={s.href} target="_blank" rel="noopener noreferrer" title="Open the AlphaFold DB entry">
+            AlphaFold model
+            <ExternalLink className="inline w-3 h-3 ml-1 -mt-0.5" aria-hidden="true" />
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
         ) : (
           "Model"
         )}
@@ -342,11 +348,31 @@ function StructureFact({ evidence }: { evidence: EnergeticsEvidence }) {
         {[
           s.resolution !== null ? `${s.resolution.toFixed(1)} Å` : null,
           s.source === "homolog" && s.identity !== null ? `${s.identity.toFixed(0)}% identity` : null,
+          s.afdbVersion,
           s.repair,
         ]
           .filter(Boolean)
-          .join(" · ") || " "}
+          .join(" · ") || " "}
       </span>
+      {/*
+        A mutating engine needs the wild type. When the experimental entry was refused for that
+        reason, the screen says which entry and why, and links the model it used instead — the
+        AlphaFold DB entry — rather than presenting the predicted template as if it were a crystal.
+      */}
+      {s.excludedExperimental && (
+        <span className="nrg-fact__sub" data-testid="energetics-excluded-template">
+          {s.excludedExperimental.pdbId}
+          {s.excludedExperimental.chainId ? `:${s.excludedExperimental.chainId}` : ""} was not used:{" "}
+          {s.excludedExperimental.unverified
+            ? "it could not be checked against UniProt."
+            : `${s.excludedExperimental.differences.join(", ")} — not the wild type.`}
+        </span>
+      )}
+      {s.sequenceDifferences.length > 0 && (
+        <span className="nrg-fact__sub" data-testid="energetics-template-differences">
+          Template differs from UniProt: {s.sequenceDifferences.join(", ")}.
+        </span>
+      )}
     </div>
   );
 }
@@ -504,10 +530,12 @@ const EnergeticsView = memo(function EnergeticsView({
         isFolding,
         plddt: disruptionPredictor?.plddt ?? result?.disruptionPredictor?.plddt ?? null,
         hidePending: hidePendingEngines,
+        uniprotId: result?.metadata?.uniprotId ?? null,
       }),
     [
       foldingDdG, foldingStatus, foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus,
       thermompnnError, foldingError, isFolding, disruptionPredictor?.plddt, result?.disruptionPredictor?.plddt, hidePendingEngines,
+      result?.metadata?.uniprotId,
     ]
   );
 

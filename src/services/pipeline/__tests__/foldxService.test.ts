@@ -970,6 +970,63 @@ describe("foldxService", () => {
       })
     );
   });
+
+  it("keeps the wild-type gate's disclosure when it rebuilds the template provenance (regression: F1 was stripped)", async () => {
+    const run = async (provenance: Record<string, unknown>) => {
+      const sink: any = makeSink();
+      await executeFoldxPipeline({
+        uniprotId: "P06132",
+        variant: "p.Gly318Arg",
+        residueIndex: 318,
+        fetchWithAuth: vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            status: "completed",
+            pdb: "ATOM 1 N ...",
+            foldedResidueIndex: 318,
+            ddG: -1.75,
+            energetics: { totalEnergy: 12.0 },
+            provenance,
+          }),
+        }),
+        sink,
+        signal: new AbortController().signal,
+        requestId: 1,
+        getActiveRequestId: () => 1,
+      });
+      return sink.setFoldingEnergetics.mock.calls
+        .map((call: any[]) => call[0])
+        .reduce((acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater), {});
+    };
+
+    // The whitelist in `applyEnergetics` rebuilt these objects; a missing field here means the screen
+    // can no longer say why the mutant crystal is not the template.
+    const refused = await run({
+      source: "alphafold",
+      afdbVersion: "v6",
+      excludedExperimental: { pdbId: "1R3S", chainId: "A", differences: ["D86G (engineered mutation)"] },
+    });
+    expect(refused.structureProvenance).toEqual(
+      expect.objectContaining({
+        source: "alphafold",
+        afdbVersion: "v6",
+        excludedExperimental: { pdbId: "1R3S", chainId: "A", differences: ["D86G (engineered mutation)"] },
+      })
+    );
+
+    const kept = await run({
+      source: "experimental",
+      pdbId: "1R3S",
+      chainId: "A",
+      sequenceDifferences: ["D86G (engineered mutation)"],
+    });
+    expect(kept.structureProvenance).toEqual(
+      expect.objectContaining({
+        source: "experimental",
+        sequenceDifferences: ["D86G (engineered mutation)"],
+      })
+    );
+  });
 });
 
 /**

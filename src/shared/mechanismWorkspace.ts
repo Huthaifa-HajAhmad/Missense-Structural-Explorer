@@ -4,7 +4,6 @@
  * invents a chain contact or spatial position from an assembly statement.
  */
 import type { EvidenceChartRow } from './evidenceComparison';
-import type { SplicingEvidence } from './splicingEvidence';
 import { PARTNER_GROUP_LABEL, type InterfacesEvidence } from './interfacesEvidence';
 import { variantNumberingView, type NumberingRemapLike } from './numbering';
 
@@ -42,23 +41,6 @@ export function interfaceMapView(ev: InterfacesEvidence, near: boolean, hidden: 
     marks: l.marks.filter(m => m.residue >= bounds.start && m.residue <= bounds.end),
   }));
   return { bounds, layers, evidence: { ...ev, track }, visibleKeys: track.map(l => l.rowKey ?? `track:${l.key}`) };
-}
-
-export function spliceWorkspaceReadings(ev: SplicingEvidence): EvidenceChartRow[] {
-  return ev.readings.map(r => ({
-    knowledgeKey: r.knowledgeKey ?? (r.group === 'channels' ? 'spliceai' : r.key.startsWith('dbscsnv') ? 'dbscsnv' : 'splicing'),
-    key: r.key, name: r.name, value: r.score, valueText: r.scoreText,
-    description: r.description, group: r.group, tone: 'neutral',
-    facts: [{ label: 'Returned score', value: r.score === null ? r.availability.label ?? 'No result' : String(r.score) },
-      { label: 'Position / unit', value: r.sub ?? 'Not reported' },
-      { label: 'Transcript', value: ev.geometry.transcriptId ?? 'Not resolved' },
-      { label: 'Reading', value: r.call?.label ?? r.availability.reason ?? 'Informational' },
-      { label: 'Source', value: r.key.startsWith('spliceai') ? ev.spliceai.sourceText : r.scaleSource ?? r.name }],
-    notes: [r.note, r.scaleSource, r.availability.reason,
-      'These are computational readings. The engine does not apply a splicing criterion.',
-      r.group === 'channels' ? 'A delta score is a predicted change in splice-site use, not a probability that the variant causes disease.' : null,
-    ].filter((s): s is string => Boolean(s)),
-  }));
 }
 
 export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChartRow[] {

@@ -240,6 +240,25 @@ const f3 = (n: number) => n.toFixed(3);
 const agree = (a: number | null, b: number | null): boolean =>
   a !== null && b !== null && Math.abs(a - b) < 0.0005;
 
+type SubstitutionRevel = { revel: number | null; revelSnvs?: number[] };
+
+/**
+ * REVEL scores the SNV, so one amino-acid change can carry several values (UROD p.Gly318Arg: G>A
+ * 0.229, G>C 0.233). The table keeps the highest as the substitution's REVEL; the pipeline reports
+ * the queried SNV. They agree when the pipeline's value is any of the SNVs' values. Rows cached
+ * before `revelSnvs` existed fall back to the single kept value.
+ */
+function revelAgrees(revel: number, sub: SubstitutionRevel): boolean {
+  const values = sub.revelSnvs?.length ? sub.revelSnvs : sub.revel === null ? [] : [sub.revel];
+  return values.some((v) => agree(revel, v));
+}
+
+/** "0.233", or "0.229 / 0.233" when several SNVs give the substitution. */
+function revelText(sub: SubstitutionRevel): string {
+  const values = sub.revelSnvs?.length ? sub.revelSnvs : sub.revel === null ? [] : [sub.revel];
+  return values.length > 1 ? `${values.map(f3).join(" / ")} (one per SNV)` : f3(values[0] ?? (sub.revel as number));
+}
+
 /**
  * The tab's headline, stated from data only. It names no ACMG criterion as met: PM1 (hotspot /
  * critical domain) needs expert review of regional data this tab only partly shows, and the band
@@ -273,6 +292,10 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
       cautions.push("The source stopped at its row limit for this gene; residues past it may read as unscored.");
     } else if (flag.startsWith("overcount:")) {
       cautions.push(`Residue ${flag.split(":")[1]} reports more substitutions than one codon admits; its summary is unreliable.`);
+    } else if (flag === "remote-fallback-off") {
+      cautions.push(
+        "The local dbNSFP store did not cover this window and the remote fallback is turned off on this server, so no scores are shown. That is missing data, not a benign reading."
+      );
     }
   }
   if (!meta && rows.length > 0) {
@@ -509,12 +532,12 @@ function variantSentence(
   const mismatchParts: string[] = [];
   if (am !== null && ownSub?.am != null && !agree(am, ownSub.am))
     mismatchParts.push(`AlphaMissense ${f3(am)} from the predictors pipeline vs ${f3(ownSub.am)} in dbNSFP`);
-  if (revel !== null && ownSub?.revel != null && !agree(revel, ownSub.revel))
-    mismatchParts.push(`REVEL ${f3(revel)} from the predictors pipeline vs ${f3(ownSub.revel)} in dbNSFP`);
+  if (revel !== null && ownSub?.revel != null && !revelAgrees(revel, ownSub))
+    mismatchParts.push(`REVEL ${f3(revel)} from the predictors pipeline vs ${revelText(ownSub)} in dbNSFP`);
   let context = "";
   const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
   const own = subs.find((x) => x.alt === target.mut);
-  if (am !== null && own && subs.length > 1 && agree(am, own.am) && (revel === null || own.revel === null || agree(revel, own.revel)) && mismatchParts.length === 0) {
+  if (am !== null && own && subs.length > 1 && agree(am, own.am) && (revel === null || own.revel === null || revelAgrees(revel, own)) && mismatchParts.length === 0) {
     const rank = subs.filter((x) => (x.am as number) > (own.am as number)).length + 1;
     // "of the N substitutions scored here" — the set is what dbNSFP scored, which can be fewer
     // than the SNV-reachable set. The old wording ("of 6 SNV-reachable substitutions") claimed a

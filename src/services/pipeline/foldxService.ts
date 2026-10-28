@@ -433,6 +433,14 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
             raspDatasetSnapshot: prov.raspDatasetSnapshot,
             vesmModel: prov.vesmModel,
             modelSha: prov.modelSha,
+            /**
+             * The wild-type gate's disclosure travels WITH the template: without these two the
+             * resolver can refuse a mutant crystal (1R3S is the D86G mutant) and the screen would
+             * show an AlphaFold template with no word of why. Kept explicit, like every field above,
+             * so the whitelist stays an honest inventory of what this function passes through.
+             */
+            sequenceDifferences: Array.isArray(prov.sequenceDifferences) ? prov.sequenceDifferences : undefined,
+            excludedExperimental: prov.excludedExperimental ?? undefined,
             timestamp: prov.timestamp
           }
         : undefined;

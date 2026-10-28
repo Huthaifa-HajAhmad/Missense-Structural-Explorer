@@ -27,9 +27,12 @@
 }
 .prd-screen { display: flex; flex-direction: column; gap: 24px; }
 
+/* Screen-wide keyboard ring. :where() keeps it at the lowest specificity, so per-control rings below win. */
+.prd-screen :where(button, select, summary, a, [tabindex]:not([tabindex="-1"])):focus-visible,
+.prd-rail :where(button, summary, a):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
 .prd-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
 .prd-dim { color: var(--cs-text-muted); }
-.prd-strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); }
 
 /* The one uppercase label, inside this screen and rail. */
 .prd-screen .eyebrow,
@@ -382,18 +385,6 @@
   font-size: var(--cs-font-size-caption); line-height: 1.45;
   color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning);
 }
-
-/* Bands: code chip in a column wide enough for "BP4 Very Strong", threshold, marker. */
-.prd-cuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.prd-cut {
-  display: grid; grid-template-columns: 124px 64px minmax(0, 1fr);
-  align-items: center; gap: 8px; padding: 4px 0;
-  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-}
-.prd-cut > .ev-tier { justify-self: start; }
-.prd-cut__rule { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
-.prd-cut__here { font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); white-space: nowrap; }
-.prd-cut[data-active] .prd-cut__rule { color: var(--cs-text-primary); }
 
 .prd-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .prd-notes > summary {

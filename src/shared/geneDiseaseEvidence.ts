@@ -122,7 +122,7 @@ export function buildGeneDiseaseModel(input: {
   const now = input.now ?? new Date();
   const data = input.disease?.data ?? null;
   const base = buildGeneDiseaseEvidence(data, input.selectedKey);
-  const dosage = buildDosageEvidence(input.dosage, base.selected?.diseaseId ?? null);
+  const dosage = buildDosageEvidence(input.dosage, base.selected ? [base.selected.diseaseId, ...base.selected.xrefs] : null);
   const mech = data?.mechanismContext;
   const sources = {
     gencc: snapshotReading('GenCC', input.disease, now, 'The GenCC snapshot'),

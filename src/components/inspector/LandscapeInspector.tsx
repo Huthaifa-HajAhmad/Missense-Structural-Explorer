@@ -388,7 +388,16 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                       <div className="lsr-readsas">
                         <span className="font-semibold">Reads as</span> · {readsAsSentence(verdict)}
                       </div>
-                      {verdict.mismatch && <p className="lsr-mismatch" role="note">{verdict.mismatch}</p>}
+                      {/*
+                        One line here; the full text is the finding's data caution on the tab, which
+                        is on screen beside this rail. Repeating the whole paragraph in both places
+                        made the rail long and the two copies could drift.
+                      */}
+                      {verdict.mismatch && (
+                        <p className="lsr-mismatch" role="note" title={verdict.mismatch}>
+                          Pipeline and dbNSFP disagree on this variant — see the missing-data caution on the Landscape tab.
+                        </p>
+                      )}
                       <div className="lsr-verdict" role="list" aria-label="What the scores are read on">
                         {verdict.calls.map((c) => (
                           <div key={c.tool} className="lsr-verdict__row" role="listitem">

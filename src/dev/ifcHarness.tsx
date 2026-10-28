@@ -35,8 +35,6 @@ function Harness() {
           analysisState={{ result: RESULT, isLoading: false } as any}
           activeTab="interfaces"
           onTabChange={() => {}}
-          energyUnit="kcal/mol"
-          formatDdGValue={(v: number | null) => `${v}`}
           setSelectedMetric={() => {}}
           foldingDdG={null}
           foldingStatus={null}

@@ -82,7 +82,9 @@ describe("EnergeticsInspector — the rule trace", () => {
     expect(steps[0]).toHaveTextContent("FoldX template: not repaired (large structure)");
     expect(steps[0].getAttribute("data-state")).toBe("warn");
     expect(steps[1]).toHaveTextContent("3 of 6 engines");
-    expect(steps[1]).toHaveTextContent("No value: DynaMut2, DDMut and RaSP");
+    // F8: a missing engine carries its reason, not a bare name.
+    expect(steps[1]).toHaveTextContent("No value: DynaMut2 — The run ended without returning a value");
+    expect(steps[1]).toHaveTextContent("RaSP — No precomputed RaSP score is available");
     expect(steps[2]).toHaveTextContent("1 destabilizing · 0 moderate · 2 not destabilizing");
     expect(steps[3]).toHaveTextContent("Engines disagree · median −0.06 kcal/mol");
     expect(steps[3].getAttribute("data-state")).toBe("warn");
@@ -114,8 +116,7 @@ describe("EnergeticsInspector — the rule trace", () => {
     // The server stamps both on every run; neither produced a number here.
     expect(text).not.toContain("VESM_150M_v1");
     expect(text).not.toContain("2023-Zenodo-6835877");
-    expect(text).toContain("FoldX runs");
-  });
+    expect(text).toContain("FoldX runs");  });
 });
 
 describe("EnergeticsInspector — FoldX on two templates", () => {
@@ -210,6 +211,69 @@ describe("EnergeticsInspector — engines without a value", () => {
     const target = document.getElementById(INSPECTOR_SECTIONS.stabilityTelemetry);
     expect(target).not.toBeNull();
     expect(target!.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("names a refused non-wild-type template and links the AlphaFold model this run used", () => {
+    renderInspector({
+      analysisResult: {
+        metadata: { gene: "UROD", variant: "p.Gly318Arg", residueIndex: 318, uniprotId: "P06132" },
+        uniprotFeatures: { features: [] },
+        conservationData: {},
+      },
+      foldingEnergetics: {
+        foldx: -1.75,
+        foldxMean: -1.75,
+        structureProvenance: {
+          source: "alphafold",
+          afdbVersion: "v6",
+          excludedExperimental: { pdbId: "1R3S", chainId: "A", differences: ["D86G (engineered mutation)"] },
+        },
+      },
+      foldingStatus: "success",
+    });
+    const note = screen.getByTestId("energetics-excluded-template");
+    expect(note).toHaveTextContent("1R3S:A is not the wild type — D86G (engineered mutation) — so this run used the AlphaFold model");
+    expect(within(note).getByRole("link", { name: /AlphaFold model/ })).toHaveAttribute(
+      "href",
+      "https://alphafold.ebi.ac.uk/entry/P06132"
+    );
+  });
+
+  it("says a refused template could not be checked, never that it is a mutant", () => {
+    renderInspector({
+      foldingEnergetics: {
+        foldx: -1.75,
+        foldxMean: -1.75,
+        structureProvenance: {
+          source: "alphafold",
+          excludedExperimental: { pdbId: "1R3S", chainId: "A", differences: [], unverified: true },
+        },
+      },
+      foldingStatus: "success",
+    });
+    const note = screen.getByTestId("energetics-excluded-template");
+    expect(note).toHaveTextContent("could not be checked against UniProt");
+    expect(note).not.toHaveTextContent("is not the wild type");
+  });
+
+  it("names a structural homolog when Tier 2 was unavailable, not a hard-coded AlphaFold model", () => {
+    renderInspector({
+      foldingEnergetics: {
+        foldx: -1.75,
+        foldxMean: -1.75,
+        structureProvenance: {
+          source: "homolog",
+          pdbId: "5XYZ",
+          chainId: "B",
+          identity: 60,
+          excludedExperimental: { pdbId: "1R3S", chainId: "A", differences: ["D86G"] },
+        },
+      },
+      foldingStatus: "success",
+    });
+    const note = screen.getByTestId("energetics-excluded-template");
+    expect(note).toHaveTextContent("this run used the structural homolog");
+    expect(note).not.toHaveTextContent("AlphaFold model");
   });
 });
 

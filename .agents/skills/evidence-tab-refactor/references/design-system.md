@@ -70,7 +70,7 @@ as a placeholder. The standard now:
 
 ## Layout vocabulary (copy the values into your own prefix — do not reference these classes)
 The names below are Population's and Predictors' own classes; read them as templates.
-- Screen: `pop-screen @container` (flex column, 20px gap).
+- Screen: `pop-screen @container` (flex column, 24px gap; every Evidence screen root uses 24px).
 - Cards: `pop-card`; hero `pop-hero` → `pop-hero__body`, `__top`, `__figure`, `__figure-label`,
   `__finding`; facts `pop-facts` > `pop-fact` (`__label`, `__value`, `__sub`).
 - Callouts: `pop-callout[data-tone=warning|neutral]`; banner variant `pop-callout--banner`.

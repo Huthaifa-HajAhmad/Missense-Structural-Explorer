@@ -232,6 +232,19 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       if (provenance.method)      res.setHeader("X-Template-Method",      provenance.method);
       if (provenance.identity != null)
                                   res.setHeader("X-Template-Identity",    String(provenance.identity));
+      if (provenance.afdbVersion)
+                                  res.setHeader("X-Template-AfdbVersion", provenance.afdbVersion);
+      // Where a kept experimental chain departs from UniProt ("D86G (engineered mutation)"). JSON in a
+      // header so a comment containing a comma cannot split the list; the viewer shows it, never
+      // hides it. Capped: the array is bounded only by the chain length, and a proxy with a small
+      // buffer would otherwise truncate (or reject) the whole response.
+      if (provenance.sequenceDifferences?.length) {
+        const shown = provenance.sequenceDifferences.slice(0, 20);
+        const capped = shown.length < provenance.sequenceDifferences.length
+          ? [...shown, `+${provenance.sequenceDifferences.length - shown.length} more`]
+          : shown;
+        res.setHeader("X-Template-Sequence-Differences", encodeURIComponent(JSON.stringify(capped)));
+      }
       publishStructureRef(res, pdbText, {
         origin: "server",
         uniprotId: validatedUniprot,

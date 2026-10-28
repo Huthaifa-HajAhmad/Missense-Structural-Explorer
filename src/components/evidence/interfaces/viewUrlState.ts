@@ -10,13 +10,15 @@ import { PARTNER_GROUP_LABEL, type PartnerGroup } from "../../../shared/interfac
 
 export const PPI_TIER_PARAM = "ppit";
 export const PPI_QUERY_PARAM = "ppiq";
+/** A gene symbol or accession, not prose: the field and the URL share one visible limit. */
+export const PPI_QUERY_MAX = 40;
 
 export function parsePpiTier(raw: string | null): PartnerGroup | null {
   return raw && Object.prototype.hasOwnProperty.call(PARTNER_GROUP_LABEL, raw) ? (raw as PartnerGroup) : null;
 }
 
 export function parsePpiQuery(raw: string | null): string {
-  return (raw ?? "").slice(0, 40);
+  return (raw ?? "").slice(0, PPI_QUERY_MAX);
 }
 
 /** The URL with this tab's parameters set (or removed when empty). Returns the input when nothing changes. */

@@ -226,7 +226,8 @@ function ReferenceRow({ evidence }: { evidence: PredictorEvidence }) {
 
 /**
  * A score split at its decimal point, so a column mixing 0.231, 26.3, -4.00 and 7 lines up on the
- * point rather than on the last digit (right-aligning alone left the points staggered).
+ * point rather than on the last digit (right-aligning alone left the points staggered). The split
+ * halves are hidden from assistive technology and the whole number is read once from the sr-only copy.
  */
 function DecimalScore({ text }: { text: string }) {
   const dot = text.indexOf(".");
@@ -234,8 +235,9 @@ function DecimalScore({ text }: { text: string }) {
   const frac = dot < 0 ? "" : text.slice(dot);
   return (
     <span className="prd-dec">
-      <span className="prd-dec__int">{int}</span>
-      <span className="prd-dec__frac">{frac}</span>
+      <span className="sr-only">{text}</span>
+      <span className="prd-dec__int" aria-hidden="true">{int}</span>
+      <span className="prd-dec__frac" aria-hidden="true">{frac}</span>
     </span>
   );
 }

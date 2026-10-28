@@ -706,7 +706,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                     ) : (
                       <>
                         <span className="px-1.5 py-0.5 rounded bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20 font-bold">
-                          AVI Phred: {hoveredCell.variant?.phred !== null && hoveredCell.variant?.phred !== undefined ? hoveredCell.variant.phred.toFixed(2) : "N/A"}
+                          AVI Phred: {hoveredCell.variant?.phred !== null && hoveredCell.variant?.phred !== undefined ? hoveredCell.variant.phred.toFixed(2) : "—"}
                         </span>
                         <span className="px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-[9px]">
                           Rank: {aviRankBand(hoveredCell.variant?.phred)?.label ?? "no score"}

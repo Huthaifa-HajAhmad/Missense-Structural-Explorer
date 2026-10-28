@@ -24,8 +24,10 @@ export { fetchLocalPopulationFrequencies } from "./local-population.ts";
  * v5: window queries fetch each residue by exact term (v4 windows silently lacked residues whose number sorts after the window end as text).
  * v6: local dbNSFP windows read only the gene's MANE/canonical transcript (v5 local windows mixed in
  * alternative-isoform lines stored as `single` — BRAF: 567 extra rows from 4 other transcripts).
+ * v7: substitutions carry every SNV's REVEL (`revelSnvs`); v6 rows kept only the maximum, which the
+ * variant cross-check misread as a pipeline/dbNSFP disagreement.
  */
-const CACHE_SCHEMA = "schema:v6";
+const CACHE_SCHEMA = "schema:v7";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Expired rows are swept at most this often, not on every read. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -193,6 +195,19 @@ async function loadReferenceSequence(
 }
 
 /**
+ * Reads whether the remote source may stand in for an uncovered local window.
+ *
+ * Default ON: development and CI have no 19 GB store, and a sparse window is better answered than
+ * left blank. Production should set `LANDSCAPE_REMOTE_FALLBACK=off` (doc/DEPLOY.md), because myvariant
+ * serves dbNSFP 4.x while the store is 5.4a — silently switching release would change the very
+ * scores the tab is reading. Off, an uncovered window is an explicit empty answer instead.
+ */
+export function landscapeRemoteFallbackEnabled(): boolean {
+  const raw = (process.env.LANDSCAPE_REMOTE_FALLBACK ?? "").trim().toLowerCase();
+  return !(raw === "off" || raw === "false" || raw === "0" || raw === "no" || raw === "n" || raw === "disabled");
+}
+
+/**
  * Per-residue REVEL / AlphaMissense / conservation for a gene window, read on one transcript.
  * Local dbNSFP first (when built and covering the window), else myvariant.info.
  */
@@ -282,6 +297,27 @@ async function computeLandscape(
   }
 
   let hits: any[] = [];
+  if (!landscapeRemoteFallbackEnabled()) {
+    const end = endPos ?? (sequence ? sequence.length : start);
+    console.warn(
+      `[Landscape] ${normGene} [${start}, ${end}]: local dbNSFP did not cover this window and ` +
+      `LANDSCAPE_REMOTE_FALLBACK is off; answering empty rather than switching to myvariant.info.`
+    );
+    return {
+      positions: [],
+      meta: {
+        source: "none",
+        sourceVersion: null,
+        transcript: null,
+        transcriptBasis: "unknown",
+        window: { start, end },
+        referenceSequence: sequence ? accession : null,
+        qualityFlags: ["remote-fallback-off"],
+        cached: false,
+        retrievedAt
+      }
+    };
+  }
   try {
     hits = windowed
       ? await fetchMyVariantWindowHits(normGene, startPos!, endPos!)
@@ -317,9 +353,4 @@ async function computeLandscape(
   const result = { positions, meta };
   store(result);
   return result;
-}
-
-/** Rows only, for callers that predate the provenance block. */
-export async function fetchLandscapeData(gene: string, startPos?: number, endPos?: number, uniprotId?: string | null) {
-  return (await fetchLandscape(gene, startPos, endPos, uniprotId)).positions;
 }

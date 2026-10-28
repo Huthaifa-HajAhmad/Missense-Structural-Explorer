@@ -35,6 +35,12 @@ describe('buildDosageEvidence', () => {
     expect(buildDosageEvidence(load, null).readings[0].scope).toBe('unscoped');
     expect(buildDosageEvidence({ status: 'ready', data: response(score(0)) }, 'MONDO:1').readings[0].scope).toBe('unscoped');
   });
+  it('matches a MONDO cross-reference of an OMIM-keyed frame, and never calls a MONDO-less frame "other"', () => {
+    const load = { status: 'ready' as const, data: response(score(3, 'MONDO:0017623')) };
+    expect(buildDosageEvidence(load, ['OMIM:176100', 'MONDO:0017623']).readings[0].scope).toBe('same-disease');
+    expect(buildDosageEvidence(load, ['OMIM:176100', 'MONDO:1']).readings[0].scope).toBe('other-disease');
+    expect(buildDosageEvidence(load, ['OMIM:176100', 'Orphanet:1']).readings[0].scope).toBe('unscoped');
+  });
   it('labels special codes without ranking them above 3', () => {
     const r = buildDosageEvidence({ status: 'ready', data: response(score(40)) }, null).readings[0];
     expect(r.call).toBe('40: Dosage sensitivity unlikely'); expect(r.tone).toBe('neutral');

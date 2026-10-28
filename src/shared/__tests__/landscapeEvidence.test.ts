@@ -435,6 +435,34 @@ describe("the pipeline's variant score is cross-checked against the dbNSFP table
     expect(f.cautions[0]).toMatch(/ranking is withheld/);
   });
 
+  // UROD p.Gly318Arg: Gly→Arg is reachable by G>A (REVEL 0.229, the queried SNV) and by G>C (0.233).
+  // The table keeps 0.233 as the substitution's REVEL; reading that as a disagreement withheld the
+  // rank and blamed "numbering or a stale cache" for two correct numbers.
+  it("treats a REVEL that matches another SNV for the same amino acid as agreement", () => {
+    const r = row(5, 0.7, {
+      amMin: 0.2, amMax: 0.95, amCount: 2, revelMean: 0.5, revelCount: 2,
+      substitutions: [
+        { alt: "V", am: 0.8401, revel: 0.871, revelSnvs: [0.853, 0.871] },
+        { alt: "T", am: 0.9, revel: 0.87, revelSnvs: [0.87] }
+      ] as any
+    });
+    const f = landscapeFinding({ ...base, rows: [r] });
+    expect(f.cautions).toEqual([]);
+    expect(f.variant).toMatch(/it ranks 2 of the 2 substitutions/);
+  });
+
+  it("names every SNV's REVEL when none matches the pipeline", () => {
+    const r = row(5, 0.7, {
+      amMin: 0.2, amMax: 0.95, amCount: 2, revelMean: 0.5, revelCount: 2,
+      substitutions: [
+        { alt: "V", am: 0.8401, revel: 0.9, revelSnvs: [0.88, 0.9] },
+        { alt: "T", am: 0.9, revel: 0.87, revelSnvs: [0.87] }
+      ] as any
+    });
+    const f = landscapeFinding({ ...base, rows: [r] });
+    expect(f.cautions[0]).toMatch(/REVEL 0\.853 from the predictors pipeline vs 0\.880 \/ 0\.900 \(one per SNV\) in dbNSFP/);
+  });
+
   it("names a dbNSFP release gap as the likely cause when the two sides say their releases", () => {
     const f = landscapeFinding({
       ...base,

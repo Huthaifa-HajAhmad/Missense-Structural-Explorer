@@ -117,7 +117,30 @@ export const structureProvenanceSchema = z.object({
   vesmModel: z.string().optional(),
   afdbVersion: z.string().optional(),
   modelSha: z.string().optional(),
-  timestamp: z.string().optional()
+  timestamp: z.string().optional(),
+  /**
+   * Where an experimental chain departs from the UniProt sequence ("D86G (engineered mutation)").
+   * Set on an experimental template that was kept anyway (a view, not a mutating engine).
+   */
+  sequenceDifferences: z.array(z.string()).optional(),
+  /**
+   * The experimental entry the resolver REFUSED for a mutating engine because its chain is not the
+   * wild type, and the residues that disqualified it. Present on the template used instead (normally
+   * the AlphaFold model), so the screen can say why the crystal structure was not used.
+   */
+  excludedExperimental: z
+    .object({
+      pdbId: z.string(),
+      chainId: z.string().optional(),
+      differences: z.array(z.string()),
+      /**
+       * True when the chain was refused WITHOUT a sequence check (the UniProt sequence could not be
+       * fetched): the entry is then not known to be a mutant — only unverified. The screen must say
+       * "could not be checked", never "is not the wild type".
+       */
+      unverified: z.boolean().optional()
+    })
+    .optional()
 });
 
 export type StructureProvenance = z.infer<typeof structureProvenanceSchema>;
@@ -1575,7 +1598,7 @@ export const landscapeResidueSchema = z.object({
   gerp: z.number().nullable(),
   phylop: z.number().nullable(),
   nucleotideCount: z.number().optional(),
-  substitutions: z.array(z.object({ alt: z.string(), am: z.number().nullable(), revel: z.number().nullable() })).optional()
+  substitutions: z.array(z.object({ alt: z.string(), am: z.number().nullable(), revel: z.number().nullable(), revelSnvs: z.array(z.number()).optional() })).optional()
 });
 
 /** Where the landscape rows came from, on which transcript, and what went wrong reading them. */
@@ -2191,7 +2214,7 @@ export interface LandscapeResidueItem {
   gerp: number | null;
   phylop: number | null;
   nucleotideCount?: number;
-  substitutions?: Array<{ alt: string; am: number | null; revel: number | null }>;
+  substitutions?: Array<{ alt: string; am: number | null; revel: number | null; revelSnvs?: number[] }>;
   residue?: string;
 }
 
