@@ -1137,6 +1137,25 @@ function VariantSearchPanel({
    * elsewhere (a recent analysis, a benchmark, an example chip, the fields themselves). The draft is
    * only rewritten when it no longer says what the fields say, so a trailing space survives typing.
    */
+  /* The recents list shows about three rows and scrolls past them. It fades on the edge that has more behind
+     it, so the peeked row reads as "more below" and not as a clipped one (the sidebar nav does the same). */
+  const recentListRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const el = recentListRef.current;
+    if (!el) return;
+    const update = () => {
+      el.dataset.fadeTop = String(el.scrollTop > 1);
+      el.dataset.fadeBottom = String(el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro?.disconnect();
+    };
+  }, [history.length]);
   const [quickDraft, setQuickDraft] = useState("");
   useEffect(() => {
     setQuickDraft(draft =>
@@ -1146,6 +1165,32 @@ function VariantSearchPanel({
     );
   }, [customGene, customVariant, customGenomic]);
   const quickReading = readQuickEntry(quickDraft);
+  /**
+   * What the notation in the ticket resolved to, when this session has already run it. A coordinate or a
+   * cDNA says nothing about the protein change, while the Recent analyses row below it names that change;
+   * the ticket repeats it so the composer is never less informed than the list under it. Only a run in
+   * this session can say so — nothing is guessed from the text.
+   */
+  const changeNotation = customGenomic.trim() || customVariant.trim();
+  const resolvedChange = changeNotation
+    ? history.find(item => (item.query ?? "").trim() === changeNotation && item.variant && item.variant !== changeNotation)?.variant ?? null
+    : null;
+  /**
+   * Is the run on screen the one this line describes? Either by the notation it was submitted with, or by
+   * the same gene and substitution. Then the composer says so and offers the way into the result, instead
+   * of leaving "Analyse" as the only thing a reader can do with a variant that is already loaded.
+   */
+  const loadedMatchesQuery = Boolean(
+    result && gene && variant && changeNotation && (
+      history.some(item => item.gene === gene && item.variant === variant && (item.query ?? "").trim() === changeNotation) ||
+      (customGene.trim().toUpperCase() === gene.toUpperCase() &&
+        (() => {
+          const typed = substitutionOf(customVariant);
+          const loaded = substitutionOf(variant);
+          return Boolean(typed && loaded && sameSubstitution(typed, loaded));
+        })())
+    )
+  );
   // The fields are folded away by default; anything that needs a decision in them opens them.
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const fieldsNeedAttention =
@@ -1159,7 +1204,14 @@ function VariantSearchPanel({
     setCustomGene(read.gene);
     setCustomVariant(read.variant);
     setCustomGenomic(read.genomic);
+    /**
+     * An accession belongs to the gene it was filled for (a recent analysis, a benchmark). The line
+     * only ever SETS one, so changing the gene — or emptying the line — used to leave the old accession
+     * in the store, showing in the ticket and riding along on the next run under a different gene.
+     * A change of gene clears it; an edit elsewhere in the line keeps what the reader put in the field.
+     */
     if (read.uniprot) setCustomUniprot(read.uniprot);
+    else if (!line.trim() || read.gene !== customGene.trim().toUpperCase()) setCustomUniprot("");
   };
   const quickStatus = !quickDraft.trim()
     ? ""
@@ -1483,17 +1535,30 @@ function VariantSearchPanel({
                   <span>{quickStatus}</span>
                 </p>
 
+                {loadedMatchesQuery && onViewChange ? (
+                  <p className="qe__loaded" data-testid="quick-entry-loaded">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span className="qe__loaded-text">
+                      <strong>{gene} {formatVariantForDisplay(variant)}</strong> is loaded in the workspace.
+                    </span>
+                    <button type="button" className="qe__loaded-open" onClick={() => onViewChange("evidence")}>
+                      Open evidence <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                    </button>
+                  </p>
+                ) : null}
+
                 {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
                     ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
                 {quickDraft.trim() ? (
                   <dl className="qe__ticket" data-testid="quick-entry-preview">
                     {(() => {
                       const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
-                      const cells: Array<{ label: string; value: string; auto?: boolean; tone?: FieldBadgeTone; hint?: string }> = [
+                      const cells: Array<{ label: string; value: string; resolved?: string | null; auto?: boolean; tone?: FieldBadgeTone; hint?: string }> = [
                         { label: "Gene", value: customGene.trim().toUpperCase(), auto: notationResolvesItself && !customGene.trim() },
                         {
                           label: "Change",
-                          value: customGenomic.trim() || customVariant.trim(),
+                          value: changeNotation,
+                          resolved: resolvedChange,
                           tone: activeKind ? NOTATION_BADGES[activeKind].tone : undefined,
                           hint: activeKind ? NOTATION_BADGES[activeKind].title : undefined,
                         },
@@ -1512,6 +1577,13 @@ function VariantSearchPanel({
                           </dt>
                           <dd data-empty={!cell.value || undefined}>
                             {cell.value || (cell.auto ? "auto" : "—")}
+                            {cell.resolved ? (
+                              <span className="qe__resolved" data-testid="quick-entry-resolved">
+                                <ArrowRight aria-hidden="true" />
+                                <span className="sr-only">resolved to </span>
+                                {formatVariantForDisplay(cell.resolved)}
+                              </span>
+                            ) : null}
                           </dd>
                         </div>
                       ));
@@ -1901,7 +1973,7 @@ function VariantSearchPanel({
           {history.length > 0 ? (
             <>
               <div className="workbench-recents-heading">
-                <span className="workbench-index" aria-hidden="true">03</span>
+                <span className="workbench-index" aria-hidden="true">02</span>
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">
                   Recent analyses <span className="workbench-recents-count">{history.length}</span>
                 </h2>
@@ -1919,7 +1991,7 @@ function VariantSearchPanel({
 
               {/* Every entry stays in the list (the store keeps ten); the list scrolls inside its own box past
                   about three rows, so a longer history never pushes the deck or the monitor down the page. */}
-              <ol className="workbench-recent-list" id="workbench-recent-list">
+              <ol ref={recentListRef} className="workbench-recent-list" id="workbench-recent-list">
                 {history.map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
                   return (
@@ -1953,7 +2025,7 @@ function VariantSearchPanel({
               <div className="workbench-recents-empty">
                 <div>
                   <div className="workbench-recents-heading">
-                    <span className="workbench-index" aria-hidden="true">03</span>
+                    <span className="workbench-index" aria-hidden="true">02</span>
                     <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
                   </div>
                   <p className="text-[12px] text-cs-text-muted mt-0.5">
@@ -2022,7 +2094,7 @@ function VariantSearchPanel({
         >
           <div className="workbench-rail-body">
             <div className="workbench-rail-heading">
-              <span className="workbench-index" aria-hidden="true">02</span>
+              <span className="workbench-index" aria-hidden="true">03</span>
               <h2>Analysis monitor</h2>
               <Activity aria-hidden="true" />
             </div>

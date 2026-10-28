@@ -98,6 +98,113 @@ describe("Recent analyses: replay lands in the field its notation belongs to (UI
   });
 });
 
+describe("the composer knows what is already loaded", () => {
+  const coordinate = "Chr16(GRCh38):g.66823281T>C";
+  const seedLoadedRun = () =>
+    act(() => {
+      useVariantAnalysisStore.setState({
+        gene: "NAE1",
+        variant: "p.Asp116Gly",
+        customGene: "",
+        customVariant: "",
+        customGenomic: coordinate,
+        history: [{ gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", query: coordinate }],
+        analysisState: { isLoading: false, error: null, result: { metadata: {} } } as any,
+      });
+    });
+
+  it("names the protein change a coordinate resolved to, in the ticket", () => {
+    seedLoadedRun();
+    renderPanel();
+
+    expect(screen.getByTestId("quick-entry-resolved")).toHaveTextContent("resolved to p.Asp116Gly");
+  });
+
+  it("states nothing it has not run: an unseen coordinate gets no resolved change", () => {
+    seedLoadedRun();
+    act(() => useVariantAnalysisStore.setState({ customGenomic: "Chr16(GRCh38):g.66823282T>C" }));
+    renderPanel();
+
+    expect(screen.queryByTestId("quick-entry-resolved")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("quick-entry-loaded")).not.toBeInTheDocument();
+  });
+
+  it("says the run is loaded and opens its evidence", () => {
+    seedLoadedRun();
+    const onViewChange = vi.fn();
+    renderPanel({ onViewChange });
+
+    expect(screen.getByTestId("quick-entry-loaded")).toHaveTextContent("NAE1 p.Asp116Gly is loaded in the workspace.");
+    fireEvent.click(screen.getByRole("button", { name: /Open evidence/ }));
+    expect(onViewChange).toHaveBeenCalledWith("evidence");
+  });
+
+  it("matches a typed protein change to the loaded run, however it is spelled", () => {
+    act(() => {
+      useVariantAnalysisStore.setState({
+        gene: "NAE1",
+        variant: "p.Asp116Gly",
+        customGene: "nae1",
+        customVariant: "D116G",
+        analysisState: { isLoading: false, error: null, result: { metadata: {} } } as any,
+      });
+    });
+    renderPanel({ onViewChange: vi.fn() });
+
+    expect(screen.getByTestId("quick-entry-loaded")).toBeInTheDocument();
+  });
+
+  it("offers nothing before a run has loaded", () => {
+    act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly" }));
+    renderPanel({ onViewChange: vi.fn() });
+
+    expect(screen.queryByTestId("quick-entry-loaded")).not.toBeInTheDocument();
+  });
+});
+
+describe("the quick-entry line does not carry an accession to another gene", () => {
+  const line = () => screen.getByRole("textbox", { name: "Variant" }) as HTMLInputElement;
+
+  it("drops the accession when the gene changes", () => {
+    act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly", customUniprot: "Q13564" }));
+    renderPanel();
+
+    fireEvent.change(line(), { target: { value: "TP53 p.Arg248Trp" } });
+
+    expect(useVariantAnalysisStore.getState().customUniprot).toBe("");
+  });
+
+  it("keeps the accession through an edit that leaves the gene alone", () => {
+    act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly", customUniprot: "Q13564" }));
+    renderPanel();
+
+    fireEvent.change(line(), { target: { value: "NAE1 p.Asp116Ala" } });
+
+    expect(useVariantAnalysisStore.getState().customUniprot).toBe("Q13564");
+  });
+
+  it("clears it with the line", () => {
+    act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly", customUniprot: "Q13564" }));
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear quick entry" }));
+
+    expect(useVariantAnalysisStore.getState().customUniprot).toBe("");
+  });
+});
+
+describe("the three cards read in order", () => {
+  it("numbers the left column 01 and 02 and the monitor 03, as the stacked layout also reads", () => {
+    renderPanel();
+    const index = (name: RegExp | string) =>
+      screen.getByRole("heading", { name }).parentElement?.querySelector(".workbench-index")?.textContent;
+
+    expect(index("Variant query")).toBe("01");
+    expect(index("No recent analyses")).toBe("02");
+    expect(index("Analysis monitor")).toBe("03");
+  });
+});
+
 describe("bare c. notation requires a gene (UI-6)", () => {
   it("requires the gene and says what to do when it is empty", () => {
     act(() => useVariantAnalysisStore.setState({ customVariant: "c.347A>G", customGene: "" }));
