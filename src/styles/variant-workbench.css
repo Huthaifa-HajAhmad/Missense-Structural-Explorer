@@ -37,6 +37,11 @@
 /* About three rows (3.5rem each, plus their rules) and a peek of the fourth, so a longer history scrolls inside the
    card instead of stretching the deck. A peek, not a clean cut, is what tells the reader there is more. */
 .workbench-recent-list { display: flex; flex-direction: column; max-block-size: 12.5rem; overflow-y: auto; scrollbar-width: thin; margin: 0; padding: .25rem var(--workbench-pad) .75rem; list-style: none; }
+/* The peek is cued by a fade on the edge that has more behind it (set from the list's scroll position), so the
+   fourth row reads as "more below" and not as a clipped one. Gone at the end of the list, and when it all fits. */
+.workbench-recent-list { --recent-fade-top: 0px; --recent-fade-bottom: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--recent-fade-top), #000 calc(100% - var(--recent-fade-bottom)), transparent 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 var(--recent-fade-top), #000 calc(100% - var(--recent-fade-bottom)), transparent 100%); }
+.workbench-recent-list[data-fade-top="true"] { --recent-fade-top: 1.25rem; }
+.workbench-recent-list[data-fade-bottom="true"] { --recent-fade-bottom: 1.25rem; }
 .workbench-recent-list > li { min-inline-size: 0; }
 .workbench-recent-list > li + li { border-block-start: 1px solid var(--cs-border-subtle); }
 /* The current row is a tinted band, so its edges are its own: the rule above it and the rule below it would each sit
@@ -121,6 +126,16 @@
 .qe__status--assistive { position: absolute; inline-size: 1px; block-size: 1px; min-block-size: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .qe__status[data-tone="ok"] { color: var(--cs-text-success); }
 .qe__status[data-tone="pending"] { color: var(--cs-text-secondary); }
+/* The run on screen is this line's run: a quiet confirmation with the way into it, in the status line's own voice. */
+.qe__loaded { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-success); }
+.qe__loaded-text { color: var(--cs-text-secondary); }
+.qe__loaded-text > strong { font-weight: 600; color: var(--cs-text-primary); }
+.qe__loaded-open { display: inline-flex; align-items: center; gap: .25rem; min-block-size: 2rem; padding-inline: .5rem; margin-inline-start: auto; border: 0; border-radius: var(--cs-radius-input); background: transparent; color: var(--cs-text-accent); font-size: 12px; font-weight: 500; cursor: pointer; }
+.qe__loaded-open svg { inline-size: 12px; block-size: 12px; }
+.qe__loaded-open:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.qe__loaded-open:active { background: var(--cs-bg-subtle); }
+.qe__resolved { display: flex; align-items: center; gap: .25rem; margin-block-start: .125rem; color: var(--cs-text-accent); font-weight: 500; }
+.qe__resolved svg { inline-size: 11px; block-size: 11px; flex: none; }
 .qe__status-dot { inline-size: .375rem; block-size: .375rem; margin-block-start: .375rem; border-radius: 50%; background: var(--cs-text-warning); flex: none; }
 .qe__try { display: flex; flex-wrap: wrap; gap: .5rem; }
 .qe__try-label { flex-basis: 100%; padding-block: .375rem .125rem; font-size: 11px; color: var(--cs-text-muted); }
@@ -218,6 +233,7 @@
   .workbench-history-clear:hover { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
   .workbench-monitor-tab:hover { color: var(--cs-text-primary); background: var(--cs-workbench-header-surface); }
   .qe__bar:hover { border-color: color-mix(in oklch, var(--cs-text-muted) 55%, var(--cs-border)); }
+  .qe__loaded-open:hover { background: var(--cs-bg-subtle); }
   .qe__clear:hover:not(:disabled) { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
   .qe__tool:hover { color: var(--cs-text-primary); background: var(--cs-surface-2); }
   .qe-input:hover:not(:focus-visible, .qe-input--placeholder), .qe-select:not(.qe-select--chip):hover { border-color: color-mix(in oklch, var(--cs-text-muted) 55%, var(--cs-border)); }
