@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, Info, ListChecks, MapPin, Scissors } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
@@ -26,6 +26,8 @@ import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorks
 import { SplicingRecords } from './splicing/SplicingRecords';
 import { splicingReadings, spliceRequestIdentity } from '../../shared/splicingWorkspace';
 import { evidenceTab } from '../../shared/evidenceTabs';
+import { MechanismSelection } from './MechanismSelection';
+import { SPLICE_URL_DEFAULTS, parseSplicingUrl, parseSpliceView, withSplicingParams, type SpliceUrlState } from './splicing/viewUrlState';
 
 /**
  * RNA splicing.
@@ -313,12 +315,20 @@ function MapNote({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
   return <p className="spl-geo__note" data-testid="map-note">{parts.join(" ")}</p>;
 }
 
+/**
+ * The share link, read once per mount of this tab. The allele that this mount shows first claims it; a later
+ * allele never inherits it. Read here, not in the keyed content, because a new allele remounts that content
+ * before the old one's unmount has removed the link's parameters.
+ */
+interface UrlSeedClaim { seed: SpliceUrlState | null; claimedBy: string | null }
+
 export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }: TabComponentProps) {
+  const [urlClaim] = useState<UrlSeedClaim>(() => ({ seed: typeof window === "undefined" ? null : parseSplicingUrl(window.location.href), claimedBy: null }));
   // Local disclosures and in-flight requests belong to this allele, including same-residue changes.
-  return <SplicingContent key={spliceRequestIdentity(analysisState.result)} analysisState={analysisState} isBiophysicalLoading={isBiophysicalLoading} onTabChange={onTabChange} />;
+  return <SplicingContent key={spliceRequestIdentity(analysisState.result)} analysisState={analysisState} isBiophysicalLoading={isBiophysicalLoading} onTabChange={onTabChange} urlClaim={urlClaim} />;
 }
 
-function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: Pick<TabComponentProps, 'analysisState' | 'isBiophysicalLoading' | 'onTabChange'>) {
+function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, urlClaim }: Pick<TabComponentProps, 'analysisState' | 'isBiophysicalLoading' | 'onTabChange'> & { urlClaim: UrlSeedClaim }) {
   const { settings } = useSettings();
   const workspace = useEvidenceWorkspace('splicing');
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
@@ -343,6 +353,53 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
     [result, base, alphagenomeConfigured, showSmallSignals]
   );
   const readings = useMemo(() => (ev && result ? splicingReadings(ev, result) : null), [ev, result]);
+  // ── Share link: the map window, focus, small signals and view (see UrlSeedClaim). ──
+  const identity = spliceRequestIdentity(result);
+  const variantKey = `${result?.metadata?.gene ?? ""}|${result?.metadata?.variant ?? ""}`;
+  const firstVariant = useRef(variantKey);
+  const loaded = base?.geometry.transcriptId ?? null;
+  const hasMapSettings = mapView.halfWidth !== null || mapView.focusedScore || mapView.showSmallSignals;
+  useEffect(() => {
+    // The first allele this tab mount shows claims the share link. Runs on every mount, initialized or not.
+    if (urlClaim.claimedBy === null) urlClaim.claimedBy = identity;
+  }, [identity, urlClaim]);
+  useEffect(() => {
+    // A new variant starts at the defaults, copying Interfaces: the keyed content already remounts per allele.
+    if (firstVariant.current === variantKey) return;
+    firstVariant.current = variantKey;
+    setLocalSmallSignals(false);
+    workspace.setOptions({ spliceMap: undefined });
+    workspace.setView("comparison");
+  }, [variantKey]);
+  useEffect(() => {
+    // Seeded once per allele, after the analysis has settled so the loaded transcript is known. A URL
+    // transcript that is not the loaded one leaves the map settings at their defaults; the view still applies.
+    if (!workspace.enabled || workspace.initialized || loading) return;
+    const seed = urlClaim.claimedBy === identity ? urlClaim.seed : null;
+    const matches = seed !== null && seed.transcript !== null && seed.transcript === loaded;
+    workspace.setOptions({
+      initialized: true,
+      spliceMap: matches && seed ? { transcript: loaded, halfWidth: seed.halfWidth, focusedScore: seed.focusedScore, showSmallSignals: seed.showSmallSignals } : undefined,
+    });
+    workspace.setView(seed?.view ?? "comparison");
+  }, [workspace.enabled, workspace.initialized, loading, loaded, identity, urlClaim]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !workspace.enabled || !workspace.initialized) return;
+    const next = withSplicingParams(window.location.href, {
+      transcript: hasMapSettings ? mapView.transcript : null,
+      halfWidth: mapView.halfWidth,
+      focusedScore: mapView.focusedScore,
+      showSmallSignals: mapView.showSmallSignals,
+      view: parseSpliceView(workspace.view),
+    });
+    if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+  }, [hasMapSettings, mapView.transcript, mapView.halfWidth, mapView.focusedScore, mapView.showSmallSignals, workspace.view, workspace.initialized, workspace.enabled]);
+  useEffect(() => () => {
+    // Leaving the tab removes its parameters; the variant identity parameters are not this tab's to touch.
+    if (typeof window === "undefined") return;
+    const next = withSplicingParams(window.location.href, SPLICE_URL_DEFAULTS);
+    if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+  }, []);
   if (!result || !ev || !readings) return null;
   // The composite is still streaming: a re-score now would be overwritten by its next snapshot.
   const rescoreLocked = ev.pending || isConservationCompositePending(result, Boolean(analysisState.isLoading || isBiophysicalLoading));
@@ -350,10 +407,16 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
   const { geometry: g, rule } = ev;
   const spliceRow = ev.readings.find(r => r.key === "spliceai")!;
   const map = ev.map;
+  // What the active view draws now, so the pinned-reading banner can say whether the pin is on screen.
+  const visibleKeys = workspace.view === "records"
+    ? readings.filter(r => r.channel !== null).map(r => r.key)
+    : workspace.view === "scales"
+      ? groupSpliceReadings(ev.readings).filter(g => g.group !== "channels").flatMap(g => g.rows.map(r => r.key))
+      : ev.readings.filter(r => r.group === "channels").map(r => r.key);
   const positionText = g.position !== null ? `${g.position > 0 ? "+" : "−"}${Math.abs(g.position)}` : null;
 
   return (
-    <div data-evidence-screen className="spl-screen @container">
+    <div data-evidence-screen data-mechanism="splicing" className="spl-screen @container">
       {knowledgeKey && <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />}
 
       <header>
@@ -443,6 +506,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
         {/* One control regardless of the visible view: the request instance must not unmount on tab switch. */}
         <SpliceWindowControl result={result} ev={ev} disabled={rescoreLocked} />
       </div>}
+      <MechanismSelection tab="splicing" rows={readings} visibleKeys={visibleKeys} />
       <EvidencePanel tab="splicing">
       {workspace.enabled && workspace.view === 'records' ? <SplicingRecords rows={readings.filter(r => r.channel !== null)} /> : (!workspace.enabled || workspace.comparison) && <>
       <section className="spl-section" aria-labelledby="spl-geometry-title">
