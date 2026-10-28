@@ -190,7 +190,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
       "stericClashWarning": false,
       "localSidechainRmsd": 1.12,
       "dynamut2": null,
-      "consensusVerdict": "High-Risk Pathogenic (FoldX)"
+      "consensusVerdict": "Destabilizing (Engines Agree)"
     }
   }
   ```

@@ -132,6 +132,20 @@ export function parseProvenanceFromHeaders(res: Response): StructureProvenance {
   const identityStr = res.headers.get("X-Template-Identity");
   const identity = identityStr ? parseFloat(identityStr) : undefined;
   const afdbVersion = res.headers.get("X-Template-AfdbVersion") || undefined;
+  let sequenceDifferences: string[] | undefined;
+  const differencesHeader = res.headers.get("X-Template-Sequence-Differences");
+  if (differencesHeader) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(differencesHeader));
+      if (Array.isArray(parsed)) {
+        const values = parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+        if (values.length) sequenceDifferences = values;
+      }
+    } catch {
+      // A malformed disclosure header must not fail the structure: the coordinates are what matters,
+      // and the missing note is better than a blank viewer.
+    }
+  }
 
   return {
     source,
@@ -140,7 +154,8 @@ export function parseProvenanceFromHeaders(res: Response): StructureProvenance {
     resolution: resolution !== undefined && !Number.isNaN(resolution) ? resolution : undefined,
     method,
     identity: identity !== undefined && !Number.isNaN(identity) ? identity : undefined,
-    afdbVersion
+    afdbVersion,
+    sequenceDifferences
   };
 }
 

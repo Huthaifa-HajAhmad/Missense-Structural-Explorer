@@ -51,6 +51,11 @@ FOLDX_BINARY=""
 # doc/VARIANT_QUERY_AND_PIPELINE_AUDIT_PLAN.md). Rows whose gene lists no MANE Select or canonical
 # transcript are never served. Status: /api/v1/diagnostics -> dbnsfp, /api/v1/capabilities -> dbnsfp_local.
 ENABLE_LOCAL_DBNSFP="true"
+# May myvariant.info stand in when the local store does not cover a Landscape window (no store, or a
+# partial ingest)? Unset: yes — development and CI have no 19 GB store. "off": no — the window is an
+# explicit empty answer with a named caution, instead of silently switching from the store's dbNSFP
+# 5.4a to the 4.x release myvariant serves. Production should set "off".
+# LANDSCAPE_REMOTE_FALLBACK="off"
 # Gene-sized store reads (a gene's numbering scan, whole-gene landscape windows) run in a reader worker so
 # they never stop the HTTP event loop (measured before: TTN stalled every request for 5–8 s). Defaults shown.
 # DBNSFP_READER_WORKERS="2"             # worker threads

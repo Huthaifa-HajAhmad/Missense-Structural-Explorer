@@ -47,7 +47,7 @@ const MACO1_ENERGETICS = {
 function analysisState() {
   return {
     result: {
-      metadata: { gene: "MACO1", variant: "p.Glu433Lys", residueIndex: 433 },
+      metadata: { gene: "MACO1", variant: "p.Glu433Lys", residueIndex: 433, uniprotId: "Q13564" },
       // Widened deliberately: an empty-array literal infers `never[]`, which would make the features
       // fixture below unassignable — and an empty array is exactly the case that cannot distinguish the
       // export's `uniprotFeatures?.features` from a mishandled wrapper object.
@@ -210,9 +210,51 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(text).toContain("6 of 6 engines");
     expect(screen.getByTestId("energetics-verdict")).toHaveTextContent("Destabilizing");
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent(
-      "All 6 engines that returned a value predict destabilization."
+      "All 6 counted engines predict destabilization."
     );
     expect(text).not.toContain("too few");
+  });
+
+  it("names a refused non-wild-type experimental template and links the AlphaFold model used instead", () => {
+    renderView({
+      foldingEnergetics: {
+        ...FULL,
+        structureProvenance: {
+          source: "alphafold",
+          afdbVersion: "v6",
+          excludedExperimental: { pdbId: "1R3S", chainId: "A", differences: ["D86G"] },
+        },
+      },
+    });
+    const fact = screen.getByTestId("energetics-structure");
+    expect(fact).toHaveTextContent("1R3S:A was not used: D86G — not the wild type.");
+    const link = within(fact).getByRole("link", { name: /AlphaFold model/ });
+    expect(link).toHaveAttribute("href", "https://alphafold.ebi.ac.uk/entry/Q13564");
+  });
+
+  it("reports a four-of-five majority as 'Mostly no destabilization' and names the exception", () => {
+    // UROD p.Gly318Arg: the run the audit's screenshots came from.
+    renderView({
+      foldingEnergetics: {
+        foldx: null,
+        foldxMean: null,
+        dynamut2: -0.528,
+        ddmut: -0.03,
+        rasp: -1.4533,
+        raspStatus: "done",
+        thermompnn: -0.106,
+        stabilityoracle: -0.5034,
+        stabilityoracleStatus: "done",
+      },
+      foldingStatus: "success",
+      dynamut2Status: "done",
+      ddmutStatus: "done",
+      thermompnnStatus: "done",
+    });
+    expect(screen.getByTestId("energetics-verdict")).toHaveTextContent("Mostly no destabilization");
+    expect(screen.getByTestId("energetics-summary")).toHaveTextContent(
+      "4 of the 5 counted engines predict no destabilization; DynaMut2 (+0.53 kcal/mol) sits in its moderately destabilizing band"
+    );
   });
 
   it("applies each engine's own marks rather than FoldX's", () => {

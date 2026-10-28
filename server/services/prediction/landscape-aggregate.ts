@@ -80,7 +80,15 @@ export interface LandscapePositionData {
 export interface SubstitutionScore {
   alt: string;
   am: number | null;
+  /** The highest REVEL among the SNVs giving this amino acid (REVEL scores the SNV, not the change). */
   revel: number | null;
+  /**
+   * Every SNV's REVEL for this amino acid, ascending. Gly→Arg is reachable from GGA by G>A (AGA)
+   * and by G>C (CGA); on UROD p.Gly318Arg dbNSFP scores them 0.229 and 0.233. Comparing the queried
+   * SNV's 0.229 against the kept maximum read as a pipeline/dbNSFP disagreement and withheld the
+   * rank, so a cross-check must accept any of these values.
+   */
+  revelSnvs?: number[];
 }
 
 export interface LandscapeMeta {
@@ -383,7 +391,8 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
     if (c.aaalt && AMINO_ACIDS.has(c.aaalt)) {
       const prev = b.subs.get(c.aaalt);
       const revel = prev?.revel == null ? r.revel : r.revel == null ? prev.revel : Math.max(prev.revel, r.revel);
-      b.subs.set(c.aaalt, { alt: c.aaalt, am: prev?.am ?? r.am, revel });
+      const revelSnvs = [...(prev?.revelSnvs ?? []), ...(r.revel === null ? [] : [r.revel])].sort((x, y) => x - y);
+      b.subs.set(c.aaalt, { alt: c.aaalt, am: prev?.am ?? r.am, revel, revelSnvs });
     } else {
       b.unnamed.push({ revel: r.revel, am: r.am });
     }

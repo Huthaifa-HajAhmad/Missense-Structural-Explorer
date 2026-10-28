@@ -110,6 +110,26 @@ describe("fetchLandscape: what is cached (WP-I2)", () => {
   });
 });
 
+describe("remote fallback is explicit", () => {
+  it("answers empty, and names why, when the local store is silent and LANDSCAPE_REMOTE_FALLBACK is off", async () => {
+    const previous = process.env.LANDSCAPE_REMOTE_FALLBACK;
+    process.env.LANDSCAPE_REMOTE_FALLBACK = "off";
+    const fetchSpy = vi.spyOn(global, "fetch");
+    try {
+      const { positions, meta } = await fetchLandscape("FALLBACKOFF", 5, 5);
+      expect(positions).toEqual([]);
+      expect(meta.source).toBe("none");
+      expect(meta.qualityFlags).toContain("remote-fallback-off");
+      // The silent release switch this switch exists to prevent.
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      if (previous === undefined) delete process.env.LANDSCAPE_REMOTE_FALLBACK;
+      else process.env.LANDSCAPE_REMOTE_FALLBACK = previous;
+    }
+  });
+});
+
 describe("nucleotide identity", () => {
   // myvariant.info ids carry no "g." separator. The old pattern required `g.<pos><ref>><alt>`, so
   // live myvariant candidates had `nucleotideKey: null` and the same nucleotide's three alt SNVs
@@ -171,7 +191,7 @@ describe("per-transcript aggregation", () => {
     expect(at116.revelCount).toBe(1);
     expect(at116.revelMean).toBeCloseTo(0.231);
     expect(at116.amMean).toBeCloseTo(0.362);
-    expect(at116.substitutions).toEqual([{ alt: "G", am: 0.362, revel: 0.231 }]);
+    expect(at116.substitutions).toEqual([{ alt: "G", am: 0.362, revel: 0.231, revelSnvs: [0.231] }]);
   });
 
   it("never counts more SNVs at a residue than a codon admits, however many transcripts list it", () => {
@@ -209,8 +229,9 @@ describe("per-transcript aggregation", () => {
     expect(positions[0].amCount).toBe(2);
     expect(positions[0].amMean).toBeCloseTo(0.5); // (0.9 + 0.1) / 2, not (0.9 + 0.9 + 0.1) / 3
     expect(positions[0].substitutions).toEqual([
-      { alt: "G", am: 0.9, revel: 0.4 },
-      { alt: "V", am: 0.1, revel: 0.6 }
+      // REVEL keeps the higher SNV for the summary and both SNVs for the variant cross-check.
+      { alt: "G", am: 0.9, revel: 0.4, revelSnvs: [0.2, 0.4] },
+      { alt: "V", am: 0.1, revel: 0.6, revelSnvs: [0.6] }
     ]);
   });
 

@@ -148,8 +148,17 @@ export interface EnergeticsReading {
 /**
  * `moderate`: every counted engine sits between its moderate and destabilizing marks. Without it that
  * case fell into `split` and read "the engines disagree" for engines that all agree.
+ *
+ * `mostly-not-destabilizing`: at least two thirds of the counted engines predict no destabilization
+ * and the remaining ones are only in their moderate band (none past a destabilizing mark). UROD
+ * p.Gly318Arg is the case that produced it: four of five engines neutral, DynaMut2 at +0.53 against
+ * its +0.50 moderate mark, and the screen said "Engines disagree". The exception is named in the
+ * summary, never averaged away.
+ *
+ * `mostly-moderate` / `mostly-destabilizing` are the same majority rule for the other bands, so a
+ * severity difference is not reported as "the engines disagree" either.
  */
-export type AgreementDirection = "destabilizing" | "moderate" | "not-destabilizing" | "split" | "none";
+export type AgreementDirection = "destabilizing" | "moderate" | "not-destabilizing" | "mostly-destabilizing" | "mostly-moderate" | "mostly-not-destabilizing" | "split" | "none";
 
 /**
  * The stability verdict, as a CLOSED SET. It is what the server stores as
@@ -165,6 +174,9 @@ export const STABILITY_VERDICTS = {
   destabilizing: "Destabilizing (Engines Agree)",
   moderate: "Moderately Destabilizing (Engines Agree)",
   notDestabilizing: "No Destabilization Predicted",
+  mostlyNotDestabilizing: "No Destabilization Predicted (Most Engines)",
+  mostlyModerate: "Moderately Destabilizing (Most Engines)",
+  mostlyDestabilizing: "Destabilizing (Most Engines)",
   split: "Engines Disagree",
   singleDestabilizing: "Destabilizing (Single-Engine Estimate)",
   singleModerate: "Moderately Destabilizing (Single-Engine Estimate)",
@@ -200,6 +212,17 @@ export interface EnergeticsStructure {
   /** "Repaired", "Repair reused", "Not repaired (…)", "Repair failed" or null when unknown. */
   repair: string | null;
   repairState: "repaired" | "unrepaired" | "failed" | "unknown";
+  /** AlphaFold DB release the model came from, when the template is predicted. */
+  afdbVersion: string | null;
+  /**
+   * The experimental entry that was refused because its chain is not the wild type, and the residues
+   * that disqualified it. Non-null only on the template used instead (normally the AlphaFold model).
+   */
+  excludedExperimental: StructureProvenance["excludedExperimental"] | null;
+  /** Where a KEPT experimental template departs from UniProt ("D86G (engineered mutation)"). */
+  sequenceDifferences: string[];
+  /** The AlphaFold DB entry for a predicted template, or null. */
+  href: string | null;
 }
 
 /**
@@ -289,6 +312,8 @@ export interface EnergeticsInputs {
   isFolding?: boolean;
   plddt?: number | null;
   hidePending?: boolean;
+  /** The analysed accession, used to link the AlphaFold template to its DB entry. */
+  uniprotId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +556,34 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   else if (destabilizing.length === counted.length) direction = "destabilizing";
   else if (moderate.length === counted.length) direction = "moderate";
   else if (destabilizing.length === 0 && moderate.length === 0) direction = "not-destabilizing";
-  else direction = "split";
+  /**
+   * A two-thirds majority in ONE band, with every exception in the band immediately *below* it
+   * (neutral ← moderate ← high). This is a majority reading, not unanimity, and the exception is
+   * still named in the summary. The band rule is what keeps a real contradiction `split`: 4 neutral
+   * + 1 past a DESTABILIZING mark crosses two bands, and 4 high + 1 neutral likewise; 4 moderate + 1
+   * high stays split rather than calling a strongly destabilizing reading "mostly moderate". UROD
+   * p.Gly318Arg (4 neutral + DynaMut2 +0.53 moderate) is the case that produced
+   * `mostly-not-destabilizing`.
+   */
+  else {
+    const bandOf = (r: EnergeticsReading): 0 | 1 | 2 =>
+      r.outcome.risk?.id === "high" ? 2 : r.outcome.risk?.id === "moderate" ? 1 : 0;
+    const counts = [0, 0, 0];
+    for (const r of counted) counts[bandOf(r)] += 1;
+    const modal = counts.indexOf(Math.max(...counts)) as 0 | 1 | 2;
+    // Exceptions are allowed only in the band just below the majority's, so the summary's
+    // "the exception(s)" list is exactly the set that exists.
+    const exceptionBand = modal === 0 ? 1 : modal - 1;
+    const adjacentOnly = counted.every(r => bandOf(r) === modal || bandOf(r) === exceptionBand);
+    const majority = counts[modal] / counted.length >= 2 / 3;
+    direction = !adjacentOnly || !majority
+      ? "split"
+      : modal === 2
+        ? "mostly-destabilizing"
+        : modal === 1
+          ? "mostly-moderate"
+          : "mostly-not-destabilizing";
+  }
 
   const agreement: EnergeticsAgreement = {
     direction,
@@ -559,6 +611,13 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
           chainId: prov.chainId ?? null,
           resolution: num(prov.resolution),
           identity: num(prov.identity),
+          afdbVersion: typeof prov.afdbVersion === "string" && prov.afdbVersion.trim() ? prov.afdbVersion.trim() : null,
+          excludedExperimental: prov.excludedExperimental ?? null,
+          sequenceDifferences: Array.isArray(prov.sequenceDifferences) ? prov.sequenceDifferences : [],
+          href:
+            source === "alphafold" && typeof input.uniprotId === "string" && input.uniprotId.trim()
+              ? `https://alphafold.ebi.ac.uk/entry/${input.uniprotId.trim().toUpperCase()}`
+              : null,
           ...repair,
         };
       })()
@@ -696,6 +755,12 @@ export function stabilityVerdict(direction: AgreementDirection, nCounted: number
       return single ? STABILITY_VERDICTS.singleModerate : STABILITY_VERDICTS.moderate;
     case "not-destabilizing":
       return single ? STABILITY_VERDICTS.singleNotDestabilizing : STABILITY_VERDICTS.notDestabilizing;
+    case "mostly-not-destabilizing":
+      return STABILITY_VERDICTS.mostlyNotDestabilizing;
+    case "mostly-moderate":
+      return STABILITY_VERDICTS.mostlyModerate;
+    case "mostly-destabilizing":
+      return STABILITY_VERDICTS.mostlyDestabilizing;
     case "split":
     default:
       return STABILITY_VERDICTS.split;
@@ -706,6 +771,9 @@ export const AGREEMENT_CHIP: Record<AgreementDirection, { label: string; tone: "
   destabilizing: { label: "Destabilizing", tone: "danger" },
   moderate: { label: "Moderately destabilizing", tone: "neutral" },
   "not-destabilizing": { label: "No destabilization", tone: "neutral" },
+  "mostly-not-destabilizing": { label: "Mostly no destabilization", tone: "neutral" },
+  "mostly-moderate": { label: "Mostly moderately destabilizing", tone: "neutral" },
+  "mostly-destabilizing": { label: "Mostly destabilizing", tone: "danger" },
   split: { label: "Engines disagree", tone: "neutral" },
   none: { label: "No ΔΔG", tone: "muted" },
 };
@@ -739,21 +807,51 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
         ? "No engine has returned a ΔΔG yet."
         : "No stability engine returned a ΔΔG for this variant.";
       break;
+    /**
+     * "Counted", not "returned": a returned-but-excluded value (FoldX with a failed repair) would
+     * otherwise make this sentence contradict the coverage sentence beside it.
+     */
     case "destabilizing":
       lead = a.nCounted === 1
-        ? `Only ${withValue(a.destabilizing[0])} returned a value, and it is past its destabilizing mark.`
-        : `All ${a.nCounted} engines that returned a value predict destabilization.`;
+        ? `${withValue(a.destabilizing[0])} is the only counted engine, and it is past its destabilizing mark.`
+        : `All ${a.nCounted} counted engines predict destabilization.`;
       break;
     case "moderate":
       lead = a.nCounted === 1
-        ? `Only ${withValue(a.moderate[0])} returned a value; it is past its moderate mark but not its destabilizing mark.`
-        : `All ${a.nCounted} engines that returned a value sit between their moderate and destabilizing marks.`;
+        ? `${withValue(a.moderate[0])} is the only counted engine; it is past its moderate mark but not its destabilizing mark.`
+        : `All ${a.nCounted} counted engines sit between their moderate and destabilizing marks.`;
       break;
     case "not-destabilizing":
       lead = a.nCounted === 1
-        ? `Only ${withValue(a.notDestabilizing[0])} returned a value, and it predicts no destabilization.`
-        : `None of the ${a.nCounted} engines that returned a value predicts destabilization.`;
+        ? `${withValue(a.notDestabilizing[0])} is the only counted engine, and it predicts no destabilization.`
+        : `None of the ${a.nCounted} counted engines predicts destabilization.`;
       break;
+    case "mostly-not-destabilizing": {
+      // Not unanimity: the exception is part of the reading, so the summary names it with its value.
+      tone = "warning";
+      const exceptions = a.moderate.map(withValue);
+      lead =
+        `${a.notDestabilizing.length} of the ${a.nCounted} counted engines predict no destabilization; ` +
+        `${listNames(exceptions)} ${exceptions.length === 1 ? "sits" : "sit"} in its moderately destabilizing band, ` +
+        `past the moderate mark but not the destabilizing one.`;
+      break;
+    }
+    case "mostly-moderate": {
+      tone = "warning";
+      const exceptions = a.notDestabilizing.map(withValue);
+      lead =
+        `${a.moderate.length} of the ${a.nCounted} counted engines sit in their moderately destabilizing band; ` +
+        `${listNames(exceptions)} ${exceptions.length === 1 ? "predicts" : "predict"} no destabilization.`;
+      break;
+    }
+    case "mostly-destabilizing": {
+      tone = "warning";
+      const exceptions = a.moderate.map(withValue);
+      lead =
+        `${a.destabilizing.length} of the ${a.nCounted} counted engines are past their destabilizing mark; ` +
+        `${listNames(exceptions)} ${exceptions.length === 1 ? "sits" : "sit"} in the moderately destabilizing band.`;
+      break;
+    }
     case "split":
     default: {
       tone = "warning";

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { MasterView } from "../components/MasterSidebar";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
-import { getCachedVariant } from "../services/pipeline/variantCache";
+import { getBiophysicsAttemptedAt, getCachedVariant } from "../services/pipeline/variantCache";
+import { shouldRunBiophysics } from "../services/pipeline/biophysicsRetryPolicy";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 
 interface UseAppEffectsParams {
@@ -72,7 +73,15 @@ export function useAppEffects({
 
     if (gene && variant && !analysisState.result && !analysisState.isLoading) {
       const cached = getCachedVariant(gene, variant);
-      if (cached?.analysisResult) {
+      /**
+       * Paint-only is safe only for a bundle whose biophysics finished. A bundle saved while FoldX was
+       * still running (the page reloaded, or the run was superseded) holds the other engines but no
+       * FoldX value, and this shortcut never asked again: UROD p.Gly318Arg showed FoldX "No value" a
+       * day after the server had computed −1.75 kcal/mol. Such a bundle goes through the orchestrator,
+       * which paints the same cache and backfills under the shared retry rule and cooldown.
+       */
+      const biophysicsSettled = cached ? !shouldRunBiophysics(cached, getBiophysicsAttemptedAt(gene, variant)) : false;
+      if (cached?.analysisResult && biophysicsSettled) {
         const store = useVariantAnalysisStore.getState();
         store.setAnalysisState({
           result: cached.analysisResult,

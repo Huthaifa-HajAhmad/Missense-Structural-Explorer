@@ -44,7 +44,7 @@ describe("pipeline rail engine-state parity", () => {
     store.setFoldingStatus("success");
     store.setFoldingEnergetics({ foldx: 2.5 });
     renderPipeline();
-    expect(screen.getByText("ΔΔG = +2.50 kcal/mol · Available")).toBeInTheDocument();
+    expect(screen.getByText("FoldX ΔΔG = +2.50 kcal/mol · Available")).toBeInTheDocument();
     expect(screen.getByText("On demand")).toBeInTheDocument();
     expect(screen.getByText("6 of 6 settled")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "6");

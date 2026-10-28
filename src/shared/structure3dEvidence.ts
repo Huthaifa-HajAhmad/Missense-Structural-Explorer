@@ -67,6 +67,10 @@ export interface CoordinateProvenance {
   method?: string | null;
   identity?: number | null;
   afdbVersion?: string | null;
+  /** Where a kept experimental chain departs from UniProt ("D86G (engineered mutation)"). */
+  sequenceDifferences?: string[] | null;
+  /** The experimental entry a mutating engine refused because it is not the wild type (or could not be verified as one). */
+  excludedExperimental?: { pdbId: string; chainId?: string | null; differences: string[]; unverified?: boolean } | null;
 }
 
 /** The engine ids the `/esmfold` route reports (`server/services/structure/esmfold.ts`). */
@@ -545,12 +549,20 @@ export function identifyFromProvenance(
   if (source === "alphafold") {
     const version = prov?.afdbVersion ?? headerSaysAlphaFold?.version ?? null;
     const acc = upper(uniprotId);
+    const refused = prov?.excludedExperimental ?? null;
     return {
       origin: "afdb",
       role,
       name: acc ? `AF-${acc}-F1${version ? ` ${version}` : ""}` : `AlphaFold DB model${version ? ` ${version}` : ""}`,
       kind: "AlphaFold DB predicted model, full length",
-      detail: version ? `AlphaFold DB ${version}` : "AlphaFold DB version not reported",
+      detail: [
+        version ? `AlphaFold DB ${version}` : "AlphaFold DB version not reported",
+        refused
+          ? refused.unverified
+            ? `used because ${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""} could not be checked against UniProt`
+            : `used because ${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""} is not the wild type: ${refused.differences.join(", ")}`
+          : null,
+      ].filter(Boolean).join(" · "),
       href: acc ? `https://alphafold.ebi.ac.uk/entry/${acc}` : null,
       channel: plddtChannel(100, "AlphaFold"),
       numbering: "uniprot",
@@ -560,12 +572,16 @@ export function identifyFromProvenance(
     const id = upper(prov?.pdbId);
     const chain = upper(prov?.chainId);
     const homolog = source === "homolog";
+    const differences = prov?.sequenceDifferences?.filter((d): d is string => typeof d === "string" && d.trim().length > 0) ?? [];
     return {
       origin: homolog ? "pdb-homolog" : "pdb-entry",
       role,
       name: `${id ? `PDB ${id}` : "PDB entry"}${chain ? ` chain ${chain}` : ""}`,
       kind: homolog ? "Experimental structure of a sequence homolog" : "Experimental structure mapped to this protein",
-      detail: methodLine(prov),
+      detail:
+        [methodLine(prov), differences.length ? `differs from UniProt at ${differences.join(", ")}` : null]
+          .filter(Boolean)
+          .join(" · ") || null,
       href: id ? `https://www.rcsb.org/structure/${id}` : null,
       channel: temperatureChannel(),
       // `/pdb/:accession` provenance lacks the residue-level validation marker returned by
@@ -1236,6 +1252,21 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
 
   /* ── Notices ──────────────────────────────────────────────────────────── */
   const notices: Notice[] = [];
+  /**
+   * The mutating engines' template is not the crystal because the crystal is not the wild type.
+   * Said on its own line: the choice of template is an input to every ΔΔG on the Energetics tab.
+   */
+  const refusedTemplate = isAf ? foldx.template?.excludedExperimental ?? null : null;
+  if (refusedTemplate) {
+    notices.push({
+      key: "excluded-template",
+      tone: "info",
+      title: refusedTemplate.unverified ? "The experimental entry could not be verified as the wild type" : "The experimental entry is not the wild type",
+      body: refusedTemplate.unverified
+        ? `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} could not be checked against UniProt (the sequence was unavailable), so a mutating engine will not build on it. FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`
+        : `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} differs from UniProt at ${refusedTemplate.differences.join(", ")}, so a mutating engine cannot build on it. FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`,
+    });
+  }
   if (isAf && foldxTemplate && comparison.canvasWildTypeIsNotTemplate && effectiveMode !== "wildtype") {
     notices.push({
       key: "template",
@@ -1246,6 +1277,23 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   }
   if (check.state === "mismatch" || (!hasVerifiedNumbering && siteIdentity)) {
     notices.push({ key: "numbering", tone: "warning", title: "Variant site not verified on these coordinates", body: check.text });
+  }
+  /**
+   * A crystal that carries an engineered mutation, a natural variant or a sequence conflict is not
+   * the wild type. The coordinates are still the best experimental view of the fold, so they are
+   * shown — with the residues that differ named, and a pointer to the separate template the mutating
+   * engines use (Energetics names it on its structure row).
+   */
+  const pipelineDiffs = isAf && !input.wildType.customPdbUrl
+    ? (input.wildType.provenance?.sequenceDifferences ?? []).filter((d): d is string => typeof d === "string" && d.trim().length > 0)
+    : [];
+  if (pipelineDiffs.length) {
+    notices.push({
+      key: "template-differences",
+      tone: "warning",
+      title: "This experimental entry is not the wild-type sequence",
+      body: `${canvasWildType?.name ?? "The entry"} differs from UniProt at ${pipelineDiffs.join(", ")}. The coordinates are shown as deposited, so read its side chains as that construct; the stability engines build on their own template, named in Energetics.`,
+    });
   }
   if (!isAf && deNovo.engines?.wildType && deNovo.engines?.variant && deNovo.engines.wildType !== deNovo.engines.variant) {
     notices.push({

@@ -29,7 +29,24 @@ vi.mock("./structure-fetcher.ts", () => ({
   getResolvedAlphafoldVersion: vi.fn(() => "v4")
 }));
 
+// The resolver reads the canonical sequence to decide whether a verified experimental chain is the
+// wild type. Tests supply it directly; a real fetch here would put the network inside a unit test.
+vi.mock("../external-api/uniprot.ts", () => ({ fetchUniprotSequence: vi.fn() }));
+
 const fetchers = await import("./structure-fetcher.ts");
+const uniprot = await import("../external-api/uniprot.ts");
+
+/** A one-chain ATOM file whose residues are the given one-letter sequence, numbered 1..n. */
+function pdbForSequence(sequence: string, chain = "A"): string {
+  return sequence
+    .split("")
+    .map((aa, i) => {
+      const three = aa === "G" ? "GLY" : aa === "D" ? "ASP" : "ALA";
+      const resSeq = String(i + 1).padStart(4);
+      return `ATOM      1  CA  ${three} ${chain}${resSeq}      1.000   2.000   3.000  1.00 20.00           C`;
+    })
+    .join("\n");
+}
 
 const tierOneMapping = { pdbId: "1PAH", chainId: "A", unpStart: 1, structStart: 1, resolution: 1.8 };
 
@@ -47,6 +64,7 @@ describe("resolveStructure tier determinism", () => {
       validatedAt: 1
     } as any);
     vi.mocked(fetchers.getResolvedAlphafoldVersion).mockReturnValue("v4");
+    vi.mocked(uniprot.fetchUniprotSequence).mockResolvedValue(null as any);
   });
 
   it("keeps using the tier that first answered, even after the ladder would now choose another", async () => {
@@ -224,5 +242,108 @@ describe("resolveStructure tier determinism", () => {
 
     expect(resolved).toBeNull();
     expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * UROD p.Gly318Arg: the best experimental entry (1R3S) is the D86G mutant. FoldX and the remote
+ * ΔΔG engines MUTATE their template, so a chain that already carries a substitution is not a wild
+ * type and must not be used for them. The AlphaFold model is used instead, and the provenance says
+ * which entry was refused and why.
+ */
+describe("resolveStructure wild-type requirement", () => {
+  const wildType = "A".repeat(85) + "D" + "A".repeat(14); // D86
+  const crystal = pdbForSequence("A".repeat(85) + "G" + "A".repeat(14)); // D86G
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    AnalysisDatabase.resetInstance(":memory:");
+    vi.mocked(uniprot.fetchUniprotSequence).mockResolvedValue(wildType);
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue({ ...tierOneMapping, pdbId: "1R3S" } as any);
+    vi.mocked(fetchers.fetchVerifiedExperimentalChain).mockResolvedValue({ pdbText: crystal, validatedAt: 1 } as any);
+    vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue("ALPHAFOLD_PDB");
+    vi.mocked(fetchers.fetchPdbFromRcsb).mockResolvedValue("EXPERIMENTAL_PDB");
+    vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([]);
+    vi.mocked(fetchers.getResolvedAlphafoldVersion).mockReturnValue("v6");
+  });
+
+  it("keeps a mutant crystal for a view and discloses where it departs from UniProt", async () => {
+    const resolved = await resolveStructure("WILDTYPE1", 318);
+
+    expect(resolved?.provenance.source).toBe("experimental");
+    expect(resolved?.provenance.pdbId).toBe("1R3S");
+    expect(resolved?.provenance.sequenceDifferences).toEqual(["D86G"]);
+    expect(resolved?.provenance.excludedExperimental).toBeUndefined();
+  });
+
+  it("refuses the mutant crystal for a mutating engine and falls to the AlphaFold model", async () => {
+    const resolved = await resolveStructure("WILDTYPE1", 318, { requireWildType: true });
+
+    expect(resolved?.provenance.source).toBe("alphafold");
+    expect(resolved?.pdbText).toBe("ALPHAFOLD_PDB");
+    expect(resolved?.provenance.excludedExperimental).toEqual({
+      pdbId: "1R3S",
+      chainId: "A",
+      differences: ["D86G"],
+    });
+  });
+
+  it("keeps a verified wild-type chain for a mutating engine (the gate's accept path)", async () => {
+    vi.mocked(fetchers.fetchVerifiedExperimentalChain).mockResolvedValue({
+      pdbText: pdbForSequence(wildType),
+      validatedAt: 1,
+    } as any);
+
+    const resolved = await resolveStructure("WILDTYPE3", 318, { requireWildType: true });
+
+    expect(resolved?.provenance.source).toBe("experimental");
+    expect(resolved?.provenance.pdbId).toBe("1R3S");
+    expect(resolved?.provenance.excludedExperimental).toBeUndefined();
+    expect(resolved?.provenance.sequenceDifferences).toBeUndefined();
+    expect(fetchers.fetchAlphafoldPdb).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the sequence cannot be fetched: a mutating engine gets AlphaFold with an 'unverified' record", async () => {
+    vi.mocked(uniprot.fetchUniprotSequence).mockResolvedValue(null as any);
+
+    const resolved = await resolveStructure("WILDTYPE4", 318, { requireWildType: true });
+
+    expect(resolved?.provenance.source).toBe("alphafold");
+    expect(resolved?.provenance.excludedExperimental).toEqual({
+      pdbId: "1R3S",
+      chainId: "A",
+      differences: [],
+      unverified: true,
+    });
+  });
+
+  it("does not re-admit the refused entry through the Tier-3 homolog search when AlphaFold is down", async () => {
+    vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([
+      // The refused crystal, returned by the same per-protein search at the top of the ranking.
+      { pdbId: "1r3s", chainId: "A", identity: 100, resolution: 1.65, method: "X-RAY DIFFRACTION", organism: "Homo sapiens", coversPosition: true } as any,
+      { pdbId: "5xyz", chainId: "B", identity: 60, resolution: 2.5, method: "X-RAY DIFFRACTION", organism: "Homo sapiens", coversPosition: true } as any,
+    ]);
+    vi.mocked(fetchers.fetchPdbFromRcsb).mockImplementation(async (pdbId: string) =>
+      pdbId.toUpperCase() === "5XYZ" ? "HOMOLOG_PDB" : "SHOULD_NOT_BE_FETCHED"
+    );
+
+    const resolved = await resolveStructure("WILDTYPE5", 318, { requireWildType: true });
+
+    expect(resolved?.provenance.source).toBe("homolog");
+    expect(resolved?.provenance.pdbId).toBe("5xyz");
+    expect(resolved?.pdbText).toBe("HOMOLOG_PDB");
+    // The refusal is still disclosed on the template that was used.
+    expect(resolved?.provenance.excludedExperimental?.differences).toEqual(["D86G"]);
+    expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalledWith("1r3s", "A");
+  });
+
+  it("memoises the two answers apart, so a view's crystal cannot be served to FoldX", async () => {
+    const view = await resolveStructure("WILDTYPE2", 318);
+    const mutating = await resolveStructure("WILDTYPE2", 318, { requireWildType: true });
+
+    expect(view?.provenance.source).toBe("experimental");
+    expect(mutating?.provenance.source).toBe("alphafold");
+    expect(mutating?.provenance.excludedExperimental?.differences).toEqual(["D86G"]);
   });
 });

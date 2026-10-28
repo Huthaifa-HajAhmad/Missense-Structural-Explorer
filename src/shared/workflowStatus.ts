@@ -60,6 +60,28 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   // The run's ΔΔG comes from an engine that can count — never from a reference row (ProtVar), which
   // would otherwise be presented as this run's estimate whenever every counted engine failed.
   const computed = evidence.readings.find(reading => reading.ddg !== null && !reading.outcome.engine.referenceOnly);
+  /**
+   * The figure is NAMED, and it says whose number it is.
+   *
+   * The rail used to print the first engine with a value as "ΔΔG = … · Available", so when FoldX had
+   * none it showed DynaMut2's +0.53 as the run's ΔΔG and called the stage complete (UROD
+   * p.Gly318Arg, a bundle saved before FoldX returned). FoldX's own value is still the headline when
+   * it exists; otherwise the figure is the median of the counted engines, with the count, so it
+   * cannot be mistaken for one engine's estimate. With a single engine that engine is named instead.
+   */
+  const foldxReading = evidence.readings.find(reading => reading.key === "foldx");
+  const foldxMissing = Boolean(foldxReading && foldxReading.ddg === null && foldxReading.outcome.state !== "running" && foldxReading.outcome.state !== "skipped");
+  const foldxHasValue = foldxReading?.ddg !== null && foldxReading?.ddg !== undefined;
+  const median = evidence.agreement.median;
+  const countedEngines = evidence.agreement.nCounted;
+  const valueText = (value: number) => `${value > 0 ? "+" : ""}${formatDdg(value)}`;
+  const ddgText = foldxHasValue
+    ? `${evidence.foldxStandIn ? "ProtVar FoldX" : "FoldX"} ΔΔG = ${valueText(foldxReading!.ddg!)}`
+    : median !== null && countedEngines > 1
+      ? `Median ΔΔG = ${valueText(median)} (${countedEngines} engines)`
+      : computed
+        ? `${computed.name} ΔΔG = ${valueText(computed.ddg!)}`
+        : "";
   const failed = evidence.missing.filter(reading => ["failed", "upstream-error", "upstream-busy"].includes(reading.outcome.state));
   /**
    * An engine interrupted when the session expired is neither a provider failure nor an
@@ -71,17 +93,19 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
     .filter(reading => reading.outcome.state === "paused")
     .map(reading => reading.name);
   if (params.isFolding || evidence.running.length) {
-    return { status: "progress", desc: computed ? 
-      `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · Other engines running` : describeFoldxPhase(params.foldingPhase)?.detail ?? "Stability engines running..." };
+    return { status: "progress", desc: computed ?
+      `${ddgText} · Other engines running` : describeFoldxPhase(params.foldingPhase)?.detail ?? "Stability engines running..." };
   }
   if (computed) {
     return {
-      status: failed.length || pausedByName.length ? "degraded" : "complete",
-      desc: `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · ${
+      status: failed.length || pausedByName.length || foldxMissing ? "degraded" : "complete",
+      desc: `${ddgText} · ${
         failed.length
           ? "Some engines unavailable"
           : pausedByName.length
           ? "Some engines paused — session expired, relink in Services"
+          : foldxMissing
+          ? `FoldX: ${foldxReading!.outcome.label.toLowerCase()}`
           : "Available"
       }`
     };

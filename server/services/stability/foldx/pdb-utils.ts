@@ -4,43 +4,31 @@ export function detectBFactorProvenance(wtPdb: string): {
   inherited: boolean;
 } {
   const upper = wtPdb.toUpperCase();
-  
-  const isAlphaFoldHeader = 
-    upper.includes("ALPHAFOLD") || 
-    upper.includes("AF-") || 
+
+  /**
+   * An experimental method record decides first. The old test called a file AlphaFold when it
+   * contained "AF-" ANYWHERE, or when its first 100 B-factors fell in 0–100 and the text held the
+   * word "MODEL" — true of nearly every crystal entry (REMARK 3 names the refinement model, and
+   * crystallographic B-factors are almost always under 100). 1R3S, 1SPD, 2C9V and 4HHB all read as
+   * AlphaFold, so FoldX skipped RepairPDB on X-ray templates and the tab reported "Not repaired
+   * (pLDDT in B-factors)" for a crystal structure (UROD p.Gly318Arg on 1R3S:A).
+   */
+  if (/^EXPDTA\s+\S/m.test(upper)) {
+    return { source: "experimental", semantic: "temperature_factor", inherited: true };
+  }
+
+  const isAlphaFoldHeader =
+    upper.includes("ALPHAFOLD") ||
+    // An AlphaFold DB accession (AF-P06132-F1), not any "AF-" substring.
+    /\bAF-[A-Z0-9]+-F\d+/.test(upper) ||
     upper.includes("COMPL_MODEL") ||
-    upper.includes("CREATOR OF MODEL: ALPHAFOLD") ||
-    upper.includes("MODEL FROM ALPHAFOLD");
-    
+    /^REMARK.*\bPLDDT\b/m.test(upper);
+
   if (isAlphaFoldHeader) {
     return { source: "alphafold", semantic: "plddt", inherited: true };
   }
-  
-  const lines = wtPdb.split(/\r?\n/);
-  let atomCount = 0;
-  let inPLDDTRangeCount = 0;
-  
-  for (const line of lines) {
-    if (line.startsWith("ATOM")) {
-      const bFactorStr = line.slice(60, 66).trim();
-      const bFactor = parseFloat(bFactorStr);
-      if (!isNaN(bFactor)) {
-        atomCount++;
-        if (bFactor >= 0.0 && bFactor <= 100.0) {
-          inPLDDTRangeCount++;
-        }
-      }
-    }
-    if (atomCount >= 100) break;
-  }
-  
-  if (atomCount > 0 && inPLDDTRangeCount === atomCount) {
-    if (upper.includes("MODEL") || upper.includes("DATABASE") || upper.includes("ACCESSION")) {
-      return { source: "alphafold", semantic: "plddt", inherited: true };
-    }
-  }
-  
-  if (upper.includes("HEADER") || upper.includes("EXPDTA") || upper.includes("REMARK")) {
+
+  if (upper.includes("HEADER") || upper.includes("REMARK")) {
     return { source: "experimental", semantic: "temperature_factor", inherited: true };
   }
   

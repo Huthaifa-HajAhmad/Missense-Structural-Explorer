@@ -69,7 +69,11 @@ describe("LandscapeInspector", () => {
     render(<LandscapeInspector analysisResult={conflicting} />);
     expect(screen.getByRole("button", { name: "Query D116G" })).toBeTruthy();
     expect(screen.getByText(/queried substitution D116G reads/)).toBeTruthy();
-    expect(screen.getByRole("note").textContent).toContain("AlphaMissense 0.108 from the predictors pipeline vs 0.362 in dbNSFP");
+    // F9: the rail carries a one-line pointer; the full caution stays on the tab, and the pointer's
+    // title keeps the full text reachable without printing the paragraph twice.
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain("see the missing-data caution on the Landscape tab");
+    expect(note.getAttribute("title")).toContain("AlphaMissense 0.108 from the predictors pipeline vs 0.362 in dbNSFP");
     expect(screen.queryByText(/^Ranks/)).toBeNull();
   });
 

@@ -25,6 +25,7 @@ import {
 import { EGRESS_SYSTEM_OWNER, currentEgressOwner, runWithEgressOwner } from "./egress-context.ts";
 
 const mockFetchPdbFromRcsb = vi.fn();
+const mockResolveStructure = vi.fn();
 const mockPushJob = vi.fn();
 const mockGetJobStatus = vi.fn();
 const mockGetJobData = vi.fn();
@@ -39,7 +40,8 @@ vi.mock("../stability/foldx/cache.ts", async (importOriginal) => ({
 }));
 
 vi.mock("../structure/index.ts", () => ({
-  fetchPdbFromRcsb: (...args: any[]) => mockFetchPdbFromRcsb(...args)
+  fetchPdbFromRcsb: (...args: any[]) => mockFetchPdbFromRcsb(...args),
+  resolveStructure: (...args: any[]) => mockResolveStructure(...args)
 }));
 
 vi.mock("./biophysical-queue.ts", () => ({
@@ -98,6 +100,15 @@ describe("PrewarmManager", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    /**
+     * Bridge the new resolution path: the manager now asks `resolveStructure` for the gated
+     * template, so each test's existing `mockFetchPdbFromRcsb` value becomes the resolved text.
+     * Provenance says experimental so the mutation keeps the mapping's chain (A).
+     */
+    mockResolveStructure.mockImplementation(async () => ({
+      pdbText: await mockFetchPdbFromRcsb(),
+      provenance: { source: "experimental", pdbId: "4MNE", chainId: "A" },
+    }));
     mockGetMutantFromCache.mockResolvedValue(null);
     egressOwnerAtFetch.length = 0;
     await inFlightPrewarms.delete(KEY);
@@ -325,13 +336,8 @@ describe("PrewarmManager", () => {
       resolvePdb!("ATOM 1 N VAL A 600 ... END");
       await task.promise;
 
-      expect(mockFetchPdbFromRcsb).toHaveBeenCalledWith(
-        "4MNE",
-        "A",
-        448,
-        448,
-        expect.objectContaining({ uniprotId: "P15056", pos: 600, expectedWt1: "V" })
-      );
+      expect(mockResolveStructure).toHaveBeenCalledWith("P15056", 600, { requireWildType: true });
+      expect(mockFetchPdbFromRcsb).toHaveBeenCalled();
       expect(mockPushJob).toHaveBeenCalledWith(
         "foldx",
         expect.objectContaining({
@@ -343,6 +349,26 @@ describe("PrewarmManager", () => {
       );
       expect(activeBackgroundTasks.length).toBe(0);
       expect(await inFlightPrewarms.has(KEY)).toBe(false);
+    });
+
+    it("warms the wild-type-gated template, not the raw Tier-1 mapping (F1)", async () => {
+      optIn();
+      mockResolveStructure.mockResolvedValue({
+        pdbText: "ATOM 1 N VAL A 600 ... ALPHAFOLD END",
+        provenance: { source: "alphafold", afdbVersion: "v6" },
+      });
+      mockPushJob.mockResolvedValue("job-af");
+      mockGetJobStatus.mockResolvedValue({ status: "completed" });
+
+      await PrewarmManager.getInstance().triggerPrewarm(dummyParams);
+      await activeBackgroundTasks[0].promise;
+
+      expect(mockResolveStructure).toHaveBeenCalledWith("P15056", 600, { requireWildType: true });
+      expect(mockPushJob).toHaveBeenCalledWith(
+        "foldx",
+        expect.objectContaining({ wtPdb: "ATOM 1 N VAL A 600 ... ALPHAFOLD END", mutation: "VA600E" }),
+        expect.anything()
+      );
     });
 
     it("skips a run whose FoldX result is already cached (WP-I2)", async () => {

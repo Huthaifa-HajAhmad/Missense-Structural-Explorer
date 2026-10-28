@@ -58,6 +58,17 @@ export async function getMutantFromCache(cacheKey: string, requesterId?: string 
   return found && mayServe(found, requesterId) ? found : null;
 }
 
+/**
+ * The raw cached entry for `cacheKey`, WITHOUT the sharing gate.
+ *
+ * For cache MAINTENANCE only (backfilling an engine's late value into the entry it belongs to):
+ * the write completes a record, it never serves one, so `mayServe` must not decide it. Gated reads
+ * that reach a reader stay on `getMutantFromCache`.
+ */
+export async function getMutantFromCacheForBackfill(cacheKey: string): Promise<any | null> {
+  return readMutantFromCache(cacheKey);
+}
+
 async function readMutantFromCache(cacheKey: string): Promise<any | null> {
   const memCached = mutantCache.get(cacheKey);
   if (memCached) {

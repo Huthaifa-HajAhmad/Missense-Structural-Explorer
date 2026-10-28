@@ -407,6 +407,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollThermoMpnnJob(jobId, apiKey);
       if (result.status === "done" || result.status === "error") {
         broadcastJobUpdate({ jobId, tool: "thermompnn", status: result.status, prediction: result.prediction });
+        if (result.status === "done" && result.prediction !== null) {
+          await backfillRemotePredictionToCache(jobId, "thermompnn", result.prediction);
+        }
       }
       // Always return 200 so the client can deterministically terminate polling on
       // terminal statuses (error/done) instead of rescheduling on 502/504. (P0-3)
@@ -475,15 +478,23 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     return false;
   }
 
-  async function backfillRemotePredictionToCache(jobId: string, tool: "dynamut2" | "ddmut", prediction: number): Promise<void> {
+  /**
+   * Writes an engine's late value back into the FoldX cache entry it belongs to.
+   *
+   * DynaMut2 and DDMut are submitted after the FoldX job is cached and land on their own pollers;
+   * ThermoMPNN is submitted the same way but had no backfill, so a cache hit served `thermompnn:
+   * null` for ever and re-submitted the job on every revisit (production UROD G318R: the job record
+   * held −0.106 while the cache kept null).
+   */
+  async function backfillRemotePredictionToCache(jobId: string, tool: "dynamut2" | "ddmut" | "thermompnn", prediction: number): Promise<void> {
     try {
       if (fs.existsSync(getRegistryPath())) {
         const registryContent = await fs.promises.readFile(getRegistryPath(), "utf-8");
         const registry: RegistryJob[] = JSON.parse(registryContent);
         const entry = registry.find(j => j.jobId === jobId && j.type === tool);
         if (entry && entry.foldxCacheKey) {
-          const { getMutantFromCache, writeMutantToCache } = await import("../../services/biophysics.ts");
-          const cached = await getMutantFromCache(entry.foldxCacheKey);
+          const { getMutantFromCacheForBackfill, writeMutantToCache } = await import("../../services/biophysics.ts");
+          const cached = await getMutantFromCacheForBackfill(entry.foldxCacheKey);
           if (cached && cached.energetics) {
             let updated = false;
             if (tool === "dynamut2" && cached.energetics.dynamut2 !== prediction) {
@@ -491,6 +502,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
               updated = true;
             } else if (tool === "ddmut" && cached.energetics.ddmut !== prediction) {
               cached.energetics.ddmut = prediction;
+              updated = true;
+            } else if (tool === "thermompnn" && cached.energetics.thermompnn !== prediction) {
+              cached.energetics.thermompnn = prediction;
               updated = true;
             }
             if (updated) {

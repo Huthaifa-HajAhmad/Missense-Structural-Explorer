@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import path from "path";
-import { fetchPdbFromRcsb } from "../structure/index.ts";
+import { resolveStructure } from "../structure/index.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { CONFIG } from "../../config.ts";
 import { BiophysicalJobQueue } from "./biophysical-queue.ts";
@@ -223,8 +223,11 @@ export function decidePrewarm(params: PrewarmParams, env: NodeJS.ProcessEnv = pr
   if (env.NODE_ENV === "test") return { dispatch: false, reason: "test-environment" };
   if (env[PREWARM_OPT_IN_ENV] !== "true") return { dispatch: false, reason: "not-opted-in" };
   /**
-   * No structure ⇒ nothing to fold. The mapping is resolved by the analysis that just ran, and a
-   * prewarm without it would have to fetch and guess a template the interactive submit may not use.
+   * No structure ⇒ nothing to fold. `pdbMapping` is the analysis's own Tier-1 result; without it a
+   * prewarm would most likely resolve the AlphaFold model, whose FoldX job is seconds — not worth a
+   * speculative queue slot. The template itself is re-resolved below through `resolveStructure`,
+   * with the SAME wild-type requirement the interactive submit uses, so the warmed cache key is the
+   * key a reader computes.
    */
   if (!params.pdbMapping?.pdbId) return { dispatch: false, reason: "structure-unknown" };
   if (params.conditions?.numberingVerified === false) return { dispatch: false, reason: "numbering-unverified" };
@@ -301,18 +304,21 @@ export class PrewarmManager {
      */
     const prewarmPromise = runWithEgressOwner(EGRESS_SYSTEM_OWNER, () => runInCacheScope(newCacheScope(), async () => {
       try {
-        if (pdbMapping && pdbMapping.pdbId) {
-          const wtPdbText = await fetchPdbFromRcsb(
-            pdbMapping.pdbId,
-            pdbMapping.chainId,
-            pdbMapping.unpStart,
-            pdbMapping.structStart,
-            { uniprotId, sequence, pos, expectedWt1: wt1Letter }
-          );
-          if (wtPdbText) {
-            const wt1 = wt1Letter.toUpperCase();
-            const chain = (pdbMapping.chainId || "A").toUpperCase();
-            const mut1 = AMINO_ACID_3_TO_1[mutant] || (mutant.length === 1 ? mutant.toUpperCase() : mutant[0].toUpperCase());
+        /**
+         * The template must be the one the interactive path resolves, or this warm is dead weight:
+         * `buildFoldxCacheKey` hashes the PDB text, and since the wild-type gate the reader refuses
+         * a chain that already carries a substitution (UROD 1R3S is the D86G mutant) and builds on
+         * the AlphaFold model. Resolving through the SAME resolver with the SAME `requireWildType`
+         * keeps the keys equal, so a reader JOINS this job instead of starting a second FoldX run —
+         * and the pre-warm can no longer compute a ΔΔG on a mutant background that would never be
+         * served. (Fetching the raw `pdbMapping` directly did exactly that.)
+         */
+        const resolved = await resolveStructure(uniprotId, pos, { requireWildType: true });
+        if (resolved) {
+          const wtPdbText = resolved.pdbText;
+          const wt1 = wt1Letter.toUpperCase();
+          const chain = (resolved.provenance.chainId || pdbMapping?.chainId || "A").toUpperCase();
+          const mut1 = AMINO_ACID_3_TO_1[mutant] || (mutant.length === 1 ? mutant.toUpperCase() : mutant[0].toUpperCase());
 
             const mutation = `${wt1}${chain}${pos}${mut1}`;
             const prewarmJobDir = path.join(process.cwd(), "temp_jobs", crypto.randomUUID());
@@ -385,7 +391,6 @@ export class PrewarmManager {
               // Owner-checked: never removes an entry the interactive path has since taken over.
               releaseActiveFoldxJob(foldxCacheKey, submission.queueJobId);
             }
-          }
         }
       } catch (prewarmErr: any) {
         console.warn(`[Pre-warm Cache Warning] Background FoldX pre-warm failed:`, prewarmErr.message);

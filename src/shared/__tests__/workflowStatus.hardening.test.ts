@@ -7,7 +7,27 @@ describe("truthful pipeline outcomes", () => {
     expect(hasRealAnalysis({ analysis: "  " })).toBe(false);
   });
   it("reads live energetics independently of the core result", () => {
-    expect(getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: { foldx: 0 }, foldingStatus: "success" })).toEqual({ status: "complete", desc: "ΔΔG = 0.00 kcal/mol · Available" });
+    expect(getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: { foldx: 0 }, foldingStatus: "success" })).toEqual({ status: "complete", desc: "FoldX ΔΔG = 0.00 kcal/mol · Available" });
+  });
+  // UROD p.Gly318Arg: a bundle saved before FoldX returned. The rail read "ΔΔG = +0.53 kcal/mol ·
+  // Available" — DynaMut2's value, unnamed, on a stage it called complete. It now reports the
+  // consensus it actually has (the median, with its count) and still names FoldX's absence.
+  it("shows the median with its engine count and degrades the stage when FoldX has no value", () => {
+    const energetics = { dynamut2: -0.528, ddmut: -0.03, rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034, stabilityoracleStatus: "done", raspStatus: "done" };
+    const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: energetics, dynamut2Status: "done", ddmutStatus: "done", thermompnnStatus: "done" });
+    expect(status.status).toBe("degraded");
+    expect(status.desc).toBe("Median ΔΔG = -0.11 kcal/mol (5 engines) · FoldX: no result");
+  });
+  it("names ProtVar's FoldX when it is the stand-in reading", () => {
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      result,
+      foldingEnergetics: { foldx: null, foldxMean: null, protvar: 1.9, structureProvenance: { source: "alphafold" } },
+      foldingStatus: "failed",
+      dynamut2Status: "unavailable",
+      ddmutStatus: "unavailable",
+    });
+    expect(status.desc).toContain("ProtVar FoldX ΔΔG = +1.90 kcal/mol");
   });
   it("does not mark an empty or non-finite energetics object complete", () => {
     for (const energetics of [{}, { foldx: NaN }, { ddmut: Infinity }]) {

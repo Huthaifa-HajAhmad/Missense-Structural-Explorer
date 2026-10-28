@@ -13,7 +13,14 @@ import { getFoldxExecutionTarget } from "./detector.ts";
 
 /** The runner skips RepairPDB on predicted models; see the rationale where it is applied (runner.ts). */
 export function isAlphaFoldModel(pdb: string): boolean {
-  return /ALPHAFOLD|DBREF.*AF\-/i.test(pdb) ||
+  /**
+   * An experimental method record decides first — the same rule `detectBFactorProvenance` applies.
+   * Without it, a genuine X-ray entry whose REMARK 3 says "MODEL USED FOR MOLECULAR REPLACEMENT:
+   * ALPHAFOLD" (routine since 2021) matched the bare `ALPHAFOLD` substring below and skipped
+   * RepairPDB again. Real AlphaFold DB files carry no EXPDTA record, so this cannot misfile them.
+   */
+  if (/^EXPDTA\s+\S/m.test(pdb)) return false;
+  return /DBREF.*\bAF-[A-Z0-9]+-F\d/i.test(pdb) ||
     /^REMARK.*ALPHAFOLD/mi.test(pdb) ||
     /^HEADER.*PREDICTED/mi.test(pdb) ||
     detectBFactorProvenance(pdb).source === "alphafold";

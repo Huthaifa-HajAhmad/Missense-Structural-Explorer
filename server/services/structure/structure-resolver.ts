@@ -40,6 +40,8 @@ import {
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
+import { fetchUniprotSequence } from "../external-api/uniprot.ts";
+import { formatTemplateDifference, templateSequenceDifferences } from "./template-identity.ts";
 import { type CacheScope, currentCacheScope, newCacheScope, runInCacheScope } from "../infra/cache-scope.ts";
 
 /** Whether calls in `scope` were refused, held back, or answered from stale data (WP-I2). */
@@ -56,6 +58,9 @@ export interface ResolvedStructure {
 
 const STRUCTURE_RESOLUTION_TTL_S = 6 * 60 * 60; // 6 h
 
+/** The experimental chain refused because it is not the wild type, carried onto the tier used instead. */
+type ExcludedExperimental = NonNullable<StructureProvenance["excludedExperimental"]>;
+
 /**
  * Which tier answered, in a form small enough to persist.
  *
@@ -64,8 +69,37 @@ const STRUCTURE_RESOLUTION_TTL_S = 6 * 60 * 60; // 6 h
  */
 type ChosenStructure =
   | { tier: 1; pdbId: string; chainId: string; unpStart: number | null; structStart: number | null }
-  | { tier: 2; afdbVersion: string | undefined }
-  | { tier: 3; pdbId: string; chainId: string; resolution: number | null; method: string | null; identity: number; organism?: string };
+  | { tier: 2; afdbVersion: string | undefined; excluded?: ExcludedExperimental }
+  | { tier: 3; pdbId: string; chainId: string; resolution: number | null; method: string | null; identity: number; organism?: string; excluded?: ExcludedExperimental };
+
+export interface ResolveStructureOptions {
+  /**
+   * For engines that MUTATE the template (FoldX and the remote stability engines): refuse an
+   * experimental chain that differs from the UniProt sequence anywhere, and fall to the AlphaFold
+   * model. A mutant crystal (UROD 1R3S is D86G) is not the wild type those engines compute against.
+   */
+  requireWildType?: boolean;
+}
+
+/**
+ * Where a verified Tier-1 chain departs from UniProt, formatted — or null when the UniProt sequence
+ * could not be fetched and the check could not run at all.
+ *
+ * An integrity gate must not fail open: `fetchVerifiedExperimentalChain` has normally just fetched
+ * and cached the same sequence, so this is near-unreachable, but if it happens the caller refuses a
+ * mutating engine's template rather than silently passing it as the wild type.
+ */
+async function chainDifferences(pdbText: string, chainId: string, uniprotId: string): Promise<string[] | null> {
+  let sequence: string | null = null;
+  try {
+    sequence = await fetchUniprotSequence(uniprotId);
+  } catch (err: any) {
+    console.warn(`[resolveStructure] Could not fetch the UniProt sequence for ${uniprotId} to check the template's wild-type identity:`, err?.message);
+    sequence = null;
+  }
+  if (!sequence) return null;
+  return templateSequenceDifferences(pdbText, chainId, sequence).map(formatTemplateDifference);
+}
 
 interface ProbedStructure {
   choice: ChosenStructure;
@@ -92,7 +126,8 @@ defaultCacheRegistry.registerCache("structureResolution", structureResolutionCac
  * Returning both is what keeps a memo MISS to a single fetch per tier: the text is handed straight
  * to the caller instead of being re-requested after the choice is recorded.
  */
-async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedStructure | null> {
+async function probeStructure(uniprotId: string, pos?: number, options: ResolveStructureOptions = {}): Promise<ProbedStructure | null> {
+  let excluded: ExcludedExperimental | undefined;
   // ─── Tier 1: PDBe best experimental structure (direct UniProt mapping) ────────
   try {
     const pdbMapping = await fetchBestPdbStructure(uniprotId, pos);
@@ -115,7 +150,26 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
         pdbMapping.unpStart,
         pdbMapping.structStart
       );
-      if (verified) {
+      const differences = verified ? await chainDifferences(verified.pdbText, pdbMapping.chainId, uniprotId) : [];
+      /**
+       * Fail CLOSED for a mutating engine: a chain whose wild-type identity could not be checked
+       * (UniProt sequence unavailable) is refused with `unverified: true` — the screen says "could
+       * not be checked", never "is not the wild type". A view (requireWildType unset) keeps the
+       * chain either way; a kept experimental template carries its `sequenceDifferences`.
+       */
+      if (verified && options.requireWildType && differences === null) {
+        excluded = { pdbId: pdbMapping.pdbId.toUpperCase(), chainId: pdbMapping.chainId, differences: [], unverified: true };
+        console.warn(
+          `[resolveStructure] Tier 1 PDB ${excluded.pdbId} chain ${pdbMapping.chainId} could not be checked against ` +
+          `${uniprotId} (sequence unavailable); a mutating engine requires a verified wild type, so the AlphaFold model is used.`
+        );
+      } else if (verified && options.requireWildType && differences !== null && differences.length > 0) {
+        excluded = { pdbId: pdbMapping.pdbId.toUpperCase(), chainId: pdbMapping.chainId, differences };
+        console.warn(
+          `[resolveStructure] Tier 1 PDB ${excluded.pdbId} chain ${pdbMapping.chainId} is not the wild type ` +
+          `(${differences.join(", ")}); a mutating engine needs the wild type, so the AlphaFold model is used.`
+        );
+      } else if (verified) {
         console.log(`[resolveStructure] Tier 1 hit: PDB ${pdbMapping.pdbId.toUpperCase()} chain ${pdbMapping.chainId}`);
         return {
           choice: {
@@ -129,11 +183,13 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
           provenance: {
             source: "experimental",
             pdbId: pdbMapping.pdbId.toUpperCase(),
-            chainId: pdbMapping.chainId
+            chainId: pdbMapping.chainId,
+            // null = the check could not run; disclose nothing rather than a false "matches UniProt".
+            ...(differences !== null && differences.length ? { sequenceDifferences: differences } : {})
           }
         };
       }
-      console.warn(
+      if (!verified) console.warn(
         `[resolveStructure] Tier 1 mapping for PDB ${pdbMapping.pdbId.toUpperCase()} chain ` +
         `${pdbMapping.chainId} did not verify residue-by-residue against ${uniprotId}; ` +
         `not serving it as UniProt-numbered experimental.`
@@ -155,9 +211,9 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
       const afdbVersion = getResolvedAlphafoldVersion(uniprotId);
       console.log(`[resolveStructure] Tier 2 hit: AlphaFold${afdbVersion ? ` (${afdbVersion})` : ""} for ${uniprotId}`);
       return {
-        choice: { tier: 2, afdbVersion },
+        choice: { tier: 2, afdbVersion, ...(excluded ? { excluded } : {}) },
         pdbText: afData,
-        provenance: { source: "alphafold", afdbVersion }
+        provenance: { source: "alphafold", afdbVersion, ...(excluded ? { excludedExperimental: excluded } : {}) }
       };
     }
   } catch (err: any) {
@@ -189,6 +245,23 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
         console.warn(`[resolveStructure] Tier 3: ${best.pdbId.toUpperCase()} has no resolved entity→chain mapping; refusing to assume chain A.`);
         continue;
       }
+      /**
+       * requireWildType: the entry the Tier-1 gate refused must not re-enter through the homolog
+       * door. The RCSB search is per-protein, so a refused same-protein crystal (1R3S) sits at the
+       * top of this ranking; serving it here would hand a mutating engine the exact mutant
+       * background the gate exists to refuse — with a provenance record claiming it was refused.
+       *
+       * A genuinely different protein (a homolog at a clearly lower identity) is kept: it is
+       * disclosed as a homolog with its identity %, and a background that differs from UniProt is
+       * intrinsic to what a homolog template is.
+       */
+      if (options.requireWildType && excluded && best.pdbId.toUpperCase() === excluded.pdbId) {
+        console.warn(
+          `[resolveStructure] Tier 3: ${excluded.pdbId} was refused at Tier 1 (not the wild type: ` +
+          `${excluded.differences.join(", ") || "unverified"}); it is not re-admitted as a "homolog".`
+        );
+        continue;
+      }
       const pdbText = await fetchPdbFromRcsb(best.pdbId, best.chainId);
       if (!pdbText) continue;
       console.log(
@@ -203,7 +276,8 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
           resolution: best.resolution ?? null,
           method: best.method ?? null,
           identity: best.identity!,
-          organism: best.organism
+          organism: best.organism,
+          ...(excluded ? { excluded } : {})
         },
         pdbText,
         provenance: {
@@ -212,7 +286,8 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
           chainId: best.chainId,
           resolution: best.resolution,
           method: best.method,
-          identity: best.identity!
+          identity: best.identity!,
+          ...(excluded ? { excludedExperimental: excluded } : {})
         }
       };
     }
@@ -240,12 +315,18 @@ async function materialise(
       choice.unpStart ?? undefined,
       choice.structStart ?? undefined
     );
-    return verified
-      ? {
-          pdbText: verified.pdbText,
-          provenance: { source: "experimental", pdbId: choice.pdbId.toUpperCase(), chainId: choice.chainId }
-        }
-      : null;
+    if (!verified) return null;
+    const differences = await chainDifferences(verified.pdbText, choice.chainId, uniprotId);
+    return {
+      pdbText: verified.pdbText,
+      provenance: {
+        source: "experimental",
+        pdbId: choice.pdbId.toUpperCase(),
+        chainId: choice.chainId,
+        // null = the check could not run; disclose nothing rather than a false "matches UniProt".
+        ...(differences !== null && differences.length ? { sequenceDifferences: differences } : {})
+      }
+    };
   }
 
   if (choice.tier === 2) {
@@ -256,7 +337,7 @@ async function materialise(
     // the coordinates come from the new release. The memo's value is the fallback for a fetch whose
     // URL names no version.
     const afdbVersion = getResolvedAlphafoldVersion(uniprotId) ?? choice.afdbVersion;
-    return { pdbText, provenance: { source: "alphafold", afdbVersion } };
+    return { pdbText, provenance: { source: "alphafold", afdbVersion, ...(choice.excluded ? { excludedExperimental: choice.excluded } : {}) } };
   }
 
   const pdbText = await fetchPdbFromRcsb(choice.pdbId, choice.chainId);
@@ -269,7 +350,8 @@ async function materialise(
           chainId: choice.chainId,
           resolution: choice.resolution,
           method: choice.method ?? undefined,
-          identity: choice.identity
+          identity: choice.identity,
+          ...(choice.excluded ? { excludedExperimental: choice.excluded } : {})
         }
       }
     : null;
@@ -280,13 +362,16 @@ async function materialise(
  *
  * @param uniprotId - Validated UniProt accession
  * @param pos       - 1-indexed mutation position (used for coverage gating in Tier 1 & 3)
+ * @param options   - `requireWildType` for engines that mutate the template
  * @returns ResolvedStructure or null if all tiers fail
  */
 export async function resolveStructure(
   uniprotId: string,
-  pos?: number
+  pos?: number,
+  options: ResolveStructureOptions = {}
 ): Promise<ResolvedStructure | null> {
-  const memoKey = `structure-resolution:${uniprotId}:${pos ?? "na"}`;
+  // The wild-type requirement changes the answer, so it is part of the memo's key.
+  const memoKey = `structure-resolution:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
 
   /**
    * The coordinates the probe just fetched, captured per CALL rather than per module.
@@ -307,7 +392,7 @@ export async function resolveStructure(
       l1Cache: structureResolutionCache as any,
       ttlSeconds: STRUCTURE_RESOLUTION_TTL_S,
       fetcher: async () => {
-        const probed = await probeStructure(uniprotId, pos);
+        const probed = await probeStructure(uniprotId, pos, options);
         probeDegraded = scopeWasHeldBack(currentCacheScope());
         if (!probed) return null;
         freshlyProbed = probed;
@@ -320,7 +405,7 @@ export async function resolveStructure(
     });
   } catch (err: any) {
     console.warn("[resolveStructure] Tier memoisation failed, resolving directly:", err.message);
-    freshlyProbed = await probeStructure(uniprotId, pos);
+    freshlyProbed = await probeStructure(uniprotId, pos, options);
     chosen = freshlyProbed?.choice ?? null;
   }
 
@@ -351,7 +436,7 @@ export async function resolveStructure(
     structureResolutionCache.delete(memoKey);
   } catch {}
   const probeScope = newCacheScope(currentCacheScope());
-  const reProbed = await runInCacheScope(probeScope, () => probeStructure(uniprotId, pos));
+  const reProbed = await runInCacheScope(probeScope, () => probeStructure(uniprotId, pos, options));
   if (!reProbed) return null;
   if (scopeWasHeldBack(probeScope)) return { pdbText: reProbed.pdbText, provenance: reProbed.provenance };
   try {
