@@ -76,6 +76,41 @@ describe("InterfacesTab — SOD1 p.Ala5Val finding", () => {
   });
 });
 
+describe("InterfacesTab — Show interface in 3D", () => {
+  function renderWith3d() {
+    const onSelectResidue = vi.fn();
+    const onNavigateToView = vi.fn();
+    const props = { analysisState: { result: RESULT, isLoading: false }, active3dModelTab: "alphafold2", onSelectResidue, onNavigateToView } as any;
+    render(<InterfacesTab {...props} />);
+    return { onSelectResidue, onNavigateToView };
+  }
+
+  it("offers no button when the tab cannot reach the structure view", () => {
+    renderTab();
+    expect(screen.queryByRole("button", { name: /Show interface in 3D/ })).toBeNull();
+  });
+
+  it("selects the variant residue and sends the partner's observed interface residues to the structure view", () => {
+    const { onSelectResidue, onNavigateToView } = renderWith3d();
+    const table = screen.getByTestId("assembly-readings");
+    const buttons = within(table).getAllByRole("button", { name: /Show interface in 3D/ });
+    fireEvent.click(buttons[0]);
+    expect(onSelectResidue).toHaveBeenCalledTimes(1);
+    const [index, focus] = onSelectResidue.mock.calls[0];
+    expect(index).toBe(5);
+    expect(focus.companions.length).toBeGreaterThan(0);
+    expect(focus.companions).not.toContain(5);
+    expect(focus.label).toMatch(/interface: \d+ residues observed in \d+ solved structures? \(PDBe-KB\), not computed on this model/);
+    expect(onNavigateToView).toHaveBeenCalledWith("structure_alphafold");
+  });
+
+  it("does not offer a fibril lane, which is not an interface to draw on the monomer", () => {
+    renderWith3d();
+    const fibrilRow = document.getElementById("ifc-row-solved:P00441:fibril")!.closest("tr")!;
+    expect(within(fibrilRow).queryByRole("button", { name: /Show interface in 3D/ })).toBeNull();
+  });
+});
+
 describe("InterfacesTab — SOD1 partners", () => {
   it("draws the tiers as a chart with counts, STRING's cap marked", () => {
     renderTab();

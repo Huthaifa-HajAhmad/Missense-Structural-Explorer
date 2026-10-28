@@ -299,3 +299,24 @@ describe("published protein sequence", () => {
     expect(published()).toBeNull();
   });
 });
+
+describe("residue focus", () => {
+  const focus = { companions: [200], label: "Disulfide bond between Cys150 and Cys200" };
+
+  it("is set together with the selection and cleared by the next selection of any kind", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.selectResidueWithFocus(150, focus);
+    expect(useVariantAnalysisStore.getState().selectedResidueIndex).toBe(150);
+    expect(useVariantAnalysisStore.getState().residueFocus).toEqual(focus);
+
+    store.setSelectedResidueIndex(150);
+    expect(useVariantAnalysisStore.getState().residueFocus).toBeNull();
+  });
+
+  it("does not survive a history replay to another variant", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.selectResidueWithFocus(150, focus);
+    store.handleSelectHistoryItem({ gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", timestamp: 0 } as any);
+    expect(useVariantAnalysisStore.getState().residueFocus).toBeNull();
+  });
+});

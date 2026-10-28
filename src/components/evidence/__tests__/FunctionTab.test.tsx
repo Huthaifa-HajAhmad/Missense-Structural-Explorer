@@ -81,7 +81,24 @@ describe("FunctionTab", () => {
     expect(detail.textContent).toMatch(/ECO:0000269/);
     expect(within(detail).getByRole("link", { name: /PubMed 36608681/ }).getAttribute("href")).toBe("https://pubmed.ncbi.nlm.nih.gov/36608681/");
     fireEvent.click(within(detail).getByRole("button", { name: /Show in 3D/ }));
-    expect(onSelectResidue).toHaveBeenCalledWith(85);
+    expect(onSelectResidue).toHaveBeenCalledWith(85, null);
+    expect(onNavigateToView).toHaveBeenCalledWith("structure_alphafold");
+  });
+
+  it("sends both cysteines of a disulfide bond to the structure view", () => {
+    const onSelectResidue = vi.fn();
+    const onNavigateToView = vi.fn();
+    const uniprotFeatures = {
+      ...NAE1_UNIPROT,
+      features: [
+        ...NAE1_UNIPROT.features,
+        { type: "Disulfide bond", description: "", start: 150, end: 200, evidence: [{ code: "ECO:0000269", source: "PubMed", id: "12646924" }] },
+      ],
+    };
+    renderTab(resultFor({ uniprotFeatures }), { onSelectResidue, onNavigateToView, active3dModelTab: "alphafold2" });
+    fireEvent.click(within(screen.getByTestId("annotation-table")).getByRole("button", { name: /Disulfide bond/ }));
+    fireEvent.click(within(screen.getByTestId("annotation-detail")).getByRole("button", { name: /Show both cysteines in 3D/ }));
+    expect(onSelectResidue).toHaveBeenCalledWith(150, { companions: [200], label: "Disulfide bond between Cys150 and Cys200" });
     expect(onNavigateToView).toHaveBeenCalledWith("structure_alphafold");
   });
 

@@ -1,12 +1,12 @@
 import { linkedPickPosition, type StructureSelection } from "../shared/structureSelection";
 import type { ResidueAt } from "../shared/coordinateText";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useMolstarPlugin } from "./molstar/useMolstarPlugin";
-import { useMolstarStructure, type PlddtFilter } from "./molstar/useMolstarStructure";
+import { useMolstarStructure, VIEWER_CONTAINER_ID, type PlddtFilter } from "./molstar/useMolstarStructure";
 import { StructureToolbar } from "./molstar/StructureToolbar";
 import { StructureLegend } from "./molstar/StructureLegend";
 import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
@@ -87,6 +87,9 @@ export default function MolstarViewer({
   const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
   const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
   const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
+  const residueFocus = useVariantAnalysisStore(s => s.residueFocus);
+  // Companions are drawn by number, so only where the numbering is verified (the hook gates the same way).
+  const focusShown = residueFocus && model.site.canAddressVariantSite && selection.state === "available" ? residueFocus : null;
 
   const residueColorHex = parseInt((settings.residueColor || "#C46849").replace("#", ""), 16);
 
@@ -158,6 +161,7 @@ export default function MolstarViewer({
     variantPosition,
     canAddressVariantSite: model.site.canAddressVariantSite,
     selectedResidue: selection.state === "available" ? selection.position : null,
+    companionResidues: focusShown?.companions,
     showPolarContacts,
     show3DLabels: settings.show3DLabels !== false,
     siteCloseUp,
@@ -236,8 +240,16 @@ export default function MolstarViewer({
           </div>
         )}
 
+        {focusShown && (
+          <div className="s3d-banner s3d-banner--note" role="note" data-testid="structure-residue-focus" data-focus-count={focusShown.companions.length}>
+            <Info aria-hidden="true" />
+            <div><p>{focusShown.label}.</p></div>
+            <button type="button" className="s3d-btn s3d-btn--quiet" onClick={() => actions.setSelectedResidueIndex(selection.position)}>Clear highlight</button>
+          </div>
+        )}
+
         <div className="s3d-stage">
-          <div ref={plugin.containerRef} className="s3d-canvas" id="molstar-viewer-container" />
+          <div ref={plugin.containerRef} className="s3d-canvas" id={VIEWER_CONTAINER_ID} />
           <StructureLegend legend={model.legend} />
           {pocketOpen && (
             <StructurePocketPanel

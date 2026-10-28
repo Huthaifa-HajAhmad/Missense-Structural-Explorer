@@ -44,6 +44,8 @@ export interface UseMolstarStructureOptions {
   canAddressVariantSite: boolean;
   /** A residue the reader clicked, when it is not the variant's. */
   selectedResidue: number | null;
+  /** Residues drawn with the selection (see `ResidueFocus`); the selected residue is not repeated here. */
+  companionResidues?: readonly number[];
   showPolarContacts: boolean;
   show3DLabels: boolean;
   /** Missense-style site close-up: softens surrounding cartoon, shows 5 Å contact shell and labels, and frames the site tightly. */
@@ -99,6 +101,44 @@ function residueExpression(index: number) {
   });
 }
 
+/** Several residues by number, the way the pocket lining is selected. */
+function residuesExpression(indices: readonly number[]) {
+  return MS.struct.generator.atomGroups({
+    "residue-test": MS.core.set.has([MS.core.type.set([...indices]), MS.struct.atomProperty.macromolecular.auth_seq_id()]),
+  });
+}
+
+const NO_RESIDUES: readonly number[] = [];
+/** Companions are labelled only while the set is small enough to read (a disulfide pair, not an interface). */
+const MAX_LABELLED_COMPANIONS = 4;
+/** Carbon colour of companion residues: distinct from the variant site, the grey surroundings and the pocket. */
+const COMPANION_CARBON = 0x3b6ea5;
+
+/** The element the plugin renders into. Named in two places, so it is named here once. */
+export const VIEWER_CONTAINER_ID = "molstar-viewer-container";
+
+/**
+ * What the viewer actually built from a companion set, written where a harness can read it.
+ *
+ * Two facts, and the second is the one worth having: `companionResidues` proves the request arrived, and
+ * `companionAtoms` proves Mol* resolved those numbers to atoms in the loaded model. Residues that do not exist in a
+ * structure produce a component with no atoms, which draws nothing and looks exactly like a caption whose highlight
+ * silently failed. `null` means no companion set is drawn — cleared on every redraw so a stale count cannot stand in
+ * for the current one.
+ */
+function announceCompanions(count: number | null, atoms = 0) {
+  if (typeof document === "undefined") return;
+  const container = document.getElementById(VIEWER_CONTAINER_ID);
+  if (!container) return;
+  if (count === null) {
+    delete container.dataset.companionResidues;
+    delete container.dataset.companionAtoms;
+    return;
+  }
+  container.dataset.companionResidues = String(count);
+  container.dataset.companionAtoms = String(atoms);
+}
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -136,6 +176,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     variantPosition,
     canAddressVariantSite,
     selectedResidue,
+    companionResidues = NO_RESIDUES,
     showPolarContacts,
     show3DLabels,
     siteCloseUp = false,
@@ -432,6 +473,9 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
         if (!active || !stillInTree(plugin, structure.ref)) return;
         const refs: string[] = [];
+        // The companion proof is restated from scratch on every draw: a cleared highlight must not leave the last
+        // count behind for a reader (or a harness) to mistake for the current state.
+        announceCompanions(null);
         const loci: any[] = [];
         const superposed = !!structure2 && stillInTree(plugin, structure2.ref);
         const effectiveContacts = showPolarContacts || closeUpActive;
@@ -544,6 +588,31 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           }
         }
 
+        // Residues a surface asked to see with the selection (a disulfide's cysteines, an interface). They are
+        // drawn on this model by number; whether they belong to it is the caller's claim, shown in the caption.
+        if (companionResidues.length > 0 && canAddressVariantSite) {
+          const companions = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residuesExpression(companionResidues), "companion-residues", { label: `Companion residues (${companionResidues.length})` });
+          if (!active) return;
+          if (companions) {
+            refs.push(companions.ref);
+            announceCompanions(companionResidues.length, companions.cell.obj.data.elementCount);
+            await plugin.builders.structure.representation.addRepresentation(companions, {
+              type: "ball-and-stick",
+              color: "element-symbol",
+              colorParams: { carbonColor: { name: "uniform", params: { value: Color(COMPANION_CARBON) } } },
+            });
+            if (effectiveLabels && companionResidues.length <= MAX_LABELLED_COMPANIONS) {
+              await plugin.builders.structure.representation.addRepresentation(companions, {
+                type: "label",
+                typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.2, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "top-left" },
+              });
+            }
+            // Frame the whole set, not just the selected residue.
+            const framed = [...new Set([...(selectedResidue ? [selectedResidue] : []), ...(variantPosition ? [variantPosition] : []), ...companionResidues])];
+            try { loci.unshift(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residuesExpression(framed), structure.obj.data))); } catch { /* optional */ }
+          }
+        }
+
         if (showPocket && pocketResidueIndices.length > 0) {
           const pocket = await plugin.builders.structure.tryCreateComponentFromExpression(
             structure,
@@ -587,7 +656,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, showPolarContacts, show3DLabels, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
 
   /** Frames one residue without changing any selection. */
   const focusResidue = (index: number) => {

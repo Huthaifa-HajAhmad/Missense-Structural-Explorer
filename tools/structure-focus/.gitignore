@@ -1,0 +1,4 @@
+# Build output, the headless browser's profile and the FOCUS_SHOT screenshot are per-run artefacts.
+dist/
+.browser-profile/
+structure-focus.png

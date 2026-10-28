@@ -1,6 +1,7 @@
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult, StructuralMetrics } from "../../types";
 import { MasterView } from "../MasterSidebar";
 import type { EvidenceTabId } from "../../shared/insightsEvidence";
+import type { ResidueFocus } from "../../shared/residueFocus";
 
 /**
  * Evidence tab ids. One union, not a second hand-copied list: it is the same set the sidebar's
@@ -54,7 +55,8 @@ export interface EvidenceDashboardCardProps {
   onOpenSettings?: () => void;
   onRetryStructural?: (overrides?: { saprotEngine?: string }) => void | Promise<void>;
   onRetryPocket?: () => void | Promise<void>;
-  onSelectResidue?: (index: number) => void;
+  /** Selects a residue; a `focus` draws its companions on the structure too (a disulfide's partner cysteine, an interface). */
+  onSelectResidue?: (index: number, focus?: ResidueFocus | null) => void;
   onNavigateToView?: (view: MasterView) => void;
 }
 
