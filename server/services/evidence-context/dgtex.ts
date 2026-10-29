@@ -20,9 +20,9 @@ export const dgtexManifestSchema = z.object({
 });
 export async function loadDevelopmentalExpression(gene: string): Promise<DevelopmentalExpressionResponse> {
   const empty = { gene, gencodeId: null, observations: [], counts: null, provenance: null };
+  const target = path.resolve(process.env.DGTEX_CONTEXT_PATH ?? 'data/dgtex-context.sqlite');
   let db: DatabaseSync | null = null;
   try {
-    const target = path.resolve(process.env.DGTEX_CONTEXT_PATH ?? 'data/dgtex-context.sqlite');
     await stat(target);
     // Short-lived read handle permits explicit operator replacement on Windows.
     db = new DatabaseSync(target, { readOnly: true });
@@ -43,6 +43,6 @@ export async function loadDevelopmentalExpression(gene: string): Promise<Develop
   } catch (error) {
     const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
     return { ...empty, status: missing ? 'not-installed' : 'error', message: missing
-      ? 'A dGTEx V1 snapshot is not installed on this server.' : 'The dGTEx snapshot could not be read or resolved unambiguously.' };
+      ? `No dGTEx V1 snapshot was found at ${target}. Configure DGTEX_CONTEXT_PATH to point to the snapshot.` : 'The dGTEx snapshot could not be read or resolved unambiguously.' };
   } finally { db?.close(); }
 }

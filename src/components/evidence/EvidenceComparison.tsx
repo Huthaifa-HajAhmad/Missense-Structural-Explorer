@@ -21,7 +21,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const limit = tab === 'alphagenome' && !expanded ? 8 : Infinity;
   const returned = model.rows.filter(r => r.value !== null).length;
   const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models', 'perturbation'].includes(tab);
-  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
+  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : tab === 'expression-models' ? 132 : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
     left: tab === 'expression-models' ? 245 : tab === 'clinical' ? populationLabelWidth(model.rows.filter(r => r.value !== null).map(r => r.name)) : labelled ? 150 : 135 }),
     [tab, labelled, model]);
   const rowLabel = useMemo(() => (name: string) => tab === 'clinical' ? populationRowLabel(name) : name, [tab]);
