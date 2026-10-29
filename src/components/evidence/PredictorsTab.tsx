@@ -8,11 +8,13 @@ import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import {
   CAVEAT_TEXT,
+  LOCAL_AGREEMENT_COPY,
   PREDICTOR_GROUP_LABEL,
   PREDICTOR_GROUP_NOTE,
   buildPredictorEvidence,
   groupReadings,
   informationalSummary,
+  localPredictorAgreement,
   predictorSummary,
   type PredictorEvidence,
   type PredictorReading,
@@ -174,6 +176,26 @@ function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
       </div>
     </div>
   );
+}
+
+function LocalAgreementRow({ evidence }: { evidence: PredictorEvidence }) {
+  const agreement = localPredictorAgreement(evidence);
+  return <div className="prd-frow" data-testid="predictor-local-agreement">
+    <div className="prd-frow__label">
+      <span className="prd-frow__name">Local agreement / informational</span>
+      <span className="prd-frow__sub">{agreement.scored} of {agreement.total} non-voting tools scored</span>
+    </div>
+    <div className="prd-frow__body">
+      <p className="prd-frow__note">{LOCAL_AGREEMENT_COPY.descriptive}</p>
+      <p className="prd-frow__note">{agreement.preferenceSummary}</p>
+      {[...agreement.calibrated, ...agreement.preference].map(({ reading, label }) =>
+        <p key={reading.key} className="prd-frow__note"><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton>: {label}</p>)}
+      {agreement.unclassified.length > 0 && <p className="prd-frow__note">No directional classification: {agreement.unclassified.map(r => r.name).join(", ")}.</p>}
+      {agreement.missing.length > 0 && <p className="prd-frow__note">Not scored: {agreement.missing.map(r => `${r.name} (${r.availability.label})`).join(", ")}.</p>}
+      <p className="prd-frow__note">{LOCAL_AGREEMENT_COPY.preference}</p>
+    </div>
+    <div className="prd-frow__call"><span className="ev-tier" data-tone="muted">Context only</span></div>
+  </div>;
 }
 
 /**
@@ -509,8 +531,9 @@ function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSetti
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
       {workspace.comparison && <EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." />}
-      {workspace.comparison && <section className="prd-card" aria-label="How the engine used these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
+      {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /><LocalAgreementRow evidence={evidence} /></section>}
       {(!workspace.enabled || workspace.view === 'records') && <>
+      <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>
       <InformationalCard evidence={evidence} />
 
       {/* ── 3. Readings ────────────────────────────────────────────────────────────────────── */}

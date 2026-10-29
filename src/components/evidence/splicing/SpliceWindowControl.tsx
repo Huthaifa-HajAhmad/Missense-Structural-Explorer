@@ -5,7 +5,7 @@ import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore
 import { SPLICEAI_WINDOWS, describeSpliceAiFailure, type SplicingEvidence } from "../../../shared/splicingEvidence";
 import type { SpliceAiScoreRequest } from "../../../shared/contracts";
 import type { AnalysisResult } from "../../../types";
-import { spliceRequestIdentity } from '../../../shared/splicingWorkspace';
+import { spliceRequestCoordinate, spliceRequestIdentity } from '../../../shared/splicingWorkspace';
 
 /**
  * The SpliceAI window, where the reader is looking at it.
@@ -44,8 +44,6 @@ export function spliceAiScoreRequest(coordinates: string, assembly: "GRCh37" | "
   return { coordinates, assembly, distance };
 }
 
-const assemblyOf = (raw: unknown): "GRCh37" | "GRCh38" => (typeof raw === "string" && /37|hg19/i.test(raw) ? "GRCh37" : "GRCh38");
-
 export function SpliceWindowControl({
   result,
   ev,
@@ -68,10 +66,9 @@ function SpliceWindowRequest({ result, ev, disabled }: { result: AnalysisResult;
   useEffect(() => () => { latest.current++; }, []);
   const identity = spliceRequestIdentity(result);
 
-  // `genomicCoordinates` and `assembly` ride on the payload's metadata beyond its declared type (as the rail reads them).
-  const md: { genomicCoordinates?: string | null; assembly?: string | null } = (result as any).metadata ?? {};
-  const coordinates = md.genomicCoordinates ?? null;
-  const assembly = assemblyOf(md.assembly);
+  const locus = spliceRequestCoordinate(result);
+  const coordinates = locus?.coordinates ?? null;
+  const assembly = locus?.assembly ?? 'GRCh38';
   const scoredWindow = ev.spliceai.provenance?.distanceBp ?? null;
   // A saved default is a request preference, never provenance for an existing score.
   const selected = target ?? scoredWindow;

@@ -153,3 +153,5 @@ irrelevance. Selecting a group opens its papers in the single Reading desk. Insi
 **Evidence gaps** from the direction map and criterion audit; hypothetical additions remain explicitly
 uncounted. Report separates **Narrative & notes** from **Citations & methods**. See
 [SYNTHESIS_WORKSPACES_REVIEW.md](SYNTHESIS_WORKSPACES_REVIEW.md) for integrity fixes and verification.
+
+Predictors local agreement: Comparison and Native score scales name contributors and provide pin-to-inspector entry points. Clinical bands and sequence preference remain separate; absent and unclassified readings are explicit. See PREDICTORS_AVAILABILITY_REVIEW.md.

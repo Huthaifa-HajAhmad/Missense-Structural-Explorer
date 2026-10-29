@@ -98,6 +98,17 @@ describe("SpliceWindowControl", () => {
     expect(radios[2].getAttribute("aria-checked")).toBe("true");
   });
 
+  it("uses the resolved header coordinate when metadata has none", async () => {
+    const result = scored(500);
+    (result.metadata as typeof result.metadata & { genomicCoordinates: string | null }).genomicCoordinates = null;
+    result.predictorData = { ...result.predictorData, gnomadVariantId: '8-11708788-C-G', gnomadVariantAssembly: 'GRCh38' } as typeof result.predictorData;
+    fetchWithAuth.mockResolvedValue(reply({ distance: 1000, spliceai: liveScore(1000), attempted: true }));
+    renderControl(result);
+    fireEvent.click(screen.getByRole('radio', { name: /1000/ }));
+    await waitFor(() => expect(fetchWithAuth).toHaveBeenCalled());
+    expect(JSON.parse(fetchWithAuth.mock.calls[0][1].body)).toEqual({ coordinates: '8-11708788-C-G', assembly: 'GRCh38', distance: 1000 });
+  });
+
   it("does nothing without a genomic coordinate to re-score", () => {
     renderControl(nae1Reference({ metadata: { genomicCoordinates: null } }));
     expect((screen.getByRole("radio", { name: "±1000" }) as HTMLButtonElement).disabled).toBe(true);

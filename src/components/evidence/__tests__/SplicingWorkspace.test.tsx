@@ -48,7 +48,7 @@ describe('linked RNA splicing workspace', () => {
     fireEvent.click(within(source).getByRole('button', { name: 'Donor loss' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Splice map' }));
     expect(pinned('ds_dl')).toHaveAttribute('aria-pressed', 'true');
-    const comparison = screen.getByTestId('splice-spliceai-ds_dl');
+    const comparison = screen.getByTestId('predicted-ds_dl');
     expect(within(comparison).getByRole('button', { name: 'Donor loss' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.keyDown(pinned('ds_dl'), { key: 'Home' });
     // Focus travels without re-pinning: the reader's pin is unchanged by arrow navigation.

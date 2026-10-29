@@ -590,7 +590,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       note:
         avi !== null
           ? [
-              pct !== null ? `Top ${pct < 0.1 ? pct.toFixed(3) : pct.toFixed(2)}% of all possible SNVs` : null,
+              pct !== null ? `Highest-scoring ${pct < 0.1 ? pct.toFixed(3) : pct.toFixed(2)}% of possible single-nucleotide changes` : null,
               alphagenome?.topModality ? `largest feature: ${alphagenome.topModality}` : null,
             ].filter(Boolean).join(" · ") || null
           : null,
@@ -1044,4 +1044,37 @@ export function informationalSummary(evidence: PredictorEvidence): Informational
       };
     })
     .filter(f => f.total > 0);
+}
+
+/**
+ * The shared copy for the local-agreement summary, so the tab card and the inspector rail hold the
+ * same wording and cannot drift apart. Descriptive agreement is never an ACMG vote or a combined
+ * pathogenicity score.
+ */
+export const LOCAL_AGREEMENT_COPY = {
+  descriptive: "Descriptive agreement only. Correlated models are not independent evidence; these readings never change PP3 / BP4.",
+  preference: "Sequence preference is not a benign or pathogenic call. Published bands are shown separately from sequence preference; scores are not averaged.",
+};
+
+export function localPredictorAgreement(evidence: PredictorEvidence) {
+  const rows = evidence.readings.filter(r => !r.votes);
+  return {
+    preferenceSummary: (() => {
+      const llrs = rows.filter(r => r.score !== null && r.unit === "LLR" && !r.calibrated);
+      const native = llrs.filter(r => r.score! < 0).length;
+      const alternate = llrs.filter(r => r.score! > 0).length;
+      return llrs.length === 0 ? "No uncalibrated sequence-preference scores returned."
+        : `${native} favour native, ${alternate} favour alternate, ${llrs.length - native - alternate} equal preference (${llrs.length} sequence models).`;
+    })(),
+    total: rows.length,
+    scored: rows.filter(r => r.score !== null).length,
+    calibrated: rows.filter(r => r.score !== null && r.calibrated).map(r => ({ reading: r, label: r.callLabel })),
+    // These share an alternate/native LLR interpretation; zero is equal preference, not a benign cut.
+    preference: rows.filter(r => r.score !== null && r.unit === "LLR" && !r.calibrated).map(r => ({
+      reading: r,
+      label: r.score! < 0 ? "Native residue favoured" : r.score! > 0 ? "Alternate residue favoured" : "Equal preference",
+    })),
+    unclassified: rows.filter(r => r.score !== null && !r.calibrated && r.unit !== "LLR"),
+    missing: rows.filter(r => r.score === null),
+  };
 }

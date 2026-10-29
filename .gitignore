@@ -138,3 +138,12 @@ data/benchmark-structures/
 .e2e/videos/
 .e2e/bugbash/
 .e2e/proof/
+
+# Thread scratch: probe outputs and local-only tooling runs.
+.clavix/
+tools/structure-focus/
+.e2e/*.json
+.e2e/*.csv
+.e2e/*.log
+.e2e/predictor.config.ts
+.e2e/writing-reference.txt

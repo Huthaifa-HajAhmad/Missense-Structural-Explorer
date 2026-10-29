@@ -1,4 +1,4 @@
-import { ArrowUpRight, MousePointer2, Pin } from 'lucide-react';
+import { ArrowUpRight, Pin } from 'lucide-react';
 import { ClearPinButton } from './PinHeader';
 import { useEvidenceWorkspace } from '../evidence/EvidenceWorkspace';
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
@@ -50,10 +50,7 @@ export function SplicingReadingInspector({ rows }: { rows: SplicingWorkspaceRead
       </details>
       {report && <a className="spl-inspection__source" href={report} target="_blank" rel="noreferrer">SpliceAI source documentation<ArrowUpRight size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}
     </> : <div className="spl-inspection__empty">
-      <MousePointer2 size={24} strokeWidth={1.5} aria-hidden="true" />
-      <h3>{workspace.selected ? 'Reading no longer available' : 'Follow a splice reading'}</h3>
-      <p>Select a map marker or source record to inspect its exact score, position and provenance.</p>
-      <span>The rule trace remains below.</span>
+      <p>{workspace.selected ? 'Reading no longer available. Select another channel.' : 'Select a channel or source record to inspect its score, position and provenance.'}</p>
     </div>}
   </section>;
 }

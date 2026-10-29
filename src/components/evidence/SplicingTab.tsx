@@ -276,7 +276,7 @@ function ReadingRow({
   );
 }
 
-/** Only what the figure draws: a legend entry for a mark that is not there is noise. */
+/** The shared mark tones. The no-signal key stays even when the map's quiet row is hidden: the Predicted sites table beside it lists those channels with the same dots. */
 function MapLegend({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
   return (
     <div className="spl-geo__legend" aria-hidden="true">
@@ -502,13 +502,19 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
       </section>
 
       {workspace.enabled && <div className="spl-workspace-tools">
-        <p>Pin a channel to follow its score, location and source in the inspector.</p>
+        <p>Select a channel to inspect its source and position.</p>
         {/* One control regardless of the visible view: the request instance must not unmount on tab switch. */}
         <SpliceWindowControl result={result} ev={ev} disabled={rescoreLocked} />
       </div>}
       <MechanismSelection tab="splicing" rows={readings} visibleKeys={visibleKeys} />
       <EvidencePanel tab="splicing">
       {workspace.enabled && workspace.view === 'records' ? <SplicingRecords rows={readings.filter(r => r.channel !== null)} /> : (!workspace.enabled || workspace.comparison) && <>
+      {workspace.enabled && <section className="spl-section" aria-label="dbscSNV context">
+        <h2 className="eyebrow">dbscSNV / junction context</h2>
+        <div className="spl-card spl-table-wrap"><table className="spl-table"><tbody>
+          {ev.readings.filter(r => r.key.startsWith('dbscsnv')).map(r => <ReadingRow key={r.key} reading={r} onKnowledge={setKnowledgeKey} onTabChange={onTabChange} />)}
+        </tbody></table></div>
+      </section>}
       <section className="spl-section" aria-labelledby="spl-geometry-title">
         <h2 className="eyebrow" id="spl-geometry-title">
           <MapPin className="w-3.5 h-3.5" />
@@ -518,7 +524,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
           <div className="spl-geo__main">
             {g.position !== null ? (
               <div className="spl-geo__drawing">
-                <div className="spl-geo__lead">
+                <div className="spl-geo__lead spl-geo__lead--compact">
                   <p className="spl-geo__lead-label">Distance to nearest splice junction</p>
                   <p className="spl-geo__lead-position">
                     <strong className="spl-mono">{positionText} from the {g.junction}</strong>
@@ -544,14 +550,14 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
                     </div>
                     <div className="spl-geo__figure">
                       {/* Reset geometry-specific view state on transcript changes; re-scoring the same transcript retains it. */}
-                      <SpliceMap key={g.transcriptId ?? "unresolved"} map={map} geometry={g}
+                      <SpliceMap compact={workspace.enabled} key={g.transcriptId ?? "unresolved"} map={map} geometry={g}
                         selectedKey={workspace.selected} onSelect={workspace.enabled ? workspace.select : undefined}
                         view={workspace.enabled ? mapView : undefined}
                         onViewChange={workspace.enabled ? patch => workspace.setOptions({ spliceMap: { ...mapView, ...patch } }) : undefined} />
                     </div>
                     <MapLegend map={map} />
-                    <MapNote map={map} />
-                    <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />
+                    {!workspace.enabled && <MapNote map={map} />}
+                    {!workspace.enabled && <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />}
                   </>
                 ) : null}
               </div>
@@ -583,7 +589,8 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
           </div>
         </div>
       </section>
-      {workspace.enabled && <p className="spl-records-caption">The map shows location; Channel details retains every exact channel reading, including channels with no position or no returned score.</p>}
+
+
       </>}
 
       {(!workspace.enabled || workspace.view === 'scales') &&

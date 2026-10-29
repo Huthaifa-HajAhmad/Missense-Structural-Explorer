@@ -403,16 +403,16 @@ export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail:
 
   if (newShare >= 0.5) {
     return {
-      headline: "Mostly AlphaGenome's own predictions.",
+      headline: "Main driver: AlphaGenome molecular predictions.",
       detail:
-        `${fmtShare(newShare)} of reported attribution magnitude comes from AlphaGenome's predicted molecular effects${led}.` +
+        `${fmtShare(newShare)} of the total contribution magnitude comes from AlphaGenome's predicted molecular effects${led}.` +
         (reused.length ? ` The rest comes from ${joined}. These other inputs are not independent molecular predictions.` : "") + coverage,
     };
   }
   return {
-    headline: "Mostly evidence this workspace already reads.",
+    headline: "Main driver: inputs also shown in Predictors.",
     detail:
-      `${fmtShare(reusedShare)} of reported attribution magnitude comes from ${joined}. ` +
+      `${fmtShare(reusedShare)} of the total contribution magnitude comes from ${joined}. ` +
       (newShare === 0 || !lm
         ? "No non-zero molecular contribution was returned."
         : `AlphaGenome's own molecular predictions account for ${fmtShare(newShare)}${led}.`) + coverage,

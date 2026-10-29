@@ -15,10 +15,18 @@ export interface SplicingWorkspaceReading extends EvidenceChartRow {
 const finite = (n: unknown): number | null => typeof n === 'number' && Number.isFinite(n) ? n : null;
 const offsetText = (n: number | null) => n === null ? 'Not reported' : `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)} bp`;
 
-/** Include the requested locus/build as well as the allele: a late re-score cannot cross either. */
+/** Resolve the same locus shown in the header, always retaining its declared build. */
+export function spliceRequestCoordinate(result: AnalysisResult) {
+  const md = result.metadata as AnalysisResult['metadata'] & { genomicCoordinates?: string | null; assembly?: 'GRCh37' | 'GRCh38' | null };
+  if (md?.genomicCoordinates) return { coordinates: md.genomicCoordinates, assembly: md.assembly ?? 'GRCh38' as const };
+  const pred = result.predictorData;
+  return pred?.gnomadVariantId && pred.gnomadVariantAssembly
+    ? { coordinates: pred.gnomadVariantId, assembly: pred.gnomadVariantAssembly } : null;
+}
+
+/** A late reply must not cross the requested locus or build. */
 export function spliceRequestIdentity(result: AnalysisResult | null): string {
-  const md = result?.metadata as (AnalysisResult['metadata'] & { genomicCoordinates?: string; assembly?: string }) | undefined;
-  return JSON.stringify([evidenceWorkspaceIdentity(result), md?.genomicCoordinates, md?.assembly]);
+  return JSON.stringify([evidenceWorkspaceIdentity(result), result ? spliceRequestCoordinate(result) : null]);
 }
 
 export function splicingReadings(ev: SplicingEvidence, result: AnalysisResult): SplicingWorkspaceReading[] {

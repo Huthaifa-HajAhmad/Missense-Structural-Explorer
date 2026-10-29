@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { TabixIndexedFile } from "@gmod/tabix";
 import path from "path";
 import fs from "fs";
@@ -7,6 +8,15 @@ import { toSingleAa } from "./normalizer.ts";
 import { UNIPROT_ACCESSION_REGEX } from "./transcript-resolver.ts";
 
 let popEVETabix: TabixIndexedFile | null = null;
+
+/** The UniProt entry shape the resolver reads; anything beyond it is skipped, never a parse failure. */
+const uniprotEntrySchema = z.object({
+  uniProtKBCrossReferences: z.array(z.object({ database: z.string(), id: z.string(), isoformId: z.string().optional() })).default([]),
+  comments: z.array(z.object({
+    isoforms: z.array(z.object({ isoformIds: z.array(z.string()).default([]), isoformSequenceStatus: z.string().optional() })).default([]),
+  })).default([]),
+});
+const uniprotSearchSchema = z.object({ results: z.array(uniprotEntrySchema) });
 
 export function getPopEVETabix(): TabixIndexedFile | null {
   if (popEVETabix) return popEVETabix;
@@ -73,7 +83,7 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
     const isUniprot = UNIPROT_ACCESSION_REGEX.test(cleanInput);
     const url = isUniprot 
       ? `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(cleanInput)}.json`
-      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&fields=xref_refseq&format=json`;
+      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&format=json`;
 
     const res = await fetchWithRetry(url, { timeout: 10000 });
     if (!res.ok) {
@@ -82,16 +92,20 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
       if (res.status === 404) refseqCache.set(cleanInput, null);
       return null;
     }
-    const data = await res.json() as any;
-    let dbXrefs: any[] = [];
-    if (isUniprot) {
-      dbXrefs = data.uniProtKBCrossReferences || [];
-    } else if (data.results && data.results.length > 0) {
-      dbXrefs = data.results[0].uniProtKBCrossReferences || [];
+    const payload = await res.json();
+    const checked = isUniprot ? uniprotEntrySchema.safeParse(payload) : uniprotSearchSchema.safeParse(payload);
+    const entry = checked.success ? ("results" in checked.data ? checked.data.results[0] : checked.data) : null;
+    if (!entry) {
+      console.warn(`[popEVE Online] RefSeq lookup for ${proteinOrGene}: UniProt payload did not match the expected shape; treated as no mapping.`);
+      return null;
     }
-
-    const refseqXrefs = dbXrefs.filter((x: any) => x.database === "RefSeq");
-    const refseqId = refseqXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("NP_"))?.id || refseqXrefs[0]?.id || null;
+    const displayed = entry.comments.flatMap(c => c.isoforms)
+      .find(i => i.isoformSequenceStatus === "Displayed")?.isoformIds ?? [];
+    const refseqXrefs = entry.uniProtKBCrossReferences.filter(x => x.database === "RefSeq" && x.id.startsWith("NP_"));
+    // Protein HGVS is numbered on the displayed UniProt sequence, not the first cross-reference.
+    const refseqId = (displayed.length > 0
+      ? refseqXrefs.find(x => x.isoformId && displayed.includes(x.isoformId))
+      : refseqXrefs.find(x => !x.isoformId) ?? refseqXrefs[0])?.id ?? null;
 
     refseqCache.set(cleanInput, refseqId);
     return refseqId;

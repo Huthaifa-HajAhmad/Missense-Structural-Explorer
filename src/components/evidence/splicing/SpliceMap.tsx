@@ -167,12 +167,14 @@ function PredictedSites({ map, selectedKey, onSelect }: { map: SpliceMapModel; s
   );
 }
 
-export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry): string {
+/** Where below-floor channels land in words: composed per layout, never patched after the fact. */
+export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry, compact = false): string {
   const site = map.junction;
   const [winFrom, winTo] = site === "donor" ? [-THRESHOLDS.dbscsnv.window.donor.exonic, THRESHOLDS.dbscsnv.window.donor.intronic] : [-THRESHOLDS.dbscsnv.window.acceptor.intronic, THRESHOLDS.dbscsnv.window.acceptor.exonic];
   const quietNames = map.quiet.map(q => `${q.name.toLowerCase()} ${formatDelta(q.ds)}`).join(", ");
+  const quietPlacement = compact ? "listed in the predicted-sites table, not placed on the axis" : "drawn in the no-signal row below the axis, not placed on it";
   const quietText = map.quiet.length
-    ? ` ${map.quiet.length === 1 ? "One channel is" : `${map.quiet.length} channels are`} below ${SPLICE_MAP_FLOOR} (${quietNames}); ${map.quiet.length === 1 ? "it is" : "they are"} drawn in the no-signal row below the axis, not placed on it, because a Δ this close to zero has no meaningful position.`
+    ? ` ${map.quiet.length === 1 ? "One channel is" : `${map.quiet.length} channels are`} below ${SPLICE_MAP_FLOOR} (${quietNames}); ${map.quiet.length === 1 ? "it is" : "they are"} ${quietPlacement}, because a Δ this close to zero has no meaningful position.`
     : "";
   const fallback = map.maxScore === null
     ? " No predicted site is drawn; inspect the channel readings for scores."
@@ -185,9 +187,9 @@ export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry): s
   return `Variant at position ${signed(map.position)} of the ${site}, ${geometry.regionType}. dbscSNV's window here runs ${signed(winFrom)} to ${signed(winTo)}; the variant is ${geometry.inDbscsnvWindow ? "inside" : "outside"} it.${preds}${map.predictions.length > 0 && map.predictionsNote ? ` ${map.predictionsNote}` : ""}`;
 }
 
-export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, view, onViewChange }: {
+export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, view, onViewChange, compact = false }: {
   map: SpliceMapModel; geometry: SpliceGeometry; selectedKey?: string | null; onSelect?: (key: string) => void;
-  view?: SpliceMapView; onViewChange?: (patch: Partial<SpliceMapView>) => void;
+  compact?: boolean; view?: SpliceMapView; onViewChange?: (patch: Partial<SpliceMapView>) => void;
 }) {
   const [localZoom, setLocalZoom] = React.useState<number | null>(null);
   const [localFocused, setLocalFocused] = React.useState(false);
@@ -256,7 +258,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
   })();
   const quietTop = modelH + 24;
   const quietItemBase = quietTop + 48;
-  const H = quietRows.length > 0 ? quietItemBase + (quietRows.length - 1) * 36 + 28 : modelH + 12;
+  const H = !compact && quietRows.length > 0 ? quietItemBase + (quietRows.length - 1) * 36 + 28 : modelH + 12;
   const clipId = React.useId().replace(/:/g, "");
 
   const vx = CX;
@@ -339,7 +341,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
         <span>View controls do not re-score the variant. Predictions are scored against SpliceAI's own annotation, which may differ from the transcript shown here.</span>
       </div>
     <div className="spl-map-scroll" role={onSelect ? 'region' : undefined} aria-label={onSelect ? 'Interactive splice map' : undefined} tabIndex={onSelect ? 0 : undefined}>
-    <svg className="spl-map" viewBox={`0 0 ${W} ${H}`} role={onSelect ? 'group' : 'img'} aria-label={spliceMapLabel(map, geometry)}>
+    <svg className="spl-map" viewBox={`0 0 ${W} ${H}`} role={onSelect ? 'group' : 'img'} aria-label={spliceMapLabel(map, geometry, compact)}>
       <title>{`Splice map around ${geometry.exonLabel}`}</title>
       <defs>
         <clipPath id={clipId}>
@@ -468,7 +470,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
       </g>
 
       {/* No-signal row: below-floor channels, drawn off the axis because their Δ has no meaningful position. */}
-      {quietRows.length > 0 && (
+      {!compact && quietRows.length > 0 && (
         <g className="spl-map__quiet" data-testid="map-no-signal-row">
           <text className="spl-map__quiet-head" x={left} y={quietTop} aria-hidden="true">No signal</text>
           <text className="spl-map__quiet-caption" x={left} y={quietTop + 16} aria-hidden="true">Δ &lt; {SPLICE_MAP_FLOOR} · no predicted site, so not placed on the axis</text>

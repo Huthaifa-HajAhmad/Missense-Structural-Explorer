@@ -67,11 +67,6 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       : tab === 'alphagenome' && w.filter !== 'all'
         ? 'No returned contributions in this view. Unattributed features remain inspectable below.'
         : model.emptyCopy}
-    actions={<div className="evw-controls">
-      {tab === 'alphagenome' && <label>Feature family <select value={w.filter} onChange={e => w.setFilter(e.target.value as AttributionFilter)}>
-        <option value="all">All features</option>{Object.entries(AVI_GROUP_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-      </select></label>}
-    </div>}
     footer={<><span>{model.axisLabel}</span>
       {/* Colour alone never carries a call: each dot tone names its meaning in words (WCAG 1.4.1). */}
       {tab === 'predictors' && <>
@@ -84,9 +79,14 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         <span className="evw-legend"><i className="evw-legend__dot" data-tone="accent" />Molecular prediction</span>
         <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Other input</span>
       </>}
-      <span>Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. The inspector retains exact values and provenance.</span></>}>
-    {tab === 'alphagenome' && returned > 0 && <div className="evw-figure-scope"><span>{Math.min(returned, limit)} of {returned} returned contributions · largest magnitude first</span>
-      {returned > 8 && <button type="button" className="viz-action" aria-expanded={expanded} onClick={() => w.toggleGroup('all-attributions')}>{expanded ? 'Show largest 8' : `Show all ${returned}`}</button>}</div>}
+      <span>{tab === 'alphagenome' ? 'Arrow keys explore; Enter pins or clears a reading.' : 'Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. The inspector retains exact values and provenance.'}</span></>}>
+    {tab === 'alphagenome' && <div className="evw-figure-scope">
+      {returned > 0 && <span>{Math.min(returned, limit)} of {returned} returned contributions · largest magnitude first</span>}
+      <div className="evw-controls">
+      <label>Feature family <select value={w.filter} onChange={e => w.setFilter(e.target.value as AttributionFilter)}>
+        <option value="all">All features</option>{Object.entries(AVI_GROUP_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+      </select></label>
+      {returned > 8 && <button type="button" className="viz-action" aria-expanded={expanded} onClick={() => w.toggleGroup('all-attributions')}>{expanded ? 'Show largest 8' : `Show all ${returned}`}</button>}</div></div>}
     {plotted.length > 0 && <div className="evw-chart-scroll" role="region" aria-label={`${title} chart`} tabIndex={0}>
       <div className="evw-chart-canvas" data-wide={tab === 'predictors' || tab === 'expression-models' || undefined}
         style={{ ['--evw-plot-left' as string]: `${margin.left}px`, ['--evw-plot-right' as string]: `${margin.right}px`, ['--evw-band-count' as string]: model.ticks.length }}>
@@ -120,6 +120,5 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       <p>{model.unplottedBody}</p>
       <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong>{r.valueText}</strong></button>)}</div>
     </div>}
-    {tab === 'alphagenome' && <p className="evw-caption">{model.summary}</p>}
   </ChartFrame></div>;
 }

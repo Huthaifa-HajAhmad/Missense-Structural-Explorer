@@ -171,8 +171,8 @@ describe("the score is a rank, never an ACMG strength", () => {
     // Green means benign in this app; a scored AVI shows its rank, not a success chip.
     expect(screen.queryByTestId("avi-status")).not.toBeInTheDocument();
     expect(screen.queryByText("Computed")).not.toBeInTheDocument();
-    expect(screen.getByTestId("avi-headline")).toHaveTextContent("Top 0.23%");
-    expect(screen.getByText(/of all ~9 billion possible hg38 SNVs/)).toBeInTheDocument();
+    expect(screen.getByTestId("avi-headline")).toHaveTextContent("Highest-scoring 0.23%");
+    expect(screen.getByText(/among ~9 billion possible single-nucleotide changes/)).toBeInTheDocument();
     expect(screen.getByText(/about 1 in 437/)).toBeInTheDocument();
     expect(screen.getByTestId("avi-caveat")).toHaveTextContent(/not a probability of pathogenicity/);
   });
@@ -209,8 +209,8 @@ describe("what the score is made of", () => {
   it("names AlphaMissense as a separate predictor, not as protein structure", () => {
     renderTab({ alphagenome: GZF1 });
     expect(screen.queryByText(/steric|hydrophobic packing|AlphaFold Structural/i)).not.toBeInTheDocument();
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Mostly evidence this workspace already reads\./);
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/88% of reported attribution magnitude comes from AlphaMissense \(88%\)/);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Main driver: inputs also shown in Predictors\./);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/88% of the total contribution magnitude comes from AlphaMissense \(88%\)/);
   });
 
   it("says a conservation-led score is re-read evidence too — not only an AlphaMissense-led one", () => {
@@ -219,8 +219,8 @@ describe("what the score is made of", () => {
     // three quarters of the score was evidence the Predictors tab already reads.
     renderTab({ alphagenome: NAE1 });
     const finding = screen.getByTestId("avi-composition");
-    expect(finding).toHaveTextContent(/Mostly evidence this workspace already reads\./);
-    expect(finding).toHaveTextContent(/77% of reported attribution magnitude comes from conservation \(51%\) and AlphaMissense \(26%\)/);
+    expect(finding).toHaveTextContent(/Main driver: inputs also shown in Predictors\./);
+    expect(finding).toHaveTextContent(/77% of the total contribution magnitude comes from conservation \(51%\) and AlphaMissense \(26%\)/);
     expect(finding).toHaveTextContent(/AlphaGenome's own molecular predictions account for 23%, led by splicing \(\+0\.176\)/);
     expect(within(screen.getByTestId("avi-origin-split")).getByText("23% new from AlphaGenome")).toBeInTheDocument();
   });
@@ -228,8 +228,8 @@ describe("what the score is made of", () => {
   it("leads with AlphaGenome's own predictions when they carry most of the score", () => {
     renderTab({ alphagenome: { status: "live", aviPhred: 18.2, featureAttributions: { Splicing: 0.6, AlphaMissense: 0.2, Cactus: 0.1 } } });
     const finding = screen.getByTestId("avi-composition");
-    expect(finding).toHaveTextContent(/Mostly AlphaGenome's own predictions\./);
-    expect(finding).toHaveTextContent(/67% of reported attribution magnitude comes from AlphaGenome's predicted molecular effects, led by splicing/);
+    expect(finding).toHaveTextContent(/Main driver: AlphaGenome molecular predictions\./);
+    expect(finding).toHaveTextContent(/67% of the total contribution magnitude comes from AlphaGenome's predicted molecular effects, led by splicing/);
   });
 
   it("bands the table by origin: new from AlphaGenome first, then evidence read elsewhere", () => {

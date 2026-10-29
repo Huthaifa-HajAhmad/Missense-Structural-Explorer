@@ -65,6 +65,26 @@ describe("negative caching only for a definitive not-found", () => {
     expect(transcriptMappingCache.has("P04637")).toBe(false);
   });
 
+  it("popEVE uses GATA4's displayed isoform even when an alternative RefSeq comes first", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(respond({
+        uniProtKBCrossReferences: [
+          { database: "RefSeq", id: "NP_001295022.1", isoformId: "P43694-2" },
+          { database: "RefSeq", id: "NP_002043.2", isoformId: "P43694-1" },
+        ],
+        comments: [{ isoforms: [{ isoformIds: ["P43694-1"], isoformSequenceStatus: "Displayed" }] }],
+      }))
+      .mockResolvedValueOnce(respond("mutant,gap frequency,popEVE\nS159C,0.052,-3.376\n"));
+    expect(await fetchPopEVEScoreOnline("P43694", "p.Ser159Cys")).toBe(-3.376);
+    expect(String(fetchSpy.mock.calls[1][0])).toContain("NP_002043.2.csv");
+  });
+
+  it("a UniProt payload of an unexpected shape is asked again, not a thrown parse error", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond({ uniProtKBCrossReferences: "not an array" }));
+    expect(await getRefSeqForProtein("P04637")).toBeNull();
+    expect(refseqCache.has("P04637")).toBe(false);
+  });
+
   it("popEVE RefSeq: a 503 is asked again, a 404 is remembered", async () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond("busy", 503));
     expect(await getRefSeqForProtein("P04637")).toBeNull();

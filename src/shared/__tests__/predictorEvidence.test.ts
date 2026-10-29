@@ -19,7 +19,7 @@ import {
   evaluatePopEve,
   insilicoVoteOutcome,
 } from "../thresholds";
-import { buildPredictorEvidence, predictorFinding, predictorSummary } from "../predictorEvidence";
+import { buildPredictorEvidence, localPredictorAgreement, predictorFinding, predictorSummary } from "../predictorEvidence";
 
 /** The scores on the screenshots the redesign was reviewed against. */
 function gzf1(overrides: Record<string, any> = {}) {
@@ -338,5 +338,19 @@ describe("AlphaGenome reference-base refusal", () => {
     expect(avi.action).toBeNull();
     expect(avi.reason).toMatch(/reference base here is T, but the variant gives A/);
     expect(avi.reason).not.toMatch(/gRPC/);
+  });
+});
+
+describe("local informational agreement", () => {
+  it("keeps sequence preference, unclassified scores and missingness separate from the vote", () => {
+    const evidence = buildPredictorEvidence({ result: gzf1() });
+    const agreement = localPredictorAgreement(evidence);
+    expect(agreement.preferenceSummary).toContain("4 favour native");
+    expect(agreement.unclassified.map(r => r.key)).toContain("alphagenome");
+    expect(agreement.missing.map(r => r.key)).toContain("esm");
+    expect([...agreement.preference, ...agreement.calibrated].every(x => !x.reading.votes)).toBe(true);
+    const empty = localPredictorAgreement(buildPredictorEvidence({ result: {} as any }));
+    expect(empty.scored).toBe(0);
+    expect(empty.preferenceSummary).toContain("No uncalibrated");
   });
 });

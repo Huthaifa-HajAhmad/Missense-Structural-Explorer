@@ -45,6 +45,17 @@ function renderTab(result: any, extra: Record<string, unknown> = {}) {
 }
 
 describe("PredictorsTab", () => {
+  it("shows local agreement on Comparison and pins contributors for inspection", async () => {
+    renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    const row = screen.getByTestId("predictor-local-agreement");
+    expect(row.textContent).toContain("4 favour native");
+    expect(row.textContent).toContain("never change PP3 / BP4");
+    expect(within(row).getByRole("button", { name: /ESM-2/ })).toBeTruthy();
+    expect(row.textContent).toContain("No directional classification");
+    expect(row.textContent).toContain("Not scored");
+  });
+
   it("starts the informational table groups collapsed and expands them on request", () => {
     renderTab(gzf1());
     const table = screen.getByTestId("predictor-readings");

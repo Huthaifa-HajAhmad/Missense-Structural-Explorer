@@ -6,7 +6,7 @@ import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
 import { REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
-import { buildPredictorEvidence } from "../../shared/predictorEvidence";
+import { buildPredictorEvidence, LOCAL_AGREEMENT_COPY, localPredictorAgreement } from "../../shared/predictorEvidence";
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import {
   CLINGEN_CLASS_BANDS,
@@ -79,6 +79,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   }), [analysisResult, isLoading, isModelLoading, alphagenomeConfigured]);
   const ev = useMemo(() => buildLadderEvidence({ result: analysisResult, predictor: evidence }), [analysisResult, evidence]);
   const comparisonRows = useMemo(() => buildPredictorComparison(evidence, ev).rows, [evidence, ev]);
+  const agreement = localPredictorAgreement(evidence);
   const { constraint } = ev;
   const { vote, voters, engine } = evidence;
   // The engine's own PP3/BP4 on the point scale, as recorded: "PP3" is +1, "BP4_Strong" is -4.
@@ -122,6 +123,15 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   return (
     <div className="prd-rail" data-testid="predictors-rail">
       <EvidenceReadingInspector tab="predictors" rows={comparisonRows} />
+      <section className="prd-rsec" aria-label="Local informational agreement">
+        <h3 className="eyebrow">Local agreement / informational</h3>
+        <p>{agreement.scored} of {agreement.total} non-voting tools scored. {LOCAL_AGREEMENT_COPY.descriptive}</p>
+        <p>{agreement.preferenceSummary}</p>
+        {[...agreement.calibrated, ...agreement.preference].map(({ reading, label }) => <p key={reading.key}>{reading.name}: {label}</p>)}
+        <p>No directional classification: {agreement.unclassified.map(r => r.name).join(", ") || "None"}.</p>
+        <p>Not scored: {agreement.missing.map(r => r.name).join(", ") || "None"}.</p>
+        <p>{LOCAL_AGREEMENT_COPY.preference}</p>
+      </section>
       {/* ── 1. How the verdict was reached ── */}
       <section className="prd-rsec" aria-labelledby="prd-rail-trace">
         <h3 className="eyebrow" id="prd-rail-trace">

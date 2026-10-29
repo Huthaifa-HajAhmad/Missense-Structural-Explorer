@@ -425,10 +425,10 @@ function AlphaGenomeTabBody({
           <div className="ag-hero__body">
             <div className="ag-figure">
               <span className="figure-headline ag-figure__value" data-testid="avi-headline">
-                {ev.topPercent !== null ? `Top ${fmtPercent(ev.topPercent)}` : `Phred ${(ev.phred as number).toFixed(1)}`}
+                {ev.topPercent !== null ? `Highest-scoring ${fmtPercent(ev.topPercent)}` : `Phred ${(ev.phred as number).toFixed(1)}`}
               </span>
               <span className="ag-figure__label">
-                of all ~9 billion possible hg38 SNVs
+                among ~9 billion possible single-nucleotide changes (GRCh38)
                 {ev.oneIn !== null ? ` · about 1 in ${ev.oneIn.toLocaleString("en-GB")}` : ""}
               </span>
             </div>
@@ -541,7 +541,7 @@ function AlphaGenomeTabBody({
 
       {/* ── 2. What the score is made of ───────────────────────────────────────────────────── */}
       {workspace.comparison && <>
-        <EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each mark is one input’s contribution to the raw AVI score. Molecular predictions are clay; other inputs are grey. Select a feature to understand it." />
+        <EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each input can raise or lower the raw AVI score. Select a dot for its explanation." />
         <AlphaGenomeGuide evidence={ev} />
       </>}
       {!workspace.comparison && ev.assessed && <Contributions ev={ev} />}
