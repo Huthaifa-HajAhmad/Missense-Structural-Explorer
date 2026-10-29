@@ -61,7 +61,7 @@
 }
 
 /* ── Finding ─────────────────────────────────────────────── */
-.rsx-screen h2.eyebrow, .rsx-screen h3.rsx-label, .rsx-facts, .rsx-finding, .rsx-caveat, .rsx-statement { margin: 0; }
+.rsx-screen h2.eyebrow, .rsx-screen h3.rsx-label, .rsx-facts, .rsx-finding, .rsx-statement { margin: 0; }
 .rsx-fact__dd { margin: 0; display: contents; }
 .rsx-hero__body { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
 .rsx-hero__body--split {
@@ -71,7 +71,7 @@
   gap: 24px;
 }
 .rsx-hero__body--single { grid-template-columns: minmax(0, 1fr); }
-.rsx-hero__copy { display: flex; flex-direction: column; justify-content: center; gap: 16px; min-width: 0; }
+.rsx-hero__copy { display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; min-width: 0; }
 .rsx-hero__body--split .rsx-pair { flex-direction: column; align-items: flex-start; }
 @container (max-width: 720px) {
   .rsx-hero__body--split { grid-template-columns: minmax(0, 1fr); }
@@ -107,16 +107,7 @@
 /* ── Tables ─────────────────────────────────────────────── */
 .rsx-table-wrap { overflow-x: auto; }
 .rsx-table { width: 100%; border-collapse: collapse; }
-.rsx-table--properties { min-width: 760px; table-layout: fixed; }
 .rsx-table--environment { min-width: 720px; table-layout: fixed; }
-.rsx-table--values { min-width: 560px; }
-.rsx-table--values .rsx-col-name { width: auto; }
-.rsx-values > summary {
-  cursor: pointer; padding: 10px 20px; min-block-size: 44px; align-content: center;
-  font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-secondary);
-}
-.rsx-values[open] > summary { border-block-end: 1px solid var(--cs-border-subtle); }
-.rsx-values > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -3px; }
 .rsx-table thead { background: var(--cs-workbench-header-surface); }
 .rsx-table thead th {
   height: 40px; padding: 0 16px; text-align: left; white-space: nowrap;
@@ -128,9 +119,6 @@
 .rsx-table td.rsx-num { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); }
 .rsx-table .rsx-end { text-align: right; white-space: nowrap; }
 .rsx-col-name { width: 176px; }
-.rsx-col-track { width: auto; }
-.rsx-col-val { width: 64px; }
-.rsx-col-shift { width: 152px; }
 .rsx-col-reading { width: 112px; }
 .rsx-col-call { width: 152px; }
 .rsx-table--environment .rsx-col-name { width: 184px; }
@@ -143,7 +131,6 @@
 @media (hover: hover) and (pointer: fine) {
   .rsx-table tbody tr:not(.rsx-group):hover > td { background: color-mix(in srgb, var(--cs-bg-subtle) 60%, transparent); }
 }
-.rsx-shift { display: block; font-family: var(--cs-font-sans); font-size: 13px; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .rsx-caption { display: block; margin-top: 2px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); text-transform: none; letter-spacing: 0; max-width: none; }
 .rsx-disclosure > summary { list-style: none; cursor: pointer; min-height: 24px; display: flex; align-items: center; }
 .rsx-disclosure > summary::-webkit-details-marker { display: none; }
@@ -191,42 +178,16 @@
 .rsx-track__tick { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .rsx-track__tick[data-edge="start"] { transform: none; }
 .rsx-track__tick[data-edge="end"] { transform: translateX(-100%); }
-.rsx-context { color: var(--cs-text-muted); font-size: 11px; }
-.rsx-context > summary {
-  display: inline-flex; align-items: center; min-height: 24px; cursor: pointer;
-  color: var(--cs-text-muted); list-style-position: inside;
-}
-@media (hover: hover) and (pointer: fine) {
-  .rsx-context > summary:hover { color: var(--cs-text-secondary); }
-}
-.rsx-context > summary:focus-visible {
-  outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: var(--cs-radius-sm);
-}
-.rsx-context--card { flex: 1 0 100%; }
-.rsx-context__list { margin: 4px 0 0; }
-.rsx-context__row {
-  display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px;
-  padding: 4px 0; border-top: 1px solid var(--cs-border-subtle);
-}
-.rsx-context__row dt { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-semibold); }
-.rsx-context__row dd { margin: 0; font-family: var(--cs-font-mono); color: var(--cs-text-secondary); }
-@container (max-width: 560px) {
-  .rsx-context__row { grid-template-columns: minmax(0, 1fr); gap: 0; }
-}
 
-.rsx-caveat {
-  display: flex; gap: 10px; align-items: baseline;
-  padding: 11px 16px; border-top: 1px solid var(--cs-border-subtle); font-size: 12.5px;
-}
-.rsx-caveat strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.rsx-ring {
-  flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  border: 1.5px solid var(--cs-text-muted);
-}
 .rsx-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
 .rsx-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .rsx-key-wt { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--cs-text-secondary); background: var(--cs-surface); }
 .rsx-key-mut { width: 10px; height: 10px; border-radius: 50%; background: var(--cs-accent-clay); }
+/* The same coincident state the tracks draw: the wild-type ring over the variant dot. */
+.rsx-key-equal {
+  position: relative; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--cs-accent-clay); box-shadow: 0 0 0 2px var(--cs-surface), 0 0 0 3px var(--cs-text-secondary);
+}
 .rsx-key-cut { width: 0; height: 12px; border-left: 1px dashed var(--cs-text-muted); }
 
 /* ── Pocket residues ─────────────────────────────────────── */
@@ -309,19 +270,19 @@
 .rsx-step[data-state="warn"] .rsx-step__sub { color: var(--cs-text-warning-on-soft); }
 
 /* Cut-points as a flat definition list, not a row of dashed pills. The rule is the term, the
-   band and "this variant" the reading; the active row is heavier and names itself in words. */
+   band and "this variant" the reading; the active row is heavier and names itself in words.
+   Each band owns a row, so a long rule never runs into the reading beside it. */
 .rsx-cuts { margin: 0; display: flex; flex-direction: column; gap: 12px; }
-.rsx-cuts__group { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: baseline; gap: 8px; }
+.rsx-cuts__group { display: grid; grid-template-columns: minmax(0, 1fr); align-items: baseline; gap: 6px; }
 .rsx-cuts__title {
   margin: 0; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold);
   color: var(--cs-text-secondary); letter-spacing: 0; text-transform: none;
 }
 .rsx-cut {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0;
+  display: grid; gap: 0; min-width: 0;
 }
-.rsx-cut__band { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
-.rsx-cut__band + .rsx-cut__band::before { content: "·"; margin-right: 8px; color: var(--cs-border); }
-.rsx-cut__rule { font-family: var(--cs-font-mono); font-size: 11.5px; color: var(--cs-text-muted); }
+.rsx-cut__band { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-block: 5px; border-block-end: 1px solid var(--cs-border-subtle); }
+.rsx-cut__rule { font-family: var(--cs-font-sans); font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--cs-text-muted); }
 .rsx-cut__here { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .rsx-cut__band[data-active] .rsx-cut__rule { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .rsx-cut__band[data-active] .rsx-cut__here { color: var(--cs-accent-clay); font-weight: var(--cs-font-weight-semibold); }
@@ -342,8 +303,6 @@
 @media print {
   .rsx-link, .rsx-info, .rsx-button { display: none; }
   .rsx-table-wrap { overflow: visible; }
-  .rsx-context:not([open]) > .rsx-context__list { display: block; }
-  .rsx-context > summary { display: none; }
 }
 
 /* ── Residue Glyphs (2D side-chain skeletal diff) ────────── */
@@ -448,3 +407,26 @@
 
 .rsx-glyph-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
 .rsx-glyph-empty { font-size: 12px; color: var(--cs-text-secondary); }
+
+/* Keep a selection explicit without turning a scientific row into a coloured card: the state is
+   stated in words beside the row's name, and a pinned row keeps its transparent surface in every
+   state (the hover tint that marks an unpinned row would read as a selected card here). */
+.rsx-screen .mol-property { border-radius: 0; }
+.rsx-screen .mol-property[aria-pressed="true"],
+.rsx-screen .mol-property[aria-pressed="true"]:hover { background: transparent; box-shadow: none; border-block-end-color: var(--cs-text-secondary); }
+.mol-property__heading { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.mol-property__pin { font-size: var(--cs-font-size-caption); font-weight: 500; color: var(--cs-text-secondary); }
+.mol-property__definition { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.6; }
+.mol-key { margin-top: 8px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.rsx-term { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.6; }
+/* The hero copy shares a row with the side-chain sketch; anchoring the note to the bottom of the
+   column uses that height instead of leaving a void under the paragraph. */
+.rsx-hero__copy .rsx-term { margin-top: auto; }
+/* The records view drops the hero but still says which substitution the readings describe. */
+.rsx-context-line {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+  margin: 0 0 12px; padding: 10px 16px;
+  border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-card, 12px);
+  background: var(--cs-surface); font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+}
+.rsx-context-line__pair { font-size: 14px; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }

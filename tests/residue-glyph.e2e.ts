@@ -20,4 +20,17 @@ test('residue schematics retain a shared scale at desktop and phone widths', { t
     })).toBe(true);
     await app.screenshot(`residue-glyph-${width}`);
   }
+  await browser.setViewport({ width: 1440, height: 1000 });
+  await expect(screen.getByTestId('residue-marker-key')).toBeVisible();
+  await screen.getByRole('button', { name: 'Polarity, less polar' }).click();
+  await expect(screen.getByText('Pinned in inspector', { exact: true })).toBeVisible();
+  await app.screenshot('residue-selection');
+  await screen.getByRole('tab', 'Environment & pockets').click();
+  // The records view names the substitution it reports on and does not redraw the schematic.
+  await expect(screen.getByTestId('residue-context-line')).toBeVisible();
+  await expect(screen.getByTestId('residue-environment')).toBeVisible();
+  expect(await browser.evaluate(() => document.querySelectorAll('.rsx-glyph-svg').length)).toBe(0);
+  await app.screenshot('residue-environment');
+  await screen.getByRole('button', 'Switch theme').click();
+  await app.screenshot('residue-dark');
 });

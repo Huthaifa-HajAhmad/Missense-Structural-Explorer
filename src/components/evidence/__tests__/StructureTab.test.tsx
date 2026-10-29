@@ -3,10 +3,11 @@ import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { StructureTab } from "../StructureTab";
+import { EvidenceWorkspaceProvider } from "../EvidenceWorkspace";
 import { NAE1_POCKET, NAE1_RESULT } from "../../../shared/__tests__/fixtures/nae1ResidueShifts";
 
-function renderTab(overrides: Record<string, unknown> = {}) {
-  const props = {
+function tabProps(overrides: Record<string, unknown> = {}) {
+  return {
     analysisState: { result: NAE1_RESULT, isLoading: false },
     setSelectedMetric: vi.fn(),
     computedPocket: NAE1_POCKET,
@@ -18,7 +19,18 @@ function renderTab(overrides: Record<string, unknown> = {}) {
     onNavigateToView: vi.fn(),
     ...overrides
   } as any;
+}
+
+function renderTab(overrides: Record<string, unknown> = {}) {
+  const props = tabProps(overrides);
   return { props, ...render(<StructureTab {...props} />) };
+}
+
+/** The workspace is always mounted in the app; a bare render exercises the standalone path only.
+ *  The comparison figure is a workspace view, so it needs the provider to exist at all. */
+function renderComparison(overrides: Record<string, unknown> = {}) {
+  const props = tabProps(overrides);
+  return { props, ...render(<EvidenceWorkspaceProvider result={props.analysisState.result}><StructureTab {...props} /></EvidenceWorkspaceProvider>) };
 }
 
 /**
@@ -33,7 +45,7 @@ describe("StructureTab", () => {
   it("states one finding and says no ACMG criterion reads this tab", () => {
     renderTab();
     expect(screen.getByTestId("residue-pair")).toHaveTextContent("Asp→Gly");
-    expect(screen.getByText(/Grantham distance/)).toHaveTextContent("94, moderately conservative");
+    expect(screen.getByTestId("residue-pair-sub")).toHaveTextContent("Grantham distance 94, moderately conservative");
     expect(screen.getByTestId("residue-finding-text")).toHaveTextContent(
       "The side chain loses its negative charge and becomes less polar, 23.1 Å from the nearest predicted pocket."
     );
@@ -41,29 +53,52 @@ describe("StructureTab", () => {
     expect(within(screen.getByTestId("residue-finding")).getByText("Ligand-site probability")).toBeInTheDocument();
   });
 
+  it("preserves the backend reason and offers recovery without a burial payload", () => {
+    const onRetryStructural = vi.fn();
+    renderTab({ analysisState: { result: { ...NAE1_RESULT, disruptionPredictor: { level: "unknown", reason: "Target residue not found in structure.", plddt: null } }, isLoading: false }, computedPocket: null, pocketError: "Java not found", onRetryStructural });
+    const cause = screen.getByTestId("burial-cause");
+    expect(cause).toHaveTextContent("Target residue not found in structure.");
+    // The pocket's failure is the pocket section's sentence, never the burial cause.
+    expect(cause).not.toHaveTextContent(/cavity scan|pocket/i);
+    fireEvent.click(screen.getByRole("button", { name: "Run the structure step again" }));
+    expect(onRetryStructural).toHaveBeenCalledOnce();
+    expect(screen.getByText("Structure and pocket context").parentElement).toHaveAttribute("open");
+  });
+
+  it("says the structure step is running instead of calling it a failure", () => {
+    renderTab({ analysisState: { result: { ...NAE1_RESULT, disruptionPredictor: undefined }, isLoading: false }, isBiophysicalLoading: true });
+    expect(screen.getByTestId("burial-cause")).toHaveTextContent("Running");
+    expect(screen.getByTestId("residue-environment")).toHaveTextContent(/locating this residue/i);
+    expect(screen.queryByRole("button", { name: "Run the structure step again" })).not.toBeInTheDocument();
+  });
+
+  it("never prints a disruption-level reason as the burial cause", () => {
+    const reason = "Proline introduced at position 116 which lies within a secondary structure element.";
+    renderTab({ analysisState: { result: { ...NAE1_RESULT, disruptionPredictor: { level: "high", reason, plddt: null } }, isLoading: false }, onRetryStructural: vi.fn() });
+    expect(screen.getByTestId("burial-cause")).toHaveTextContent("No structure reading was returned for this residue.");
+    expect(screen.getByTestId("residue-environment")).not.toHaveTextContent(reason);
+  });
+
   it("draws each property on its published scale, in native units, largest shift first", () => {
-    renderTab();
-    const rows = within(screen.getByTestId("residue-properties")).getAllByRole("row").slice(1);
-    expect(rows.map(r => r.getAttribute("data-testid"))).toEqual([
-      "property-row-charge",
-      "property-row-polarity",
-      "property-row-hydrophobicity",
-      "property-row-size"
+    renderComparison();
+    const rows = Array.from(document.querySelectorAll(".mol-property"));
+    expect(rows.map(row => row.getAttribute("aria-label"))).toEqual([
+      "Net charge, loses its negative charge",
+      "Polarity, less polar",
+      "Hydropathy, more hydrophobic",
+      "Side-chain volume, smaller"
     ]);
-    const charge = screen.getByTestId("property-row-charge");
-    expect(charge).toHaveTextContent("Net charge");
-    expect(charge).toHaveTextContent("−1");
-    expect(charge).toHaveTextContent("loses its negative charge");
-    expect(screen.getByTestId("property-row-polarity")).toHaveTextContent("Grantham 1974");
-    expect(screen.getByTestId("property-row-polarity")).toHaveTextContent("13.0");
-    expect(screen.getByTestId("property-row-hydrophobicity")).toHaveTextContent("Kyte and Doolittle 1982");
-    expect(screen.getByTestId("property-row-size")).toHaveTextContent("54");
+    const charge = screen.getByRole("button", { name: "Net charge, loses its negative charge" });
+    expect(charge).toHaveTextContent("−1 → 0");
+    expect(charge).toHaveTextContent("Electrical charge at pH 7.4.");
+    expect(within(charge).getByRole("img", { name: /Asp −1, Gly 0 on a scale from −1 to \+1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Side-chain volume, smaller" })).toHaveTextContent("54 → 3 Å³");
     // The old headline came from the hand table ("polarity −85").
     expect(screen.queryByText(/−85/)).not.toBeInTheDocument();
   });
 
   it("says what the scales cannot see for a glycine substitution", () => {
-    renderTab();
+    renderComparison();
     expect(screen.getByTestId("backbone-caveat")).toHaveTextContent("glycine frees the backbone");
   });
 
@@ -89,22 +124,22 @@ describe("StructureTab", () => {
   });
 
   it("draws each property scale with the two residues and no filled connecting segment", () => {
-    const { container } = renderTab();
-    expect(container.querySelectorAll(".rsx-track__span")).toHaveLength(0);
-    const size = screen.getByTestId("property-row-size");
+    renderComparison();
+    expect(document.querySelectorAll(".rsx-track__span")).toHaveLength(0);
+    const size = screen.getByRole("button", { name: "Side-chain volume, smaller" });
     expect(size.querySelectorAll(".rsx-track__wt")).toHaveLength(1);
     expect(size.querySelectorAll(".rsx-track__mut")).toHaveLength(1);
   });
 
   it("keeps both residues visible when their values coincide on a scale", () => {
     // Ala → Gly carries no charge on either side, so both markers land on the same spot.
-    renderTab({
+    renderComparison({
       analysisState: {
         result: { ...NAE1_RESULT, metadata: { ...NAE1_RESULT.metadata, wildType: "Ala", mutant: "Gly", variant: "p.Ala116Gly" } },
         isLoading: false
       }
     });
-    const charge = screen.getByTestId("property-row-charge");
+    const charge = screen.getByRole("button", { name: /^Net charge/ });
     expect(charge.querySelector(".rsx-track__wt")).toHaveAttribute("data-coincident");
     expect(charge.querySelector(".rsx-track__mut")).not.toBeNull();
   });

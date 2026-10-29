@@ -3,10 +3,10 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ResidueGlyph } from "../ResidueGlyph";
-import { PropertyDumbbell, PropertyScaleReference } from "../PropertyDumbbell";
+import { PropertyDumbbell } from "../PropertyDumbbell";
 import { PocketDistanceStrip } from "../PocketDistanceStrip";
 import { diffSideChains } from "../../../../shared/sideChainTopology";
-import type { BiochemicalContrastRow, PocketStrip, ScaleTick } from "../../../../shared/residueContextEvidence";
+import type { BiochemicalContrastRow, PocketStrip } from "../../../../shared/residueContextEvidence";
 
 describe("ResidueGlyph", () => {
   it("renders null if diff is null", () => {
@@ -86,12 +86,6 @@ describe("PropertyDumbbell", () => {
     mutantNative: "0",
   };
 
-  const mockTicks: ScaleTick[] = [
-    { position: 0, native: "−1", codes: ["D", "E"] },
-    { position: 50, native: "0", codes: ["A", "G", "V"] },
-    { position: 100, native: "+1", codes: ["K", "R"] },
-  ];
-
   it("renders distinct wild-type and mutant dots without a connecting span", () => {
     const { container } = render(
       <PropertyDumbbell
@@ -108,16 +102,6 @@ describe("PropertyDumbbell", () => {
 
     expect(container.querySelectorAll(".rsx-track__context-tick")).toHaveLength(0);
     expect(container.querySelector("details")).not.toBeInTheDocument();
-  });
-
-  it("keeps exact amino-acid reference values in one keyboard-reachable card disclosure", () => {
-    render(<PropertyScaleReference items={[{ key: "charge", label: "Net charge", ticks: mockTicks }]} />);
-
-    const reference = screen.getByText("Reference values for other amino acids").closest("details");
-    expect(reference).not.toBeNull();
-    expect(reference).toHaveTextContent("D, E: −1");
-    expect(reference).toHaveTextContent("A, G, V: 0");
-    expect(reference).toHaveTextContent("K, R: +1");
   });
 
   it("keeps both residue markers visible when values are identical", () => {

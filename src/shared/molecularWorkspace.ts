@@ -23,6 +23,15 @@ export function functionReadings(ev: FunctionEvidence): (EvidenceChartRow & { re
   }));
 }
 
+/** The other residues on one published scale, so a pinned row can be read against the alphabet
+ *  without a second table in the figure. Null when the scale context was never built. */
+function alphabetNote(ev: ResidueContextEvidence, key: keyof ResidueContextEvidence['scaleContext']): string | null {
+  const ticks = ev.scaleContext[key] ?? [];
+  if (ticks.length === 0) return null;
+  const unit = RESIDUE_SCALE_SOURCES[key].unit;
+  return `Other residues on this scale: ${ticks.map(t => `${t.codes.join(', ')} ${t.native}${unit ? ` ${unit}` : ''}`).join(' · ')}.`;
+}
+
 export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] {
   const properties: EvidenceChartRow[] = (ev.properties ?? []).map(r => ({ key: r.key, name: r.label, value: null, knowledgeKey: 'residue_properties',
     valueText: `${r.wildTypeNative ?? r.wildTypeValue} → ${r.mutantNative ?? r.mutantValue}${r.unit ? ` ${r.unit}` : ''}`,
@@ -30,7 +39,7 @@ export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] 
     facts: [{ label: ev.pair.wildType, value: `${r.wildTypeNative ?? r.wildTypeValue} ${r.unit}`.trim() },
       { label: ev.pair.mutant, value: `${r.mutantNative ?? r.mutantValue} ${r.unit}`.trim() },
       { label: 'Change', value: r.plainChange }, { label: 'Source', value: RESIDUE_SCALE_SOURCES[r.key].citation }],
-    notes: [r.source, 'Each row has its own published scale. Position describes a residue property, not a measured change in this protein or a probability of disease.'] }));
+    notes: [r.source, alphabetNote(ev, r.key), 'Each row has its own published scale. Position describes a residue property, not a measured change in this protein or a probability of disease.'].filter((n): n is string => Boolean(n)) }));
   const rsa = ev.burial?.indicators.rsa;
   return [...properties, { knowledgeKey: 'burial_status', key: 'burial', name: 'Solvent accessibility', value: null, valueText: rsa?.valueLabel ?? 'No result',
     description: ev.burial?.label ?? 'No accessibility reading returned.', group: 'Structural context', tone: 'neutral',

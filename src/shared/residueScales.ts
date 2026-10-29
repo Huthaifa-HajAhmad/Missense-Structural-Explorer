@@ -90,6 +90,19 @@ export const RESIDUE_SCALE_SOURCES: Readonly<Record<ResidueScaleKey, ResidueScal
   size: { key: "size", table: GRANTHAM_VOLUME, unit: "Å³", citation: "Grantham 1974", doi: GRANTHAM_DOI, ...range(GRANTHAM_VOLUME), decimals: 0 },
 };
 
+/**
+ * One plain-language sentence per axis, for readers who do not know the biophysical vocabulary.
+ * The comparison rows and the pinned reading both read this map, so a reworded axis cannot say
+ * one thing beside the graph and another in the inspector. Typed by `ResidueScaleKey`: a new axis
+ * fails to compile until it is explained.
+ */
+export const RESIDUE_SCALE_DEFINITIONS: Readonly<Record<ResidueScaleKey, string>> = {
+  charge: "Electrical charge at pH 7.4.",
+  polarity: "How unevenly the electrical charge is distributed.",
+  hydrophobicity: "Preference for oily surroundings rather than water.",
+  size: "Space occupied by the side chain.",
+};
+
 /** Native value for one residue, or null for a non-standard code. */
 export function nativeResidueValue(key: ResidueScaleKey, code: string): number | null {
   const value = RESIDUE_SCALE_SOURCES[key].table[code.toUpperCase()];

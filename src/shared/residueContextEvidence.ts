@@ -126,10 +126,14 @@ export interface ResidueContextInput {
   scalesLoading?: boolean;
   /** `result.disruptionPredictor`, or null when the structure step returned nothing. */
   disruption?: {
+    /** The disruption call this reading came with; only `unknown` promises a structural failure. */
+    level?: "high" | "low" | "unknown" | null;
     burialStatus?: string | null;
     neighborCount?: number | null;
     rsa?: number | null;
     sasaUnavailableReason?: string | null;
+    /** Why the disruption call is what it is. A structural cause only when `level` is `unknown`. */
+    reason?: string | null;
   } | null;
   pdbId?: string | null;
   pdbSource?: string | null;
@@ -267,6 +271,12 @@ export interface ResidueContextEvidence {
   scaleContext: Record<ResidueScaleKey, ScaleTick[]>;
   backbone: { title: string; body: string } | null;
   burial: (BurialEvidence & { structure: string; reason: string | null }) | null;
+  /**
+   * Why no accessibility reading exists, for the day burial is null: the payload's own structural
+   * failure when it reported one, otherwise a neutral sentence. Never the composite `finding.detail`,
+   * which also carries the pocket's state.
+   */
+  structureReason: string;
   pocket: PocketNarrative;
   /** The pocket distance axis with the cavity reference and the pocket's residues; null until a result. */
   pocketStrip: PocketStrip | null;
@@ -318,6 +328,14 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
         reason: d!.rsa == null ? d!.sasaUnavailableReason?.trim() || "The accessibility step did not run for this variant." : null,
       }
     : null;
+  /*
+   * A disruption reason explains a level, not a burial. Only the `unknown` branch reports a
+   * structural failure ("Target residue not found in structure."); a rule-based call explains a
+   * substitution that *was* measured, so with an older payload whose burial fields are absent it
+   * must not be printed as the cause of a missing accessibility reading.
+   */
+  const structureReason =
+    (d?.level === "unknown" ? d.reason?.trim() : null) || "No structure reading was returned for this residue.";
 
   // ── Pocket strip ──
   const distance = pocket.status === "success" ? pocket.proximity.distance : null;
@@ -372,7 +390,7 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
       );
     }
   } else {
-    detailParts.push("No structure reading was returned for this residue.");
+    detailParts.push(structureReason);
   }
   if (pocket.status !== "success" && pocket.status !== "loading") {
     detailParts.push(`${pocket.headline}.`);
@@ -515,6 +533,7 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
     scaleContext: buildScaleContext(input.wildTypeCode, input.mutantCode),
     backbone: backboneCaveat(input.wildTypeCode, input.mutantCode),
     burial,
+    structureReason,
     pocket,
     pocketStrip,
     finding: { headline, detail: detailParts.join(" ") },

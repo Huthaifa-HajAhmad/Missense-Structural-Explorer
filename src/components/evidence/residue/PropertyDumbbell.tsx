@@ -1,17 +1,11 @@
 import React from "react";
-import type { BiochemicalContrastRow, ScaleTick } from "../../../shared/residueContextEvidence";
+import type { BiochemicalContrastRow } from "../../../shared/residueContextEvidence";
 import { RESIDUE_SCALE_SOURCES, formatNativeResidueValue } from "../../../shared/residueScales";
 
 interface PropertyDumbbellProps {
   row: BiochemicalContrastRow;
   wildType: string;
   mutant: string;
-}
-
-interface PropertyScaleReferenceItem {
-  key: BiochemicalContrastRow["key"];
-  label: string;
-  ticks: ScaleTick[];
 }
 
 export function PropertyDumbbell({
@@ -66,24 +60,5 @@ export function PropertyDumbbell({
         </span>
       </span>
     </span>
-  );
-}
-
-export function PropertyScaleReference({ items }: { items: PropertyScaleReferenceItem[] }) {
-  return (
-    <details className="rsx-context rsx-context--card">
-      <summary>Reference values for other amino acids</summary>
-      <dl className="rsx-context__list">
-        {items.map(item => {
-          const unit = RESIDUE_SCALE_SOURCES[item.key].unit;
-          return (
-            <div className="rsx-context__row" key={item.key}>
-              <dt>{item.label}</dt>
-              <dd>{item.ticks.map(tick => `${tick.codes.join(", ")}: ${tick.native}${unit ? ` ${unit}` : ""}`).join(" · ")}</dd>
-            </div>
-          );
-        })}
-      </dl>
-    </details>
   );
 }
