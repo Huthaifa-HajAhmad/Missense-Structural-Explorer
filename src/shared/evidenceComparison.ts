@@ -23,6 +23,8 @@ export interface EvidenceChartRow {
 export interface EvidenceChartModel {
   rows: EvidenceChartRow[]; domain: [number, number]; ticks: number[];
   axisLabel: string; tickLabels: string[]; summary: string;
+  /** Visible caveat under the figure; unlike `summary` (the text alternative) it is meant to be read. */
+  caption?: string;
   /** What a reading with no plotted value is called, and what that means — the model's words, so the
    * generic renderer carries no tab-specific interpretation. */
   unplottedHeading: string;
@@ -156,6 +158,13 @@ export function buildAttributionComparison(evidence: AlphaGenomeEvidence, filter
     : evidence.groups === null
       ? 'The score arrived without its feature contributions, so none can be read here. A missing attribution is not a zero.'
       : `${reported} of ${all.length} feature contributions returned. ${reported < all.length ? 'Attribution coverage is incomplete; shares describe only returned contributions. ' : ''}Left lowers the score; right raises it. A contribution explains the model score, not a proven biological mechanism.`;
+  // `ChartFrame` renders the summary as an `sr-only` text alternative, so the caveat sighted readers
+  // need has to be visible too — but without the coverage count the finding card already carries.
+  const caption = !evidence.assessed
+    ? undefined
+    : evidence.groups === null
+      ? 'A missing attribution is not a zero, and it is not a contribution of zero.'
+      : 'A contribution explains the model score, not a proven biological mechanism. Shares describe the contributions returned here, not a fraction of disease risk.';
   return { rows, domain: [-bound, bound], ticks, tickLabels: ticks.map(formatAttributionValue),
     axisLabel: 'Contribution to the raw AVI score (SHAP units)',
     unplottedHeading: 'Not plotted',
@@ -163,5 +172,5 @@ export function buildAttributionComparison(evidence: AlphaGenomeEvidence, filter
     emptyCopy: !evidence.assessed
       ? 'No AlphaGenome assessment was made for this variant, so there is nothing to plot. The finding card states the reason and remedy.'
       : 'The score arrived without its feature contributions, so none can be plotted.',
-    summary };
+    summary, caption };
 }

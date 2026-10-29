@@ -3,7 +3,18 @@
  * Landscape inspector's app-defined PP3/BP4 bands for the AVI (doc/ALPHAGENOME_TAB_REVIEW.md, second pass).
  */
 import { describe, expect, it } from "vitest";
-import { aviRankBand, buildAlphaGenomeEvidence } from "../alphagenomeEvidence";
+import { aviRankBand, buildAlphaGenomeEvidence, fmtPercentAbove } from "../alphagenomeEvidence";
+
+describe("fmtPercentAbove", () => {
+  it("states the rank as the share of SNVs it outranks, without asking the reader to invert it", () => {
+    expect(fmtPercentAbove(0.23)).toBe("99.77%");
+    expect(fmtPercentAbove(10)).toBe("90%");
+    expect(fmtPercentAbove(0.001)).toBe("99.999%");
+    // A 0 or absent top-percent never produces a negative or over-100 claim.
+    expect(fmtPercentAbove(0)).toBe("100%");
+    expect(fmtPercentAbove(100)).toBe("0%");
+  });
+});
 
 describe("aviRankBand", () => {
   it("reads the Phred's own decades: 10 = top 10%, 20 = top 1%, 30 = top 0.1%", () => {

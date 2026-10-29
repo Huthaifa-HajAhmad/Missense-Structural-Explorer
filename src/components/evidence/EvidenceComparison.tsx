@@ -101,6 +101,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         </div>
       </div>
     </div>}
+    {model.caption && <p className="evw-caption">{model.caption}</p>}
     <p className="evw-readout" role="status">{(() => {
       const row = hovered ?? selected;
       // The inspector already says what a pin shows; this line says what THIS line does, not the same thing twice.

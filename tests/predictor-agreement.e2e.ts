@@ -14,7 +14,7 @@ test('informational agreement retains contributors and missingness across layout
     for (const theme of ['light', 'dark']) {
       const dark = await browser.evaluate(() => document.documentElement.classList.contains('dark'));
       if (dark !== (theme === 'dark')) await screen.getByRole('button', 'Switch theme').tap();
-      await expect(row).toContainText('No directional classification');
+      await expect(row).toContainText('No sequence-preference reading');
       expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await browser.evaluate(() => { document.querySelector('[data-testid="predictor-local-agreement"]')?.scrollIntoView({ block: 'center' }); return null; });
       await app.screenshot(`predictor-agreement-${width}-${theme}`);

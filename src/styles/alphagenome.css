@@ -126,7 +126,7 @@ p.ag-card__foot > span { display: inline; }
 .ag-prose { margin: 0; max-width: none; color: var(--cs-text-secondary); text-wrap: pretty; }
 .ag-prose strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
-.ag-screen[data-comparison] .ag-hero__body { display: grid; grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); align-items: center; gap: 24px; padding: 18px 20px; }
+.ag-screen[data-comparison] .ag-hero__body { display: grid; grid-template-columns: minmax(min(100%, 230px), .7fr) minmax(0, 1.3fr); align-items: start; gap: 24px; padding: 18px 20px; }
 .ag-screen[data-comparison] .ag-figure { flex-direction: column; align-items: start; gap: 5px; }
 /* No composition sentence (a score returned without its contributions): the figure takes the row. */
 .ag-screen[data-comparison] .ag-figure:only-child { grid-column: 1 / -1; }
@@ -418,13 +418,9 @@ p.ag-card__foot > span { display: inline; }
   .ag-btn, .ag-actions { display: none; }
 }
 
-/* Let the result and explanation wrap to the available workspace width. */
-.ag-screen[data-comparison] .ag-hero__body {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
-  align-items: start;
-}
+/* The finding sits beside the figure, so its bold lead is its own line; the scope's count and
+   control row share one optical line instead of centring against a taller label stack. */
 .ag-screen .ag-prose strong { display: block; margin-block-end: 6px; }
-.ag-screen .evw-figure-scope { padding-block: 12px; gap: 12px; }
-.ag-screen .evw-figure-scope .evw-controls { align-items: end; margin-inline-start: auto; }
+.ag-screen .evw-figure-scope { align-items: end; padding-block: 12px; gap: 12px; }
 .ag-screen .evw-figure-scope select { inline-size: 12rem; }
 .ag-screen .evw-figure-scope .viz-action { min-block-size: 36px; }

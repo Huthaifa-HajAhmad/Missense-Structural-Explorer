@@ -352,5 +352,16 @@ describe("local informational agreement", () => {
     const empty = localPredictorAgreement(buildPredictorEvidence({ result: {} as any }));
     expect(empty.scored).toBe(0);
     expect(empty.preferenceSummary).toContain("No uncalibrated");
+    // The tab card and the rail render these strings verbatim, so gaps are stated only when they
+    // exist: "None" is not a finding, and a calibrated code names its band without counting it.
+    expect(agreement.lead[0]).toContain("non-voting readings scored");
+    expect(agreement.tail.some(t => t.startsWith("No sequence-preference reading:"))).toBe(true);
+    expect(agreement.tail.some(t => t.startsWith("Not scored:"))).toBe(true);
+    expect(agreement.tail.every(t => !/\bnone\b/i.test(t))).toBe(true);
+    expect(agreement.calibrated.every(x => x.label.endsWith("(published band, not counted)"))).toBe(true);
+    expect(empty.tail.some(t => t.startsWith("No sequence-preference reading:"))).toBe(false);
+    // An empty payload scores nothing, so each reading is listed with its own reason rather than a
+    // bare "None", and the two surfaces cannot disagree about what is missing.
+    expect(empty.tail.find(t => t.startsWith("Not scored:"))).toContain("(");
   });
 });

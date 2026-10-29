@@ -377,6 +377,16 @@ export function fmtShare(s: number): string {
 }
 
 /**
+ * The complement of the top-percent rank: the share of possible SNVs this variant outranks.
+ * "Higher than 99.77%" is the same fact as "top 0.23%" without asking the reader to invert it.
+ */
+export function fmtPercentAbove(topPercent: number): string {
+  const above = Math.max(0, Math.min(100, 100 - topPercent));
+  const digits = above >= 99.99 ? 3 : 2;
+  return `${Number(above.toFixed(digits))}%`;
+}
+
+/**
  * The finding: a bold headline saying where the score comes from, and one sentence with the split.
  * Returns null when no feature vector arrived — the tab states that absence on its own line.
  */
@@ -405,14 +415,16 @@ export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail:
     return {
       headline: "Main driver: AlphaGenome molecular predictions.",
       detail:
-        `${fmtShare(newShare)} of the total contribution magnitude comes from AlphaGenome's predicted molecular effects${led}.` +
+        `${fmtShare(newShare)} of the reported contribution magnitude comes from AlphaGenome's predicted molecular effects${led}.` +
         (reused.length ? ` The rest comes from ${joined}. These other inputs are not independent molecular predictions.` : "") + coverage,
     };
   }
+  // "Reused" is not "shown on Predictors": Cactus and PhastCons are the same kind of evidence as
+  // phyloP and GERP, not the same scores, and variant-type indicators are not on that tab at all.
   return {
-    headline: "Main driver: inputs also shown in Predictors.",
+    headline: "Main driver: evidence this workspace already reads.",
     detail:
-      `${fmtShare(reusedShare)} of the total contribution magnitude comes from ${joined}. ` +
+      `${fmtShare(reusedShare)} of the reported contribution magnitude comes from ${joined}. ` +
       (newShare === 0 || !lm
         ? "No non-zero molecular contribution was returned."
         : `AlphaGenome's own molecular predictions account for ${fmtShare(newShare)}${led}.`) + coverage,
