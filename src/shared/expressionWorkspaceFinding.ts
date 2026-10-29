@@ -41,7 +41,7 @@ export function expressionWorkspaceFinding(input: {
   const load = input.developmental;
   if (!load || load.status === 'loading') return { source, headline: 'Reading pediatric measurements', detail: 'Public tissue and age-cohort medians are being read.' };
   if (load.status === 'error' || load.data?.status === 'error') return { source, headline: 'Pediatric measurements could not be read', detail: 'A source error does not establish biological absence.' };
-  if (load.data?.status === 'not-installed') return { source, headline: 'Pediatric measurements are not available here', detail: 'The dGTEx snapshot is not installed. Pediatric coverage cannot be assessed.' };
+  if (load.data?.status === 'not-installed') return { source, headline: 'Pediatric measurements are not available here', detail: 'No dGTEx snapshot was found at the configured path. Pediatric coverage cannot be assessed.' };
   if (!load.data || load.data.status !== 'ready') return { source, headline: 'No pediatric gene reading returned', detail: 'This does not establish that the gene is unexpressed.' };
   const evidence = buildDevelopmentalEvidence(load.data, input.systems, input.cohort);
   const observations = input.systems.length ? evidence.relevant : [...evidence.relevant, ...evidence.other];

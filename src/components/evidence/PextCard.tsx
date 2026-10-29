@@ -32,15 +32,31 @@ export function PextCard({ load, site, systems, tissueLabels = new Map(), onRetr
   return <section className="ctx-card" aria-labelledby={id} data-testid="pext-card">
     <div className="ctx-card__head"><h2 id={id}>Base-level pext</h2><span className="ctx-caption">gnomAD v4 · GTEx v10 · coding regions</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading pext.</div>
-      : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'pext could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
+      : load.status === 'error' ? <div className="ctx-card__body ctx-notice cx-source-state" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'pext could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status === 'not-found' || data?.status === 'no-pext' ? <p className="ctx-card__body">{data.message}</p>
       : data && <>
-        {data.flags.includes('low_max_pext') && <p className="ctx-card__body ctx-notice" role="status">gnomAD flags this gene as <span className="ctx-mono">low_max_pext</span>: no region reaches a meaningful pext, so its values are weak evidence of coding expression.</p>}
-        <div className="ctx-card__body">
+        {data.flags.includes('low_max_pext') && <p className="ctx-card__body ctx-notice cx-source-state" role="status">gnomAD flags this gene as <span className="ctx-mono">low_max_pext</span>: no region reaches a meaningful pext, so its values are weak evidence of coding expression.</p>}
+        <div className="ctx-card__body xp-pext-figure">
+          <div className="xp-pext-overview">
+            <div><h3>Coding expression map</h3><p className="ctx-caption">Proportion of gene expression associated with each coding region.</p>
+              {location.region && site && <p className="xp-pext-location"><strong>Variant in region {location.index + 1} of {data.regions.length}</strong><span>GRCh38 · chr{data.chrom}:{site.pos.toLocaleString()} · region mean pext {location.region.mean === null ? 'not reported' : location.region.mean.toFixed(2)}</span></p>}
+            </div>
+            <div className="xp-pext-key" aria-label="Mean pext shading scale from zero to one"><span>Mean pext across tissues</span><div aria-hidden="true" /><span>0 <span>1</span></span><small>Darker = higher proportion</small></div>
+          </div>
           <PextStrip regions={data.regions} activeIndex={location.index} position={site?.pos ?? null} />
           <p className="ctx-caption">{data.regions.length} coding {data.regions.length === 1 ? 'region' : 'regions'} in order, width by coding length, darker = higher mean pext across tissues. Introns are not drawn.</p>
           {location.state !== 'region' && <p className="ctx-prose">{LOCATION_NOTE[location.state]}</p>}
         </div>
+        <details className="ctx-details ctx-details--table">
+          <summary>All coding region values ({data.regions.length})</summary>
+          <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Coding region values"><table className="ctx-table">
+            <caption className="ctx-sr-only">Exact mean pext across tissues for every coding region. Missing means are not zero.</caption>
+            <thead><tr><th scope="col">Region</th><th scope="col">GRCh38 start</th><th scope="col">GRCh38 end</th><th scope="col">Mean pext</th></tr></thead>
+            <tbody>{data.regions.map((region, index) => <tr key={`${region.start}-${region.stop}`}>
+              <th scope="row">{index + 1}{index === location.index ? ' (variant)' : ''}</th><td>{region.start.toLocaleString()}</td><td>{region.stop.toLocaleString()}</td><td>{region.mean === null ? 'Not reported' : region.mean}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </details>
         {tissues && <>
           {!!tissues.relevant.length && <TissueBars tissues={tissues.relevant} labels={tissueLabels} />}
           {!!tissues.other.length && (tissues.relevant.length

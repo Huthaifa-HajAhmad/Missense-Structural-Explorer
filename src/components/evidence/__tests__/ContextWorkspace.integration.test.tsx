@@ -26,6 +26,7 @@ beforeEach(() => { fetchWithAuth.mockReset(); sessionStorage.clear(); const f = 
 
 describe('production context tabs and linked inspectors', () => {
   it('gives unique expression and species content its own topic without duplicating measurements', () => {
+    store.setState({ extraContexts: { ...store.getState().extraContexts, 'pext:SOD1': { status: 'ready', data: { gene: 'SOD1', status: 'ready', geneId: 'ENSG1', chrom: '21', flags: [], provenance: null, message: null, regions: [{ start: 100, stop: 200, mean: 0.5, tissues: [] }] } } } });
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
@@ -34,10 +35,14 @@ describe('production context tabs and linked inspectors', () => {
     expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Protein measurements' }));
     expect(screen.getByRole('heading', { name: 'Protein Atlas' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('expression-models-screen')).queryByText(/Review context/, { selector: 'summary' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'RNA samples' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
     expect(screen.getByRole('heading', { name: 'Base-level pext' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('expression-finding')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Coding expression map' })).toBeVisible();
+    expect(screen.getByLabelText('Mean pext shading scale from zero to one')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Protein alignments' }));
     expect(screen.getByRole('heading', { name: 'Residue in orthologs' })).toBeInTheDocument();
@@ -48,6 +53,21 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     expect(screen.getByRole('tab', { name: 'Expression at variant' })).toHaveAttribute('aria-selected', 'true');
     expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+  it('exposes and edits the system scope that orders pext tissues without leaving the view', () => {
+    const f = contextWorkspaceFixture();
+    const result = { ...f.result, predictorData: { ...f.result.predictorData, gnomadVariantId: '21-150-A-T', gnomadVariantAssembly: 'GRCh38' as const } } as AnalysisResult;
+    store.setState({ extraContexts: { ...store.getState().extraContexts, 'pext:SOD1': { status: 'ready', data: { gene: 'SOD1', status: 'ready', geneId: 'ENSG1', chrom: '21', flags: [], provenance: null, message: null, regions: [{ start: 100, stop: 200, mean: 0.5, tissues: [{ tissue: 'brain_cortex', value: 0.2 }, { tissue: 'kidney_cortex', value: 0.4 }] }] } } } });
+    render(<Harness result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
+    expect(screen.getByText(/Review systems: Nervous system, Hearing/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Change review systems' }));
+    const systems = screen.getByRole('group', { name: 'Review systems' });
+    expect(systems.contains(document.activeElement)).toBe(true);
+    fireEvent.click(within(systems).getByRole('button', { name: 'Renal' }));
+    expect(screen.getByRole('rowheader', { name: 'Kidney cortex' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Expression at variant' })).toHaveAttribute('aria-selected', 'true');
   });
   it('expands every chart record and recovers a pin beyond the initial twenty', async () => {
     const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
@@ -75,6 +95,8 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose systems' }));
     const systems = screen.getByRole('group', { name: 'Review systems' });
     expect(systems.contains(document.activeElement)).toBe(true);
+    expect(systems.closest('details')).toHaveAttribute('open');
+    expect(screen.getByRole('combobox', { name: 'Disease onset' })).toBeVisible();
     const choice = within(systems).getAllByRole('button')[0];
     act(() => { fireEvent.click(choice); });
     act(() => { fireEvent.click(filter); });

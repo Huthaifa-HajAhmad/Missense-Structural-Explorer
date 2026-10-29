@@ -20,7 +20,7 @@ export function HpaCard({ load, onRetry }: { load?: ContextLoad<HpaResponse>; on
   return <section className="ctx-card" aria-labelledby={id} data-testid="hpa-card">
     <div className="ctx-card__head"><h2 id={id}>Protein Atlas</h2><span className="ctx-caption">HPA · tissue, cell type and protein</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading the Human Protein Atlas.</div>
-      : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'the atlas could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
+      : load.status === 'error' ? <div className="ctx-card__body ctx-notice cx-source-state" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'the atlas could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status !== 'ready' || !data.rna || !data.cells || !data.protein ? <p className="ctx-card__body">{data?.message}</p>
       : <>
         <dl className="ctx-definition">
@@ -33,6 +33,6 @@ export function HpaCard({ load, onRetry }: { load?: ContextLoad<HpaResponse>; on
         {data.rna.enrichedTissues.length > 0 && <><p className="ctx-card__body ctx-caption">Tissues with enriched expression (nTPM).</p><Measures rows={data.rna.enrichedTissues} unit="nTPM" caption="Enriched tissues" /></>}
         {!data.cells.enrichedCells.length && !data.rna.enrichedTissues.length && <p className="ctx-card__body ctx-caption">HPA lists no enriched tissue or cell type for this gene.</p>}
       </>}
-    <p className="ctx-card__foot">HPA tissue RNA is a consensus that includes GTEx, so it does not replicate the adult table above. nTPM and nCPM are different scales and are not compared. Protein evidence is about the gene product, not this variant. Context only.</p>
+    <p className="ctx-card__foot">HPA tissue RNA is a consensus that includes GTEx, so it does not replicate the adult GTEx measurements. nTPM and nCPM are different scales and are not compared. Protein evidence is about the gene product, not this variant. Context only.</p>
   </section>;
 }
