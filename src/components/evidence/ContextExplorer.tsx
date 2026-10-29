@@ -124,7 +124,8 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
         </div>}
       {page.total > CX_PAGE_LIMIT && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? `Show first ${CX_PAGE_LIMIT}` : `Show all ${page.total} records`}</button>}
       {expression && page.rows.length > 0 && <p className="cx-caption">Selected systems first, then highest median. Filters change visibility, not the source scale.</p>}
-      {page.rows.length > 0 && <p className="cx-caption">
+      {/* The matrix's own heading already says to select a submitter or category; repeating it under the figure is noise. */}
+      {page.rows.length > 0 && !(w.comparison && tab === 'gene-disease' && group === 'validity') && <p className="cx-caption">
         {w.comparison && tab === 'expression-models'
           ? `Linear TPM scale: 0–${page.max || 1}. The scale uses the full source view and stays fixed when filtering. Zero is plotted at the origin; missing readings have no mark.`
           : 'Select a record to pin its interpretation and provenance. Tab to a record, then press Enter or Space.'}
