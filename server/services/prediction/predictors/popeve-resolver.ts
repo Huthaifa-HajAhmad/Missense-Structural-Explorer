@@ -11,12 +11,46 @@ let popEVETabix: TabixIndexedFile | null = null;
 
 /** The UniProt entry shape the resolver reads; anything beyond it is skipped, never a parse failure. */
 const uniprotEntrySchema = z.object({
+  primaryAccession: z.string().optional(),
   uniProtKBCrossReferences: z.array(z.object({ database: z.string(), id: z.string(), isoformId: z.string().optional() })).default([]),
   comments: z.array(z.object({
     isoforms: z.array(z.object({ isoformIds: z.array(z.string()).default([]), isoformSequenceStatus: z.string().optional() })).default([]),
   })).default([]),
 });
 const uniprotSearchSchema = z.object({ results: z.array(uniprotEntrySchema) });
+
+/**
+ * The only fields this lookup reads. Narrowing them keeps a gene search at a few KB: without the
+ * subset UniProt returns whole entries — sequences, features and every reference — and TP53 alone
+ * measured 1.36 MB. `cc_alternative_products` is what carries the displayed isoform.
+ */
+const UNIPROT_REFSEQ_FIELDS = "xref_refseq,cc_alternative_products";
+
+type UniprotEntry = z.infer<typeof uniprotEntrySchema>;
+
+/**
+ * The RefSeq NP_ accession whose residue numbering matches the entry's displayed sequence.
+ *
+ * popEVE keys its mutation files by RefSeq protein accession, so only NP_ entries are usable: a gene
+ * that lists only an XP_ prediction has no popEVE reading rather than a guessed one. Protein HGVS is
+ * numbered on the displayed UniProt sequence, which is why the first cross-reference is not the
+ * answer — GATA4 lists the alternative NP_001295022.1 before the displayed NP_002043.2.
+ */
+function isoformRefSeq(entry: UniprotEntry): string | null {
+  const displayed = entry.comments.flatMap(c => c.isoforms)
+    .find(i => i.isoformSequenceStatus === "Displayed")?.isoformIds ?? [];
+  const np = entry.uniProtKBCrossReferences.filter(x => x.database === "RefSeq" && x.id.startsWith("NP_"));
+  const isoformMatch = np.find(x => x.isoformId && displayed.includes(x.isoformId));
+  // A RefSeq cross-reference with no isoform id maps to the canonical (entry) sequence, so it is the
+  // right file whenever the displayed isoform is the canonical one — the common case, and the one a
+  // tagged-only rule silently dropped (Q3MIW9 keeps its only NP_ untagged).
+  const canonical = np.find(x => !x.isoformId);
+  const canonicalDisplayed = displayed.length === 0
+    || (!!entry.primaryAccession && displayed.includes(`${entry.primaryAccession}-1`));
+  // No isoform annotation at all: keep the tolerant first-NP_ fallback, as before.
+  const tolerant = displayed.length === 0 ? np[0] : undefined;
+  return (isoformMatch ?? (canonicalDisplayed ? canonical : undefined) ?? tolerant)?.id ?? null;
+}
 
 export function getPopEVETabix(): TabixIndexedFile | null {
   if (popEVETabix) return popEVETabix;
@@ -82,8 +116,8 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
   try {
     const isUniprot = UNIPROT_ACCESSION_REGEX.test(cleanInput);
     const url = isUniprot 
-      ? `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(cleanInput)}.json`
-      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&size=1&format=json`;
+      ? `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(cleanInput)}.json?fields=${UNIPROT_REFSEQ_FIELDS}`
+      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&fields=${UNIPROT_REFSEQ_FIELDS}&format=json`;
 
     const res = await fetchWithRetry(url, { timeout: 10000 });
     if (!res.ok) {
@@ -99,22 +133,17 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
       console.warn(`[popEVE Online] RefSeq lookup for ${proteinOrGene}: UniProt payload did not match the expected shape; treated as no mapping for now.`);
       return null;
     }
-    const entry = "results" in checked.data ? checked.data.results[0] : checked.data;
-    if (!entry) {
-      // The search answered and has no reviewed human entry for this gene: a definitive absence,
-      // so it is remembered — otherwise every variant re-asks UniProt.
+    const entries = "results" in checked.data ? checked.data.results : [checked.data];
+    if (entries.length === 0) {
+      // The search answered and has no human entry for this gene: a definitive absence, so it is
+      // remembered — otherwise every variant re-asks UniProt.
       refseqCache.set(cleanInput, null);
       return null;
     }
-    const displayed = entry.comments.flatMap(c => c.isoforms)
-      .find(i => i.isoformSequenceStatus === "Displayed")?.isoformIds ?? [];
-    // popEVE keys its mutation files by RefSeq protein accession, so only NP_ entries are usable:
-    // a gene that lists only an XP_ prediction has no popEVE reading rather than a guessed one.
-    const refseqXrefs = entry.uniProtKBCrossReferences.filter(x => x.database === "RefSeq" && x.id.startsWith("NP_"));
-    // Protein HGVS is numbered on the displayed UniProt sequence, not the first cross-reference.
-    const refseqId = (displayed.length > 0
-      ? refseqXrefs.find(x => x.isoformId && displayed.includes(x.isoformId))
-      : refseqXrefs.find(x => !x.isoformId) ?? refseqXrefs[0])?.id ?? null;
+    // UniProt's ranking is not stable enough to trust a single result: asking for one entry returned
+    // an unreviewed duplicate with no RefSeq for GATA4 and GZF1, while the same query with a page of
+    // results put the reviewed entry first. Scan the page for the first entry that yields a mapping.
+    const refseqId = entries.map(isoformRefSeq).find(id => id !== null) ?? null;
 
     refseqCache.set(cleanInput, refseqId);
     return refseqId;

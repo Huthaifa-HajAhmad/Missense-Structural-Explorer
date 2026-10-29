@@ -527,7 +527,10 @@ function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSetti
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
       {workspace.comparison && <EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." />}
-      {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /><LocalAgreementRow evidence={evidence} /></section>}
+      {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
+      {/* Local agreement is not the engine's reading, so it gets its own card rather than a row
+          inside the engine card: its own note says these readings never change PP3 / BP4. */}
+      {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>}
       {(!workspace.enabled || workspace.view === 'records') && <>
       <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>
       <InformationalCard evidence={evidence} />
