@@ -96,7 +96,12 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
       facts: [{ label: 'Target residue', value: m.targetResidue && m.targetPosition ? `${m.targetResidue}${m.targetPosition}` : RESIDUE_STATE_LABEL[m.state] },
         { label: 'Source protein', value: reported(alignment?.sourceProteinId) }, { label: 'Target protein', value: h.proteinId }, { label: 'Orthology type', value: h.type },
         { label: 'Whole-protein human identity', value: h.humanIdentity === null ? 'Not reported' : `${h.humanIdentity}%` }, ...provenanceFacts(alignment?.provenance)],
-      notes: [m.state === 'reference-mismatch' ? 'The human sequence, position or reference residue does not match. No residue mapping is asserted.' : 'Positions are mapped by walking gapped columns, not by copying the human residue number.',
+      notes: [m.state === 'reference-mismatch'
+        ? m.mismatchCause === 'no-sequence' ? 'This analysis recorded no protein sequence, so no residue could be compared; no residue mapping is asserted.'
+          : m.mismatchCause === 'no-position' ? 'This variant carries no protein position, so there is no residue to map.'
+          : m.mismatchCause === 'wildtype-differs' ? 'The recorded reference residue does not match the sequence the analysis used; no residue mapping is asserted.'
+          : 'The aligned human protein is not the sequence this analysis used; no residue mapping is asserted.'
+        : 'Positions are mapped by walking gapped columns, not by copying the human residue number.',
         m.carriesVariantResidue ? 'The substituted residue occurs here in this ortholog. This does not establish tolerance in human.' : 'Conservation is context, not a pathogenicity verdict.'],
     })),
     ...(phenotypes?.status === 'ready' ? phenotypes.species.flatMap(s => s.status === 'ready' ? s.phenotypes.map((p, i) => row({

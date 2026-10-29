@@ -29,10 +29,13 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
   const impcState = (() => {
     if (!c.modelLoad || c.modelLoad.status === 'loading') return { label: ENGINE_STATE_LABELS.running, tone: 'muted' as const };
     if (c.modelLoad.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' as const };
-    const impc = c.modelLoad.data?.status === 'ready' ? c.modelLoad.data.impc : null;
-    if (!impc) return { label: 'Not applicable — no mouse ortholog', tone: 'muted' as const };
-    if (impc.status === 'ready') return { label: 'Read', tone: 'good' as const };
-    if (impc.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' as const };
+    const payload = c.modelLoad.data;
+    // Only a ready read that has no mouse ortholog may say so; a gene the Alliance read could not
+    // resolve ("not-found") says nothing about any ortholog.
+    if (payload?.status !== 'ready') return { label: 'Not applicable — gene not resolved', tone: 'muted' as const };
+    if (!payload.impc) return { label: 'Not applicable — no mouse ortholog', tone: 'muted' as const };
+    if (payload.impc.status === 'ready') return { label: 'Read', tone: 'good' as const };
+    if (payload.impc.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' as const };
     return { label: ENGINE_STATE_LABELS['no-result'], tone: 'muted' as const };
   })();
   const sources: Array<{ name: string; slot: Slot; state?: { label: string; tone: 'good' | 'muted' | 'warning' } }> = species ? [

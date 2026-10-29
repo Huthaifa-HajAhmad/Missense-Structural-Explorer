@@ -19,6 +19,6 @@ export function EvidenceContextPrefetch({ result, pendingGene, pendingVariant = 
 }
 function ContextReads({ result, hotspots, onlyHotspots = false }: { result: EvidenceContextInput; hotspots: boolean; onlyHotspots?: boolean }) {
   // A demo result reads hot spots only: its other contexts are the fallback prose this demo already holds.
-  useEvidenceContext(result, !onlyHotspots, !onlyHotspots, !onlyHotspots, true, hotspots);
+  useEvidenceContext(result, { expression: !onlyHotspots, dosage: !onlyHotspots, models: !onlyHotspots, hotspots });
   return null;
 }

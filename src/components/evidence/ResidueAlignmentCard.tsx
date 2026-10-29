@@ -22,7 +22,11 @@ export function ResidueAlignmentCard({ load, residue, onRetry }: { load?: Contex
       : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'alignments could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status === 'not-found' ? <p className="ctx-card__body">{data.message}</p>
       : !residue.position ? <p className="ctx-card__body">This variant has no protein position, so there is no residue to map.</p>
-      : evidence.mismatched ? <p className="ctx-card__body ctx-notice" role="status">Ensembl aligns protein {data?.sourceProteinId}, which is not the sequence this analysis used. No residue is mapped, because positions can shift between isoforms.</p>
+      : evidence.mismatched ? <p className="ctx-card__body ctx-notice" role="status">{evidence.mismatchCause === 'no-sequence'
+          ? `This analysis recorded no protein sequence, so there is nothing to align the residue against. No residue is mapped, because no comparison was possible.`
+          : evidence.mismatchCause === 'wildtype-differs'
+            ? `The reference residue recorded for this variant does not match the sequence this analysis used, so the input disagrees with itself and no residue is mapped.`
+            : <>Ensembl aligns protein {data?.sourceProteinId}, which is not the sequence this analysis used. No residue is mapped, because positions can shift between isoforms.</>}</p>
       : !rows.length ? <p className="ctx-card__body">Ensembl returned no ortholog alignment for the covered organisms.</p>
       : evidence.ready && <>
         {data?.message && <p className="ctx-card__body ctx-caption" role="note">{data.message}</p>}

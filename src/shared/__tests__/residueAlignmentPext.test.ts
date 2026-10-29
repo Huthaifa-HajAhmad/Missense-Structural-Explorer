@@ -22,6 +22,17 @@ describe('gap-aware residue mapping', () => {
     const evidence = buildAlignmentEvidence({ gene: 'X', status: 'ready', sourceProteinId: 'P', homologies: [hom('ABCDE', 'ABCDE')], provenance: null, message: null }, 'ZZZZZ', 3, 'C', 'Q');
     expect(evidence.mismatched).toBe(true);
   });
+  it('names why nothing is mapped, so the card never blames Ensembl for the app\'s own missing input', () => {
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ABCDE', null, 'C', 'Q')).toMatchObject({ mismatchCause: 'no-position' });
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), null, 3, 'C', 'Q')).toMatchObject({ mismatchCause: 'no-sequence' });
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), null, null, 'C', 'Q')).toMatchObject({ mismatchCause: 'no-sequence' });
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ZZZZZ', 3, 'C', 'Q')).toMatchObject({ mismatchCause: 'sequence-differs' });
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ABCDE', 3, 'D', 'Q')).toMatchObject({ mismatchCause: 'wildtype-differs' });
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ABCDE', 3, 'C', 'Q')).toMatchObject({ mismatchCause: null });
+    const noSequence = buildAlignmentEvidence({ gene: 'X', status: 'ready', sourceProteinId: 'P', homologies: [hom('ABCDE', 'ABCDE')], provenance: null, message: null }, null, 3, 'C', 'Q');
+    expect(noSequence.mismatched).toBe(true);
+    expect(noSequence.mismatchCause).toBe('no-sequence');
+  });
 });
 
 const pext: PextResponse = { gene: 'G', status: 'ready', geneId: 'ENSG1', chrom: '17', flags: [], provenance: null, message: null, regions: [

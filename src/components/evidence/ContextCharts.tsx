@@ -7,6 +7,9 @@ import React from 'react';
 import type { PextRegion } from '../../shared/pext';
 import type { ResidueMapping } from '../../shared/residueAlignment';
 
+/** The alignment's own gap character, as in residueAlignment. */
+const GAP = '-';
+
 /** Linear bar scaled to `max`. A measured zero draws a tick, never an empty gap. */
 export function MeasureBar({ value, max, label }: { value: number | null; max: number; label: string }) {
   if (value === null) return <span className="ctx-bar ctx-bar--none" aria-hidden="true" />;
@@ -53,9 +56,11 @@ export function PextStrip({ regions, activeIndex, position }: { regions: PextReg
 export function AlignmentStrip({ mapping }: { mapping: ResidueMapping }) {
   if (!mapping.window) return null;
   const { human, target, focus } = mapping.window;
+  // `data-focus` styles the column; this sentence carries it to a screen reader as well.
+  const at = (seq: string) => (seq[focus] === GAP ? 'a gap' : seq[focus]);
   const cells = (seq: string, other: string) => [...seq].map((c, i) => <span key={i} className="ctx-aln__c" data-focus={i === focus || undefined}
     data-gap={c === '-' || undefined} data-diff={(c !== other[i] && i !== focus) || undefined}>{c === '-' ? '–' : c}</span>);
-  return <span className="ctx-aln" role="img" aria-label={`Alignment around the variant. Human ${human.replaceAll('-', 'gap ')}; ortholog ${target.replaceAll('-', 'gap ')}.`}>
+  return <span className="ctx-aln" role="img" aria-label={`Alignment around the variant. Human ${human.replaceAll('-', 'gap ')}; ortholog ${target.replaceAll('-', 'gap ')}. The variant residue is column ${focus + 1}: ${at(human)} in human, ${at(target)} in the ortholog.`}>
     <span className="ctx-aln__row">{cells(human, target)}</span>
     <span className="ctx-aln__row">{cells(target, human)}</span>
   </span>;

@@ -22,29 +22,37 @@ export type AlignmentResponse = z.infer<typeof alignmentResponseSchema>;
 export type AlignedHomology = z.infer<typeof alignedHomologySchema>;
 
 export type ResidueState = 'identical' | 'different' | 'gap' | 'reference-mismatch';
+/** Why no residue is mapped. The app-level causes are the analysis's own inputs and must not be
+ * read as an Ensembl difference; only `sequence-differs` says the alignment is another protein. */
+export type MismatchCause = 'no-sequence' | 'no-position' | 'wildtype-differs' | 'sequence-differs';
 export type ResidueMapping = {
   state: ResidueState; targetResidue: string | null; targetPosition: number | null; carriesVariantResidue: boolean;
   window: { human: string; target: string; focus: number } | null;
+  mismatchCause: MismatchCause | null;
 };
 const FLANK = 7;
 const GAP = '-';
 const ungapped = (s: string) => s.replaceAll(GAP, '');
 
 export function mapResidue(h: AlignedHomology, appSequence: string | null | undefined, position: number | null, wildType: string, mutant: string): ResidueMapping {
-  const none: ResidueMapping = { state: 'reference-mismatch', targetResidue: null, targetPosition: null, carriesVariantResidue: false, window: null };
-  if (!appSequence || !position || position < 1) return none;
-  if (ungapped(h.sourceAligned) !== appSequence || appSequence[position - 1] !== wildType) return none;
+  const none = (cause: MismatchCause): ResidueMapping => ({ state: 'reference-mismatch', mismatchCause: cause, targetResidue: null, targetPosition: null, carriesVariantResidue: false, window: null });
+  if (!appSequence) return none('no-sequence');
+  if (!position || position < 1) return none('no-position');
+  // With the app sequence verified, walking all non-gap columns reaches the last residue, so a miss
+  // here is a defensive guard rather than a reachable state; it still says the sequences differ.
+  if (ungapped(h.sourceAligned) !== appSequence) return none('sequence-differs');
+  if (appSequence[position - 1] !== wildType) return none('wildtype-differs');
   let seen = 0; let targetSeen = 0; let column = -1;
   for (let i = 0; i < h.sourceAligned.length; i++) {
     if (h.targetAligned[i] !== GAP) targetSeen++;
     if (h.sourceAligned[i] !== GAP && ++seen === position) { column = i; break; }
   }
-  if (column < 0) return none;
+  if (column < 0) return none('sequence-differs');
   const t = h.targetAligned[column];
   const from = Math.max(0, column - FLANK); const to = Math.min(h.sourceAligned.length, column + FLANK + 1);
   const window = { human: h.sourceAligned.slice(from, to), target: h.targetAligned.slice(from, to), focus: column - from };
-  if (t === GAP) return { state: 'gap', targetResidue: null, targetPosition: null, carriesVariantResidue: false, window };
-  return { state: t === wildType ? 'identical' : 'different', targetResidue: t, targetPosition: targetSeen, carriesVariantResidue: t === mutant, window };
+  if (t === GAP) return { state: 'gap', mismatchCause: null, targetResidue: null, targetPosition: null, carriesVariantResidue: false, window };
+  return { state: t === wildType ? 'identical' : 'different', mismatchCause: null, targetResidue: t, targetPosition: targetSeen, carriesVariantResidue: t === mutant, window };
 }
 
 export const RESIDUE_STATE_LABEL: Record<ResidueState, string> = {
@@ -54,6 +62,11 @@ export const RESIDUE_STATE_LABEL: Record<ResidueState, string> = {
 export function buildAlignmentEvidence(data: AlignmentResponse | null, appSequence: string | null | undefined, position: number | null, wildType: string, mutant: string) {
   const rows = (data?.homologies ?? []).map(h => ({ h, m: mapResidue(h, appSequence, position, wildType, mutant) }));
   const referenceOk = rows.length > 0 && rows.every(r => r.m.state !== 'reference-mismatch');
+  const mismatched = rows.length > 0 && !referenceOk;
+  // The app-level causes are uniform across rows (the inputs are shared), so whichever row speaks for
+  // them first is the cause; only a per-row sequence disagreement stands by itself.
+  const mismatchCause: MismatchCause | null = !mismatched ? null
+    : (['no-sequence', 'no-position', 'wildtype-differs'] as const).find(cause => rows.some(r => r.m.mismatchCause === cause)) ?? 'sequence-differs';
   const identical = rows.filter(r => r.m.state === 'identical').length;
-  return { rows, referenceOk, mismatched: rows.length > 0 && !referenceOk, identical, ready: data?.status === 'ready' };
+  return { rows, referenceOk, mismatched, mismatchCause, identical, ready: data?.status === 'ready' };
 }

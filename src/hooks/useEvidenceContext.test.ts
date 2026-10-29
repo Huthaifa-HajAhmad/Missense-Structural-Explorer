@@ -24,10 +24,10 @@ describe('authenticated context loading and gene isolation', () => {
       [extraContextKey('alignment', 'UROD')]: failed, [extraContextKey('phenotypes', 'UROD')]: failed
     } });
     fetchWithAuth.mockImplementation(() => new Promise(() => {}));
-    const first = renderHook(() => useEvidenceContext(result('UROD'), false, true, true, false));
+    const first = renderHook(() => useEvidenceContext(result('UROD'), { dosage: true, models: true, recoverCached: false }));
     expect(fetchWithAuth).not.toHaveBeenCalled();
     first.unmount();
-    const second = renderHook(() => useEvidenceContext(result('UROD'), false, true, true, false));
+    const second = renderHook(() => useEvidenceContext(result('UROD'), { dosage: true, models: true, recoverCached: false }));
     expect(fetchWithAuth).not.toHaveBeenCalled();
     act(() => { void second.result.current.retryDisease(); });
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
@@ -37,7 +37,7 @@ describe('authenticated context loading and gene isolation', () => {
   it('keeps failed dosage distinct from a complete negative lookup and coalesces manual retries', async () => {
     useVariantAnalysisStore.setState({ diseaseContexts: { NAE1: { status: 'ready', data: data('NAE1') as any } } });
     fetchWithAuth.mockResolvedValueOnce({ ok: true, json: async () => ({ gene: 'NAE1', status: 'error', record: null, provenance: null, message: 'ClinGen dosage request timed out.' }) });
-    const hook = renderHook(() => useEvidenceContext(result('NAE1'), false, true));
+    const hook = renderHook(() => useEvidenceContext(result('NAE1'), { dosage: true }));
     await waitFor(() => expect(hook.result.current.dosageLoad?.status).toBe('error'));
     expect(hook.result.current.dosageLoad?.data?.message).toContain('timed out');
     let finish!: (value: unknown) => void;
@@ -56,20 +56,20 @@ describe('authenticated context loading and gene isolation', () => {
   it('rejects a malformed dosage success instead of exposing it as an empty result', async () => {
     useVariantAnalysisStore.setState({ diseaseContexts: { NAE1: { status: 'ready', data: data('NAE1') as any } } });
     fetchWithAuth.mockResolvedValue({ ok: true, json: async () => ({ gene: 'NAE1', status: 'ready', record: null, provenance: null, message: null }) });
-    const hook = renderHook(() => useEvidenceContext(result('NAE1'), false, true));
+    const hook = renderHook(() => useEvidenceContext(result('NAE1'), { dosage: true }));
     await waitFor(() => expect(hook.result.current.dosageLoad?.status).toBe('error'));
     expect(hook.result.current.dosageLoad?.data).toBeNull();
     expect(hook.result.current.dosageLoad?.error).toContain('could not be validated');
   });
   it('loads human sources without animal requests, and joins cached requests when the tab remounts', async () => {
     fetchWithAuth.mockImplementation(() => new Promise(() => {}));
-    const first = renderHook(() => useEvidenceContext(result('A'), true, false, false));
+    const first = renderHook(() => useEvidenceContext(result('A'), { expression: true, models: false }));
     await waitFor(() => expect(fetchWithAuth.mock.calls).toHaveLength(5));
     const urls = fetchWithAuth.mock.calls.map(c => c[0]);
     expect(urls).toContain('/api/v1/evidence-context/A/development');
     expect(urls.some(u => /models|phenotypes|alignment/.test(u))).toBe(false);
     first.unmount();
-    renderHook(() => useEvidenceContext(result('A'), true, false, false));
+    renderHook(() => useEvidenceContext(result('A'), { expression: true, models: false }));
     expect(fetchWithAuth).toHaveBeenCalledTimes(5);
   });
   it('re-reads a failed background alignment once, then leaves further attempts to the explicit retry', async () => {
@@ -77,18 +77,18 @@ describe('authenticated context loading and gene isolation', () => {
     const alignmentCalls = () => fetchWithAuth.mock.calls.filter(c => c[0].endsWith('/alignment'));
     useVariantAnalysisStore.setState({ extraContexts: { [extraContextKey('alignment', 'RETRY1')]: failed } });
     fetchWithAuth.mockImplementation(() => new Promise(() => {}));
-    const first = renderHook(() => useEvidenceContext(result('RETRY1'), false, false, true));
+    const first = renderHook(() => useEvidenceContext(result('RETRY1'), { models: true }));
     expect(alignmentCalls()).toHaveLength(1);
     first.unmount();
     useVariantAnalysisStore.setState({ extraContexts: { [extraContextKey('alignment', 'RETRY1')]: failed } });
-    const second = renderHook(() => useEvidenceContext(result('RETRY1'), false, false, true));
+    const second = renderHook(() => useEvidenceContext(result('RETRY1'), { models: true }));
     expect(alignmentCalls()).toHaveLength(1);
     act(() => { void second.result.current.retryAlignment(); });
     expect(alignmentCalls()).toHaveLength(2);
   });
   it('loads animal sources without starting human expression providers', async () => {
     fetchWithAuth.mockImplementation(() => new Promise(() => {}));
-    renderHook(() => useEvidenceContext(result('A'), false, false, true));
+    renderHook(() => useEvidenceContext(result('A'), { models: true }));
     await waitFor(() => expect(fetchWithAuth.mock.calls).toHaveLength(4));
     const urls = fetchWithAuth.mock.calls.map(c => c[0]);
     expect(urls).toContain('/api/v1/evidence-context/A/models');
