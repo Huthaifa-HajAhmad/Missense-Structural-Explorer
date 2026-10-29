@@ -52,7 +52,7 @@ describe("PredictorsTab", () => {
     expect(row.textContent).toContain("4 favour native");
     expect(row.textContent).toContain("never change PP3 / BP4");
     expect(within(row).getByRole("button", { name: /ESM-2/ })).toBeTruthy();
-    expect(row.textContent).toContain("No directional classification");
+    expect(row.textContent).toContain("No sequence-preference reading");
     expect(row.textContent).toContain("Not scored");
   });
 

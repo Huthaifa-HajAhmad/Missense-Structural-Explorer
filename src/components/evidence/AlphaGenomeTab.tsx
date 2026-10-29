@@ -20,6 +20,7 @@ import {
   aviFinding,
   buildAlphaGenomeEvidence,
   fmtPercent,
+  fmtPercentAbove,
   fmtShare,
   type AlphaGenomeEvidence,
   type AviFeatureReading,
@@ -125,7 +126,7 @@ function OriginSplit({ ev }: { ev: AlphaGenomeEvidence }) {
     <div className="ag-split" data-testid="avi-origin-split">
       <span className="ag-split__name">
         Where the score comes from
-        <span className="ag-split__sub">share of the 18 contributions</span>
+        <span className="ag-split__sub">share of the reported contributions</span>
       </span>
       <div className="ag-split__viz">
         <div className="ag-split__bar" role="img" aria-label={`Where the score comes from: ${words}.`}>
@@ -425,11 +426,13 @@ function AlphaGenomeTabBody({
           <div className="ag-hero__body">
             <div className="ag-figure">
               <span className="figure-headline ag-figure__value" data-testid="avi-headline">
-                {ev.topPercent !== null ? `Highest-scoring ${fmtPercent(ev.topPercent)}` : `Phred ${(ev.phred as number).toFixed(1)}`}
+                {ev.topPercent !== null ? `Higher than ${fmtPercentAbove(ev.topPercent)}` : `Phred ${(ev.phred as number).toFixed(1)}`}
               </span>
               <span className="ag-figure__label">
-                among ~9 billion possible single-nucleotide changes (GRCh38)
-                {ev.oneIn !== null ? ` · about 1 in ${ev.oneIn.toLocaleString("en-GB")}` : ""}
+                {ev.topPercent !== null
+                  ? "of the ~9 billion possible GRCh38 single-nucleotide changes"
+                  : "genome-wide impact score"}
+                {ev.oneIn !== null ? ` — about 1 in ${ev.oneIn.toLocaleString("en-GB")}` : ""}
               </span>
             </div>
 

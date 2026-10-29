@@ -8,7 +8,6 @@ import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import {
   CAVEAT_TEXT,
-  LOCAL_AGREEMENT_COPY,
   PREDICTOR_GROUP_LABEL,
   PREDICTOR_GROUP_NOTE,
   buildPredictorEvidence,
@@ -183,16 +182,13 @@ function LocalAgreementRow({ evidence }: { evidence: PredictorEvidence }) {
   return <div className="prd-frow" data-testid="predictor-local-agreement">
     <div className="prd-frow__label">
       <span className="prd-frow__name">Local agreement / informational</span>
-      <span className="prd-frow__sub">{agreement.scored} of {agreement.total} non-voting tools scored</span>
+      <span className="prd-frow__sub">never counted by the vote</span>
     </div>
     <div className="prd-frow__body">
-      <p className="prd-frow__note">{LOCAL_AGREEMENT_COPY.descriptive}</p>
-      <p className="prd-frow__note">{agreement.preferenceSummary}</p>
+      {agreement.lead.map(note => <p key={note} className="prd-frow__note">{note}</p>)}
       {[...agreement.calibrated, ...agreement.preference].map(({ reading, label }) =>
         <p key={reading.key} className="prd-frow__note"><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton>: {label}</p>)}
-      {agreement.unclassified.length > 0 && <p className="prd-frow__note">No directional classification: {agreement.unclassified.map(r => r.name).join(", ")}.</p>}
-      {agreement.missing.length > 0 && <p className="prd-frow__note">Not scored: {agreement.missing.map(r => `${r.name} (${r.availability.label})`).join(", ")}.</p>}
-      <p className="prd-frow__note">{LOCAL_AGREEMENT_COPY.preference}</p>
+      {agreement.tail.map(note => <p key={note} className="prd-frow__note">{note}</p>)}
     </div>
     <div className="prd-frow__call"><span className="ev-tier" data-tone="muted">Context only</span></div>
   </div>;

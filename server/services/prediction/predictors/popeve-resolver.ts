@@ -83,7 +83,7 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
     const isUniprot = UNIPROT_ACCESSION_REGEX.test(cleanInput);
     const url = isUniprot 
       ? `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(cleanInput)}.json`
-      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&format=json`;
+      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&size=1&format=json`;
 
     const res = await fetchWithRetry(url, { timeout: 10000 });
     if (!res.ok) {
@@ -94,13 +94,22 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
     }
     const payload = await res.json();
     const checked = isUniprot ? uniprotEntrySchema.safeParse(payload) : uniprotSearchSchema.safeParse(payload);
-    const entry = checked.success ? ("results" in checked.data ? checked.data.results[0] : checked.data) : null;
+    if (!checked.success) {
+      // An unexpected shape says nothing about the protein, so it is asked again next time.
+      console.warn(`[popEVE Online] RefSeq lookup for ${proteinOrGene}: UniProt payload did not match the expected shape; treated as no mapping for now.`);
+      return null;
+    }
+    const entry = "results" in checked.data ? checked.data.results[0] : checked.data;
     if (!entry) {
-      console.warn(`[popEVE Online] RefSeq lookup for ${proteinOrGene}: UniProt payload did not match the expected shape; treated as no mapping.`);
+      // The search answered and has no reviewed human entry for this gene: a definitive absence,
+      // so it is remembered — otherwise every variant re-asks UniProt.
+      refseqCache.set(cleanInput, null);
       return null;
     }
     const displayed = entry.comments.flatMap(c => c.isoforms)
       .find(i => i.isoformSequenceStatus === "Displayed")?.isoformIds ?? [];
+    // popEVE keys its mutation files by RefSeq protein accession, so only NP_ entries are usable:
+    // a gene that lists only an XP_ prediction has no popEVE reading rather than a guessed one.
     const refseqXrefs = entry.uniProtKBCrossReferences.filter(x => x.database === "RefSeq" && x.id.startsWith("NP_"));
     // Protein HGVS is numbered on the displayed UniProt sequence, not the first cross-reference.
     const refseqId = (displayed.length > 0

@@ -154,4 +154,7 @@ irrelevance. Selecting a group opens its papers in the single Reading desk. Insi
 uncounted. Report separates **Narrative & notes** from **Citations & methods**. See
 [SYNTHESIS_WORKSPACES_REVIEW.md](SYNTHESIS_WORKSPACES_REVIEW.md) for integrity fixes and verification.
 
-Predictors local agreement: Comparison and Native score scales name contributors and provide pin-to-inspector entry points. Clinical bands and sequence preference remain separate; absent and unclassified readings are explicit. See PREDICTORS_AVAILABILITY_REVIEW.md.
+**Predictors local agreement.** The Comparison and Native score scales name each non-voting
+contributor and offer a pin-to-inspector entry point. Published clinical bands and sequence preference
+stay separate, and an absent or unclassified reading is stated only when it exists. See
+[PREDICTORS_AVAILABILITY_REVIEW.md](PREDICTORS_AVAILABILITY_REVIEW.md).

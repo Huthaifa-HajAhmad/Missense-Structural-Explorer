@@ -1054,27 +1054,55 @@ export function informationalSummary(evidence: PredictorEvidence): Informational
 export const LOCAL_AGREEMENT_COPY = {
   descriptive: "Descriptive agreement only. Correlated models are not independent evidence; these readings never change PP3 / BP4.",
   preference: "Sequence preference is not a benign or pathogenic call. Published bands are shown separately from sequence preference; scores are not averaged.",
+  /** A calibrated tool's own code (ESM1b's PP3) is a published band, not a counted vote here. */
+  calibratedBand: "(published band, not counted)",
+  /** Conservation and genome-wide scores have a direction; they are just not a preference ratio. */
+  noPreference: "No sequence-preference reading",
 };
 
+/**
+ * The local agreement in words, plus the rows the caller may pin.
+ *
+ * `lead` and `tail` bracket those pinned rows: both surfaces (the Comparison card and the inspector
+ * rail) render `lead`, then the contributors, then `tail`, so the wording cannot drift even though
+ * the chrome differs. Absent readings are stated only when they exist — "none" is not a finding.
+ */
 export function localPredictorAgreement(evidence: PredictorEvidence) {
   const rows = evidence.readings.filter(r => !r.votes);
+  const scoredRows = rows.filter(r => r.score !== null);
+  // These share an alternate/native LLR interpretation; zero is equal preference, not a benign cut.
+  const preferenceRows = scoredRows.filter(r => r.unit === "LLR" && !r.calibrated);
+  const unclassified = scoredRows.filter(r => !r.calibrated && r.unit !== "LLR");
+  const missing = rows.filter(r => r.score === null);
+  const native = preferenceRows.filter(r => r.score! < 0).length;
+  const alternate = preferenceRows.filter(r => r.score! > 0).length;
+  const preferenceSummary = preferenceRows.length === 0
+    ? "No uncalibrated sequence-preference scores returned."
+    : `${native} favour native, ${alternate} favour alternate, ${preferenceRows.length - native - alternate} equal preference (${preferenceRows.length} sequence models).`;
   return {
-    preferenceSummary: (() => {
-      const llrs = rows.filter(r => r.score !== null && r.unit === "LLR" && !r.calibrated);
-      const native = llrs.filter(r => r.score! < 0).length;
-      const alternate = llrs.filter(r => r.score! > 0).length;
-      return llrs.length === 0 ? "No uncalibrated sequence-preference scores returned."
-        : `${native} favour native, ${alternate} favour alternate, ${llrs.length - native - alternate} equal preference (${llrs.length} sequence models).`;
-    })(),
     total: rows.length,
-    scored: rows.filter(r => r.score !== null).length,
-    calibrated: rows.filter(r => r.score !== null && r.calibrated).map(r => ({ reading: r, label: r.callLabel })),
-    // These share an alternate/native LLR interpretation; zero is equal preference, not a benign cut.
-    preference: rows.filter(r => r.score !== null && r.unit === "LLR" && !r.calibrated).map(r => ({
+    scored: scoredRows.length,
+    preferenceSummary,
+    lead: [
+      `${scoredRows.length} of ${rows.length} non-voting readings scored. ${LOCAL_AGREEMENT_COPY.descriptive}`,
+      preferenceSummary,
+    ],
+    tail: [
+      ...(unclassified.length ? [`${LOCAL_AGREEMENT_COPY.noPreference}: ${unclassified.map(r => r.name).join(", ")}.`] : []),
+      ...(missing.length ? [`Not scored: ${missing.map(r => `${r.name} (${r.availability.label})`).join(", ")}.`] : []),
+      LOCAL_AGREEMENT_COPY.preference,
+    ],
+    // A calibrated non-voting tool keeps its published code only as a band name: naming it is not
+    // counting it, and the section above says so.
+    calibrated: scoredRows.filter(r => r.calibrated).map(r => ({
+      reading: r,
+      label: `${r.callLabel} ${LOCAL_AGREEMENT_COPY.calibratedBand}`,
+    })),
+    preference: preferenceRows.map(r => ({
       reading: r,
       label: r.score! < 0 ? "Native residue favoured" : r.score! > 0 ? "Alternate residue favoured" : "Equal preference",
     })),
-    unclassified: rows.filter(r => r.score !== null && !r.calibrated && r.unit !== "LLR"),
-    missing: rows.filter(r => r.score === null),
+    unclassified,
+    missing,
   };
 }

@@ -65,20 +65,6 @@ describe("negative caching only for a definitive not-found", () => {
     expect(transcriptMappingCache.has("P04637")).toBe(false);
   });
 
-  it("popEVE uses GATA4's displayed isoform even when an alternative RefSeq comes first", async () => {
-    fetchSpy = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(respond({
-        uniProtKBCrossReferences: [
-          { database: "RefSeq", id: "NP_001295022.1", isoformId: "P43694-2" },
-          { database: "RefSeq", id: "NP_002043.2", isoformId: "P43694-1" },
-        ],
-        comments: [{ isoforms: [{ isoformIds: ["P43694-1"], isoformSequenceStatus: "Displayed" }] }],
-      }))
-      .mockResolvedValueOnce(respond("mutant,gap frequency,popEVE\nS159C,0.052,-3.376\n"));
-    expect(await fetchPopEVEScoreOnline("P43694", "p.Ser159Cys")).toBe(-3.376);
-    expect(String(fetchSpy.mock.calls[1][0])).toContain("NP_002043.2.csv");
-  });
-
   it("a UniProt payload of an unexpected shape is asked again, not a thrown parse error", async () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond({ uniProtKBCrossReferences: "not an array" }));
     expect(await getRefSeqForProtein("P04637")).toBeNull();
@@ -288,3 +274,52 @@ describe("review 5 fixes", () => {
   });
 });
 
+describe("popEVE RefSeq: the displayed isoform, not the first cross-reference", () => {
+  // GATA4 lists the alternative NP_001295022.1 before the displayed sequence NP_002043.2.
+  const gata4Entry = () => ({
+    uniProtKBCrossReferences: [
+      { database: "RefSeq", id: "NP_001295022.1", isoformId: "P43694-2" },
+      { database: "RefSeq", id: "NP_002043.2", isoformId: "P43694-1" },
+    ],
+    comments: [{ isoforms: [{ isoformIds: ["P43694-1"], isoformSequenceStatus: "Displayed" }] }],
+  });
+  const body = (entry: unknown) => () => Promise.resolve(respond(entry));
+
+  it("scores GATA4 p.Ser159Cys on the displayed isoform", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(respond(gata4Entry()))
+      .mockResolvedValueOnce(respond("mutant,gap frequency,popEVE\nS159C,0.052,-3.376\n"));
+    expect(await fetchPopEVEScoreOnline("P43694", "p.Ser159Cys")).toBe(-3.376);
+    expect(String(fetchSpy.mock.calls[1][0])).toContain("NP_002043.2.csv");
+  });
+
+  it("resolves the accession path from the same isoform data", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body(gata4Entry()));
+    expect(await getRefSeqForProtein("P43694")).toBe("NP_002043.2");
+  });
+
+  it("asks the search for a single full entry, so the isoform comments are present", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({ results: [gata4Entry()] }));
+    expect(await getRefSeqForProtein("GATA4")).toBe("NP_002043.2");
+    const url = String(fetchSpy.mock.calls[0][0]);
+    expect(url).toContain("size=1");
+    expect(url).not.toContain("fields=");
+  });
+
+  it("falls back to the canonical cross-reference when no isoform is marked displayed", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({
+      uniProtKBCrossReferences: [
+        { database: "RefSeq", id: "NP_001295022.1", isoformId: "P43694-2" },
+        { database: "RefSeq", id: "NP_002043.2" },
+      ],
+      comments: [],
+    }));
+    expect(await getRefSeqForProtein("P43694")).toBe("NP_002043.2");
+  });
+
+  it("remembers a gene with no human entry instead of asking again", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({ results: [] }));
+    expect(await getRefSeqForProtein("NOTAGENE")).toBeNull();
+    expect(refseqCache.get("NOTAGENE")).toBeNull();
+    expect(fetchSpy.mock.calls).toHaveLength(1);
+  });
+});
