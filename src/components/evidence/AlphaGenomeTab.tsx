@@ -19,7 +19,6 @@ import {
   AVI_ORIGIN_NOTE,
   aviFinding,
   buildAlphaGenomeEvidence,
-  fmtPercent,
   fmtPercentAbove,
   fmtShare,
   type AlphaGenomeEvidence,
@@ -85,7 +84,7 @@ const RULER_LABELS: Array<{ phred: number; top: string }> = [
 function RankRuler({ phred, topPercent }: { phred: number; topPercent: number | null }) {
   const off = phred > RULER_MAX;
   const at = (Math.max(0, Math.min(phred, RULER_MAX)) / RULER_MAX) * 100;
-  const desc = `Phred ${phred.toFixed(1)}${topPercent !== null ? `, top ${fmtPercent(topPercent)} of all possible SNVs` : ""}${off ? " (beyond the drawn range)" : ""}. Axis: genome-wide rank from all SNVs to the top 0.001%.`;
+  const desc = `Phred ${phred.toFixed(1)}${topPercent !== null ? `, higher than ${fmtPercentAbove(topPercent)} of possible single-nucleotide changes` : ""}${off ? " (beyond the drawn range)" : ""}. Axis: genome-wide rank from all SNVs to the top 0.001%.`;
   return (
     <figure className="ag-rank" role="img" aria-label={`Genome-wide rank: ${desc}`} data-testid="avi-rank-ruler">
       <div className="ag-rank__track" aria-hidden="true">

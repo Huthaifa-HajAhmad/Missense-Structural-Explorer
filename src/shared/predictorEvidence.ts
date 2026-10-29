@@ -39,6 +39,7 @@ import {
 } from "./thresholds.ts";
 import { resolveSourceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { fmtPercentAbove } from "./alphagenomeEvidence.ts";
 
 /** The canonical absence word — the engine-status vocabulary, not a local synonym. */
 const NO_RESULT = ENGINE_STATE_LABELS["no-result"];
@@ -590,7 +591,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       note:
         avi !== null
           ? [
-              pct !== null ? `Highest-scoring ${pct < 0.1 ? pct.toFixed(3) : pct.toFixed(2)}% of possible single-nucleotide changes` : null,
+              pct !== null ? `Higher than ${fmtPercentAbove(pct)} of possible single-nucleotide changes` : null,
               alphagenome?.topModality ? `largest feature: ${alphagenome.topModality}` : null,
             ].filter(Boolean).join(" · ") || null
           : null,

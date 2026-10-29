@@ -1,5 +1,5 @@
 import type { AlphaGenomeEvidence } from '../../shared/alphagenomeEvidence';
-import { fmtPercent } from '../../shared/alphagenomeEvidence';
+import { fmtPercentAbove } from '../../shared/alphagenomeEvidence';
 
 /** Onboarding stays beside the real reading, with deeper terminology on demand. */
 export function AlphaGenomeGuide({ evidence }: { evidence: AlphaGenomeEvidence }) {
@@ -8,7 +8,7 @@ export function AlphaGenomeGuide({ evidence }: { evidence: AlphaGenomeEvidence }
     <details className="evw-guide__disclosure"><summary><span className="eyebrow">New to AlphaGenome?</span><span>Read the rank → explore contributors → follow up in context</span></summary>
     <div className="evw-guide__intro"><p>AlphaGenome predicts how a DNA change could affect molecular processes. The Atlas combines those predictions with other inputs into a variant impact score, or AVI.</p></div>
     <ol className="evw-guide__steps">
-      <li><span aria-hidden="true">1</span><div><h3>Read the rank</h3><p>{evidence.topPercent !== null ? `Top ${fmtPercent(evidence.topPercent)} describes how few possible single-letter DNA changes score at least this high. It is not the chance that this variant causes disease.` : 'The rank compares this variant with possible single-letter DNA changes across the genome. An unavailable rank does not imply low impact.'}</p></div></li>
+      <li><span aria-hidden="true">1</span><div><h3>Read the rank</h3><p>{evidence.topPercent !== null ? `The rank counts the possible single-letter DNA changes this variant scores higher than — ${fmtPercentAbove(evidence.topPercent)} of them. It is not the chance that this variant causes disease.` : 'The rank compares this variant with possible single-letter DNA changes across the genome. An unavailable rank does not imply low impact.'}</p></div></li>
       <li><span aria-hidden="true">2</span><div><h3>Explore the contributors</h3><p>Longer marks have more influence on the raw score. Select a feature to learn what it represents. Colour distinguishes molecular predictions from other inputs; it does not mean harmful or protective.</p></div></li>
       <li><span aria-hidden="true">3</span><div><h3>Follow up in context</h3><p>Use the Atlas links to inspect predicted tracks and biosamples. A leading contribution suggests something to investigate; it does not establish the affected tissue or a disease mechanism.</p></div></li>
     </ol>

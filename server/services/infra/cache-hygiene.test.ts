@@ -297,12 +297,52 @@ describe("popEVE RefSeq: the displayed isoform, not the first cross-reference", 
     expect(await getRefSeqForProtein("P43694")).toBe("NP_002043.2");
   });
 
-  it("asks the search for a single full entry, so the isoform comments are present", async () => {
+  it("asks for the two fields the mapping needs, not whole entries", async () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({ results: [gata4Entry()] }));
     expect(await getRefSeqForProtein("GATA4")).toBe("NP_002043.2");
     const url = String(fetchSpy.mock.calls[0][0]);
-    expect(url).toContain("size=1");
-    expect(url).not.toContain("fields=");
+    expect(url).toContain("fields=xref_refseq,cc_alternative_products");
+    // size=1 is not a saving: it changed UniProt's ranking and handed back an unreviewed duplicate
+    // with no RefSeq at all for GATA4 and GZF1.
+    expect(url).not.toContain("size=1");
+  });
+
+  it("scans past a search hit with no RefSeq instead of giving up", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({ results: [
+      { primaryAccession: "E9PKS4", uniProtKBCrossReferences: [], comments: [] },
+      gata4Entry(),
+    ] }));
+    expect(await getRefSeqForProtein("GATA4")).toBe("NP_002043.2");
+  });
+
+  it("uses the untagged canonical RefSeq when that is the displayed sequence", async () => {
+    // Q3MIW9: the displayed isoform is the canonical one and its only NP_ cross-reference carries no
+    // isoform id, so a tagged-only rule dropped a file popEVE actually serves.
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({
+      primaryAccession: "Q3MIW9",
+      uniProtKBCrossReferences: [{ database: "RefSeq", id: "NP_543146.2" }],
+      comments: [{ isoforms: [{ isoformIds: ["Q3MIW9-1"], isoformSequenceStatus: "Displayed" }] }],
+    }));
+    expect(await getRefSeqForProtein("Q3MIW9")).toBe("NP_543146.2");
+  });
+
+  it("does not borrow an alternative isoform's file when the displayed one has none", async () => {
+    // Q70EL3: the only NP_ is tagged Q70EL3-2 while Q70EL3-1 is displayed, so its numbering is wrong.
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({
+      primaryAccession: "Q70EL3",
+      uniProtKBCrossReferences: [{ database: "RefSeq", id: "NP_987090.2", isoformId: "Q70EL3-2" }],
+      comments: [{ isoforms: [{ isoformIds: ["Q70EL3-1"], isoformSequenceStatus: "Displayed" }] }],
+    }));
+    expect(await getRefSeqForProtein("Q70EL3")).toBeNull();
+    expect(refseqCache.get("Q70EL3")).toBeNull();
+  });
+
+  it("has no popEVE reading for an XP_-only protein", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(body({
+      uniProtKBCrossReferences: [{ database: "RefSeq", id: "XP_011500000.1" }],
+      comments: [],
+    }));
+    expect(await getRefSeqForProtein("P43694")).toBeNull();
   });
 
   it("falls back to the canonical cross-reference when no isoform is marked displayed", async () => {
