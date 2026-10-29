@@ -45,18 +45,25 @@ reproducible bit for bit; the one field that changes between runs is the recorde
 
 | Gene | Confident / length | Clustering p (uni / bi) | AUROC P/LP vs gnomAD AC≥2 [95% CI] | RMC AUROC | ΔAUROC vs RMC [95% CI] |
 |---|---|---|---|---|---|
-| SOD1 | 154 / 154 | 0.004 / 0.003 | 0.64 [0.55, 0.73] | 0.50 | +0.14 [0.05, 0.23] |
-| BRCA1 | 324 / 1863 | 0.001 / 0.001 | **0.72 [0.66, 0.79]** | 0.50 | +0.22 [0.16, 0.29] |
-| LDLR | 625 / 860 | 0.017 / **0.091** | 0.60 [0.56, 0.64] | 0.50 | +0.10 [0.06, 0.14] |
-| VHL | 155 / 213 | 0.001 / 0.002 | 0.67 [0.59, 0.75] | 0.50 | +0.17 [0.09, 0.25] |
-| SCN1A | 1236 / 2009 | 0.001 / 0.001 | **0.72 [0.69, 0.76]** | 0.69 | +0.03 [−0.01, 0.07] |
-| KCNQ2 | 350 / 872 | 0.001 / 0.001 | **0.90 [0.85, 0.94]** | 0.90 | −0.00 [−0.03, 0.02] |
+| SOD1 | 154 / 154 | 0.004 / 0.003 | 0.66 [0.55, 0.77] | 0.50 | +0.16 [0.05, 0.27] |
+| BRCA1 | 324 / 1863 | 0.001 / 0.001 | **0.70 [0.61, 0.79]** | 0.50 | +0.20 [0.11, 0.29] |
+| LDLR | 625 / 860 | 0.017 / **0.091** | 0.59 [0.53, 0.64] | 0.50 | +0.09 [0.03, 0.14] |
+| VHL | 155 / 213 | 0.001 / 0.002 | 0.66 [0.56, 0.76] | 0.50 | +0.16 [0.06, 0.26] |
+| SCN1A | 1236 / 2009 | 0.001 / 0.001 | 0.69 [0.66, 0.74] | 0.67 | +0.03 [−0.02, 0.08] |
+| KCNQ2 | 350 / 872 | 0.001 / 0.001 | **0.87 [0.81, 0.91]** | 0.86 | +0.00 [−0.03, 0.04] |
+
+The AUROC is graded on residues (the registered unit: unique residues with ≥1 ClinVar P/LP), not on ClinVar
+records. An earlier run graded every variant record and entered a repeated residue once per record, which
+shrank the populations and shifted the CIs; results.json was regenerated on the residue unit on 2026-10-29.
 
 - **Informative genes:** SOD1, BRCA1, VHL, SCN1A, KCNQ2. LDLR fails the bivariate gate.
-- **P3 passes** in BRCA1, SCN1A and KCNQ2.
+- **P3 passes** in BRCA1 and KCNQ2.
 - **P5 passes** in SOD1, BRCA1 and VHL.
 
-The mechanical decision is **adopt**.
+The mechanical decision is **adopt**. The margin is thin, and it is said out loud: every gene's P3 verdict
+rests on its CI lower bound against the 0.60 floor, and BRCA1's is **0.6116 — one hundredth of a point of
+AUROC** above it. A residue-level regrade with a different draw would not get the same margin; treat BRCA1's
+P3 as the weakest of the pass, not a comfortable one.
 
 ## What the result means, and what the screen says
 
@@ -65,9 +72,9 @@ The mechanical decision is **adopt**.
   KCNQ2 with 8), PathProx adds nothing over it: the ΔAUROC intervals include 0.
 - **The screen says this in the rung itself:** "the benchmark found it adds to regional O/E only where O/E is
   flat across the gene".
-- **Below 0.70 in some genes.** SOD1 (0.64) and VHL (0.67) pass the clustering gate but stay below the P3 bar.
-  At run time the score therefore carries a per-gene self-check: the leave-residue-out AUROC of P/LP residues
-  against gnomAD-only residues, computed on that gene's own data.
+- **Below 0.70 in some genes.** SOD1, VHL and SCN1A pass the clustering gate but sit below the P3 bar at
+  0.66, 0.66 and 0.69. At run time the score therefore carries a per-gene self-check: the leave-residue-out
+  AUROC of P/LP residues against gnomAD-only residues, computed on that gene's own data.
 - **Deviations from the paper, stated on screen:** 2,000 permutations instead of 100,000; no cross-protein FDR
   (one protein at a time); an AlphaFold model instead of a solved structure; residues instead of variants.
 - **Confounds not removed:**

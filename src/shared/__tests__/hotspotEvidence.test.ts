@@ -98,6 +98,44 @@ describe("buildHotspotEvidence — states", () => {
     const ev = build(sod1, 5, "Ala5", { engineCriteria: [{ code: "PP2_Moderate" }] });
     expect(rung(ev, "regional").details.join(" ")).toMatch(/Engine record: PP2_Moderate/);
   });
+  it("does not call a residue 'outside' where the calibrated answer is a BP1 band or no O/E", () => {
+    expect(rung(build(vhl, 98, "Tyr98"), "regional").atVariant).toBeNull();
+    const none = { ...sod1, regional: { status: "available" as const, reason: null, regions: [{ start: 1, end: 154, oe: null, pValue: null }] } };
+    const r = rung(build(none, 5, "Ala5"), "regional");
+    expect(r.atVariant).toBeNull();
+    expect(r.headline).toMatch(/carries no O\/E/);
+  });
+  it("fails the cspec rung, with the reason, when no covering spec's rule set could be read", () => {
+    const failed = { ...sod1, cspec: { ...sod1.cspec, specs: sod1.cspec.specs.map((s) => ({ ...s, released: true, pm1: null, pm1Reason: "CSpec request timed out. The PM1 text for GN02915 could not be read." })) } };
+    const r = rung(build(failed, 5, "Ala5"), "cspec");
+    expect(r.state).toBe("failed");
+    expect(r.headline).toMatch(/request timed out/);
+    expect(r.headline).not.toMatch(/defines no PM1 rule/);
+  });
+  it("withholds the 3D frame on a numbering mismatch while saying the model itself exists", () => {
+    const ctx = { ...sod1, spatial: { ...sod1.spatial, status: "numbering-mismatch" as const, reason: "…so 3D positions cannot be trusted." } };
+    const ev = build(ctx, 5, "Ala5");
+    expect(ev.model).toBeNull();
+    expect(ev.modelNote).toMatch(/numbering disagrees/);
+    expect(ev.rows.every((r) => r.distanceA === null)).toBe(true);
+  });
+  it("rungs without a computed test read as withheld, not as 'no region'", () => {
+    const noModel = { ...sod1, spatial: { ...sod1.spatial, status: "no-model" as const, scores: [], reason: "No UniProt accession, so no model was read." } };
+    expect(rung(build(noModel, 5, "Ala5"), "spatial").state).toBe("not-shown");
+    const tooFew = { ...sod1, perRerun: { ...sod1.perRerun, status: "too-few" as const, reason: "1 residue with a ClinVar P/LP missense: too few to test enrichment." } };
+    expect(rung(build(tooFew, 5, "Ala5"), "per-rerun").state).toBe("not-shown");
+  });
+  it("never prints 'within undefined Å', and never claims pLDDT < 70 when the cut-point is what is missing", () => {
+    const noCut = { ...sod1, spatial: { ...sod1.spatial, thresholdA: null, scores: [] } };
+    const r = rung(build(noCut, 5, "Ala5"), "spatial");
+    expect(r.headline).toMatch(/distance grid held no confident beyond-chance cut/);
+    expect(r.headline).not.toMatch(/undefined/);
+    expect(r.headline).not.toMatch(/pLDDT < 70/);
+  });
+  it("calls a tied percentile 'as high as or higher than', not 'higher than'", () => {
+    const r = rung(build(sod1, 5, "Ala5"), "spatial");
+    expect(r.headline).toMatch(/as high as or higher than \d+% of residues/);
+  });
 });
 
 /**
@@ -119,10 +157,18 @@ describe("buildHotspotEvidence — what an unrun or unanswered test may say", ()
   });
 
   it("counts only the definitions that returned a verdict, and says how many", () => {
-    const ev = build(sod1, 5, "Ala5");
+    // SOD1's own interval has an O/E between the calibrated bands, so the regional rung returned no
+    // verdict there. Give it a PP2 band (so the set rules are testable) and a residue outside it; the
+    // re-run is forced to "too few", which never answers, so exactly one definition returns a verdict.
+    const ctx: HotspotContext = {
+      ...sod1,
+      regional: { status: "available", reason: null, regions: [{ start: 1, end: 154, oe: 0.35, pValue: 0.000037234 }] },
+      perRerun: { ...sod1.perRerun, status: "too-few", regions: [], best: null },
+    };
+    const ev = build(ctx, 200, "Res200");
     const answered = ev.rungs.filter((r) => r.atVariant !== null).length;
-    expect(answered).toBeGreaterThan(0);
-    expect(ev.finding.lead).toContain(`${answered} definition${answered === 1 ? "" : "s"}`);
+    expect(answered).toBe(1);
+    expect(ev.finding.lead).toMatch(/inside no region defined by the 1 definition that returned a verdict here/);
   });
 
   it("does not report a withheld mapping as 'no region'", () => {

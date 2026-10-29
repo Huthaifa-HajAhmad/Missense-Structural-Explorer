@@ -7,24 +7,9 @@
  * under Box64 emulation. Model origin is used for provenance, not repair eligibility.
  */
 import { foldxPriorP50Ms, foldxRepairApplies } from "../../../../src/shared/computeRouting.ts";
-import { cleanPdbForFoldX, countIncompleteResidues, detectBFactorProvenance } from "./pdb-utils.ts";
+import { cleanPdbForFoldX, countIncompleteResidues } from "./pdb-utils.ts";
 import { repairFitsBudget } from "./budget.ts";
 import { getFoldxExecutionTarget } from "./detector.ts";
-
-/** Identify predicted coordinates for provenance; model origin does not determine repair eligibility. */
-export function isAlphaFoldModel(pdb: string): boolean {
-  /**
-   * An experimental method record decides first — the same rule `detectBFactorProvenance` applies.
-   * Without it, a genuine X-ray entry whose REMARK 3 says "MODEL USED FOR MOLECULAR REPLACEMENT:
-   * ALPHAFOLD" (routine since 2021) matched the bare `ALPHAFOLD` substring below and skipped
-   * RepairPDB again. Real AlphaFold DB files carry no EXPDTA record, so this cannot misfile them.
-   */
-  if (/^EXPDTA\s+\S/m.test(pdb)) return false;
-  return /DBREF.*\bAF-[A-Z0-9]+-F\d/i.test(pdb) ||
-    /^REMARK.*ALPHAFOLD/mi.test(pdb) ||
-    /^HEADER.*PREDICTED/mi.test(pdb) ||
-    detectBFactorProvenance(pdb).source === "alphafold";
-}
 
 /** Distinct residues with a CA atom (chain + number + insertion code), as FoldX sees them. */
 export function countResidues(pdb: string): number {

@@ -13,16 +13,17 @@ import { loadPext } from '../services/evidence-context/pext.ts';
 import { loadHpa } from '../services/evidence-context/hpa.ts';
 import { loadModelPhenotypes } from '../services/evidence-context/modelPhenotypes.ts';
 import { loadHpoAnnotation } from '../services/evidence-context/hpo.ts';
-import { loadHotspotContext } from '../services/evidence-context/hotspots.ts';
+import { isHotspotContextCached, loadHotspotContext } from '../services/evidence-context/hotspots.ts';
 import { CONTEXT_SUFFIXES, type ContextSuffix } from '../../src/shared/contextRequest.ts';
 import { addVerifiedMechanismChoices } from '../../src/shared/diseaseFrame.ts';
 
 const GENE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,49}$/;
 
 /**
- * The hotspots read is public and can spawn a 2,000-permutation 3D job, so it gets its own budget on top of
- * the shared `apiLimiter`. A cached answer is cheap, so a reader moving between a few genes never notices;
- * an unauthenticated loop of distinct `uniprot` values (each its own cache key) does.
+ * The hotspots read is public and can spawn a 2,000-permutation 3D job, so it keeps a per-minute budget
+ * of its own beyond the shared `apiLimiter` — for builds. A request that would be served from the in-process
+ * cache costs no build (the expensive 3D statistic and accessibility run are memoized separately), so it is
+ * not counted; a loop of distinct `uniprot` values (each its own cache key) is what this limiter exists for.
  */
 const hotspotLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -31,7 +32,7 @@ const hotspotLimiter = rateLimit({
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => getClientIp(req),
-  skip: (req) => req.principal?.kind === "agent",
+  skip: (req) => req.principal?.kind === "agent" || isHotspotContextCached(String(req.params.gene), req.query),
   message: { error: { code: "RATE_LIMITED", message: "Hot-spot reads are limited: each one can run a 3D permutation test." } },
 });
 

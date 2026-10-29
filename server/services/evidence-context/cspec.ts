@@ -45,10 +45,22 @@ class CspecHttpError extends Error {
   constructor(public status: number) { super(`CSpec HTTP ${status}`); }
 }
 
+/** The registry's own scheme and host. A rule set is fetched only on the same origin: a skewed or
+ * poisoned registry entry (`ruleSets[].@id` is data, not code) must not make this server read an
+ * arbitrary address (SSRF) — a misdirected rule set is a failed read, not a fetch. */
+const REGISTRY_ORIGIN = new URL(CSPEC_SOURCE_URL).origin;
+class CspecOriginError extends Error {
+  constructor(iri: string) {
+    super(`The registry named a rule set outside its own origin (${iri.slice(0, 200)})`);
+    this.name = "CspecOriginError";
+  }
+}
+
 /** Why a CSpec read failed, phrased to follow "CSpec ". Never includes a response body or a parser detail. */
 function failureCause(error: unknown): string {
   if (error instanceof z.ZodError || error instanceof SyntaxError) return 'returned an unexpected response';
   if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) return 'request timed out';
+  if (error instanceof CspecOriginError) return 'server refused to read: the registry named a rule set outside its own origin';
   const status = error instanceof CspecHttpError ? error.status : (error as { statusCode?: number } | null)?.statusCode;
   if (status && status >= 400) return `request failed (HTTP ${status})`;
   return 'could not be reached';
@@ -75,12 +87,15 @@ async function loadRegistry(): Promise<Registry> {
 }
 
 async function loadRuleSet(iri: string): Promise<RuleSet> {
+  // Origin allowlist before any network use: the IRI arrives as registry data, never code.
+  const target = new URL(iri, CSPEC_SOURCE_URL);
+  if (target.origin !== REGISTRY_ORIGIN) throw new CspecOriginError(iri);
   const hit = ruleSetCache.get(iri); if (hit) return hit;
   let flight = ruleSetFlights.get(iri);
   if (!flight) {
     // A failed read is not cached, so the next request for this specification tries again.
     flight = (async () => {
-      const value = ruleSetSchema.parse(await getJson(`${iri}?detail=high`));
+      const value = ruleSetSchema.parse(await getJson(`${target.toString()}?detail=high`));
       ruleSetCache.set(iri, value); return value;
     })().finally(() => { ruleSetFlights.delete(iri); });
     ruleSetFlights.set(iri, flight);

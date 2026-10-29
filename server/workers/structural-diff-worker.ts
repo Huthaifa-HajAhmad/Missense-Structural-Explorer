@@ -41,8 +41,9 @@ export async function runSpatialClustering(input: { residues: number[]; coords: 
   const scores = [...result.scores].filter((e): e is [number, number] => e[1] !== null);
   // Leave-residue-out self-check in this gene: P/LP residues against gnomAD-only residues.
   const P = new Set(input.pathogenic);
+  const Nset = new Set(input.neutral);
   const pos = scores.filter(([r]) => P.has(r)).map(([, v]) => v);
-  const neg = scores.filter(([r]) => !P.has(r) && input.neutral.includes(r)).map(([, v]) => v);
+  const neg = scores.filter(([r]) => !P.has(r) && Nset.has(r)).map(([, v]) => v);
   return { ...result, scores, selfCheck: pos.length && neg.length ? { auroc: aurocOf(pos, neg), pathogenic: pos.length, neutral: neg.length } : null };
 }
 

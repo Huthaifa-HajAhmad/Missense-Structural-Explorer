@@ -92,5 +92,14 @@
 .cx-source-state strong { color: var(--cs-text-primary); }
 .cx-source-state p { margin-block: 0; max-inline-size: 72ch; }
 
+/* Species source views lead with their records. The parent owns vertical spacing;
+   paragraph defaults and notice padding must not add a second gap. */
+.sm-workspace { gap: 16px; }
+.sm-workspace > p, .sm-workspace .evw-panel > p { margin-block: 0; }
+.sm-workspace > .cx-notice { padding-block: 0; }
+.sm-workspace .cx-guide p { margin-block: 0; }
+.sm-workspace .cx-guide p + p { margin-block-start: 8px; }
+.sm-review > summary:active { color: var(--cs-accent-clay); }
+
 /* Card source messages retain their inset after the shared notice reset. */
 .ctx-card__body.cx-source-state { padding-inline: 16px; }

@@ -83,8 +83,8 @@ export interface VhMetric {
   /** Where the cut-points come from; null when interpretation is withheld (no bands are drawn). */
   cutPoints: VhCutPoints | null;
   /**
-   * Visible facts about this reading beyond value and verdict — PP2 proxy status, the RMC block and
-   * its p-value, why a call is absent. They used to live only in tooltips.
+   * Visible facts about this reading beyond value and verdict — the PP2 band its interval sits in, the
+   * RMC block and its p-value, why a call is absent. They used to live only in tooltips.
    */
   facts: string[];
   value: string;

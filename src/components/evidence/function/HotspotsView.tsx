@@ -135,7 +135,7 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
       <div className="hsp-residues">
         <div className="hsp-residues__bar">
           <h3 className="eyebrow">ClinVar P/LP residues · {ev.rows.length}</h3>
-          <span className="hsp-residues__frame">{ev.model ? `3D distances: Cα–Cα on ${ev.model.entryId}${ev.model.version ? ` ${ev.model.version}` : ""}` : "No model: sequence distances only"}</span>
+          <span className="hsp-residues__frame">{ev.model ? `3D distances: Cα–Cα on ${ev.model.entryId}${ev.model.version ? ` ${ev.model.version}` : ""}` : ev.modelNote ?? "No model: sequence distances only"}</span>
           <span className="hsp-residues__sort">{ev.model ? "Nearest in 3D first" : "Nearest in sequence first"}</span>
           {showAll && (
             <button type="button" className="fnd-button hsp-all3d" onClick={showAll} data-testid="hotspots-show-all-3d">
@@ -154,7 +154,9 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
                 <th scope="col">Residue</th>
                 <th scope="col" className="fnd-num">P/LP<span className="sr-only"> missense variants</span></th>
                 <th scope="col" className="fnd-num" title="Distinct gnomAD v4 missense variants at the residue">gnomAD<span className="sr-only"> missense variants</span></th>
-                <th scope="col" aria-sort={ev.model ? undefined : "ascending"} className="fnd-num" title="Residues along the sequence from the variant">Sequence<span className="sr-only"> distance</span></th>
+                {/* Without the model there is no 3D at all, and the sequence ordering is "nearest
+                    first" — by absolute distance, so "+3, −5" and not ascending. */}
+                <th scope="col" aria-sort={ev.model ? undefined : "other"} className="fnd-num" title="Residues along the sequence from the variant">Sequence<span className="sr-only"> distance</span></th>
                 <th scope="col" aria-sort={ev.model ? "ascending" : undefined} className="fnd-num" title="Cα–Cα distance on the model, Å">3D<span className="sr-only"> C-alpha distance in angstroms</span></th>
                 <th scope="col" className="fnd-num" title="AlphaFold pLDDT at the residue">pLDDT<span className="sr-only"> confidence</span></th>
                 <th scope="col" className="fnd-num" title={cols.rsa.state === "ok" ? RSA_UNIT_NOTE : `Not measured: ${none(cols.rsa)}`}>RSA<span className="sr-only"> relative solvent accessibility, percent of the Tien 2013 maximum, on the model</span></th>

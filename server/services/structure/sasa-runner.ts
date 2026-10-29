@@ -59,7 +59,15 @@ async function runSasaTool(pdbText: string, chain: string, target: string, optio
   const timeout = options?.timeoutMs ?? 15000;
   const execAsync = options?.executor ?? execFileAsync;
   const read = (stdout: string): ToolOutput => {
-    const parsed = JSON.parse(stdout.trim()) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(stdout.trim()) as Record<string, unknown>;
+    } catch {
+      // Not an execution failure: the tier that ran this already printed it, and the other tier would
+      // run the same script and print the same bytes. Return the message the caller shows, without
+      // falling through to a redundant re-run.
+      return { ok: false, message: "The accessibility script returned text that was not the expected JSON report." };
+    }
     return parsed.status === "success"
       ? { ok: true, parsed }
       : { ok: false, message: typeof parsed.message === "string" ? parsed.message : "The accessibility script returned no value." };

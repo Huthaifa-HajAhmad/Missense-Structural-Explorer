@@ -94,7 +94,7 @@ export const hotspotContextSchema = z.object({
     selfCheck: z.object({ auroc: z.number(), pathogenic: z.number(), neutral: z.number() }).nullable(),
     /** [residue, PathProx score] for every confident residue; empty unless the gate passed. */
     scores: z.array(z.tuple([z.number(), z.number()])),
-    /** Cα trace of the model (all residues): numbers, x y z (0.1 Å), pLDDT. For distances only. */
+    /** Cα trace of the model (all residues): numbers, x y z in Å rounded to 0.1, pLDDT. For distances only. */
     trace: z.object({ residues: z.array(z.number()), coords: z.array(z.number()), plddt: z.array(z.number()) }).nullable(),
   }),
   /**
@@ -194,6 +194,8 @@ export interface HotspotEvidence {
   nearest3d: { residue: number; distanceA: number } | null;
   distribution: HotspotContext["distribution"] | null;
   model: HotspotContext["spatial"]["model"];
+  /** Why the model is named but its 3D frame cannot be used (a numbering mismatch); null otherwise. */
+  modelNote: string | null;
   /** What the engine recorded for the codes this view informs. */
   engine: { pm1: string | null; pp2: string | null };
   /** Whether each added column was filled, with the reason it was not. */
@@ -235,6 +237,9 @@ function cspecRung(c: CspecPm1, residueLabel: string): HotspotRung {
   if (c.status === "none") return { ...base, state: "none", headline: "No ClinGen expert panel specification covers this gene, so no expert hot-spot definition exists.", details: [] };
   const released = c.specs.filter((s) => s.released);
   const withPm1 = released.filter((s) => s.pm1);
+  // A spec whose rule set could not be read is not a spec without a PM1 rule: "none" is reserved for
+  // reads that succeeded and found no rule. A failed read degraded the answer, so the rung fails too.
+  const failedRead = released.filter((s) => !s.pm1 && s.pm1Reason);
   // The registry's own words, verbatim but for Markdown escapes ("\<10" reads "<10").
   const plain = (t: string) => t.replace(/\\([\\`*_{}[\]()#+\-.!<>|])/g, "$1").trim();
   const details = c.specs.flatMap((s) => {
@@ -245,10 +250,12 @@ function cspecRung(c: CspecPm1, residueLabel: string): HotspotRung {
   });
   const headline = withPm1.length
     ? `${withPm1.map((s) => s.panel).join("; ")} publish${withPm1.length === 1 ? "es" : ""} a PM1 rule for this gene. Read its text to see whether ${residueLabel} is named; residue lists are not parsed, because some panels publish them as images.`
-    : released.length
-      ? "A released ClinGen specification covers this gene but defines no PM1 rule."
-      : `A ClinGen panel covers this gene, but its rules are not released (${c.specs.map((s) => s.status).join(", ")}).`;
-  return { ...base, state: withPm1.length ? "read" : "none", headline, details, source: { label: base.source.label, url: c.specs[0]?.url ?? base.source.url } };
+    : failedRead.length
+      ? failedRead.map((s) => s.pm1Reason).join(" ")
+      : released.length
+        ? "A released ClinGen specification covers this gene but defines no PM1 rule."
+        : `A ClinGen panel covers this gene, but its rules are not released (${c.specs.map((s) => s.status).join(", ")}).`;
+  return { ...base, state: withPm1.length ? "read" : failedRead.length ? "failed" : "none", headline, details, source: { label: base.source.label, url: c.specs[0]?.url ?? base.source.url } };
 }
 
 function regionalRung(ctx: HotspotContext, residue: number, engine: string | null): HotspotRung {
@@ -285,9 +292,15 @@ function regionalRung(ctx: HotspotContext, residue: number, engine: string | nul
       ? `The residue's interval (${span(here.start, here.end)}) has O/E ${oeText(here.oe!)}, in the calibrated ${code === "PP2_Moderate" ? "PP2 Moderate" : "PP2 Supporting"} band.`
       : bp1
         ? `The residue's interval (${span(here.start, here.end)}) has O/E ${oeText(here.oe!)}, in the calibrated BP1 band, which the engine does not apply.`
-        : `The residue's interval (${span(here.start, here.end)}) has O/E ${here.oe === null ? "unknown" : oeText(here.oe)}, between the calibrated bands: no evidence either way.`;
+        : here.oe === null
+          ? `The residue's interval (${span(here.start, here.end)}) carries no O/E (coverage withheld), so no reading is possible.`
+          : `The residue's interval (${span(here.start, here.end)}) has O/E ${oeText(here.oe)}, between the calibrated bands: no evidence either way.`;
+  // What this rung asserts at the residue follows its own bands: a no-verdict reading (BP1, which the
+  // engine does not apply, or an interval with no O/E) cannot be called "outside" — the headline above
+  // already says what was found, and "outside" would contradict it.
+  const atVariant = r.regions.length === 0 ? null : !here ? "outside" : code ? "inside" : null;
   return {
-    ...base, state: "read", atVariant: r.regions.length ? (here && code ? "inside" : "outside") : null, bands, headline,
+    ...base, state: "read", atVariant, bands, headline,
     details: [
       `${r.regions.length} interval${r.regions.length === 1 ? "" : "s"} on this protein. Edges: O/E ≤ ${cal.pp2.Moderate} PP2 Moderate, ≤ ${cal.pp2.Supporting} PP2 Supporting; > ${cal.bp1.Supporting} BP1 Supporting, > ${cal.bp1.Moderate} BP1 Moderate.`,
       // The shared cut-points are not the same thing as the engine's own selection: it picks the interval
@@ -345,7 +358,8 @@ function perRerunRung(ctx: HotspotContext, residue: number): HotspotRung {
   const p = ctx.perRerun;
   const method = `Pérez-Palma's test as published: ${2 * PER_METHOD.halfWindow + 1}-residue windows every ${PER_METHOD.step}, one-sided Fisher, Bonferroni over ${p.windows} windows, adjusted p < ${PER_METHOD.alpha}.`;
   if (p.status === "unavailable") return { ...base, state: "failed", atVariant: null, bands: [], headline: p.reason ?? "ClinVar or gnomAD could not be read.", details: [] };
-  if (p.status === "too-few") return { ...base, state: "none", atVariant: null, bands: [], headline: p.reason ?? "Too few ClinVar P/LP residues to test.", details: [method] };
+  // "Too few" is not a checked negative: the test never ran, so it is withheld, not "No region".
+  if (p.status === "too-few") return { ...base, state: "not-shown", atVariant: null, bands: [], headline: p.reason ?? "Too few ClinVar P/LP residues to test.", details: [method] };
   const bands = p.regions.map((g) => ({ start: g.start, end: g.end, label: `Enriched (adj. p ${pText(g.minAdjP)})`, hit: g.start <= residue && residue <= g.end }));
   const hit = bands.some((b) => b.hit);
   return {
@@ -370,7 +384,9 @@ function spatialRung(ctx: HotspotContext, residue: number): HotspotRung {
     : null;
   if (s.status === "error") return { ...base, state: "failed", atVariant: null, headline: s.reason ?? "The 3D reading failed.", details: [] };
   if (s.status !== "ok") {
-    return { ...base, state: s.status === "not-clustered" ? "not-shown" : "none", atVariant: null, headline: s.reason ?? "Not computed.", details: gate ? [gate] : [] };
+    // "Not clustered" is the one checked negative here. No model, a numbering mismatch and too few
+    // residues all mean the test never ran, so they are withheld, not "No region".
+    return { ...base, state: "not-shown", atVariant: null, headline: s.reason ?? "Not computed.", details: gate ? [gate] : [] };
   }
   const score = new Map(s.scores).get(residue) ?? null;
   const ranks = s.scores.map(([, v]) => v).sort((a, b) => a - b);
@@ -380,11 +396,16 @@ function spatialRung(ctx: HotspotContext, residue: number): HotspotRung {
   // (scripts/hotspot_benchmark/thresholds.json, informative_gene). Below that floor the number is not the
   // statistic that was validated, so it is withheld rather than printed to two decimals.
   const selfShown = self !== null && self.pathogenic >= MIN_SELF_CHECK_PER_CLASS && self.neutral >= MIN_SELF_CHECK_PER_CLASS;
+  const neighbourhood = s.thresholdA === null
+    ? "the confident distance cut-point was not computable on this model, so the neighbourhood reading is withheld"
+    : `within ${s.thresholdA.toFixed(1)} Å this residue has ${score !== null && score > 0 ? "more" : score !== null && score < 0 ? "fewer" : "as many"} ClinVar P/LP neighbours than gnomAD neighbours, in proportion`;
   return {
     ...base, state: "read", atVariant: null,
     headline: score === null
-      ? `No score at this residue: it is outside the confident part of ${model} (pLDDT < 70).`
-      : `PathProx ${score >= 0 ? "+" : ""}${score.toFixed(2)} (higher than ${pct}% of residues): within ${s.thresholdA?.toFixed(1)} Å this residue has ${score > 0 ? "more" : score < 0 ? "fewer" : "as many"} ClinVar P/LP neighbours than gnomAD neighbours, in proportion.`,
+      ? s.thresholdA === null
+        ? `No score at this residue: on ${model} the distance grid held no confident beyond-chance cut, so no residue was scored.`
+        : `No score at this residue: it is not in the confident part of ${model} (pLDDT < 70), is absent from the model, or is too isolated to score.`
+      : `PathProx ${score >= 0 ? "+" : ""}${score.toFixed(2)} (as high as or higher than ${pct}% of residues): ${neighbourhood}.`,
     details: [
       ...(gate ? [gate] : []),
       ...(selfShown ? [`In this gene the leave-residue-out score separates P/LP from gnomAD-only residues with an in-sample AUROC ${self!.auroc.toFixed(2)} (${self!.pathogenic} vs ${self!.neutral}). The threshold is chosen on the same labels and the negative set is every counted gnomAD missense, wider than the AC≥2 set the benchmark graded, so the number is optimistic.`] : self ? [`No in-gene AUROC: ${self.pathogenic} P/LP vs ${self.neutral} gnomAD-only residues is below the benchmark's floor of ${MIN_SELF_CHECK_PER_CLASS} of each.`] : []),
@@ -401,7 +422,7 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
   const noColumns: HotspotEvidence["columns"] = {
     rsa: { state: "unavailable", reason: "Not read yet." }, sites: { state: "unavailable", reason: "Not read yet." }, interface: { state: "unavailable", reason: "Not read yet." },
   };
-  const empty = { residue, residueLabel, length: 0, rungs: [], rows: [], nearest3d: null, distribution: null, model: null, engine, pm1Note, finding: { lead: "", rest: "" }, columns: noColumns };
+  const empty = { residue, residueLabel, length: 0, rungs: [], rows: [], nearest3d: null, distribution: null, model: null, modelNote: null, engine, pm1Note, finding: { lead: "", rest: "" }, columns: noColumns };
   if (!ctx) {
     return input.loadState === "error"
       ? { ...empty, state: "failed", failure: input.loadError ?? "The hot-spot sources could not be read." }
@@ -416,7 +437,10 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
     headline: d.status === "ok"
       ? `${d.plp.reduce((n, x) => n + x.n, 0)} ClinVar P/LP missense at ${d.plp.length} residues; ${d.gnomad.reduce((n, x) => n + x.variants, 0)} gnomAD missense at ${d.gnomad.length} residues.`
       : d.reason ?? "ClinVar or gnomAD could not be read.",
-    details: ["ClinVar germline classifications, conflicting records excluded. Shown as counts, with no window or cut-point."],
+    details: [
+      "ClinVar germline classifications, conflicting records excluded. Shown as counts, with no window or cut-point.",
+      d.blb.length ? `${d.blb.reduce((n, x) => n + x.n, 0)} ClinVar B/LB missense variants sit at ${d.blb.length} residues of the benign side; PM1's own contrast is a cluster that also has no benign variation.` : "ClinVar holds no B/LB missense in this protein, so the benign side of PM1's contrast is empty here.",
+    ],
   });
 
   // Rows: every residue with a ClinVar P/LP missense, nearest first in 3D when the model allows.
@@ -482,6 +506,12 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
     residue, residueLabel, length: d.length ?? Math.max(residue, ...d.plp.map((p) => p.pos), ...d.gnomad.map((g) => g.pos)),
     state: "ready", failure: null, rungs, finding: { lead, rest }, pm1Note, rows,
     nearest3d: nearestRow ? { residue: nearestRow.residue, distanceA: nearestRow.distanceA! } : null,
-    distribution: d, model: ctx.spatial.model, engine, columns,
+    distribution: d,
+    // The model object names what distances were read on. On a numbering mismatch the model exists but
+    // its frame cannot be used, so everything 3D must turn off together — the trace, the sort, the
+    // 3D column and the show-in-3D buttons — while the note says the model is present but unusable.
+    model: ctx.spatial.status === "numbering-mismatch" ? null : ctx.spatial.model,
+    modelNote: ctx.spatial.status === "numbering-mismatch" ? "The model is present, but its residue numbering disagrees with the ClinVar/gnomAD transcript, so 3D positions cannot be trusted." : null,
+    engine, columns,
   };
 }

@@ -3,27 +3,27 @@
  "genes": [
   {
    "gene": "SOD1",
-   "runtimeMs": 441
+   "runtimeMs": 140
   },
   {
    "gene": "BRCA1",
-   "runtimeMs": 704
+   "runtimeMs": 230
   },
   {
    "gene": "LDLR",
-   "runtimeMs": 4604
+   "runtimeMs": 1841
   },
   {
    "gene": "VHL",
-   "runtimeMs": 407
+   "runtimeMs": 152
   },
   {
    "gene": "SCN1A",
-   "runtimeMs": 12500
+   "runtimeMs": 5006
   },
   {
    "gene": "KCNQ2",
-   "runtimeMs": 1089
+   "runtimeMs": 428
   }
  ]
 }

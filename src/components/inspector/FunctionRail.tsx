@@ -44,7 +44,11 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
   const levelsHere = useMemo(() => new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence)), [ev]);
   // The Hotspots view's trace: each definition with its grade and source, read from the same slot the view reads.
   const workspace = useEvidenceWorkspace("function");
-  const slot = hotspotsSlot(analysisResult.metadata?.gene, analysisResult.metadata?.uniprotId, analysisResult.transcriptId);
+  // The loader forms its slot from the result's gene or the store's (useEvidenceContext) — the rail uses
+  // the same rule, or a fallback identity would leave it watching a slot nobody fills.
+  const storeGene = useVariantAnalysisStore((st) => st.gene);
+  const hotspotGene = analysisResult.metadata?.gene || storeGene || null;
+  const slot = hotspotsSlot(hotspotGene, analysisResult.metadata?.uniprotId, analysisResult.transcriptId);
   const hotspotLoad = useVariantAnalysisStore((st) => st.extraContexts[slot]) as ContextLoad<HotspotContext> | undefined;
   const hotspots = useMemo(() => {
     if (workspace.enabled && workspace.view !== "hotspots") return null;

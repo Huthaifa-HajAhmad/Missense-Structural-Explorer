@@ -43,7 +43,7 @@ export function AssemblyDiagram({ ev }: { ev: InterfacesEvidence }) {
           : `${ev.residueLabel} not at it, in ${pair.n === 1 ? 'the one solved structure' : `${pair.n} solved structures`}`}</span>
       </li>)}
     </ul>}
-    {edges.length < others.length && <p>No solved structure of this pair: composition from UniProt SUBUNIT text.</p>}
+    {edges.length < others.length && <p>{others.length - edges.length} of the {others.length} partner {others.length - edges.length === 1 ? 'chain has' : 'chains have'} no solved structure with this one: composition from UniProt SUBUNIT text.</p>}
     <p>Composition schematic. Chain placement does not describe molecular geometry.</p>
   </div>;
 }

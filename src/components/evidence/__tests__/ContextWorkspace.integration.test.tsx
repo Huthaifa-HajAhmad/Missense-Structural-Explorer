@@ -46,6 +46,11 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Protein alignments' }));
     expect(screen.getByRole('heading', { name: 'Residue in orthologs' })).toBeInTheDocument();
+    const speciesScreen = screen.getByTestId('species-models-screen');
+    expect(within(speciesScreen).queryByText(/Review context/, { selector: 'summary' })).not.toBeInTheDocument();
+    expect(within(speciesScreen).queryByText('How to read this evidence')).not.toBeInTheDocument();
+    expect(within(speciesScreen).queryByText(/species with returned records/)).not.toBeInTheDocument();
+    expect(within(screen.getByRole('tabpanel')).getByTestId('residue-alignment-card')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Curated model phenotypes' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Phenotype annotations' }));
     expect(screen.getByRole('heading', { name: 'Curated model phenotypes' })).toBeInTheDocument();

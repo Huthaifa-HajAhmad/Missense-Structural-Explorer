@@ -106,8 +106,14 @@ function evaluate(gene: string) {
   const residues = trace.residues.filter((_, i) => keep[i]);
   const coords = trace.residues.flatMap((_, i) => (keep[i] ? [trace.coords[3 * i], trace.coords[3 * i + 1], trace.coords[3 * i + 2]] : []));
   const sets = variantSets(slice);
+  // The registered unit is the RESIDUE: thresholds.json defines P as "residues with ≥1 ClinVar P/LP" and
+  // grades populations per residue, so every contrast dedupes residues. Grading each VARIANT entered the
+  // same residue once per record (BRCA1: 217 records over 91 residues), inflated the n and narrowed the
+  // bootstrap by resampling correlated repeats.
   const P = [...new Set(sets.plp.map((v) => v.residue))];
   const N = [...new Set(sets.gnomadAll.map((v) => v.residue))];
+  const Blb = [...new Set(sets.blb.map((v) => v.residue))];
+  const Nac2 = [...new Set(sets.gnomad_ac2.map((v) => v.residue))];
   const t0 = Date.now();
   const sc = spatialClustering({ residues, coords, pathogenic: P, neutral: N, permutations: TH.clustering_gate.permutations, steps: TH.clustering_gate.grid_steps, seed: TH.clustering_gate.seed });
   const ms = Date.now() - t0;
@@ -121,17 +127,18 @@ function evaluate(gene: string) {
   Object.assign(out, { clustered: sc.clustered, univariate: sc.univariate, bivariate: sc.bivariate, thresholdA: sc.threshold });
   const score = (r: number) => sc.scores.get(r) ?? null;
   const contrasts: Record<string, unknown> = {};
-  for (const [name, negKey] of [["plp_vs_gnomad_ac2", "gnomad_ac2"], ["plp_vs_blb", "blb"]] as const) {
-    const pos = sets.plp.map((v) => score(v.residue)).filter((x): x is number => x !== null);
-    const neg = (sets[negKey] as Array<{ residue: number }>).map((v) => score(v.residue)).filter((x): x is number => x !== null);
+  for (const [name, negSet] of [["plp_vs_gnomad_ac2", Nac2], ["plp_vs_blb", Blb]] as const) {
+    const pos = P.map((r) => score(r)).filter((x): x is number => x !== null);
+    const neg = negSet.map((r) => score(r)).filter((x): x is number => x !== null);
     const a = auroc(pos, neg);
-    contrasts[name] = { nPos: sets.plp.length, nNeg: sets[negKey].length, nPosScored: pos.length, nNegScored: neg.length, auroc: a, aurocCI: a === null ? null : bootstrap(pos, neg, auroc) };
+    contrasts[name] = { nPos: P.length, nNeg: negSet.length, nPosScored: pos.length, nNegScored: neg.length, auroc: a, aurocCI: a === null ? null : bootstrap(pos, neg, auroc) };
   }
   out.contrasts = contrasts;
-  // P5: paired against RMC O/E (lower = intolerant, so it is negated to point the same way).
+  // P5: paired against RMC O/E (lower = intolerant, so it is negated to point the same way). The same
+  // residue unit as the contrasts above.
   const pair = (r: number) => [score(r), rmcAt(r)] as const;
-  const pp = sets.plp.map((v) => pair(v.residue)).filter((x): x is readonly [number, number] => x[0] !== null && x[1] !== null);
-  const pn = sets.gnomad_ac2.map((v) => pair(v.residue)).filter((x): x is readonly [number, number] => x[0] !== null && x[1] !== null);
+  const pp = P.map((r) => pair(r)).filter((x): x is readonly [number, number] => x[0] !== null && x[1] !== null);
+  const pn = Nac2.map((r) => pair(r)).filter((x): x is readonly [number, number] => x[0] !== null && x[1] !== null);
   const diff = (p: ReadonlyArray<readonly [number, number]>, n: ReadonlyArray<readonly [number, number]>) => {
     const a = auroc(p.map((x) => x[0]), n.map((x) => x[0]));
     const b = auroc(p.map((x) => -x[1]), n.map((x) => -x[1]));

@@ -295,8 +295,11 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
 
   const ev = useMemo(() => (result ? buildFunctionEvidence(functionEvidenceInputFrom(result)) : null), [result]);
   // Hot spots load up front with the other Evidence context (EvidenceContextPrefetch); the tab only reads
-  // the slot. The slot key comes from `hotspotsSlot`, the same builder the loader uses.
-  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(result?.metadata?.gene, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  // the slot. The slot key comes from `hotspotsSlot`, the same builder the loader uses — including its
+  // result-metadata-or-store-gene rule, so a fallback identity reads the slot the writer filled.
+  const storeGene = useVariantAnalysisStore(s => s.gene);
+  const hotspotGene = result?.metadata?.gene || storeGene || null;
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(hotspotGene, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
   const hotspots = useMemo(() => ev && result ? buildHotspotEvidence(hotspotInputFrom(result, ev, hotspotLoad, functionEvidenceInputFrom(result).engineCriteria)) : null, [ev, hotspotLoad, result]);
   /** One row-key index for the domain-name disclosure, shared with the drawing's own resolver. */
   const domainKeyFor = useMemo(() => domainRowKeyResolver(ev?.rows ?? []), [ev]);
@@ -498,7 +501,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
         {selectedKey && <button className="viz-action" type="button" onClick={() => { focusRowRef.current = selectedKey; workspace.setView('records'); }}>View selected record</button>}
       </div>}
       {hotspots && (!workspace.enabled || workspace.view === 'hotspots') && (
-        <HotspotsView ev={hotspots} read={result?.metadata?.gene ? { gene: result.metadata.gene, uniprot: result.metadata.uniprotId ?? null, transcript: result.transcriptId ?? null } : null} onShow3d={onSelectResidue && onNavigateToView ? (index, focus) => {
+        <HotspotsView ev={hotspots} read={hotspotGene ? { gene: hotspotGene, uniprot: result?.metadata?.uniprotId ?? null, transcript: result?.transcriptId ?? null } : null} onShow3d={onSelectResidue && onNavigateToView ? (index, focus) => {
           onSelectResidue(index, focus);
           onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
         } : null} />

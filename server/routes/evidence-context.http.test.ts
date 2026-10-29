@@ -33,7 +33,7 @@ const hotspotBody = vi.hoisted(() => (gene: string) => ({
   spatial: { status: 'no-model', reason: 'No UniProt accession, so no model was read.', model: null, structureResidues: 0, confidentResidues: 0, pathogenicResidues: 0, neutralResidues: 0, permutations: 0, univariate: null, bivariate: null, thresholdA: null, selfCheck: null, scores: [], trace: null },
   errors: [],
 }));
-vi.mock('../services/evidence-context/hotspots', () => ({ loadHotspotContext: vi.fn(async (gene: string) => hotspotBody(gene)) }));
+vi.mock('../services/evidence-context/hotspots', () => ({ loadHotspotContext: vi.fn(async (gene: string) => hotspotBody(gene)), isHotspotContextCached: vi.fn(() => false) }));
 vi.mock('../services/evidence-context/modelPhenotypes', () => ({ loadModelPhenotypes: vi.fn(async (gene: string) => ({ gene, status: 'not-found', species: [] })) }));
 vi.mock('../services/evidence-context/hpo', () => ({ loadHpoAnnotation: vi.fn(async (gene: string) => ({ gene, status: 'not-found', terms: [] })) }));
 vi.mock('../services/evidence-context/alignment', () => ({ loadAlignment: vi.fn(async (gene: string) => ({ gene, status: 'not-found', homologies: [] })) }));

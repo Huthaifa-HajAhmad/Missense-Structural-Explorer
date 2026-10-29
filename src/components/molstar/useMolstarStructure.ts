@@ -621,6 +621,10 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
                 : await plugin.builders.structure.tryCreateComponentFromExpression(structure, residuesExpression(toLabel), "companion-labels", { label: `Label ${toLabel.length} companion residues` });
               if (!active) return;
               if (labelTarget) {
+                // The capped label set is a NEW cell when it differs from `companions`; without pushing
+                // its ref here, effect cleanup would never delete it and repeated "Label N of M"
+                // toggles would accumulate label components in the Mol* tree.
+                if (labelTarget !== companions) refs.push(labelTarget.ref);
                 await plugin.builders.structure.representation.addRepresentation(labelTarget, {
                   type: "label",
                   typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.2, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "top-left" },

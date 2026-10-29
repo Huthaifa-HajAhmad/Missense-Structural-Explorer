@@ -158,14 +158,28 @@ async function alphafoldAbsent(uniprotId: string): Promise<boolean> {
   return res.status === 404;
 }
 
+const readUniprot = (query: Record<string, unknown>): string | null =>
+  typeof query.uniprot === "string" && /^[A-Z0-9]{6,10}$/.test(query.uniprot) ? query.uniprot : null;
+const readTranscript = (query: Record<string, unknown>): string | null =>
+  typeof query.transcript === "string" && /^ENST\d+(\.\d+)?$/.test(query.transcript) ? query.transcript : null;
+
+export function hotspotContextKey(gene: string, query: Record<string, unknown>): string {
+  return `${gene.toUpperCase()}::${readUniprot(query) ?? ""}::${readTranscript(query) ?? ""}`;
+}
+
+/** Whether the assembled answer for this key is already in the cache, without starting a build.
+ * The route's limiter accepts a request that would be served from the cache: a read that costs no
+ * build can sit outside the per-minute budget the expensive builds need. */
+export function isHotspotContextCached(gene: string, query: Record<string, unknown>): boolean {
+  return cache.has(hotspotContextKey(gene, query));
+}
+
 export function loadHotspotContext(gene: string, query: Record<string, unknown>): Promise<HotspotContext> {
-  const uniprotId = typeof query.uniprot === "string" && /^[A-Z0-9]{6,10}$/.test(query.uniprot) ? query.uniprot : null;
-  const transcript = typeof query.transcript === "string" && /^ENST\d+(\.\d+)?$/.test(query.transcript) ? query.transcript : null;
-  const key = `${gene.toUpperCase()}::${uniprotId ?? ""}::${transcript ?? ""}`;
+  const key = hotspotContextKey(gene, query);
   const hit = cache.get(key);
   if (hit) return hit;
   // The response names the gene as requested: the client checks identity against its own symbol.
-  const value = build(gene.toUpperCase(), uniprotId, transcript).then((v) => ({ ...v, gene }));
+  const value = build(gene.toUpperCase(), readUniprot(query), readTranscript(query)).then((v) => ({ ...v, gene }));
   cache.set(key, value);
   // A degraded answer is not kept: a retry (the view's Retry button, or the next visit) must be able to repair a
   // transient CSpec, AlphaFold, ClinVar or gnomAD failure, not replay it for the TTL. The expensive parts (the
@@ -205,7 +219,10 @@ async function build(gene: string, uniprotId: string | null, transcript: string 
   const modelSeq = trace ? new Map(trace.residues.map((r, i) => [r, AA3(trace.resNames[i]) ?? "X"])) : null;
   const numbering = checkNumbering(refAt, modelSeq);
   const mismatches = numbering.mismatches;
-  const length = trace?.residues.length ? Math.max(...trace.residues) : Math.max(0, ...refAt.keys());
+  // The length the window grid is built over must be the protein's length, not the last observed
+  // variant's residue: gnomAD names no protein end, so without a model there is no verified length.
+  // The distribution axis is likewise never invented from a variant position.
+  const modelLength = trace ? Math.max(...trace.residues) : 0;
 
   // ── C: published PER, verified against this protein's residues ──
   // The bundle is read from disk: a missing or corrupt file is a failed source on its own rung, never a
@@ -234,18 +251,25 @@ async function build(gene: string, uniprotId: string | null, transcript: string 
   // ── D: the PER test on today's data ──
   const rowsRead = clinvarRows !== null && gnomadRows !== null;
   const patientAll = new Set(plp.keys());
-  const rerun = perBurden(patientAll, populationAll, length);
+  // The window grid needs a verified protein length. Without a model the last variant residue would
+  // stand in for it: that crops both sets, under-corrects the Bonferroni (fewer tests) and conceals
+  // every residue past the last observed variant — so the test is not run at all.
+  const rerun = modelLength > 0 && numbering.status !== "mismatch" ? perBurden(patientAll, populationAll, modelLength) : null;
   const perRerun: HotspotContext["perRerun"] = numbering.status === "mismatch"
     // The test's axis is the model's length while its residues are gnomAD canonical-transcript positions.
     // On a mismatch those two disagree, so the windows would be drawn on the wrong axis; the 3D reading is
     // withheld for the same reason.
-    ? { status: "unavailable", reason: "The ClinVar/gnomAD residue numbers do not match this protein's sequence, so the enrichment test was not run on this axis.", length, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
+    ? { status: "unavailable", reason: "The ClinVar/gnomAD residue numbers do not match this protein's sequence, so the enrichment test was not run on this axis.", length: modelLength, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
     : !rowsRead
-      ? { status: "unavailable", reason: "ClinVar or gnomAD could not be read.", length, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
-      : patientAll.size < 2
-        ? { status: "too-few", reason: `${patientAll.size} residue${patientAll.size === 1 ? "" : "s"} with a ClinVar P/LP missense: too few to test enrichment.`, length, windows: rerun.windows, patientResidues: rerun.patientResidues, populationResidues: rerun.populationResidues, regions: [], best: null }
-        : { status: "ok", reason: null, length, windows: rerun.windows, patientResidues: rerun.patientResidues, populationResidues: rerun.populationResidues, regions: rerun.regions,
-            best: rerun.best ? { start: rerun.best.start, end: rerun.best.end, patient: rerun.best.patient, population: rerun.best.population, p: rerun.best.p, adjP: rerun.best.adjP } : null };
+      ? { status: "unavailable", reason: "ClinVar or gnomAD could not be read.", length: modelLength, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
+      : rerun === null
+        ? { status: "unavailable", reason: "No model was read, so the protein's length is not verified (the last observed variant is not its end); the windows would be built on a truncated axis and the enrichment test was not run.", length: 0, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
+        : patientAll.size < 2
+          ? { status: "too-few", reason: `${patientAll.size} residue${patientAll.size === 1 ? "" : "s"} with a ClinVar P/LP missense: too few to test enrichment.`, length: modelLength, windows: rerun.windows, patientResidues: rerun.patientResidues, populationResidues: rerun.populationResidues, regions: [], best: null }
+          : rerun.windows === 0
+            ? { status: "too-few", reason: `The model spans ${modelLength} residues, too short to hold one 9-residue window; there is nothing to test.`, length: modelLength, windows: rerun.windows, patientResidues: rerun.patientResidues, populationResidues: rerun.populationResidues, regions: [], best: null }
+            : { status: "ok", reason: null, length: modelLength, windows: rerun.windows, patientResidues: rerun.patientResidues, populationResidues: rerun.populationResidues, regions: rerun.regions,
+                best: rerun.best ? { start: rerun.best.start, end: rerun.best.end, patient: rerun.best.patient, population: rerun.best.population, p: rerun.best.p, adjP: rerun.best.adjP } : null };
 
   // ── B: regional intervals on the protein axis ──
   const regional: HotspotContext["regional"] = landscape
@@ -319,7 +343,7 @@ async function build(gene: string, uniprotId: string | null, transcript: string 
       plp: [...plp].map(([pos, v]) => ({ pos, ...v })).sort((a, b) => a.pos - b.pos),
       blb: [...blb].map(([pos, n]) => ({ pos, n })).sort((a, b) => a.pos - b.pos),
       gnomad: [...gn].map(([pos, v]) => ({ pos, ...v })).sort((a, b) => a.pos - b.pos),
-      length: length || null,
+      length: modelLength || null,
     },
     cspec, perPublished, perRerun, regional, spatial, errors, accessibility,
   };

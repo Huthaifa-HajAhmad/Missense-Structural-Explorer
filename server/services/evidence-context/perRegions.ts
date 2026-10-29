@@ -8,7 +8,10 @@ import { perRegionsFileSchema, type PerRegion, type PerRegionsFile, type PerRegi
  *
  * INVARIANTS
  * - Nothing is fetched at request time: scripts/import-per-regions.ts mints the file from the published tables.
- * - Keys are exact HGNC symbols, case kept (C10orf10). An unknown gene is an empty list, not an error.
+ * - Keys are HGNC symbols upper-cased (the committed bundle holds 1,336, every one uppercase). The reader
+ *   that loads them (`hotspots.ts` build) upper-cases before the lookup, so a symbol like C10orf10 is read as
+ *   C10ORF10 on both sides. If an importer ever stops upper-casing, lookups go silent-empty instead of erroring —
+ *   keep the two sides in step.
  * - A region is drawn only after verifyPerRegion agrees with the app's own protein sequence.
  */
 let bundle: PerRegionsFile | undefined;

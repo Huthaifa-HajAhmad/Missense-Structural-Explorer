@@ -71,7 +71,12 @@ export async function runSpatialClusteringInWorker(params: { residues: number[];
   univariate: { area: number; p: number }; bivariate: { area: number; p: number }; clustered: boolean; threshold: number | null;
   scores: Array<[number, number]>; selfCheck: { auroc: number; pathogenic: number; neutral: number } | null;
 } | null> {
-  return getBiophysicsPool().run(params, { name: "runSpatialClustering" });
+  // A generous but finite cap: a permutation run over AlphaFold's 2,700-residue ceiling is minutes of
+  // CPU on the pool every FoldX job shares, so a wedged run must hand its slot back rather than pin it.
+  // The signal aborts inside Piscina only at task boundaries; for a pure computation the pool's own
+  // abort is what releases the slot.
+  const signal = AbortSignal.timeout(120_000);
+  return getBiophysicsPool().run(params, { name: "runSpatialClustering", signal });
 }
 
 export async function shutdownPool() {

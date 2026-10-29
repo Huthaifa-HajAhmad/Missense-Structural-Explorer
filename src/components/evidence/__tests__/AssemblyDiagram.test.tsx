@@ -55,6 +55,7 @@ describe("AssemblyDiagram — connectors come from measured pairs only", () => {
     const edges = within(edgeList()!).getAllByRole("listitem");
     expect(edges).toHaveLength(2);
     expect(edges[1]).toHaveTextContent("Ala5 not at it, in 3 solved structures");
-    expect(screen.getByText("No solved structure of this pair: composition from UniProt SUBUNIT text.")).toBeInTheDocument();
+    const composition = screen.getByRole("group");
+    expect(composition.textContent).toContain("1 of the 3 partner chain has no solved structure with this one: composition from UniProt SUBUNIT text.");
   });
 });

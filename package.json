@@ -7,7 +7,7 @@
   "scripts": {
     "data:constraint": "tsx scripts/import-gnomad-constraint.ts",
     "build:constraint": "node -e \"require('fs').cpSync('server/data/constraint','dist/constraint',{recursive:true})\"",
-    "build:per": "node -e \"const fs=require('fs');if(!fs.existsSync('server/data/per')){console.warn('build:per skipped: server/data/per is absent, so /hotspots will report the published-region table as unavailable.');process.exit(0)}fs.cpSync('server/data/per','dist/per',{recursive:true})\"",
+    "build:per": "node -e \"const fs=require('fs');if(!fs.existsSync('server/data/per')){console.error('build:per FAILED: server/data/per is absent. The file is committed; a checkout that lacks it is broken and /hotspots would report the published-region table as unavailable.');process.exit(1)}fs.cpSync('server/data/per','dist/per',{recursive:true})\"",
     "data:gencc": "tsx scripts/import-gencc-context.ts",
     "data:dgtex": "python scripts/import-dgtex-context.py",
     "data:g2p": "tsx scripts/import-g2p-context.ts",
