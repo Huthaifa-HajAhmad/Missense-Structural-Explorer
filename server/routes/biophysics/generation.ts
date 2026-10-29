@@ -54,7 +54,7 @@ import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
 import { submitterId, submitterLimits, submitterPlacementPref } from "../../auth/principal.ts";
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import { AdmissionError } from "../../services/infra/admission.ts";
-import { countResidues, foldxQueueCostEstimateMs, isAlphaFoldModel } from "../../services/stability/foldx/estimate.ts";
+import { countResidues, foldxQueueCostEstimateMs } from "../../services/stability/foldx/estimate.ts";
 import { agentJoinGuard } from "../../services/infra/agent-jobs.ts";
 import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../../services/external-api/protvar.ts";
 
@@ -568,7 +568,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 limits: submitterLimits(req),
                 costEstimateMs: foldxQueueCostEstimateMs(effectiveWtPdb),
                 residues: countResidues(effectiveWtPdb),
-                isAlphaFoldModel: isAlphaFoldModel(effectiveWtPdb),
                 placementPref: submitterPlacementPref(req),
               });
             }

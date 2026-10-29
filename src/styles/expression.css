@@ -81,3 +81,17 @@
 @container (max-width: 760px) { .xp-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .xp-fact:nth-child(3) { border-left: 0; } .xp-fact:nth-child(n+3) { border-top: 1px solid var(--cs-border-subtle); } }
 @container (max-width: 420px) { .xp-facts { grid-template-columns: minmax(0, 1fr); } .xp-fact + .xp-fact { border-left: 0; border-top: 1px solid var(--cs-border-subtle); } }
 @media print { .xp-hero, .xp-coverage__cell, .xp-facts { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+
+.xp-pext-figure { display: grid; gap: 16px; }
+.xp-pext-overview { display: flex; flex-wrap: wrap; align-items: start; gap: 16px 32px; }
+.xp-pext-overview > div:first-child { flex: 1 1 30ch; }
+.xp-pext-overview h3 { margin-block: 0; font-size: 16px; font-weight: 600; }
+.xp-pext-location { display: grid; gap: 4px; margin-block: 12px 0; font-size: 13px; }
+.xp-pext-location strong { color: var(--cs-text-primary); }
+.xp-pext-location span { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.xp-pext-key { display: grid; gap: 5px; flex: 0 1 180px; font-size: 12px; }
+.xp-pext-key > div { block-size: 10px; border-radius: 3px; background: linear-gradient(to right, color-mix(in oklch, var(--cs-accent-clay) 12%, var(--cs-surface)), var(--cs-accent-clay)); }
+.xp-pext-key > span > span { float: inline-end; }
+.xp-pext-scroll { overflow: auto; max-inline-size: 100%; }
+.xp-pext-scroll:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.xp-pext-scroll .xp-pext-map { inline-size: 900px; min-inline-size: 900px; block-size: 104px; margin-block: 0; margin-inline: auto; }

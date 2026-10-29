@@ -363,7 +363,7 @@ async function main() {
     const { residues, mutation } = middleMutation(cleaned);
     console.log(`${s.gene} (${s.uniprot}, ${residues} residues), mutation ${mutation}:`);
     if (wantFoldx) {
-      const repair = flag("repair-all") || foldxRepairApplies(residues, false);
+      const repair = flag("repair-all") || foldxRepairApplies(residues);
       steps.push(...(await benchFoldx({ gene: s.gene, cleaned, residues, mutation, repair, workRoot, timeoutMs })));
     }
     if (wantP2Rank) steps.push(await benchP2Rank({ gene: s.gene, pdbText: raw, residues, workRoot, timeoutMs }));

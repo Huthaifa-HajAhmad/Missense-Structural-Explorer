@@ -33,7 +33,10 @@ describe('developmental snapshot availability and identity', () => {
   });
   it('distinguishes missing and corrupt installation from no gene and measured zero', async () => {
     const target = await fixture();
-    expect((await loadDevelopmentalExpression('TEST')).status).toBe('not-installed');
+    const missing = await loadDevelopmentalExpression('TEST');
+    expect(missing.status).toBe('not-installed');
+    expect(missing.message).toContain(target);
+    expect(missing.message).toContain('DGTEX_CONTEXT_PATH');
     await writeFile(target, 'corrupt'); expect((await loadDevelopmentalExpression('TEST')).status).toBe('error');
     await rm(target); install(target);
     const result = await loadDevelopmentalExpression('TEST');

@@ -75,6 +75,16 @@ describe("fetchProtVarFoldx", () => {
     expect(outcome).toEqual({ status: "absent", reason: "ProtVar's residue 600 is A, not V" });
   });
 
+  it("reports GATA4 Ser159Cys as not covered when the position endpoint returns 404", async () => {
+    // Verified from OCI and locally on 2026-10-29; absence must never become a zero ddG.
+    vi.mocked(fetchWithRetry).mockResolvedValue(json(null, 404));
+    const outcome = await fetchProtVarFoldx("P43694", 159, "S", "C");
+    expect(protvarJobFields(outcome)).toMatchObject({
+      protvarStatus: "done", protvarVal: null,
+      protvarReason: "ProtVar has no FoldX predictions for P43694 position 159"
+    });
+  });
+
   it("treats 404 as an answer and anything else as an outage", async () => {
     vi.mocked(fetchWithRetry).mockResolvedValue(json({}, 404));
     expect((await fetchProtVarFoldx("P00000", 5, "A", "G")).status).toBe("absent");

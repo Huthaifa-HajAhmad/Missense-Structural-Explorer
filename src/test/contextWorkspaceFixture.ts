@@ -67,7 +67,7 @@ export function contextWorkspaceFixture(example = 'Mixed') {
     for (const selection of Object.values(state.phenotypeSelections!)) selection.systems = [];
   }
   if (example === 'Pediatric unavailable') {
-    state.developmentalContexts = { [gene]: ready({ ...developmental, status: 'not-installed', observations: [], counts: null, provenance: null, message: 'The dGTEx snapshot is not installed.' }) };
+    state.developmentalContexts = { [gene]: ready({ ...developmental, status: 'not-installed', observations: [], counts: null, provenance: null, message: 'No dGTEx snapshot was found at the configured path.' }) };
   }
   if (example === 'Missing') {
     const failure = { status: 'error' as const, data: null, error: 'Illustrative provider failure. Try again when the source recovers.' };

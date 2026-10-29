@@ -18,7 +18,7 @@ export function HpoAnnotationCard({ load, hasDisease, hasIds, diseaseId, selecti
     {!hasDisease ? <p className="ctx-card__body ctx-caption">Choose a disease above to see its HPO terms. Terms are suggestions: nothing is added to your review until you accept it.</p>
       : !hasIds ? <p className="ctx-card__body">This disease has no OMIM or Orphanet identifier, which is how HPO is keyed. Nothing can be suggested; choose systems yourself.</p>
       : !load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading HPO annotations.</div>
-      : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'HPO annotations could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
+      : load.status === 'error' ? <div className="ctx-card__body ctx-notice cx-source-state" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'HPO annotations could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status !== 'ready' ? <p className="ctx-card__body">{data?.message}</p>
       : <>
         <div className="ctx-card__body">

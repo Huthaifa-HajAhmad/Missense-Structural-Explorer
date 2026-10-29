@@ -5,18 +5,18 @@ import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
 import { DiseaseContextPicker } from '../DiseaseContextPicker';
 
 /** The reviewer's lens in one compact card: disease, onset, systems. These are choices, never patient findings. */
-export function ReviewFrame({ gene, load, selection, onChange, onRetry, compact = false }: {
+export function ReviewFrame({ gene, load, selection, onChange, onRetry }: {
   gene: string; load?: ContextLoad<GeneDiseaseResponse>; selection: PhenotypeSelection;
-  onChange: (selection: PhenotypeSelection) => void; onRetry: () => void; compact?: boolean;
+  onChange: (selection: PhenotypeSelection) => void; onRetry: () => void;
 }) {
   const onsetId = useId();
   return <section className="ctx-card xp-frame" aria-label="Review frame" data-testid="review-frame">
-    <div className="ctx-card__head"><h2>Review frame</h2><span className="ctx-caption">Your choices, not patient findings</span></div>
+    <div className="ctx-card__head"><h2>Shared review context</h2><span className="ctx-caption">Your choices, not patient findings</span></div>
     <div className="ctx-card__body">
       <div className="xp-frame__row">
         <DiseaseContextPicker inline gene={gene} load={load} selection={selection} onChange={onChange} onRetry={onRetry} />
       </div>
-      <details className="cx-frame-focus" open={!compact || undefined}>
+      <details className="cx-frame-focus" open>
         <summary>Review focus · {selection.systems.length ? selection.systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') : 'All sampled systems'} · {ONSET_LABELS[selection.onset]}</summary>
         <div className="ctx-field xp-frame__onset">
           <label className="ctx-label" htmlFor={onsetId}>Disease onset</label>

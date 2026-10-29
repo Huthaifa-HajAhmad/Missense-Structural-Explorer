@@ -109,7 +109,7 @@ export interface EnqueueOptions {
   limits?: SubmitterLimits;
   /** Residues of the structure the job will run on; 0/absent = unknown (admission is then skipped). */
   residues?: number;
-  /** FoldX skips RepairPDB on AlphaFold models; needed to predict and to record what ran. */
+  /** @deprecated Accepted from older submitters; repair eligibility is independent of model origin. */
   isAlphaFoldModel?: boolean;
   /** The submitter's placement preference (accounts); the engine weighs it against the owner's computers. */
   placementPref?: PlacementPref;
@@ -338,7 +338,7 @@ export class SQLiteQueue {
       opts.priority ?? (owner === SYSTEM_OWNER ? SYSTEM_PRIORITY : 0),
       opts.costEstimateMs ?? null, opts.placement ?? null,
       opts.residues && opts.residues > 0 ? opts.residues : null,
-      type === "foldx" && opts.residues && opts.residues > 0 ? (foldxRepairApplies(opts.residues, Boolean(opts.isAlphaFoldModel)) ? 1 : 0) : null,
+      type === "foldx" && opts.residues && opts.residues > 0 ? (foldxRepairApplies(opts.residues) ? 1 : 0) : null,
       opts.routing ? JSON.stringify(opts.routing) : null,
     );
     // The submitter is the first watcher: cancelling "my watch" then means the same thing for the

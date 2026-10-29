@@ -8,9 +8,9 @@
  * about 206 s, so the 660 s repair is recovered after about four variants following the one that triggered
  * it (the fifth overall); this module spends it when the server would otherwise sit idle.
  *
- * WHEN. After a job reports `foldxRepairSkippedReason === "repair-exceeds-budget"` (the worker calls
+ * WHEN. After a job reports `foldxRepairSkipped` (the worker calls
  * {@link requestBackgroundRepair}). That is demand-triggered: a structure nobody queried is never repaired,
- * and AlphaFold models and structures over 400 residues never reach here.
+ * including AlphaFold models and larger structures when the background budget permits.
  *
  * WHAT IT MUST NOT DO: slow or fail a person's job. How it avoids that depends on the host:
  *
@@ -40,11 +40,11 @@ import crypto from "crypto";
 import { CONFIG, resolveFoldxConcurrency } from "../../../config.ts";
 import { runOutsideJobMeter } from "../../infra/job-meter.ts";
 import { parseResiduesFromPdbMaybeAsync } from "../../structure/pdb-parser.ts";
-import { backgroundRepairBudgetMs, FOLDX_REPAIR_MAX_RESIDUES, predictedRepairMs } from "./budget.ts";
+import { backgroundRepairBudgetMs, backgroundRepairEstimateMs } from "./budget.ts";
 import { announceInflightRepair } from "./inflight-repairs.ts";
 import { getRepairCacheKey, getRepairedStructureFromCache } from "./cache.ts";
-import { isAlphaFoldModel } from "./estimate.ts";
 import { cleanPdbForFoldX, countIncompleteResidues } from "./pdb-utils.ts";
+import { foldxRunsEmulated } from "./estimate.ts";
 import { PREEMPTED, registerPreemptible } from "./preemption.ts";
 import { biophysicalSemaphore, repairTemplateOnly, type BackgroundRepairSlot, type FoldxOptions } from "./runner.ts";
 
@@ -63,6 +63,7 @@ export interface BackgroundRepairEntry {
   state: BackgroundRepairState;
   /** How it gets CPU (see the module comment). */
   slot: BackgroundRepairSlot;
+  emulated: boolean;
   residues: number;
   incompleteResidues: number;
   budgetMs: number;
@@ -88,6 +89,7 @@ export interface BackgroundRepairRequest {
 
 export interface BackgroundRepairDeps {
   enabled(): boolean;
+  emulated(): boolean;
   /** "spare-core" when the host has more cores than FoldX slots (see the module comment). */
   slot(): BackgroundRepairSlot;
   isIdle(): boolean;
@@ -128,6 +130,7 @@ export function backgroundRepairSlot(
 
 const defaultDeps: BackgroundRepairDeps = {
   enabled: () => backgroundRepairEnabled(),
+  emulated: () => foldxRunsEmulated(),
   slot: () => backgroundRepairSlot(),
   isIdle: () => biophysicalSemaphore.isIdle(),
   repair: repairTemplateOnly,
@@ -214,16 +217,17 @@ async function decide(
 
   const residues = (await parseResiduesFromPdbMaybeAsync(request.wtPdb)).length;
   const incompleteResidues = countIncompleteResidues(cleaned);
-  if (residues === 0 || residues > FOLDX_REPAIR_MAX_RESIDUES || isAlphaFoldModel(request.wtPdb)) {
-    return { status: "ineligible", reason: `${residues} residues, or an AlphaFold model: repair is never done for these` };
+  if (residues === 0) {
+    return { status: "ineligible", reason: `no residues to repair` };
   }
-  const budgetMs = backgroundRepairBudgetMs({ residueCount: residues, incompleteResidues });
+  const emulated = deps.emulated();
+  const budgetMs = backgroundRepairBudgetMs({ residueCount: residues, incompleteResidues, emulated });
   if (budgetMs === null) {
     return { status: "ineligible", reason: `${residues} residues with ${incompleteResidues} incomplete would outlast ${CONFIG.timeouts.foldxBackgroundRepairMaxMs / 1000} s` };
   }
 
   const entry: BackgroundRepairEntry = {
-    key, label: request.label ?? key.slice(0, 24), state: "waiting", slot: deps.slot(), residues, incompleteResidues, budgetMs,
+    key, label: request.label ?? key.slice(0, 24), state: "waiting", slot: deps.slot(), emulated, residues, incompleteResidues, budgetMs,
     requestedAt: deps.now(), preemptions: 0
   };
   remember(entry);
@@ -276,7 +280,7 @@ async function runOnce(entry: BackgroundRepairEntry, request: BackgroundRepairRe
   // On a spare core, a job on this structure may wait for this repair rather than rebuild the side chains
   // itself (runner.ts, joinInflightRepair). Settled after the repaired template is in the cache.
   const settleInflight = entry.slot === "spare-core"
-    ? announceInflightRepair(entry.key, startedAt, startedAt + predictedRepairMs({ residueCount: entry.residues, incompleteResidues: entry.incompleteResidues }))
+    ? announceInflightRepair(entry.key, startedAt, startedAt + backgroundRepairEstimateMs({ residueCount: entry.residues, incompleteResidues: entry.incompleteResidues, emulated: entry.emulated }))
     : null;
   try {
     console.log(`[Background Repair] ${entry.label}: starting RepairPDB (${entry.slot === "spare-core" ? "spare core, nice 19" : "FoldX slot idle"}).`);

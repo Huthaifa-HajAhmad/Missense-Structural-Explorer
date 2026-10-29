@@ -29,8 +29,8 @@ export function DevelopmentalExpressionCard({ load, systems, onRetry, coverageOn
   return <section className="ctx-card" aria-labelledby={`${id}-heading`}>
     <div className="ctx-card__head"><h2 id={`${id}-heading`}>Human pediatric expression</h2><span className="ctx-caption">dGTEx V1 · donor medians</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading the installed pediatric snapshot.</div>
-      : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — pediatric measurements could not be read.`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
-      : load.data?.status === 'not-installed' ? <div className="ctx-card__body" role="status"><p>{ENGINE_STATE_LABELS['not-installed']} — a dGTEx V1 snapshot is not installed.</p><button type="button" className="ctx-button" onClick={onRetry}>Check again</button></div>
+      : load.status === 'error' || load.data?.status === 'error' ? <div className="ctx-card__body ctx-notice cx-source-state" role="status"><span>{load.error ?? load.data?.message ?? `${ENGINE_STATE_LABELS['upstream-error']} — pediatric measurements could not be read.`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
+      : load.data?.status === 'not-installed' ? <div className="ctx-card__body cx-source-state" role="status"><p>{ENGINE_STATE_LABELS['not-installed']} — {load.data.message ?? 'No dGTEx V1 snapshot was found at the configured path.'}</p><button type="button" className="ctx-button" onClick={onRetry}>Check again</button></div>
       : load.data?.status === 'not-found' ? <p className="ctx-card__body">No exact gene symbol in the GENCODE v47 snapshot. This does not establish absence of expression.</p>
       : evidence.ready && <>
         <div className="ctx-card__body">

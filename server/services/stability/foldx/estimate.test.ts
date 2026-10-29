@@ -25,10 +25,13 @@ describe("FoldX queue cost estimate", () => {
     const est = foldxQueueCostEstimateMs(pdb(154))!;
     // Whatever this machine is (native here, Box64 on the ARM server), the estimate uses the same flag.
     // The fixture's residues are N + CA only, i.e. all incomplete: under Box64 that is a repair the runner would not start.
-    const repair = !isAlphaFoldModel(pdb(154)) &&
-      repairFitsBudget({ residueCount: 154, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(pdb(154))), emulated: foldxRunsEmulated() });
+    const repair = repairFitsBudget({ residueCount: 154, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(pdb(154))), emulated: foldxRunsEmulated() });
     expect(est).toBe(foldxPriorP50Ms({ residues: 154, numberOfRuns: 5, repair }, foldxRunsEmulated()));
     expect(est).toBeGreaterThan(0);
+  });
+
+  it("charges the same preparation cost for predicted and experimental coordinates", () => {
+    expect(foldxQueueCostEstimateMs(pdb(154, "REMARK   1 ALPHAFOLD MODEL"))).toBe(foldxQueueCostEstimateMs(pdb(154)));
   });
 
   it("has no estimate for a structure with no residues", () => {

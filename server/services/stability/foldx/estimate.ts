@@ -4,14 +4,14 @@
  * Used when the job is queued, so the queue can say how long the people behind it will wait
  * (`SQLiteQueue.getEta`). It is the WP-C prior (`foldxPriorP50Ms`) fed with the same three facts the
  * runner itself uses to plan the job: residue count, whether RepairPDB applies, and whether FoldX runs
- * under Box64 emulation. The runner imports `isAlphaFoldModel` from here so the two cannot disagree.
+ * under Box64 emulation. Model origin is used for provenance, not repair eligibility.
  */
 import { foldxPriorP50Ms, foldxRepairApplies } from "../../../../src/shared/computeRouting.ts";
 import { cleanPdbForFoldX, countIncompleteResidues, detectBFactorProvenance } from "./pdb-utils.ts";
 import { repairFitsBudget } from "./budget.ts";
 import { getFoldxExecutionTarget } from "./detector.ts";
 
-/** The runner skips RepairPDB on predicted models; see the rationale where it is applied (runner.ts). */
+/** Identify predicted coordinates for provenance; model origin does not determine repair eligibility. */
 export function isAlphaFoldModel(pdb: string): boolean {
   /**
    * An experimental method record decides first — the same rule `detectBFactorProvenance` applies.
@@ -47,7 +47,7 @@ export function foldxQueueCostEstimateMs(wtPdb: string, numberOfRuns = 5): numbe
     if (residues === 0) return null;
     const emulated = foldxRunsEmulated();
     // The runner does not start a RepairPDB that cannot finish in its cap, so the estimate must not charge for one.
-    const repair = foldxRepairApplies(residues, isAlphaFoldModel(wtPdb)) &&
+    const repair = foldxRepairApplies(residues) &&
       repairFitsBudget({ residueCount: residues, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(wtPdb)), emulated });
     return foldxPriorP50Ms({ residues, numberOfRuns, repair }, emulated);
   } catch {
