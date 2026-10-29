@@ -509,9 +509,10 @@ places a later package would otherwise trip):
   `DEFAULT_ROUTING_POLICY`.
 - `Decision` gained `ranked` (every feasible host with its prediction and expected completion, best first),
   which is what shadow mode (5.4) should log.
-- **`repair` is not "residues <= 400".** The runner also skips RepairPDB for AlphaFold DB models. Build the
-  flag with `foldxRepairApplies(residues, isAlphaFoldPdb)`. `FOLDX_REPAIR_MAX_RESIDUES` now lives in
-  `src/shared/computeRouting.ts`; `foldx/budget.ts` re-exports it, so there is one number.
+- **Foreground repair is origin-independent.** Build the size flag with `foldxRepairApplies(residues)`;
+  the runner also applies the host-specific time budget. Repaired-cache reuse is checked first,
+  including above 400 residues. Background admission uses the native measured curve or Box64 envelope,
+  with its own hard time cap. `FOLDX_REPAIR_MAX_RESIDUES` lives in `src/shared/computeRouting.ts`.
 - `CostModels` is a frozen record keyed by `costModelKey(type, hostClassOf(host))`. Host class rounds total
   RAM to the nearest GiB (`x64-native-8c-16g`), so a machine reporting 15.6 GiB shares the 16 GB class.
 - `cost-models.ts` takes **rows, not a database**: `buildCostModels(TelemetrySample[])`. WP-0 owns the

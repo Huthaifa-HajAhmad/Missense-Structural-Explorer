@@ -14,6 +14,7 @@ import crypto from "crypto";
  * `.cmd`/`.bat` on Windows (spawn EINVAL) and CI is Linux.
  */
 const foldxLog: string[] = [];
+let rejectCachedInput: "none" | "execution" | "missing-output" | "timeout" | "abort" = "none";
 vi.mock("child_process", () => ({
   execFile: (
     _file: string,
@@ -30,6 +31,16 @@ vi.mock("child_process", () => ({
     if (command === "RepairPDB") {
       fs.writeFileSync(repairPath, fs.readFileSync(path.join(cwd, pdbArg), "utf8") + "\nREMARK  99 REPAIRED\n");
     } else if (command === "BuildModel") {
+      const input = fs.readFileSync(path.join(cwd, pdbArg), "utf8");
+      if (input.includes("REJECTED") && rejectCachedInput !== "none") {
+        fs.writeFileSync(path.join(cwd, "Dif_wt.fxout"), makeDifFxout());
+        if (rejectCachedInput === "missing-output") { callback(null, "no model produced", ""); return; }
+        const error = Object.assign(new Error("cached coordinates rejected"),
+          rejectCachedInput === "timeout" ? { code: "ETIMEDOUT", killed: true }
+            : rejectCachedInput === "abort" ? { name: "AbortError" } : {});
+        queueMicrotask(() => callback(error, "partial output", ""));
+        return { pid: undefined };
+      }
       const base = path.basename(pdbArg, ".pdb");
       const mutant = fs.readFileSync(path.join(cwd, pdbArg), "utf8") + "\nREMARK  99 MUTANT\n";
       // FoldX writes its own B column; zeroed here so the test sees the template's values restored.
@@ -38,7 +49,7 @@ vi.mock("child_process", () => ({
         fs.writeFileSync(path.join(cwd, `${base}_1_${run}.pdb`), mutant);
         fs.writeFileSync(path.join(cwd, `WT_${base}_1_${run}.pdb`), pairedWildType);
       }
-      fs.writeFileSync(path.join(cwd, "Dif_wt.fxout"), makeDifFxout());
+      fs.appendFileSync(path.join(cwd, "Dif_wt.fxout"), makeDifFxout());
     }
     callback(null, `${command} done`, "");
   }
@@ -48,6 +59,7 @@ const { generateMutantPdb } = await import("./runner.ts");
 const {
   getRepairCacheKey,
   getRepairedStructureFromCache,
+  writeRepairedStructureToCache,
   repairedStructureCache,
   mutantCache,
   getFoldxCacheKey,
@@ -198,6 +210,7 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     process.env.FOLDX_CACHE_DIR = path.join(foldxHome, "foldx_cache");
 
     foldxLog.length = 0;
+    rejectCachedInput = "none";
     repairedStructureCache.clear();
     mutantCache.clear();
   });
@@ -269,6 +282,56 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     const buildLine = invocations.find(l => l.startsWith("BuildModel"));
     expect(buildLine, "BuildModel never ran").toBeTruthy();
     expect(buildLine).toContain("repairPresent=false");
+  });
+
+  it("repairs an AlphaFold template and preserves its confidence provenance", async () => {
+    const pdb = makeWildTypePdb("ALPHAFOLD MODEL");
+    const phases: string[] = [];
+    const result = await runFoldx(pdb, phases);
+    expect(phases).toEqual(["repairing", "modelling", "finalizing"]);
+    expect(result.energetics.foldxRepairSkipped).toBe(false);
+    expect(result.energetics.bFactorMetadata.source).toBe("alphafold");
+    expect(result.wtReferencePdb).toContain(" 87.39");
+  });
+
+  it("rebuilds the same large-template mutant when background repair becomes available", async () => {
+    const atom = makeWildTypePdb("large").split("\n").find(line => line.startsWith("ATOM"))!;
+    const pdb = "REMARK   1 ALPHAFOLD MODEL\n" + Array.from({ length: 442 }, (_, i) =>
+      atom.slice(0, 22) + String(i + 1).padStart(4) + atom.slice(26)).join("\n");
+    const first = await runFoldx(pdb, []);
+    expect(first.energetics.foldxRepairSkippedReason).toBe("large-structure");
+    await writeRepairedStructureToCache(first.energetics.foldxRepairCacheKey, cleanPdbForFoldX(pdb) + "\nREMARK  99 REPAIRED\n");
+    const second = await runFoldx(pdb, []);
+    expect(second.energetics.foldxRepairSkipped).toBe(false);
+    expect(second.energetics.foldxRepairCached).toBe(true);
+    expect(second.wtReferencePdb).toContain("REPAIRED");
+    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(2);
+  });
+
+  it.each(["execution", "missing-output"] as const)("invalidates a rejected cached repair and retries cleanly once (%s)", async failure => {
+    const pdb = makeWildTypePdb("RECOVER");
+    const key = getRepairCacheKey(crypto.createHash("sha256").update(cleanPdbForFoldX(pdb)).digest("hex"));
+    await writeRepairedStructureToCache(key, cleanPdbForFoldX(pdb) + "\nREMARK REJECTED\n");
+    rejectCachedInput = failure;
+    const result = await runFoldx(pdb, []);
+    expect(result.energetics).toMatchObject({ foldxRepairSkipped: true, foldxRepairSkippedReason: "cached-repair-rejected", foldxRepairFailed: false });
+    expect(result.energetics.foldxRepairCached).toBeUndefined();
+    expect(result.energetics.rawDdGs).toHaveLength(3); // no appended partial results from attempt 1
+    expect(await getRepairedStructureFromCache(key)).toBeNull();
+    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(2);
+    await runFoldx(pdb, []);
+    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(2); // disclosed fallback is reusable
+  });
+
+  it.each(["timeout", "abort"] as const)("does not blindly retry a cached-model %s", async failure => {
+    const pdb = makeWildTypePdb("NO-RETRY");
+    const key = getRepairCacheKey(crypto.createHash("sha256").update(cleanPdbForFoldX(pdb)).digest("hex"));
+    await writeRepairedStructureToCache(key, cleanPdbForFoldX(pdb) + "\nREMARK REJECTED\n");
+    rejectCachedInput = failure;
+    await expect(runFoldx(pdb, [])).rejects.toThrow();
+    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(1);
+    // A user abort is not evidence that repaired coordinates are bad.
+    expect(Boolean(await getRepairedStructureFromCache(key))).toBe(failure === "abort");
   });
 
   it("does not invoke RepairPDB a second time for a different variant on the same structure", async () => {

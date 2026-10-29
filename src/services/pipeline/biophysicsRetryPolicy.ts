@@ -11,5 +11,10 @@ export function shouldRunBiophysics(snapshot: CachedVariantBundle | null | undef
   if (foldxStructurallyUnavailable && !remoteFailure) return false;
   const foldx = snapshot?.foldingEnergetics?.foldxMean ?? snapshot?.foldingEnergetics?.foldx;
   const healthy = Boolean(snapshot?.mutantPdb && typeof foldx === "number" && Number.isFinite(foldx) && snapshot?.foldingStatus === "success");
-  return !healthy || remoteFailure;
+  const refresh = snapshot?.foldingEnergetics?.foldxRepairRefresh;
+  // Only the server can say that background repair was admitted. Keep the disclosed provisional
+  // result visible, and bound solver-only refreshes by both the existing cooldown and a deadline.
+  const repairRefreshDue = snapshot?.foldingEnergetics?.foldxRepairSkipped && refresh &&
+    now >= refresh.after && now < refresh.until;
+  return !healthy || remoteFailure || Boolean(repairRefreshDue);
 }

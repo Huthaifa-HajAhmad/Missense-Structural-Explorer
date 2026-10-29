@@ -52,7 +52,7 @@ describe("FoldX job registry", () => {
       expect(key).toBe(expected);
       // The SHAPE is the guard: hash, then the mutation code (which carries the chain), then the
       // force-field conditions. A `prewarm:` prefix or a gene symbol in here would be a second key.
-      expect(key).toMatch(/^[0-9a-f]{64}_SA489C_pH:7_temp:298_ion:0\.05_seed:12345_version:v3$/);
+      expect(key).toMatch(/^[0-9a-f]{64}_SA489C_pH:7_temp:298_ion:0\.05_seed:12345_version:v4$/);
       expect(key).not.toContain("prewarm");
     });
 

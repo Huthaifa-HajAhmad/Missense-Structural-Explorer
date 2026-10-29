@@ -68,7 +68,7 @@ export interface JobFeatures {
   chains: number;
   /** BuildModel runs (5 by default). Ignored for P2Rank. */
   numberOfRuns: number;
-  /** RepairPDB runs for this job. Build it with {@link foldxRepairApplies}, not from size alone. */
+  /** RepairPDB runs for this job. Build it with {@link foldxRepairApplies}, before the host-specific budget gate. */
   repair: boolean;
   ownerId: string;
   requires: { tool: ToolName; minVersion?: string }[];
@@ -183,11 +183,10 @@ export interface RoutingPolicy {
 // ── Small pure helpers ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Whether FoldX will run RepairPDB, exactly as `foldx/runner.ts` decides it: small enough AND not an
- * AlphaFold DB model (those are already well packed and skip repair). Size alone is not the rule.
+ * Whether FoldX will run RepairPDB, exactly as `foldx/runner.ts` decides it: small enough for foreground repair. Predicted and experimental models follow the same rule.
  */
-export function foldxRepairApplies(residues: number, isAlphaFoldPdb: boolean): boolean {
-  return residues <= FOLDX_REPAIR_MAX_RESIDUES && !isAlphaFoldPdb;
+export function foldxRepairApplies(residues: number): boolean {
+  return residues <= FOLDX_REPAIR_MAX_RESIDUES;
 }
 
 const GIB = 1024 ** 3;
@@ -289,7 +288,7 @@ const NATIVE_REPAIR_ANCHOR_RESIDUES = 154;
 const NATIVE_REPAIR_ANCHOR_MS = 49_000;
 const REPAIR_EXPONENT = 2.1;
 
-function nativeRepairMs(r: number): number {
+export function nativeFoldxRepairPriorMs(r: number): number {
   return NATIVE_REPAIR_ANCHOR_MS * (r / NATIVE_REPAIR_ANCHOR_RESIDUES) ** REPAIR_EXPONENT;
 }
 
@@ -301,7 +300,7 @@ function nativeRepairMs(r: number): number {
  */
 function emulatedRepairMs(r: number): number {
   const penalty = emulatedBuildModelTotalMs(r, 1) / nativeBuildModelTotalMs(r, 1);
-  return nativeRepairMs(r) * Math.max(1, penalty);
+  return nativeFoldxRepairPriorMs(r) * Math.max(1, penalty);
 }
 
 /** Prior p50 for a FoldX job (RepairPDB when it applies, then BuildModel). */
@@ -309,7 +308,7 @@ export function foldxPriorP50Ms(job: Pick<JobFeatures, "residues" | "numberOfRun
   const r = Math.max(1, job.residues);
   const runs = Math.max(1, job.numberOfRuns);
   const buildModel = emulated ? emulatedBuildModelTotalMs(r, runs) : nativeBuildModelTotalMs(r, runs);
-  const repair = job.repair ? (emulated ? emulatedRepairMs(r) : nativeRepairMs(r)) : 0;
+  const repair = job.repair ? (emulated ? emulatedRepairMs(r) : nativeFoldxRepairPriorMs(r)) : 0;
   return Math.round(buildModel + repair);
 }
 

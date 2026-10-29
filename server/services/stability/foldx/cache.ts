@@ -55,6 +55,10 @@ export function getCacheFilename(cacheKey: string): string {
  */
 export async function getMutantFromCache(cacheKey: string, requesterId?: string | null): Promise<any | null> {
   const found = await readMutantFromCache(cacheKey);
+  // A completed background repair supersedes the provisional mutant on the next request.
+  // Retain the old cache record for backfill/maintenance; serving it would hide the repair for 24 h.
+  if (found?.energetics?.foldxRepairSkipped && found.energetics.foldxRepairCacheKey &&
+      await getRepairedStructureFromCache(found.energetics.foldxRepairCacheKey)) return null;
   return found && mayServe(found, requesterId) ? found : null;
 }
 
@@ -165,7 +169,8 @@ export function getFoldxCacheKey(
 ): string {
   // v3: the run-averaging rule changed (MAD outlier filter removed, see parser.ts). A v2 entry holds
   // a mean and SD that discarded legitimate runs, so it must not be served as the current answer.
-  const FOLDX_CACHE_VERSION = "v3";
+  // v4 invalidates results from the retired AlphaFold repair bypass.
+  const FOLDX_CACHE_VERSION = "v4";
   const seed = options?.seed !== undefined ? options.seed : 12345;
   const tool = options?.toolVersion ? `_foldx:${options.toolVersion}` : "";
   return `${pdbHash}_${mutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${FOLDX_CACHE_VERSION}${tool}`;
@@ -215,12 +220,24 @@ export function getRepairCacheKey(pdbHash: string, options?: FoldxCacheKeyOption
   return `repair_${pdbHash}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${REPAIR_CACHE_VERSION}`;
 }
 
+const repairCacheMisses = new LRUCache<string, true>({ max: 200, ttl: 30_000 });
+defaultCacheRegistry.registerCache("repairCacheMisses", repairCacheMisses, { ttlDesc: "30s" });
+
+/** A cached template rejected by BuildModel must not wedge every later request for its 30-day TTL. */
+export async function invalidateRepairedStructure(cacheKey: string): Promise<void> {
+  repairedStructureCache.delete(cacheKey);
+  repairCacheMisses.delete(getCacheFilename(cacheKey));
+  await fs.promises.rm(getCacheFilename(cacheKey), { force: true });
+}
+
 export async function getRepairedStructureFromCache(cacheKey: string): Promise<{ pdb: string } | null> {
   const memCached = repairedStructureCache.get(cacheKey);
   if (memCached?.pdb) return memCached;
+  const filename = getCacheFilename(cacheKey);
+  if (repairCacheMisses.has(filename)) return null;
 
   try {
-    const raw = await fs.promises.readFile(getCacheFilename(cacheKey), "utf-8");
+    const raw = await fs.promises.readFile(filename, "utf-8");
     const parsed = JSON.parse(raw);
     if (typeof parsed?.pdb !== "string" || parsed.pdb.length === 0) return null;
 
@@ -233,6 +250,7 @@ export async function getRepairedStructureFromCache(cacheKey: string): Promise<{
     repairedStructureCache.set(cacheKey, entry);
     return entry;
   } catch {
+    repairCacheMisses.set(filename, true);
     // A miss, a malformed entry and an unreadable directory all mean the same thing here: repair
     // the structure. None of them may fail the job.
     return null;
@@ -248,6 +266,7 @@ export async function getRepairedStructureFromCache(cacheKey: string): Promise<{
 export function writeRepairedStructureToCache(cacheKey: string, pdb: string): Promise<void> {
   if (!pdb || pdb.length === 0) return Promise.resolve();
   try {
+    repairCacheMisses.delete(getCacheFilename(cacheKey));
     repairedStructureCache.set(cacheKey, { pdb });
     const filename = getCacheFilename(cacheKey);
     const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;

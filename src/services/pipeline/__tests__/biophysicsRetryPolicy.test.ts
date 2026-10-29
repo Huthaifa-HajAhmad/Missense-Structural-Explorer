@@ -9,6 +9,17 @@ describe("shared biophysics retry policy", () => {
     expect(shouldRunBiophysics(healthy, null, now)).toBe(false);
     expect(shouldRunBiophysics({ ...healthy, thermompnnStatus: "unavailable" }, null, now)).toBe(false);
   });
+  it("refreshes only admitted repairs inside their window and behind the existing cooldown", () => {
+    const energetics = { foldx: 0.5761, foldxRepairSkipped: true };
+    const provisional = { ...healthy, foldingEnergetics: energetics };
+    expect(shouldRunBiophysics(provisional, null, now)).toBe(false);
+    const admitted = { ...provisional, foldingEnergetics: { ...energetics, foldxRepairRefresh: { after: now, until: now + 60_000 } } };
+    expect(shouldRunBiophysics(admitted, null, now - 1)).toBe(false);
+    expect(shouldRunBiophysics(admitted, null, now)).toBe(true);
+    expect(shouldRunBiophysics(admitted, now - 1, now)).toBe(false);
+    expect(shouldRunBiophysics(admitted, null, now + 60_000)).toBe(false);
+  });
+
   it("does not consider empty or non-finite energetics healthy", () => {
     expect(shouldRunBiophysics({ ...healthy, foldingEnergetics: {} }, null, now)).toBe(true);
     expect(shouldRunBiophysics({ ...healthy, foldingEnergetics: { foldx: NaN } }, null, now)).toBe(true);
