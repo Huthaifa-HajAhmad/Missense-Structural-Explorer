@@ -20,6 +20,9 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
     : w.section === 'phenotypes' ? { name: 'Model phenotypes', load: c.phenotypesLoad, onRetry: c.retryPhenotypes }
     : { name: 'Alliance orthologs', load: c.modelLoad, onRetry: c.retryModels };
   const speciesCount = new Set(rows.map(r => r.taxon)).size;
+  // A blank store is a read that has not answered yet, not an empty gene: the count line waits for the
+  // first answer rather than printing "0 species" while the sources below still say they are reading.
+  const readingSources = [c.modelLoad, c.alignmentLoad, c.phenotypesLoad].every(l => !l || l.status === 'loading');
   const phenotypes = c.phenotypesLoad?.data;
   const incomplete = phenotypes?.species.filter(s => s.status === 'error') ?? [];
   const omitted = phenotypes?.species.reduce((n, s) => n + (s.status === 'ready' ? Math.max(0, s.total - s.phenotypes.length) : 0), 0) ?? 0;
@@ -29,7 +32,7 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
     {c.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices remain with their original transcript, isoform and assembly.</p>}
     {(!w.enabled || w.comparison) && <>
     <details className="sm-review" open={!w.enabled || undefined}><summary>Review context · {model.selected ? `${model.selected.label} · ${model.selected.inheritance.label}` : 'No disease selected'}</summary><ReviewFrame gene={c.gene} load={c.diseaseLoad} selection={c.selection} onChange={c.setSelection} onRetry={c.retryDisease} /></details>
-    <p className="sm-finding"><strong>{speciesCount} species with returned records.</strong> {rows.filter(r => r.group === 'orthologs').length} Alliance orthologs and {rows.filter(r => r.group === 'alignment').length} Ensembl alignments retain their own identifiers.</p>
+    <p className="sm-finding" role="status">{readingSources ? <>Reading the model-organism sources.</> : <><strong>{speciesCount} species with returned records.</strong> {rows.filter(r => r.group === 'orthologs').length} Alliance orthologs and {rows.filter(r => r.group === 'alignment').length} Ensembl alignments retain their own identifiers.</>}</p>
     <p>These sources describe different aspects of a model. A matching residue or phenotype does not show that a human variant is tolerated or disease-causing.</p>
     </>}
     {(!w.enabled || w.comparison || w.view === 'phenotypes') && <>

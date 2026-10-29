@@ -25,7 +25,20 @@ const EMPTY_SELECTION = emptyPhenotypeSelection();
 const alignmentAutoRetried = new Set<string>();
 export type EvidenceContextInput = Parameters<typeof evidenceContextIdentity>[0];
 
-export function useEvidenceContext(result: EvidenceContextInput, expression = false, dosage = false, models = expression, recoverCached = true, hotspots = false) {
+export type EvidenceContextOptions = {
+  /** GTEx / dGTEx and their rail sources. */
+  expression?: boolean;
+  /** GenCC and ClinGen dosage. */
+  dosage?: boolean;
+  /** Alliance orthologs plus the species-tab alignment, phenotypes and HPO reads. Defaults to `expression`. */
+  models?: boolean;
+  /** Re-read a cached failure; false when a tab visit joins the prefetch's outcome. */
+  recoverCached?: boolean;
+  /** The germline hot-spot slot (protein + transcript keyed). */
+  hotspots?: boolean;
+};
+export function useEvidenceContext(result: EvidenceContextInput, options: EvidenceContextOptions = {}) {
+  const { expression = false, models = expression, dosage = false, recoverCached = true, hotspots = false } = options;
   const { fetchWithAuth } = useApiClient();
   const storeGene = useVariantAnalysisStore(s => s.gene);
   const storeVariant = useVariantAnalysisStore(s => s.variant);

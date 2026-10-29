@@ -8,7 +8,7 @@ export function SpeciesCoverage({ rows }: { rows: ContextReading[] }) {
   const model = speciesCoverage(rows);
   const expanded = w.expanded.includes('coverage-species');
   const visible = expanded ? model : model.slice(0, 8);
-  const groups = [{ id: 'orthologs', label: 'Alliance orthologs' }, { id: 'alignment', label: 'Ensembl alignments' }, { id: 'phenotypes', label: 'Phenotype records' }] as const;
+  const groups = [{ id: 'orthologs', label: 'Alliance orthologs', one: 'Alliance ortholog' }, { id: 'alignment', label: 'Ensembl alignments', one: 'Ensembl alignment' }, { id: 'phenotypes', label: 'Phenotype records', one: 'Phenotype record' }] as const;
   return <ChartFrame title="Which species have records to explore?" description="Compare coverage across sources. Counts describe returned records, not independent experiments or model suitability."
     summary={`${model.length} species have returned source records. Provider gene identifiers remain separate.`}
     empty={model.length ? undefined : 'No species records are available to compare. Check the source view below for its status and recovery action.'}
@@ -16,9 +16,9 @@ export function SpeciesCoverage({ rows }: { rows: ContextReading[] }) {
     {model.length > 0 && <div className="cx-table-scroll" role="region" aria-label="Species source coverage" tabIndex={0}><table className="cx-coverage-table">
       <thead><tr><th scope="col">Species</th>{groups.map(g => <th scope="col" key={g.id}>{g.label}</th>)}</tr></thead>
       <tbody>{visible.map(s => <tr key={s.taxon}><th scope="row">{s.label}<small>Taxon {s.taxon}</small></th>{groups.map(g => <td key={g.id}>
-        {s.counts[g.id] ? <button type="button" aria-label={`${s.label}: ${s.counts[g.id]} ${g.label}`} onClick={() => w.setOptions({ section: g.id, query: s.taxon, relevantOnly: false })}>
+        {s.counts[g.id] ? <button type="button" aria-label={`${s.label}: ${s.counts[g.id]} ${s.counts[g.id] === 1 ? g.one : g.label}`} onClick={() => w.setOptions({ section: g.id, query: s.taxon, relevantOnly: false })}>
           <span className="cx-coverage-dot" aria-hidden="true" /><strong>{s.counts[g.id]}</strong><span className="sr-only"> records</span>
-        </button> : <span aria-label="No displayed records">—</span>}
+        </button> : <><span aria-hidden="true">—</span><span className="sr-only">No displayed records</span></>}
       </td>)}</tr>)}</tbody>
     </table></div>}
     {model.length > 8 && <div className="evw-figure-scope"><span>{visible.length} of {model.length} species</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => w.toggleGroup('coverage-species')}>{expanded ? 'Show first 8' : `Show all ${model.length} species`}</button></div>}

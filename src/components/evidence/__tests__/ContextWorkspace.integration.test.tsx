@@ -137,7 +137,7 @@ describe('production context tabs and linked inspectors', () => {
     expect(within(screen.getByTestId('context-records')).getAllByRole('button')).toHaveLength(2);
     fireEvent.click(within(screen.getByTestId('context-records')).getAllByRole('button')[0]);
     const pinned = screen.getByRole('region', { name: 'Selected evidence reading' }).textContent;
-    fireEvent.click(screen.getByRole('button', { name: 'Mouse: 1 Ensembl alignments' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mouse: 1 Ensembl alignment' }));
     expect(screen.getByRole('tab', { name: 'Variant site' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText(/pinned record is outside this view/)).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Selected evidence reading' }).textContent).toBe(pinned);

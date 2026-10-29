@@ -39,7 +39,11 @@ export function useContextWorkspaceRead(result: AnalysisResult, tab: ContextTab)
 /** The inspector uses the same selector/model without issuing requests. Memoisation depends
  * on source slots, not hover, filters or the whole analysis store. */
 export function useContextWorkspace(result: AnalysisResult, tab: ContextTab) {
-  const context = useEvidenceContext(result, tab === 'expression-models', tab === 'gene-disease', tab === 'species-models', false);
+  const context = useEvidenceContext(result, {
+    expression: tab === 'expression-models', dosage: tab === 'gene-disease', models: tab === 'species-models',
+    // A tab visit joins the prefetch's cached outcome instead of restarting a failed read.
+    recoverCached: false,
+  });
   return useContextModels(result, tab, context);
 }
 function useContextModels<T extends ContextData>(result: AnalysisResult, tab: ContextTab, context: T) {
