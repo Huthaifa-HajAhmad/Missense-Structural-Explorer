@@ -7,9 +7,11 @@
   "scripts": {
     "data:constraint": "tsx scripts/import-gnomad-constraint.ts",
     "build:constraint": "node -e \"require('fs').cpSync('server/data/constraint','dist/constraint',{recursive:true})\"",
+    "build:per": "node -e \"const fs=require('fs');if(!fs.existsSync('server/data/per')){console.warn('build:per skipped: server/data/per is absent, so /hotspots will report the published-region table as unavailable.');process.exit(0)}fs.cpSync('server/data/per','dist/per',{recursive:true})\"",
     "data:gencc": "tsx scripts/import-gencc-context.ts",
     "data:dgtex": "python scripts/import-dgtex-context.py",
     "data:g2p": "tsx scripts/import-g2p-context.ts",
+    "data:per": "tsx scripts/import-per-regions.ts",
     "dev": "tsx server.ts",
     "build:client": "node scripts/with-local-tmp.mjs node_modules/vite/bin/vite.js build",
     "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
@@ -20,7 +22,7 @@
     "build:agent": "esbuild server/agent/main.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/agent/agent.cjs",
     "build:agent-bundle": "tsx scripts/build-agent-bundle.ts",
     "build:compute-benchmark": "esbuild scripts/compute-benchmark.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/compute-benchmark.cjs",
-    "build": "npm run build:client && npm run build:server && npm run build:workers && npm run build:user-admin && npm run build:compute-benchmark && npm run build:protos && npm run build:constraint",
+    "build": "npm run build:client && npm run build:server && npm run build:workers && npm run build:user-admin && npm run build:compute-benchmark && npm run build:protos && npm run build:constraint && npm run build:per",
     "start": "node dist/server.cjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsx scripts/check-boundaries.ts && node scripts/check-focus-indicators.mjs && tsx scripts/check-verify-parity.ts && tsc --noEmit",
@@ -51,7 +53,8 @@
     "search:status": "node tools/agent-tooling/cli.cjs zg status",
     "test:geometry:review": "node tools/review-preview/check.mjs",
     "test:geometry:focus": "node tools/structure-focus/check.mjs",
-    "test:e2e": "e2e run"
+    "test:e2e": "e2e run",
+    "test:e2e:proof": "node scripts/run-e2e-proof.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

@@ -13,12 +13,27 @@ import { loadAlignment } from '../services/evidence-context/alignment';
 import { loadPext } from '../services/evidence-context/pext';
 import { loadModelOrganisms } from '../services/evidence-context/modelOrganisms';
 import { loadDosageContext } from '../services/evidence-context/clingenDosage';
+import { loadHotspotContext } from '../services/evidence-context/hotspots';
+import { hotspotContextSchema } from '../../src/shared/hotspotEvidence';
 vi.mock('../services/evidence-context/store', () => ({ loadGeneDiseaseContext: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', frames: [], provenance: null, message: 'Missing snapshot' })) }));
 vi.mock('../services/evidence-context/g2p', () => ({ loadMechanismContext: vi.fn(async () => ({ status: 'not-installed', records: [], provenance: null, message: 'Missing snapshot' })) }));
 vi.mock('../services/evidence-context/gtex', () => ({ fetchAdultExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-found', tissues: [], provenance: null, message: null })) }));
 vi.mock('../services/evidence-context/dgtex', () => ({ loadDevelopmentalExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', observations: [], provenance: null, message: 'Missing snapshot' })) }));
 vi.mock('../services/evidence-context/modelOrganisms', () => ({ loadModelOrganisms: vi.fn(async (gene: string) => ({ gene, status: 'ready', hgncId: null, orthologs: [], impc: null, provenance: [], message: null })) }));
 vi.mock('../services/evidence-context/hpa', () => ({ loadHpa: vi.fn(async (gene: string) => ({ gene, status: 'not-found' })) }));
+const hotspotBody = vi.hoisted(() => (gene: string) => ({
+  gene, status: 'ready', uniprotId: 'P49802', transcript: null,
+  clinvarSource: 'ClinVar germline classifications via the gnomAD browser API (GRCh38)',
+  numbering: { status: 'unchecked', checked: 0, mismatches: 0 },
+  distribution: { status: 'unavailable', reason: 'ClinVar or gnomAD could not be read.', plp: [], blb: [], gnomad: [], length: null },
+  cspec: { status: 'none', reason: 'The registry answered and no specification lists this gene.', sourceUrl: 'https://cspec.genome.network/cspec/ui/svi/', retrievedAt: '2026-10-29T00:00:00.000Z', specs: [] },
+  perPublished: { status: 'none', reason: null, regions: [] },
+  perRerun: { status: 'unavailable', reason: 'ClinVar or gnomAD could not be read.', length: 0, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null },
+  regional: { status: 'unavailable', reason: 'The regional constraint context could not be read.', regions: [] },
+  spatial: { status: 'no-model', reason: 'No UniProt accession, so no model was read.', model: null, structureResidues: 0, confidentResidues: 0, pathogenicResidues: 0, neutralResidues: 0, permutations: 0, univariate: null, bivariate: null, thresholdA: null, selfCheck: null, scores: [], trace: null },
+  errors: [],
+}));
+vi.mock('../services/evidence-context/hotspots', () => ({ loadHotspotContext: vi.fn(async (gene: string) => hotspotBody(gene)) }));
 vi.mock('../services/evidence-context/modelPhenotypes', () => ({ loadModelPhenotypes: vi.fn(async (gene: string) => ({ gene, status: 'not-found', species: [] })) }));
 vi.mock('../services/evidence-context/hpo', () => ({ loadHpoAnnotation: vi.fn(async (gene: string) => ({ gene, status: 'not-found', terms: [] })) }));
 vi.mock('../services/evidence-context/alignment', () => ({ loadAlignment: vi.fn(async (gene: string) => ({ gene, status: 'not-found', homologies: [] })) }));
@@ -39,7 +54,7 @@ describe('public reference evidence through the API router', () => {
   });
   const request = (suffix: string, authenticated = true) => fetch(base + suffix, { headers: authenticated ? { Authorization: `Bearer ${token}` } : {} });
   it('serves every reference sources without an API token or Gemini key', async () => {
-    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development', '/RGS9/dosage', '/RGS9/models', '/RGS9/alignment', '/RGS9/pext', '/RGS9/hpo?disease=OMIM:1', '/RGS9/phenotypes', '/RGS9/hpa']) expect((await request(suffix, false)).status).toBe(200);
+    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development', '/RGS9/dosage', '/RGS9/models', '/RGS9/alignment', '/RGS9/pext', '/RGS9/hpo?disease=OMIM:1', '/RGS9/phenotypes', '/RGS9/hpa', '/RGS9/hotspots?uniprot=P49802']) expect((await request(suffix, false)).status).toBe(200);
     expect(loadGeneDiseaseContext).toHaveBeenCalledWith('RGS9');
     expect(loadDosageContext).toHaveBeenCalledWith('RGS9');
     expect(loadModelOrganisms).toHaveBeenCalledWith('RGS9'); expect(loadAlignment).toHaveBeenCalledWith('RGS9'); expect(loadPext).toHaveBeenCalledWith('RGS9'); expect(loadHpoAnnotation).toHaveBeenCalledWith('RGS9', 'OMIM:1'); expect(loadModelPhenotypes).toHaveBeenCalledWith('RGS9'); expect(loadHpa).toHaveBeenCalledWith('RGS9');
@@ -61,5 +76,16 @@ describe('public reference evidence through the API router', () => {
     expect(await (await request('/TEST/expression')).json()).toMatchObject({ gene: 'TEST', status: 'not-found' });
     expect(await (await request('/TEST/development')).json()).toMatchObject({ gene: 'TEST', status: 'not-installed' });
     expect(loadGeneDiseaseContext).toHaveBeenCalledWith('TEST'); expect(fetchAdultExpression).toHaveBeenCalledWith('TEST'); expect(loadDevelopmentalExpression).toHaveBeenCalledWith('TEST');
+  });
+  it('serves a hotspot payload that parses against the client schema', async () => {
+    const body = await (await request('/RGS9/hotspots?uniprot=P49802', false)).json();
+    expect(() => hotspotContextSchema.parse(body)).not.toThrow();
+    expect(body).toMatchObject({ gene: 'RGS9', status: 'ready', spatial: { status: 'no-model' } });
+  });
+  it('answers 502 rather than ending the process when a source throws', async () => {
+    vi.mocked(loadHotspotContext).mockRejectedValueOnce(new Error('the bundled table is missing'));
+    const res = await request('/RGS9/hotspots', false);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: { code: 'CONTEXT_UNAVAILABLE' } });
   });
 });

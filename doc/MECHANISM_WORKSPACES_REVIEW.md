@@ -83,6 +83,30 @@ SOD1 and SLC12A4 use recorded reference payloads. Splicing edge cases are explic
 The preview blocks application API calls; this verifies rendering and interaction, not fresh
 provider responses or new model computations.
 
+## Interfaces & PPI, third pass (2026-10-29)
+
+The assembly card and the sequence atlas, after the Hotspots work (doc/FUNCTIONAL_HOTSPOTS_PLAN.md §0):
+
+- **Assembly card is always visible.** The collapsed disclosure left a card reading only "ASSEMBLY / Heterodimer". It now
+  shows the label, the SUBUNIT qualifier as a chip, the chains, and the caption. A connector between two chains is drawn
+  only where PDBe-KB measured a native, non-fibril, non-crystal interface for that pair, and reads "Ala5 not at it, in 118
+  solved structures" or "Ala5 at it: 3 of 142 solved structures"; a chain with no solved pair gets no connector and a
+  sentence saying the composition is from UniProt's SUBUNIT text. SUBUNIT text cannot place chains, so none is guessed.
+- **One domain model for two tabs.** The Domains lane draws what the Functional domains map draws (`drawnDomains`: InterPro
+  domain boxes when InterPro answered, else UniProt's), so NAE1's atlas shows the THIF fold the map shows instead of only a
+  17-residue region. A UniProt Region that is also a mapped binding site (same bounds and note) is drawn once, in the
+  sites lane.
+- **Names that fit, callouts that do not.** The 6 % length rule is a measured fit: a name sits inside its range only when its
+  rendered width plus padding fits, otherwise it is a callout under the lane (placed by `assignLanes`), so no box is an
+  unlabelled rectangle. With no layout (a hidden tab) nothing is drawn until a width exists. Each domain and site lane ends
+  in exact containment ("In domain", "At site", "Outside"), never an inferred nearness.
+- **Per-residue native support is shared.** `nativeInterfaceSupport` reads the stored assembly for every residue with the
+  same partner filter and labels as the tab, and says "not read" for a stale or absent assembly. The Hotspots table uses it.
+- **Removed** the dead `.ifc-diagram*` and disclosure CSS.
+
+Not changed: callout row height is still a constant (`CALLOUT_ROW_PX = 15`) mirrored in CSS, so a type-size change would
+need both edited together.
+
 ## Remaining limits
 
 - A full sequence-identity/isoform equivalence check (S15) is still open. Displaying the existing

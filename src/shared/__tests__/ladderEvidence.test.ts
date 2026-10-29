@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildLadderEvidence, CLINGEN_CLASS_BANDS } from "../ladderEvidence";
-import { isPp2Constrained } from "../thresholds";
+import { regionalBp1Code, regionalPp2Code } from "../thresholds";
 import { NAE1_RESULT } from "./fixtures/nae1Result";
 
 const build = (over: any = {}) => buildLadderEvidence({ result: { ...NAE1_RESULT, ...over } });
@@ -59,15 +59,29 @@ describe("buildLadderEvidence — NAE1 p.Asp116Gly", () => {
     expect(revel.cutLines).toEqual(["PP3 ≥ 0.644 · 0.773 · 0.932", "BP4 ≤ 0.29 · 0.183 · 0.016 · 0.003"]);
   });
 
-  it("tests PP2 with the engine's rule (Z ≥ 3.09 and o/e < 0.6), never BP1", () => {
+  it("tests PP2 with the engine's calibrated regional rule (Chao et al. v3), never gene Z, never BP1", () => {
+    // NAE1's fixture has no verified locus, so there is no regional O/E: PP2 is untested, not "not met".
     const ev = build();
-    expect(ev.constraint.pp2RuleMet).toBe(false);
+    expect(ev.constraint.regionalOe).toBeNull();
+    expect(ev.constraint.pp2RuleMet).toBeNull();
     expect(ev.engine.pp2).toBe(false);
     expect(ev.engine.codes.some(c => /BP1/.test(c))).toBe(false);
-    expect(isPp2Constrained(3.2, 0.5)).toBe(true);
-    expect(isPp2Constrained(3.2, 0.7)).toBe(false);
-    expect(isPp2Constrained(2.5, 0.4)).toBe(false);
-    expect(isPp2Constrained(3.2, null)).toBeNull();
+    const gc = { ...NAE1_RESULT.gnomadConstraint, regionalStatus: "measured", pp2Code: "PP2_Moderate", isPP2Constrained: true,
+      regionalConstraint: { isConstrained: true, oeRatio: 0.3, pValue: 0.001, regionText: "x" } };
+    const met = build({ gnomadConstraint: gc, ruleBasedInsights: { acmgCriteria: [{ code: "PP3" }, { code: "PP2_Moderate" }] } });
+    expect(met.constraint.pp2Code).toBe("PP2_Moderate");
+    expect(met.engine.codes).toEqual(["PP3", "PP2_Moderate"]);
+    expect(met.engine.pp2Stale).toBe(false);
+    expect([regionalPp2Code(0.36), regionalPp2Code(0.59), regionalPp2Code(0.6), regionalPp2Code(null)]).toEqual(["PP2_Moderate", "PP2", null, undefined]);
+    // BP1 is display context only, but its edges are printed, so they are pinned like PP2's. Strict ">":
+    // 0.97 is not yet BP1, 1.23 is still BP1 (Supporting), 1.24 reaches BP1 Moderate.
+    expect([regionalBp1Code(0.97), regionalBp1Code(0.98), regionalBp1Code(1.23), regionalBp1Code(1.24), regionalBp1Code(null)])
+      .toEqual([null, "BP1", "BP1", "BP1_Moderate", undefined]);
+  });
+
+  it("flags a PP2 recorded under the retired gene Z proxy", () => {
+    const ev = build({ ruleBasedInsights: { acmgCriteria: [{ code: "PP3" }, { code: "PP2" }] } });
+    expect(ev.engine.pp2Stale).toBe(true);
   });
 
   it("flags a BP1 in the payload as an earlier engine's", () => {

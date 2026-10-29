@@ -22,6 +22,36 @@ MAX_SASA = {
     'SER': 155.0, 'THR': 172.0, 'TRP': 285.0, 'TYR': 263.0, 'VAL': 174.0
 }
 
+def all_residues(pdb_file, chain_id):
+    """RSA of every residue of one chain, with the same method and rounding as the single-residue mode below
+    (Shrake-Rupley residue SASA over the whole structure, divided by the Tien 2013 maximum, rounded to 4
+    places), so a residue reads the same number whichever mode asked. No secondary structure here: the
+    Hotspots view needs accessibility only."""
+    if not os.path.exists(pdb_file):
+        return {"status": "error", "message": f"PDB file not found: {pdb_file}"}
+    try:
+        structure = PDBParser(QUIET=True).get_structure("protein", pdb_file)
+        ShrakeRupley().compute(structure, level="R")
+        out = []
+        for model in structure:
+            if chain_id in model:
+                for residue in model[chain_id]:
+                    if residue.id[0] != " ":
+                        continue  # waters and ligands
+                    sasa = getattr(residue, "sasa", None)
+                    name = residue.get_resname().upper()
+                    max_sasa = MAX_SASA.get(name)
+                    if sasa is None or max_sasa is None:
+                        continue  # a residue with no Tien maximum has no RSA; never guess one
+                    rsa = round(sasa / max_sasa, 4)
+                    out.append({"resId": residue.id[1], "resName": name, "rsa": rsa})
+                break
+        if not out:
+            return {"status": "error", "message": f"Chain {chain_id} has no standard residues."}
+        return {"status": "success", "residues": out}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 def main():
     if len(sys.argv) < 4:
         print(json.dumps({"status": "error", "message": "Missing arguments. Usage: python sasa_eval.py <pdb_file> <chain_id> <pos>"}))
@@ -29,6 +59,9 @@ def main():
 
     pdb_file = sys.argv[1]
     chain_id = sys.argv[2]
+    if sys.argv[3] == "all":
+        print(json.dumps(all_residues(pdb_file, chain_id)))
+        return
     try:
         pos = int(sys.argv[3])
     except ValueError:

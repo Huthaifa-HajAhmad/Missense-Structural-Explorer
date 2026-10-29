@@ -632,8 +632,9 @@ function contextSentence(input: LandscapeFindingInput): string | null {
   }
   if (context.gnomad === null) parts.push("gnomAD not loaded");
   else {
-    const near = context.gnomad.filter((g) => Math.abs(g.pos - target.pos) <= 5).reduce((n, g) => n + g.variants, 0);
-    parts.push(`${near} gnomAD missense variant${near === 1 ? "" : "s"} within ±5 residues`);
+    // At the residue itself: a ±5 window used to be summed here, a width no source set.
+    const here = context.gnomad.find((g) => g.pos === target.pos)?.variants ?? 0;
+    parts.push(`${here} gnomAD missense variant${here === 1 ? "" : "s"} at this residue (any substitution)`);
   }
   return parts.join(" · ") + ".";
 }

@@ -111,6 +111,34 @@ export function parseGnomad(rows: any[], canonical: string | null): ContextGnoma
   return [...byPos.values()].sort((a, b) => a.pos - b.pos);
 }
 
+/**
+ * The two gene-wide gnomAD reads, cached as raw rows so the Landscape context and the Hotspots
+ * reference sets (`hotspotReferenceSets`) are one fetch: two queries for one gene would double the
+ * load on gnomAD and could disagree on a ClinVar refresh between them.
+ */
+type RawRead = PromiseSettledResult<{ canonical_transcript_id?: string | null; clinvar_variants?: any[]; variants?: any[] } | null>;
+const rowsCache = new Map<string, { at: number; value: Promise<[RawRead, RawRead]> }>();
+export function fetchGeneMissenseRows(gene: string): Promise<[RawRead, RawRead]> {
+  const hit = rowsCache.get(gene);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+  // Two queries, so a failure in one list does not blank the other.
+  const value = Promise.allSettled([
+    gnomadQuery(
+      `query LandscapeClinvar($gene: String!) { gene(gene_symbol: $gene, reference_genome: GRCh38) { canonical_transcript_id clinvar_variants { variant_id clinical_significance gold_stars hgvsp transcript_id } } }`,
+      gene
+    ),
+    gnomadQuery(
+      `query LandscapeGnomad($gene: String!) { gene(gene_symbol: $gene, reference_genome: GRCh38) { canonical_transcript_id variants(dataset: gnomad_r4) { variant_id consequence hgvsp transcript_id exome { ac filters } genome { ac filters } } } }`,
+      gene
+    ),
+  ]) as Promise<[RawRead, RawRead]>;
+  if (rowsCache.size >= MAX_CACHED_GENES) rowsCache.delete(rowsCache.keys().next().value as string);
+  rowsCache.set(gene, { at: Date.now(), value });
+  // A failed read is retried on the next request, never served from the cache.
+  void value.then(([a, b]) => { if (a.status !== "fulfilled" || b.status !== "fulfilled") rowsCache.delete(gene); });
+  return value;
+}
+
 export async function fetchLandscapeContext(geneSymbol: string, expectedTranscript: string | null = null): Promise<LandscapeContext> {
   const gene = normalizeGeneSymbol(geneSymbol).toUpperCase();
   const axisTx = expectedTranscript ? expectedTranscript.trim().split(".")[0] : "none";
@@ -119,17 +147,9 @@ export async function fetchLandscapeContext(geneSymbol: string, expectedTranscri
   if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
 
   const errors: string[] = [];
-  // Two queries, so a failure in one list does not blank the other.
-  const [clinvarRes, gnomadRes, constraintRes] = await Promise.allSettled([
-    gnomadQuery(
-      `query LandscapeClinvar($gene: String!) { gene(gene_symbol: $gene, reference_genome: GRCh38) { canonical_transcript_id clinvar_variants { variant_id clinical_significance gold_stars hgvsp transcript_id } } }`,
-      gene
-    ),
-    gnomadQuery(
-      `query LandscapeGnomad($gene: String!) { gene(gene_symbol: $gene, reference_genome: GRCh38) { canonical_transcript_id variants(dataset: gnomad_r4) { variant_id consequence hgvsp transcript_id exome { ac } genome { ac } } } }`,
-      gene
-    ),
-    fetchGnomadGeneConstraint(gene)
+  const [[clinvarRes, gnomadRes], constraintRes] = await Promise.all([
+    fetchGeneMissenseRows(gene),
+    Promise.allSettled([fetchGnomadGeneConstraint(gene)]).then(([r]) => r),
   ]);
 
   let transcript: string | null = null;

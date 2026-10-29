@@ -12,6 +12,7 @@ interface CanaryVariantBenchmark {
   variant: string;
   expectedVerdict: "Pathogenic" | "Likely Pathogenic" | "Benign" | "Likely Benign" | "Variant of Uncertain Significance (VUS)";
   expectedCriteria: string[];
+  // PP2 is the calibrated regional rule: each mock carries a synthetic interval O/E of 0.5 (PP2 Supporting band).
   mockData: any;
 }
 
@@ -42,7 +43,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
         amClass: "likely_pathogenic"
       },
       conservationData: { revel: 0.94, gerp: 4.8 },
-      gnomadConstraint: { pli: 0.85, missense_z: 2.1, oe_mis: 0.65, isPP2Constrained: true },
+      gnomadConstraint: { pli: 0.85, missense_z: 2.1, oe_mis: 0.65, isPP2Constrained: true, pp2Code: "PP2", regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" } },
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001 },
       acmgWeighting: "standard",
       uniprotFeatures: { features: [{ type: "Active site", start: 143, end: 410, description: "Catalytic active site", evidence: [{ code: "ECO:0000269" }] }] },
@@ -67,7 +68,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
         amClass: "likely_pathogenic"
       },
       conservationData: { revel: 0.98, gerp: 5.2 },
-      gnomadConstraint: { pli: 0.99, missense_z: 3.5, oe_mis: 0.35, isPP2Constrained: true },
+      gnomadConstraint: { pli: 0.99, missense_z: 3.5, oe_mis: 0.35, isPP2Constrained: true, pp2Code: "PP2", regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" } },
       gnomadFrequency: { maxAF: 0.000005, groupMaxAF: 0.000005 },
       acmgWeighting: "standard",
       uniprotFeatures: { features: [{ type: "Binding site", start: 102, end: 292, description: "DNA-binding site", evidence: [{ code: "ECO:0000269" }] }] },
@@ -92,7 +93,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
         amClass: "likely_pathogenic"
       },
       conservationData: { revel: 0.96, gerp: 5.0 },
-      gnomadConstraint: { pli: 1.0, missense_z: 2.8, oe_mis: 0.45, isPP2Constrained: true },
+      gnomadConstraint: { pli: 1.0, missense_z: 2.8, oe_mis: 0.45, isPP2Constrained: true, pp2Code: "PP2", regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" } },
       gnomadFrequency: { maxAF: 0.000002, groupMaxAF: 0.000002 },
       acmgWeighting: "standard",
       uniprotFeatures: { features: [{ type: "Metal binding", start: 1, end: 100, description: "Zinc finger metal binding site", evidence: [{ code: "ECO:0000269" }] }] },
@@ -116,7 +117,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
         amClass: "likely_benign"
       },
       conservationData: { revel: 0.12, gerp: 0.5 },
-      gnomadConstraint: { pli: 0.85, missense_z: 2.1, oe_mis: 0.65, isPP2Constrained: true },
+      gnomadConstraint: { pli: 0.85, missense_z: 2.1, oe_mis: 0.65, isPP2Constrained: true, pp2Code: "PP2", regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" } },
       gnomadFrequency: { maxAF: 0.085, groupMaxAF: 0.085 },
       acmgWeighting: "standard",
       uniprotFeatures: null,

@@ -42,9 +42,13 @@ test('warms gene and species evidence before core results or tab visits', { tags
     store.getState().setAnalysisState(createPlaceholderAnalysisState({ gene: 'UROD', variant: 'p.Gly318Arg', uniprotId: 'P06132', residueIndex: 318, wildType: 'G', mutant: 'R' }));
     return true;
   });
+  // Setting the result warms hot spots (the one read that needs the resolved protein);
+  // then visiting Gene-disease and Species & models starts no new requests.
+  const afterResult = await browser.evaluate(() => (window as unknown as { contextRequests: string[] }).contextRequests.length);
+  expect(afterResult).toBe(beforeCore.requests.length + 1);
   await screen.getByRole('button', /^Gene.disease/).tap();
   await expect(screen.getByTestId('gene-disease-screen')).toBeVisible();
   await screen.getByRole('button', /^Species & models/).tap();
   await expect(screen.getByRole('heading', 'Species & models', { exact: true })).toBeVisible();
-  expect(await browser.evaluate(() => (window as unknown as { contextRequests: string[] }).contextRequests.length)).toBe(beforeCore.requests.length);
+  expect(await browser.evaluate(() => (window as unknown as { contextRequests: string[] }).contextRequests.length)).toBe(afterResult);
 });

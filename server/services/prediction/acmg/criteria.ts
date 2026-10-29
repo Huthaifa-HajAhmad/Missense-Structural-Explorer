@@ -3,6 +3,8 @@ import {
   countPredictorConcordance,
   insilicoVoteOutcome,
   PredictorConcordance,
+  REGIONAL_MISSENSE_CALIBRATION,
+  REGIONAL_MISSENSE_SOURCE,
 } from "../../../../src/shared/thresholds.ts";
 import type { ClinVarData } from "../../external-api/clinvar.ts";
 import type { PredictorData, ConservationData } from "../../../../src/shared/contracts.ts";
@@ -32,6 +34,9 @@ export interface ACMGEvidenceInput {
     oe_mis: number | null;
     pli: number | null;
     isPP2Constrained: boolean;
+    pp2Code?: "PP2" | "PP2_Moderate" | null;
+    regionalRelease?: string;
+    regionalConstraint?: { oeRatio: number | null; regionText: string | null } | null;
   } | null;
   gnomadFrequency?: GnomadVariantFrequency | {
     maxAF: number | null;
@@ -441,15 +446,19 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // -------------------------------------------------------------------------
   // 3. PP2 — Missense constraint (ACMG-6: live gnomAD constraint preferred)
   // -------------------------------------------------------------------------
-  if (gnomadConstraint?.isPP2Constrained && !skipPathogenicComp) {
-    const misZ  = typeof gnomadConstraint.missense_z === "number" ? gnomadConstraint.missense_z.toFixed(2) : "N/A";
-    const oeMis = typeof gnomadConstraint.oe_mis === "number"     ? gnomadConstraint.oe_mis.toFixed(3)     : "N/A";
+  // Calibrated regional rule (Chao et al. v3, calibration.ts): the O/E of the gnomAD v4.1.1 missense
+  // constraint region containing the variant. It replaced gene Z ≥ 3.09 AND o/e < 0.6, which was never
+  // calibrated as PP2 evidence. No verified locus or interval, no PP2: gene Z is not a substitute.
+  const pp2Code = gnomadConstraint?.pp2Code ?? null;
+  const region = gnomadConstraint?.regionalConstraint;
+  if (pp2Code && region && typeof region.oeRatio === "number" && !skipPathogenicComp) {
+    const edge = pp2Code === "PP2_Moderate" ? REGIONAL_MISSENSE_CALIBRATION.pp2.Moderate : REGIONAL_MISSENSE_CALIBRATION.pp2.Supporting;
     criteria.push({
-      code: "PP2",
+      code: pp2Code,
       reason:
-        `Missense variant in gnomAD-constrained gene ${gene} ` +
-        `(missense Z-score: ${misZ}, observed/expected: ${oeMis}). ` +
-        `Low rate of benign missense variants supports pathogenic missense mechanism.`,
+        `Missense variant in a gnomAD v${gnomadConstraint?.regionalRelease ?? "4.1.1"} missense constraint region of ${gene} ` +
+        `with observed/expected ${region.oeRatio.toFixed(2)} (${region.regionText ?? "interval"}), at or below ${edge}: ` +
+        `${pp2Code === "PP2_Moderate" ? "Moderate" : "Supporting"} under ${REGIONAL_MISSENSE_SOURCE.short}'s ClinGen calibration.`,
     });
   }
 

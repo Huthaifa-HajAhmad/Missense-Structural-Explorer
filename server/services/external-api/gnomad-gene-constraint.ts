@@ -2,7 +2,7 @@ import type { LRUCache } from "lru-cache";
 import type { AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
 import type { GnomadConstraintData } from "../../../src/shared/contracts.ts";
 import { CONSTRAINT_URL, REGIONAL_CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_URL } from "../../../src/shared/constraintSource.ts";
-import { isPp2Constrained } from "../../../src/shared/thresholds.ts";
+import { regionalPp2Code } from "../../../src/shared/thresholds.ts";
 import { normalizeGeneSymbol } from "../infra/http-client.ts";
 import { getConstraintIndex, type ConstraintIndex, type ConstraintRow } from "./constraint-snapshot.ts";
 
@@ -40,7 +40,8 @@ export async function fetchGnomadGeneConstraint(geneSymbol: string, _aaPos?: num
   const result: GnomadGeneConstraint = {
     missense_z: usable ? row.missense_z : null, oe_mis: usable ? row.oe_mis : null,
     pli: usable ? row.pli : null, loeuf: usable ? row.loeuf : null,
-    isPP2Constrained: usable && isPp2Constrained(row.missense_z, row.oe_mis) === true,
+    // PP2 is read from the variant's regional interval below (calibrated), never from gene Z.
+    isPP2Constrained: false, pp2Code: null,
     provenance: { release: index.snapshot.release, assembly: "GRCh38", geneId: row.geneId, transcriptId: row.transcriptId,
       transcriptVersion: row.transcriptVersion, selection: exact ? "matched" : row.mane ? "mane-select" : row.canonical ? "canonical" : "sole-transcript",
       sourceUrl: CONSTRAINT_URL, sourceSha256: index.snapshot.sourceSha256 },
@@ -69,5 +70,10 @@ export async function fetchGnomadGeneConstraint(geneSymbol: string, _aaPos?: num
   result.regionalStatus = region.p < 0.05 && region.oe < 1 ? "measured" : "nonsignificant";
   result.regionalConstraint = { isConstrained: result.regionalStatus === "measured", oeRatio: region.oe, pValue: region.p,
     regionText: `${region.chrom}:${region.start} to ${region.end} (GRCh38)` };
+  // Chao et al. v3 calibrate the O/E of the interval containing the variant, whatever its breakpoint p
+  // (single-interval transcripts included), so PP2 reads every QC-passing interval. Low-coverage
+  // intervals stay out above (`failed-qc`): fewer calls, never more.
+  result.pp2Code = regionalPp2Code(region.oe) ?? null;
+  result.isPP2Constrained = result.pp2Code !== null;
   return result;
 }

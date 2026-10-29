@@ -65,6 +65,15 @@ export async function runAlignMutantToWtInWorker(params: {
   return getBiophysicsPool().run(params, { name: "runAlignMutantToWt" });
 }
 
+/** The Hotspots view's 3D clustering and PathProx scores (src/shared/spatialClustering.ts), off the event loop. */
+export async function runSpatialClusteringInWorker(params: { residues: number[]; coords: number[]; pathogenic: number[]; neutral: number[] }): Promise<{
+  structureResidues: number; pathogenicResidues: number; neutralResidues: number; permutations: number;
+  univariate: { area: number; p: number }; bivariate: { area: number; p: number }; clustered: boolean; threshold: number | null;
+  scores: Array<[number, number]>; selfCheck: { auroc: number; pathogenic: number; neutral: number } | null;
+} | null> {
+  return getBiophysicsPool().run(params, { name: "runSpatialClustering" });
+}
+
 export async function shutdownPool() {
   if (piscinaInstance) {
     console.log("[Biophysics Pool] Draining and shutting down worker pool...");

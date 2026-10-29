@@ -5,12 +5,15 @@ import { BookOpen, Database, GitBranch, Ruler, Scale } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
+import { REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import {
   CLINGEN_CLASS_BANDS,
   CLINGEN_POINTS,
   PP2_RULE,
+  PP2_SOURCE,
+  REGIONAL_STATUS_WORDS,
   RICHARDS_2015,
   TAVTIGIAN_2020,
   buildLadderEvidence,
@@ -147,13 +150,19 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             </span>
             <span className="prd-step__sub">Plurality of calls; applied at Supporting strength.</span>
           </Step>
-          <Step n={4} label="Gene constraint → PP2" state={constraint.missenseZ === null ? "idle" : "done"}>
+          <Step n={4} label="Regional constraint → PP2" state={ev.engine.pp2Stale ? "warn" : constraint.regionalOe === null ? "idle" : "done"}>
             <span>
-              {constraint.missenseZ === null
-                ? `${ENGINE_STATE_LABELS["no-result"]} from gnomAD, so PP2 was not tested`
-                : `Z ${constraint.missenseZ.toFixed(2)}${constraint.oeMis !== null ? `, o/e ${constraint.oeMis.toFixed(2)}` : ""} → ${constraint.pp2RuleMet ? "met" : "not met"}`}
+              {constraint.regionalOe === null
+                ? `No regional O/E at this variant${constraint.regionalStatus ? ` (${REGIONAL_STATUS_WORDS[constraint.regionalStatus] ?? constraint.regionalStatus})` : ""}, so PP2 was not tested`
+                : `Regional O/E ${constraint.regionalOe.toFixed(2)} → ${constraint.pp2Code === "PP2_Moderate" ? "PP2 Moderate" : constraint.pp2Code === "PP2" ? "PP2 Supporting" : "not met"}`}
             </span>
-            <span className="prd-step__sub">Rule: Z ≥ {PP2_RULE.missenseZ} and o/e &lt; {PP2_RULE.oeMisBelow} (local proxy)</span>
+            <span className="prd-step__sub">
+              Rule: O/E ≤ {PP2_RULE.pp2.Moderate} Moderate, ≤ {PP2_RULE.pp2.Supporting} Supporting ·{" "}
+              <a href={`https://doi.org/${PP2_SOURCE.doi}`} target="_blank" rel="noreferrer">{PP2_SOURCE.short}</a>
+            </span>
+            {ev.engine.pp2Stale && (
+              <span className="prd-step__warn">This result records PP2 from the retired gene Z / o-e proxy. Re-run the analysis to refresh it.</span>
+            )}
           </Step>
           <Step n={5} label="BP1" state={ev.engine.bp1Stale ? "warn" : "idle"}>
             <span>Not assessed</span>
@@ -285,7 +294,8 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             </li>
             <li>
               PP2: missense variant in a gene with a low rate of benign missense variation where missense is a common
-              disease mechanism. gnomAD missense Z with o/e is the engine&apos;s proxy for it.
+              disease mechanism. The engine reads it from the O/E of the gnomAD regional interval holding the variant, with
+              Chao et al.&apos;s calibrated edges (≤ {REGIONAL_MISSENSE_CALIBRATION.pp2.Moderate} Moderate, ≤ {REGIONAL_MISSENSE_CALIBRATION.pp2.Supporting} Supporting); gene Z is context only.
             </li>
             <li>
               BP1: missense variant in a gene where truncating variants are the known cause of disease. It needs curated

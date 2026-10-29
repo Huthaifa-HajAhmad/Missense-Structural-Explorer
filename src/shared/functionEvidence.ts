@@ -132,12 +132,8 @@ export interface VariantDensity {
   residues: number;
   /** Disease variants at the query residue (all substitutions). */
   atResidue: number;
-  /** Disease variants within `nearWindow` residues of the query. */
-  near: number;
-  nearWindow: number;
-  /** The densest `densestWindow`-residue stretch. */
-  densest: { start: number; end: number; count: number } | null;
-  densestWindow: number;
+  // A ±10 "near" count and a 15-residue "densest" stretch used to sit here; no source set either window.
+  // Hot-spot definitions with a source live in the Hotspots view (hotspotEvidence.ts).
 }
 
 export interface FunctionEvidence {
@@ -234,6 +230,10 @@ function groupOf(f: UniprotFeatureItem): AnnotationGroup {
 
 /** A span covering this share of the chain is context for the residue, not an annotation at it. */
 const BROAD_SPAN = 0.3;
+/** True for a topological span or region that wide: shown as context, never as "a site at" a residue. */
+export function isBroadAnnotation(r: Pick<AnnotationRow, "group" | "isPair" | "start" | "end">, length: number): boolean {
+  return r.group !== "domains" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
+}
 /** Longest unassigned gap still described as a link between two secondary-structure elements. */
 const MAX_LINK = 8;
 
@@ -492,6 +492,31 @@ function boxFromMatch(m: DomainMatch, residue: number, length: number): DomainBo
   };
 }
 
+/**
+ * The domains a protein map draws: InterPro domain boxes when InterPro answered with any, else UniProt's own
+ * Domain features. One decision for the Functional domains map and the Interfaces atlas, so the two cannot
+ * draw different domains for one protein (NAE1's atlas showed only a 17-residue UniProt Region while the
+ * Functional domains map drew InterPro's ThiF domains).
+ */
+export function drawnDomains(uniprot: UniprotFeaturesData | null | undefined, residue: number, length: number): DomainBox[] {
+  const boxes = (uniprot?.domainMatches ?? []).filter((m) => kindOfMatch(m) === "domain").map((m) => boxFromMatch(m, residue, length));
+  if (boxes.length) return boxes;
+  return (uniprot?.features ?? [])
+    .filter((f) => lower(f.type) === "domain")
+    .map((f, i) => ({
+      key: `uniprot-domain-${i}`,
+      name: f.description || "Domain",
+      source: "UniProtKB",
+      accession: f.interproId ?? "",
+      interpro: null,
+      entryType: null,
+      segments: [{ start: f.start, end: f.end }],
+      covers: featureCoversResidue(f, residue),
+      coverage: (f.end - f.start + 1) / length,
+      url: f.interproId ? `https://www.ebi.ac.uk/interpro/entry/InterPro/${encodeURIComponent(f.interproId)}/` : null,
+    }));
+}
+
 const segText = (b: DomainBox) => b.segments.map((s) => `${s.start}–${s.end}`).join(", ");
 
 function structureContext(ss: SecondaryStructureElement[], residue: number): { value: string; sub: string; sentence: string } | null {
@@ -585,22 +610,8 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // A structural segment spanning 80% or more of the chain in one piece (Gene3D 2-154 of SOD1) places nothing; it
   // stays in the table and is not drawn. Two segments with a gap between them (NAE1) say something and are drawn.
   const structuralDrawn = structural.filter((b) => !b.segments.some((seg) => length > 0 && (seg.end - seg.start + 1) / length >= 0.8));
-  const uniprotDomainBoxes: DomainBox[] = features
-    .filter((f) => lower(f.type) === "domain")
-    .map((f, i) => ({
-      key: `uniprot-domain-${i}`,
-      name: f.description || "Domain",
-      source: "UniProtKB",
-      accession: f.interproId ?? "",
-      interpro: null,
-      entryType: null,
-      segments: [{ start: f.start, end: f.end }],
-      covers: featureCoversResidue(f, residue),
-      coverage: (f.end - f.start + 1) / length,
-      url: f.interproId ? `https://www.ebi.ac.uk/interpro/entry/InterPro/${encodeURIComponent(f.interproId)}/` : null,
-    }));
   // Draw InterPro domain boxes when there are any; else UniProt's. Both are listed in the table.
-  const domains = domainBoxes.length ? domainBoxes : uniprotDomainBoxes;
+  const domains = drawnDomains(uniprot, residue, length);
 
   const domainRows: AnnotationRow[] = [...domainBoxes, ...structural, ...motifs].map((b) => {
     const nearest = b.segments.reduce((best, s) => {
@@ -691,7 +702,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     return r.group !== "composition";
   });
   // A topological span or region covering a third of the chain is context for the residue, not a site at it.
-  const isBroadRow = (r: AnnotationRow) => r.group !== "domains" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
+  const isBroadRow = (r: AnnotationRow) => isBroadAnnotation(r, length);
   const contextAtResidue = atResidue.filter(isBroadRow);
   /** The first broad span covering the residue, if any: named so the trace never claims "no site or region" while earlier text says the residue lies in one. */
   const broadCover = contextAtResidue[0] ?? null;
@@ -719,28 +730,16 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // Density, so the reader sees a distribution rather than N identical marks.
   const perResidue = new Map<number, number>();
   for (const r of rows) if (r.disease) perResidue.set(r.start, (perResidue.get(r.start) ?? 0) + 1);
-  const DENSEST_WINDOW = 15;
-  const NEAR_WINDOW = 10;
-  let densest: VariantDensity["densest"] = null;
-  for (const start of perResidue.keys()) {
-    let count = 0;
-    for (let r2 = start; r2 < start + DENSEST_WINDOW; r2++) count += perResidue.get(r2) ?? 0;
-    if (!densest || count > densest.count || (count === densest.count && start < densest.start)) densest = { start, end: Math.min(length, start + DENSEST_WINDOW - 1), count };
-  }
   const density: VariantDensity = {
     total: rows.filter((r) => r.disease).length,
     residues: perResidue.size,
     atResidue: perResidue.get(residue) ?? 0,
-    near: Array.from(perResidue.entries()).filter(([r2]) => Math.abs(r2 - residue) <= NEAR_WINDOW).reduce((n, [, c]) => n + c, 0),
-    nearWindow: NEAR_WINDOW,
-    densest,
-    densestWindow: DENSEST_WINDOW,
   };
   const variantGroup = groups.find((g) => g.group === "variants");
   if (variantGroup && density.total > 0) {
     const poly = rows.filter((r) => r.group === "variants" && !r.disease).length;
     // The group's count is rows (residues); say how many variants those are, so "58" and "81" do not look like a mistake.
-    variantGroup.summary = `${density.total} disease variant${density.total === 1 ? "" : "s"} at ${density.residues} residue${density.residues === 1 ? "" : "s"}${poly ? `, ${poly} polymorphism${poly === 1 ? "" : "s"}` : ""} · ${density.near} within ±${NEAR_WINDOW} of ${residue}${density.densest && density.total >= 12 ? ` · densest ${density.densest.start}–${density.densest.end} (${density.densest.count})` : ""}`;
+    variantGroup.summary = `${density.total} disease variant${density.total === 1 ? "" : "s"} at ${density.residues} residue${density.residues === 1 ? "" : "s"}${poly ? `, ${poly} polymorphism${poly === 1 ? "" : "s"}` : ""}`;
   }
 
   // The processed protein's number: UniProt's chain starts after residue 1 (initiator Met removed, signal peptide
@@ -940,11 +939,12 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       rest: `UniProt's chain starts at residue ${matureNumbering.chainStart}, so the processed protein numbers every residue ${matureNumbering.chainStart - 1} lower (residue ${residue} is ${matureNumbering.residue}). This page and the report use the canonical numbering.`,
     });
   }
-  // A12: a protein dense with disease variants reads as a PM1 hot spot; PM1 here tests sites only.
-  if (uniprot && density.total >= 10) {
+  // A12: disease variants can read as a PM1 hot spot; PM1 here tests sites only. Any count says so: the
+  // ≥10 trigger it used to wait for had no source.
+  if (uniprot && density.total > 0) {
     caveats.push({
-      lead: `UniProtKB lists ${density.total} disease variants across ${density.residues} residues.`,
-      rest: `${density.near} lie within ${density.nearWindow} residues of ${residue}. PM1's hot-spot reading, a cluster of pathogenic variants with no benign variation, is not tested here, so density alone is not read as PM1.`,
+      lead: `UniProtKB lists ${density.total} disease variant${density.total === 1 ? "" : "s"} across ${density.residues} residue${density.residues === 1 ? "" : "s"}.`,
+      rest: "PM1's hot-spot reading, a cluster of pathogenic variants with no benign variation, is not tested by the engine. The Hotspots view lays out each published definition for this protein.",
     });
   }
   // D1: PM1 asks for a region without benign variation but does not test it. Show the one population

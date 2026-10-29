@@ -1,0 +1,47 @@
+{
+  "_comment": "Pre-registered before any PathProx score was joined to a test variant. benchmark.ts reads this file and grades mechanically; editing it after results exist invalidates the decision record (doc/HOTSPOT_3D_DECISION.md quotes its sha256).",
+  "registered": "2026-10-28",
+  "disclosure": "Before registration, scripts/hotspot_probe/ripley_probe.py computed only the two clustering p-values for SOD1 and VHL (both clustered). No discrimination statistic for any gene had been computed.",
+  "question": "Does the 3D spatial-proximity reading of Sivley et al. 2018 (PathProx), computed on the AlphaFold DB model the app shows, separate germline ClinVar P/LP missense from gnomAD missense well enough, and beyond the regional O/E the app already shows, to appear on the Hotspots subtab as a labelled, non-voting suggestion?",
+  "genes": ["SOD1", "BRCA1", "LDLR", "VHL", "SCN1A", "KCNQ2"],
+  "excluded_a_priori": {"RYR2": "AlphaFold DB serves no model for proteins over 2,700 residues (Q92736 returns none), so the app has no model to compute on either."},
+  "structure": {
+    "source": "AlphaFold DB, latest model of the UniProt canonical entry (F1), file sha256 recorded in data/",
+    "residues": "Cα atoms with pLDDT >= 70 (AlphaFold DB's published 'confident' band). Variants at other residues are unscored and reported as coverage.",
+    "identity": "The model sequence must equal the MANE Select protein residue for residue; otherwise the gene is excluded and the reason recorded."
+  },
+  "reference_sets": {
+    "P": "residues with >=1 ClinVar P/LP missense, >=1 star (the app's classifyClinvar rule)",
+    "N": "residues with >=1 gnomAD v4.1 missense SNV counted by the tolerance benchmark's rule, excluding ClinVar P/LP and conflicting variants",
+    "overlap": "a residue may be in both sets (Sivley 2018 counts variants, not residues)"
+  },
+  "clustering_gate": {
+    "method": "Sivley 2018: univariate K of P against random residue sets of the structure; bivariate D(t) = K_P(t) - K_N(t) against label permutations of the pooled P+N positions",
+    "range": "minimum observed pairwise distance to half the maximum (to the maximum when the minimum exceeds half of it); P pairs for univariate, pooled pairs for bivariate",
+    "grid_steps": 40,
+    "permutations": 2000,
+    "seed": 20261028,
+    "statistic": "Simpson area between the observed curve and the median permuted curve",
+    "p_value": "two-tailed, (k + 1) / (permutations + 1)",
+    "clustered": "both tests p < 0.05 with a positive observed area",
+    "deviations_from_paper": "2,000 permutations instead of 100,000; a single protein, so the paper's 10% FDR across proteins does not apply; AlphaFold model instead of a solved structure; residues instead of variants"
+  },
+  "score": {
+    "method": "PathProx: proportion of P within t of the residue minus proportion of N within t of the residue",
+    "threshold_t": "the grid distance where the bivariate Z-score (observed minus permutation mean, over permutation SD) is largest, chosen on the full sets as the paper does",
+    "leave_out": "the scored residue's own entries are removed from P and N before scoring (residue-level leave-one-out)"
+  },
+  "primary_contrast": "plp_vs_gnomad_ac2",
+  "contrasts": {
+    "plp_vs_gnomad_ac2": "ClinVar P/LP missense (>=1 star) vs gnomAD v4.1 missense, joint AC>=2, not ClinVar P/LP or conflicting (tolerance benchmark definition)",
+    "plp_vs_blb": "ClinVar P/LP vs ClinVar B/LB missense (>=1 star)"
+  },
+  "baseline": {"rmc_oe": {"label": "gnomAD v4.1.1 regional missense O/E at the residue (already on the Landscape tab)", "direction": "lower_is_intolerant"}},
+  "pass": {
+    "informative_gene": {"rule": "clustering gate passed, and >=10 scored positives and >=10 scored negatives in the primary contrast", "min_positives": 10, "min_negatives": 10},
+    "P3_discrimination": {"rule": "primary-contrast AUROC >=0.70 with bootstrap 95% CI lower bound >=0.60 in >=2 informative genes (the house standard set by the tolerance benchmark)", "min_auroc": 0.70, "min_ci_low": 0.60, "min_genes": 2},
+    "P5_incremental": {"rule": "in >=1 informative gene, the paired bootstrap 95% CI of AUROC(PathProx) - AUROC(RMC O/E) lies above 0", "min_genes": 1}
+  },
+  "decision_rule": "Show PathProx on the Hotspots subtab as 'Published method, benchmarked here', non-voting and never an engine input, only if P3 and P5 pass; at run time show it only for a gene whose clustering gate passes. Otherwise reject and record.",
+  "bootstrap": {"iterations": 2000, "seed": 20261028}
+}

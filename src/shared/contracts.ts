@@ -1791,7 +1791,10 @@ export const analyzeVariantResponseSchema = z.object({
     oe_mis: z.number().nullable(),
     pli: z.number().nullable(),
     loeuf: z.number().nullable().optional(),
+    /** PP2 met under the calibrated regional rule (`pp2Code` not null). Older payloads: the retired Z/o-e proxy. */
     isPP2Constrained: z.boolean(),
+    /** The calibrated PP2 strength from the variant's regional O/E (calibration.ts); absent on payloads before it. */
+    pp2Code: z.enum(["PP2", "PP2_Moderate"]).nullable().optional(),
     hasRegionalData: z.boolean().optional(),
     regionalConstraint: z.object({
       isConstrained: z.boolean(),
@@ -2672,7 +2675,10 @@ export interface GnomadConstraintData {
   oe_mis: number | null;
   pli: number | null;
   loeuf?: number | null;
+  /** PP2 met under the calibrated regional rule. On payloads before `pp2Code`, the retired Z/o-e proxy. */
   isPP2Constrained: boolean;
+  /** Calibrated PP2 strength from the variant's regional O/E (Chao et al. v3); `null` = assessed, below the band. */
+  pp2Code?: "PP2" | "PP2_Moderate" | null;
   hasRegionalData?: boolean;
   regionalConstraint?: {
     isConstrained: boolean;

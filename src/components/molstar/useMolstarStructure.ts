@@ -48,6 +48,8 @@ export interface UseMolstarStructureOptions {
   companionResidues?: readonly number[];
   showPolarContacts: boolean;
   show3DLabels: boolean;
+  /** Label every companion, not only a set of `MAX_LABELLED_COMPANIONS` or fewer: the reader's choice. */
+  labelAllCompanions?: boolean;
   /** Missense-style site close-up: softens surrounding cartoon, shows 5 Å contact shell and labels, and frames the site tightly. */
   siteCloseUp?: boolean;
   residueColorHex: number;
@@ -109,10 +111,16 @@ function residuesExpression(indices: readonly number[]) {
 }
 
 const NO_RESIDUES: readonly number[] = [];
-/** Companions are labelled only while the set is small enough to read (a disulfide pair, not an interface). */
-const MAX_LABELLED_COMPANIONS = 4;
+/** Companions are labelled by default only while the set is small enough to read (a disulfide pair, not an
+ * interface); a larger set is labelled when the reader asks for it (`labelAllCompanions`). */
+export const MAX_LABELLED_COMPANIONS = 4;
+/** A reader may label a large set, but not an unbounded one: 60 tethered labels stay readable on a laptop
+ *  GPU; several hundred turn the canvas into text and cost a frame for every label. */
+export const MAX_LABEL_ALL_COMPANIONS = 60;
 /** Carbon colour of companion residues: distinct from the variant site, the grey surroundings and the pocket. */
-const COMPANION_CARBON = 0x3b6ea5;
+export const COMPANION_CARBON = 0x3b6ea5;
+/** Predicted pocket lining (P2Rank). Named here so the canvas guide's swatch is the drawn colour. */
+export const POCKET_COLOUR = 0xb08a2e;
 
 /** The element the plugin renders into. Named in two places, so it is named here once. */
 export const VIEWER_CONTAINER_ID = "molstar-viewer-container";
@@ -179,6 +187,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     companionResidues = NO_RESIDUES,
     showPolarContacts,
     show3DLabels,
+    labelAllCompanions = false,
     siteCloseUp = false,
     residueColorHex,
     neonHighContrast,
@@ -601,11 +610,22 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
               color: "element-symbol",
               colorParams: { carbonColor: { name: "uniform", params: { value: Color(COMPANION_CARBON) } } },
             });
-            if (effectiveLabels && companionResidues.length <= MAX_LABELLED_COMPANIONS) {
-              await plugin.builders.structure.representation.addRepresentation(companions, {
-                type: "label",
-                typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.2, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "top-left" },
-              });
+            const labelled = effectiveLabels && (companionResidues.length <= MAX_LABELLED_COMPANIONS || labelAllCompanions);
+            const container = document.getElementById(VIEWER_CONTAINER_ID);
+            if (container) container.dataset.companionLabels = labelled ? "on" : "off";
+            if (labelled) {
+              // Label a bounded subset: `labelAllCompanions` can ask for a 200-residue set, and a label
+              // representation for every one of them is unreadable and expensive. The card names the cap.
+              const toLabel = companionResidues.length > MAX_LABEL_ALL_COMPANIONS ? companionResidues.slice(0, MAX_LABEL_ALL_COMPANIONS) : companionResidues;
+              const labelTarget = toLabel.length === companionResidues.length ? companions
+                : await plugin.builders.structure.tryCreateComponentFromExpression(structure, residuesExpression(toLabel), "companion-labels", { label: `Label ${toLabel.length} companion residues` });
+              if (!active) return;
+              if (labelTarget) {
+                await plugin.builders.structure.representation.addRepresentation(labelTarget, {
+                  type: "label",
+                  typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.2, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "top-left" },
+                });
+              }
             }
             // Frame the whole set, not just the selected residue.
             const framed = [...new Set([...(selectedResidue ? [selectedResidue] : []), ...(variantPosition ? [variantPosition] : []), ...companionResidues])];
@@ -625,8 +645,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           if (!active) return;
           if (pocket) {
             refs.push(pocket.ref);
-            await plugin.builders.structure.representation.addRepresentation(pocket, { type: "ball-and-stick", color: "uniform", colorParams: { value: Color(0xb08a2e) } });
-            await plugin.builders.structure.representation.addRepresentation(pocket, { type: "molecular-surface", color: "uniform", colorParams: { value: Color(0xb08a2e) }, typeParams: { alpha: 0.18 } });
+            await plugin.builders.structure.representation.addRepresentation(pocket, { type: "ball-and-stick", color: "uniform", colorParams: { value: Color(POCKET_COLOUR) } });
+            await plugin.builders.structure.representation.addRepresentation(pocket, { type: "molecular-surface", color: "uniform", colorParams: { value: Color(POCKET_COLOUR) }, typeParams: { alpha: 0.18 } });
           }
         }
 
@@ -654,9 +674,13 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     highlight();
     return () => {
       active = false;
+      // The attribute is the proof harness's readout of what is drawn; a stale "on" after the set is
+      // cleared would report labels that no longer exist.
+      const container = document.getElementById(VIEWER_CONTAINER_ID);
+      if (container) delete container.dataset.companionLabels;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, labelAllCompanions, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
 
   /** Frames one residue without changing any selection. */
   const focusResidue = (index: number) => {

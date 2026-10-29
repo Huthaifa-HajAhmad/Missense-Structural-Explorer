@@ -60,6 +60,7 @@ import type {
   PpiInteractionSite,
 } from "./contracts.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { drawnDomains } from "./functionEvidence.ts";
 import { THRESHOLDS } from "./thresholds/constants.ts";
 import { stringConfidenceLabel } from "./thresholds/evaluators.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "./aminoAcids.ts";
@@ -492,6 +493,54 @@ function intactLine(e: IntactEvidence | null, experiments: number | null, intact
   return `${method} · ${studies === 1 ? `1 study (PubMed ${e.pubmed[0]})` : plural(studies, "study", "studies")}`;
 }
 
+/** Track and table name of a solved partner: "SOD1, other chain", "CCS", "Sod1 (mouse)", "SOD1 fibril". */
+function observedLabel(p: ObservedInterface, gene: string): string {
+  const name = p.gene ?? p.name;
+  if (p.context === "fibril") return `${p.homomeric ? gene : name} fibril`;
+  if (p.context === "crystal") return `${p.homomeric ? gene : name} (outside the assembly)`;
+  return p.homomeric ? `${gene}, other chain` : p.organism ? `${name} (${p.organism.toLowerCase()})` : name;
+}
+
+/**
+ * Native interface support at every residue, for views that read residues other than the queried one.
+ *
+ * The same partners the Interfaces tab counts as native (not a tool binder or construct tag, not an amyloid
+ * fibril, not crystal packing outside the assembly), each with the number of solved structures that place a
+ * residue at the interface and the number that show the pair, so a residue reads "104 of 118" and never
+ * "at the interface".
+ *   - `unavailable`: no assembly was read, or the stored one predates per-residue support. Not a negative.
+ *   - `none`: the service answered and no native interface is observed for this protein. Every residue is then
+ *     measured as not at one.
+ */
+export interface NativeInterfaceSupport {
+  status: "ok" | "none" | "unavailable";
+  reason: string | null;
+  /** Residues with support from at least one native partner, with that partner's label and counts, best first. */
+  byResidue: ReadonlyMap<number, ReadonlyArray<{ label: string; k: number; n: number }>>;
+}
+
+export function nativeInterfaceSupport(assembly: MultimerData | null | undefined, gene: string): NativeInterfaceSupport {
+  const none = new Map<number, never[]>();
+  if (!assembly) return { status: "unavailable", reason: "The assembly was not read.", byResidue: none };
+  if (isStaleAssembly(assembly)) return { status: "unavailable", reason: "The stored assembly predates per-residue support and is being re-read.", byResidue: none };
+  const exp = assembly.experimental;
+  if (exp?.status !== "ok") return { status: "unavailable", reason: "PDBe-KB interfaces were not read for this protein.", byResidue: none };
+  const native = exp.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal");
+  if (!native.length) return { status: "none", reason: null, byResidue: none };
+  const byResidue = new Map<number, Array<{ label: string; k: number; n: number }>>();
+  for (const p of native) {
+    p.residues.forEach((residue, i) => {
+      const k = p.support[i] ?? 0;
+      if (k <= 0) return;
+      const list = byResidue.get(residue) ?? [];
+      list.push({ label: observedLabel(p, gene), k, n: p.pdbEntries.length });
+      byResidue.set(residue, list);
+    });
+  }
+  for (const list of byResidue.values()) list.sort((a, b) => b.k / Math.max(1, b.n) - a.k / Math.max(1, a.n) || b.k - a.k);
+  return { status: "ok", reason: null, byResidue };
+}
+
 // ── Builder ─────────────────────────────────────────────────────────────────
 
 export function buildInterfacesEvidence(input: BuildInterfacesInput): InterfacesEvidence {
@@ -535,13 +584,9 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     const n = p.pdbEntries.length;
     const fibril = p.context === "fibril";
     const crystal = p.context === "crystal";
-    const name = p.gene ?? p.name;
     return {
       ...p,
-      label: fibril
-        ? `${p.homomeric ? gene : name} fibril`
-        : crystal ? `${p.homomeric ? gene : name} (outside the assembly)`
-        : p.homomeric ? `${gene}, other chain` : p.organism ? `${name} (${p.organism.toLowerCase()})` : name,
+      label: observedLabel(p, gene),
       key: `solved:${p.accession}:${p.context ?? "native"}`,
       n,
       k: p.variantEntries.length,
@@ -1059,19 +1104,31 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       summary: `${plural(tm, "membrane segment")}; ${resLabel} is ${where ? (where.type === "Topological domain" ? `in the ${lower1(where.description || "topological domain")} part` : "in a membrane segment") : "outside annotated topology"}`,
     });
   }
-  const named = feats.filter(f => (f.type === "Domain" || f.type === "Region" || f.type === "Repeat" || f.type === "Zinc finger") && f.start > 0 && f.end >= f.start && !/disordered/i.test(f.description ?? ""));
+  // Domains are the Functional domains map's own (drawnDomains: InterPro when it answered, else UniProt), so
+  // the two tabs cannot draw different domains; regions are UniProt's named Regions, Repeats and Zinc fingers.
+  // A Region that IS a mapped binding site (same bounds and note) is drawn once, in the sites lane below: NAE1's
+  // "Interaction with UBA3" sat in both lanes.
+  const isSite = (f: { start: number; end: number; description?: string }) =>
+    sites.some(x => x.start === f.start && x.end === f.end && x.description.trim().toLowerCase() === (f.description ?? "").trim().toLowerCase());
+  const domainBoxes = drawnDomains(features, position ?? 0, sequenceLength ?? Math.max(position ?? 1, ...feats.map(f => f.end)));
+  const regions = feats.filter(f => (f.type === "Region" || f.type === "Repeat" || f.type === "Zinc finger") && f.start > 0 && f.end >= f.start && !/disordered/i.test(f.description ?? "") && !isSite(f));
+  const named = [
+    ...domainBoxes.flatMap(b => b.segments.map(seg => ({ start: seg.start, end: seg.end, kind: "domain" as const, name: b.name }))),
+    ...regions.map(f => ({ start: f.start, end: f.end, kind: f.type === "Region" ? "region" as const : "domain" as const, name: f.description || f.type })),
+  ].sort((a, b) => a.start - b.start || a.end - b.end);
   if (named.length) {
+    const domainSource = domainBoxes.some(b => b.source !== "UniProtKB") ? "InterPro" : "UniProt";
     track.push({
       key: "domains",
       kind: "domains",
       label: "Domains & regions",
-      sub: "UniProt",
-      ranges: named.map(f => ({ start: f.start, end: f.end, kind: f.type === "Domain" ? "domain" : "region", name: f.description || f.type, hit: Boolean(position !== null && f.start <= position && position <= f.end) })),
+      sub: regions.length && domainSource === "InterPro" ? "InterPro and UniProt" : domainSource,
+      ranges: named.map(r => ({ ...r, hit: Boolean(position !== null && r.start <= position && position <= r.end) })),
       marks: [],
       hit: false,
       readout: null,
       rowKey: null,
-      summary: named.map(f => `${f.description || f.type} ${rangeText(f)}`).join("; "),
+      summary: named.map(r => `${r.name} ${r.start === r.end ? r.start : `${r.start}–${r.end}`}`).join("; "),
     });
   }
   if (sites.length) {

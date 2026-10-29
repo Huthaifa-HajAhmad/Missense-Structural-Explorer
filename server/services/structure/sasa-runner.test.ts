@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import fs from "fs";
 import path from "path";
-import { executeSasaEval } from "./sasa-runner.ts";
+import { executeSasaAll, executeSasaEval } from "./sasa-runner.ts";
 
 const mockCysPdb = `
 ATOM      1  N   CYS A 182      11.104  13.207  10.000  1.00 90.00           N
@@ -113,4 +113,42 @@ describe("SASA Runner (Two-Tier Resilient Biophysical Execution)", () => {
       }
     });
   }
+});
+
+describe("executeSasaAll (every residue of a chain, one run)", () => {
+  it("parses the residue list from the same two-tier runner, passing 'all' as the target", async () => {
+    const executor = vi.fn().mockResolvedValue({ stdout: JSON.stringify({ status: "success", residues: [{ resId: 5, resName: "ALA", rsa: 0.0166 }, { resId: 6, resName: "VAL", rsa: 0.3 }] }) });
+    const result = await executeSasaAll(mockCysPdb, "A", { executor });
+    expect(result).toEqual({ status: "success", residues: [{ resId: 5, resName: "ALA", rsa: 0.0166 }, { resId: 6, resName: "VAL", rsa: 0.3 }] });
+    expect(executor.mock.calls[0][1].slice(-2)).toEqual(["A", "all"]);
+  });
+
+  it("falls back to uv when the venv interpreter fails, as the single-residue mode does", async () => {
+    const executor = vi.fn().mockImplementation(async (command: string) => {
+      if (command === "uv") return { stdout: JSON.stringify({ status: "success", residues: [{ resId: 1, resName: "CYS", rsa: 0.5 }] }) };
+      throw Object.assign(new Error("Command failed"), { code: 1 });
+    });
+    expect((await executeSasaAll(mockCysPdb, "A", { executor })).status).toBe("success");
+  });
+
+  it("reports the tool's own failure, and a missing runtime, as errors rather than an empty list", async () => {
+    const failing = vi.fn().mockResolvedValue({ stdout: JSON.stringify({ status: "error", message: "Chain B has no standard residues." }) });
+    expect(await executeSasaAll(mockCysPdb, "B", { executor: failing })).toEqual({ status: "error", message: "Chain B has no standard residues." });
+    const missing = vi.fn().mockRejectedValue(Object.assign(new Error("spawn uv ENOENT"), { code: "ENOENT" }));
+    const result = await executeSasaAll(mockCysPdb, "A", { executor: missing, forceUvFallback: true });
+    expect(result.status).toBe("error");
+  });
+
+  it("agrees with the single-residue mode on the same structure (live, when the tools runtime exists)", async () => {
+    if (!fs.existsSync(path.join(process.cwd(), "tools", ".venv", process.platform === "win32" ? "Scripts" : "bin"))) return;
+    const pdb = fs.readFileSync(path.join(process.cwd(), "tools", "structure-focus", "sod1-afdb.pdb"), "utf8");
+    const all = await executeSasaAll(pdb, "A");
+    const one = await executeSasaEval(pdb, "A", 5);
+    expect(all.status).toBe("success");
+    expect(one.status).toBe("success");
+    if (all.status === "success" && one.status === "success") {
+      expect(all.residues.find((r) => r.resId === 5)?.rsa).toBe(one.rsa);
+      expect(all.residues.length).toBe(154);
+    }
+  }, 60_000);
 });

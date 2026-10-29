@@ -41,16 +41,12 @@ describe("constraint source, precision and availability", () => {
     const { provenance, ...legacy } = constraint;
     expect(buildConstraintMetrics(result(legacy)).every(m => m.verdict === "Release unreported" && m.bands.length === 0)).toBe(true);
   });
-  it("words the PP2 proxy and the display bands from THRESHOLDS, so they cannot drift from the rule", () => {
-    const { missenseZ, oeMisBelow } = THRESHOLDS.pp2Constraint;
-    for (const met of [true, false]) {
-      const metric = buildMissenseZMetric(3.5, met);
-      for (const text of [metric.tooltip, metric.detail, metric.facts.join(" ")]) {
-        expect(text).toContain(String(oeMisBelow));
-      }
-      expect(metric.detail).toContain(`Z ${THRESHOLDS.misZ.pathogenicSupporting.toFixed(1)} and ${THRESHOLDS.misZ.pathogenicStrong}`);
-    }
-    expect(buildMissenseZMetric(3.5, true).detail).toContain(`Z ≥ ${missenseZ}`);
+  it("keeps Missense Z as gene context: it states that PP2 is not read from Z", () => {
+    // PP2 was Z ≥ 3.09 AND o/e < 0.6, an uncalibrated proxy; it is now the regional O/E row.
+    const metric = buildMissenseZMetric(3.5);
+    expect(metric.facts.join(" ")).toMatch(/PP2 is read from the regional O\/E/);
+    expect(metric.tooltip).not.toMatch(/PP2 proxy/);
+    expect(metric.detail).toContain(`Z ${THRESHOLDS.misZ.pathogenicSupporting.toFixed(1)} and ${THRESHOLDS.misZ.pathogenicStrong}`);
   });
   it("tags only a reading whose release differs from the group's, and only when it has a value and an interpretation", () => {
     const res = result();
@@ -79,8 +75,8 @@ describe("constraint source, precision and availability", () => {
     expect(loeuf.ticks.map((t) => t.label)).toEqual(["0.36", "0.45"]);
     expect(tickLabelAlignments(loeuf)).toEqual(["start", "end"]);
     // Well-separated ticks and single ticks stay centred.
-    expect(tickLabelAlignments(buildMissenseZMetric(1, false))).toEqual(["center", "center"]);
-    expect(tickLabelAlignments(buildRmcMetric(true, null))).toEqual(["center"]);
+    expect(tickLabelAlignments(buildMissenseZMetric(1))).toEqual(["center", "center"]);
+    expect(tickLabelAlignments(buildRmcMetric(true, null))).toEqual(["center", "center", "center"]);
     expect(tickLabelAlignments({ ...loeuf, ticks: [] })).toEqual([]);
   });
   it("describes clamped off-scale values", () => {
@@ -92,15 +88,23 @@ describe("constraint source, precision and availability", () => {
   });
 });
 
-describe("Regional O/E tone is graded by depth, the call is not", () => {
-  // The screenshot: UROD's RMC block, O/E 0.81, significant — printed in the same pathogenic red as 0.3.
-  it("keeps a significant shallow block a constrained call, in the warning tone, with the display band named", () => {
-    const shallow = buildRmcMetric(true, { isConstrained: true, oeRatio: 0.81, pValue: 0.001, regionText: "1:100 to 200 (GRCh38)" });
-    expect(shallow.verdict).toBe("Subgenic constrained");
-    expect(shallow.tone).toBe("warn");
-    expect(shallow.facts.join(" ")).toMatch(/shallow depletion \(app-defined display band: deep below 0\.6; not a calibrated cut-point\)/);
+describe("Regional O/E reads Chao et al. v3's calibrated bands, the engine's PP2 rule", () => {
+  const at = (oe: number, isConstrained = true) => buildRmcMetric(true, { isConstrained, oeRatio: oe, pValue: 0.001, regionText: "1:100 to 200 (GRCh38)" });
+  it("draws the PP2 edges as calibrated cut-points with their source", () => {
+    const m = at(0.5);
+    expect(m.cutPoints?.origin).toBe("calibrated");
+    expect(m.cutPoints?.href).toBe("https://doi.org/10.1101/2024.04.11.588920");
+    expect(m.ticks.map(t => t.at)).toEqual([0.36, 0.59, 1]);
   });
-  it("keeps the pathogenic tone for a deep block", () => {
-    expect(buildRmcMetric(true, { isConstrained: true, oeRatio: 0.3, pValue: 0.001, regionText: null }).tone).toBe("path");
+  it("bands an O/E by its calibrated edges (≤ 0.36 Moderate, ≤ 0.59 Supporting), whatever the interval's p", () => {
+    expect([at(0.36).verdict, at(0.36).tone]).toEqual(["PP2 Moderate band", "path"]);
+    expect([at(0.59).verdict, at(0.59).tone]).toEqual(["PP2 Supporting band", "warn"]);
+    // UROD's significant interval at 0.81 used to read "Subgenic constrained" in red; no calibrated band holds it.
+    expect([at(0.81).verdict, at(0.81).tone]).toEqual(["No calibrated band", "muted"]);
+    expect(at(0.5, false).verdict).toBe("PP2 Supporting band");
+  });
+  it("names the BP1 band as context the engine does not apply", () => {
+    expect(at(1.3).verdict).toBe("BP1 band (not applied)");
+    expect(at(1.3).facts.join(" ")).toMatch(/does not apply BP1/);
   });
 });
