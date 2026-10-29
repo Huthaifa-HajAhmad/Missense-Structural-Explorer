@@ -1002,6 +1002,8 @@ export function enrichBiophysicalResult(
        * flow while the documentation asserted it landed on the row.
        */
       foldxRepairSkipped,
+      foldxRepairCacheKey: foldxRawResult?.energetics?.foldxRepairCacheKey,
+      foldxRepairRefresh: foldxRawResult?.energetics?.foldxRepairRefresh,
       ...(foldxRepairSkippedReason ? { foldxRepairSkippedReason } : {}),
       ...(foldxRepairCached ? { foldxRepairCached: true } : {}),
       foldxError: foldxRawResult?.energetics?.foldxError ?? foldxRawResult?.error ?? null,

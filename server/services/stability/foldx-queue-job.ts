@@ -1,3 +1,4 @@
+import { CONFIG } from "../../config.ts";
 /**
  * foldx-queue-job.ts — what a queued FoldX job does, around the FoldX run itself.
  *
@@ -235,15 +236,23 @@ export async function runFoldxQueueJobOnServer(data: any, signal: AbortSignal | 
   /**
    * This job went without a repaired template because RepairPDB cannot finish inside its cap on this
    * host. Repair it in idle time so the next variant on this structure does not pay for that again
-   * (`foldx/background-repair.ts`: idle-only, yields to any job). Fire and forget, and never a reason
-   * for this job to wait or fail.
+   * (`foldx/background-repair.ts`: idle-only, yields to any job). Only admission is awaited; the repair itself never holds up this job.
    */
-  if (foldxResult?.energetics?.foldxRepairSkippedReason === "repair-exceeds-budget") {
-    void Promise.resolve(requestBackgroundRepair({
+  if (foldxResult?.energetics?.foldxRepairSkipped && foldxResult.energetics.foldxRepairSkippedReason !== "cached-repair-rejected") {
+    const request = await requestBackgroundRepair({
       wtPdb: data.wtPdb,
       options: data.options,
       label: `${data.uniprotId ?? "structure"} ${data.mutation ?? ""}`.trim()
-    })).catch(() => {});
+    }).catch(() => null);
+    // Unknown, disabled, ineligible and recently abandoned repairs must not cause client reruns.
+    const active = request?.status === "scheduled" || request?.status === "cached" ||
+      (request?.status === "already-known" && ["waiting", "running"].includes(request.reason));
+    if (active) {
+      const now = Date.now();
+      foldxResult.energetics.foldxRepairRefresh = { after: now + 60_000, until: now + 6 * 60 * 60 * 1000 + CONFIG.timeouts.foldxBackgroundRepairMaxMs };
+    } else {
+      delete foldxResult.energetics.foldxRepairRefresh;
+    }
   }
   return finishFoldxQueueJob(jobId, data, foldxResult, companions);
 }

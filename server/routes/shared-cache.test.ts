@@ -175,7 +175,7 @@ describe("FoldX shared cache", () => {
   });
 
   it("a tool version separates results only when it is known, so existing entries stay valid", () => {
-    expect(getFoldxCacheKey("h", "VA600E")).toBe("h_VA600E_pH:7_temp:298_ion:0.05_seed:12345_version:v3");
+    expect(getFoldxCacheKey("h", "VA600E")).toBe("h_VA600E_pH:7_temp:298_ion:0.05_seed:12345_version:v4");
     expect(getFoldxCacheKey("h", "VA600E", { toolVersion: "5.1" })).not.toBe(getFoldxCacheKey("h", "VA600E"));
     expect(pocketResultCacheKey(pdb(), 3, "A", "2.5")).not.toBe(pocketResultCacheKey(pdb(), 3, "A"));
   });

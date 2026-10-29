@@ -48,8 +48,29 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     expect(requestBackgroundRepair).toHaveBeenCalledWith({ wtPdb: "PDB TEXT", options: data.options, label: "Q9H8M5 SA489C" });
   });
 
-  it.each(["alphafold-plddt", "large-structure"])("does not ask when repair was skipped by design (%s)", async reason => {
+  it.each(["alphafold-plddt", "large-structure"])("asks for a budgeted background repair for every skipped template (%s)", async reason => {
     generateMutantPdb.mockResolvedValue(result({ foldxRepairSkipped: true, foldxRepairSkippedReason: reason }));
+    await runFoldxQueueJobOnServer(data, undefined, undefined);
+    expect(requestBackgroundRepair).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["disabled", "ineligible", "already-known"])("does not arm client refresh for %s background work", async status => {
+    generateMutantPdb.mockResolvedValue(result({ foldxRepairSkipped: true }));
+    requestBackgroundRepair.mockResolvedValue({ status, reason: "gave up recently" });
+    const out = await runFoldxQueueJobOnServer(data, undefined, undefined);
+    expect(out.energetics.foldxRepairRefresh).toBeUndefined();
+  });
+
+  it("arms a bounded solver refresh only after repair admission", async () => {
+    const now = Date.now();
+    generateMutantPdb.mockResolvedValue(result({ foldxRepairSkipped: true }));
+    const out = await runFoldxQueueJobOnServer(data, undefined, undefined);
+    expect(out.energetics.foldxRepairRefresh.after).toBeGreaterThanOrEqual(now + 60_000);
+    expect(out.energetics.foldxRepairRefresh.until).toBeGreaterThan(out.energetics.foldxRepairRefresh.after);
+  });
+
+  it("does not reschedule a repair whose cached coordinates were rejected", async () => {
+    generateMutantPdb.mockResolvedValue(result({ foldxRepairSkipped: true, foldxRepairSkippedReason: "cached-repair-rejected" }));
     await runFoldxQueueJobOnServer(data, undefined, undefined);
     expect(requestBackgroundRepair).not.toHaveBeenCalled();
   });

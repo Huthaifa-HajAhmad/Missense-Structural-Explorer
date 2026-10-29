@@ -54,6 +54,7 @@ function harness(): Harness {
   };
   h.deps = {
     enabled: () => true,
+    emulated: () => true,
     slot: () => "shared",
     isIdle: () => (typeof h.idle === "function" ? h.idle() : h.idle),
     repair: async (_pdb, _dir, _opts, _budget, run) => {
@@ -111,6 +112,19 @@ describe("requestBackgroundRepair under concurrent requests", () => {
     });
     expect(meterDuringRepair).toBeUndefined();
   });
+});
+
+it("admits an AlphaFold template over the foreground size guard within the background budget", async () => {
+  const h = harness();
+  const atom = structure("large-alpha").split("\n").find(line => line.startsWith("ATOM"))!;
+  const pdb = "REMARK   1 ALPHAFOLD MODEL\n" + Array.from({ length: 442 }, (_, i) =>
+    [" N  ", " CA ", " C  ", " O  "].map(name =>
+      atom.slice(0, 12) + name + atom.slice(16, 22) + String(i + 1).padStart(4) + atom.slice(26)).join("\n")).join("\n");
+  // CA-only fixtures count as incomplete; real AlphaFold models have complete side chains.
+  // Use glycine's complete backbone to keep this eligibility test inside the budget.
+  const complete = pdb.replaceAll("ALA", "GLY");
+  await scheduled(h, complete);
+  expect(h.repairCalls).toBe(1);
 });
 
 describe("requestBackgroundRepair, shared slot (no spare core)", () => {

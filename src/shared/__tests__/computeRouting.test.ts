@@ -22,7 +22,7 @@ function foldxJob(residues: number, over: Partial<JobFeatures> = {}): JobFeature
     residues,
     chains: 1,
     numberOfRuns: 5,
-    repair: foldxRepairApplies(residues, false),
+    repair: foldxRepairApplies(residues),
     ownerId: "u1",
     requires: [{ tool: "foldx" }],
     ...over,
@@ -116,10 +116,10 @@ describe("priors (plan section 2.3)", () => {
     expect(d.prediction?.wallMs?.p90).toBe((d.prediction?.wallMs?.p50 ?? 0) * 2);
   });
 
-  it("the 400/401 boundary switches RepairPDB, and an AlphaFold DB model never repairs", () => {
-    expect(foldxRepairApplies(FOLDX_REPAIR_MAX_RESIDUES, false)).toBe(true);
-    expect(foldxRepairApplies(FOLDX_REPAIR_MAX_RESIDUES + 1, false)).toBe(false);
-    expect(foldxRepairApplies(200, true)).toBe(false);
+  it("the 400/401 boundary switches RepairPDB, for both predicted and experimental models", () => {
+    expect(foldxRepairApplies(FOLDX_REPAIR_MAX_RESIDUES)).toBe(true);
+    expect(foldxRepairApplies(FOLDX_REPAIR_MAX_RESIDUES + 1)).toBe(false);
+    expect(foldxRepairApplies(200)).toBe(true);
     const withRepair = foldxPriorP50Ms({ residues: 400, numberOfRuns: 5, repair: true }, true);
     const without = foldxPriorP50Ms({ residues: 401, numberOfRuns: 5, repair: false }, true);
     expect(withRepair).toBeGreaterThan(without);

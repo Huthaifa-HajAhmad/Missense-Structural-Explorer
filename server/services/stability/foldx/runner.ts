@@ -3,7 +3,6 @@ import fs from "fs";
 import os from "os";
 import { execFile } from "child_process";
 import { buildModelBudgetMs, clampToJobRemaining, FOLDX_REPAIR_MAX_RESIDUES, repairFitsBudget } from "./budget.ts";
-import { isAlphaFoldModel } from "./estimate.ts";
 import {
   canRetryFoldxAfterRepair,
   classifyFoldxFailure,
@@ -33,7 +32,8 @@ import {
   getFoldxCacheKey,
   getRepairCacheKey,
   getRepairedStructureFromCache,
-  writeRepairedStructureToCache
+  writeRepairedStructureToCache,
+  invalidateRepairedStructure
 } from "./cache.ts";
 import {
   getFoldxExecutionTarget,
@@ -527,21 +527,15 @@ export async function generateMutantPdbInternal(
    * un-repaired template is a weaker claim, and the reason it was not repaired is either a
    * deliberate cost guard (large structure) or a deliberate pLDDT guard (AlphaFold model).
    */
-  let foldxRepairSkippedReason: "large-structure" | "alphafold-plddt" | "repair-exceeds-budget" | undefined;
+  let foldxRepairSkippedReason: "large-structure" | "repair-exceeds-budget" | "cached-repair-rejected" | undefined;
   let foldxRepairCached = false;
   /** What RepairPDB did, for the failure record (see FoldxRunContext.repair). Unset until it is decided. */
   let repairDiagnostic: FoldxRepairDiagnostic | undefined;
   const residueCount = pdbResidues.length;
-  /**
-   * AlphaFold structures skip RepairPDB. The original rationale — pLDDT in the B-factor column
-   * "confuses RepairPDB" and causes "constant failures" — is UNVERIFIED and did not reproduce:
-   * RepairPDB completed on AF-P00441 (SOD1, 154 residues, 48 s native) and moved p.Ala5Val's ΔΔG
-   * from 2.81 to 2.12 kcal/mol. The guard is kept until a benchmark against experimental ΔΔG shows
-   * whether repairing small AlphaFold models helps; the skip is disclosed via
-   * `foldxRepairSkippedReason`, so the UI says the template was not repaired and why.
-   */
-  const isAlphaFoldPdb = isAlphaFoldModel(wtPdb);
-  const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES && !isAlphaFoldPdb;
+  // pLDDT describes confidence, not whether side chains have been repaired for FoldX.
+  // Keep the foreground size guard; larger templates may reuse a budgeted background repair.
+  const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES;
+  const repairCacheKey = getRepairCacheKey(pdbHash, options);
   const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
   /**
    * Sized to this structure, host AND template (see budget.ts): a flat 180 s killed a run that needed
@@ -549,10 +543,6 @@ export async function generateMutantPdbInternal(
    * it is settled after the repair stage below.
    */
   let buildModelBudget = buildModelBudgetMs({ residueCount, numberOfRuns: 5, emulated: foldxEmulated });
-
-  if (isAlphaFoldPdb) {
-    console.log(`[Biophysical Modeling] Detected AlphaFold structure — skipping RepairPDB (pLDDT B-factors would cause false repairs).`);
-  }
 
   try {
     // Pre-flight PDB validation: check for non-standard content that could crash RepairPDB
@@ -565,7 +555,7 @@ export async function generateMutantPdbInternal(
       console.log(`[Biophysical Modeling] PDB contains heteroatoms (${hasTerminations}), RepairPDB will attempt cleanup.`);
     }
 
-    if (shouldRepair) {
+    {
       /**
        * Repair is a function of the STRUCTURE, not of the mutation, so it is cached on its own key
        * and reused across variants. Without this every new substitution on the same template paid
@@ -575,7 +565,6 @@ export async function generateMutantPdbInternal(
        * repeating identical work, and the payload says so (`foldxRepairCached`) rather than
        * pretending a fresh minimisation happened.
        */
-      const repairCacheKey = getRepairCacheKey(pdbHash, options);
       const cachedRepair = await getRepairedStructureFromCache(repairCacheKey);
 
       if (cachedRepair) {
@@ -583,7 +572,7 @@ export async function generateMutantPdbInternal(
         await fs.promises.writeFile(fullWtPath, cachedRepair.pdb, "utf8");
         foldxRepairCached = true;
         repairDiagnostic = { outcome: "reused" };
-      } else if (!repairFitsBudget({ residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated })) {
+      } else if (!shouldRepair || !repairFitsBudget({ residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated })) {
         // Not attempted here: it would run to its cap and be killed (see repairFitsBudget). If the background
         // repair of this structure is nearly done, wait for it; otherwise BuildModel completes the side chains
         // itself, and the reason is disclosed like the other skips.
@@ -596,10 +585,10 @@ export async function generateMutantPdbInternal(
           repairDiagnostic = { outcome: "reused", elapsedMs: joined.waitedMs };
         } else {
           foldxRepairSkipped = true;
-          foldxRepairSkippedReason = "repair-exceeds-budget";
+          foldxRepairSkippedReason = shouldRepair ? "repair-exceeds-budget" : "large-structure";
           // A wait for the background repair that ran out is recorded: it shortened BuildModel's share of the job.
           repairDiagnostic = { outcome: "skipped", skipReason: foldxRepairSkippedReason, ...(joined ? { elapsedMs: joined.waitedMs } : {}) };
-          console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${residueCount} residues (${countIncompleteResidues(cleanedWt)} incomplete): predicted to exceed its ${(CONFIG.timeouts.foldxRepairMs / 1000).toFixed(0)} s cap under Box64.`);
+          console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${residueCount} residues (${countIncompleteResidues(cleanedWt)} incomplete): ${foldxRepairSkippedReason}; background repair may run within its own budget.`);
         }
       } else {
         // 1. Run FoldX RepairPDB first to resolve starting steric clashes and stabilize energy delta
@@ -613,11 +602,6 @@ export async function generateMutantPdbInternal(
           foldxRepairFailed = true;
         }
       }
-    } else {
-      foldxRepairSkipped = true;
-      foldxRepairSkippedReason = isAlphaFoldPdb ? "alphafold-plddt" : "large-structure";
-      repairDiagnostic = { outcome: "skipped", skipReason: foldxRepairSkippedReason };
-      console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${isAlphaFoldPdb ? "AlphaFold model (pLDDT B-factors)" : `large protein structure (${residueCount} residues)`} to expedite calculations.`);
     }
 
     if (signal?.aborted) {
@@ -628,7 +612,7 @@ export async function generateMutantPdbInternal(
     // input. FoldX rebuilds its incomplete residues itself (~4.7 s each under Box64), so they set the cap.
     const templateIncomplete = countIncompleteResidues(await fs.promises.readFile(fullWtPath, "utf8").catch(() => cleanedWt));
     // A failed repair leaves the retry on the original PDB; hold its time back so both fit the job cap.
-    const retryReserveMs = foldxRepairFailed ? CONFIG.timeouts.foldxBuildModelRetryMs : 0;
+    const retryReserveMs = (foldxRepairFailed || foldxRepairCached) ? CONFIG.timeouts.foldxBuildModelRetryMs : 0;
     buildModelBudget = clampToJobRemaining(
       buildModelBudgetMs({ residueCount, numberOfRuns: 5, emulated: foldxEmulated, incompleteResidues: templateIncomplete }),
       CONFIG.timeouts.foldxSec * 1000 - (Date.now() - jobStartedAt) - retryReserveMs
@@ -697,7 +681,7 @@ export async function generateMutantPdbInternal(
       residueCount,
       numberOfRuns: 5,
       template: foldxRepairCached ? "repaired (reused)"
-        : foldxRepairSkipped ? `unrepaired (${foldxRepairSkippedReason === "alphafold-plddt" ? "AlphaFold model" : foldxRepairSkippedReason === "repair-exceeds-budget" ? "repair exceeds its budget under Box64" : "over 400 residues"})`
+        : foldxRepairSkipped ? `unrepaired (${foldxRepairSkippedReason ?? "not attempted"})`
         : foldxRepairFailed ? "unrepaired (repair failed)"
         : "repaired",
       emulated: foldxEmulated,
@@ -724,12 +708,30 @@ export async function generateMutantPdbInternal(
       throw new Error(`FoldX binary not found or not executable at: ${foldxBin}`);
     }
 
-    // If RepairPDB previously failed, try one more time with the original PDB content
-    if (!foldxSuccess && canRetryFoldxAfterRepair(foldxRepairFailed, foldxErr, signal)) {
-      console.warn("[Biophysical Modeling] BuildModel failed after RepairPDB failure. " +
-        "Retrying with original PDB content (no cleanup)...");
+    const cachedRepairRejected = foldxRepairCached;
+    if (cachedRepairRejected) {
+      // Abort never reaches here. Even if no retry is safe (timeout/crash), later requests must not
+      // be forced back onto the same rejected coordinates. A failed invalidation is logged, not hidden.
+      await invalidateRepairedStructure(repairCacheKey);
+      foldxRepairCached = false;
+      foldxRepairSkipped = true;
+      foldxRepairSkippedReason = "cached-repair-rejected";
+      repairDiagnostic = { outcome: "skipped", skipReason: foldxRepairSkippedReason };
+    }
+    // Retry ordinary execution/missing-output errors once. Runtime crashes, timeouts and aborts keep
+    // the existing no-retry policy; their rejected cache entry has still been invalidated above.
+    const canRetry = canRetryFoldxAfterRepair(foldxRepairFailed, foldxErr, signal) ||
+      (cachedRepairRejected && ["execution-error", "missing-output"].includes(failureKind));
+    if (!foldxSuccess && canRetry) {
+      console.warn("[Biophysical Modeling] Retrying BuildModel once without the rejected/failed repair.");
       try {
-        await fs.promises.writeFile(fullWtPath, wtPdb, "utf8");
+        // FoldX appends to Dif_wt.fxout. Partial outputs from attempt 1 must never contaminate attempt 2.
+        for (const name of await fs.promises.readdir(jobDir)) {
+          if (/^(?:Dif_wt\.fxout|(?:WT_)?wt_\d+(?:_\d+)?\.pdb)$/.test(name)) {
+            await fs.promises.unlink(path.join(jobDir, name));
+          }
+        }
+        await fs.promises.writeFile(fullWtPath, cachedRepairRejected ? cleanedWt : wtPdb, "utf8");
         await execFileAsync(foldxBin, [
           "--command=BuildModel",
           "--pdb=wt.pdb",
@@ -837,6 +839,7 @@ export async function generateMutantPdbInternal(
       ...(localSidechainRmsd !== null ? { localSidechainRmsdReference } : {}),
       foldxRepairFailed,
       foldxRepairSkipped,
+      foldxRepairCacheKey: repairCacheKey,
       // Named only when repair was skipped, so the UI can say WHY rather than only that it was.
       ...(foldxRepairSkippedReason ? { foldxRepairSkippedReason } : {}),
       // Disclosed, not hidden: reuse changes nothing about the coordinates, but a reader auditing

@@ -64,7 +64,8 @@ import { analysisContextMatches, type AnalysisCacheContext } from "./analysisCon
  */
 // v4.4 separates context-scoped interpretation from reusable protein artifacts.
 // v4.6 invalidates narratives produced before screening-selected literature context.
-export const CACHE_VERSION = "v4.6";
+// FoldX-only release namespace; distinct from the later combined PP2/FoldX release.
+export const CACHE_VERSION = "v4.6-foldx-repair-v1";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

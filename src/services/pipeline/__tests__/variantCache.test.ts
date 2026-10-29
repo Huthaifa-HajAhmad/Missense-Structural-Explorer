@@ -76,6 +76,14 @@ describe("biophysics attempt cooldown", () => {
     clearClientVariantCache();
   });
 
+  it("preserves a provisional FoldX snapshot for all cache consumers", () => {
+    setCachedVariant("GATA4", "p.Ser159Cys", "P43694", {
+      foldingStatus: "done",
+      foldingEnergetics: { foldxMean: 0.5761, foldxRepairSkipped: true } as never
+    });
+    expect(getCachedVariant("GATA4", "p.Ser159Cys")?.foldingEnergetics?.foldxMean).toBe(0.5761);
+  });
+
   it("reads back what it recorded, through the real reader", () => {
     recordBiophysicsAttempt("GENEA", "p.Ala1Val", "P00001");
     const at = getBiophysicsAttemptedAt("GENEA", "p.Ala1Val");

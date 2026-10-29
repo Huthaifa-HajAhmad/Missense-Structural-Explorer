@@ -59,7 +59,7 @@ export interface AdmissionInput {
   type: JobType;
   /** Of the structure actually used; 0 when unknown (the engine is then not consulted). */
   residues: number;
-  /** AlphaFold models skip RepairPDB; only FoldX uses this. */
+  /** @deprecated Accepted from older submitters; model origin no longer determines repair. */
   isAlphaFoldModel?: boolean;
   ownerId: string;
   placementPref?: PlacementPref;
@@ -71,7 +71,7 @@ export function jobFeaturesOf(input: AdmissionInput): JobFeatures {
     residues: input.residues,
     chains: 1,
     numberOfRuns: input.type === "foldx" ? 5 : 0,
-    repair: input.type === "foldx" ? foldxRepairApplies(input.residues, Boolean(input.isAlphaFoldModel)) : false,
+    repair: input.type === "foldx" ? foldxRepairApplies(input.residues) : false,
     ownerId: input.ownerId,
     requires: [{ tool: input.type }],
   };
