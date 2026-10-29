@@ -13,6 +13,13 @@ import { safeExternalHref } from '../../../shared/externalLink';
 import { disulfideSelection } from '../../../shared/residueFocus';
 import { FunctionWindowControl } from './FunctionWindowControl';
 import { evidenceTab } from '../../../shared/evidenceTabs';
+import { buildHotspotEvidence } from '../../../shared/hotspotEvidence';
+import { hotspotInputFrom } from '../../../shared/hotspotInput';
+import { useVariantAnalysisStore } from '../../../stores/useVariantAnalysisStore';
+import { hotspotsSlot } from '../../../shared/evidenceKeys';
+import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
+import type { HotspotContext } from '../../../shared/hotspotEvidence';
+import { HotspotsView } from './HotspotsView';
 
 /**
  * Functional domains.
@@ -287,6 +294,10 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
     });
 
   const ev = useMemo(() => (result ? buildFunctionEvidence(functionEvidenceInputFrom(result)) : null), [result]);
+  // Hot spots load up front with the other Evidence context (EvidenceContextPrefetch); the tab only reads
+  // the slot. The slot key comes from `hotspotsSlot`, the same builder the loader uses.
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(result?.metadata?.gene, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  const hotspots = useMemo(() => ev && result ? buildHotspotEvidence(hotspotInputFrom(result, ev, hotspotLoad, functionEvidenceInputFrom(result).engineCriteria)) : null, [ev, hotspotLoad, result]);
   /** One row-key index for the domain-name disclosure, shared with the drawing's own resolver. */
   const domainKeyFor = useMemo(() => domainRowKeyResolver(ev?.rows ?? []), [ev]);
 
@@ -387,7 +398,10 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       <EvidenceViewTabs tab="function" comparisonLabel="Protein map" />
       <EvidencePanel tab="function">
 
-      {/* ── 1. The finding ───────────────────────────────────────────────────────────────── */}
+      {/* ── 1. The finding ─────────────────────────────────────────────────────────────────
+          Not repeated in the Hotspots view, which states the PM1 boundary itself: the card pushed the
+          hot-spot definitions below the fold. */}
+      {(!workspace.enabled || workspace.view !== 'hotspots') && (
       <section className="fnd-card" aria-labelledby="fnd-finding-title" data-testid="function-finding">
         <div className="fnd-hero">
           <div className="fnd-hero__top">
@@ -475,6 +489,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
           </ul>
         )}
       </section>
+      )}
 
       {/* ── 2. What is annotated ────────────────────────────────────────────────────────── */}
       {ok && workspace.comparison && <div className="mol-guide mol-selection">
@@ -482,7 +497,13 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
         <span>{selectedKey ? 'The inspector holds the pinned record. Open Annotation details for its exact bounds and citations.' : 'Click a domain or site, or use the drawing’s arrow keys. Full domain names remain available above.'}</span>
         {selectedKey && <button className="viz-action" type="button" onClick={() => { focusRowRef.current = selectedKey; workspace.setView('records'); }}>View selected record</button>}
       </div>}
-      {ok && (!workspace.enabled || !workspace.comparison) && (
+      {hotspots && (!workspace.enabled || workspace.view === 'hotspots') && (
+        <HotspotsView ev={hotspots} read={result?.metadata?.gene ? { gene: result.metadata.gene, uniprot: result.metadata.uniprotId ?? null, transcript: result.transcriptId ?? null } : null} onShow3d={onSelectResidue && onNavigateToView ? (index, focus) => {
+          onSelectResidue(index, focus);
+          onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
+        } : null} />
+      )}
+      {ok && (!workspace.enabled || workspace.view === 'records') && (
         <section className="fnd-section" aria-labelledby="fnd-table-title">
           <h2 className="eyebrow" id="fnd-table-title">
             <ListTree className="w-3.5 h-3.5" />

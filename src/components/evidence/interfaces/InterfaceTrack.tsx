@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { InterfacesEvidence, TrackLane } from "../../../shared/interfacesEvidence";
+import { assignLanes } from "../../../shared/residueContextEvidence";
 
 /**
  * InterfaceTrack — one sequence axis, lanes by kind of evidence, the variant ruled across all of them.
@@ -20,6 +21,12 @@ import type { InterfacesEvidence, TrackLane } from "../../../shared/interfacesEv
  *
  * Lanes with nothing in them are not drawn: an empty "No domains annotated" lane read as a fact about
  * the protein when it was only an absence of one feature type.
+ *
+ * Names. A domain or site name is drawn inside its range only when it fits that range's measured pixel
+ * width. Otherwise it is a callout under the lane, and `assignLanes` gives each callout a row so none
+ * overprints the next. NAE1: the Site at 211 and the Region at 331–344 were hollow boxes with no label, and
+ * the old rule (name only the ranges that were 6% of the protein's length) guessed the fit from the
+ * protein, not the lane. A lane's end reads exact containment: In domain / At site / Outside.
  *
  * HTML with percentage positions rather than SVG, so labels stay crisp at any column width.
  */
@@ -69,6 +76,108 @@ export function trackTicks(length: number, position: number | null): number[] {
   return first;
 }
 
+/** Padding either side of an inline name: `.ifc-track__range-name` pads 5px a side. */
+const INLINE_NAME_PAD_PX = 10;
+/** A callout's own padding and rule: `.ifc-track__callout` pads 5px and draws a 1.5px rule. */
+const CALLOUT_PAD_PX = 7;
+/** One callout row under a lane: the callout's line height. */
+const CALLOUT_ROW_PX = 15;
+
+const measuredWidths = new Map<string, number>();
+/** Bound on the memo: names repeat across lanes and genes, and an unbounded map would grow for a session. */
+const MEASURED_WIDTHS_MAX = 500;
+/** Pixel width of `text` in `font`. Memoised: a resize re-measures every name, and names repeat across lanes. */
+function measureText(text: string, font: string): number {
+  const key = `${font}\u0000${text}`;
+  const known = measuredWidths.get(key);
+  if (known !== undefined) return known;
+  const ctx = document.createElement("canvas").getContext("2d");
+  // A browser always has a 2D context; the character estimate only keeps a context-less environment deterministic.
+  let width = text.length * 6;
+  if (ctx) {
+    ctx.font = font;
+    width = ctx.measureText(text).width;
+  }
+  if (measuredWidths.size >= MEASURED_WIDTHS_MAX) measuredWidths.clear();
+  measuredWidths.set(key, width);
+  return width;
+}
+
+export interface NamedRange {
+  start: number;
+  end: number;
+  /** The name drawn inside the range, when it fits. */
+  name: string;
+  /** The name drawn as a callout under the lane: its residue span and name. */
+  calloutText: string;
+}
+
+export type RangeNamePlan = { inline: true } | { inline: false; left: number; row: number };
+
+/**
+ * Where each name goes, given the lane's pixel width and a text measure. A name stays inline only when it
+ * fits its range with padding. Each callout is anchored at its range's start, pulled left when it would run
+ * past the lane's end, and given a row by `assignLanes` with the widest callout as the spacing, so no two
+ * callouts in a row overprint. With no width (no layout, a hidden tab, jsdom) nothing can be measured, so
+ * no plan is returned: the caller draws the ranges unnamed. Rendering every name as a callout on row 0
+ * would overprint them all for the first frame and jump the lane's height.
+ */
+export function planRangeNames(
+  ranges: readonly NamedRange[],
+  { pct, width, measure }: { pct: (v: number) => number; width: number; measure: (text: string) => number }
+): RangeNamePlan[] {
+  if (width <= 0) return [];
+  const plans: RangeNamePlan[] = [];
+  const callouts: Array<{ index: number; left: number; span: number }> = [];
+  ranges.forEach((r, index) => {
+    const rangePx = ((pct(r.end + 1) - pct(r.start)) / 100) * width;
+    if (measure(r.name) + INLINE_NAME_PAD_PX <= rangePx) {
+      plans[index] = { inline: true };
+      return;
+    }
+    // A name wider than the lane cannot be placed: clamp its span so the anchor stays inside the lane and
+    // let CSS ellipsise it, instead of pushing it past both edges.
+    const span = Math.min(100, ((measure(r.calloutText) + CALLOUT_PAD_PX) / width) * 100);
+    callouts.push({ index, left: Math.max(0, Math.min(pct(r.start), 100 - span)), span });
+  });
+  const byLeft = [...callouts].sort((a, b) => a.left - b.left);
+  const rows = assignLanes(byLeft.map(c => c.left), Math.max(0, ...byLeft.map(c => c.span)));
+  byLeft.forEach((c, k) => {
+    plans[c.index] = { inline: false, left: c.left, row: rows[k] };
+  });
+  return plans;
+}
+
+/**
+ * The lane's pixel width and label font, read after layout and again on every resize, so a name that stops
+ * fitting becomes a callout rather than overprinting. The font is the lane's own computed font, which is
+ * what the names inherit; no layout (jsdom has no ResizeObserver) reads a width of 0.
+ */
+function useLaneMetrics() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const [font, setFont] = useState("");
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Re-read on every resize: a font-size change (settings, zoom) invalidates every measure, and the font
+    // captured once at mount would keep culling names at the old width.
+    const readFont = () => {
+      const style = getComputedStyle(el);
+      const next = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      setFont(prev => (prev === next ? prev : next));
+    };
+    readFont();
+    setWidth(el.getBoundingClientRect().width);
+    window.addEventListener("resize", readFont);
+    if (typeof ResizeObserver === "undefined") return () => window.removeEventListener("resize", readFont);
+    const observer = new ResizeObserver(entries => { setWidth(entries[0].contentRect.width); readFont(); });
+    observer.observe(el);
+    return () => { window.removeEventListener("resize", readFont); observer.disconnect(); };
+  }, []);
+  return { ref, width, font };
+}
+
 interface LinkProps {
   /** The table row key lit by hover on either side. */
   lit?: string | null;
@@ -79,9 +188,22 @@ interface LinkProps {
   inspectAllLanes?: boolean;
 }
 
-function Lane({ lane, pct, lit, onLit, onOpen, inspectAllLanes }: { lane: TrackLane; pct: (v: number) => number } & LinkProps) {
+const rangeText = (r: { start: number; end: number }) => (r.start === r.end ? `${r.start}` : `${r.start}–${r.end}`);
+
+function Lane({ lane, pct, lit, onLit, onOpen, inspectAllLanes, variantKnown }: { lane: TrackLane; pct: (v: number) => number; variantKnown: boolean } & LinkProps) {
   const readingKey = lane.rowKey ?? `track:${lane.key}`;
   const linked = Boolean(onOpen && (lane.rowKey || inspectAllLanes));
+  const labelled = lane.kind === "domains" || lane.kind === "sites";
+  const metrics = useLaneMetrics();
+  const named: NamedRange[] = labelled
+    ? lane.ranges.map(r => ({ start: r.start, end: r.end, name: r.name, calloutText: lane.kind === "sites" ? r.name : `${rangeText(r)} · ${r.name}` }))
+    : [];
+  const plans = labelled ? planRangeNames(named, { pct, width: metrics.width, measure: text => measureText(text, metrics.font) }) : [];
+  const callouts = plans.flatMap((plan, index) => (plan.inline ? [] : [{ ...plan, index }]));
+  const rows = callouts.length ? Math.max(...callouts.map(c => c.row)) + 1 : 0;
+  // Exact containment, read at the lane's end. Without a known variant position no range can contain it.
+  const inside = labelled && lane.ranges.some(r => r.hit);
+  const readout = !variantKnown ? "" : lane.kind === "domains" ? (inside ? "In domain" : "Outside") : lane.kind === "sites" ? (inside ? "At site" : "Outside") : lane.readout ? `${lane.readout.k}/${lane.readout.n}` : "";
   return (
     <div
       className="ifc-track__row"
@@ -102,36 +224,56 @@ function Lane({ lane, pct, lit, onLit, onOpen, inspectAllLanes }: { lane: TrackL
         )}
         <span className="ifc-track__sub">{lane.sub}</span>
       </div>
-      <div className="ifc-track__lane" data-kind={lane.kind} role="img" aria-label={lane.summary}>
-        {lane.ranges.map(r => (
-          <span
-            key={`${r.kind}${r.start}-${r.end}`}
-            className="ifc-track__range"
-            data-kind={r.kind}
-            data-hit={r.hit || undefined}
-            style={{ left: `${pct(r.start)}%`, width: `max(${r.kind === "site" ? 4 : 2}px, ${pct(r.end + 1) - pct(r.start)}%)` }}
-            title={`${r.name} · ${r.start === r.end ? r.start : `${r.start}–${r.end}`}`}
-          >
-            {/* A name that cannot fit reads as a stray letter; short ranges keep it in the tooltip and summary. */}
-            {lane.kind === "domains" && pct(r.end + 1) - pct(r.start) >= 6 && <span className="ifc-track__range-name">{r.name}</span>}
-          </span>
-        ))}
-        {runs(lane.marks).map(m => (
-          <span
-            key={`m${m.start}`}
-            className="ifc-track__mark"
-            style={{
-              left: `${pct(m.start)}%`,
-              width: `max(2px, ${pct(m.end + 1) - pct(m.start)}%)`,
-              // Height = support. A 2px floor keeps a one-structure contact visible without promoting it.
-              height: lane.kind === "solved" ? `max(2px, ${m.weight * 100}%)` : undefined,
-            }}
-            title={m.title}
-          />
-        ))}
+      <div className="ifc-track__plot">
+        <div className="ifc-track__lane" ref={metrics.ref} data-kind={lane.kind} role="img" aria-label={lane.summary}>
+          {lane.ranges.map((r, i) => {
+            const plan = plans[i];
+            return (
+              <span
+                key={`${r.kind}${r.start}-${r.end}`}
+                className="ifc-track__range"
+                data-kind={r.kind}
+                data-hit={r.hit || undefined}
+                style={{ left: `${pct(r.start)}%`, width: `max(${r.kind === "site" ? 4 : 2}px, ${pct(r.end + 1) - pct(r.start)}%)` }}
+                title={`${r.name} · ${rangeText(r)}`}
+              >
+                {plan?.inline && <span className="ifc-track__range-name">{r.name}</span>}
+              </span>
+            );
+          })}
+          {runs(lane.marks).map(m => (
+            <span
+              key={`m${m.start}`}
+              className="ifc-track__mark"
+              style={{
+                left: `${pct(m.start)}%`,
+                width: `max(2px, ${pct(m.end + 1) - pct(m.start)}%)`,
+                // Height = support. A 2px floor keeps a one-structure contact visible without promoting it.
+                height: lane.kind === "solved" ? `max(2px, ${m.weight * 100}%)` : undefined,
+              }}
+              title={m.title}
+            />
+          ))}
+        </div>
+        {/* The lane's own ranges carry these names to assistive tech; the callouts are the same words, drawn. */}
+        {rows > 0 && (
+          <div className="ifc-track__callouts" aria-hidden="true" style={{ height: rows * CALLOUT_ROW_PX }}>
+            {callouts.map(c => (
+              <span
+                key={c.index}
+                className="ifc-track__callout"
+                data-kind={lane.ranges[c.index].kind}
+                data-hit={lane.ranges[c.index].hit || undefined}
+                style={{ left: `${c.left}%`, top: c.row * CALLOUT_ROW_PX }}
+              >
+                {named[c.index].calloutText}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <span className="ifc-track__readout" data-hit={(lane.readout && lane.readout.k > 0) || undefined}>
-        {lane.readout ? `${lane.readout.k}/${lane.readout.n}` : ""}
+      <span className="ifc-track__readout" data-hit={(inside || (lane.readout && lane.readout.k > 0)) || undefined}>
+        {readout}
       </span>
     </div>
   );
@@ -174,7 +316,7 @@ export function InterfaceTrack({ ev, bounds, lit, onLit, onOpen, inspectAllLanes
           </div>
         )}
         {ev.track.length ? (
-          ev.track.map(l => <Lane key={l.key} lane={l} pct={pct} lit={lit} onLit={onLit} onOpen={onOpen} inspectAllLanes={inspectAllLanes} />)
+          ev.track.map(l => <Lane key={l.key} lane={l} pct={pct} lit={lit} onLit={onLit} onOpen={onOpen} inspectAllLanes={inspectAllLanes} variantKnown={ev.position !== null} />)
         ) : (
           <div className="ifc-track__row" data-kind="empty">
             <div className="ifc-track__label">

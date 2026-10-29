@@ -14,9 +14,20 @@ function fetch(overrides: Partial<ConstraintRow> = {}, regions = [region], optio
   return fetchGnomadGeneConstraint("TEST", 999, { index: index(overrides, regions), transcriptId: row.transcriptId, coordinate, ...options });
 }
 describe("pinned gnomAD gene and regional constraint", () => {
-  it("retains raw values at all classification boundaries", async () => {
-    expect(await fetch({ missense_z: 3.086, loeuf: 0.349 })).toMatchObject({ missense_z: 3.086, loeuf: 0.349, isPP2Constrained: false });
-    expect(await fetch({ oe_mis: 0.599 })).toMatchObject({ oe_mis: 0.599, isPP2Constrained: true });
+  it("retains raw gene values; gene Z and o/e no longer decide PP2", async () => {
+    expect(await fetch({ missense_z: 3.086, loeuf: 0.349 })).toMatchObject({ missense_z: 3.086, loeuf: 0.349 });
+    // Z 1.0 and o/e 0.9 failed the retired proxy; the interval's O/E 0.5 is in the calibrated PP2 band.
+    expect(await fetch({ missense_z: 1.0, oe_mis: 0.9 })).toMatchObject({ pp2Code: "PP2", isPP2Constrained: true });
+  });
+  it.each([[0.36, "PP2_Moderate"], [0.59, "PP2"], [0.6, null]])("reads PP2 from the interval O/E %s with Chao et al. v3's edges", async (oe, code) => {
+    expect(await fetch({}, [{ ...region, oe: oe as number }])).toMatchObject({ pp2Code: code, isPP2Constrained: code !== null });
+  });
+  it("reads PP2 from a nonsignificant interval too: the calibration uses the O/E, not the breakpoint p", async () => {
+    expect(await fetch({}, [{ ...region, p: 0.2 }])).toMatchObject({ regionalStatus: "nonsignificant", pp2Code: "PP2" });
+  });
+  it("gives no PP2 without a QC-passing interval at a verified locus", async () => {
+    expect(await fetch({}, [{ ...region, highCoverage: false }])).toMatchObject({ pp2Code: null, isPP2Constrained: false });
+    expect(await fetch({}, [region], { coordinate: null })).toMatchObject({ pp2Code: null, isPP2Constrained: false });
   });
   it("records separate pinned releases and exact transcript provenance", async () => {
     expect(await fetch()).toMatchObject({ provenance: { release: "4.1.2", assembly: "GRCh38", transcriptId: row.transcriptId, selection: "matched" }, regionalRelease: "4.1.1", regionalStatus: "measured" });

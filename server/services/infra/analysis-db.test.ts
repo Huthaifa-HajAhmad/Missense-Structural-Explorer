@@ -38,16 +38,20 @@ describe("AnalysisDatabase (Persistent SQLite Store)", () => {
     expect(retrieved?.modelVersions.esm3).toBe("1.0");
   });
 
-  it("retires persisted constraint conclusions from earlier data releases", async () => {
-    const save = (modelVersions?: Record<string, string>) => db.saveVariantAnalysis({
+  it("retires persisted constraint conclusions from earlier data releases, and from the retired PP2 rule", async () => {
+    const save = (modelVersions?: Record<string, string>, gnomadConstraint: object = { missense_z: 3.09, pp2Code: null }) => db.saveVariantAnalysis({
       gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pos: 408, wildType: "Arg", mutant: "Trp",
-      acmgVerdict: "Uncertain", payload: { gnomadConstraint: { missense_z: 3.09 } }, modelVersions,
+      acmgVerdict: "Uncertain", payload: { gnomadConstraint }, modelVersions,
     });
     save();
     expect(db.getVariantAnalysis("PAH", "p.Arg408Trp")).toBeNull();
     expect(await db.getVariantAnalysisAsync("PAH", "p.Arg408Trp")).toBeNull();
     save({ constraintRelease: "4.1.2" });
     expect(db.getVariantAnalysis("PAH", "p.Arg408Trp")).not.toBeNull();
+    // The current release is not enough: a row written before PP2 was recalibrated carries no `pp2Code`
+    // key at all, so its verdict replays a rule the engine no longer applies. It must be recomputed.
+    save({ constraintRelease: "4.1.2" }, { missense_z: 3.09 });
+    expect(db.getVariantAnalysis("PAH", "p.Arg408Trp")).toBeNull();
   });
 
   it("updates existing variant analysis upon rerun", () => {

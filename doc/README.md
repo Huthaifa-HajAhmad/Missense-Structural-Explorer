@@ -64,3 +64,5 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 - [Gene-disease, Expression and Species & models](CONTEXT_WORKSPACES_REVIEW.md)
 - [Residue shifts, Perturbation and Functional domains](MOLECULAR_WORKSPACES_REVIEW.md)
 - [RNA splicing and Interfaces & PPI: second presentation pass](MECHANISM_WORKSPACES_REVIEW.md)
+- [Functional domains: the Germline hot spots subtab](FUNCTIONAL_HOTSPOTS_PLAN.md) — six definitions, each with its own grade, and what the view may claim
+- [The 3D-clustering adoption decision](HOTSPOT_3D_DECISION.md) — pre-registered thresholds, the per-gene benchmark, and why the score is a suggestion that never feeds the engine

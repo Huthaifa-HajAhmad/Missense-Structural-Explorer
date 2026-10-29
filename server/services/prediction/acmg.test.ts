@@ -129,7 +129,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   it("should respect acmgWeighting parameter (conservative & strict-structural modes)", () => {
     const predictorData = { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 };
     const conservationData = { available: true, revel: 0.6 };
-    const gnomadConstraintMock = { isPP2Constrained: true, missense_z: 3.0, oe_mis: 0.5, pli: null };
+    const gnomadConstraintMock = { isPP2Constrained: true, pp2Code: "PP2" as const, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" }, missense_z: 3.0, oe_mis: 0.5, pli: null };
 
     const resStandard = computeRuleBasedACMG({
       gene: "PAH",
@@ -348,7 +348,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       conservationData: null,
       gnomadConstraint: {
         pli: 0.99,
-        isPP2Constrained: true,
+        isPP2Constrained: true, pp2Code: "PP2" as const, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" },
         missense_z: 3.5,
         oe_mis: 0.4
       },
@@ -384,7 +384,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       clinvar: { classification: "Pathogenic", uid: "13961" },
       predictorData: { available: true, amPathogenicity: 0.99, amClass: "pathogenic", caddPhred: 34 },
       conservationData: { available: true, revel: 0.95, gerp: 5.2 },
-      gnomadConstraint: { pli: 0.85, isPP2Constrained: true, missense_z: 3.1, oe_mis: 0.4 },
+      gnomadConstraint: { pli: 0.85, isPP2Constrained: true, pp2Code: "PP2" as const, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" }, missense_z: 3.1, oe_mis: 0.4 },
       gnomadFrequency: { maxAF: 0.000001, groupMaxAF: 0.000001, genomeAF: 0.000001, exomeAF: 0.000001, nHomozygous: 0, dataset: "gnomad" },
       acmgWeighting: "standard" as const
     };
@@ -394,6 +394,26 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(resObj.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(resObj.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resObj.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
+  });
+
+  it("applies PP2 from the regional O/E with Chao et al. v3's calibrated strength, never from gene Z", () => {
+    const base = {
+      gene: "TEST", variant: "p.Ala10Val",
+      gnomadFrequency: { maxAF: 0.000001, groupMaxAF: 0.000001, genomeAF: 0.000001, exomeAF: 0.000001, nHomozygous: 0, dataset: "gnomad" },
+      acmgWeighting: "standard" as const,
+    };
+    const at = (oe: number, code: "PP2" | "PP2_Moderate" | null) => computeRuleBasedACMG({ ...base, gnomadConstraint: {
+      pli: 0.5, missense_z: 4.2, oe_mis: 0.3, isPP2Constrained: code !== null, pp2Code: code,
+      regionalRelease: "4.1.1", regionalConstraint: { isConstrained: true, oeRatio: oe, pValue: 0.001, regionText: "1:100 to 200 (GRCh38)" } } });
+    const moderate = at(0.3, "PP2_Moderate").acmgCriteria.find(c => c.code.startsWith("PP2"));
+    expect(moderate?.code).toBe("PP2_Moderate");
+    expect(moderate?.reason).toMatch(/0\.30 .*at or below 0\.36: Moderate under Chao et al\. 2026/);
+    expect(at(0.5, "PP2").acmgCriteria.some(c => c.code === "PP2")).toBe(true);
+    // Gene Z 4.2 and o/e 0.3 met the retired proxy; with no calibrated band there is no PP2.
+    expect(at(0.8, null).acmgCriteria.some(c => c.code.startsWith("PP2"))).toBe(false);
+    // An older constraint object without pp2Code (the retired proxy's flag alone) gives no PP2.
+    expect(computeRuleBasedACMG({ ...base, gnomadConstraint: { pli: 0.5, missense_z: 4.2, oe_mis: 0.3, isPP2Constrained: true } })
+      .acmgCriteria.some(c => c.code.startsWith("PP2"))).toBe(false);
   });
 
   it("should withhold PM2 when gnomadFrequency serviceStatus is timeout or error", () => {
@@ -457,7 +477,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.95, amClass: "pathogenic", caddPhred: 30 },
       conservationData: { available: true, revel: 0.9 },
-      gnomadConstraint: { pli: 0.99, isPP2Constrained: true, missense_z: 2.5, oe_mis: 0.4 },
+      gnomadConstraint: { pli: 0.99, isPP2Constrained: true, pp2Code: "PP2" as const, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" }, missense_z: 2.5, oe_mis: 0.4 },
       gnomadFrequency: null,
       acmgWeighting: "standard" as const
     };

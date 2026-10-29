@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InterfacesTab } from "../InterfacesTab";
 import { InterfacesRail } from "../../inspector/InterfacesRail";
 import { SOD1_INTERFACES as F } from "../../../shared/__tests__/fixtures/sod1Interfaces";
+import { EvidenceWorkspaceProvider } from "../EvidenceWorkspace";
 
 /**
  * What the Interfaces & PPI screen may claim on SOD1 p.Ala5Val, the densest real case
@@ -192,5 +193,19 @@ describe("InterfacesRail — SOD1", () => {
     expect(trace).toHaveTextContent("Set aside, not biological: NB1 (antibody or nanobody, a tool binder); Other (chain with no UniProt record).");
     expect(trace).toHaveTextContent("Not at the interface in any of 142 native structures");
     expect(screen.getByTestId("interfaces-rail")).toHaveTextContent("RCSB PDB keywords, titles and assemblies");
+  });
+});
+
+describe("InterfacesTab — the assembly card", () => {
+  it("stays open in workspace mode, with its kicker, label, qualifier and composition", () => {
+    // Workspace mode closed the card's disclosure: "ASSEMBLY / Homodimer / View composition" over nothing.
+    const props = { analysisState: { result: RESULT, isLoading: false }, energyUnit: "kcal/mol", formatDdGValue: (v: number) => `${v}`, onTabChange: vi.fn() } as any;
+    const { container } = render(<EvidenceWorkspaceProvider result={RESULT}><InterfacesTab {...props} /></EvidenceWorkspaceProvider>);
+    expect(container.querySelector("details.mx-composition-disclosure")).toBeNull();
+    const card = container.querySelector<HTMLElement>(".ifc-hero__diagram")!;
+    expect(within(card).getByText("Assembly")).toBeVisible();
+    expect(within(card).getByText("Homodimer")).toBeVisible();
+    expect(within(card).getByText("By similarity")).toHaveClass("ev-tier");
+    expect(within(card).getByRole("group", { name: /Homodimer: composition schematic/ })).toBeVisible();
   });
 });

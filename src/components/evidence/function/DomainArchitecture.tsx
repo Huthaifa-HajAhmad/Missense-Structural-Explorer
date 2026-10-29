@@ -55,7 +55,7 @@ function describe(ev: FunctionEvidence, hidden?: ReadonlySet<LayerKey>): string 
   if (regions.length) parts.push(regions.map((r) => `${r.name} ${r.start} to ${r.end}`).join(". ") + ".");
   const disease = hidden?.has("variants") ? [] : ev.rows.filter((r) => r.disease);
   if (disease.length > 12) {
-    parts.push(`${disease.length} disease variants at ${ev.density.residues} residues${ev.density.densest ? `, densest at ${ev.density.densest.start} to ${ev.density.densest.end}` : ""}.`);
+    parts.push(`${disease.length} disease variants at ${ev.density.residues} residues.`);
   } else if (disease.length) parts.push(`Disease variants at ${disease.map((r) => r.start).join(", ")}.`);
   const tm = ev.rows.filter((r) => r.lane === "membrane" && r.type.toLowerCase() === "transmembrane");
   if (tm.length) parts.push(`${tm.length} transmembrane segments.`);

@@ -69,6 +69,14 @@ const INTERFACE: ResidueFocus = {
   label: "SOD1 homodimer interface: 5 residues observed in 142 solved structures (PDBe-KB), not computed on this model",
 };
 
+/** A Hotspots-view set: SOD1 ClinVar P/LP residues near Ala5, more than the four labelled by default. */
+const HOTSPOT_SET: ResidueFocus = {
+  companions: [4, 7, 8, 10, 12, 14, 16, 21, 38, 41],
+  label: "ClinVar P/LP missense residues, germline (11)",
+};
+const guideCard = () => document.querySelector<HTMLElement>('[data-testid="structure-guide-card"]');
+const companionLabels = () => container()?.getAttribute("data-companion-labels") ?? null;
+
 const store = useVariantAnalysisStore;
 
 function seed(): void {
@@ -202,6 +210,17 @@ async function run(): Promise<void> {
     /observed in 142 solved structures/.test(banner()?.textContent ?? ""),
     banner()?.textContent?.trim().slice(0, 160) ?? "no banner",
   );
+
+  // ── A Hotspots set, larger than the default labelled size ──────────────────────────────────────────────────
+  store.getState().selectResidueWithFocus(5, HOTSPOT_SET);
+  const drewSet = await until("hotspot companions", () => companionResidues() === "10", 45_000);
+  record("the canvas guide keys the highlighted set with its source", drewSet && /ClinVar P\/LP missense residues, germline/.test(guideCard()?.textContent ?? ""), guideCard()?.textContent?.trim().slice(0, 160) ?? "no guide card");
+  record("a set above four residues is not labelled until the reader asks", companionLabels() === "off", `data-companion-labels=${companionLabels()}`);
+  const labelAll = Array.from(document.querySelectorAll<HTMLInputElement>(".s3d-guide__check input")).find((i) => /Label all 10/.test(i.parentElement?.textContent ?? ""));
+  record("the guide offers to label all ten", Boolean(labelAll), labelAll ? "checkbox present" : "no checkbox");
+  labelAll?.click();
+  const labelled = await until("label all", () => companionLabels() === "on", 45_000);
+  record("asking labels every highlighted residue on the canvas", labelled, `data-companion-labels=${companionLabels()}`);
 
   // ── Clearing ───────────────────────────────────────────────────────────────────────────────────────────────
   store.getState().setSelectedResidueIndex(null);

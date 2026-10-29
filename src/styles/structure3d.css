@@ -644,7 +644,56 @@ button.s3d-site { cursor: pointer; }
   .s3d-disclosure > summary::after { transition: none; }
 }
 
+/* ── Canvas guide ("On this canvas") ─────────────────────────────────────────────
+   Top-left, below Mol*'s own panel toggle, opposite the colour key (bottom-left) and the pocket panel
+   (top-right). Each swatch is the drawn WebGL colour; the shape says how it is drawn. */
+.s3d-overlay-col {
+  position: absolute; left: 12px; top: 52px; bottom: 12px; z-index: 4;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 8px;
+  max-width: min(300px, calc(100% - 24px)); overflow: auto; pointer-events: none;
+}
+.s3d-overlay-col > * { pointer-events: auto; }
+.s3d-overlay-col > .s3d-legend { position: static; margin-top: auto; }
+.s3d-guide {
+  position: relative;
+  max-width: min(300px, calc(100% - 24px));
+  /* Bounded and scrollable: on a short stage the card would otherwise cover the variant site, and its
+     own overflow is the only way to reach the last lines and its controls. */
+  max-height: min(58vh, 430px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cs-surface) 94%, transparent);
+  box-shadow: var(--cs-shadow-sm);
+  font-size: var(--cs-font-size-caption);
+}
+.s3d-guide__list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.s3d-guide__item { display: flex; align-items: flex-start; gap: 8px; color: var(--cs-text-secondary); line-height: 1.35; }
+.s3d-guide__item small { display: block; color: var(--cs-text-muted); font-size: var(--cs-font-size-badge); }
+.s3d-guide__swatch {
+  flex: none; width: 14px; height: 10px; margin-top: 3px; border-radius: 2px;
+  background: var(--swatch, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cs-text-primary) 18%, transparent);
+  print-color-adjust: exact; -webkit-print-color-adjust: exact;
+}
+.s3d-guide__swatch[data-shape="sticks"] { height: 4px; margin-top: 6px; border-radius: 2px; }
+.s3d-guide__swatch[data-shape="sticks"]:not([style]) { background: linear-gradient(90deg, #8a8a8a 0 50%, #c0392b 50%); }
+.s3d-guide__swatch[data-shape="surface"] { opacity: 0.6; }
+.s3d-guide__swatch[data-shape="dashes"] { height: 0; margin-top: 7px; border-top: 2px dashed var(--cs-text-muted); box-shadow: none; }
+.s3d-guide__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--cs-border-subtle); }
+.s3d-guide__check { display: inline-flex; align-items: center; gap: 5px; color: var(--cs-text-secondary); cursor: pointer; }
+.s3d-guide__check input:focus-visible { outline: 2px solid var(--cs-accent); outline-offset: 1px; }
+.s3d-guide__read {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 2px 4px;
+  border: 0; background: none; color: var(--cs-text-accent); font: inherit; cursor: pointer; border-radius: var(--cs-radius-sm, 4px);
+}
+.s3d-guide__read svg { width: 14px; height: 14px; }
+.s3d-guide__read:focus-visible { outline: 2px solid var(--cs-accent); outline-offset: 1px; }
+
 @media print {
-  .s3d-bar, .s3d-pocket, .s3d-legend__toggle, .s3d-entry__load { display: none; }
+  .s3d-bar, .s3d-pocket, .s3d-legend__toggle, .s3d-entry__load, .s3d-guide__actions { display: none; }
+  .s3d-guide { position: static; box-shadow: none; }
+  .s3d-overlay-col { position: static; }
   .s3d-legend { position: static; box-shadow: none; }
 }

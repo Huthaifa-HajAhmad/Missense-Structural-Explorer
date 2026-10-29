@@ -634,7 +634,7 @@ const CODE_TEXT: Record<string, string> = {
   PM1: "The residue sits in a functional site where changes are known to matter. Moderate.",
   PM2: "The change is very rare or absent in healthy population databases. Supporting.",
   PM4: "The change alters protein length. Moderate.",
-  PP2: "Missense changes in this gene are a known cause of disease. Supporting.",
+  PP2: "The change sits in a stretch of the protein where healthy people carry far fewer missense changes than expected (gnomAD regional O/E, calibrated band). Supporting, or Moderate at the deepest depletion.",
   PP3: "Computer models mostly agree the change is damaging. The weakest kind of evidence; several are needed together.",
   BA1: "The change is common in healthy people. Stand-alone benign.",
   BS1: "More common in healthy people than the disorder allows.",

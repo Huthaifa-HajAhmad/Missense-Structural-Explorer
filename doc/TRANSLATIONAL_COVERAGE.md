@@ -14,7 +14,7 @@ Related concepts are available inside an explanation with a return path to the o
 Shared dialog mechanics do not require identical teaching content: model input/method/output
 sequences, metric comparisons, worked examples and inspection workflows serve different questions.
 
-There are 85 explanation subjects. Availability in the registry alone does not constitute coverage:
+There are 91 explanation subjects. Availability in the registry alone does not constitute coverage:
 the following entry points, source-record links and related-concept routes make them discoverable.
 
 ## Entry points and subject coverage
@@ -33,6 +33,8 @@ the following entry points, source-record links and related-concept routes make 
 | Interface records | Predicted-complex section, confidence row, binding-change card and pinned-reading inspector | Boltz-2, ipTM/pTM, DDMut-PPI, contacts and STRING association. Non-STRING partner records retain interface context |
 | Energetics | Workspace reading control and existing per-engine notices | FoldX, DynaMut2, DDMut, RaSP, ThermoMPNN and StabilityOracle; sign conventions, disagreement and repeat variability |
 | 3D | Existing inspection notice and structure-inspector confidence control | Structure pair, mapping, pLDDT versus crystallographic B-factor, uninterpreted confidence, PAE and independent ESMFold predictions |
+| Functional domains · Hotspots (2026-10-28) | “How to read hot spots” in the view head; “How to read: …” inside each definition’s method disclosure | Mutational hot spots overview; ClinGen expert panel rules (CSpec); regional missense constraint as PP2 (Chao et al. calibration); pathogenic-enriched regions (published and re-run); 3D proximity (PathProx). Each states its grade and what a negative does not mean |
+| 3D canvas guide (2026-10-28) | “On this canvas” card, top left of the viewer | What each highlighted set is and where it comes from, with its drawn colour; “How to read a structure” opens the structure guide |
 | Landscape | Beside workspace heading | Position/substitution scope, coverage, compatible comparisons and descriptive agreement |
 | Insights | Beside workspace heading | Rule-engine result versus generated narrative, evidence strength and uncertainty |
 | Literature | Beside workspace heading | Claim relevance, allele identity, study scope and direct evidence versus mentions |

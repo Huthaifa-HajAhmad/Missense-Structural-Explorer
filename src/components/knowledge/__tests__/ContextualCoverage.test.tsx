@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeAll, afterEach, describe, expect, it } from 'vitest';
+import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import EvidenceDashboardCard from '../../EvidenceDashboardCard';
 import { SettingsProvider } from '../../../context/SettingsContext';
@@ -7,6 +7,13 @@ import { EvidenceWorkspaceProvider } from '../../evidence/EvidenceWorkspace';
 import { EVIDENCE_SUB_ITEMS } from '../../MasterSidebar';
 import { EVIDENCE_GUIDES, resolveResearchGuide } from '../../../shared/researchGuides';
 import { mechanismWorkspaceFixture } from '../../../test/mechanismWorkspaceFixture';
+
+// The dashboard prefetches Evidence context with the real client; those reads outlive a test, fail in jsdom, and write
+// the module-singleton store while the next test renders (a flaky 20 s timeout under full-suite load). A client
+// whose requests never settle keeps every slot 'loading': nothing errors, so nothing re-reads. The function is
+// hoisted so its identity is stable, which is what keeps the readers' effect from re-running.
+const { fetchWithAuth } = vi.hoisted(() => ({ fetchWithAuth: vi.fn(() => new Promise<Response>(() => {})) }));
+vi.mock('../../../apiClient', () => ({ useApiClient: () => ({ fetchWithAuth, apiClient: {} }), extractErrorMessage: async () => 'unavailable' }));
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };

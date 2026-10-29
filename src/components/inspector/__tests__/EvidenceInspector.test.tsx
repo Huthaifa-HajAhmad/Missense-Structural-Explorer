@@ -23,13 +23,20 @@ function renderPane(result: any = NAE1_RESULT, tab = "predictors") {
 }
 
 describe("EvidenceInspector — predictors pane", () => {
-  it("traces the vote, the PP2 rule, BP1 and the engine record", () => {
-    renderPane();
+  it("traces the vote, the regional PP2 rule, BP1 and the engine record", () => {
+    const { unmount } = renderPane();
     const trace = within(screen.getByTestId("predictor-rule-trace"));
     expect(trace.getByText("3 pathogenic · 1 benign · 2 indeterminate")).toBeTruthy();
-    expect(trace.getByText("Z 1.09, o/e 0.88 → not met")).toBeTruthy();
+    // NAE1 has no regional interval for this variant, so PP2 is not tested. It is no longer read from gene Z and o/e.
+    expect(trace.getByText("No regional O/E at this variant, so PP2 was not tested")).toBeTruthy();
+    expect(trace.getByText(/^Rule: O\/E ≤ 0\.36 Moderate, ≤ 0\.59 Supporting/)).toBeTruthy();
     expect(trace.getByText("Not assessed")).toBeTruthy();
     expect(trace.getByText("PP3")).toBeTruthy();
+    unmount();
+
+    // A regional O/E of 0.50 reaches the Supporting band (PP2 calibrated regional rule, Chao et al. v3).
+    renderPane({ ...NAE1_RESULT, gnomadConstraint: { ...NAE1_RESULT.gnomadConstraint, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "Ala1 to Gly9" } } });
+    expect(within(screen.getByTestId("predictor-rule-trace")).getByText("Regional O/E 0.50 → PP2 Supporting")).toBeTruthy();
   });
 
   it("lists only the bands this variant reached", () => {

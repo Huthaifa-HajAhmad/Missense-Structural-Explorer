@@ -83,8 +83,11 @@ describe("InterfacesTab — sequence track", () => {
     renderTab(RESULT);
     const track = screen.getByTestId("interface-track");
     expect(track).toHaveTextContent("Membrane topology");
-    // 17 residues of 1085 is too short for an inline name; it is in the lane's accessible summary.
+    // 17 residues of 1085 is too short for the name inside its range, so the lane's accessible name carries
+    // it. With no measured width no callout is drawn (see InterfaceTrackNames): a callout on row 0 for every
+    // name overprinted them all for the first frame.
     expect(within(track).getByRole("img", { name: "Scissor helix 665–681" })).toBeInTheDocument();
+    expect(track.querySelector(".ifc-track__callouts")).toBeNull();
     expect(track).not.toHaveTextContent("No domains annotated");
     expect(within(track).getByRole("img", { name: /Gln867 at the interface in 1 of 8 solved structures/ })).toBeInTheDocument();
     const legend = screen.getByLabelText("Legend");

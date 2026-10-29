@@ -6,7 +6,8 @@ import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useMolstarPlugin } from "./molstar/useMolstarPlugin";
-import { useMolstarStructure, VIEWER_CONTAINER_ID, type PlddtFilter } from "./molstar/useMolstarStructure";
+import { COMPANION_CARBON, MAX_LABEL_ALL_COMPANIONS, MAX_LABELLED_COMPANIONS, POCKET_COLOUR, useMolstarStructure, VIEWER_CONTAINER_ID, type PlddtFilter } from "./molstar/useMolstarStructure";
+import { StructureGuideCard, type CanvasGuideItem } from "./molstar/StructureGuideCard";
 import { StructureToolbar } from "./molstar/StructureToolbar";
 import { StructureLegend } from "./molstar/StructureLegend";
 import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
@@ -66,7 +67,7 @@ export default function MolstarViewer({
   onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
-  const { isDark, settings, showPolarContacts, openSettingsTab } = useSettings();
+  const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
 
@@ -99,6 +100,10 @@ export default function MolstarViewer({
   const [showPocket, setShowPocket] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [reloadNonce, setReloadNonce] = useState(0);
+  // The reader's choice for a large highlighted set; reset whenever the set changes.
+  const [labelAllCompanions, setLabelAllCompanions] = useState(false);
+  const focusKey = focusShown ? `${focusShown.label}:${focusShown.companions.join(",")}` : "";
+  useEffect(() => setLabelAllCompanions(false), [focusKey]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -164,6 +169,7 @@ export default function MolstarViewer({
     companionResidues: focusShown?.companions,
     showPolarContacts,
     show3DLabels: settings.show3DLabels !== false,
+    labelAllCompanions,
     siteCloseUp,
     residueColorHex: Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849,
     neonHighContrast: settings.neonHighContrast === true,
@@ -196,6 +202,24 @@ export default function MolstarViewer({
     .replace(/[^A-Za-z0-9._-]+/g, "-");
 
   const warnings = model.notices.filter(n => n.tone === "warning");
+  const nameAt = (position: number) => {
+    const r = coordinateIndex.get(position);
+    return `${r ? r.resName.charAt(0) + r.resName.slice(1).toLowerCase() : "Residue "}${position}`;
+  };
+  const siteResidue = variantPosition ? coordinateIndex.get(variantPosition) : undefined;
+  const siteName = variantPosition ? nameAt(variantPosition) : null;
+  const plddtAtSite = model.canvas.primary?.origin === "afdb" && siteResidue?.caBFactor != null ? siteResidue.caBFactor : null;
+  const selectedShown = selection.state === "available" && selection.position && selection.position !== variantPosition ? selection.position : null;
+  // Read from what the hook was asked to draw, in the order the eye meets it: the variant, the selection,
+  // the companions, the pocket. The colour legend below keys the cartoon itself.
+  const guideItems: CanvasGuideItem[] = [
+    ...(siteName && model.site.canAddressVariantSite ? [{ key: "site", color: Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849, shape: "sticks" as const,
+      text: `Variant residue ${siteName}`, sub: plddtAtSite !== null ? `pLDDT ${plddtAtSite.toFixed(0)} at this residue (AlphaFold DB)` : undefined }] : []),
+    ...(selectedShown ? [{ key: "selected", color: null, shape: "sticks" as const, text: `Selected residue ${nameAt(selectedShown)}`, sub: "Element colours" }] : []),
+    ...(focusShown ? [{ key: "companions", color: COMPANION_CARBON, shape: "sticks" as const, text: focusShown.label, sub: `${focusShown.companions.length} residue${focusShown.companions.length === 1 ? "" : "s"}, drawn on this model by number` }] : []),
+    ...(showPocket && pocketIndices.length ? [{ key: "pocket", color: POCKET_COLOUR, shape: "surface" as const, text: "Predicted pocket lining (P2Rank)", sub: `${pocketIndices.length} residues` }] : []),
+    ...(siteCloseUp ? [{ key: "contacts", color: null, shape: "dashes" as const, text: "Close-up: residues within 5 Å and their contacts" }] : []),
+  ];
   const hasVariant = Boolean(uniprotId || primaryPdbData || customPdbUrl);
   const pocketTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -250,7 +274,18 @@ export default function MolstarViewer({
 
         <div className="s3d-stage">
           <div ref={plugin.containerRef} className="s3d-canvas" id={VIEWER_CONTAINER_ID} />
+          {/* One left column, so the canvas guide and the colour key stack instead of overlapping on a short stage. */}
+          <div className="s3d-overlay-col">
+          <StructureGuideCard
+            items={guideItems}
+            labels={settings.show3DLabels !== false}
+            onToggleLabels={() => setSettings(prev => ({ ...prev, show3DLabels: prev.show3DLabels === false }))}
+            labelAll={focusShown && focusShown.companions.length > MAX_LABELLED_COMPANIONS ? { count: focusShown.companions.length, labelled: Math.min(focusShown.companions.length, MAX_LABEL_ALL_COMPANIONS), on: labelAllCompanions } : null}
+            onToggleLabelAll={() => setLabelAllCompanions(v => !v)}
+            onOpenGuide={() => actions.setIsHowToInspectOpen(true)}
+          />
           <StructureLegend legend={model.legend} />
+          </div>
           {pocketOpen && (
             <StructurePocketPanel
               pocket={pocket}

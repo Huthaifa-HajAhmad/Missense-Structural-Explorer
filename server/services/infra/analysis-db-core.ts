@@ -244,6 +244,9 @@ export function executeGetVariantAnalysis(
 
   // Retire persisted engine conclusions made from rounded v2 or unverified regional data.
   if (parsedPayload && Object.hasOwn(parsedPayload, "gnomadConstraint") && parsedModelVersions?.constraintRelease !== CONSTRAINT_RELEASE) return null;
+  // A row written before PP2 was recalibrated carries no `pp2Code` key at all: its verdict replays a rule
+  // the engine no longer applies, and only the Predictors rail would flag the staleness. Recompute it.
+  if (parsedPayload?.gnomadConstraint && !Object.hasOwn(parsedPayload.gnomadConstraint, "pp2Code")) return null;
 
   return {
     id: Number(row.id),

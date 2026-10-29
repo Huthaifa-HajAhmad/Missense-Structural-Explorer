@@ -129,7 +129,7 @@ export function ConstraintReference({ metric }: { metric: VhMetric }) {
               <>
                 {" "}
                 <a href={cutPoints.href} target="_blank" rel="noopener noreferrer" className="cx-link">
-                  gnomAD guidance
+                  {cutPoints.origin === "calibrated" ? "Calibration source" : "gnomAD guidance"}
                   <ExternalLink size={11} aria-hidden="true" />
                   <span className="vh-sr-only"> (opens in a new tab)</span>
                 </a>

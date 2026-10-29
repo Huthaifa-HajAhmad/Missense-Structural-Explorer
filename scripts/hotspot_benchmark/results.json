@@ -1,0 +1,367 @@
+{
+ "thresholdsSha256": "2c3bb84254e3d013e0886ab5de5bac4b408cac275ddd24660110820394c414ad",
+ "genes": [
+  {
+   "gene": "SOD1",
+   "transcript": "ENST00000270142.11",
+   "clinvarRelease": "2026-10-11",
+   "model": "AF-P00441-F1",
+   "modelVersion": 6,
+   "length": 154,
+   "confidentResidues": 154,
+   "P": 64,
+   "N": 74,
+   "regions": 1,
+   "clustered": true,
+   "univariate": {
+    "area": 0.6521770731846569,
+    "p": 0.00399800099950025
+   },
+   "bivariate": {
+    "area": 1.5567823074804945,
+    "p": 0.0029985007496251873
+   },
+   "thresholdA": 10.100124549865722,
+   "contrasts": {
+    "plp_vs_gnomad_ac2": {
+     "nPos": 114,
+     "nNeg": 49,
+     "nPosScored": 114,
+     "nNegScored": 49,
+     "auroc": 0.6405298961689939,
+     "aurocCI": [
+      0.5492302184031508,
+      0.7297708557107053
+     ]
+    },
+    "plp_vs_blb": {
+     "nPos": 114,
+     "nNeg": 0,
+     "nPosScored": 114,
+     "nNegScored": 0,
+     "auroc": null,
+     "aurocCI": null
+    }
+   },
+   "vsRmc": {
+    "nPos": 114,
+    "nNeg": 49,
+    "auroc": 0.6405298961689939,
+    "rmcAuroc": 0.5,
+    "diff": 0.14052989616899392,
+    "diffCI": [
+     0.04923021840315078,
+     0.22977085571070532
+    ]
+   }
+  },
+  {
+   "gene": "BRCA1",
+   "transcript": "ENST00000357654.9",
+   "clinvarRelease": "2026-10-11",
+   "model": "AF-P38398-F1",
+   "modelVersion": 6,
+   "length": 1863,
+   "confidentResidues": 324,
+   "P": 91,
+   "N": 756,
+   "regions": 1,
+   "clustered": true,
+   "univariate": {
+    "area": 4.133702906666239,
+    "p": 0.0009995002498750624
+   },
+   "bivariate": {
+    "area": 5.501769132691222,
+    "p": 0.0009995002498750624
+   },
+   "thresholdA": 12.381399154663086,
+   "contrasts": {
+    "plp_vs_gnomad_ac2": {
+     "nPos": 217,
+     "nNeg": 370,
+     "nPosScored": 208,
+     "nNegScored": 70,
+     "auroc": 0.7228708791208791,
+     "aurocCI": [
+      0.6558722527472527,
+      0.7906936813186813
+     ]
+    },
+    "plp_vs_blb": {
+     "nPos": 217,
+     "nNeg": 453,
+     "nPosScored": 208,
+     "nNegScored": 92,
+     "auroc": 0.6935096153846154,
+     "aurocCI": [
+      0.6257838628762542,
+      0.7577602424749164
+     ]
+    }
+   },
+   "vsRmc": {
+    "nPos": 208,
+    "nNeg": 70,
+    "auroc": 0.7228708791208791,
+    "rmcAuroc": 0.5,
+    "diff": 0.2228708791208791,
+    "diffCI": [
+     0.1558722527472527,
+     0.29069368131868134
+    ]
+   }
+  },
+  {
+   "gene": "LDLR",
+   "transcript": "ENST00000558518.6",
+   "clinvarRelease": "2026-10-11",
+   "model": "AF-P01130-F1",
+   "modelVersion": 6,
+   "length": 860,
+   "confidentResidues": 625,
+   "P": 283,
+   "N": 545,
+   "regions": 1,
+   "clustered": false,
+   "univariate": {
+    "area": 2.112429512691329,
+    "p": 0.01699150424787606
+   },
+   "bivariate": {
+    "area": 2.4762802853622334,
+    "p": 0.09095452273863068
+   },
+   "thresholdA": 9.262765884399414,
+   "contrasts": {
+    "plp_vs_gnomad_ac2": {
+     "nPos": 697,
+     "nNeg": 425,
+     "nPosScored": 636,
+     "nNegScored": 275,
+     "auroc": 0.6034562607204117,
+     "aurocCI": [
+      0.5634162378502001,
+      0.6441595197255575
+     ]
+    },
+    "plp_vs_blb": {
+     "nPos": 697,
+     "nNeg": 36,
+     "nPosScored": 636,
+     "nNegScored": 21,
+     "auroc": 0.5853174603174603,
+     "aurocCI": [
+      0.47821203953279423,
+      0.6825396825396826
+     ]
+    }
+   },
+   "vsRmc": {
+    "nPos": 636,
+    "nNeg": 275,
+    "auroc": 0.6034562607204117,
+    "rmcAuroc": 0.5,
+    "diff": 0.1034562607204117,
+    "diffCI": [
+     0.06341623785020012,
+     0.14415951972555752
+    ]
+   }
+  },
+  {
+   "gene": "VHL",
+   "transcript": "ENST00000256474.3",
+   "clinvarRelease": "2026-10-11",
+   "model": "AF-P40337-F1",
+   "modelVersion": 6,
+   "length": 213,
+   "confidentResidues": 155,
+   "P": 67,
+   "N": 128,
+   "regions": 1,
+   "clustered": true,
+   "univariate": {
+    "area": 1.9343359867731729,
+    "p": 0.0009995002498750624
+   },
+   "bivariate": {
+    "area": 2.6823618609474735,
+    "p": 0.001999000499750125
+   },
+   "thresholdA": 5.85576057434082,
+   "contrasts": {
+    "plp_vs_gnomad_ac2": {
+     "nPos": 164,
+     "nNeg": 105,
+     "nPosScored": 162,
+     "nNegScored": 54,
+     "auroc": 0.6732967535436671,
+     "aurocCI": [
+      0.587219935985368,
+      0.7486854138088705
+     ]
+    },
+    "plp_vs_blb": {
+     "nPos": 164,
+     "nNeg": 35,
+     "nPosScored": 162,
+     "nNegScored": 25,
+     "auroc": 0.542962962962963,
+     "aurocCI": [
+      0.4097530864197531,
+      0.6687654320987654
+     ]
+    }
+   },
+   "vsRmc": {
+    "nPos": 162,
+    "nNeg": 54,
+    "auroc": 0.6732967535436671,
+    "rmcAuroc": 0.5,
+    "diff": 0.17329675354366714,
+    "diffCI": [
+     0.08721993598536804,
+     0.24868541380887055
+    ]
+   }
+  },
+  {
+   "gene": "SCN1A",
+   "transcript": "ENST00000674923.1",
+   "clinvarRelease": "2026-10-11",
+   "model": "AF-P35498-F1",
+   "modelVersion": 6,
+   "length": 2009,
+   "confidentResidues": 1236,
+   "P": 579,
+   "N": 933,
+   "regions": 18,
+   "clustered": true,
+   "univariate": {
+    "area": 4.919790379946751,
+    "p": 0.0009995002498750624
+   },
+   "bivariate": {
+    "area": 8.74761306834074,
+    "p": 0.0009995002498750624
+   },
+   "thresholdA": 16.073236656188964,
+   "contrasts": {
+    "plp_vs_gnomad_ac2": {
+     "nPos": 1015,
+     "nNeg": 569,
+     "nPosScored": 914,
+     "nNegScored": 242,
+     "auroc": 0.7212913901296635,
+     "aurocCI": [
+      0.6893389333960251,
+      0.755201457583594
+     ]
+    },
+    "plp_vs_blb": {
+     "nPos": 1015,
+     "nNeg": 61,
+     "nPosScored": 914,
+     "nNegScored": 20,
+     "auroc": 0.7568927789934354,
+     "aurocCI": [
+      0.6487144420131291,
+      0.8488512035010941
+     ]
+    }
+   },
+   "vsRmc": {
+    "nPos": 914,
+    "nNeg": 242,
+    "auroc": 0.7212913901296635,
+    "rmcAuroc": 0.6949970161129898,
+    "diff": 0.02629437401667367,
+    "diffCI": [
+     -0.009523572707380135,
+     0.06648868835560706
+    ]
+   }
+  },
+  {
+   "gene": "KCNQ2",
+   "transcript": "ENST00000359125.7",
+   "clinvarRelease": "2026-10-11",
+   "model": "AF-O43526-F1",
+   "modelVersion": 6,
+   "length": 872,
+   "confidentResidues": 350,
+   "P": 194,
+   "N": 474,
+   "regions": 8,
+   "clustered": true,
+   "univariate": {
+    "area": 4.116377924965465,
+    "p": 0.0009995002498750624
+   },
+   "bivariate": {
+    "area": 7.18656762898075,
+    "p": 0.0009995002498750624
+   },
+   "thresholdA": 11.148500061035156,
+   "contrasts": {
+    "plp_vs_gnomad_ac2": {
+     "nPos": 362,
+     "nNeg": 379,
+     "nPosScored": 317,
+     "nNegScored": 64,
+     "auroc": 0.8983389195583596,
+     "aurocCI": [
+      0.854938880126183,
+      0.9371303233438486
+     ]
+    },
+    "plp_vs_blb": {
+     "nPos": 362,
+     "nNeg": 13,
+     "nPosScored": 317,
+     "nNegScored": 0,
+     "auroc": null,
+     "aurocCI": null
+    }
+   },
+   "vsRmc": {
+    "nPos": 317,
+    "nNeg": 64,
+    "auroc": 0.8983389195583596,
+    "rmcAuroc": 0.9011977523659306,
+    "diff": -0.0028588328075709324,
+    "diffCI": [
+     -0.03053529179810721,
+     0.024866916403785466
+    ]
+   }
+  }
+ ],
+ "grades": {
+  "informative": [
+   "SOD1",
+   "BRCA1",
+   "VHL",
+   "SCN1A",
+   "KCNQ2"
+  ],
+  "P3": {
+   "pass": true,
+   "genes": [
+    "BRCA1",
+    "SCN1A",
+    "KCNQ2"
+   ]
+  },
+  "P5": {
+   "pass": true,
+   "genes": [
+    "SOD1",
+    "BRCA1",
+    "VHL"
+   ]
+  }
+ },
+ "decision": "adopt"
+}

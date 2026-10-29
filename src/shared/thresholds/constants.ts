@@ -231,17 +231,8 @@ export const THRESHOLDS = {
     pathogenicStrong: 3.09,
     pathogenicSupporting: 2.0,
   },
-  /**
-   * The engine's PP2 rule (`gnomad.ts` → `criteria.ts` §3): a gene is read as missense-constrained
-   * when gnomAD's missense Z ≥ 3.09 AND observed/expected missense < 0.6. APP-DEFINED proxy for
-   * ACMG's "low rate of benign missense variation" — ClinGen publishes no genome-wide cut. The
-   * Threshold Guide used to show PP2 at Z ≥ 2.0 with a "strong ≥ 3.09" tier (PP2 has no Strong
-   * strength) and BP1 for anything below 2.0: neither was the rule the engine ran.
-   */
-  pp2Constraint: {
-    missenseZ: 3.09,
-    oeMisBelow: 0.6,
-  },
+  // PP2 no longer reads gene Z: it is the calibrated regional rule in calibration.ts
+  // (REGIONAL_MISSENSE_CALIBRATION, Chao et al. v3), replacing the uncalibrated Z ≥ 3.09 AND o/e < 0.6 proxy.
   loeuf: {
     // v4.1.1/v4.1.2: strongest 10% of MANE genes; recommended pLoF cutoff.
     pathogenicStrong: 0.36,
@@ -502,7 +493,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "popEVE (Orenbuch 2025, Nat Genet). EVE + ESM-1v, placed on one proteome-wide scale with human population data. " +
     "Authors' cut-points: ≤ −5.056 highly deleterious, ≤ −4.617 moderately deleterious. No benign cut-point is published.",
   misZ:
-    "gnomAD missense Z (positive = fewer missense variants than expected). The engine reads a gene as missense-constrained for PP2 at Z ≥ 3.09 with o/e < 0.6 — a local proxy, not a ClinGen cut-point. Gene-level: the same for every variant in the gene.",
+    "gnomAD missense Z (positive = fewer missense variants than expected). Gene-level: the same for every variant in the gene. The engine no longer reads Z for PP2; PP2 comes from the O/E of the regional constraint interval that contains the variant, with Chao et al.'s calibrated cut-points.",
   loeuf:
     "gnomAD LOEUF (upper bound of observed/expected loss-of-function). gnomAD v4.1.2 uses the v4.1.1 recommendation < 0.45 for pLoF constraint; < 0.36 corresponds to the strongest 10% of MANE Select genes. Loss-of-function constraint, not missense evidence; no ACMG criterion in this engine reads it.",
   spliceai:

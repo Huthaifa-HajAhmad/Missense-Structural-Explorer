@@ -11,8 +11,9 @@
  *     or functional-domain criterion; the engine reads it from UniProt sites), ThermoMPNN a green BP3
  *     chip (BP3 is an in-frame indel in a repeat). No ACMG/ClinGen rule takes a ΔΔG cut.
  *   • It gave gene constraint PP2 at missense Z ≥ 2.0 with a "strong ≥ 3.09" tier (PP2 has no Strong)
- *     and painted BP1 green for Z < 2 and for LOEUF ≥ 0.6. The engine's PP2 is Z ≥ 3.09 AND
- *     o/e < 0.6; it never read LOEUF; and it no longer applies BP1 at all.
+ *     and painted BP1 green for Z < 2 and for LOEUF ≥ 0.6. The engine's PP2 was then Z ≥ 3.09 AND
+ *     o/e < 0.6 (uncalibrated); it is now the regional O/E with Chao et al. v3's calibrated edges. It
+ *     never read LOEUF, and it no longer applies BP1 at all.
  *   • It rolled 20 heterogeneous, correlated scores into a "5–4 · Pathogenic concordance" verdict no
  *     rule computes, beside an engine that had voted 3–1 on a different set of tools.
  *
@@ -22,7 +23,7 @@
  * INVARIANTS
  *   • In-silico readings, the vote and the engine's PP3/BP4 record come from `buildPredictorEvidence`
  *     — the Predictors tab's own model — so the tab, the ladder and the rail cannot count differently.
- *   • Every calibrated band comes from `calibration.ts`; the PP2 rule from `isPp2Constrained`.
+ *   • Every calibrated band comes from `calibration.ts`, the PP2 rule included (`regionalPp2Code`).
  *   • What the engine recorded is READ from its criteria list. Nothing here carries a code the engine
  *     did not apply.
  *   • A STRENGTH is only ever drawn for a tool with a ClinGen calibration. A tool with only its authors'
@@ -33,9 +34,9 @@ import {
   CALIBRATION_SOURCES,
   PP3_BP4_CALIBRATION,
   STRENGTH_ORDER,
-  THRESHOLDS,
   calibratedCall,
-  isPp2Constrained,
+  regionalPp2Code,
+  type RegionalPp2Code,
   type CalibratedToolKey,
   type EvidenceStrength,
 } from "./thresholds.ts";
@@ -230,7 +231,13 @@ export interface ConstraintFacts {
   oeMis: number | null;
   pli: number | null;
   loeuf: number | null;
-  /** The engine's PP2 rule on these values; `null` when an input is missing. */
+  /** O/E of the gnomAD regional interval holding the variant, the one PP2 input (calibration.ts). */
+  regionalOe: number | null;
+  /** Why there is or is not a regional O/E (constraintSource REGIONAL_STATUSES), when the payload says. */
+  regionalStatus: string | null;
+  /** The calibrated PP2 strength on that O/E; `null` assessed and below the band; `undefined` not assessable. */
+  pp2Code: RegionalPp2Code | null | undefined;
+  /** `pp2Code !== null` when assessable; `null` when not. */
   pp2RuleMet: boolean | null;
 }
 
@@ -238,8 +245,12 @@ export interface LadderEngineRecord {
   known: boolean;
   /** PP3 / BP4 as `buildPredictorEvidence` reads it. */
   insilico: EngineRecord;
-  /** The engine recorded PP2. */
+  /** The engine recorded PP2 (any strength). */
   pp2: boolean;
+  /** The PP2 code as recorded ("PP2" / "PP2_Moderate"), or null. */
+  pp2Code: string | null;
+  /** PP2 recorded under the retired gene Z / o-e proxy (payload predates the calibrated rule). */
+  pp2Stale: boolean;
   /** The payload carries a BP1 — only an earlier engine applied it automatically. */
   bp1Stale: boolean;
   /** Every computational code recorded, in display order. */
@@ -294,19 +305,36 @@ export function buildLadderEvidence(input: LadderEvidenceInput & { predictor?: P
   const oeMis = finite(gc?.oe_mis);
   const pli = finite(gc?.pli);
   const loeuf = finite(gc?.loeuf ?? r.loeuf ?? r.gnomadLoeuf);
-  const pp2RuleMet = gc?.qualityFlags?.length ? null : isPp2Constrained(missenseZ, oeMis) ?? (typeof gc?.isPP2Constrained === "boolean" && missenseZ === null ? gc.isPP2Constrained : null);
-  const constraint: ConstraintFacts = { missenseZ, oeMis, pli, loeuf, pp2RuleMet };
+  const regionalOe = finite(gc?.regionalConstraint?.oeRatio);
+  const pp2Code = regionalPp2Code(regionalOe);
+  const constraint: ConstraintFacts = {
+    missenseZ, oeMis, pli, loeuf, regionalOe, regionalStatus: gc?.regionalStatus ?? null, pp2Code,
+    pp2RuleMet: pp2Code === undefined ? null : pp2Code !== null,
+  };
 
   // ── Engine record ──
   const criteria: Array<{ code?: string }> | null = (r.ruleBasedInsights?.acmgCriteria ?? r.insights?.acmgCriteria ?? null) as any;
   const has = (re: RegExp) => !!criteria?.some(c => typeof c?.code === "string" && re.test(c.code));
-  const pp2 = has(/^PP2(_|$)/);
+  const recordedPp2 = criteria?.find(c => typeof c?.code === "string" && /^PP2(_|$)/.test(c.code))?.code ?? null;
+  const pp2 = recordedPp2 !== null;
+  // A payload written before the calibrated rule carries no `pp2Code`; its PP2 came from gene Z.
+  const pp2Stale = pp2 && gc !== null && gc.pp2Code === undefined;
   const bp1Stale = has(/^BP1(_|$)/);
-  const codes = [predictor.engine.code, pp2 ? "PP2" : null, bp1Stale ? "BP1" : null].filter((c): c is string => !!c);
-  const engine: LadderEngineRecord = { known: criteria !== null, insilico: predictor.engine, pp2, bp1Stale, codes };
+  const codes = [predictor.engine.code, recordedPp2, bp1Stale ? "BP1" : null].filter((c): c is string => !!c);
+  const engine: LadderEngineRecord = { known: criteria !== null, insilico: predictor.engine, pp2, pp2Code: recordedPp2, pp2Stale, bp1Stale, codes };
 
   return { predictor, columns, ladder, directional, constraint, engine, calibratedReached };
 }
 
-/** The PP2 rule the engine applies, for display ("Z ≥ 3.09 and o/e < 0.6"). */
-export const PP2_RULE = THRESHOLDS.pp2Constraint;
+/** The PP2 rule the engine applies, for display: regional O/E edges and their source. */
+export { REGIONAL_MISSENSE_CALIBRATION as PP2_RULE, REGIONAL_MISSENSE_SOURCE as PP2_SOURCE } from "./thresholds.ts";
+
+/** Short words for why a variant has no regional O/E (constraintSource REGIONAL_STATUSES). */
+export const REGIONAL_STATUS_WORDS: Record<string, string> = {
+  "unverified-locus": "locus not verified",
+  "transcript-mismatch": "transcript not in the release",
+  "failed-qc": "interval failed QC",
+  "invalid-data": "invalid interval data",
+  "no-regions": "no intervals for this transcript",
+  "outside-region": "outside every interval",
+};

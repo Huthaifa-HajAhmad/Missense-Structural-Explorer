@@ -180,6 +180,54 @@ export function identifyAlphaFoldHeader(pdbText: string | null | undefined): { v
   return null;
 }
 
+export interface CaTrace {
+  residues: number[];
+  /** Three-letter residue names, aligned with `residues`. */
+  resNames: string[];
+  /** x y z per residue. */
+  coords: Float64Array;
+  /** The Cα B-factor column; its meaning (pLDDT or temperature factor) comes from provenance, not from here. */
+  bFactors: Float64Array;
+}
+
+/**
+ * Cα positions of the first model and first chain of a PDB text, for distance work. Residues with an
+ * insertion code or a repeated number are dropped rather than guessed, as in `indexStructureResidues`.
+ */
+export function readCaTrace(text: string | null | undefined): CaTrace {
+  const rows = new Map<number, { resName: string; x: number; y: number; z: number; b: number }>();
+  const ambiguous = new Set<number>();
+  let chain: string | null = null;
+  for (const line of text?.split(/\r?\n/) ?? []) {
+    if (line.startsWith("ENDMDL")) break;
+    if (!line.startsWith("ATOM  ") || line.length < 54 || atomName(line) !== "CA") continue;
+    const lineChain = line.slice(21, 22);
+    chain ??= lineChain;
+    if (lineChain !== chain) continue;
+    const position = resSeq(line);
+    if (!Number.isInteger(position) || position < 1) continue;
+    if (line.slice(26, 27).trim() || rows.has(position)) { ambiguous.add(position); continue; }
+    rows.set(position, {
+      resName: line.slice(17, 20).trim().toUpperCase(),
+      x: Number.parseFloat(line.slice(30, 38)), y: Number.parseFloat(line.slice(38, 46)), z: Number.parseFloat(line.slice(46, 54)),
+      b: line.length >= 66 ? bFactor(line) : Number.NaN,
+    });
+  }
+  for (const position of ambiguous) rows.delete(position);
+  const residues = [...rows.keys()].filter((r) => {
+    const v = rows.get(r)!;
+    return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+  }).sort((a, b) => a - b);
+  const coords = new Float64Array(residues.length * 3);
+  const bFactors = new Float64Array(residues.length);
+  residues.forEach((r, i) => {
+    const v = rows.get(r)!;
+    coords[3 * i] = v.x; coords[3 * i + 1] = v.y; coords[3 * i + 2] = v.z;
+    bFactors[i] = v.b;
+  });
+  return { residues, resNames: residues.map((r) => rows.get(r)!.resName), coords, bFactors };
+}
+
 /** First-model protein Cα atoms only. Ambiguous chains/insertion codes are never linked by number. */
 export function indexStructureResidues(text: string | null): ReadonlyMap<number, ResidueAt> {
   const residues = new Map<number, ResidueAt>();
