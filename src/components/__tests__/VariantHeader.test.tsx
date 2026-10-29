@@ -258,31 +258,35 @@ describe("VariantHeader Component Tests", () => {
 
     // Verdicts
     expect(panel().getByText("Constrained")).toBeInTheDocument();
-    expect(panel().getByText("Not LoF constrained")).toBeInTheDocument(); // 0.71 ≥ 0.6, gnomAD's suggested cut
-    expect(panel().getByText("Subgenic constrained")).toBeInTheDocument();
+    expect(panel().getByText("Not LoF constrained")).toBeInTheDocument(); // 0.71 ≥ 0.45, gnomAD's suggested cut
+    // RMC O/E 0.85 is above the calibrated PP2 Supporting edge (0.59) and below the BP1 edge (0.97): no band.
+    expect(panel().getByText("No calibrated band")).toBeInTheDocument();
 
-    // Reference ranges are rendered as threshold ticks on the tracks
+    // Reference ranges are rendered as threshold ticks on the tracks. 0.36 is both LOEUF's strong cut and
+    // the RMC PP2 Moderate edge, so each row's numerals are looked up inside that row.
+    const loeufRow = within(panel().getByText("LOEUF").closest("li")!);
+    const rmcLi = panel().getByText("Regional O/E").closest("li")!;
+    const rmcRow = within(rmcLi);
     expect(panel().getByText("2.0")).toBeInTheDocument();
     expect(panel().getByText("3.09")).toBeInTheDocument();
-    expect(panel().getByText("0.36")).toBeInTheDocument();
-    expect(panel().getByText("0.45")).toBeInTheDocument(); // LOEUF constraint cut
-    expect(panel().getByText("1.0")).toBeInTheDocument(); // RMC baseline
+    expect(loeufRow.getByText("0.36")).toBeInTheDocument();
+    expect(loeufRow.getByText("0.45")).toBeInTheDocument(); // LOEUF constraint cut
+    expect(rmcRow.getByText("0.36")).toBeInTheDocument(); // PP2 Moderate edge
+    expect(rmcRow.getByText("0.59")).toBeInTheDocument(); // PP2 Supporting edge
+    expect(rmcRow.getByText("1.0")).toBeInTheDocument(); // O/E neutral baseline
 
     // Three threshold tracks, each with a marker for the observed value
     expect(container.querySelectorAll(".vh-scale").length).toBe(3);
     expect(container.querySelectorAll(".vh-marker").length).toBe(3);
 
-    // Constraint bands encode the reference zones (3 for Z, 3 for LOEUF, none for RMC)
-    expect(container.querySelectorAll(".vh-band").length).toBe(6);
+    // Constraint bands encode the reference zones (3 for Z, 3 for LOEUF, 2 for the RMC PP2 Supporting and Moderate bands)
+    expect(container.querySelectorAll(".vh-band").length).toBe(8);
 
-    // RMC block span and p-value are tooltip/sr-only provenance, not visible
-    // text — a footnote would give the third row a second line and break the
-    // row rhythm.
-    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
-    expect(rmcRow).not.toBeNull();
-    expect(rmcRow!.getAttribute("title")).toContain("Constrained block 460 to 600");
-    expect(rmcRow!.getAttribute("title")).toContain("p = 0.002");
-    expect(rmcRow!.textContent).toContain("RMC block 460 to 600");
+    // The block span and p-value are provenance: the reading's fact and tooltip carry them, the track row
+    // does not, so the row keeps its single line.
+    expect(rmcLi.getAttribute("title")).toContain("in interval 460 to 600");
+    expect(rmcLi.textContent).not.toContain("460");
+    expect(panel().getByText("Interval 460 to 600, regional chi-square p = 0.002 (approximate).")).toBeInTheDocument();
     expect(panel().queryByText(/460–600/)).not.toBeInTheDocument();
   });
 
@@ -304,7 +308,8 @@ describe("VariantHeader Component Tests", () => {
     expect(
       panel().getByText(/Reference: strongest 10% of MANE Select genes/)
     ).toBeInTheDocument();
-    expect(panel().getByText(/Reference: O\/E = 1.0 is the neutral baseline/)).toBeInTheDocument();
+    expect(panel().getByText(/Reference: Chao et al\. 2026 \(preprint\) calibrate the O\/E/)).toBeInTheDocument();
+    expect(panel().getByText(/O\/E 1\.0 is the neutral baseline/)).toBeInTheDocument();
 
     const srOnly = Array.from(document.querySelectorAll(".vh-metric .vh-sr-only")).map((el) => el.textContent ?? "");
     // The RMC row's detail leads with the constrained block (window provenance,
@@ -317,7 +322,7 @@ describe("VariantHeader Component Tests", () => {
     expect(detail.some((t) => t.includes("0.71"))).toBe(false);
 
     expect(
-      panel().getByTitle(/Regional Missense Constraint \(RMC\): Constrained block 460 to 600/)
+      panel().getByTitle(/Regional Missense Constraint \(RMC\): observed\/expected 0\.85 in interval 460 to 600/)
     ).toBeInTheDocument();
   });
 
@@ -347,6 +352,7 @@ describe("VariantHeader Component Tests", () => {
         pli: 1.0,
         loeuf: 0.22,
         isPP2Constrained: true,
+        regionalStatus: "outside-region",
         hasRegionalData: true,
         regionalConstraint: {
           isConstrained: false,
@@ -370,6 +376,7 @@ describe("VariantHeader Component Tests", () => {
     expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
     expect(panel().getByText("0.22")).toBeInTheDocument();
     expect(panel().getByText("Strong LoF intolerance")).toBeInTheDocument();
+    // Outside every released interval: the status reads "Outside regions"; a null O/E alone would read "No data".
     expect(panel().getByText("Outside regions")).toBeInTheDocument();
     // No observed ratio reported, so the metric renders the empty value state
     expect(panel().getByText("—")).toBeInTheDocument();
@@ -404,9 +411,7 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
-    expect(rmcRow).not.toBeNull();
-    expect(rmcRow!.getAttribute("title")).toContain("p = 6.6×10⁻⁶");
+    expect(panel().getByText("Interval Gln199 to Met555, regional chi-square p = 6.6×10⁻⁶ (approximate).")).toBeInTheDocument();
     expect(panel().queryByText(/Gln199–Met555/)).not.toBeInTheDocument();
   });
 
@@ -519,8 +524,8 @@ describe("VariantHeader Component Tests", () => {
     // The gene must NOT be described as lacking blocks: only this residue was unresolved.
     expect(panel().queryByText(/no gnomAD constraint blocks/i)).not.toBeInTheDocument();
     expect(panel().queryByText("No gnomAD blocks")).not.toBeInTheDocument();
-    expect(panel().getByText(/No sub-regional call was returned for this residue/, { selector: ".cx-facts li" })).toBeInTheDocument();
-    expect(panel().getByTitle(/no sub-regional call was returned for this residue/)).toBeInTheDocument();
+    expect(panel().getByText("No regional interval was returned for this variant, so PP2 is not tested here. This is not a statement about the gene.", { selector: ".cx-facts li" })).toBeInTheDocument();
+    expect(panel().getByTitle(/No regional interval was returned for this variant, so PP2 is not tested here/)).toBeInTheDocument();
   });
 
   it("still says a gene has no blocks when it genuinely has none", () => {
@@ -548,7 +553,7 @@ describe("VariantHeader Component Tests", () => {
     );
 
     expect(panel().getByText("No gnomAD blocks")).toBeInTheDocument();
-    expect(panel().getByText(/The gene has no gnomAD constraint blocks/, { selector: ".cx-facts li" })).toBeInTheDocument();
+    expect(panel().getByText("The gene has no gnomAD regional intervals, so PP2 is not tested.", { selector: ".cx-facts li" })).toBeInTheDocument();
   });
 
   it.each([
@@ -584,9 +589,7 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
-    expect(rmcRow).not.toBeNull();
-    expect(rmcRow!.getAttribute("title")).toContain(expected);
+    expect(panel().getByText(`Interval Gln199 to Met555, regional chi-square ${expected} (approximate).`)).toBeInTheDocument();
   });
 
   it.each([0, -1, NaN, Infinity])("omits the RMC p-value when it is %s", (pValue) => {
@@ -613,14 +616,16 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
+    const rmcRow = panel().getByText("No calibrated band").closest("li");
     expect(rmcRow).not.toBeNull();
     expect(rmcRow!.getAttribute("title")).not.toContain("p = ");
-    expect(rmcRow!.getAttribute("title")).toContain("Constrained block Gln199 to Met555");
+    expect(panel().getByText("Interval Gln199 to Met555.")).toBeInTheDocument();
     expect(panel().queryByText(/p = /)).not.toBeInTheDocument();
   });
 
-  it("labels a matched RMC window that did not reach significance as sub-threshold, not as expected variation", () => {
+  it("reads the calibrated PP2 band from the window's O/E even when its p-value is not significant", () => {
+    // PP2 calibrated regional rule, Chao et al. v3; replaced gene Z proxy. The old sub-threshold gate on the
+    // window's p-value is gone: the band comes from the O/E alone, and the p-value is still shown as a fact.
     const subThreshold: Partial<AnalysisResult> = {
       gnomadConstraint: {
         provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
@@ -631,9 +636,8 @@ describe("VariantHeader Component Tests", () => {
         loeuf: 0.26,
         isPP2Constrained: true,
         hasRegionalData: true,
-        // The server gates isConstrained on the window's own p-value; this is
-        // what a matched-but-insignificant window looks like on the wire.
-        regionalConstraint: { isConstrained: false, oeRatio: 0.91, pValue: 0.4, regionText: "100 to 200" },
+        // The server gates isConstrained on the window's own p-value; the calibrated band does not read it.
+        regionalConstraint: { isConstrained: false, oeRatio: 0.3, pValue: 0.4, regionText: "100 to 200" },
       },
     };
 
@@ -646,11 +650,10 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const verdict = panel().getByText("Sub-threshold window");
-    const row = verdict.closest("li");
+    const row = panel().getByText("PP2 Moderate band").closest("li");
     expect(row).not.toBeNull();
-    expect(row!.getAttribute("title")).toContain("did not reach significance");
-    expect(row!.getAttribute("title")).toContain("p = 0.400");
+    expect(row!.getAttribute("title")).toContain("O/E 0.30 ≤ 0.36");
+    expect(panel().getByText("Interval 100 to 200, regional chi-square p = 0.400 (approximate).")).toBeInTheDocument();
     // The "outside every constrained sub-region" copy would be false here.
     expect(panel().queryByText("Outside regions")).not.toBeInTheDocument();
   });
@@ -699,46 +702,42 @@ describe("VariantHeader Component Tests", () => {
     expect(list?.querySelectorAll("li.vh-metric")).toHaveLength(3);
   });
 
-  it("gates the App-defined PP2 proxy wording on the server's own flag, not the Z threshold alone", () => {
-    const pp2NotMet: Partial<AnalysisResult> = {
-      gnomadConstraint: {
-        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
-        regionalRelease: "4.1.1",
-        missense_z: 3.4,
-        oe_mis: 0.72, // ≥ 0.6, so the pipeline's isPP2Constrained is false
-        pli: 0.8,
-        loeuf: 0.5,
-        isPP2Constrained: false,
-        hasRegionalData: false,
-        regionalConstraint: null,
-      },
-    };
+  it("says Missense Z does not read PP2, and the regional row carries the calibrated band", () => {
+    // PP2 calibrated regional rule, Chao et al. v3; replaced gene Z proxy (Z ≥ 3.09 AND o/e < 0.6).
+    const withRegionalOe = (oeRatio: number) =>
+      ({
+        gnomadConstraint: {
+          provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+          regionalRelease: "4.1.1",
+          missense_z: 3.4,
+          oe_mis: 0.72,
+          pli: 0.8,
+          loeuf: 0.5,
+          hasRegionalData: true,
+          regionalConstraint: { isConstrained: true, oeRatio, pValue: 0.001, regionText: "Ala1 to Gly9" },
+        },
+      }) as unknown as AnalysisResult;
 
     const { rerender } = render(
-      <Chrome gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={pp2NotMet as AnalysisResult} />
+      <Chrome gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={withRegionalOe(0.5)} />
     );
 
-    // The Z severity itself still reports as severe...
+    // Z is gene context: it still reports severity, and says PP2 is read from the regional O/E, not from Z...
     expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
-    // ...but PP2 is not claimed.
-    expect(panel().getByTitle(/App-defined PP2 proxy not met/)).toBeInTheDocument();
-    expect(panel().queryByTitle(/App-defined PP2 proxy is met/)).not.toBeInTheDocument();
+    expect(panel().getByText("Gene context; PP2 is read from the regional O/E at the variant, not from Z.")).toBeInTheDocument();
+    // ...and the regional row carries the band its O/E reaches: 0.50 ≤ 0.59 is PP2 Supporting.
+    expect(panel().getByText("PP2 Supporting band")).toBeInTheDocument();
+    expect(panel().getByTitle(/calibrated PP2 Supporting/)).toBeInTheDocument();
 
-    const pp2Met: Partial<AnalysisResult> = {
-      gnomadConstraint: {
-        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
-        regionalRelease: "4.1.1",
-        ...pp2NotMet.gnomadConstraint,
-        oe_mis: 0.26,
-        isPP2Constrained: true,
-      } as any,
-    };
+    rerender(<Chrome gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={withRegionalOe(0.3)} />);
+    expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
+    expect(panel().getByText("PP2 Moderate band")).toBeInTheDocument();
 
-    rerender(
-      <Chrome gene="GENE2" variant="p.Ala1Val" uniprotId="P00002" analysisResult={pp2Met as AnalysisResult} />
-    );
-
-    expect(panel().getByTitle(/App-defined PP2 proxy is met/)).toBeInTheDocument();
+    // The same severe Z with an O/E outside both PP2 bands claims no PP2.
+    rerender(<Chrome gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={withRegionalOe(0.85)} />);
+    expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
+    expect(panel().getByText("No calibrated band")).toBeInTheDocument();
+    expect(panel().queryByText(/^PP2 (Moderate|Supporting) band$/)).toBeNull();
   });
 
   it("keeps the band tones and verdicts in step with the thresholds", () => {
@@ -763,7 +762,8 @@ describe("VariantHeader Component Tests", () => {
     // right, so LOEUF (which falls as constraint rises) runs on a reversed axis.
     expect(tonesOf("Missense Z")).toEqual(["good", "warn", "path"]);
     expect(tonesOf("LOEUF")).toEqual(["good", "warn", "path"]);
-    expect(tonesOf("Regional O/E")).toEqual([]);
+    // RMC is reversed as well: its PP2 Supporting band (0.36–0.59) sits left of its PP2 Moderate band (≤ 0.36).
+    expect(tonesOf("Regional O/E")).toEqual(["warn", "path"]);
   });
 
   it("anchors close threshold numerals away from each other, so they cannot overprint", () => {
@@ -779,7 +779,8 @@ describe("VariantHeader Component Tests", () => {
     // LOEUF's two cut-points are 6% of the track apart: the left numeral ends at its tick, the right starts at its.
     expect(aligns("LOEUF")).toEqual(["start", "end"]);
     expect(aligns("Missense Z")).toEqual(["center", "center"]);
-    expect(aligns("Regional O/E")).toEqual(["center"]);
+    // RMC's 0.36 and 0.59 sit 15.3% apart, just clear of the split, so all three numerals stay centred.
+    expect(aligns("Regional O/E")).toEqual(["center", "center", "center"]);
   });
 
   it("draws every track in the same direction: constrained values sit right", () => {
@@ -798,9 +799,9 @@ describe("VariantHeader Component Tests", () => {
     // LOEUF: the strong cut (0.35) sits RIGHT of the 0.6 cut on the reversed axis
     const [l035, l06] = leftOf("LOEUF", ".vh-axis-label");
     expect(l035).toBeGreaterThan(l06);
-    // RMC: O/E 0.85 sits right of the 1.0 baseline
+    // RMC: O/E 0.85 sits right of the 1.0 baseline, the last numeral (ticks run in value order: 0.36, 0.59, 1.0)
     const [rmcMarker] = leftOf("Regional O/E", ".vh-marker");
-    const [rmcBaseline] = leftOf("Regional O/E", ".vh-axis-label");
+    const [, , rmcBaseline] = leftOf("Regional O/E", ".vh-axis-label");
     expect(rmcMarker).toBeGreaterThan(rmcBaseline);
   });
 
@@ -814,8 +815,7 @@ describe("VariantHeader Component Tests", () => {
     const card = screen.getByTestId("constraint-card");
     expect(chip).toHaveAttribute("aria-controls", card.id);
     // The card shows the facts that used to be tooltip-only.
-    expect(within(card).getByText("Constrained block 460 to 600.")).toBeInTheDocument();
-    expect(within(card).getByText("Regional chi-square p = 0.002 (approximate).")).toBeInTheDocument();
+    expect(within(card).getByText("Interval 460 to 600, regional chi-square p = 0.002 (approximate).")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("constraint-card")).toBeNull();
     expect(chip).toHaveFocus();

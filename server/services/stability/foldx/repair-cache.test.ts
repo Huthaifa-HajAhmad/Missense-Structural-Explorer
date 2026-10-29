@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { energeticsDataSchema } from "../../../../src/shared/contracts.ts";
 import {
   getFoldxCacheKey,
+  getMutantFromCache,
+  mutantCache,
   getRepairCacheKey,
   getRepairedStructureFromCache,
   writeRepairedStructureToCache,
@@ -34,7 +37,9 @@ describe("FoldX repaired-structure cache", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     repairedStructureCache.clear();
+    mutantCache.clear();
     if (originalEnv === undefined) delete process.env.FOLDX_CACHE_DIR;
     else process.env.FOLDX_CACHE_DIR = originalEnv;
     /**
@@ -44,6 +49,32 @@ describe("FoldX repaired-structure cache", () => {
      * for exactly that reason, so the retries are added here rather than waiting to rediscover it.
      */
     fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+
+  it("supersedes a provisional mutant once its background repair is available", async () => {
+    const repairKey = getRepairCacheKey("upgrade");
+    const key = getFoldxCacheKey("upgrade", "SA159C");
+    mutantCache.set(key, { status: "success", ddG: 0.5761, energetics: {
+      foldxRepairSkipped: true, foldxRepairCacheKey: repairKey
+    } });
+    expect(await getMutantFromCache(key)).not.toBeNull();
+    await writeRepairedStructureToCache(repairKey, "ATOM repaired");
+    expect(await getMutantFromCache(key)).toBeNull();
+  });
+
+  it("memoizes missing repair reads and immediately sees a newly written repair", async () => {
+    const read = vi.spyOn(fs.promises, "readFile");
+    const key = getRepairCacheKey("missing-probe");
+    expect(await getRepairedStructureFromCache(key)).toBeNull();
+    expect(await getRepairedStructureFromCache(key)).toBeNull();
+    expect(read).toHaveBeenCalledTimes(1);
+    await writeRepairedStructureToCache(key, "ATOM repaired");
+    expect((await getRepairedStructureFromCache(key))?.pdb).toBe("ATOM repaired");
+  });
+
+  it("keeps declared repair identity and refresh metadata at the payload boundary", () => {
+    const fields = { foldxRepairCacheKey: "repair-id", foldxRepairRefresh: { after: 10, until: 20 } };
+    expect(energeticsDataSchema.pick({ foldxRepairCacheKey: true, foldxRepairRefresh: true }).parse(fields)).toEqual(fields);
   });
 
   it("keys repair by structure and environment only — never by mutation", () => {

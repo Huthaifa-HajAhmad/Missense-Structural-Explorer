@@ -416,16 +416,18 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
             </Prose>
             {ev.finding.context && <Prose className="ifc-hero__context">{ev.finding.context}</Prose>}
           </div>
+          {/* Always drawn. Workspace mode closed this card's disclosure, so it read "ASSEMBLY / Heterodimer /
+              View composition" over nothing. The qualifier is a chip; the caption keeps only the state. */}
           <figure className="ifc-hero__diagram">
-            <details className="mx-composition-disclosure" open={!workspace.enabled || undefined}>
-              <summary><span className="mx-kicker">Assembly</span><strong>{ev.assembly.label}</strong><span>View composition and qualifications</span></summary>
-              <AssemblyDiagram ev={ev} />
+            <div className="mx-composition-head">
+              <span className="mx-kicker">Assembly</span>
+              <strong>{ev.assembly.label}</strong>
+              {ev.assembly.qualifier && <span className="ev-tier" data-tone="muted">{ev.assembly.qualifier}</span>}
+            </div>
+            <AssemblyDiagram ev={ev} />
             <p className="mx-composition-caption">
-              {ev.assembly.label}
-              {ev.assembly.qualifier ? ` (${ev.assembly.qualifier.toLowerCase()})` : ""} ·{" "}
               {model.state === "built" ? "modelled" : ev.observed.partners.length ? "solved" : ev.chains.length > 1 ? "as stated" : "single chain"}
             </p>
-            </details>
           </figure>
         </div>
 

@@ -4,7 +4,7 @@
  * (server/middleware.ts) is built from it, so a new source cannot be added to one and forgotten in
  * the other. Writes and unlisted paths stay authenticated.
  */
-export const CONTEXT_SUFFIXES = ['development', 'dosage', 'models', 'alignment', 'pext', 'expression', 'hpo', 'phenotypes', 'hpa'] as const;
+export const CONTEXT_SUFFIXES = ['development', 'dosage', 'models', 'alignment', 'pext', 'expression', 'hpo', 'phenotypes', 'hpa', 'hotspots'] as const;
 export type ContextSuffix = typeof CONTEXT_SUFFIXES[number];
 /** Keep transport/validation failures distinct from a provider's evidence state. */
 export class ContextHttpError extends Error {

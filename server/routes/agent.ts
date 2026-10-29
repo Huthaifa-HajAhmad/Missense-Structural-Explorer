@@ -221,7 +221,7 @@ function claimFilter(
       chains: 1,
       numberOfRuns: job.type === "foldx" ? 5 : 0,
       // `repaired` is stored with the size at submit (foldxRepairApplies); a row without it predates that.
-      repair: job.type === "foldx" ? (job.repaired ?? foldxRepairApplies(job.residues, false)) : false,
+      repair: job.type === "foldx" ? (job.repaired ?? foldxRepairApplies(job.residues)) : false,
       ownerId: agent.userId,
       requires: [{ tool: job.type }],
     };

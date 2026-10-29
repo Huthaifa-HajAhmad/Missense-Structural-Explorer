@@ -1,5 +1,5 @@
 import { CONFIG } from "../../../config.ts";
-import { FOLDX_REPAIR_MAX_RESIDUES } from "../../../../src/shared/computeRouting.ts";
+import { FOLDX_REPAIR_MAX_RESIDUES, nativeFoldxRepairPriorMs } from "../../../../src/shared/computeRouting.ts";
 
 /**
  * Structures above this size skip RepairPDB (a cost guard; see runner.ts). Shared with the budget
@@ -110,6 +110,17 @@ export function repairFitsBudget(
   return !input.emulated || predictedRepairMs(input, t) <= t.foldxRepairMs;
 }
 
+/** Host-specific estimate for background admission, not an accuracy or latency guarantee.
+ * Missing-sidechain cost on native hosts keeps the measured Box64 term as a conservative allowance.
+ */
+export function backgroundRepairEstimateMs(
+  input: { residueCount: number; incompleteResidues?: number; emulated: boolean },
+  t: RepairTimeouts = CONFIG.timeouts
+): number {
+  return input.emulated ? predictedRepairMs(input, t)
+    : nativeFoldxRepairPriorMs(input.residueCount) + (input.incompleteResidues ?? 0) * t.foldxEmulatedMsPerIncompleteResidue;
+}
+
 /** How much longer than its envelope a background repair may run: the envelope is already an upper bound, this is for a busy host. */
 export const BACKGROUND_REPAIR_MARGIN = 1.5;
 
@@ -120,10 +131,10 @@ export const BACKGROUND_REPAIR_MARGIN = 1.5;
  * at most `foldxBackgroundRepairMaxMs`.
  */
 export function backgroundRepairBudgetMs(
-  input: { residueCount: number; incompleteResidues?: number },
+  input: { residueCount: number; incompleteResidues?: number; emulated: boolean },
   t: RepairTimeouts & Pick<typeof CONFIG.timeouts, "foldxBackgroundRepairMaxMs"> = CONFIG.timeouts
 ): number | null {
-  const wanted = predictedRepairMs(input, t) * BACKGROUND_REPAIR_MARGIN;
+  const wanted = backgroundRepairEstimateMs(input, t) * BACKGROUND_REPAIR_MARGIN;
   if (wanted > t.foldxBackgroundRepairMaxMs) return null;
   return Math.round(Math.max(t.foldxRepairMs, wanted));
 }

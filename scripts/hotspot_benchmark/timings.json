@@ -1,0 +1,29 @@
+{
+ "note": "Wall-clock per gene on the machine that ran the benchmark; not part of the decision and not reproducible.",
+ "genes": [
+  {
+   "gene": "SOD1",
+   "runtimeMs": 140
+  },
+  {
+   "gene": "BRCA1",
+   "runtimeMs": 230
+  },
+  {
+   "gene": "LDLR",
+   "runtimeMs": 1841
+  },
+  {
+   "gene": "VHL",
+   "runtimeMs": 152
+  },
+  {
+   "gene": "SCN1A",
+   "runtimeMs": 5006
+  },
+  {
+   "gene": "KCNQ2",
+   "runtimeMs": 428
+  }
+ ]
+}

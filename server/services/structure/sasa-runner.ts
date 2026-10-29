@@ -32,19 +32,24 @@ export interface SasaRunnerOptions {
   executor?: (command: string, args: string[], options: { timeout: number }) => Promise<{ stdout: string }>;
 }
 
+/** Every standard residue of one chain: the same method and rounding as the single-residue mode. */
+export interface SasaAllSuccess {
+  status: "success";
+  residues: Array<{ resId: number; resName: string; rsa: number }>;
+}
+
+export type SasaAllResult = SasaAllSuccess | SasaEvalFailure;
+
+type ToolOutput = { ok: true; parsed: Record<string, unknown> } | { ok: false; message: string };
+
 /**
- * Executes the biophysical SASA/RSA evaluation script on target PDB text.
- * Employs a resilient two-tier execution strategy:
- * 1. Direct execution via tools virtualenv Python (fastest in production Linux / Docker containers).
+ * Runs tools/sasa_eval.py on PDB text with a two-tier strategy and returns its parsed JSON.
+ * 1. Direct execution via the tools virtualenv Python (fastest in production Linux / Docker containers).
  * 2. Automatic fallback to `uv run --no-project` if the virtualenv interpreter is missing, crashes,
  *    or encounters platform DLL mismatches.
+ * Both modes (one residue, or every residue) share it, so they cannot drift in how they start or fail.
  */
-export async function executeSasaEval(
-  pdbText: string,
-  chain: string,
-  position: number,
-  options?: SasaRunnerOptions
-): Promise<SasaEvalResult> {
+async function runSasaTool(pdbText: string, chain: string, target: string, options?: SasaRunnerOptions): Promise<ToolOutput> {
   const tempDir = path.join(process.cwd(), "temp_jobs", `sasa_${crypto.randomUUID()}`);
   await fs.promises.mkdir(tempDir, { recursive: true });
   const pdbPath = path.join(tempDir, "protein.pdb");
@@ -53,6 +58,20 @@ export async function executeSasaEval(
   const pythonScript = path.join(process.cwd(), "tools", "sasa_eval.py");
   const timeout = options?.timeoutMs ?? 15000;
   const execAsync = options?.executor ?? execFileAsync;
+  const read = (stdout: string): ToolOutput => {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(stdout.trim()) as Record<string, unknown>;
+    } catch {
+      // Not an execution failure: the tier that ran this already printed it, and the other tier would
+      // run the same script and print the same bytes. Return the message the caller shows, without
+      // falling through to a redundant re-run.
+      return { ok: false, message: "The accessibility script returned text that was not the expected JSON report." };
+    }
+    return parsed.status === "success"
+      ? { ok: true, parsed }
+      : { ok: false, message: typeof parsed.message === "string" ? parsed.message : "The accessibility script returned no value." };
+  };
 
   try {
     const venvPython = process.platform === "win32"
@@ -63,19 +82,8 @@ export async function executeSasaEval(
 
     if (useVenv) {
       try {
-        const { stdout } = await execAsync(
-          venvPython,
-          [pythonScript, pdbPath, chain, position.toString()],
-          { timeout }
-        );
-        const parsed = JSON.parse(stdout.trim());
-        if (parsed.status === "success") {
-          return parsed as SasaEvalSuccess;
-        }
-        return {
-          status: "error",
-          message: typeof parsed.message === "string" ? parsed.message : "The accessibility script returned no value."
-        };
+        const { stdout } = await execAsync(venvPython, [pythonScript, pdbPath, chain, target], { timeout });
+        return read(stdout);
       } catch (venvErr) {
         console.warn("[SASA-Runner] Direct venv execution failed, falling back to uv run --no-project:", (venvErr as Error).message);
       }
@@ -83,24 +91,13 @@ export async function executeSasaEval(
 
     // Tier 2: Resilient standalone fallback using uv with PEP 723 metadata
     try {
-      const { stdout } = await execAsync(
-        "uv",
-        ["run", "--no-project", pythonScript, pdbPath, chain, position.toString()],
-        { timeout }
-      );
-      const parsed = JSON.parse(stdout.trim());
-      if (parsed.status === "success") {
-        return parsed as SasaEvalSuccess;
-      }
-      return {
-        status: "error",
-        message: typeof parsed.message === "string" ? parsed.message : "The accessibility script returned no value."
-      };
+      const { stdout } = await execAsync("uv", ["run", "--no-project", pythonScript, pdbPath, chain, target], { timeout });
+      return read(stdout);
     } catch (uvErr) {
       console.warn("[SASA-Runner] Fallback uv execution failed:", (uvErr as Error).message);
       const code = (uvErr as { code?: string })?.code;
       return {
-        status: "error",
+        ok: false,
         message:
           code === "ENOENT"
             ? "The accessibility script could not start: neither Python venv nor uv was found."
@@ -112,4 +109,21 @@ export async function executeSasaEval(
       await fs.promises.rm(tempDir, { recursive: true, force: true });
     } catch {}
   }
+}
+
+/** The accessibility of one residue, with its burial word and secondary structure. */
+export async function executeSasaEval(
+  pdbText: string,
+  chain: string,
+  position: number,
+  options?: SasaRunnerOptions
+): Promise<SasaEvalResult> {
+  const out = await runSasaTool(pdbText, chain, position.toString(), options);
+  return out.ok ? (out.parsed as unknown as SasaEvalSuccess) : { status: "error", message: out.message };
+}
+
+/** The relative accessibility of every standard residue of a chain, in one run of the tool. */
+export async function executeSasaAll(pdbText: string, chain: string, options?: SasaRunnerOptions): Promise<SasaAllResult> {
+  const out = await runSasaTool(pdbText, chain, "all", options);
+  return out.ok ? (out.parsed as unknown as SasaAllSuccess) : { status: "error", message: out.message };
 }

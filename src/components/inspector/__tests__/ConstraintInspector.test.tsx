@@ -149,17 +149,18 @@ describe("ConstraintInspector content", () => {
   it("names who set each track's cut-points", () => {
     render(<ConstraintInspector analysisResult={RESULT} gene="UROD" variant="p.Gly318Arg" focus={null} />);
     const origins = Array.from(document.querySelectorAll(".cx-sources .cx-origin")).map((el) => el.textContent);
-    expect(origins).toEqual(["App-defined", "gnomAD", "Baseline"]);
+    expect(origins).toEqual(["App-defined", "gnomAD", "Calibrated"]);
     expect(view().getByText("2.0 · 3.09")).toBeInTheDocument();
     expect(view().getByText("0.36 · 0.45")).toBeInTheDocument();
-    expect(view().getByText("O/E 1.0")).toBeInTheDocument();
+    expect(view().getByText("PP2 ≤ 0.36 · ≤ 0.59")).toBeInTheDocument();
   });
 
   it("shows the facts that used to be tooltip-only", () => {
     render(<ConstraintInspector analysisResult={RESULT} gene="UROD" variant="p.Gly318Arg" focus={null} />);
-    expect(view().getByText(/App PP2 proxy not met: it needs Z ≥ 3.09 and missense O\/E < 0.6/)).toBeInTheDocument();
-    expect(view().getByText("Constrained block Ala290 to Val367.")).toBeInTheDocument();
-    expect(view().getByText("Regional chi-square p = 4.0×10⁻⁴ (approximate).")).toBeInTheDocument();
+    // PP2 calibrated regional rule, Chao et al. v3; replaced gene Z proxy: Z is gene context, not PP2.
+    expect(view().getByText("Gene context; PP2 is read from the regional O/E at the variant, not from Z.")).toBeInTheDocument();
+    expect(view().getByText("O/E 0.81 lies between the PP2 and BP1 bands; no evidence either way.")).toBeInTheDocument();
+    expect(view().getByText("Interval Ala290 to Val367, regional chi-square p = 4.0×10⁻⁴ (approximate).")).toBeInTheDocument();
   });
 
   it("lists each release separately: regional metrics are v4.1.1, not the gene metrics' v4.1.2", () => {

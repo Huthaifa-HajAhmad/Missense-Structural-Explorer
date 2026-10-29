@@ -5,15 +5,16 @@
 .ifc-workspace .screen-tab-description { text-wrap: pretty; line-height: 1.6; }
 .ifc-workspace .ifc-hero__body { display: flex; flex-wrap: wrap; gap: var(--mx-pad); padding: var(--mx-pad); }
 .ifc-workspace .ifc-hero__text { flex: 999 1 24rem; min-inline-size: min(100%, 18rem); justify-content: center; }
-.ifc-workspace .ifc-hero__diagram { flex: 1 1 15rem; min-inline-size: 0; padding: 1rem; background: var(--cs-accent-wash); border: 0; align-items: stretch; }
-.mx-composition-caption { text-align: start; padding-block-start: .5rem; border-block-start: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+/* The Assembly card's workspace width. Its body is white (interfaces.css), never the accent wash, which read as a pink placeholder. */
+.ifc-workspace .ifc-hero__diagram { flex: 1 1 15rem; min-inline-size: 0; }
+.mx-composition-caption { margin: 0; padding: .5rem .75rem; text-align: start; border-block-start: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ifc-workspace .ifc-figure { font-size: clamp(2rem, 1.4rem + 2cqi, 3.25rem); letter-spacing: -.045em; line-height: 1.05; }
 .ifc-workspace .ifc-hero__figure { flex-direction: column; align-items: start; gap: .5rem; }
 .ifc-workspace .ifc-facts { border-block-start: 1px solid var(--cs-border-subtle); background: var(--cs-surface); }
 .ifc-workspace .ifc-foot { line-height: 1.65; }
-.mx-composition { inline-size: 100%; display: flex; flex-direction: column; gap: .75rem; }
-.mx-composition__head { display: flex; justify-content: space-between; gap: .5rem; color: var(--cs-text-muted); font-size: .7rem; }
-.mx-composition__head > :first-child { font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.mx-composition-head { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; padding: .5rem .75rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
+.mx-composition-head strong { font-size: .875rem; font-weight: 600; letter-spacing: -.01em; color: var(--cs-text-primary); }
+.mx-composition { inline-size: 100%; display: flex; flex-direction: column; gap: .75rem; padding: .75rem; }
 .mx-composition__chains { display: grid; gap: .4rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
 .mx-chain { display: flex; align-items: center; gap: .8rem; padding: .65rem .8rem; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-input, 8px); background: var(--cs-surface); }
 .mx-chain[data-variant] { border-inline-start: 3px solid var(--cs-accent-clay); }
@@ -22,15 +23,18 @@
 .mx-chain__name { min-inline-size: 0; overflow-wrap: anywhere; color: var(--cs-text-primary); font-weight: 600; }
 .mx-chain__name small { display: block; color: var(--cs-text-muted); font-size: .7rem; font-weight: 400; }
 .mx-composition p { margin: 0; font-size: .7rem; line-height: 1.5; color: var(--cs-text-muted); }
-.mx-composition-disclosure { inline-size: 100%; }
-.mx-composition-disclosure summary { cursor: pointer; display: flex; flex-direction: column; gap: .3rem; min-block-size: 3rem; }
-.mx-composition-disclosure summary strong { font-size: 1.25rem; letter-spacing: -.02em; font-weight: 500; color: var(--cs-text-primary); }
-.mx-composition-disclosure summary > :last-child { color: var(--cs-text-muted); font-size: .72rem; }
-.mx-composition-disclosure[open] summary { margin-block-end: 1rem; }
+/* Measured interfaces between chains (AssemblyDiagram): a solid connector, clay when the variant is at it. */
+.mx-edges { display: flex; flex-direction: column; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.mx-edge { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .2rem .6rem; }
+.mx-edge__ends { display: inline-flex; align-items: center; gap: .3rem; padding-block-start: .1rem; font: 500 .72rem/1 var(--cs-font-mono); color: var(--cs-text-muted); }
+.mx-edge__line { inline-size: 1.5rem; block-size: 2px; border-radius: 1px; background: var(--cs-text-muted); }
+.mx-edge__label { min-inline-size: 0; font-size: .7rem; line-height: 1.5; color: var(--cs-text-secondary); }
+.mx-edge[data-lit] .mx-edge__ends { color: var(--cs-text-accent); }
+.mx-edge[data-lit] .mx-edge__line { inline-size: 2.25rem; block-size: 3px; background: var(--cs-accent-clay); }
 .mx-finding-details { border-block-start: 1px solid var(--cs-border-subtle); }
 .mx-finding-details > summary { cursor: pointer; padding: .7rem 1rem; font-size: .75rem; color: var(--cs-text-muted); min-block-size: 2.5rem; }
-:is(.mx-composition-disclosure, .mx-finding-details) > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
-:is(.mx-composition-disclosure, .mx-finding-details) > summary:active { color: var(--cs-text-primary); }
+.mx-finding-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+.mx-finding-details > summary:active { color: var(--cs-text-primary); }
 .mx-support { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-card); background: var(--cs-surface); overflow: clip; }
 .mx-figure-heading { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem 2rem; padding: var(--mx-pad); border-block-end: 1px solid var(--cs-border-subtle); }
 .mx-figure-heading > div { flex: 1 1 18rem; }

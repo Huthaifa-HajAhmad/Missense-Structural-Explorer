@@ -88,7 +88,7 @@ describe("context strip", () => {
     fireEvent.focus(chip);
     matches.mockRestore();
     const card = screen.getByTestId("constraint-card");
-    expect(within(card).getByText(/App PP2 proxy not met/)).toBeInTheDocument();
+    expect(within(card).getByText(/PP2 is read from the regional O\/E at the variant, not from Z/)).toBeInTheDocument();
     // The card sits right after its chip in the DOM, so Tab order runs chip → card action → next chip.
     const inspect = within(card).getByRole("button", { name: "Open in inspector" });
     expect(chip.compareDocumentPosition(inspect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

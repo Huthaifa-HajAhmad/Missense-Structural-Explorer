@@ -161,13 +161,15 @@ export const energeticsDataSchema = z.object({
    * Repair was deliberately not attempted, and why.
    *
    * `foldxRepairFailed` already existed for "repair was attempted and failed"; these two describe
-   * the other, quieter case — a template that was never minimised because of its size or because it
-   * is an AlphaFold model whose pLDDT B-factors would be misread as temperature factors. A ΔΔG on
-   * an un-repaired template is a weaker claim, so the reason is part of the payload rather than a
-   * log line.
+   * a budget/size skip or a rejected cached template. `alphafold-plddt` is accepted only for
+   * legacy payloads; pLDDT is not a repair exclusion in the current preparation policy.
    */
   foldxRepairSkipped: z.boolean().optional(),
-  foldxRepairSkippedReason: z.enum(["large-structure", "alphafold-plddt", "repair-exceeds-budget"]).optional(),
+  foldxRepairSkippedReason: z.enum(["large-structure", "alphafold-plddt", "repair-exceeds-budget", "cached-repair-rejected"]).optional(),
+  /** Server cache identity, preserved across enrichment/backfill; not a credential or client input. */
+  foldxRepairCacheKey: z.string().optional(),
+  /** Solver-only refresh window after background repair admission; absent when no refresh can help. */
+  foldxRepairRefresh: z.object({ after: z.number().finite(), until: z.number().finite() }).optional(),
   /** The repaired template was reused from cache instead of recomputed — same coordinates, disclosed. */
   foldxRepairCached: z.boolean().optional(),
   foldxError: z.string().nullable().optional(),
@@ -1789,7 +1791,10 @@ export const analyzeVariantResponseSchema = z.object({
     oe_mis: z.number().nullable(),
     pli: z.number().nullable(),
     loeuf: z.number().nullable().optional(),
+    /** PP2 met under the calibrated regional rule (`pp2Code` not null). Older payloads: the retired Z/o-e proxy. */
     isPP2Constrained: z.boolean(),
+    /** The calibrated PP2 strength from the variant's regional O/E (calibration.ts); absent on payloads before it. */
+    pp2Code: z.enum(["PP2", "PP2_Moderate"]).nullable().optional(),
     hasRegionalData: z.boolean().optional(),
     regionalConstraint: z.object({
       isConstrained: z.boolean(),
@@ -2670,7 +2675,10 @@ export interface GnomadConstraintData {
   oe_mis: number | null;
   pli: number | null;
   loeuf?: number | null;
+  /** PP2 met under the calibrated regional rule. On payloads before `pp2Code`, the retired Z/o-e proxy. */
   isPP2Constrained: boolean;
+  /** Calibrated PP2 strength from the variant's regional O/E (Chao et al. v3); `null` = assessed, below the band. */
+  pp2Code?: "PP2" | "PP2_Moderate" | null;
   hasRegionalData?: boolean;
   regionalConstraint?: {
     isConstrained: boolean;

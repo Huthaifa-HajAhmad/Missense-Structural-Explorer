@@ -50,6 +50,7 @@ const { getRepairCacheKey, getRepairedStructureFromCache, repairedStructureCache
 const { cleanPdbForFoldX } = await import("./pdb-utils.ts");
 const { registerPreemptible, backgroundFoldxRunning, resetPreemptionForTests } = await import("./preemption.ts");
 const crypto = await import("crypto");
+const { requestBackgroundRepair, backgroundRepairStatus, resetBackgroundRepairForTests } = await import("./background-repair.ts");
 const { resolveFoldxConcurrency } = await import("../../../config.ts");
 
 function makeWildTypePdb(marker: string): string {
@@ -104,6 +105,7 @@ afterEach(() => {
   mutantCache.clear();
   resetPreemptionForTests();
   resetInflightRepairsForTests();
+  resetBackgroundRepairForTests();
   fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   fs.rmSync(foldxHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 });
@@ -127,6 +129,26 @@ describe("background RepairPDB through the real runner", () => {
     expect(result.energetics.foldxRepairCached).toBe(true);
     expect(phases, "the cached repair must not be announced as a fresh one").toEqual(["modelling", "finalizing"]);
     expect(foldxLog).toEqual(["BuildModel"]);
+  });
+
+  it("schedules a real repair and reuses its exact cleaned-structure/options key in the mutant runner", async () => {
+    const pdb = makeWildTypePdb("SCHEDULER-KEY");
+    const options = { pH: 6.5, temperature: 310, ionicStrength: 0.2, seed: 77 };
+    let now = 0;
+    const request = await requestBackgroundRepair({ wtPdb: pdb, options }, {
+      enabled: () => true, emulated: () => false, slot: () => "spare-core", isIdle: () => true,
+      repair: repairTemplateOnly, isCached: async key => Boolean(await getRepairedStructureFromCache(key)),
+      sleep: async ms => { now += ms; }, now: () => now, tempRoot: () => workspace,
+      pollMs: 1, quietPolls: 1, maxWaitMs: 100
+    });
+    expect(request.status).toBe("scheduled");
+    if (request.status !== "scheduled") throw new Error("repair was not admitted");
+    await request.finished;
+    const result = await generateMutantPdb(pdb, "AA5W", "P00439", path.join(workspace, "scheduled-mutant"), undefined, options);
+    expect(result.energetics.foldxRepairCached).toBe(true);
+    expect(result.energetics.foldxRepairCacheKey).toBe(backgroundRepairStatus()[0].key);
+    expect(result.wtReferencePdb).toContain("REPAIRED");
+    expect(foldxLog).toEqual(["RepairPDB", "BuildModel"]);
   });
 
   it("does nothing when the repair is already cached", async () => {
@@ -199,15 +221,18 @@ describe("a job joining the background repair of its structure", () => {
     const pdb = makeWildTypePdb("JOIN-NEAR");
     const key = keyFor(pdb);
     const settle = announceInflightRepair(key, Date.now() - 600_000, Date.now() + 1_000);
-    // The background repair lands 50 ms into the wait.
-    setTimeout(async () => {
-      const { writeRepairedStructureToCache } = await import("./cache.ts");
-      await writeRepairedStructureToCache(key, cleanPdbForFoldX(pdb) + "\nREMARK  99 REPAIRED\n");
-      settle();
-    }, 50);
-
+    // Publish only after the runner actually joins; a wall-clock timer could fire before cache lookup
+    // on a busy host and accidentally exercise the direct-cache path instead.
+    repairFitsInJob = false;
     const phases: string[] = [];
-    const result = await runSkippingRepair(pdb, phases);
+    const result = await generateMutantPdb(pdb, "AA5W", "P00439", path.join(workspace, "job"), undefined, { seed: 12345 }, async phase => {
+      phases.push(phase);
+      if (phase === "repairing") {
+        const { writeRepairedStructureToCache } = await import("./cache.ts");
+        await writeRepairedStructureToCache(key, cleanPdbForFoldX(pdb) + "\nREMARK  99 REPAIRED\n");
+        settle();
+      }
+    });
     expect(result.energetics.foldxRepairCached).toBe(true);
     expect(result.energetics.foldxRepairSkipped).toBe(false);
     expect(result.energetics.foldxRepairSkippedReason).toBeUndefined();

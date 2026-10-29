@@ -12,11 +12,12 @@ import { agentModel, agentSystem } from './e2e.agent.ts';
 const url = process.env.APP_URL ?? 'http://127.0.0.1:3917';
 
 export default {
-  // Implicitly-runnable suites: the deterministic, offline tests. The live-network proof suites
-  // under tests/proof/ are excluded here and run explicitly (`e2e run tests/proof/...`) — they
-  // call the real gnomAD/Alliance endpoints and would burn minutes (and retry once) on every
-  // short CI pass.
-  tests: ['tests/**/*.e2e.ts', '!tests/proof/**'],
+  // Implicitly-runnable suites: the deterministic, offline tests. The live-network proof suites under
+  // tests/proof/ call the real gnomAD/Alliance endpoints and would burn minutes (and retry once) on every
+  // short CI pass, so they are excluded by default. A positional path does NOT override an exclusion
+  // glob — `e2e run` only narrows the discovered set — so opting in is a flag, not a path argument:
+  // `npm run test:e2e:proof` sets E2E_PROOF, which removes the exclusion.
+  tests: process.env.E2E_PROOF ? ['tests/**/*.e2e.ts'] : ['tests/**/*.e2e.ts', '!tests/proof/**'],
   // One worker: every page shares 127.0.0.1, and apiLimiter (server/middleware.ts) allows 120
   // API calls a minute per IP. Parallel pages trip it with 429s that read as flaky UI.
   workers: 1,

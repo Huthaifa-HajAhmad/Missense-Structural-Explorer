@@ -124,21 +124,29 @@ describe("backgroundRepairBudgetMs", () => {
       { residues: 305, incomplete: 44, seconds: 659.8 },
     ];
     for (const m of measured) {
-      const budget = backgroundRepairBudgetMs({ residueCount: m.residues, incompleteResidues: m.incomplete }, T);
+      const budget = backgroundRepairBudgetMs({ residueCount: m.residues, incompleteResidues: m.incomplete, emulated: true }, T);
       expect(budget, `${m.residues} residues`).not.toBeNull();
       expect((budget as number) / 1000 / m.seconds).toBeGreaterThanOrEqual(1.5);
     }
-    expect(backgroundRepairBudgetMs({ residueCount: 305, incompleteResidues: 44 }, T)).toBe(1_153_500);
+    expect(backgroundRepairBudgetMs({ residueCount: 305, incompleteResidues: 44, emulated: true }, T)).toBe(1_153_500);
+  });
+
+  it("admits a native repair beyond the Box64 ceiling without claiming unbounded coverage", () => {
+    expect(backgroundRepairBudgetMs({ residueCount: 556, emulated: true }, T)).toBeNull();
+    expect(backgroundRepairBudgetMs({ residueCount: 556, emulated: false }, T)).toBeGreaterThan(420_000);
+    expect(backgroundRepairBudgetMs({ residueCount: 556, emulated: false }, T)).toBeLessThanOrEqual(1_500_000);
+    expect(backgroundRepairBudgetMs({ residueCount: 1000, emulated: false }, T)).toBeNull();
+    expect(backgroundRepairBudgetMs({ residueCount: 1000, emulated: true }, T)).toBeNull();
   });
 
   it("never goes below the interactive repair cap, and refuses what would outlast its ceiling", () => {
-    expect(backgroundRepairBudgetMs({ residueCount: 10 }, T)).toBe(420_000);
-    expect(backgroundRepairBudgetMs({ residueCount: 400, incompleteResidues: 400 }, T)).toBeNull();
+    expect(backgroundRepairBudgetMs({ residueCount: 10, emulated: true }, T)).toBe(420_000);
+    expect(backgroundRepairBudgetMs({ residueCount: 400, incompleteResidues: 400, emulated: true }, T)).toBeNull();
   });
 
   it("is a ceiling the repair gate stays below: a repair that fits interactively never needs the background", () => {
     const fits = { residueCount: 200, incompleteResidues: 0 };
     expect(repairFitsBudget({ ...fits, emulated: true }, T)).toBe(true);
-    expect(backgroundRepairBudgetMs(fits, T)).toBeGreaterThanOrEqual(T.foldxRepairMs);
+    expect(backgroundRepairBudgetMs({ ...fits, emulated: true }, T)).toBeGreaterThanOrEqual(T.foldxRepairMs);
   });
 });

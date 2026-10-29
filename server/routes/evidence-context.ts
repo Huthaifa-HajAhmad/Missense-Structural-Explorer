@@ -1,4 +1,6 @@
 import type { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { getClientIp } from '../middleware.ts';
 import { loadGeneDiseaseContext } from '../services/evidence-context/store.ts';
 import { sendError } from '../utils.ts';
 import { fetchAdultExpression } from '../services/evidence-context/gtex.ts';
@@ -11,10 +13,28 @@ import { loadPext } from '../services/evidence-context/pext.ts';
 import { loadHpa } from '../services/evidence-context/hpa.ts';
 import { loadModelPhenotypes } from '../services/evidence-context/modelPhenotypes.ts';
 import { loadHpoAnnotation } from '../services/evidence-context/hpo.ts';
+import { isHotspotContextCached, loadHotspotContext } from '../services/evidence-context/hotspots.ts';
 import { CONTEXT_SUFFIXES, type ContextSuffix } from '../../src/shared/contextRequest.ts';
 import { addVerifiedMechanismChoices } from '../../src/shared/diseaseFrame.ts';
 
 const GENE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,49}$/;
+
+/**
+ * The hotspots read is public and can spawn a 2,000-permutation 3D job, so it keeps a per-minute budget
+ * of its own beyond the shared `apiLimiter` — for builds. A request that would be served from the in-process
+ * cache costs no build (the expensive 3D statistic and accessibility run are memoized separately), so it is
+ * not counted; a loop of distinct `uniprot` values (each its own cache key) is what this limiter exists for.
+ */
+const hotspotLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => getClientIp(req),
+  skip: (req) => req.principal?.kind === "agent" || isHotspotContextCached(String(req.params.gene), req.query),
+  message: { error: { code: "RATE_LIMITED", message: "Hot-spot reads are limited: each one can run a 3D permutation test." } },
+});
 
 /**
  * Every reference read is `GET /evidence-context/:gene[/suffix]` with the same symbol check, so a new
@@ -28,21 +48,36 @@ const SOURCES: Record<ContextSuffix, (gene: string, query: Record<string, unknow
   hpa: g => loadHpa(g),
   phenotypes: g => loadModelPhenotypes(g),
   hpo: (g, q) => loadHpoAnnotation(g, q.disease),
+  hotspots: (g, q) => loadHotspotContext(g, q),
 };
 
 export function registerEvidenceContextRoutes(router: Router) {
   for (const suffix of CONTEXT_SUFFIXES) {
     const load = SOURCES[suffix];
-    router.get(`/evidence-context/:gene/${suffix}`, async (req, res) => {
+    const guards = suffix === 'hotspots' ? [hotspotLimiter] : [];
+    router.get(`/evidence-context/:gene/${suffix}`, ...guards, async (req, res) => {
       const gene = req.params.gene;
       if (!GENE.test(gene)) { sendError(res, 400, 'INVALID_GENE', 'Use a human gene symbol.'); return; }
-      res.json(await load(gene, req.query));
+      // Express 4 does not forward a rejected async handler. Without this guard a throw from any source
+      // (a missing bundled file, a malformed snapshot) becomes an unhandled rejection and Node's default
+      // --unhandled-rejections=throw ends the process, taking every other request with it.
+      try {
+        res.json(await load(gene, req.query));
+      } catch (error) {
+        console.error(`[evidence-context] ${suffix} failed`, error);
+        sendError(res, 502, 'CONTEXT_UNAVAILABLE', `${suffix} could not be read.`);
+      }
     });
   }
   router.get('/evidence-context/:gene', async (req, res) => {
     const gene = req.params.gene;
     if (!GENE.test(gene)) { sendError(res, 400, 'INVALID_GENE', 'Use a human gene symbol.'); return; }
-    const [context, mechanismContext] = await Promise.all([loadGeneDiseaseContext(gene), loadMechanismContext(gene)]);
-    res.json(addVerifiedMechanismChoices({ ...context, mechanismContext }));
+    try {
+      const [context, mechanismContext] = await Promise.all([loadGeneDiseaseContext(gene), loadMechanismContext(gene)]);
+      res.json(addVerifiedMechanismChoices({ ...context, mechanismContext }));
+    } catch (error) {
+      console.error('[evidence-context] gene context failed', error);
+      sendError(res, 502, 'CONTEXT_UNAVAILABLE', 'The gene context could not be read.');
+    }
   });
 }

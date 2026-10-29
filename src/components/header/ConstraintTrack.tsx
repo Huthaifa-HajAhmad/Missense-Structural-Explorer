@@ -109,8 +109,8 @@ export function MiniTrack({ metric }: { metric: VhMetric }) {
 
 /**
  * Where a track's cut-points come from, and the facts about this reading that the row cannot carry:
- * PP2 proxy status, the RMC block and its p-value, why a call is absent. Shared by the strip's card
- * and the inspector so the two cannot word the same reading differently.
+ * the calibrated PP2 band its interval sits in, the RMC block and its p-value, why a call is absent.
+ * Shared by the strip's card and the inspector so the two cannot word the same reading differently.
  */
 export function ConstraintReference({ metric }: { metric: VhMetric }) {
   const { cutPoints, facts } = metric;
@@ -129,7 +129,7 @@ export function ConstraintReference({ metric }: { metric: VhMetric }) {
               <>
                 {" "}
                 <a href={cutPoints.href} target="_blank" rel="noopener noreferrer" className="cx-link">
-                  gnomAD guidance
+                  {cutPoints.origin === "calibrated" ? "Calibration source" : "gnomAD guidance"}
                   <ExternalLink size={11} aria-hidden="true" />
                   <span className="vh-sr-only"> (opens in a new tab)</span>
                 </a>

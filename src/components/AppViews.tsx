@@ -468,7 +468,7 @@ export function AppViews({
                   onRetryStructural={actions?.retryStructuralAnalysis}
                   onRetryPocket={handleRetryPocket}
                   onSelectResidue={handleSelectResidueWithFocus}
-                  onNavigateToView={setMasterView}
+                  onNavigateToView={navigateWorkspace}
                 />
               </ErrorBoundary>
             )}

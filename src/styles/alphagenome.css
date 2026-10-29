@@ -155,7 +155,7 @@ p.ag-card__foot > span { display: inline; }
 
 /* ── Rank ruler: Phred is −10·log10(tail), so equal steps are equal decades of rarity ──
    A rank is not a proportion, so the track is not filled up to the marker. Full column width. */
-.ag-rank { margin: 12px 0 0; }
+.ag-rank { margin: 12px 0 0; container-type: inline-size; }
 .ag-rank__track {
   position: relative;
   height: 6px;
@@ -194,6 +194,11 @@ p.ag-card__foot > span { display: inline; }
 .ag-rank__label[data-edge="end"] { transform: translateX(-100%); align-items: flex-end; }
 .ag-rank__top { font-size: var(--cs-font-size-badge); color: var(--cs-text-secondary); }
 .ag-rank__phred { font-family: var(--cs-font-mono); font-size: var(--cs-text-micro); color: var(--cs-text-muted); }
+/* Keep the scale and every tick fixed; reduce label density within narrow cards. */
+@container (inline-size < 26rem) {
+  .ag-rank__label:not([data-edge]):not(:nth-child(3)) { display: none; }
+}
+
 
 /* ── Where the score comes from: shares ARE a proportion, so a 100% bar is honest ── */
 .ag-split {

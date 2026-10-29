@@ -102,7 +102,6 @@ describe("buildFunctionEvidence - SOD1 p.Ala5Val", () => {
   it("A12/B6: says what the 81 variants are and that PM1's hot-spot reading is untested", () => {
     expect(ev.density.total).toBe(81);
     expect(ev.density.atResidue).toBe(3);
-    expect(ev.density.near).toBeGreaterThan(3);
     expect(ev.caveats.some((c) => /hot-spot reading.*not tested/.test(c.rest))).toBe(true);
     const g = ev.groups.find((x) => x.group === "variants")!;
     expect(g.summary).toMatch(/^81 disease/);

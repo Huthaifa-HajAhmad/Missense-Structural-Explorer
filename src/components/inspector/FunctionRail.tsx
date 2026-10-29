@@ -6,6 +6,12 @@ import { EVIDENCE_LEVEL_CODES, EVIDENCE_LEVEL_LABEL, PM1_EVIDENCE_LEVELS } from 
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { functionReadings } from '../../shared/molecularWorkspace';
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
+import { buildHotspotEvidence, HOTSPOT_GRADE_LABEL, type HotspotContext } from "../../shared/hotspotEvidence";
+import { hotspotInputFrom } from "../../shared/hotspotInput";
+import { hotspotsSlot } from "../../shared/evidenceKeys";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import type { ContextLoad } from "../../stores/slices/evidenceContextSlice";
+import { useEvidenceWorkspace } from "../evidence/EvidenceWorkspace";
 
 /**
  * FunctionRail — the Evidence Lineage inspector for the Functional domains tab.
@@ -36,10 +42,60 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
   // Natural variants are left out: ECO:0000269 on a variant is a publication reporting it, not an observation
   // of a site, and listing it as "Experimental, counts for PM1" implied the variant rows were evidence for PM1.
   const levelsHere = useMemo(() => new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence)), [ev]);
+  // The Hotspots view's trace: each definition with its grade and source, read from the same slot the view reads.
+  const workspace = useEvidenceWorkspace("function");
+  // The loader forms its slot from the result's gene or the store's (useEvidenceContext) — the rail uses
+  // the same rule, or a fallback identity would leave it watching a slot nobody fills.
+  const storeGene = useVariantAnalysisStore((st) => st.gene);
+  const hotspotGene = analysisResult.metadata?.gene || storeGene || null;
+  const slot = hotspotsSlot(hotspotGene, analysisResult.metadata?.uniprotId, analysisResult.transcriptId);
+  const hotspotLoad = useVariantAnalysisStore((st) => st.extraContexts[slot]) as ContextLoad<HotspotContext> | undefined;
+  const hotspots = useMemo(() => {
+    if (workspace.enabled && workspace.view !== "hotspots") return null;
+    const context = hotspotLoad?.status === "ready" ? hotspotLoad.data : null;
+    // Same inputs and the same load state as the view. The rail used to rebuild with `loadState: "ready"`,
+    // so beside a failed view it rendered nothing and beside a loading one it claimed a finished answer.
+    return {
+      context,
+      ev: buildHotspotEvidence(hotspotInputFrom(analysisResult, ev, hotspotLoad, functionEvidenceInputFrom(analysisResult).engineCriteria)),
+    };
+  }, [workspace.enabled, workspace.view, hotspotLoad, ev, analysisResult]);
 
   return (
     <div className="fnd-rail" data-testid="function-rail">
       <EvidenceReadingInspector tab="function" rows={readings} />
+      {/* In the Hotspots view the rail leads with that view's trace; the PM1 trace follows. */}
+      {hotspots && (
+        <section className="fnd-rsec" aria-labelledby="fnd-rail-hotspots" data-testid="function-rail-hotspots">
+          <h3 className="eyebrow" id="fnd-rail-hotspots">
+            <GitBranch className="w-3.5 h-3.5" />
+            Hot-spot definitions
+          </h3>
+          <ol className="fnd-steps">
+            {hotspots.ev.rungs.map((r, i) => (
+              <Step key={r.key} n={i + 1} warn={r.state === "failed"}>
+                <span><strong>{HOTSPOT_GRADE_LABEL[r.grade]}</strong> · {r.name}: {r.headline}</span>
+              </Step>
+            ))}
+            <Step n={hotspots.ev.rungs.length + 1}>
+              <span>{hotspots.ev.pm1Note}</span>
+            </Step>
+          </ol>
+          {hotspots.context ? (
+          <dl className="fnd-kv">
+            <div><dt>Variants</dt><dd>{hotspots.context.clinvarSource}{hotspots.context.transcript ? `, ${hotspots.context.transcript}` : ""}</dd></div>
+            <div><dt>Numbering</dt><dd>{hotspots.context.numbering.status === "verified" ? `Verified: ${hotspots.context.numbering.checked} HGVSp reference residues match the model` : hotspots.context.numbering.status === "mismatch" ? `${hotspots.context.numbering.mismatches} of ${hotspots.context.numbering.checked} reference residues differ from the model` : "Not checked (no model)"}</dd></div>
+            {hotspots.context.spatial.model && <div><dt>Model</dt><dd className="fnd-mono"><a href={hotspots.context.spatial.model.url} target="_blank" rel="noopener noreferrer">{hotspots.context.spatial.model.entryId}{hotspots.context.spatial.model.version ? ` ${hotspots.context.spatial.model.version}` : ""}<span className="sr-only"> (opens in a new tab)</span></a></dd></div>}
+            {hotspots.context.cspec.retrievedAt && <div><dt>ClinGen CSpec</dt><dd>Read {hotspots.context.cspec.retrievedAt.slice(0, 10)}</dd></div>}
+            <div><dt>Published PER</dt><dd>Pérez-Palma et al. 2020; data of 2019 (dlal-group/PERs)</dd></div>
+            <div><dt>3D benchmark</dt><dd>doc/HOTSPOT_3D_DECISION.md (pre-registered)</dd></div>
+          </dl>
+          ) : (
+            <p className="fnd-note" role="status">{hotspots.ev.state === "loading" ? "Reading the hot-spot sources…" : `The sources did not answer: ${hotspots.ev.failure}`}</p>
+          )}
+        </section>
+      )}
+
       <section className="fnd-rsec" aria-labelledby="fnd-rail-trace">
         <h3 className="eyebrow" id="fnd-rail-trace">
           <GitBranch className="w-3.5 h-3.5" />

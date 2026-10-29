@@ -7,7 +7,7 @@
  * one-line context strip, so the strip's micro-tracks, its reading cards and the inspector's full tracks read the
  * same metric objects.
  */
-import { THRESHOLDS } from "../../shared/thresholds";
+import { REGIONAL_MISSENSE_CALIBRATION, REGIONAL_MISSENSE_SOURCE, regionalBp1Code, regionalPp2Code, THRESHOLDS } from "../../shared/thresholds";
 import { resolveEvidenceAvailability } from "../../shared/evidenceAvailability";
 import { CONSTRAINT_GUIDANCE_URL, CONSTRAINT_RELEASE, type ConstraintMetricKey, type RegionalConstraintStatus } from "../../shared/constraintSource";
 
@@ -36,7 +36,7 @@ export type VhTone = "path" | "warn" | "good" | "muted";
  * Who set a track's cut-points. The reader has to know this to weigh a band: an app-defined display
  * band, a cut gnomAD publishes, and a neutral baseline are three different kinds of line.
  */
-export type VhCutPointOrigin = "app" | "gnomad" | "baseline";
+export type VhCutPointOrigin = "app" | "gnomad" | "baseline" | "calibrated";
 
 export interface VhCutPoints {
   origin: VhCutPointOrigin;
@@ -53,6 +53,7 @@ export const CUT_POINT_ORIGIN_LABELS: Record<VhCutPointOrigin, string> = {
   app: "App-defined",
   gnomad: "gnomAD",
   baseline: "Baseline",
+  calibrated: "Calibrated",
 };
 
 export interface VhBand {
@@ -82,8 +83,8 @@ export interface VhMetric {
   /** Where the cut-points come from; null when interpretation is withheld (no bands are drawn). */
   cutPoints: VhCutPoints | null;
   /**
-   * Visible facts about this reading beyond value and verdict — PP2 proxy status, the RMC block and
-   * its p-value, why a call is absent. They used to live only in tooltips.
+   * Visible facts about this reading beyond value and verdict — the PP2 band its interval sits in, the
+   * RMC block and its p-value, why a call is absent. They used to live only in tooltips.
    */
   facts: string[];
   value: string;
@@ -191,15 +192,10 @@ function signed(value: number): string {
 // ─────────────────────────────────────────────
 
 /**
- * @param missenseZ gnomAD v4.1.2 missense Z
- * @param isPP2Constrained the server's own PP2 call, which additionally requires
- *   missense O/E < 0.6. The header must not re-derive PP2 from the Z threshold
- *   alone: it would claim App-defined PP2 proxy for genes the pipeline's flag says do not meet it.
+ * @param missenseZ gnomAD v4.1.2 missense Z. Gene context only: PP2 used to be read from Z ≥ 3.09 and
+ *   o/e < 0.6, an uncalibrated proxy; it now comes from the regional O/E row (calibrated).
  */
-export function buildMissenseZMetric(
-  missenseZ: number | null | undefined,
-  isPP2Constrained: boolean
-): VhMetric {
+export function buildMissenseZMetric(missenseZ: number | null | undefined): VhMetric {
   const supporting = THRESHOLDS.misZ.pathogenicSupporting;
   const strong = THRESHOLDS.misZ.pathogenicStrong;
   const domains = {
@@ -217,7 +213,6 @@ export function buildMissenseZMetric(
   };
   const refRange =
     `Reference: app-defined display bands at Z ${supporting.toFixed(1)} and ${strong}; these are not ClinGen cutoffs. Positive Z means fewer missense variants than expected; Z of 0 or less does not establish tolerance.`;
-  const pp2 = THRESHOLDS.pp2Constraint;
   const reference = {
     name: "Missense Z score",
     release: "gnomAD v4.1.2",
@@ -227,12 +222,6 @@ export function buildMissenseZMetric(
       text: "Display bands drawn as dashed marks; they are not ClinGen cutoffs.",
     },
   };
-  const pp2Fact = isPP2Constrained
-    ? `App PP2 proxy met: Z ≥ ${pp2.missenseZ} and missense O/E < ${pp2.oeMisBelow}. This is not the recorded ACMG criterion.`
-    : `App PP2 proxy not met: it needs Z ≥ ${pp2.missenseZ} and missense O/E < ${pp2.oeMisBelow}.`;
-  const pp2Clause = isPP2Constrained
-    ? ` App-defined PP2 proxy is met (Z ≥ ${pp2.missenseZ} and missense O/E < ${pp2.oeMisBelow}); this is not the recorded ACMG criterion or a ClinGen genome-wide cutoff.`
-    : ` App-defined PP2 proxy is not met (it also requires missense O/E < ${pp2.oeMisBelow}); this is not a ClinGen genome-wide cutoff.`;
 
   const z = typeof missenseZ === "number" ? missenseZ : null;
 
@@ -258,9 +247,7 @@ export function buildMissenseZMetric(
       ? {
           tone: "path" as VhTone,
           verdict: "Severe intolerance",
-          why: isPP2Constrained
-            ? "severe missense depletion, app-defined PP2 proxy met"
-            : "severe missense depletion (App-defined PP2 proxy not met)",
+          why: "severe missense depletion",
         }
       : z >= supporting
         ? { tone: "warn" as VhTone, verdict: "Constrained", why: "above the app-defined lower depletion display band" }
@@ -275,15 +262,15 @@ export function buildMissenseZMetric(
     key: "missense-z",
     label: "Missense Z",
     ...reference,
-    facts: [pp2Fact],
+    facts: ["Gene context; PP2 is read from the regional O/E at the variant, not from Z."],
     value,
     tone: tier.tone,
     verdict: tier.verdict,
     marker: z,
     ...domains,
-    tooltip: `gnomAD v4.1.2 Missense Z score ${value} — ${tier.why}. ${refRange}${z >= strong ? pp2Clause : ""}`,
+    tooltip: `gnomAD v4.1.2 Missense Z score ${value} — ${tier.why}. ${refRange}`,
     // Reference-only: the label, value and verdict are already announced as visible text.
-    detail: `${refRange}${z >= strong ? pp2Clause : ""}`,
+    detail: refRange,
   };
 }
 
@@ -365,156 +352,97 @@ export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
   };
 }
 
-/** Display-only depth band for a significant RMC call's tone; app-defined, feeds no rule. */
-export const RMC_DEEP_DISPLAY_BAND = 0.6;
-
+/**
+ * The regional O/E row draws the one calibrated reading of it: Chao et al. v3's PP2 bands (≤ 0.36
+ * Moderate, ≤ 0.59 Supporting), the same function the engine runs, and their BP1 bands (> 0.97, > 1.23)
+ * as context the engine does not apply. It replaced an app-defined 0.6 "deep depletion" display band
+ * and a significance gate that the calibration does not use: the calibrated input is the O/E of the
+ * interval holding the variant, whatever the interval's breakpoint p.
+ */
 export function buildRmcMetric(
   hasRegionalData: boolean,
   regional: { isConstrained: boolean; oeRatio: number | null; pValue: number | null; regionText: string | null } | null,
   status?: RegionalConstraintStatus,
   source = "gnomAD v4.1.1"
 ): VhMetric {
-  // No invented cutoffs here: gnomAD RMC is a tested sub-region call, so the track
-  // carries only the neutral O/E = 1.0 baseline and the observed ratio.
+  const cal = REGIONAL_MISSENSE_CALIBRATION;
   const domains = {
     domain: RMC_DOMAIN,
     reversed: true,
-    bands: [] as VhBand[],
-    ticks: [{ at: 1.0, label: "1.0" }],
+    bands: [
+      { from: 0, to: cal.pp2.Moderate, tone: "path" as VhTone },
+      { from: cal.pp2.Moderate, to: cal.pp2.Supporting, tone: "warn" as VhTone },
+    ],
+    ticks: [
+      { at: cal.pp2.Moderate, label: String(cal.pp2.Moderate) },
+      { at: cal.pp2.Supporting, label: String(cal.pp2.Supporting) },
+      { at: 1.0, label: "1.0" },
+    ],
   };
-  const refRange = "Reference: O/E = 1.0 is the neutral baseline. A regional call requires verified GRCh38 transcript/locus identity and passed QC.";
+  const refRange = `Reference: ${REGIONAL_MISSENSE_SOURCE.short} calibrate the O/E of the interval holding the variant: ≤ ${cal.pp2.Moderate} PP2 Moderate, ≤ ${cal.pp2.Supporting} PP2 Supporting; > ${cal.bp1.Supporting} and > ${cal.bp1.Moderate} are their BP1 bands, which the engine does not apply. O/E 1.0 is the neutral baseline.`;
   const reference = {
     name: "Regional missense O/E (RMC)",
     release: source,
     cutPoints: {
-      origin: "baseline" as const,
-      label: "O/E 1.0",
-      text: "The neutral baseline. A regional call needs depletion, significance and passed QC on a verified GRCh38 locus. Axis reversed.",
+      origin: "calibrated" as const,
+      label: `PP2 ≤ ${cal.pp2.Moderate} · ≤ ${cal.pp2.Supporting}`,
+      text: `${REGIONAL_MISSENSE_SOURCE.short}, ${REGIONAL_MISSENSE_SOURCE.framework}. Axis reversed.`,
+      href: `https://doi.org/${REGIONAL_MISSENSE_SOURCE.doi}`,
     },
   };
   const unavailable: Partial<Record<RegionalConstraintStatus, [string, string]>> = {
-    "unverified-locus": ["Unverified locus", "A verified GRCh38 single-nucleotide locus and transcript are required; protein residue numbers alone are insufficient."],
-    "transcript-mismatch": ["Transcript mismatch", "The annotated transcript is absent from this gene's constraint release; regional evidence is withheld."],
-    "failed-qc": ["QC warning", "The gene or regional interval failed quality checks; no regional constraint call is made."],
-    "invalid-data": ["Invalid data", "The interval or its statistics are invalid or ambiguous; no regional call is made."],
-    "no-regions": ["No regions", "No regional intervals are released for this transcript."],
-    "outside-region": ["Outside regions", "The verified locus lies outside the released intervals; this does not establish tolerance."],
+    "unverified-locus": ["Unverified locus", "A verified GRCh38 single-nucleotide locus and transcript are required; protein residue numbers alone are insufficient. PP2 is not tested."],
+    "transcript-mismatch": ["Transcript mismatch", "The annotated transcript is absent from this gene's constraint release; regional evidence is withheld and PP2 is not tested."],
+    "failed-qc": ["QC warning", "The gene or regional interval failed quality checks; no regional reading is made and PP2 is not tested."],
+    "invalid-data": ["Invalid data", "The interval or its statistics are invalid or ambiguous; no regional reading is made."],
+    "no-regions": ["No regions", "No regional intervals are released for this transcript, so PP2 is not tested."],
+    "outside-region": ["Outside regions", "The verified locus lies outside the released intervals; this does not establish tolerance, and PP2 is not tested."],
   };
   const absence = status ? unavailable[status] : undefined;
   if (absence) return { key: "regional-oe", label: "Regional O/E", ...reference, facts: [absence[1]], value: VH_NO_VALUE, tone: "muted", verdict: absence[0], marker: null, ...domains, tooltip: `${source}: ${absence[1]}`, detail: `${absence[1]} ${refRange}` };
 
-  if (!regional) {
-    // `regional` is null in two different situations, and they mean opposite things:
-    // the gene has no RMC blocks at all, or it has blocks but this variant had no
-    // residue position to look up. The verdict already distinguished them; the copy
-    // must too, or it tells the reader the gene is unstudied when it is not.
-    const noCall = hasRegionalData
-      ? {
-          verdict: "No data",
-          reason: "no sub-regional call was returned for this residue",
-          sentence:
-            "No sub-regional call was returned for this residue, so RMC is not assessed here. This is not a statement about the gene.",
-        }
-      : {
-          verdict: "No gnomAD blocks",
-          reason: "this gene has no gnomAD constraint blocks",
-          sentence: "The gene has no gnomAD constraint blocks, so no sub-regional call was made.",
-        };
+  const oe = typeof regional?.oeRatio === "number" && Number.isFinite(regional.oeRatio) ? regional.oeRatio : null;
+  if (!regional || oe === null) {
+    // `regional` is null in two different situations, and they mean opposite things: the gene has no
+    // intervals at all, or it has intervals but this variant had no locus to look up.
+    const sentence = hasRegionalData
+      ? "No regional interval was returned for this variant, so PP2 is not tested here. This is not a statement about the gene."
+      : "The gene has no gnomAD regional intervals, so PP2 is not tested.";
     return {
-      key: "regional-oe",
-      label: "Regional O/E",
-      ...reference,
-      facts: [noCall.sentence],
-      value: VH_NO_VALUE,
-      tone: "muted",
-      verdict: noCall.verdict,
-      marker: null,
-      ...domains,
-      tooltip: `${source} Regional Missense Constraint (RMC) — ${noCall.reason}.`,
-      detail: `${noCall.sentence} ${refRange}`,
+      key: "regional-oe", label: "Regional O/E", ...reference, facts: [sentence], value: VH_NO_VALUE, tone: "muted",
+      verdict: hasRegionalData ? "No data" : "No gnomAD blocks", marker: null, ...domains,
+      tooltip: `${source} Regional Missense Constraint (RMC): ${sentence}`, detail: `${sentence} ${refRange}`,
     };
   }
 
-  const oe = typeof regional.oeRatio === "number" && Number.isFinite(regional.oeRatio) ? regional.oeRatio : null;
-  const value = oe === null ? VH_NO_VALUE : oe.toFixed(2);
+  // An O/E of 0.3601 prints as "0.36" beside a stated edge of "≤ 0.36" while sitting in the Supporting band.
+  // Show the third decimal only where two would contradict the band.
+  const edges = [cal.pp2.Moderate, cal.pp2.Supporting, cal.bp1.Supporting, cal.bp1.Moderate];
+  const value = edges.some((e) => Math.abs(oe - e) < 0.005) ? oe.toFixed(3) : oe.toFixed(2);
   const pText = formatPValue(regional.pValue);
   const region = compactRegion(regional.regionText);
-
-  const regionDetail = region ? `Constrained block ${region.replace("–", " to ")}` : "Constrained sub-region";
-  // sr-only: the verdict already announces "Subgenic constrained", so the
-  // detail names the block without repeating the verdict word.
-  const regionSr = region ? `RMC block ${region.replace("–", " to ")}` : "RMC sub-region";
-  // The block span and its p-value are facts about the RMC window, not about
-  // this residue, so they are tooltip / sr-only provenance. A visible footnote
-  // would hand the third row a second text line the other rows don't have,
-  // breaking the row rhythm. The released p-value is a regional chi-square statistic.
-  const pClause = pText ? `, regional chi-square p = ${pText} (approximate)` : "";
   const blockSpan = region ? region.replace("–", " to ") : null;
-  const pFact = pText ? `Regional chi-square p = ${pText} (approximate).` : null;
-
-  if (regional.isConstrained) {
-    /*
-     * The call is gnomAD's (significant depletion on a verified locus) and stays a call. Its TONE is
-     * graded by depth: an O/E of 0.81 printed in the same pathogenic red as 0.3 overstated a shallow
-     * depletion. The 0.6 mark is an app-defined DISPLAY band, stated as such in the facts, and it
-     * changes no verdict and feeds no rule.
-     */
-    const shallow = oe !== null && oe >= RMC_DEEP_DISPLAY_BAND;
-    return {
-      key: "regional-oe",
-      label: "Regional O/E",
-      ...reference,
-      facts: [
-        blockSpan ? `Constrained block ${blockSpan}.` : "Constrained sub-region.",
-        ...(pFact ? [pFact] : []),
-        ...(shallow ? [`O/E ${value} is a shallow depletion (app-defined display band: deep below ${RMC_DEEP_DISPLAY_BAND}; not a calibrated cut-point).`] : []),
-      ],
-      value,
-      tone: shallow ? "warn" : "path",
-      verdict: "Subgenic constrained",
-      marker: oe,
-      ...domains,
-      tooltip: `${source} Regional Missense Constraint (RMC): ${regionDetail}${pClause}. Observed/expected ratio ${value} against a neutral baseline of 1.0.`,
-      detail: `${regionSr}${pText ? `, regional chi-square p = ${pText}` : ""}. ${refRange}`,
-    };
-  }
-
-  // The server gates the constrained call on the window's own significance, so a
-  // non-constrained result with a span means "matched a candidate window that did
-  // not clear it" — say that, instead of the copy below, which is only true when
-  // no window matched at all (region is null then).
-  if (region) {
-    return {
-      key: "regional-oe",
-      label: "Regional O/E",
-      ...reference,
-      facts: [`Candidate window ${blockSpan}; it did not reach significance, so this is not a constrained call.`, ...(pFact ? [pFact] : [])],
-      value,
-      tone: "muted",
-      verdict: "Sub-threshold window",
-      marker: oe,
-      ...domains,
-      tooltip: `${source} Regional Missense Constraint (RMC): the residue lies in candidate window ${region.replace(
-        "–",
-        " to "
-      )}${pText ? ` (regional chi-square p = ${pText})` : ""}, which did not reach significance — not a constrained call.`,
-      detail: `Candidate RMC window ${region.replace("–", " to ")} below significance. ${refRange}`,
-    };
-  }
-
+  const pp2 = regionalPp2Code(oe);
+  const bp1 = regionalBp1Code(oe);
+  const band = pp2 === "PP2_Moderate"
+    ? { tone: "path" as VhTone, verdict: "PP2 Moderate band", fact: `O/E ${value} ≤ ${cal.pp2.Moderate}: calibrated PP2 Moderate.` }
+    : pp2 === "PP2"
+      ? { tone: "warn" as VhTone, verdict: "PP2 Supporting band", fact: `O/E ${value} ≤ ${cal.pp2.Supporting}: calibrated PP2 Supporting.` }
+      : bp1
+        ? { tone: "muted" as VhTone, verdict: "BP1 band (not applied)", fact: `O/E ${value} > ${bp1 === "BP1_Moderate" ? cal.bp1.Moderate : cal.bp1.Supporting}: the calibrated BP1 ${bp1 === "BP1_Moderate" ? "Moderate" : "Supporting"} band. The engine does not apply BP1 (it needs the gene's curated mechanism).` }
+        : { tone: "muted" as VhTone, verdict: "No calibrated band", fact: `O/E ${value} lies between the PP2 and BP1 bands; no evidence either way.` };
   return {
     key: "regional-oe",
     label: "Regional O/E",
     ...reference,
-    facts: ["The residue sits outside every constrained sub-region; this does not establish tolerance."],
+    facts: [band.fact, ...(blockSpan ? [`Interval ${blockSpan}${pText ? `, regional chi-square p = ${pText} (approximate)` : ""}.`] : [])],
     value,
-    tone: "muted",
-    verdict: "Outside regions",
+    tone: band.tone,
+    verdict: band.verdict,
     marker: oe,
     ...domains,
-    tooltip: `${source} Regional Missense Constraint (RMC): the residue sits outside every constrained sub-region (observed/expected ${value}).`,
-    // The "outside every constrained sub-region" clause is tooltip-only otherwise.
-    detail: `Residue outside every constrained sub-region. ${refRange}`,
+    tooltip: `${source} Regional Missense Constraint (RMC): observed/expected ${value}${blockSpan ? ` in interval ${blockSpan}` : ""}. ${band.fact}`,
+    detail: `${band.fact} ${refRange}`,
   };
 }
 
@@ -527,7 +455,7 @@ export function buildConstraintMetrics(analysisResult: AnalysisResult | null | u
   if (!analysisResult) return [];
   const gnomad = analysisResult.gnomadConstraint;
   const metrics = [
-    buildMissenseZMetric(gnomad?.missense_z, gnomad?.isPP2Constrained ?? false),
+    buildMissenseZMetric(gnomad?.missense_z),
     buildLoeufMetric(gnomad?.loeuf),
     buildRmcMetric(gnomad?.hasRegionalData ?? false, gnomad?.regionalConstraint ?? null, gnomad?.regionalStatus,
       gnomad?.regionalRelease ? `gnomAD v${gnomad.regionalRelease}` : "gnomAD (regional release unreported)"),

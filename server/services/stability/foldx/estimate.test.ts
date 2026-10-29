@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countResidues, foldxQueueCostEstimateMs, foldxRunsEmulated, isAlphaFoldModel } from "./estimate.ts";
+import { countResidues, foldxQueueCostEstimateMs, foldxRunsEmulated } from "./estimate.ts";
 import { foldxPriorP50Ms } from "../../../../src/shared/computeRouting.ts";
 import { repairFitsBudget } from "./budget.ts";
 import { cleanPdbForFoldX, countIncompleteResidues } from "./pdb-utils.ts";
@@ -25,28 +25,22 @@ describe("FoldX queue cost estimate", () => {
     const est = foldxQueueCostEstimateMs(pdb(154))!;
     // Whatever this machine is (native here, Box64 on the ARM server), the estimate uses the same flag.
     // The fixture's residues are N + CA only, i.e. all incomplete: under Box64 that is a repair the runner would not start.
-    const repair = !isAlphaFoldModel(pdb(154)) &&
-      repairFitsBudget({ residueCount: 154, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(pdb(154))), emulated: foldxRunsEmulated() });
+    const repair = repairFitsBudget({ residueCount: 154, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(pdb(154))), emulated: foldxRunsEmulated() });
     expect(est).toBe(foldxPriorP50Ms({ residues: 154, numberOfRuns: 5, repair }, foldxRunsEmulated()));
     expect(est).toBeGreaterThan(0);
+  });
+
+  it("charges the same preparation cost for predicted and experimental coordinates", () => {
+    expect(foldxQueueCostEstimateMs(pdb(154, "REMARK   1 ALPHAFOLD MODEL"))).toBe(foldxQueueCostEstimateMs(pdb(154)));
   });
 
   it("has no estimate for a structure with no residues", () => {
     expect(foldxQueueCostEstimateMs("END\n")).toBeNull();
   });
 
-  it("recognises an AlphaFold model the way the runner does", () => {
-    expect(isAlphaFoldModel(pdb(5, "REMARK   1 ALPHAFOLD MODEL"))).toBe(true);
-    // A crystal entry is repaired: its "MODEL" refinement remark and sub-100 B-factors are not pLDDT.
-    expect(isAlphaFoldModel(pdb(5, "EXPDTA    X-RAY DIFFRACTION\nREMARK   3  REFINEMENT MODEL : RESTRAINED"))).toBe(false);
-  });
-
-  it("keeps an X-ray entry experimental even when its remarks cite AlphaFold for molecular replacement", () => {
-    // Routine since 2021: a crystal solved by MR against an AlphaFold model names it in REMARK 3.
-    // The bare substring test called this an AlphaFold model and skipped RepairPDB again.
-    const crystal = pdb(5, "EXPDTA    X-RAY DIFFRACTION\nREMARK   3  MODEL USED FOR MOLECULAR REPLACEMENT: ALPHAFOLD");
-    expect(isAlphaFoldModel(crystal)).toBe(false);
-    // ...while a real predicted model (no EXPDTA) is still recognised.
-    expect(isAlphaFoldModel(pdb(5, "TITLE     ALPHAFOLD MONOMER V2.0 PREDICTION"))).toBe(true);
+  it("treats predicted and experimental templates the same for repair eligibility", () => {
+    // The retired AlphaFold repair bypass was keyed on exactly these header marks; both templates
+    // must therefore cost the same under the current preparation policy (biophysical-engines.md §4).
+    expect(foldxQueueCostEstimateMs(pdb(5, "REMARK   1 ALPHAFOLD MODEL"))).toBe(foldxQueueCostEstimateMs(pdb(5, "EXPDTA    X-RAY DIFFRACTION")));
   });
 });

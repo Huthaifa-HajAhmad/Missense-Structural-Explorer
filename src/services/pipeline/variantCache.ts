@@ -64,7 +64,11 @@ import { analysisContextMatches, type AnalysisCacheContext } from "./analysisCon
  */
 // v4.4 separates context-scoped interpretation from reusable protein artifacts.
 // v4.6 invalidates narratives produced before screening-selected literature context.
-export const CACHE_VERSION = "v4.6";
+// v4.7 invalidates verdicts computed under the retired PP2 rule (gene missense Z >= 3.09 AND o/e < 0.6):
+//   PP2 now reads the regional interval's O/E with Chao et al.'s calibrated edges, which re-tiers a
+//   stored classification; a bundle that predates the change must not replay its verdict.
+// v4.8 discards snapshots computed under the retired AlphaFold repair bypass.
+export const CACHE_VERSION = "v4.8";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

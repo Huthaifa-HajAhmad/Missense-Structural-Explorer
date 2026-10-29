@@ -41,7 +41,7 @@ export function PextCard({ load, site, systems, tissueLabels = new Map(), onRetr
             <div><h3>Coding expression map</h3><p className="ctx-caption">Proportion of gene expression associated with each coding region.</p>
               {location.region && site && <p className="xp-pext-location"><strong>Variant in region {location.index + 1} of {data.regions.length}</strong><span>GRCh38 · chr{data.chrom}:{site.pos.toLocaleString()} · region mean pext {location.region.mean === null ? 'not reported' : location.region.mean.toFixed(2)}</span></p>}
             </div>
-            <div className="xp-pext-key" aria-label="Mean pext shading scale from zero to one"><span>Mean pext across tissues</span><div aria-hidden="true" /><span>0 <span>1</span></span><small>Darker = higher proportion</small></div>
+            <div className="xp-pext-key" role="img" aria-label="Mean pext shading scale from zero to one"><span>Mean pext across tissues</span><div aria-hidden="true" /><span>0 <span>1</span></span><small>Darker = higher proportion</small></div>
           </div>
           <PextStrip regions={data.regions} activeIndex={location.index} position={site?.pos ?? null} />
           <p className="ctx-caption">{data.regions.length} coding {data.regions.length === 1 ? 'region' : 'regions'} in order, width by coding length, darker = higher mean pext across tissues. Introns are not drawn.</p>

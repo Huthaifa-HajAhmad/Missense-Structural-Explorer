@@ -16,14 +16,16 @@ import { modelOrganismResponseSchema } from '../shared/modelOrganisms';
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import type { ContextLoad } from '../stores/slices/evidenceContextSlice';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
-import { extraContextKey, type ExtraContextKind } from '../shared/evidenceKeys';
+import { extraContextKey, hotspotsSlot, type ExtraContextKind } from '../shared/evidenceKeys';
+import { readHotspots } from './hotspotsRead';
 import { ContextHttpError, contextRequestFailure } from '../shared/contextRequest';
+import type { HotspotContext } from '../shared/hotspotEvidence';
 const EMPTY_SELECTION = emptyPhenotypeSelection();
 /** Alignment slots that already had their one automatic re-read after a failure. */
 const alignmentAutoRetried = new Set<string>();
 export type EvidenceContextInput = Parameters<typeof evidenceContextIdentity>[0];
 
-export function useEvidenceContext(result: EvidenceContextInput, expression = false, dosage = false, models = expression, recoverCached = true) {
+export function useEvidenceContext(result: EvidenceContextInput, expression = false, dosage = false, models = expression, recoverCached = true, hotspots = false) {
   const { fetchWithAuth } = useApiClient();
   const storeGene = useVariantAnalysisStore(s => s.gene);
   const storeVariant = useVariantAnalysisStore(s => s.variant);
@@ -87,12 +89,12 @@ export function useEvidenceContext(result: EvidenceContextInput, expression = fa
     } catch (error) { actions.setModelContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
   };
   /** One loader for the newer sources: path suffix, schema, and the same identity and failure rules. */
-  const loadExtra = async (kind: ExtraContextKind, schema: z.ZodType<{ gene: string; status: string }>, timeout: number, query = '') => {
+  const loadExtra = async (kind: ExtraContextKind, schema: z.ZodType<{ gene: string; status: string }>, timeout: number, query = '', search = query ? `?disease=${encodeURIComponent(query)}` : '') => {
     const slot = extraContextKey(kind, gene, query);
     if (!gene || useVariantAnalysisStore.getState().extraContexts[slot]?.status === 'loading') return;
     actions.setExtraContext(slot, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/${kind}${query ? `?disease=${encodeURIComponent(query)}` : ''}`, { timeout });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/${kind}${search}`, { timeout });
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = schema.parse(await response.json());
       if (data.gene !== gene) throw new Error('Context identity mismatch');
@@ -107,6 +109,12 @@ export function useEvidenceContext(result: EvidenceContextInput, expression = fa
   const hpoSlot = extraContextKey('hpo', gene, hpoIds);
   const hpoLoad = useVariantAnalysisStore(s => s.extraContexts[hpoSlot]) as ContextLoad<z.infer<typeof hpoResponseSchema>> | undefined;
   const loadHpo = () => loadExtra('hpo', hpoResponseSchema, 30000, hpoIds);
+  // Hot spots are read per protein and transcript (numbering is checked against the model), up front
+  // with the other Evidence context so the Functional domains view never opens on a spinner.
+  const uniprot = result.metadata?.uniprotId ?? '';
+  const hotspotSlot = hotspotsSlot(gene, uniprot, result.transcriptId);
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotSlot]) as ContextLoad<HotspotContext> | undefined;
+  const loadHotspots = () => readHotspots(fetchWithAuth, gene, uniprot, result.transcriptId);
   const loadDevelopment = async () => {
     if (!gene || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'loading') return;
     actions.setDevelopmentalContext(gene, { status: 'loading', data: null });
@@ -149,11 +157,13 @@ export function useEvidenceContext(result: EvidenceContextInput, expression = fa
       const cached = useVariantAnalysisStore.getState().extraContexts[hpoSlot];
       if (!cached || (recoverCached && cached.status === 'error')) void loadHpo();
     }
+    const cachedHotspots = useVariantAnalysisStore.getState().extraContexts[hotspotSlot];
+    if (hotspots && (!cachedHotspots || (recoverCached && cachedHotspots.status === 'error'))) void loadHotspots();
     const cachedModels = useVariantAnalysisStore.getState().modelContexts[gene];
     if (models && (!cachedModels || (recoverCached && (cachedModels.status === 'error' || cachedModels.data?.impc?.status === 'error')))) void loadModels();
-  }, [gene, expression, dosage, models, recoverCached, fetchWithAuth, hpoSlot, selection.diseaseKey]);
-  return { gene, key, selection, diseaseLoad, dosageLoad, expressionLoad, developmentalLoad, modelLoad, alignmentLoad, pextLoad, hpaLoad, phenotypesLoad, hpoLoad, hpoIds,
+  }, [gene, expression, dosage, models, recoverCached, hotspots, fetchWithAuth, hpoSlot, hotspotSlot, selection.diseaseKey]);
+  return { gene, key, selection, diseaseLoad, dosageLoad, expressionLoad, developmentalLoad, modelLoad, alignmentLoad, pextLoad, hpaLoad, phenotypesLoad, hpoLoad, hpoIds, hotspotLoad,
     identityChanged: refinedIdentity === key,
     setSelection: (value: typeof selection) => { actions.setPhenotypeSelection(key, value); setRefinedIdentity(null); },
-    retryDisease: loadDisease, retryDosage: loadDosage, retryExpression: loadExpression, retryDevelopment: loadDevelopment, retryModels: loadModels, retryAlignment: loadAlignment, retryPext: loadPext, retryHpa: loadHpa, retryPhenotypes: loadPhenotypes, retryHpo: loadHpo };
+    retryDisease: loadDisease, retryDosage: loadDosage, retryExpression: loadExpression, retryDevelopment: loadDevelopment, retryModels: loadModels, retryAlignment: loadAlignment, retryPext: loadPext, retryHpa: loadHpa, retryPhenotypes: loadPhenotypes, retryHpo: loadHpo, retryHotspots: loadHotspots };
 }

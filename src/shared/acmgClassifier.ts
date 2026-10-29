@@ -44,7 +44,7 @@ export function codeWeight(code: string): number {
   if (code === "PVS1") return WEIGHT.PVS1;
   if (isSupportingPm(code)) return WEIGHT.PP;
   if (code === "PVS1_Strong" || code === "PP3_Strong") return WEIGHT.PS;
-  if (code === "PVS1_Moderate" || code === "PP3_Moderate") return WEIGHT.PM;
+  if (code === "PVS1_Moderate" || code === "PP3_Moderate" || code === "PP2_Moderate") return WEIGHT.PM;
   if (code.startsWith("PS")) return WEIGHT.PS;
   if (code.startsWith("PM")) return WEIGHT.PM;
   if (code.startsWith("PP")) return WEIGHT.PP;
@@ -67,8 +67,8 @@ export function classifyVariant(criteria: ACMGItem[]): string {
 
   const nPVS = pathogenic.filter(c => c.code === "PVS1").length;
   const nPS = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong" || c.code === "PP3_Strong").length;
-  const nPM = pathogenic.filter(c => (c.code.startsWith("PM") && !isSupportingPm(c.code)) || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate").length;
-  const nPP = pathogenic.filter(c => isSupportingPm(c.code) || (c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate")).length;
+  const nPM = pathogenic.filter(c => (c.code.startsWith("PM") && !isSupportingPm(c.code)) || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate" || c.code === "PP2_Moderate").length;
+  const nPP = pathogenic.filter(c => isSupportingPm(c.code) || (c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate" && c.code !== "PP2_Moderate")).length;
   const nBS = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Moderate").length;
   const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Moderate").length;
 

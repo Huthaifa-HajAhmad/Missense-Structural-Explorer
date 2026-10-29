@@ -204,3 +204,54 @@ export function calibrationBands(tool: CalibratedToolKey): CalibrationBand[] {
   }
   return out;
 }
+
+/**
+ * Regional missense constraint → PP2 / BP1, the one genome-wide calibration of a population-depletion
+ * reading that matches the data this app loads.
+ *
+ * Chao et al. v3 calibrate the O/E of the gnomAD v4.1.1 missense constraint region (MCR) that contains a
+ * variant, with the ClinGen local-posterior framework (prior 4.41%; ClinVar 20250504 P/LP vs B/LB
+ * missense, ≥1 star, gnomAD AF < 1%). The MCR file is the one `constraintSource.ts` pins
+ * (`papers/2026-rmc/gnomad_v4.1.1_all_mcrs.tsv`). They assign the result to PP2 and BP1, not PM1;
+ * their v2 preprint's PM1 cuts (≤ 0.37 / ≤ 0.21) were on gnomAD v2.1.1 MCRs and are superseded.
+ *
+ * It replaced the engine's earlier PP2 rule, gene missense Z ≥ 3.09 AND o/e < 0.6. Each number has a
+ * gnomAD-era origin (Z 3.09 is ExAC's p < 0.001 line), but the pair was never calibrated as PP2
+ * evidence. The BP1 bands are display context only: the engine does not apply BP1, an owner decision
+ * (criteria.ts) that this calibration does not revisit.
+ *
+ * Edges as printed: pathogenic "OE ≤ 0.36" Moderate, "OE ≤ 0.59" Supporting; benign "OE > 0.97"
+ * Supporting, "OE > 1.23" Moderate. The authors call the thresholds conservative because no coverage
+ * restriction was applied.
+ */
+export const REGIONAL_MISSENSE_SOURCE = {
+  short: "Chao et al. 2026 (preprint)",
+  citation:
+    "Chao KR, et al. The landscape of regional missense mutational intolerance quantified from 730,947 exomes. bioRxiv 2024.04.11.588920, version 3 (2026).",
+  doi: "10.1101/2024.04.11.588920",
+  framework: "ClinGen local posterior probability, prior 4.41%",
+} as const;
+
+export const REGIONAL_MISSENSE_CALIBRATION = {
+  pp2: { Moderate: 0.36, Supporting: 0.59 },
+  bp1: { Supporting: 0.97, Moderate: 1.23 },
+} as const;
+
+export type RegionalPp2Code = "PP2_Moderate" | "PP2";
+export type RegionalBp1Code = "BP1_Moderate" | "BP1";
+
+/** PP2 strength for an MCR O/E (≤ edges); `null` above the Supporting edge; `undefined` with no O/E. */
+export function regionalPp2Code(oe: number | null | undefined): RegionalPp2Code | null | undefined {
+  if (oe === null || oe === undefined || !Number.isFinite(oe)) return undefined;
+  if (oe <= REGIONAL_MISSENSE_CALIBRATION.pp2.Moderate) return "PP2_Moderate";
+  if (oe <= REGIONAL_MISSENSE_CALIBRATION.pp2.Supporting) return "PP2";
+  return null;
+}
+
+/** The calibrated BP1 band for an MCR O/E (> edges). Display context only; the engine does not apply BP1. */
+export function regionalBp1Code(oe: number | null | undefined): RegionalBp1Code | null | undefined {
+  if (oe === null || oe === undefined || !Number.isFinite(oe)) return undefined;
+  if (oe > REGIONAL_MISSENSE_CALIBRATION.bp1.Moderate) return "BP1_Moderate";
+  if (oe > REGIONAL_MISSENSE_CALIBRATION.bp1.Supporting) return "BP1";
+  return null;
+}

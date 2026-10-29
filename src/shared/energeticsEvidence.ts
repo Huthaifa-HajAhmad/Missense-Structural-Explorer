@@ -381,10 +381,12 @@ function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStr
       e.foldxRepairSkippedReason === "large-structure"
         ? " (large structure)"
         : e.foldxRepairSkippedReason === "alphafold-plddt"
-          ? " (pLDDT in B-factors)"
+          ? " (legacy AlphaFold repair policy)"
           : e.foldxRepairSkippedReason === "repair-exceeds-budget"
             ? " (repair too slow on this server)"
-            : "";
+            : e.foldxRepairSkippedReason === "cached-repair-rejected"
+              ? " (cached repair rejected; original template used)"
+              : "";
     return { repair: `Not repaired${why}`, repairState: "unrepaired" };
   }
   if (e.foldxRepairCached) return { repair: "Repaired (reused)", repairState: "repaired" };

@@ -17,6 +17,17 @@ import { classifyFoldxFailure, describeFoldxFailure } from "../stability/foldx/f
  */
 
 const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Poll a condition instead of sleeping a fixed interval. A fixed sleep races the real queue: too short and
+ * the assertion runs before the write (a flaky failure under load), too long and the suite pays for it.
+ */
+const waitFor = async (check: () => boolean | Promise<boolean>, timeoutMs = 5000) => {
+  const startedAt = Date.now();
+  while (!(await check())) {
+    if (Date.now() - startedAt > timeoutMs) throw new Error(`timed out after ${timeoutMs} ms waiting for the queue`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+};
 const BOTH_TOOLS = [
   { name: "foldx", version: "unknown", verified: true },
   { name: "p2rank", version: "unknown", verified: true },
@@ -80,7 +91,8 @@ describe("telemetry (WP-0)", () => {
     try {
       await q.addJob("ok", "foldx", {}, { ownerId: "X", residues: 154 });
       await q.addJob("bad", "p2rank", { fail: true }, { ownerId: "X", residues: 300 });
-      await tick(250);
+      const db = (q as any).db as DatabaseSync;
+      await waitFor(() => (db.prepare("SELECT count(*) AS n FROM job_telemetry").get() as any).n >= 2);
       const rows = ((q as any).db as DatabaseSync).prepare("SELECT job_id, type, residues, repaired, outcome, wall_ms, host_class FROM job_telemetry ORDER BY job_id").all() as any[];
       expect(rows).toEqual([
         expect.objectContaining({ job_id: "bad", type: "p2rank", residues: 300, repaired: null, outcome: "failed", host_class: serverClass() }),
@@ -194,7 +206,8 @@ describe("admission (WP-D)", () => {
     // One death teaches nothing enforceable: the second job still starts.
     expect(started).toEqual(["dies-1", "dies-2"]);
     kill.get("dies-2")!();
-    await tick(300);
+    // Wait for the queue's own recorded verdict, not for a wall-clock interval.
+    await waitFor(async () => (await queue.getJobStatus(waiting))?.status === "failed");
 
     const firstStatus = await queue.getJobStatus(first);
     expect(firstStatus?.status).toBe("failed");
@@ -222,7 +235,7 @@ describe("admission (WP-D)", () => {
     const id = await queue.pushJob("foldx", { name: "j" }, { ownerId: "X", residues: 500 });
     await tick();
     await queue.cancelFor(id, "X", false);
-    await tick(200);
+    await waitFor(() => (dbOf(queue).prepare("SELECT count(*) AS n FROM job_telemetry WHERE job_id = ?").get(id) as any).n === 1);
     const rows = dbOf(queue).prepare("SELECT outcome FROM job_telemetry WHERE job_id = ?").all(id) as any[];
     expect(rows.map((r) => r.outcome)).toEqual(["cancelled"]);
   });

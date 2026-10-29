@@ -170,6 +170,53 @@ page. This pass adds no numerical scientific cut-points and therefore no new cal
 - Final validation: lint (including TypeScript) passed; 28 targeted integration/pext/dGTEx tests passed; two Expression e2e tests passed. Browser proof covers all four views at 1440, 800 and 390 pixels in light/dark, with 24 view/theme/width captures, plus chart expansion, pin recovery and unavailable pediatric source checks. Artifacts: `.e2e/proof/expression-four-views/`. Illustrative fixtures, not live biological claims. Desktop and phone pext captures visually inspected.
 - The earlier full-suite run finished with 451 files passing, seven failing, two skipped (5,895 tests passed, 18 failed). Failures include SASA runtime and structural-disruption timeouts. The full suite is not green and was not rerun after the subsequent bounded presentation changes. The live local GATA4 development endpoint independently returned ready with 125 observations.
 
+## Species source-view density correction (29 October 2026)
+
+Review controls, aggregate species counts and general reading guidance now belong to
+the Species explorer. Source subtabs lead with their own card; phenotype coverage
+qualifications appear only in the explorer and phenotype view. The review trace
+remains available in the inspector. Species paragraph margins and notice padding
+no longer compound the parent's section gap. Protein sequence mismatch still blocks
+residue mapping; this change does not infer equivalence between isoforms.
+
+## Evidence subtab consistency pass (29 October 2026)
+
+Scope: the subtabs of all eleven Evidence workspaces; no redesign of the other
+main workspaces. Checked Population data, Gene-disease, Expression, Species &
+models, Functional domains, Predictors, AlphaGenome, RNA splicing, Residue shifts
+& pockets, Structural perturbation, and Interfaces & PPI.
+
+Corrections:
+- Expression keeps review controls in the RNA views that use the selection, and
+  keeps general reading guidance in Tissue explorer. Protein and pext views lead
+  with their own measurements. Existing filters and shared selection remain intact.
+- Species source views no longer repeat the explorer introduction or unrelated
+  phenotype warnings. General guidance follows the explorer records.
+- AlphaGenome's rank ruler reduces label density within narrow cards; the scale,
+  ticks, marker and reported value remain unchanged.
+- The expression browser test explicitly reselects Expression after an allele
+  fixture change, matching the app's existing active-tab reset behavior.
+
+Verification:
+- Final full Vitest run: 458 files passed, 2 skipped; 5,913 tests passed, 5 skipped.
+- Following the final CSS correction: 24 workspace/context tests and 25
+  AlphaGenome component tests passed; lint including TypeScript passed.
+- `tests/evidence-consistency.e2e.ts`: all 12 browser scenarios passed. Each
+  workspace's primary subtabs were exercised at 1440px and 390px in light and
+  dark, with labelled populated panels, selected-tab state and page overflow
+  assertions. AlphaGenome also checks visible rank-label separation. A dedicated
+  mismatch scenario verifies explicit withholding of residue mapping.
+- Existing expression browser scenarios passed (2); population and gene-disease
+  interaction scenarios passed separately. Evidence and traces are under
+  `.e2e/proof/subtabs-polished/` and `.e2e/proof/subtabs-final/`.
+- Reviewed screenshots for the corrected species alignment and expression
+  protein views, and narrow AlphaGenome rank axis.
+
+Limits: fixtures are illustrative; live provider completeness and the user's
+GATA4 protein-reference discrepancy were not independently queried. The exact
+sequence safeguard remains in place. Navigation/panel/layout checks do not
+constitute exhaustive testing of every provider or every scientific control.
+
 ## Scoped Expression review fixes (29 October 2026)
 
 - Review systems are visible and editable directly on Expression at variant, where they determine tissue ordering. The same shared card opens and focuses the system choices without changing subtab; Protein measurements remains independent of these choices. Removed duplicated system counts and the unused ReviewFrame compact prop from both callers. The reading guide is reachable on all four Expression views.

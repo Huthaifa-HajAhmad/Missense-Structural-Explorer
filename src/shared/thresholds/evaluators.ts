@@ -190,13 +190,3 @@ export function evaluateSplicePredictor(
   return "vus";
 }
 
-/**
- * The engine's PP2 gene-constraint rule, one function for the server (`gnomad.ts`) and every
- * surface that describes it: missense Z ≥ 3.09 AND o/e < 0.6 (`THRESHOLDS.pp2Constraint`).
- * `null` when either input is missing — an unknown is not "unconstrained".
- */
-export function isPp2Constrained(missenseZ: number | null | undefined, oeMis: number | null | undefined): boolean | null {
-  if (missenseZ === null || missenseZ === undefined || !Number.isFinite(missenseZ)) return null;
-  if (oeMis === null || oeMis === undefined || !Number.isFinite(oeMis)) return null;
-  return missenseZ >= THRESHOLDS.pp2Constraint.missenseZ && oeMis < THRESHOLDS.pp2Constraint.oeMisBelow;
-}
