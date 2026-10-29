@@ -98,6 +98,7 @@ function renderCard(result: any, overrides: Record<string, unknown> = {}) {
 /** The store is global, so a test that disables a section must put it back. */
 afterEach(() => {
   useVariantAnalysisStore.getState().setReportSections({ ...DEFAULT_REPORT_SECTIONS, summary: true });
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -170,6 +171,19 @@ describe("ClinicalInsightsCard — condensed clinical summary", () => {
 
     expect(useVariantAnalysisStore.getState().reportSections.summary).toBe(true);
     expect(onNavigateToView).toHaveBeenCalledWith("report");
+  });
+
+  it("clears the pending scroll on unmount instead of reading a torn-down document", () => {
+    // CI caught the timer outliving the test environment ("document is not defined"). A timer that
+    // runs after the card unmounts has nothing to scroll and must not touch the DOM at all.
+    const getElementById = vi.spyOn(document, "getElementById");
+    const { unmount } = renderCard(baseResult(), { onNavigateToView: vi.fn() });
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /full report|full narrative in the Report/i }));
+    getElementById.mockClear();
+    unmount();
+    vi.advanceTimersByTime(500);
+    expect(getElementById).not.toHaveBeenCalled();
   });
 
   it("discloses condensation when the section is longer than the summary ceiling", () => {

@@ -1,5 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { generateProvenanceManifest } from "../shared/provenance";
 import { deriveConsensus } from "../lib/insightsConsensus";
 export { deriveConsensus } from "../lib/insightsConsensus";
@@ -198,6 +198,11 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   const narrativeIsAi = narrativeAuthorship === "ai";
   const narrativeModel = (analysisState.result?.insights as { model?: string } | undefined)?.model;
 
+  const narrativeScrollTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (narrativeScrollTimer.current !== null) window.clearTimeout(narrativeScrollTimer.current);
+  }, []);
+
   /**
    * Take the reader to the complete text.
    *
@@ -213,7 +218,12 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       store.toggleReportSection("summary");
     }
     onNavigateToView?.("report");
-    window.setTimeout(() => {
+    // One pending scroll at a time, and none after unmount: a timer that outlives the card reads
+    // `document` in a torn-down environment (the failure CI reported as "document is not defined").
+    if (narrativeScrollTimer.current !== null) window.clearTimeout(narrativeScrollTimer.current);
+    narrativeScrollTimer.current = window.setTimeout(() => {
+      narrativeScrollTimer.current = null;
+      if (typeof document === "undefined") return;
       document.getElementById("report-summary")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }, [onNavigateToView]);
