@@ -3,11 +3,9 @@ import { Info, RotateCw } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useResidueContextEvidence } from "../../lib/useResidueContextEvidence";
 import type { ResidueContextEvidence } from "../../shared/residueContextEvidence";
-import { RESIDUE_SCALE_SOURCES } from "../../shared/residueScales";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { Prose } from "../ui/Prose";
 import { ResidueGlyph } from "./residue/ResidueGlyph";
-import { PropertyDumbbell, PropertyScaleReference } from "./residue/PropertyDumbbell";
 import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { ResiduePropertyComparison } from './MolecularComparison';
@@ -16,11 +14,12 @@ import { evidenceTab } from '../../shared/evidenceTabs';
 /**
  * Residue Shifts & Pockets — the tab.
  *
- * Three tiers, from one model (`buildResidueContextEvidence`) that the inspector rail also renders:
- *   1. the finding: the residue pair, one sentence, the side-chain sketch and four key facts;
- *   2. residue properties: one row per published scale, the two residues on its own axis;
- *   3. structural environment: burial (measured accessibility, the Cα count as a reading) and the
- *      predicted pocket (one distance, one probability, residues nearest first).
+ * Two views of one model (`buildResidueContextEvidence`) that the inspector rail also renders:
+ *   1. comparison: the finding (the residue pair, one sentence, the side-chain sketch, four key
+ *      facts) and one row per published scale, with the two residues on its own axis;
+ *   2. records: the structural environment — burial (measured accessibility, the Cα count as a
+ *      reading) and the predicted pocket (one distance, one probability, residues nearest first),
+ *      opened by a one-line residue context instead of a second copy of the hero.
  *
  * It replaced two green/red residue cards, a coral "marked decrease" chip per axis, boxed KPI
  * cards, a hard-coded "likely co-factor" row, and a pocket distance that disagreed with the
@@ -64,7 +63,7 @@ function ValueTrack({
   );
 }
 
-function Finding({ model, compact = false }: { model: ResidueContextEvidence; compact?: boolean }) {
+function Finding({ model }: { model: ResidueContextEvidence }) {
   const { pair } = model;
   return (
     <section className="rsx-card" aria-labelledby="rsx-finding-title" data-testid="residue-finding">
@@ -80,7 +79,7 @@ function Finding({ model, compact = false }: { model: ResidueContextEvidence; co
               <span className="rsx-pair__arrow" aria-hidden="true">&rarr;</span>
               {pair.mutant || "?"}
             </span>
-            <span className="rsx-pair__sub">
+            <span className="rsx-pair__sub" data-testid="residue-pair-sub">
               {[pair.wildTypeName, pair.mutantName].every(Boolean)
                 ? `${pair.wildTypeName} to ${pair.mutantName}${pair.position ? ` at ${pair.position}` : ""}`
                 : pair.position
@@ -96,6 +95,9 @@ function Finding({ model, compact = false }: { model: ResidueContextEvidence; co
           <Prose className="rsx-finding" data-testid="residue-finding-text">
             <strong>{model.finding.headline}</strong> {model.finding.detail}
           </Prose>
+          {pair.grantham !== null && (
+            <p className="rsx-term">Grantham distance scores how chemically different the two amino acids are, from composition, polarity and size (5–215). A larger score is a bigger difference, not a higher chance of disease.</p>
+          )}
         </div>
         {model.glyph && (
           <div className="rsx-hero__glyph">
@@ -109,7 +111,7 @@ function Finding({ model, compact = false }: { model: ResidueContextEvidence; co
           </div>
         )}
       </div>
-      <details className="mol-finding-details" open={compact ? undefined : true}>
+      <details className="mol-finding-details" open>
       <summary>Structure and pocket context</summary>
       <dl className="rsx-facts">
         {model.facts.map(fact => (
@@ -128,90 +130,22 @@ function Finding({ model, compact = false }: { model: ResidueContextEvidence; co
 }
 
 /**
- * `compact` is the workspace's record of the scales: the comparison view already draws each scale
- * (and the backbone caveat), so this drops the track column and keeps what only a table holds: native
- * values, sources, the share-of-scale shift and the other amino acids' values.
+ * The records view drops the hero so the figure is not drawn twice; this line keeps the
+ * substitution itself in view, so "burial" and "pocket" below are read against a named residue.
  */
-function Properties({ model, compact = false }: { model: ResidueContextEvidence; compact?: boolean }) {
-  const { pair, properties } = model;
+function ResidueContextLine({ model }: { model: ResidueContextEvidence }) {
+  const { pair } = model;
+  const names = pair.wildTypeName && pair.mutantName ? `${pair.wildTypeName} to ${pair.mutantName}` : null;
   return (
-    <section className={compact ? undefined : "rsx-card"} aria-label="Residue properties" data-testid={compact ? undefined : "residue-properties"}>
-      {properties ? (
-        <div className="rsx-table-wrap">
-          <table className={`rsx-table rsx-table--properties${compact ? " rsx-table--values" : ""}`}>
-            <thead>
-              <tr>
-                <th scope="col" className="rsx-col-name">Property</th>
-                {!compact && <th scope="col" className="rsx-col-track">Position on the published scale</th>}
-                <th scope="col" className="rsx-num rsx-col-val">{pair.wildType}</th>
-                <th scope="col" className="rsx-num rsx-col-val">{pair.mutant}</th>
-                <th scope="col" className="rsx-num rsx-col-shift">Shift</th>
-              </tr>
-            </thead>
-            <tbody>
-              {properties.map(row => (
-                <tr key={row.key} data-testid={`property-row-${row.key}`}>
-                  <td>
-                    <span className="rsx-name"><InspectReadingButton tab="structure" readingKey={row.key}>{row.label}</InspectReadingButton></span>
-                    <span className="rsx-note">{RESIDUE_SCALE_SOURCES[row.key].citation}{RESIDUE_SCALE_SOURCES[row.key].unit ? `, ${RESIDUE_SCALE_SOURCES[row.key].unit}` : ""}</span>
-                  </td>
-                  {!compact && (
-                    <td>
-                      <PropertyDumbbell
-                        row={row}
-                        wildType={pair.wildType}
-                        mutant={pair.mutant}
-                      />
-                    </td>
-                  )}
-                  <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
-                  <td className="rsx-num">{row.mutantNative ?? row.mutantValue}</td>
-                  <td className="rsx-num">
-                    <span className="rsx-shift">{row.plainChange}</span>
-                    <span className="rsx-note">{row.direction === "unchanged" ? "0%" : `${Math.round(row.absoluteDelta)}%`} of the scale</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="rsx-hero__body">
-          <p className="rsx-statement">
-            <strong>{model.propertiesState === "loading" ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}</strong>
-            <span>
-              {model.propertiesState === "loading"
-                ? "The residue property scales are still being assembled for this substitution."
-                : "The wild-type or variant residue could not be resolved to a standard amino acid, so no scale is drawn."}
-            </span>
-          </p>
-        </div>
+    <p className="rsx-context-line" data-testid="residue-context-line">
+      <span className="rsx-context-line__pair">
+        {pair.wildType || "?"}<span aria-hidden="true"> &rarr; </span>{pair.mutant || "?"}
+      </span>
+      <span>{[names, pair.position ? `at ${pair.position}` : null].filter(Boolean).join(" ")}</span>
+      {pair.grantham !== null && (
+        <span>Grantham distance <span className="rsx-mono">{pair.grantham}</span>, {pair.granthamClass}</span>
       )}
-      {model.backbone && !compact && (
-        <p className="rsx-caveat" data-testid="backbone-caveat">
-          <span className="rsx-ring" aria-hidden="true" />
-          <span>
-            <strong>{model.backbone.title}</strong> {model.backbone.body}
-          </span>
-        </p>
-      )}
-      <div className="rsx-foot">
-        {!compact && (
-          <span className="rsx-legend">
-            <span><i className="rsx-key-wt" aria-hidden="true" />{pair.wildType}, wild type</span>
-            <span><i className="rsx-key-mut" aria-hidden="true" />{pair.mutant}, variant</span>
-          </span>
-        )}
-        <span>
-          Shift is the share of each scale&apos;s range. The scales describe the two residues, not an effect on this protein.
-        </span>
-        {properties && (
-          <PropertyScaleReference
-            items={properties.map(row => ({ key: row.key, label: row.label, ticks: model.scaleContext[row.key] }))}
-          />
-        )}
-      </div>
-    </section>
+    </p>
   );
 }
 
@@ -238,7 +172,9 @@ function Environment({
   const rsa = burial?.indicators.rsa;
   const packing = burial?.indicators.packing;
   const canRetry = (pocket.status === "error" || pocket.status === "unavailable") && !!onRetryPocket;
-  const canRetryStructure = !!onRetryStructural && !!burial && burial.status === "undetermined";
+  // Only offer a re-run once the step is not already running: while it runs the row is a status,
+  // not a failure, and the disabled button would state the opposite of what is happening.
+  const canRetryStructure = !!onRetryStructural && !isStructuralLoading && (!burial || burial.status === "undetermined");
 
   return (
     <section className="rsx-card" aria-label="Structural environment" data-testid="residue-environment">
@@ -256,12 +192,34 @@ function Environment({
             <tr className="rsx-group">
               <td colSpan={4}>
                 <span className="rsx-label">Burial</span>
-                <span className="rsx-reason">
-                  {burial ? burial.structure : `${ENGINE_STATE_LABELS["no-result"]} · the structure step returned no accessibility or packing reading`}
+                {/* The cause belongs here, once. `finding.detail` is a composite that also carries the
+                    pocket's state, so it must never stand in for the structure step's own reason. */}
+                <span className="rsx-reason" data-testid="burial-cause">
+                  {burial ? burial.structure : isStructuralLoading ? ENGINE_STATE_LABELS.running : model.structureReason}
                 </span>
               </td>
             </tr>
-            {!burial ? null : (
+            {!burial ? <tr><td colSpan={4}>
+              {isStructuralLoading ? (
+                <p className="rsx-state" role="status">
+                  <strong className="rsx-state__title">Locating this residue</strong>
+                  <span className="rsx-state__detail">The structure step is measuring how much of the residue water can reach; a reading appears here when it returns.</span>
+                </p>
+              ) : (
+                <>
+                  <p className="rsx-state">
+                    <strong className="rsx-state__title">No accessibility reading</strong>
+                    <span className="rsx-state__detail">It measures how much of the residue water can reach, needs the residue located in a structure, and a pocket scan does not supply it.</span>
+                  </p>
+                  {canRetryStructure && (
+                    <button type="button" className="rsx-button" onClick={() => void onRetryStructural!()}>
+                      <RotateCw className="w-4 h-4" aria-hidden="true" />
+                      Run the structure step again
+                    </button>
+                  )}
+                </>
+              )}
+            </td></tr> : (
               <>
                 <tr data-testid="burial-rsa-row">
                   <td>
@@ -363,15 +321,7 @@ function Environment({
                   </td>
                   {pocketStrip && pocketStrip.centre !== null ? (
                     <>
-                      <td>
-                        <ValueTrack
-                          value={pocketStrip.centre.distance}
-                          max={pocketStrip.max}
-                          marks={pocketStrip.marks}
-                          unit=" Å"
-                          label={`${pocketStrip.centre.distance.toFixed(1)} Å from ${pocket.proximity.reference}; the app's marks are ${pocketStrip.marks.join(", ")} Å.`}
-                        />
-                      </td>
+                      <td className="rsx-reason">Shown on the pocket distance map below</td>
                       <td className="rsx-num">{pocketStrip.centre.distance.toFixed(1)} Å</td>
                     </>
                   ) : (
@@ -498,15 +448,9 @@ export function StructureTab({
       </header>
       <EvidenceViewTabs tab="structure" comparisonLabel="Residue comparison" />
       <EvidencePanel tab="structure">
-      <Finding model={model} compact={workspace.comparison} />
+      {(!workspace.enabled || workspace.comparison) && <Finding model={model} />}
+      {workspace.enabled && !workspace.comparison && <ResidueContextLine model={model} />}
       {workspace.comparison && <ResiduePropertyComparison model={model} />}
-      {workspace.comparison && model.properties && (
-        <details className="rsx-card rsx-values" data-testid="residue-property-values">
-          <summary>Scale values, shifts and sources</summary>
-          <Properties model={model} compact />
-        </details>
-      )}
-      {!workspace.enabled && <Properties model={model} />}
       {(!workspace.enabled || workspace.view === 'records') && <Environment
         model={model}
         onExplain={setSelectedMetric}

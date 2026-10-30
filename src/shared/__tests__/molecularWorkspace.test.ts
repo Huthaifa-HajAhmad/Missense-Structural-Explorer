@@ -135,6 +135,14 @@ describe('residueReadings', () => {
     expect(readings.some(r => r.key === 'pocket')).toBe(true);
   });
 
+  it('carries the other residues on the selected scale into the pinned reading', () => {
+    const polarity = residueReadings(model).find(r => r.key === 'polarity')!;
+    const note = polarity.notes.join(' ');
+    expect(note).toContain('Other residues on this scale:');
+    // The whole alphabet, grouped by value, not just the pair under study.
+    expect(note.split(' · ').length).toBeGreaterThan(5);
+  });
+
   it('keeps a scale that reported nothing distinct from a measured change', () => {
     const bare = buildResidueContextEvidence({
       wildTypeCode: 'D', mutantCode: 'G', wildTypeLabel: 'Asp', mutantLabel: 'Gly',

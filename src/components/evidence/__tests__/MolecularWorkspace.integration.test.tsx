@@ -65,22 +65,33 @@ describe('molecular workspace interaction contracts', () => {
     fireEvent.click(screen.getByRole('button', { name: /Net charge.*loses its negative charge/ }));
     expect(inspector().getByRole('heading', { name: 'Net charge' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Environment & pockets' }));
-    expect(screen.queryByTestId('residue-properties')).not.toBeInTheDocument();
     expect(inspector().getByRole('heading', { name: 'Net charge' })).toBeInTheDocument();
     expect(inspector().getByText('−1')).toBeInTheDocument();
     expect(inspector().getByText('0')).toBeInTheDocument();
   });
-  it('keeps the share-of-scale shift and the reference amino-acid values reachable in the comparison view', () => {
+  it('shows native values once, with the source and the scale read in the pinned inspector', () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="structure" />);
-    // Production always renders the workspace, so the old full table (residue-properties) never mounts.
-    expect(screen.queryByTestId('residue-properties')).not.toBeInTheDocument();
-    const values = within(screen.getByTestId('residue-property-values'));
-    expect(values.getByRole('columnheader', { name: 'Shift' })).toBeInTheDocument();
-    expect(values.getAllByText(/% of the scale/).length).toBeGreaterThan(0);
-    expect(values.getByText('Reference values for other amino acids')).toBeInTheDocument();
-    expect(values.getAllByText(/Grantham 1974/).length).toBeGreaterThan(0);
-    // The comparison already draws each scale and the backbone caveat; the record repeats neither.
+    // One figure, no second table: the values live on the rows, the provenance in the inspector.
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const polarity = screen.getByRole('button', { name: 'Polarity, less polar' });
+    expect(polarity).toHaveAccessibleName('Polarity, less polar');
+    expect(polarity).toHaveAccessibleDescription('How unevenly the electrical charge is distributed.');
+    fireEvent.click(polarity);
+    // Pinning states itself in words and never renames the row.
+    expect(polarity).toHaveAccessibleName('Polarity, less polar');
+    expect(polarity).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Pinned in inspector')).toBeInTheDocument();
+    expect(inspector().getByRole('heading', { name: 'Polarity' })).toBeInTheDocument();
+    expect(inspector().getByText('Source')).toBeInTheDocument();
+    expect(inspector().getByText('Grantham 1974')).toBeInTheDocument();
+    expect(inspector().getByText(/Other residues on this scale/)).toBeInTheDocument();
     expect(screen.getAllByText(/glycine frees the backbone/i)).toHaveLength(1);
+    fireEvent.click(screen.getByRole('tab', { name: 'Environment & pockets' }));
+    expect(screen.queryByTestId('residue-glyph-pair')).not.toBeInTheDocument();
+    // The records view names the substitution it reports on, without redrawing the figure.
+    expect(screen.getByTestId('residue-context-line')).toHaveTextContent('Asp');
+    expect(screen.getByTestId('residue-environment')).toBeInTheDocument();
+    expect(inspector().getByRole('heading', { name: 'Polarity' })).toBeInTheDocument();
   });
   it('names a language model whose row was taken from settings, in the workspace as well as the table', () => {
     const result = molecularWorkspaceFixture();

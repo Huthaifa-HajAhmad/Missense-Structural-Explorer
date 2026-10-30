@@ -94,3 +94,22 @@ Visual checks used the real `font-mono text-xs` Evidence wrapper at wide light, 
 - Tien MZ et al. 2013. PLoS One 8:e80635. doi:10.1371/journal.pone.0080635
 - Krivák R, Hoksza D. 2018. J Cheminform 10:39. doi:10.1186/s13321-018-0285-8
 - Hamelryck T. 2005. Proteins 59:38. doi:10.1002/prot.20379
+
+
+## Screenshot follow-up, 29 October 2026
+
+Removed the repeated chemical hero from Environment & pockets and the redundant values table from comparison. Native values remain on each graph row; sources remain in the inspector. Context opens by default. Top-aligned hero copy reduces empty space; inline definitions explain Grantham distance and the four property axes. Selection uses explicit pin text rather than a tinted slab. Cut-points occupy one line per band. Pocket distance uses one map.
+
+Burial RCA: no RSA or neighbour count appears in the screenshot. The backend resolves a structure, locates the target, then runs SASA. Failed resolution or an absent target returns a reason without burial fields. The evidence composer dropped that reason. It now preserves it and the tab offers the existing structure retry without requiring a burial object. The original payload/log is needed to establish which backend outcome occurred. The independent successful pocket scan cannot supply accessibility. Narrative stays in the inspector to keep generated claims distinct from scale readings.
+
+Regression: StructureTab.test.tsx covers reason propagation and retry without burial. Existing residue-glyph E2E checks the shared schematic scale and narrow layout. No thresholds or clinical rules changed.
+
+## Review follow-up, 29 October 2026
+
+The comparison figure is now the only property surface: its rows carry the native values, a name, a plain-language definition and the dumbbell, and the pinned inspector carries the citation, the interpretation and the other residues on that scale. The full `Properties` table, its `compact` branch, `PropertyScaleReference`, `rsx-table--properties`, `rsx-table--values` and the `rsx-context` styles were removed; a standalone render (no workspace provider) shows the finding and the environment only. The share-of-scale magnitude stays reachable in the inspector's interpretation ("moves −49.4 points of its 0–100 range").
+
+The burial cause is its own field (`structureReason`), so the Environment row can no longer print `finding.detail` — a composite that ends with the pocket's headline. A `level`-gated reason means a rule-based disruption explanation can never be read as the cause of a missing accessibility reading. While the structure step runs, the row is a `Running` status with no retry; the failure copy and retry appear only once the step has stopped.
+
+The marker key sits in the figure head, before the first row, and the key draws the coincident ring. A row's accessible name is `label, plain change` and does not change when pinned; the definition is exposed with `aria-describedby`, and the pin is a visible tag beside the name rather than a new line. The records view opens with a one-line residue context (pair, position, Grantham) instead of a second hero.
+
+Regression: `StructureTab.test.tsx` covers the running state, the rule-based-reason guard, and the comparison rows through the workspace provider; `residueContextEvidence.test.ts` covers `structureReason`; `molecularWorkspace.test.ts` covers the alphabet note. No thresholds or clinical rules changed.

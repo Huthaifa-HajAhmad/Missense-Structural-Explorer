@@ -158,3 +158,5 @@ uncounted. Report separates **Narrative & notes** from **Citations & methods**. 
 contributor and offer a pin-to-inspector entry point. Published clinical bands and sequence preference
 stay separate, and an absent or unclassified reading is stated only when it exists. See
 [PREDICTORS_AVAILABILITY_REVIEW.md](PREDICTORS_AVAILABILITY_REVIEW.md).
+
+29 October 2026: Residue comparison defines Grantham distance inline and explains its four property axes beside their names. Visible open/filled/coincident marker keys accompany the figure. The other residues on each scale moved into the pinned reading, so the comparison carries no second table; the records view states the substitution it reports on without redrawing the schematic.

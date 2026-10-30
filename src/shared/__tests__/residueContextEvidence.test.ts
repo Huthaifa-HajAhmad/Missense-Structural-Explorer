@@ -31,6 +31,26 @@ function nae1(overrides: Partial<Parameters<typeof buildResidueContextEvidence>[
   });
 }
 
+describe("structure absence reason", () => {
+  it("uses the payload's reason only when it reports a structural failure", () => {
+    expect(nae1({ disruption: { level: "unknown", reason: "Target residue not found in structure." } }).structureReason)
+      .toBe("Target residue not found in structure.");
+    // A rule-based level explains a substitution that was measured; it is not a burial cause.
+    expect(nae1({ disruption: { level: "high", reason: "Proline introduced at position 116." } }).structureReason)
+      .toBe("No structure reading was returned for this residue.");
+  });
+
+  it("keeps the pocket's state out of the structure reason", () => {
+    const model = nae1({
+      disruption: null,
+      pocket: derivePocketNarrative(null, { variantResidueIndex: 116, variantResidueChain: "A", error: "Java not found" })
+    });
+    expect(model.structureReason).toBe("No structure reading was returned for this residue.");
+    expect(model.structureReason).not.toMatch(/cavity scan/i);
+    expect(model.finding.detail).toMatch(/cavity scan/i);
+  });
+});
+
 describe("published residue scales", () => {
   it("reproduces Grantham's matrix values", () => {
     // Grantham 1974 Table 2: Asp–Gly 94, Asp–Glu 45, Leu–Ile 5, Cys–Trp 215.
