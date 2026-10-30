@@ -1,3 +1,4 @@
+import os
 import torch
 import asyncio
 import numpy as np
@@ -14,8 +15,17 @@ from tools.model_server_app.utils import (
     validate_saprot_tokenization
 )
 from tools.model_server_app import models
-from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync, remote_failures
-from tools.model_server_app.engine_resilience import PERMANENT_STATUSES, account_level_refusal, extract_status
+from tools.model_server_app.routers.vesm import RemoteFailure, VesmRequest, predict_vesm_sync, remote_failures
+from tools.model_server_app.engine_resilience import (
+    InvalidProviderResponse,
+    PERMANENT_STATUSES,
+    account_level_refusal,
+    extract_status,
+    with_remote_failure,
+)
+
+# Every path scores the hidden residue (Meier et al. 2021), recorded on the result.
+SCORING_METHOD = "masked-marginal"
 
 router = APIRouter()
 
@@ -52,11 +62,14 @@ class SaprotResponse(BaseModel):
     klDivergence: float | None = None
     conformationState: str | None = None
     provenance: str | None = None
+    checkpoint: str | None = None
+    scoringMethod: str | None = None
     hfError: str | None = None
     # Why the remote tier produced no score. Distinct from hfError only in emphasis: the card must
     # be able to say *which engine* it is describing rather than presenting one engine's failure as
     # the reason the headline model is missing.
     remoteEngineNote: str | None = None
+    remoteFailure: RemoteFailure | None = None
     # Why every local SaProt candidate failed, i.e. the reason this response is VESM's numbers under
     # a SaProt heading. Previously printed and dropped, so the fallback was unexplainable.
     fallbackReason: str | None = None
@@ -64,6 +77,11 @@ class SaprotResponse(BaseModel):
     error: str | None = None
 
 def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: str = None) -> dict[str, float]:
+    """
+    Probabilities over the 20 residues from a fill-mask answer. A distribution that lacks any residue is
+    refused: padding the gaps with a tiny number would make the rank and entropy look complete.
+    `expected_wt` and `expected_mut` are kept for callers; the completeness check covers both.
+    """
     scores = {}
     for item in preds:
         raw_tok = item.token_str if hasattr(item, "token_str") else (item.get("token_str", "") if isinstance(item, dict) else "")
@@ -89,34 +107,33 @@ def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: 
 
     matched_aas = [aa for aa in AA_LIST if aa in scores]
     if len(matched_aas) < 2:
-        raise ValueError(
+        raise InvalidProviderResponse(
             f"SaProt fill_mask returned insufficient valid amino acid tokens ({len(matched_aas)}/20 matched): "
             "the engine served a vocabulary with no residue tokens, so it cannot score SaProt's "
             "structure-aware (3Di-pair) output. Score this model on the local engine instead."
         )
 
-    if (expected_wt and expected_mut) and (expected_wt not in scores and expected_mut not in scores):
-        raise ValueError(f"SaProt fill_mask missing both expected WT ({expected_wt}) and MUT ({expected_mut}) in candidate scores.")
-
-    for aa in AA_LIST:
-        if aa not in scores:
-            scores[aa] = 1e-9
+    if len(matched_aas) < len(AA_LIST):
+        raise InvalidProviderResponse(
+            f"SaProt fill_mask returned {len(matched_aas)} of 20 residue tokens; an incomplete distribution is not scored."
+        )
 
     total_score = sum(scores.values())
     if total_score <= 0 or not np.isfinite(total_score):
-        raise ValueError(f"SaProt fill_mask invalid total score: {total_score}")
+        raise InvalidProviderResponse(f"SaProt fill_mask invalid total score: {total_score}")
 
     probs = {aa: (scores[aa] / total_score) for aa in AA_LIST}
     prob_vals = list(probs.values())
     if np.std(prob_vals) < 1e-6:
-        raise ValueError("SaProt fill_mask produced a degenerate uniform distribution.")
+        raise InvalidProviderResponse("SaProt fill_mask produced a degenerate uniform distribution.")
 
     return probs
 
 def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str, token: str, wt_pdb: str, start_offset: int = 0):
     from huggingface_hub import InferenceClient
-    client = InferenceClient(token=token)
-    
+    # Bounded, like the ESM-2 remote tier: the Node layer gives the whole sidecar call a fixed budget.
+    client = InferenceClient(token=token, timeout=float(os.environ.get("SAPROT_REMOTE_TIMEOUT_S", "30")))
+
     wt_sequence = sequence.upper()
     
     if wt_pdb:
@@ -237,7 +254,9 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         "localShiftMap": local_shift_map,
         "klDivergence": kl_div,
         "conformationState": s_pos,
-        "provenance": f"SaProt ({chosen_model.split('/')[-1]} - Remote)"
+        "provenance": f"SaProt ({chosen_model.split('/')[-1]} - Remote)",
+        "checkpoint": chosen_model,
+        "scoringMethod": SCORING_METHOD,
     }
 
 def predict_saprot_sync(req: SaprotRequest):
@@ -246,7 +265,10 @@ def predict_saprot_sync(req: SaprotRequest):
     wt = req.wt.upper()
     mut = req.mut.upper()
     pos = req.position
-    
+    # The VESM stand-in crops for itself and reports positions in full-protein numbering; handing it the
+    # SaProt window would lose the offset and label residues from the window's start.
+    full_sequence, full_pos = sequence, pos
+
     # Window sequence to 510 residues so sequence + 3Di pairs remain strictly within 1026 position embeddings
     sequence, pos, start_offset = crop_sequence_around_mutation(sequence, pos, 510)
             
@@ -333,9 +355,17 @@ def predict_saprot_sync(req: SaprotRequest):
                 with models.cpu_gate.acquire(priority=1), torch.inference_mode():
                     outputs = model(**inputs, output_hidden_states=True)
                     
-                logits = outputs.logits[0]
                 hidden_states = outputs.hidden_states[-1][0]
-                
+
+                # The residue is scored with itself hidden, as on the remote path; the unmasked pass
+                # above is only for the embeddings. Reading the visible residue's own distribution
+                # partly measures the model copying what it was shown.
+                masked_inputs = tokenizer(build_saprot_sequence(sequence, seq_3di, mask_index=pos - 1), return_tensors="pt")
+                masked_inputs = {k: v.to(device) for k, v in masked_inputs.items()}
+                validate_saprot_tokenization(int(masked_inputs["input_ids"].shape[-1]), len(sequence))
+                with models.cpu_gate.acquire(priority=1), torch.inference_mode():
+                    masked_logits = model(**masked_inputs).logits[0]
+
                 s_pos = to_saprot_3di(seq_3di)[pos - 1]
                 
                 vocab_map = {}
@@ -347,9 +377,9 @@ def predict_saprot_sync(req: SaprotRequest):
                     vocab_map[aa] = tok_id
                     
                 wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
-                    logits, pos, wt, mut, vocab_map
+                    masked_logits, pos, wt, mut, vocab_map
                 )
-                
+
                 mut_seq_chars = list(sequence)
                 mut_seq_chars[pos - 1] = mut
                 mut_sequence = "".join(mut_seq_chars)
@@ -381,18 +411,7 @@ def predict_saprot_sync(req: SaprotRequest):
                             "shift": round(shift_val, 4)
                         })
                         
-                aa_tokens = [vocab_map[aa] for aa in AA_LIST]
-                wt_logits = logits[pos]
-                wt_std_logits = torch.tensor([wt_logits[tok].item() for tok in aa_tokens])
-                p_wt = torch.softmax(wt_std_logits, dim=-1)
-                
-                mut_logits = mut_outputs.logits[0, pos]
-                mut_std_logits = torch.tensor([mut_logits[tok].item() for tok in aa_tokens])
-                p_mut = torch.softmax(mut_std_logits, dim=-1)
-                
-                kl_div = float(torch.sum(p_wt * torch.log((p_wt + 1e-9) / (p_mut + 1e-9))).item())
-                
-                provenance_label = f"SaProt ({model_candidate.split('/')[-1]} - Local CPU)" if device.type == "cpu" else f"SaProt ({model_candidate.split('/')[-1]})"
+                provenance_label= f"SaProt ({model_candidate.split('/')[-1]} - Local CPU)" if device.type == "cpu" else f"SaProt ({model_candidate.split('/')[-1]})"
                 
                 return {
                     "status": "success",
@@ -404,9 +423,13 @@ def predict_saprot_sync(req: SaprotRequest):
                     "positionalEntropy": pos_entropy,
                     "embeddingShift": embedding_shift,
                     "localShiftMap": local_shift_map,
-                    "klDivergence": round(kl_div, 4),
+                    # Not reported: with the site hidden in both alleles a site KL is 0 by construction, and
+                    # an unmasked one measures the model copying the residue it can see.
+                    "klDivergence": None,
                     "conformationState": s_pos,
                     "provenance": provenance_label,
+                    "checkpoint": model_candidate,
+                    "scoringMethod": SCORING_METHOD,
                     "hfError": hf_error_detail,
                     "remoteEngineNote": remote_engine_note
                 }
@@ -422,7 +445,7 @@ def predict_saprot_sync(req: SaprotRequest):
         # that makes this ladder unreadable from the UI.
         fallback_reason = "; ".join(local_errors) if local_errors else "no local SaProt candidate was attempted"
         print(f"[Model Server] All SaProt candidates failed ({fallback_reason}). Falling back to VESM-150M.")
-        vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
+        vesm_req = VesmRequest(sequence=full_sequence, position=full_pos, wt=wt, mut=mut)
         vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM cannot compute 3Di structural KL divergence
         vesm_res["conformationState"] = "#"
@@ -439,4 +462,4 @@ _inference_semaphore = asyncio.Semaphore(1)
 @router.post("/predict/saprot", response_model=SaprotResponse)
 async def predict_saprot(req: SaprotRequest):
     async with _inference_semaphore:
-        return await asyncio.to_thread(predict_saprot_sync, req)
+        return with_remote_failure(await asyncio.to_thread(predict_saprot_sync, req), "huggingface")

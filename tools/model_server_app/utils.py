@@ -199,15 +199,22 @@ def validate_saprot_tokenization(token_count: int, residue_count: int) -> None:
     Without this, a vocabulary mismatch surfaces as an IndexError from `logits[pos]` far away from
     the cause, or — worse — as silently wrong numbers if the mutation index happens to be small.
     """
-    if token_count < residue_count:
+    # One pair token per residue plus <cls> and <eos>. Fewer means residues were lost; any other count
+    # means the position index no longer lines up with the sequence.
+    if token_count != residue_count + 2:
         raise ValueError(
-            f"SaProt tokenizer collapsed {residue_count} residues into {token_count} tokens: the "
+            f"SaProt tokenizer turned {residue_count} residues into {token_count} tokens (expected "
+            f"{residue_count + 2}: one per residue plus <cls> and <eos>): the "
             "residue/3Di pair tokens are missing from this checkpoint's vocabulary (check the 3Di "
             "alphabet case — SaProt pairs are lower-case, e.g. 'Rd', never 'RD')."
         )
 
 def compute_scientific_metrics(logits, pos_idx, wt_aa, mut_aa, vocab_map):
-    aa_tokens = [vocab_map.get(aa, 3) for aa in AA_LIST]
+    aa_tokens = [vocab_map[aa] for aa in AA_LIST]
+    # Twenty different tokens: a tokenizer that does not know a residue answers <unk> for it, and two
+    # residues sharing one id would be scored as the same amino acid.
+    if len(set(aa_tokens)) != len(AA_LIST):
+        raise ValueError("The 20 amino-acid tokens are not distinct in this vocabulary (some map to <unk>), so the site cannot be scored.")
     pos_logits = logits[pos_idx]
     standard_logits = torch.tensor([pos_logits[tok].item() for tok in aa_tokens])
     

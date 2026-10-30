@@ -68,7 +68,10 @@ import { analysisContextMatches, type AnalysisCacheContext } from "./analysisCon
 //   PP2 now reads the regional interval's O/E with Chao et al.'s calibrated edges, which re-tiers a
 //   stored classification; a bundle that predates the change must not replay its verdict.
 // v4.8 discards snapshots computed under the retired AlphaFold repair bypass.
-export const CACHE_VERSION = "v4.8";
+// v4.9 discards ESM-2 readings from the old local path, which scored the residue it could see (an
+//   unmasked pass) and carried no `scoringMethod`; the same provenance string now names a
+//   masked-marginal score, so a stored bundle would replay the defective one as if corrected.
+export const CACHE_VERSION = "v4.9";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

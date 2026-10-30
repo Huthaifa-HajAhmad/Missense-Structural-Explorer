@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import type { LmReading, PerturbationEvidence } from "../../../shared/perturbationEvidence";
-import type { PerturbationModelId } from "../../../shared/perturbationModels";
 import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
 import { oddsText } from "../../../shared/perturbationEvidence";
 import { probabilityOverview, residueProbabilityComparison } from '../../../shared/molecularWorkspace';
@@ -54,7 +53,7 @@ function Preferences({ lm, wtCode, mutCode, wtLabel, mutLabel }: { lm: LmReading
           {mutCode && <span className="ptb-key" data-role="variant"><i />Variant {mutLabel}</span>}
         </span>
       </p>
-      <ol className="ptb-prefs" style={{ ["--ptb-rows" as string]: rows } as React.CSSProperties} aria-label={`${lm.family} probability for each residue at the site, most to least preferred`}>
+      <ol className="ptb-prefs" style={{ ["--ptb-rows" as string]: rows } as React.CSSProperties} aria-label={`${lm.name} probability for each residue at the site, most to least preferred`}>
         {ordered.map(p => {
           const rank = ordered.indexOf(p) + 1;
           const role = p.aa === wtCode ? "native" : p.aa === mutCode ? "variant" : undefined;
@@ -106,7 +105,7 @@ function ShiftTrace({ lm, position }: { lm: LmReading; position: number | null }
         className="ptb-trace"
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`${lm.family} ${lm.embedding.metric} between wild-type and mutant embeddings for residues ${w[0].position} to ${w[w.length - 1].position}; peak ${maxShift.toFixed(2)}${siteIndex >= 0 ? `, ${w[siteIndex].shift.toFixed(2)} at the site` : ""}`}
+        aria-label={`${lm.name} ${lm.embedding.metric} between wild-type and mutant embeddings for residues ${w[0].position} to ${w[w.length - 1].position}; peak ${maxShift.toFixed(2)}${siteIndex >= 0 ? `, ${w[siteIndex].shift.toFixed(2)} at the site` : ""}`}
       >
         {[0, 0.5, 1].map(f => (
           <g key={f}>
@@ -133,18 +132,19 @@ function ShiftTrace({ lm, position }: { lm: LmReading; position: number | null }
         {lm.embedding.dim ? ` in a ${lm.embedding.dim}-dim space` : ""} — its size tracks the model&apos;s latent width, so compare
         it only within this model.
       </p>
+      <p className="ptb-scale__source">
+        Euclidean distance between the model&apos;s final-layer vectors. The Sequence embeddings view uses cosine distance, a different scale.
+      </p>
     </>
   );
 }
 
 export function ResidueDetail({
   evidence,
-  selected,
-  onSelect
+  selected
 }: {
   evidence: PerturbationEvidence;
   selected: LmReading | null;
-  onSelect: (id: PerturbationModelId) => void;
 }) {
   const { wtCode, mutCode, wtLabel, mutLabel, position } = evidence.residues;
   const workspace = useEvidenceWorkspace('perturbation');
@@ -156,22 +156,10 @@ export function ResidueDetail({
       <div className="ptb-card">
         <div className="ptb-detail__head">
           <h3 className="ptb-detail__title" id="ptb-detail-title">
-            Residue detail{selected ? <span> · {selected.servedBy ?? selected.family}</span> : null}
+            {/* The served checkpoint stays beside the name: "ESMC" alone hides whether 6B or a stand-in ran. */}
+            Residue detail{selected ? <span> · {selected.name}{selected.servedShort ? ` (${selected.servedShort})` : ""}</span> : null}
           </h3>
-          <div className="ptb-tabs" role="group" aria-label="Model shown in residue detail">
-            {evidence.lms.map(l => (
-              <button
-                key={l.id}
-                type="button"
-                aria-pressed={selected?.id === l.id}
-                disabled={l.availability.state !== "computed"}
-                onClick={() => onSelect(l.id)}
-                title={l.availability.state !== "computed" ? `${l.family}: ${l.availability.label}` : undefined}
-              >
-                {l.family}
-              </button>
-            ))}
-          </div>
+          {evidence.scored.length > 1 && <span className="ptb-dim ptb-detail__hint">Choose a model in the comparison above.</span>}
         </div>
 
         {!selected ? (
@@ -190,7 +178,7 @@ export function ResidueDetail({
                     <option value="">Choose a residue</option>
                     {comparison.rows.map(r => <option key={r.key} value={r.key}>{r.name}</option>)}
                   </select></label></div>
-                  <EvidenceComparison tab="perturbation" model={overview} title={`${selected.family}: amino-acid preferences`}
+                  <EvidenceComparison tab="perturbation" model={overview} title={`${selected.name}: amino-acid preferences`}
                     description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} /></> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
               </div>
               {selected.embedding.window.length > 0 && (

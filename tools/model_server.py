@@ -97,6 +97,7 @@ def clear_model_cache():
     models.esm2_models.clear()
     models.saprot_models.clear()
     vesm.clear_vesm_caches()
+    esm2.clear_esm2_caches()
     models.clear_gpu_cache()
     return {"status": "success", "message": "GPU memory cache cleared"}
 

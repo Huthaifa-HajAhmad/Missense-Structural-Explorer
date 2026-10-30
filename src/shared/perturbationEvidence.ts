@@ -132,6 +132,11 @@ export interface LmReading {
   id: PerturbationModelId;
   /** Family label for the table row ("SaProt"). */
   family: string;
+  /**
+   * The model that produced the numbers: the family, or the stand-in's own name ("VESM-150M") when
+   * another model served the card. Sentences that attribute a reading use this, never `family`.
+   */
+  name: string;
   /** What the model reads, in one plain line. */
   description: string;
   /** The model that served the numbers, as the payload names it. */
@@ -177,6 +182,12 @@ export interface LmReading {
   diagnostics: { tier: string; text: string }[];
   /** The reason the served model is a fallback, when the payload gives one. */
   fallbackReason: string | null;
+  /** The remote provider's refusal, as a code from the engine ("billing", "auth", …). */
+  remoteFailure: { provider: string; code: RemoteFailureCode } | null;
+  /** That refusal in one plain clause ("Hugging Face has no inference credits left on the saved token"). */
+  serviceNote: string | null;
+  /** How the site was scored ("masked-marginal"); null on results from before it was recorded. */
+  scoringMethod: string | null;
   /** Counted by the engine's PP3/BP4 rule (read from predictorEvidence). */
   votes: boolean;
 }
@@ -203,6 +214,10 @@ export interface PhysicalReading {
 }
 
 export interface Esm3Reading {
+  /** One entry per residue; null where the engine measured nothing (never 0). */
+  perPosition: Array<{ position: number; value: number | null }>;
+  /** Residues with a measurement, of the residues the engine was asked about; null with no scores. */
+  coverage: { measured: number; total: number } | null;
   availability: ReadingAvailability;
   servedBy: string | null;
   label: string;
@@ -222,6 +237,8 @@ export interface Esm3Reading {
   secondaryStructure: string | null;
   /** Present when the local fallback served this result; explains why the remote ESM3 tier did not answer. */
   remoteEngineNote: string | null;
+  /** That refusal in one plain clause, from the engine's code ("Biohub refused the saved token"). */
+  serviceNote: string | null;
 }
 
 export interface PerturbationEvidence {
@@ -248,6 +265,17 @@ export interface PerturbationEvidence {
   physical: {
     available: boolean;
     rigidBackbone: boolean;
+    /** How the mutant model was built, in one line, when the caller recorded it. */
+    method: string | null;
+    /**
+     * pLDDT of the analysed AlphaFold model at the site, with its AlphaFold DB band: geometry built on
+     * a low-confidence region describes the model more than the protein. Null for experimental structures.
+     */
+    inputConfidence: { plddt: number; band: string | null } | null;
+    /** Heavy-atom clash counts in each model, for a paired figure; null without a structural comparison. */
+    clashCounts: { wt: number; mut: number } | null;
+    /** Site contacts the substitution loses and gains; null without a contact comparison. */
+    contactChange: { lost: number; gained: number } | null;
     runs: number | null;
     runsIdentical: boolean;
     readings: PhysicalReading[];
@@ -295,6 +323,24 @@ function shortServed(provenance: string | null, inferred: boolean): string {
   return (innerNamesModel ? parts : [outer, ...parts]).filter(Boolean).join(" · ");
 }
 
+export type RemoteFailureCode = "billing" | "auth" | "region" | "rate-limit" | "timeout" | "invalid-response" | "unavailable";
+
+const PROVIDER_LABELS: Record<string, string> = { huggingface: "Hugging Face", biohub: "Biohub" };
+
+const SERVICE_NOTES: Record<RemoteFailureCode, (provider: string) => string> = {
+  billing: p => `${p} has no inference credits left on the saved token`,
+  auth: p => `${p} refused the saved token`,
+  region: p => `${p} is not available from this server's region`,
+  "rate-limit": p => `${p} is limiting requests and may answer on a later run`,
+  timeout: p => `${p} did not answer in time`,
+  "invalid-response": p => `${p} returned an incomplete residue distribution, which is not scored`,
+  unavailable: p => `${p} did not answer`
+};
+
+function readRemoteFailure(raw: any): LmReading["remoteFailure"] {
+  return typeof raw?.provider === "string" && raw.code in SERVICE_NOTES ? { provider: raw.provider, code: raw.code } : null;
+}
+
 const computed = (): ReadingAvailability => ({ state: "computed", label: ENGINE_STATE_LABELS.computed, reason: null, action: null });
 
 function lmAvailability(id: PerturbationModelId, data: any): ReadingAvailability {
@@ -305,22 +351,23 @@ function lmAvailability(id: PerturbationModelId, data: any): ReadingAvailability
     return { state: "pending", label: ENGINE_STATE_LABELS.running, reason: null, action: null };
   }
   if (data.error) {
-    const msg = String(data.error);
-    const timeout = /timeout|timed out/i.test(msg);
-    const warming = data.status === "warming_up" || /warming|initiali[sz]ing/i.test(msg);
-    const noKey = /token|api key|unauthori[sz]ed|401|403/i.test(msg);
+    // The adapters set `status` ("timeout", "offline", "unauthorized", …) at the call that failed; the
+    // error text is for people and is kept in Engine notes.
+    const timeout = data.status === "timeout";
+    const warming = data.status === "warming_up" || data.status === "offline";
+    const noKey = data.status === "unauthorized" || data.remoteFailure?.code === "auth";
     return {
       state: "failed",
       label: warming ? ENGINE_STATE_LABELS["upstream-busy"] : timeout ? ENGINE_STATE_LABELS.failed : ENGINE_STATE_LABELS["upstream-error"],
       reason: warming
-        ? "The model server is still loading weights."
+        ? "The model server did not answer. It may still be starting or may be offline."
         : timeout
           ? id === "saprot"
             ? "SaProt timed out. The 35M checkpoint answers in seconds on CPU."
             : "The model timed out."
           : noKey
             ? "The provider refused the request — check the access token in Settings."
-            : msg,
+            : "The model returned no result for this variant. Engine notes record the error.",
       action: timeout && id === "saprot" ? "switch-saprot-35m" : noKey ? "settings" : "retry"
     };
   }
@@ -332,6 +379,7 @@ function lmAvailability(id: PerturbationModelId, data: any): ReadingAvailability
 
 function embeddingAbsentReason(data: any, hasWindow: boolean): string | null {
   if (hasWindow) return null;
+  if (typeof data?.embeddingNote === "string" && data.embeddingNote.trim()) return data.embeddingNote.trim();
   const p = typeof data?.provenance === "string" ? data.provenance : "";
   return /remote|cloud|serverless|hf/i.test(p)
     ? "The remote engine scores through a masked-token API that returns no per-residue embeddings; the local engine returns the ±10-residue window."
@@ -397,7 +445,7 @@ function buildLm(
   const window = ok && Array.isArray(data.localShiftMap)
     ? data.localShiftMap.filter((d: any) => finite(d?.shift) !== null && finite(d?.position) !== null)
     : [];
-  const atSite = window.length > 0 ? finite(data.embeddingShift) : null;
+  const atSite = ok ? finite(data.embeddingShift) : null;
 
   const token = ok && typeof data.conformationState === "string" && data.conformationState.trim() ? data.conformationState.trim() : null;
 
@@ -422,10 +470,13 @@ function buildLm(
   const fallbackReason = typeof data?.fallbackReason === "string" && data.fallbackReason.trim() ? data.fallbackReason.trim() : null;
   if (remoteNote) diagnostics.push({ tier: "Remote engine", text: remoteNote });
   if (fallbackReason) diagnostics.push({ tier: id === "saprot" ? "Local SaProt candidates" : "Local engine", text: fallbackReason });
+  if (availability.state === "failed" && data?.error) diagnostics.push({ tier: "Engine error", text: String(data.error) });
+  const remoteFailure = readRemoteFailure(data?.remoteFailure);
 
   return {
     id,
     family: meta.familyLabel,
+    name: served.fallback && served.calibration ? served.calibration.label : meta.familyLabel,
     description: meta.description,
     servedBy: provenance,
     served,
@@ -456,6 +507,9 @@ function buildLm(
     caveats,
     diagnostics,
     fallbackReason,
+    remoteFailure,
+    serviceNote: remoteFailure ? SERVICE_NOTES[remoteFailure.code](PROVIDER_LABELS[remoteFailure.provider] ?? remoteFailure.provider) : null,
+    scoringMethod: ok && typeof data.scoringMethod === "string" ? data.scoringMethod : null,
     votes
   };
 }
@@ -484,10 +538,20 @@ function buildPhysical(
   metrics: any,
   isFolding: boolean,
   foldingStatus?: string | null,
-  foldingError?: string | null
+  foldingError?: string | null,
+  site?: any
 ): PerturbationEvidence["physical"] {
   const hasFe = Boolean(fe) && (finite(fe.vdw) !== null || finite(fe.electrostatics) !== null);
-  const rigid = Boolean(diff) && finite(diff.rmsd) === 0;
+  // Stated by the caller that built the pair; a zero RMSD is the fallback for snapshots that predate it.
+  const buildModel = diff?.mutantModel === "foldx-buildmodel";
+  const rigid = buildModel || (Boolean(diff) && finite(diff.rmsd) === 0);
+  const method = buildModel
+    ? "FoldX BuildModel: the wild-type backbone is kept and side chains near the site are repacked"
+    : rigid
+      ? "Backbone positions identical in both models (RMSD 0); how the mutant was built was not recorded"
+      : null;
+  const sitePlddt = site?.bFactorKind === "plddt" ? finite(site?.plddt) : null;
+  const inputConfidence = sitePlddt !== null ? { plddt: sitePlddt, band: plddtBand(sitePlddt) } : null;
   const raw = Array.isArray(fe?.rawDdGs) ? fe.rawDdGs.filter((v: unknown) => finite(v) !== null) : [];
   const runs = raw.length > 0 ? raw.length : finite(fe?.structureProvenance?.foldxRuns);
   const sd = finite(fe?.foldxSd);
@@ -497,6 +561,10 @@ function buildPhysical(
     return {
       available: false,
       rigidBackbone: false,
+      method: null,
+      inputConfidence,
+      clashCounts: null,
+      contactChange: null,
       runs: null,
       runsIdentical: false,
       readings: [],
@@ -630,7 +698,12 @@ function buildPhysical(
     }
   ];
 
-  return { available: true, rigidBackbone: rigid, runs: runs ?? null, runsIdentical, readings, reason: null };
+  const wtClashes = finite(diff?.clashes?.wtClashCount);
+  const mutClashes = finite(diff?.clashes?.mutClashCount);
+  return { available: true, rigidBackbone: rigid, method, inputConfidence,
+    clashCounts: wtClashes !== null && mutClashes !== null ? { wt: wtClashes, mut: mutClashes } : null,
+    contactChange: lost !== null && gained !== null ? { lost, gained } : null,
+    runs: runs ?? null, runsIdentical, readings, reason: null };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -646,21 +719,29 @@ function plddtBand(v: number | null): string | null {
 function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   if (!e) return null;
   const source = embeddingSource(e.provenance);
-  const identity = { servedBy: source.recorded, label: source.label, knowledgeKey: source.topic, fallback: source.fallback };
+  const remoteFailure = readRemoteFailure(e.remoteFailure);
+  const identity = {
+    servedBy: source.recorded, label: source.label, knowledgeKey: source.topic, fallback: source.fallback,
+    serviceNote: remoteFailure ? SERVICE_NOTES[remoteFailure.code](PROVIDER_LABELS[remoteFailure.provider] ?? remoteFailure.provider) : null
+  };
   const remoteEngineNote = typeof e.remoteEngineNote === "string" && e.remoteEngineNote.trim() ? e.remoteEngineNote.trim() : null;
   if (e.error) {
     return {
-      availability: { state: "failed", label: ENGINE_STATE_LABELS["upstream-error"], reason: String(e.error), action: "settings" },
-      ...identity, drift: null, driftBand: null, driftResidue: null,
+      availability: { state: "failed", label: ENGINE_STATE_LABELS["upstream-error"], reason: "The embedding engine returned no per-residue scores for this variant. Engine notes record the error.", action: "settings" },
+      ...identity, perPosition: [], coverage: null, drift: null, driftBand: null, driftResidue: null,
       siteDrift: null, peakDistance: null, confidenceBand: null,
       templateConfidence: null, burial: null, secondaryStructure: null,
-      remoteEngineNote
+      remoteEngineNote: remoteEngineNote ?? String(e.error)
     };
   }
   // One score per residue, index i ↔ residue i + 1 (the route rejects a length mismatch). The VESM
   // fallback writes −1 outside its window: a sentinel, not a distance.
   const raw: unknown[] = Array.isArray(e.perturbationScores) ? e.perturbationScores : [];
-  const scores = raw.map(finite).filter((v): v is number => v !== null && v >= 0);
+  const perPosition = raw.map((v, index) => {
+    const value = finite(v);
+    return { position: index + 1, value: value !== null && value >= 0 ? value : null };
+  });
+  const scores = perPosition.map(p => p.value).filter((v): v is number => v !== null);
   const drift = scores.length ? Math.max(...scores) : null;
   const atSite = position !== null && position >= 1 && position <= raw.length ? finite(raw[position - 1]) : null;
   const driftResidue = finite(e.maxDriftResidue);
@@ -672,6 +753,8 @@ function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   const burialRaw = envs.find(x => !/helix|sheet|loop/i.test(x)) ?? null;
   return {
     availability: drift !== null ? computed() : absent(`${source.label}: no per-residue scores were returned.`),
+    perPosition,
+    coverage: perPosition.length ? { measured: perPosition.filter(p => p.value !== null).length, total: perPosition.length } : null,
     ...identity,
     drift,
     driftBand,
@@ -785,7 +868,8 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
       input.metrics,
       Boolean(input.isFolding),
       input.foldingStatus,
-      input.foldingError
+      input.foldingError,
+      r.disruptionPredictor
     ),
     esm3: buildEsm3(r.esm3Eval, pos),
     engine: {
@@ -808,10 +892,10 @@ export function listModels(names: string[]): string {
 
 /** "Gln 384× as likely as His in ESM-2" — one model's own odds, never pooled. */
 function oddsClause(l: LmReading, wt: string, mut: string): string {
-  if (l.odds === null) return `${l.family}: no ΔLLR`;
-  if (l.direction === "favours-variant") return `${mut} ${oddsText(1 / l.odds)} as likely as ${wt} in ${l.family}`;
-  if (l.direction === "even") return `${wt} and ${mut} within a factor of two in ${l.family}`;
-  return `${wt} ${oddsText(l.odds)} as likely as ${mut} in ${l.family}`;
+  if (l.odds === null) return `${l.name}: no ΔLLR`;
+  if (l.direction === "favours-variant") return `${mut} ${oddsText(1 / l.odds)} as likely as ${wt} in ${l.name}`;
+  if (l.direction === "even") return `${wt} and ${mut} within a factor of two in ${l.name}`;
+  return `${wt} ${oddsText(l.odds)} as likely as ${mut} in ${l.name}`;
 }
 
 /**
@@ -837,26 +921,26 @@ export function perturbationFinding(ev: PerturbationEvidence): { headline: strin
     headline = ev.pending ? "The language models are still running" : "No language model scored this substitution";
   } else if (read.length === 0) {
     headline = flat.length > 0
-      ? `No model shows a preference at this site: ${flat.length === 1 ? `${flat[0].family}'s distribution is` : "every distribution is"} near-flat`
+      ? `No model shows a preference at this site: ${flat.length === 1 ? `${flat[0].name}'s distribution is` : "every distribution is"} near-flat`
       : `${distinct.length} language model${distinct.length === 1 ? "" : "s"} answered without a ΔLLR`;
   } else if (native.length === read.length) {
-    headline = `${listModels(native.map(l => l.family))} ${native.length === 1 ? "favours" : "favour"} native ${wt} over ${mut}`;
+    headline = `${listModels(native.map(l => l.name))} ${native.length === 1 ? "favours" : "favour"} native ${wt} over ${mut}`;
   } else if (variant.length === read.length) {
-    headline = `${listModels(variant.map(l => l.family))} ${variant.length === 1 ? "rates" : "rate"} ${mut} at least as likely as native ${wt}`;
+    headline = `${listModels(variant.map(l => l.name))} ${variant.length === 1 ? "rates" : "rate"} ${mut} at least as likely as native ${wt}`;
   } else if (even.length === read.length) {
-    headline = `${listModels(even.map(l => l.family))} ${even.length === 1 ? "rates" : "rate"} ${wt} and ${mut} about equally`;
+    headline = `${listModels(even.map(l => l.name))} ${even.length === 1 ? "rates" : "rate"} ${wt} and ${mut} about equally`;
   } else {
     const parts: string[] = [];
-    if (native.length) parts.push(`${listModels(native.map(l => l.family))} favour${native.length === 1 ? "s" : ""} ${wt}`);
-    if (variant.length) parts.push(`${listModels(variant.map(l => l.family))} favour${variant.length === 1 ? "s" : ""} ${mut}`);
-    if (even.length) parts.push(`${listModels(even.map(l => l.family))} ${even.length === 1 ? "is" : "are"} near even`);
+    if (native.length) parts.push(`${listModels(native.map(l => l.name))} favour${native.length === 1 ? "s" : ""} ${wt}`);
+    if (variant.length) parts.push(`${listModels(variant.map(l => l.name))} favour${variant.length === 1 ? "s" : ""} ${mut}`);
+    if (even.length) parts.push(`${listModels(even.map(l => l.name))} ${even.length === 1 ? "is" : "are"} near even`);
     headline = `The models split: ${parts.join("; ")}`;
   }
 
   const parts: string[] = [];
   if (read.length) parts.push(`${read.map(l => oddsClause(l, wt, mut)).join(", ")} — each on its own model's scale`);
   if (flat.length && read.length) {
-    parts.push(`${listModels(flat.map(l => l.family))} ${flat.length === 1 ? "spreads its" : "spread their"} probability almost evenly here, so ${flat.length === 1 ? "it has" : "they have"} no preference to read`);
+    parts.push(`${listModels(flat.map(l => l.name))} ${flat.length === 1 ? "spreads its" : "spread their"} probability almost evenly here, so ${flat.length === 1 ? "it has" : "they have"} no preference to read`);
   }
   const vdw = ev.physical.readings.find(x => x.key === "vdw");
   if (vdw?.value != null) {

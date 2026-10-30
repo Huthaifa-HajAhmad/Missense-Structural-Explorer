@@ -1,5 +1,9 @@
 # Contextual explanation coverage
 
+30 October 2026: Structural perturbation defines the original/replacement amino-acid comparison inline, keeps its reading primer available, and explains that model probabilities are not disease probabilities. Packing & geometry has dedicated guidance and separate energy-component plots; Sequence embeddings defines embeddings and provides a positional profile with exact values and preserved missingness. The inspector explains the active view while retaining pinned readings. See `STRUCTURAL_PERTURBATION_RESOLUTION.md` for verification and remaining provider/geometry work.
+
+Second increment, same day: every reading names the model that actually ran (a stand-in such as VESM-150M is never credited to the card it fills), the ESM-2 card runs genuine ESM-2 650M on the server, provider failures are stated as plain causes (no credits, refused token, region, rate limit, timeout), and Packing & geometry states the FoldX build method, the site's pLDDT and the clash/contact counts.
+
 Updated 13 October 2026. Implements [the translational philosophy](TRANSLATIONAL_PHILOSOPHY.md).
 
 ## What changed

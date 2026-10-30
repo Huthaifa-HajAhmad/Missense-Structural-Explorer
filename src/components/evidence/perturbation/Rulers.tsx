@@ -89,7 +89,7 @@ export function MarkRuler({
     <div
       className="ptb-ruler"
       role="img"
-      aria-label={`${label} ${format(value)} on a ${format(min)} to ${format(max)} axis; ${marks.length ? `local reading marks at ${marks.map(m => format(m.value)).join(", ")}` : "no reading marks"}`}
+      aria-label={`${label} ${format(value)} on a ${format(min)} to ${format(max)} axis${marks.length ? `; marked: ${marks.map(m => `${m.label} (${format(m.value)})`).join(", ")}` : ""}`}
     >
       <div className="ptb-ruler__track">
         {marks.map(m => (

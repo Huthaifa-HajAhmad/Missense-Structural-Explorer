@@ -297,7 +297,7 @@ export const RESEARCH_GUIDES: Record<string, ResearchGuide> = {
     'A model-native preference is not an energy change. Calibrations are specific to the tool and scoring method.',
     'Confirm the served score identity and inspect its evidence band.', ['llr', 'model_provenance', 'evidence_strength'], source('Additional computational-tool calibration', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12208618/')),
   esm2: guide('ESM-2', 'Sequence models', 'Which residue does this protein language model expect here?',
-    'ESM-2 learns sequence patterns from proteins and compares the alternate residue with the native residue in that context.',
+    'ESM-2 learns sequence patterns from proteins. The residue at the site is hidden and the model scores all 20 amino acids there; the alternate is compared with the native (masked-marginal scoring, Meier 2021). The 650M checkpoint runs on this server when no hosted provider answers.',
     'Read the log-likelihood ratio and residue distribution within the returned model. A negative ratio favours the native residue.',
     'Sequence preference is not a stability estimate or a measurement of atomic movement. ESM-1b clinical thresholds must not be reused for ESM-2.',
     'Check the served model and compare its native and alternate probabilities.', ['llr', 'mutant_rank', 'entropy', 'model_provenance']),

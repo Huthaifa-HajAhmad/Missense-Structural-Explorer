@@ -5,7 +5,6 @@ import { useSettings } from "../../context/SettingsContext";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
-import { THRESHOLDS } from "../../shared/thresholds/constants";
 import { ENTROPY_MARKS } from "../../shared/modelCalibration";
 import {
   LM_CAVEAT_TEXT,
@@ -20,8 +19,9 @@ import {
 import type { PerturbationModelId } from "../../shared/perturbationModels";
 import { MarkRuler, RankRuler } from "./perturbation/Rulers";
 import { ResidueDetail } from "./perturbation/ResidueDetail";
+import { EmbeddingProfile } from './perturbation/EmbeddingProfile';
 import { Prose } from "../ui/Prose";
-import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
 
 import { PHYSICAL_EXPLANATIONS } from '../../shared/researchGuides';
@@ -132,8 +132,17 @@ function ModelSupport({ evidence, onAction }: {
   return <section aria-label="Model provenance and recovery">
     {evidence.lms.map(lm => <details key={lm.id} className="mol-finding-details">
       <summary>{lm.family} details and availability</summary>
-      <p>{lm.description} <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.family}`} iconOnly /></p>
+      <p>{lm.description} <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.name}`} iconOnly /></p>
       {lm.servedBy && <p>Served by {lm.servedBy}</p>}
+      <p>Scoring: {lm.scoringMethod === 'masked-marginal' ? 'the residue is hidden, then the model scores all 20 amino acids there' : lm.scoringMethod ?? 'not recorded by this engine'}.</p>
+      {lm.serviceNote && <p>
+        {lm.serviceNote}.{' '}
+        {(lm.remoteFailure?.code === 'billing' || lm.remoteFailure?.code === 'auth') && (
+          <button type="button" className="ptb-link" onClick={() => onAction('settings')}>
+            {lm.remoteFailure.code === 'billing' ? 'Open connection settings to add credits or another token' : 'Open connection settings to replace the token'}
+          </button>
+        )}
+      </p>}
       {lm.diagnostics.length > 0 && <ul aria-label={`${lm.family} engine notes`}>
         {lm.diagnostics.map(d => <li key={d.tier}><strong>{d.tier}:</strong> {d.text}</li>)}
       </ul>}
@@ -188,11 +197,11 @@ function ModelStrip({
               aria-pressed={selectedId === l.id}
               disabled={!ok}
               onClick={() => onSelect(l.id)}
-              title={ok ? `Show ${l.family} in residue detail` : `${l.family}: ${l.availability.label}`}
+              title={ok ? `Show ${l.name} in residue detail` : `${l.family}: ${l.availability.label}`}
             >
               <span className="ptb-model__head">
-                <span className="ptb-model__name">{l.family}</span>
-                <span className="ptb-model__served">{ok ? l.servedShort : l.availability.label}</span>
+                <span className="ptb-model__name">{l.name}</span>
+                <span className="ptb-model__served">{ok ? `${l.name !== l.family ? `for ${l.family} · ` : ""}${l.servedShort}` : l.availability.label}</span>
               </span>
               <span className="ptb-model__call">{chip ? chip.label : ok ? "No ΔLLR" : "—"}</span>
               <span className="ptb-model__odds">{ok ? (oddsLine(l, wt, mut) ?? "") : ""}</span>
@@ -220,13 +229,12 @@ function ModelCaveatCallouts({ evidence }: { evidence: PerturbationEvidence }) {
     .map(l => {
       const parts: React.ReactNode[] = [];
       if (l.caveats.includes("fallback-model")) {
-        const remoteDiag = l.diagnostics.find(d => /remote/i.test(d.tier))?.text;
+        // The causes come from the engine's codes, never from matching words in its error text.
+        const causes = [l.serviceNote, l.fallbackReason ? `${l.family} could not run on this server` : null].filter(Boolean);
         parts.push(
           <>
-            was served by {l.servedBy}
-            {l.fallbackReason ? ` (${l.fallbackReason})` : ""}
-            {remoteDiag ? ` · ${remoteDiag}` : ""}
-            , so its row describes the model that ran, not the one it is named for
+            was produced by {l.name} instead{causes.length ? `, because ${causes.join(" and ")}` : ""}, so its row describes
+            the model that ran
           </>
         );
       }
@@ -256,7 +264,7 @@ function ModelCaveatCallouts({ evidence }: { evidence: PerturbationEvidence }) {
             <strong>{l.family}</strong>{" "}
             {parts.map((p, i) => (
               <React.Fragment key={i}>
-                {i > 0 && (i === parts.length - 1 ? ", and " : ", ")}
+                {i > 0 && "; it "}
                 {p}
               </React.Fragment>
             ))}
@@ -273,14 +281,12 @@ function LmRow({
   wt,
   mut,
   selected,
-  onSelect,
   onAction
 }: {
   lm: LmReading;
   wt: string;
   mut: string;
   selected: boolean;
-  onSelect: (id: PerturbationModelId) => void;
   onAction: (action: NonNullable<ReadingAvailability["action"]>) => void;
 }) {
   const ok = lm.availability.state === "computed";
@@ -291,15 +297,10 @@ function LmRow({
     <tr data-testid={`ptb-lm-${lm.id}`} data-selected={selected || undefined}>
       <th scope="row" className="ptb-subject">
         <span className="ptb-subject__line">
-          <span className="ptb-subject__name">{lm.family}</span>
-          <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.family}`} iconOnly />
-          {ok && (
-            <button type="button" className="ptb-select" aria-pressed={selected} onClick={() => onSelect(lm.id)}>
-              {selected ? "Shown below" : "Show detail"}
-            </button>
-          )}
+          <span className="ptb-subject__name">{lm.name}</span>
+          <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.name}`} iconOnly />
         </span>
-        <span className="ptb-subject__note">{lm.description}</span>
+        <span className="ptb-subject__note">{lm.name !== lm.family ? `Standing in for ${lm.family}. ` : ""}{lm.description}</span>
         {lm.caveats.length > 0 && (
           <span className="ptb-caveats ev-caveats">
             {lm.caveats.map(c => (
@@ -326,7 +327,7 @@ function LmRow({
           <td className="ptb-scale">
             {lm.rank !== null ? (
               <>
-                <RankRuler rank={lm.rank} band={lm.band} nativeRank={lm.nativeRank} flat={lm.direction === "flat"} label={`${lm.family} rank`} />
+                <RankRuler rank={lm.rank} band={lm.band} nativeRank={lm.nativeRank} flat={lm.direction === "flat"} label={`${lm.name} rank`} />
                 <span className="ptb-scale__source">{ranks}{lm.direction === "flat" ? " · not read: flat distribution" : ""}</span>
               </>
             ) : (
@@ -349,12 +350,12 @@ function LmRow({
   );
 }
 
-function PhysicalRow({ r }: { r: PhysicalReading }) {
+function PhysicalRow({ r, plottedAbove }: { r: PhysicalReading; plottedAbove: boolean }) {
   const ok = r.availability.state === "computed";
   return (
     <tr data-testid={`ptb-phys-${r.key}`}>
       <th scope="row" className="ptb-subject">
-        <span className="ptb-subject__line"><span className="ptb-subject__name">{r.name}</span><ResearchGuideButton topic={PHYSICAL_EXPLANATIONS[r.key]} label={`Explain ${r.name}`} iconOnly /></span>
+        <span className="ptb-subject__line"><span className="ptb-subject__name">{ok && r.value !== null ? <InspectReadingButton tab="perturbation" readingKey={`phys:${r.key}`}>{r.name}</InspectReadingButton> : r.name}</span><ResearchGuideButton topic={PHYSICAL_EXPLANATIONS[r.key]} label={`Explain ${r.name}`} iconOnly /></span>
         <span className="ptb-subject__note">{r.description}</span>
         {r.note && ok && <span className="ptb-subject__note ptb-subject__fact">{r.note}</span>}
       </th>
@@ -365,14 +366,14 @@ function PhysicalRow({ r }: { r: PhysicalReading }) {
             {r.unit && <span className="ptb-unit">{r.unit}</span>}
           </td>
           <td className="ptb-scale">
-            {r.scale && r.value !== null ? (
+            {plottedAbove ? (
+              <span className="ptb-dim">Plotted above</span>
+            ) : r.scale && r.value !== null ? (
               <>
                 <MarkRuler value={r.value} min={r.scale.min} max={r.scale.max} marks={r.marks} label={r.name} format={n => n.toFixed(1)} />
                 <span className="ptb-scale__source">{r.marks.map(m => m.label).join(" · ")}</span>
               </>
-            ) : (
-              <span className="ptb-dim">No reading mark</span>
-            )}
+            ) : null}
           </td>
           <td className="ptb-status">
             {r.call ? <span className="ev-tier" data-tone={r.call.tone}>{r.call.label}</span> : <span className="ptb-dim">—</span>}
@@ -388,18 +389,6 @@ function PhysicalRow({ r }: { r: PhysicalReading }) {
   );
 }
 
-/** The ESM3 drift band as a statement of which local marks it sits between. */
-function driftBandLabel(band: NonNullable<PerturbationEvidence["esm3"]>["driftBand"]): string | null {
-  const d = THRESHOLDS.esm3Drift;
-  switch (band) {
-    case "none": return `Below ${d.none} mark`;
-    case "minor": return `${d.none}–${d.minor}`;
-    case "moderate": return `${d.minor}–${d.moderate}`;
-    case "major": return `Above ${d.moderate} mark`;
-    default: return null;
-  }
-}
-
 function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
   const e = evidence.esm3!;
   const ok = e.availability.state === "computed";
@@ -413,6 +402,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
             <details className="ptb-diag">
               <summary>Engine notes</summary>
               <ul>
+                {e.serviceNote && <li><strong>Remote service:</strong> {e.serviceNote}.</li>}
                 <li><strong>Remote tier:</strong> {e.remoteEngineNote}</li>
               </ul>
             </details>
@@ -423,14 +413,12 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
       </tr>
     );
   }
-  const d = THRESHOLDS.esm3Drift;
-  const bandLabel = driftBandLabel(e.driftBand);
   const peakAway = e.peakDistance !== null && e.peakDistance > 10;
   return (
     <>
       <tr data-testid="ptb-esm3">
         <th scope="row" className="ptb-subject">
-          <span className="ptb-subject__line"><span className="ptb-subject__name">{e.label}</span><ResearchGuideButton topic={e.knowledgeKey} label={e.fallback ? "About the VESM fallback" : "About this embedding analysis"} iconOnly /></span>
+          <span className="ptb-subject__line"><span className="ptb-subject__name"><InspectReadingButton tab="perturbation" readingKey="esm3">{e.label}</InspectReadingButton></span><ResearchGuideButton topic={e.knowledgeKey} label={e.fallback ? "About the VESM fallback" : "About this embedding analysis"} iconOnly /></span>
           <span className="ptb-subject__note">
             How much the model&apos;s internal description of each residue changes when the variant is introduced (cosine
             distance between wild-type and mutant sequence embeddings). A representation change — not a structure
@@ -447,14 +435,9 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
               {e.siteDrift !== null && e.peakDistance !== 0 ? `; ${e.siteDrift.toFixed(3)} at residue ${pos}` : ""}.
             </span>
           )}
-          {(e.fallback || peakAway) && (
+          {e.fallback && (
             <span className="ptb-caveats ev-caveats">
               {e.fallback && <span className="ev-tier" data-tone="warning" title="ESM3 was unavailable, so VESM-150M produced these numbers.">Fallback model</span>}
-              {peakAway && (
-                <span className="ev-tier" data-tone="warning" title="A distant peak does not establish a remote biological effect. Compare its magnitude with the variant-site reading and inspect coverage.">
-                  Peak away from the variant
-                </span>
-              )}
             </span>
           )}
           {e.servedBy && <span className="ptb-subject__note ptb-subject__fact">Served by {e.servedBy}</span>}
@@ -462,6 +445,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
             <details className="ptb-diag">
               <summary>Engine notes</summary>
               <ul>
+                {e.serviceNote && <li><strong>Remote service:</strong> {e.serviceNote}.</li>}
                 <li><strong>Remote tier:</strong> {e.remoteEngineNote}</li>
               </ul>
             </details>
@@ -469,21 +453,24 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
         </th>
         <td className="ptb-num">{e.drift!.toFixed(3)}<span className="ptb-unit">cosine distance</span></td>
         <td className="ptb-scale">
+          {/* No published bands exist for this distance, so none is drawn: the variant residue is the only mark. */}
           <MarkRuler
             value={e.drift!}
             min={0}
-            max={Math.max(0.5, Math.ceil(e.drift! * 10) / 10)}
-            marks={[
-              { value: d.none, label: `${d.none} none/minor` },
-              { value: d.minor, label: `${d.minor} minor/moderate` },
-              { value: d.moderate, label: `${d.moderate} moderate/major` }
-            ]}
+            max={Math.max(0.1, Math.ceil(e.drift! * 10) / 10)}
+            marks={e.siteDrift !== null && pos !== null ? [{ value: e.siteDrift, label: `residue ${pos}` }] : []}
             label={e.label}
             format={n => n.toFixed(2)}
           />
-          <span className="ptb-scale__source">Local marks {d.none} · {d.minor} · {d.moderate}, unsourced</span>
+          <span className="ptb-scale__source">Largest change in the protein{e.siteDrift !== null && pos !== null ? `; tick: residue ${pos}, ${e.siteDrift.toFixed(3)}` : ""}</span>
         </td>
-        <td className="ptb-status">{bandLabel && <span className="ev-tier" data-tone="neutral">{bandLabel}</span>}</td>
+        <td className="ptb-status">
+          {e.peakDistance !== null && (
+            <span className="ev-tier" data-tone="neutral" title="Within 10 residues of the variant counts as near. The cut-off is app-defined, not published.">
+              {e.peakDistance === 0 ? "Peak at the variant" : peakAway ? "Peak away from the variant" : "Peak near the variant"}
+            </span>
+          )}
+        </td>
       </tr>
       <tr data-testid="ptb-esm3-context">
         <th scope="row" className="ptb-subject">
@@ -526,8 +513,8 @@ function ReadingPrimer({ wt, mut }: { wt: string; mut: string }) {
           at each position. Hide the residue at this position and each model gives a probability to all 20 amino acids.
         </li>
         <li>
-          <strong>The odds</strong> compare two of those probabilities: &ldquo;{wt} 380× as likely as {mut}&rdquo; means the
-          model expects the native residue far more than the variant. ΔLLR is the same comparison on a log scale
+          <strong>The odds</strong> compare two of those probabilities. Odds of 100× for {wt} over {mut} would mean the
+          model rates the native residue 100 times as likely as the variant. ΔLLR is the same comparison on a log scale
           (negative = the native is preferred).
         </li>
         <li>
@@ -535,12 +522,34 @@ function ReadingPrimer({ wt, mut }: { wt: string; mut: string }) {
           of their numbers. A <em>flat</em> model spreads its probability almost evenly and has no preference to read.
         </li>
         <li>
-          <strong>None of this is evidence of pathogenicity on its own.</strong> No published study ties these models&apos;
-          numbers to clinical classification, so the rule engine does not count them. Calibrated predictors are on
+          <strong>These probabilities do not tell you whether the variant causes disease.</strong> This app does not use these scores to assign clinical evidence codes. Calibrated predictors are on
           the In-silico predictors tab.
         </li>
       </ul>
     </details>
+  );
+}
+
+/** Two counts on one shared axis from 0: the reference in ink, the mutant in clay. Each count is printed. */
+function CountFigure({ caption, note, rows }: {
+  caption: string;
+  note: string;
+  rows: { label: string; value: number; variant: boolean }[];
+}) {
+  const max = Math.max(1, ...rows.map(r => r.value));
+  return (
+    <figure>
+      <figcaption>{caption}</figcaption>
+      <div className="ptb-counts" role="img" aria-label={[caption, ...rows.map(r => r.label)].join(". ")}>
+        {rows.map(r => (
+          <div key={r.label} className="ptb-counts__row" data-role={r.variant ? "variant" : undefined}>
+            <span className="ptb-counts__label">{r.label}</span>
+            <span className="ptb-counts__track"><i style={{ width: `${(r.value / max) * 100}%` }} /></span>
+          </div>
+        ))}
+      </div>
+      <p>{note}</p>
+    </figure>
   );
 }
 
@@ -637,14 +646,29 @@ export function PerturbationTab({
     }
   };
 
-  // The figure counts the direction most models read; with none, it says so.
+  // "N of M" states a majority. With no majority (a tie, or most models near even or flat) the figure
+  // says "Split" and the label lists every direction, so a minority is never shown as the answer.
   const variantLeads = dir.nFavourVariant > dir.nFavourNative;
-  const figure = dir.nScored === 0 ? "—" : `${variantLeads ? dir.nFavourVariant : dir.nFavourNative} of ${dir.nScored}`;
+  const lead = variantLeads ? dir.nFavourVariant : dir.nFavourNative;
+  const majority = lead * 2 > dir.nScored;
+  const atResidue = pos !== null ? ` at residue ${pos}` : "";
+  const figure = dir.nScored === 0 ? "—" : majority ? `${lead} of ${dir.nScored}` : "Split";
   const figureLabel = dir.nScored === 0
     ? "no language model has scored this substitution yet"
-    : `models favour ${variantLeads ? `${mut} over native ${wt}` : `native ${wt} over ${mut}`}${pos !== null ? ` at residue ${pos}` : ""}`;
+    : majority
+      ? `models favour ${variantLeads ? `${mut} over native ${wt}` : `native ${wt} over ${mut}`}${atResidue}`
+      : [
+          dir.nFavourNative > 0 && `${dir.nFavourNative} favour native ${wt}`,
+          dir.nFavourVariant > 0 && `${dir.nFavourVariant} favour ${mut}`,
+          dir.nEven > 0 && `${dir.nEven} near even`,
+          dir.nFlat > 0 && `${dir.nFlat} with no preference`
+        ].filter(Boolean).join(" · ") + atResidue;
 
   const vdw = evidence.physical.readings.find(r => r.key === "vdw");
+  const clashes = evidence.physical.clashCounts;
+  const contacts = evidence.physical.contactChange;
+  const confidenceBand = evidence.physical.inputConfidence?.band;
+  const lowConfidence = confidenceBand === "Low" || confidenceBand === "Very low";
   const energeticsLink = onNavigateToView ? (
     <button type="button" className="ptb-link" onClick={() => onNavigateToView("energetics")}>
       Energetics <ArrowRight className="w-3 h-3" aria-hidden="true" />
@@ -656,21 +680,21 @@ export function PerturbationTab({
       <header className="ptb-header">
         <h1 className="screen-title">{evidenceTab('perturbation').label}</h1>
         <p className="screen-tab-description">
-          What protein language models expect at this residue, and how FoldX&apos;s mutant model packs. Context for
-          curation — none of these scores is an ACMG input.
+          What protein language models expect at this residue, how FoldX&apos;s mutant model packs, and how far the
+          substitution moves a model&apos;s description of the sequence. Context for curation — none of these is an ACMG input.
         </p>
-        {!workspace.enabled && <ReadingPrimer wt={wt} mut={mut} />}
+        {(!workspace.enabled || workspace.comparison) && <ReadingPrimer wt={wt} mut={mut} />}
       </header>
       <EvidenceViewTabs tab="perturbation" comparisonLabel="Model comparison" />
       <EvidencePanel tab="perturbation">
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
-      <section className="ptb-card ptb-hero" aria-labelledby="ptb-finding-title" data-testid="perturbation-finding">
+      {(!workspace.enabled || workspace.comparison) && <section className="ptb-card ptb-hero" aria-labelledby="ptb-finding-title" data-testid="perturbation-finding">
         <div className="ptb-hero__body">
           <div className="ptb-hero__top">
             <span className="eyebrow" id="ptb-finding-title">
               <Atom className="w-3.5 h-3.5" />
-              Language models · what each expects at this residue
+              Does the model expect the original amino acid or the replacement?
             </span>
             <span
               className="ev-tier ptb-verdict"
@@ -682,6 +706,10 @@ export function PerturbationTab({
             </span>
           </div>
 
+          <p>
+            Here {wt} is the original amino acid and {mut} replaces it{pos !== null ? ` at residue ${pos}` : ""}. Each model hides that
+            residue and estimates how likely each of the 20 amino acids is there, given the rest of the protein&apos;s sequence.
+          </p>
           <div className="ptb-hero__figure">
             <span className="ptb-figure">{figure}</span>
             <span className="ptb-hero__figure-label">{figureLabel}</span>
@@ -735,9 +763,37 @@ export function PerturbationTab({
             <span>Some models are still running for this variant; the rows marked below will fill in.</span>
           </div>
         )}
-      </section>
+      </section>}
 
       {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
+      {workspace.enabled && !workspace.comparison && <section className="ptb-card ptb-view-intro">
+        <h2>{workspace.view === 'records' ? 'What changed in the modelled protein structure?' : 'Where did the model’s numerical description of the protein change?'}</h2>
+        <p>{workspace.view === 'records' ? 'FoldX replaces the amino acid in a structural model and adjusts nearby side chains. These measurements compare that model with its reference; they do not establish what happens in a living cell.' : 'An embedding is a list of numbers a model uses to represent an amino acid and its surroundings. Comparing the original and substituted sequences shows changes in that representation, not measured atomic movement or disease risk.'}</p>
+        {workspace.view === 'records' && <>
+          {(evidence.physical.method || evidence.physical.inputConfidence) && <p className="ptb-dim">
+            {evidence.physical.method}
+            {evidence.physical.method && evidence.physical.inputConfidence && " · "}
+            {evidence.physical.inputConfidence && <>Input model confidence at {pos !== null ? `residue ${pos}` : "the site"}: pLDDT {evidence.physical.inputConfidence.plddt.toFixed(1)}{evidence.physical.inputConfidence.band && ` · ${evidence.physical.inputConfidence.band}`}</>}
+          </p>}
+          {lowConfidence && <p className="ptb-callout" data-tone="neutral">Geometry in a low-confidence region describes the model more than the protein.</p>}
+        <div className="ptb-energy-plots">{evidence.physical.readings.filter(r => (r.key === 'vdw' || r.key === 'elec') && r.value !== null).map(r => {
+          const extent = Math.max(1, Math.ceil(Math.abs(r.value!)));
+          return <figure key={r.key}><figcaption>{r.name}: <strong>{r.text} kcal/mol</strong></figcaption><MarkRuler value={r.value!} min={-extent} max={extent} marks={[{ value: 0, label: 'No change' }]} label={`${r.name}, mutant minus reference, kcal/mol`} format={n => n.toFixed(1)} /><p>Left of 0: this term is lower in the mutant model than in the reference; right of 0: higher. One energy component, not total stability.</p></figure>;
+        })}
+          {clashes && <CountFigure
+            caption={`Heavy-atom clashes: ${clashes.wt} → ${clashes.mut}`}
+            note="Heavy-atom clashes counted in the reference and in the mutant model. A count does not weigh how severe each clash is."
+            rows={[{ label: `Reference ${clashes.wt}`, value: clashes.wt, variant: false }, { label: `Mutant ${clashes.mut}`, value: clashes.mut, variant: true }]}
+          />}
+          {contacts && <CountFigure
+            caption={`Residue contacts within 4 Å: −${contacts.lost} / +${contacts.gained}`}
+            note="Residues with a heavy atom within 4 Å of the site (±1 neighbours excluded), lost and gained by the substitution. Counts only, not energies."
+            rows={[{ label: `Lost ${contacts.lost}`, value: contacts.lost, variant: false }, { label: `Gained ${contacts.gained}`, value: contacts.gained, variant: true }]}
+          />}
+        </div>
+        </>}
+      </section>}
+      {workspace.view === 'embeddings' && <EmbeddingProfile evidence={evidence} />}
       {(!workspace.enabled || workspace.view === 'records' || (workspace.view === 'embeddings' && !!evidence.esm3)) && <section className="ptb-section" aria-labelledby="ptb-readings-title">
         <h2 className="eyebrow" id="ptb-readings-title">
           <ListChecks className="w-3.5 h-3.5" />
@@ -763,7 +819,7 @@ export function PerturbationTab({
                 </th>
               </tr>
               {evidence.lms.map(l => (
-                <LmRow key={l.id} lm={l} wt={wt} mut={mut} selected={selected?.id === l.id} onSelect={setActiveModel} onAction={onAction} />
+                <LmRow key={l.id} lm={l} wt={wt} mut={mut} selected={selected?.id === l.id} onAction={onAction} />
               ))}
             </tbody>}
             {(!workspace.enabled || workspace.view === 'records') && <tbody data-group="foldx">
@@ -772,7 +828,7 @@ export function PerturbationTab({
                   <span className="ptb-group__inner">
                     <span className="ptb-group__title">FoldX mutant model</span>
                     <span className="ptb-group__meta">
-                      {evidence.physical.rigidBackbone ? "Rigid backbone · " : ""}
+                      {evidence.physical.rigidBackbone ? "Fixed backbone · " : ""}
                       {evidence.physical.runs ? `${evidence.physical.runs} runs · ` : ""}
                       energy components and local geometry, not stability
                     </span>
@@ -780,7 +836,11 @@ export function PerturbationTab({
                 </th>
               </tr>
               {evidence.physical.available ? (
-                evidence.physical.readings.map(r => <PhysicalRow key={r.key} r={r} />)
+                evidence.physical.readings.map(r => (
+                  <PhysicalRow key={r.key} r={r} plottedAbove={workspace.view === 'records' && (
+                    ((r.key === 'vdw' || r.key === 'elec') && r.value !== null) || (r.key === 'clash' && clashes !== null) || (r.key === 'contacts' && contacts !== null)
+                  )} />
+                ))
               ) : (
                 <tr data-testid="ptb-foldx-absent">
                   <th scope="row" className="ptb-subject">
@@ -839,7 +899,7 @@ export function PerturbationTab({
 
       {/* ── 3. Residue detail ──────────────────────────────────────────────────────────────── */}
       {workspace.view === 'embeddings' && !evidence.esm3 && <p>No sequence embedding measurements were returned for this variant.</p>}
-      {(!workspace.enabled || workspace.comparison) && <ResidueDetail evidence={evidence} selected={selected} onSelect={selectModel} />}
+      {(!workspace.enabled || workspace.comparison) && <ResidueDetail evidence={evidence} selected={selected} />}
 
       {busy && (
         <p role="status" className="ptb-callout" data-tone="neutral">

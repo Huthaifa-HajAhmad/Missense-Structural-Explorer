@@ -162,10 +162,10 @@ export function useFoldxSuperposition(apiClient: any): void {
         store.setFoldxMetrics(align.metrics ?? null);
         /**
          * Mirrored for the Perturbation tab's collision and Cα rows, which read the store's
-         * `structuralDiff`. Against the right template the Cα terms come out as FoldX's fixed
-         * backbone makes them — zero — which that tab reads as "rigid backbone".
+         * `structuralDiff`. The mutant is FoldX BuildModel's, which keeps the wild-type backbone; the
+         * method is stated rather than left for the tab to infer from a zero RMSD.
          */
-        store.setStructuralDiff(diff ?? null);
+        store.setStructuralDiff(diff ? { ...diff, mutantModel: "foldx-buildmodel" } : null);
       } catch (err: any) {
         if (cancelled || controller.signal.aborted) return;
         settle({

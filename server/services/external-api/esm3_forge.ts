@@ -5,6 +5,7 @@ import { THRESHOLDS } from "../../../src/shared/thresholds/constants.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
+import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { executeSasaEval } from "../structure/sasa-runner.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
@@ -41,6 +42,7 @@ export interface ESM3StructureEvalResult {
   provenance?: string;
   /** Why the remote ESM3 tier did not answer, when the local fallback served this result. */
   remoteEngineNote?: string;
+  remoteFailure?: RemoteFailure | null;
   sasa?: { rsa: number; sse: string; sasa: number } | null;
   error?: string;
   status?: "ok" | "error" | "timeout" | "offline";
@@ -103,6 +105,7 @@ export async function fetchEsm3StructureEval(
   let seqLen = 300;
   let esm3Error: string | undefined;
   let remoteEngineNote: string | undefined;
+  let remoteFailure: RemoteFailure | null = null;
   /** Set only when the sidecar failed, so a timeout is not reported as a generic error. */
   let esm3Status: "error" | "timeout" | undefined;
 
@@ -163,6 +166,7 @@ export async function fetchEsm3StructureEval(
         }
         if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
           remoteEngineNote = sidecarData.remoteEngineNote.trim();
+          remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
         }
       }
     } else {
@@ -247,11 +251,12 @@ export async function fetchEsm3StructureEval(
 
   // If we could not retrieve real perturbation scores from the API, we return error to avoid fabricating data
   if (perturbationScores.length === 0) {
-    const errorResult: { error: string; status?: "error" | "timeout"; remoteEngineNote?: string | null } = {
+    const errorResult: { error: string; status?: "error" | "timeout"; remoteEngineNote?: string | null; remoteFailure?: RemoteFailure | null } = {
       error: esm3Error || "No perturbation scores returned by Biohub ESM3 API."
     };
     if (esm3Status) errorResult.status = esm3Status;
     if (remoteEngineNote) errorResult.remoteEngineNote = remoteEngineNote;
+    if (remoteFailure) errorResult.remoteFailure = remoteFailure;
     // Do NOT cache API errors/failures so configuring keys can take immediate effect on retry
     return errorResult as any;
   }
@@ -345,12 +350,18 @@ export async function fetchEsm3StructureEval(
     confidence: {
       level: confLevel,
       plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : (null as any),
-      sequenceCoverage: 100
+      // Residues that have a score, of the residues asked about (the VESM stand-in leaves −1 outside its window).
+      sequenceCoverage: perturbationScores.length
+        ? Math.round((100 * perturbationScores.filter(v => v >= 0).length) / perturbationScores.length)
+        : 0
     },
     provenance,
-    ...(remoteEngineNote ? { remoteEngineNote } : {})
+    ...(remoteEngineNote ? { remoteEngineNote } : {}),
+    ...(remoteFailure ? { remoteFailure } : {})
   };
 
-  esm3StructureCache.set(cacheKey, result);
+  // A stand-in's numbers are not kept: the key does not change when the token or the provider does, so
+  // keeping them would hide a fixed token for a day.
+  if (!/vesm/i.test(provenance)) esm3StructureCache.set(cacheKey, result);
   return result;
 }

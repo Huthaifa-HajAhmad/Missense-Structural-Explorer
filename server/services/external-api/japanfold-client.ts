@@ -18,11 +18,11 @@ import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
 export interface JapanFoldZeroShotResult {
   status: "success" | "failed";
   llr: number;
-  wtProbability: number;
-  mutProbability: number;
+  wtProbability?: number;
+  mutProbability?: number;
   mutRank?: number;
-  positionalEntropy: number;
-  embeddingShift: number;
+  positionalEntropy?: number;
+  embeddingShift?: number;
   preferences?: Array<{ aa: string; prob: number }>;
   localShiftMap?: Array<{ position: number; residue: string; shift: number }>;
   conformationState?: string;
@@ -158,11 +158,11 @@ export async function queryEsmc(
         const result: JapanFoldZeroShotResult = {
           status: "success",
           llr: rawLlr,
-          wtProbability: Number.isFinite(data.wtProbability) ? data.wtProbability : 0,
-          mutProbability: Number.isFinite(data.mutProbability) ? data.mutProbability : 0,
+          wtProbability: Number.isFinite(data.wtProbability) ? data.wtProbability : undefined,
+          mutProbability: Number.isFinite(data.mutProbability) ? data.mutProbability : undefined,
           mutRank: Number.isFinite(data.mutRank) ? data.mutRank : undefined,
-          positionalEntropy: Number.isFinite(data.positionalEntropy) ? data.positionalEntropy : 0,
-          embeddingShift: Number.isFinite(data.embeddingShift) ? data.embeddingShift : 0,
+          positionalEntropy: Number.isFinite(data.positionalEntropy) ? data.positionalEntropy : undefined,
+          embeddingShift: Number.isFinite(data.embeddingShift) ? data.embeddingShift : undefined,
           preferences: Array.isArray(data.preferences) ? data.preferences : [],
           localShiftMap: Array.isArray(data.localShiftMap) ? data.localShiftMap : [],
           provenance: "JapanFold ESMC (Tier 1)"
@@ -328,11 +328,11 @@ export async function querySaProt(
         const result: JapanFoldZeroShotResult = {
           status: "success",
           llr: rawLlr,
-          wtProbability: Number.isFinite(data.wtProbability) ? data.wtProbability : 0,
-          mutProbability: Number.isFinite(data.mutProbability) ? data.mutProbability : 0,
+          wtProbability: Number.isFinite(data.wtProbability) ? data.wtProbability : undefined,
+          mutProbability: Number.isFinite(data.mutProbability) ? data.mutProbability : undefined,
           mutRank: Number.isFinite(data.mutRank) ? data.mutRank : undefined,
-          positionalEntropy: Number.isFinite(data.positionalEntropy) ? data.positionalEntropy : 0,
-          embeddingShift: Number.isFinite(data.embeddingShift) ? data.embeddingShift : 0,
+          positionalEntropy: Number.isFinite(data.positionalEntropy) ? data.positionalEntropy : undefined,
+          embeddingShift: Number.isFinite(data.embeddingShift) ? data.embeddingShift : undefined,
           preferences: Array.isArray(data.preferences) ? data.preferences : [],
           localShiftMap: Array.isArray(data.localShiftMap) ? data.localShiftMap : [],
           conformationState: data.conformationState,

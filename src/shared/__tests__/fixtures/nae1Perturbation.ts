@@ -39,7 +39,12 @@ export const NAE1_RESULT: any = {
     provenance: "ESMC-6B (Remote)"
   },
   esm3Eval: {
-    perturbationScores: [0.01, 0.03, 0.05, 0.02], maxDriftResidue: 3, structuralChangeLevel: "none",
+    // One score per residue through the variant and past it (the route's contract), peaking at the
+    // variant, with −1 (unmeasured) over residues 1–10 so the preview shows a gap.
+    perturbationScores: Array.from({ length: 140 }, (_, i) =>
+      i < 10 ? -1 : Math.round((0.004 + 0.05 * Math.exp(-(((i + 1 - 116) / 4) ** 2))) * 1e4) / 1e4
+    ),
+    maxDriftResidue: 116, structuralChangeLevel: "none",
     microenvironments: ["Burial not measured", "Alpha-Helix"],
     putativeStructuralChanges: ["Minor sidechain rotamer realignment without major backbone shift"],
     confidence: { level: "high", plddt: 94.5 }, provenance: "ESM3-Medium (Remote)"
@@ -50,5 +55,17 @@ export const NAE1_ENERGETICS: any = {
   foldx: 0.9, foldxMean: 0.9, foldxSd: 0, vdw: 0.62, electrostatics: 0, localSidechainRmsd: 0.25,
   stericClashWarning: false, rawDdGs: [0.9, 0.9, 0.9, 0.9, 0.9]
 };
+
+/** FoldX BuildModel keeps the wild-type backbone, so the comparison against its paired wild type has RMSD 0. */
+export const NAE1_STRUCTURAL_DIFF: any = {
+  rmsd: 0, localRmsd: 0, windowDisplacements: [],
+  clashes: { wtClashCount: 3, mutClashCount: 5, diff: 2 },
+  mutantModel: "foldx-buildmodel"
+};
+
+export const NAE1_METRICS: any = { lostContacts: 2, gainedContacts: 1, deltaSasa: -12.4 };
+
+/** The AlphaFold model's pLDDT at residue 116 (its B-factor column holds pLDDT). */
+export const NAE1_SITE: any = { level: "low", reason: "", plddt: 94.5, bFactorKind: "plddt" };
 
 export const NAE1_RESIDUES = { wtCode: "D", mutCode: "G", wtLabel: "Asp", mutLabel: "Gly" };

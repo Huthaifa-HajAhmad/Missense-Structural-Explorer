@@ -6,6 +6,7 @@ import type { FunctionEvidence } from './functionEvidence';
 import type { ResidueContextEvidence } from './residueContextEvidence';
 import { RESIDUE_SCALE_SOURCES } from './residueScales';
 import { LM_CAVEAT_TEXT, type PerturbationEvidence } from './perturbationEvidence';
+import { PHYSICAL_EXPLANATIONS } from './researchGuides';
 
 export function functionReadings(ev: FunctionEvidence): (EvidenceChartRow & { reportUrl?: string | null })[] {
   const boxes = [...ev.domains, ...ev.motifs, ...ev.structuralDomains];
@@ -53,20 +54,41 @@ export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] 
 }
 
 export function perturbationReadings(ev: PerturbationEvidence): EvidenceChartRow[] {
-  return ev.lms.flatMap(l => {
-    const model: EvidenceChartRow = { key: l.id, name: l.family, value: l.llr, valueText: l.llr === null ? l.availability.label : l.llr.toFixed(2),
+  const models = ev.lms.flatMap(l => {
+    const model: EvidenceChartRow = { key: l.id, name: l.name, value: l.llr, valueText: l.llr === null ? l.availability.label : l.llr.toFixed(2),
       description: l.description, group: 'Language model', tone: 'neutral',
       knowledgeKey: /vesm/i.test(l.servedBy ?? '') ? 'vesm' : l.id,
       facts: [{ label: 'Served model', value: l.servedBy ?? 'Not reported' }, { label: 'Status', value: l.availability.label },
         { label: 'ΔLLR', value: l.llr === null ? 'No result' : String(l.llr) },
-        { label: 'Reference / variant rank', value: `${l.nativeRank ?? '—'} / ${l.rank ?? '—'}` }],
+        { label: 'Reference / variant rank', value: `${l.nativeRank ?? '—'} / ${l.rank ?? '—'}` },
+        { label: 'Scoring method', value: l.scoringMethod ?? 'Not recorded by this engine' }],
       notes: [l.rankSentence, l.availability.reason, ...l.caveats.map(c => LM_CAVEAT_TEXT[c].detail),
         'ΔLLR compares the variant with the reference within this model. Raw magnitudes from different model families are not a common scale or clinical evidence.'].filter((s): s is string => Boolean(s)) };
-    return [model, ...l.preferences.map(p => ({ ...model, key: `${l.id}:${p.aa}`, name: `${l.family} · ${p.aa}`, value: p.prob,
+    return [model, ...l.preferences.map(p => ({ ...model, key: `${l.id}:${p.aa}`, name: `${l.name} · ${p.aa}`, value: p.prob,
       valueText: String(p.prob), description: `Model probability for amino acid ${p.aa} at residue ${ev.residues.position ?? 'under study'}.`,
       facts: [{ label: 'Amino acid', value: p.aa }, { label: 'Probability', value: String(p.prob) }, { label: 'Served model', value: l.servedBy ?? 'Not reported' }],
       notes: [...model.notes, 'This is a model distribution over amino acids at one position, not the probability that the variant causes disease.'] }))];
   });
+  const physical: EvidenceChartRow[] = ev.physical.readings.filter(r => r.value !== null).map(r => {
+    const valueText = `${r.text}${r.unit ? ' ' + r.unit : ''}`;
+    const confidence = ev.physical.inputConfidence;
+    return { key: `phys:${r.key}`, name: r.name, value: r.value, valueText, description: r.description,
+      group: 'FoldX mutant model', tone: 'neutral', knowledgeKey: PHYSICAL_EXPLANATIONS[r.key],
+      facts: [{ label: 'Value', value: valueText }, { label: 'Method', value: ev.physical.method ?? 'Not recorded' },
+        ...(confidence ? [{ label: 'Input model confidence', value: `pLDDT ${confidence.plddt.toFixed(1)}${confidence.band ? ' · ' + confidence.band : ''}` }] : [])],
+      notes: [r.note, 'This is one measurement of the modelled mutant against its reference, not a stability estimate or a measurement in a living cell.'].filter((n): n is string => Boolean(n)) };
+  });
+  const e = ev.esm3;
+  const embedding: EvidenceChartRow[] = e && e.availability.state === 'computed' && e.drift !== null ? [{ key: 'esm3', name: e.label, value: e.drift, valueText: e.drift.toFixed(3),
+    description: "Largest change in the model's numerical description of any residue when the substitution is introduced.",
+    group: 'Sequence embedding', tone: 'neutral', knowledgeKey: e.knowledgeKey,
+    facts: [{ label: 'Distance metric', value: 'Cosine distance' },
+      { label: 'Largest change', value: `${e.drift.toFixed(3)}${e.driftResidue !== null ? ` at residue ${e.driftResidue}` : ''}` },
+      { label: 'At the variant residue', value: e.siteDrift?.toFixed(3) ?? 'Not measured' },
+      { label: 'Coverage', value: e.coverage ? `${e.coverage.measured} of ${e.coverage.total} residues` : 'Not reported' },
+      { label: 'Served model', value: e.servedBy ?? 'Not reported' }],
+    notes: ["An embedding distance describes a change in a model's representation, not atomic movement or disease risk.", e.serviceNote ? `${e.serviceNote}.` : null].filter((n): n is string => Boolean(n)) }] : [];
+  return [...models, ...physical, ...embedding];
 }
 
 /** Bound the overview without dropping the reference/variant, renormalising, or changing the axis.

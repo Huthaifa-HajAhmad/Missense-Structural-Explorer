@@ -150,6 +150,12 @@ def get_saprot_model(model_name: str, token: str = None):
         return tokenizer, model
 
 
+# Genuine ESM-2 on a host without CUDA: the 650M checkpoint the ESM-2 card names. Measured on the
+# 2-OCPU production VM (2026-10-30, 2 threads): 6.7 s / 14.3 s / 25.3 s per forward pass at 300 / 600 /
+# 1,022 residues, three passes per new variant and one per further allele at the same site; 150M was
+# 1.6 / 3.7 / 7.0 s. Set facebook/esm2_t30_150M_UR50D on a smaller host, or "vesm" to serve VESM-150M.
+ESM2_CPU_MODEL = os.environ.get("ESM2_CPU_MODEL", "facebook/esm2_t33_650M_UR50D")
+
 model_status: dict[str, str] = {
     "vesm": "standby",
     "thermompnn": "standby",
@@ -208,6 +214,25 @@ def start_background_warmup():
             load_vesm()
         except Exception as e:
             print(f"[Model Server Warning] Background VESM warmup deferred: {e}")
+        # The first 650M load downloads 2.6 GB (332 s on the 2-OCPU VM), past the Node layer's 120 s
+        # budget. The download runs here, outside `_model_lock`, so SaProt and VESM loads are not held up
+        # behind it, and "preparing" (not "loading", which would mark the whole server as warming up)
+        # tells the ESM-2 route to let VESM serve until the weights are on disk.
+        if not torch.cuda.is_available() and ESM2_CPU_MODEL.lower() != "vesm":
+            model_status["esm2"] = "preparing"
+            try:
+                from huggingface_hub import snapshot_download
+                snapshot_download(
+                    ESM2_CPU_MODEL,
+                    revision=HF_MODEL_REVISIONS.get(ESM2_CPU_MODEL),
+                    allow_patterns=["*.json", "*.txt", "model.safetensors"],
+                )
+                get_esm2_model(ESM2_CPU_MODEL)
+                model_status["esm2"] = "ready"
+            except Exception as e:
+                model_status["esm2"] = "failed"
+                model_errors["esm2"] = str(e)
+                print(f"[Model Server Warning] Background ESM-2 warmup failed: {e}")
     t = threading.Thread(target=_warmup, name="vesm_background_warmup", daemon=True)
     t.start()
 

@@ -53,8 +53,8 @@ export const PERTURBATION_MODELS: PerturbationModelMeta[] = [
   {
     id: "esmc",
     familyLabel: "ESMC",
-    cardLabel: "ESMC 6B / VESM-150M",
-    description: "Reads the sequence only; a newer, larger model trained the same way as ESM-2.",
+    cardLabel: "ESMC 6B",
+    description: "Uses the amino-acid sequence to estimate which amino acids fit the surrounding sequence.",
     tokenSettingKey: "biohubApiToken",
     tokenName: "Biohub API Token"
   }
@@ -87,7 +87,8 @@ export function resolveModelDisplayName(
  * True when the reported provenance names a model other than the one the card's
  * calibration row describes.
  *
- * The ESMC card is served by ESMC-6B or by a VESM-150M CPU fallback, and the ESM-2 and
+ * The ESMC card is served by ESMC-6B or by a VESM-150M CPU fallback; the ESM-2 card falls back to
+ * VESM-150M only when genuine ESM-2 cannot load on the host, and the ESM-2 and
  * SaProt cards have similar fallbacks. When that happens the row's embedding width and
  * calibration note belong to a model that did not produce the number, so the width must
  * be reported as unknown rather than asserted.
@@ -146,7 +147,7 @@ export function resolveServedModel(
   if (/vesm/.test(p)) key = "vesm150m";
   else if (/saprot/.test(p)) key = /35m/.test(p) ? "saprot35m" : /650m/.test(p) ? "saprot650m" : null;
   else if (/esmc/.test(p)) key = "esmc6b";
-  else if (/esm-?2|esm2/.test(p)) key = /650m/.test(p) ? "esm2_650m" : /t33/.test(p) ? "esm2_650m" : null;
+  else if (/esm-?2|esm2/.test(p)) key = /650m|t33/.test(p) ? "esm2_650m" : /150m|t30/.test(p) ? "esm2_150m" : null;
 
   if (key) {
     const calibration = MODEL_CALIBRATIONS[key];

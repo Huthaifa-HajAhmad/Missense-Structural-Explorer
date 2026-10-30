@@ -22,15 +22,21 @@ export interface SaprotEvalResult {
   klDivergence?: number | null;
   conformationState?: string | null;
   provenance?: string;
+  /** Hub id of the checkpoint that produced the numbers, and how the site was scored. */
+  checkpoint?: string;
+  scoringMethod?: string;
   hfError?: string | null;
   /** Why the remote tier produced no score (labelled by tier in the UI). */
   remoteEngineNote?: string | null;
+  remoteFailure?: RemoteFailure | null;
   /** Why every local SaProt candidate failed — the reason this response is VESM's numbers. */
   fallbackReason?: string | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
 
+import { parseShiftWindow } from "./lmShiftWindow.ts";
+import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { querySaProt } from "./japanfold-client.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
@@ -73,12 +79,7 @@ export async function runSaprotAnalysis(
   try {
     const jfResult = await querySaProt(sequence, pos, wtRes, mutRes, wtPdb);
     if (jfResult && jfResult.status === "success") {
-      const localShiftMap: EsmcLocalShift[] = jfResult.localShiftMap || [];
-      let localEmbeddingShift = 0.0;
-      if (localShiftMap.length > 0) {
-        const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
-        localEmbeddingShift = sumShift / localShiftMap.length;
-      }
+      const { localShiftMap, localEmbeddingShift } = parseShiftWindow(jfResult.localShiftMap);
       return {
         wtProbability: jfResult.wtProbability,
         mutProbability: jfResult.mutProbability,
@@ -143,18 +144,12 @@ export async function runSaprotAnalysis(
          * deliberately declines to fabricate.
          */
         const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
-        const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
+        const { localShiftMap, localEmbeddingShift } = parseShiftWindow(data.localShiftMap);
         const klDivergence = typeof data.klDivergence === "number" ? data.klDivergence : null;
         const conformationState = typeof data.conformationState === "string" ? data.conformationState : null;
 
-        let localEmbeddingShift = 0.0;
-        if (localShiftMap.length > 0) {
-          const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
-          localEmbeddingShift = sumShift / localShiftMap.length;
-        }
-
-        const modelFriendlyName = modelName.split('/').pop() || "SaProt_650M_AF2";
-        const provenance = typeof data.provenance === "string" ? data.provenance : `SaProt (${modelFriendlyName})`;
+        // No default: a payload that names no model is reported as "model not named", never as the requested one.
+        const provenance = typeof data.provenance === "string" ? data.provenance : undefined;
 
         return {
           wtProbability: wtProb,
@@ -169,6 +164,8 @@ export async function runSaprotAnalysis(
           klDivergence,
           conformationState,
           provenance,
+          checkpoint: typeof data.checkpoint === "string" ? data.checkpoint : undefined,
+          scoringMethod: typeof data.scoringMethod === "string" ? data.scoringMethod : undefined,
           hfError: data.hfError || undefined,
           /**
            * Both tier reasons are carried verbatim and labelled by tier in the UI, so the card no
@@ -176,18 +173,19 @@ export async function runSaprotAnalysis(
            * when it was the local candidates that actually failed.
            */
           remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined,
+          remoteFailure: parseRemoteFailure(data.remoteFailure),
           fallbackReason: typeof data.fallbackReason === "string" ? data.fallbackReason : undefined
         };
       }
       return { error: `SaProt sidecar returned unexpected response format`, status: "error" };
     }
 
-    return { error: `SaProt sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
+    return { error: `SaProt sidecar returned HTTP ${sidecarRes.status}`, status: [401, 403].includes(sidecarRes.status) ? "unauthorized" : "offline" };
   } catch (err: any) {
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
     console.warn(`[Local SaProt Analysis Warning] Failed to query local SaProt sidecar: ${err.message}.`);
-    return { error: `SaProt inference in standby (local sidecar warming up or offline)`, status };
+    return { error: isTimeout ? "SaProt timed out waiting for the model server" : `SaProt inference in standby (local sidecar warming up or offline)`, status };
   }
 }
 
