@@ -256,8 +256,18 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
     : reading.mostCopies ? reading.mostCopies.counts
     : "No reading";
   const leadLabel = criterion.absent ? "in gnomAD — no record of this variant"
-    : reading.ruleAf !== null ? `${reading.ruleSource} · the frequency the rule read`
+    : reading.ruleAf !== null ? "The frequency the rule read"
     : reading.mostCopies ? `${reading.mostCopies.label} · most copies in any one cohort`
+    : null;
+  // Where that frequency came from. gnomAD's "grouped maximum" is the highest frequency among its ancestry
+  // groups, so the group is named in plain words and a second line says why the rule reads a group at all.
+  const readsGroupMaximum = !criterion.absent && reading.ruleSource.startsWith("gnomAD ancestry-grouped maximum");
+  const leadSource = criterion.absent || reading.ruleAf === null ? null
+    : readsGroupMaximum
+      ? reading.ruleSource.replace("gnomAD ancestry-grouped maximum", "Highest of gnomAD's ancestry groups")
+      : reading.ruleSource;
+  const leadWhy = readsGroupMaximum
+    ? "The rule reads the ancestry group where this allele is most frequent, so a variant common in one population is not hidden by the global average."
     : null;
   const countsLine = reading.ruleAf !== null && reading.mostCopies
     ? `Most copies in one cohort: ${reading.mostCopies.counts} · ${reading.mostCopies.label}`
@@ -362,8 +372,10 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
       <EvidenceViewTabs tab="clinical" />
       <EvidencePanel tab="clinical">
 
-      {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
-      <section className="pop-card pop-hero" aria-labelledby="pop-finding-title" data-testid="population-finding">
+      {/* ── 1. The finding ───────────────────────────────────────────────────────────────────
+          In the workspace the finding belongs to the Comparison view; the Clinical assertion view is the
+          ClinVar record alone, so the same finding is not printed on both views. */}
+      {(!workspace.enabled || workspace.comparison) && <section className="pop-card pop-hero" aria-labelledby="pop-finding-title" data-testid="population-finding">
         <div className="pop-hero__body">
           <div className="pop-hero__top">
             <span className="eyebrow" id="pop-finding-title">
@@ -382,7 +394,9 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
             >
               {leadFigure}
             </span>
-            {leadLabel && <span className="pop-hero__figure-label">{leadLabel}</span>}
+            {leadLabel && <span className="pop-hero__figure-label pop-hero__figure-label--lead">{leadLabel}</span>}
+            {leadSource && <span className="pop-hero__figure-label" data-testid="rule-source">{leadSource}</span>}
+            {leadWhy && <span className="pop-hero__figure-label pop-dim" data-testid="rule-source-why">{leadWhy}</span>}
             {countsLine && <span className="pop-hero__figure-label pop-mono" data-testid="most-copies">{countsLine}</span>}
           </div>
 
@@ -449,7 +463,6 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
             <FrequencyScale
               criterion={criterion}
               readings={scaleReadings}
-              ruleSource={`${reading.ruleSource}${gnomadRelease && reading.ruleSource.startsWith("gnomAD") ? ` · ${gnomadRelease}` : ""}`}
             />
           </details>
         )}
@@ -487,7 +500,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
             )}
           </div>
         )}
-      </section>
+      </section>}
 
       {workspace.comparison && (populationModel.rows.some(row => row.value !== null)
         ? <EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." />

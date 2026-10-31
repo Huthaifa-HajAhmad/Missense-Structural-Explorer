@@ -160,15 +160,19 @@ describe("ClinicalTab — the governing reading is the headline, counts beneath 
     // the counts headline was All of Us's while the verdict was computed from gnomAD.
     const figure = container.querySelector(".figure-headline") as HTMLElement;
     expect(figure.textContent).toBe("5.50e-6");
-    expect(screen.getByText(/gnomAD ancestry-grouped maximum · the frequency the rule read/)).toBeTruthy();
+    // What it is, where it came from (the grouped maximum in plain words) and why the rule reads a group.
+    expect(screen.getByText("The frequency the rule read")).toBeTruthy();
+    expect(screen.getByTestId("rule-source").textContent).toMatch(/^Highest of gnomAD's ancestry groups/);
+    expect(screen.getByTestId("rule-source-why").textContent).toMatch(/where this allele is most frequent/);
     expect(screen.getByTestId("most-copies").textContent).toBe("Most copies in one cohort: AC 8 · AN 1,459,156 · Exomes");
     // The rule's own input, labelled as its own line inside the same card.
     const headlineCard = screen.getByTestId("population-finding");
-    // Stated once, in the scale's legend, beside the words saying what it is.
+    // The value is stated once, as the headline. The scale's legend only names the mark: a number in the
+    // footer, mixed into the source words, was read as misplaced.
     const legend = within(headlineCard).getByTestId("frequency-scale").querySelector("figcaption") as HTMLElement;
     expect(within(legend).getByText("AF the rule read")).toBeTruthy();
-    expect(within(legend).getByText("5.50e-6")).toBeTruthy();
-    expect(within(legend).getByText(/gnomAD ancestry-grouped maximum/)).toBeTruthy();
+    expect(legend.textContent).not.toContain("5.50e-6");
+    expect(legend.textContent).not.toMatch(/ancestry/);
     // Unconfirmed criterion: the chip shows the code behind a dashed border, not a "PM2?" plus a
     // paragraph explaining the "?".
     const chip = screen.getByTestId("verdict-chip");
@@ -504,7 +508,9 @@ describe("ClinicalTab — UROD p.Gly318Arg from gnomAD r4", () => {
   it("leads with FAF95, the number BS1 turned on, and names its group", () => {
     const { container } = renderTab(urod());
     expect((container.querySelector(".figure-headline") as HTMLElement).textContent).toBe("1.62%");
-    expect(screen.getByText(/gnomAD filtering allele frequency \(FAF95\) · African\/African American \(afr\) · the frequency the rule read/)).toBeTruthy();
+    expect(screen.getByText("The frequency the rule read")).toBeTruthy();
+    expect(screen.getByTestId("rule-source").textContent).toBe("gnomAD filtering allele frequency (FAF95) · African/African American (afr)");
+    expect(screen.queryByTestId("rule-source-why")).toBeNull();
     expect(screen.getByTestId("verdict-chip").textContent).toBe("BS1");
   });
 
