@@ -311,18 +311,27 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
    *
    * A sign-in form exists in this app, so browsers' password managers and autofill extensions
    * happily write the saved account address into any text field they misidentify — including this
-   * one. That value arrived as a replacement insertion (`insertReplacementText`), turned the drawer
-   * into "0 settings found" over an empty panel, and made a "Configure" click from the services rail
-   * look like the settings screen was broken. Undo it: a filter never wants a credential, and a
-   * reader typing has no use for replacement insertion either (spellcheck is off below).
+   * one. That is what filled the box the moment Connections (six masked credential rows) mounted:
+   * the password manager paired its saved username with the only text field it could find, the
+   * filter, and turned the drawer into "0 settings found" over an empty panel — making a
+   * "Configure" click look like the settings screen was broken.
+   *
+   * A fill lands in a field nobody is typing in, so focus is the test: a reader who types, pastes,
+   * drops text or uses an IME always has the box focused first, while an autofill engine writes
+   * into it from the outside. Refuse those, and the replacement insertions password managers use,
+   * restoring the real query (only ever the query) so no credential can become a search term.
    */
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
     const inputType = (e.nativeEvent as InputEvent | undefined)?.inputType;
-    if (inputType === "insertReplacementText") {
-      e.currentTarget.value = searchQueryRef.current;
+    const isAutofill =
+      inputType === "insertReplacementText" ||
+      document.activeElement !== input;
+    if (isAutofill) {
+      input.value = searchQueryRef.current;
       return;
     }
-    setSearchQuery(e.currentTarget.value);
+    setSearchQuery(input.value);
   };
 
   /**

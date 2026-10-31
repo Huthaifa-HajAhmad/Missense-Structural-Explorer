@@ -65,12 +65,21 @@ export function SecretInput({
           <input
             id={inputId}
             type={revealed ? "text" : "password"}
+            // Chrome ignores "off" on masked fields, so this is only a hint for other browsers. The
+            // settings filter has its own guard against a saved address landing there.
             autoComplete="off"
             spellCheck={false}
             aria-describedby={description ? descId : undefined}
             placeholder={value ? "•••••••••••••••••••••••••••••••" : placeholder}
             value={value}
             onChange={(e) => onChange(e.target.value.trim())}
+            // An API key is not a site login: tell every autofill engine that reads a hint not to
+            // pair this row with a saved account.
+            data-form-type="other"
+            data-1p-ignore
+            data-bh-no-autofill="true"
+            data-lpignore="true"
+            data-protonpass-ignore="true"
             className="cs-input w-full h-9 font-mono !text-xs pr-9"
           />
           <button

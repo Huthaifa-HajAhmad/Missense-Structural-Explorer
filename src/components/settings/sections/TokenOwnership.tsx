@@ -45,7 +45,7 @@ export function LastCredentialUse({ kind }: { kind: CredentialKind }) {
           : "not run"
       : `ran on ${credentialSourceLabel(use.source)}`;
   return (
-    <p className="px-4 pb-2 -mt-1 text-[11px] text-cs-text-muted" data-testid={`last-credential-use-${kind}`}>
+    <p className="px-4 mt-0.5 pb-3 text-[11px] text-cs-text-muted" data-testid={`last-credential-use-${kind}`}>
       Last request: {what} ({formatWhen(at)})
     </p>
   );
@@ -164,7 +164,7 @@ export function AccountTokenControls({
   };
 
   return (
-    <div className="px-4 pb-3 -mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]" data-testid={`account-token-${kind}`}>
+    <div className="px-4 -mt-1 last:pb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]" data-testid={`account-token-${kind}`}>
       {entry ? (
         <>
           <span className={entry.readable ? "text-cs-text-secondary" : "text-amber-700 dark:text-amber-400"}>
