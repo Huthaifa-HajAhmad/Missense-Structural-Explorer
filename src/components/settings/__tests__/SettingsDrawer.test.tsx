@@ -170,6 +170,7 @@ describe("SettingsDrawer (settings revamp)", () => {
     await act(async () => {});
 
     const searchInput = screen.getByPlaceholderText(/search settings/i);
+    act(() => searchInput.focus());
     fireEvent.change(searchInput, { target: { value: "polar" } });
 
     expect(screen.getByText(/polar contacts & hydrogen bonds/i)).toBeInTheDocument();
@@ -201,9 +202,9 @@ describe("SettingsDrawer (settings revamp)", () => {
     const searchInput = screen.getByPlaceholderText(/search settings/i);
 
     // What Chrome's password manager (and most autofill extensions) does to any text field it
-    // misreads as a username: write a credential as a replacement insertion.
+    // misreads as a username: write a credential into a field nobody is typing in.
     fireEvent.input(searchInput, {
-      inputType: "insertReplacementText",
+      inputType: "insertText",
       target: { value: "huthaifa.haj.ahmad@gmail.com" }
     });
 
@@ -217,6 +218,15 @@ describe("SettingsDrawer (settings revamp)", () => {
     (searchInput as HTMLInputElement).value = "huthaifa.haj.ahmad@gmail.com";
     fireEvent.focus(searchInput);
     expect(searchInput).toHaveValue("");
+
+    // A password manager that focuses and then writes is still refused.
+    act(() => searchInput.focus());
+    fireEvent.input(searchInput, {
+      inputType: "insertReplacementText",
+      target: { value: "huthaifa.haj.ahmad@gmail.com" }
+    });
+    expect(searchInput).toHaveValue("");
+    expect(screen.queryByText(/settings found/i)).not.toBeInTheDocument();
 
     // The guard refuses autofill, not the reader.
     fireEvent.change(searchInput, { target: { value: "polar" } });
@@ -262,7 +272,9 @@ describe("SettingsDrawer (settings revamp)", () => {
     fireEvent.click(screen.getByText("open-settings"));
     await act(async () => {});
 
-    fireEvent.change(screen.getByPlaceholderText(/search settings/i), { target: { value: "hugging" } });
+    const searchInput = screen.getByPlaceholderText(/search settings/i);
+    act(() => searchInput.focus());
+    fireEvent.change(searchInput, { target: { value: "hugging" } });
     fireEvent.click(screen.getByRole("button", { name: /configure hugging face access token/i }));
 
     expect(screen.getByRole("tab", { name: /connections/i })).toHaveAttribute("aria-selected", "true");
