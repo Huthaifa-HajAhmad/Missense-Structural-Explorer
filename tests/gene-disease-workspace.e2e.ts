@@ -53,7 +53,8 @@ test('gene-disease finding, hidden pins and empty states remain legible', { tags
   await screen.getByRole('tab', 'Variant context').tap();
   await expect(screen.getByTestId('variant-locus-card')).toBeVisible();
   await app.screenshot('gene-disease-variant-context');
-  await screen.getByRole('combobox', 'Review SOD1 for').selectOption('Choose a disease and inheritance');
+  await screen.getByRole('combobox', 'Review SOD1 for').tap();
+  await screen.getByRole('option', 'Choose a disease and inheritance').tap();
   await expect(screen.getByRole('searchbox')).toHaveCount(0);
   await expect(screen.getByRole('region', 'Submitted validity assertion matrix')).toHaveCount(0);
   await app.screenshot('gene-disease-unselected');

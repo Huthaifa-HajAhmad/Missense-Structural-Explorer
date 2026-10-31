@@ -27,6 +27,7 @@
 @import "./workspace.css";
 @import "./charts.css";
 @import "./evidence-workspace.css";
+@import "./choice-menu.css";
 @import "./gene-disease.css";
 @import "./perturbation.css";
 @import "./splicing.css";
