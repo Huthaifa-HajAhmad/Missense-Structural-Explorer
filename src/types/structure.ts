@@ -83,4 +83,9 @@ export interface StructuralDiffResult {
     mutClashCount: number;
     diff: number;
   };
+  /**
+   * How the mutant model was built, set by the caller that knows (the server only compares two PDBs).
+   * "foldx-buildmodel" keeps the wild-type backbone, so Cα shifts are zero by method, not by measurement.
+   */
+  mutantModel?: "foldx-buildmodel";
 }

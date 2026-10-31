@@ -264,6 +264,13 @@ export const esmcEvalResultSchema = z.object({
   klDivergence: z.number().nullable().optional(),
   conformationState: z.string().nullable().optional(),
   provenance: z.string().optional(),
+  /** Hub id of the checkpoint that produced the numbers, and how the site was scored. */
+  checkpoint: z.string().optional(),
+  scoringMethod: z.string().optional(),
+  /** Why the embedding shift is absent while the score is present (e.g. skipped to stay within the time budget). */
+  embeddingNote: z.string().optional(),
+  /** A remote refusal as a code ("billing", "auth", …), so the tab names the cause without parsing prose. */
+  remoteFailure: z.object({ provider: z.string(), code: z.string() }).nullable().optional(),
   /**
    * Fallback diagnostics. A card that silently serves another model's numbers has to be able to
    * say which engine failed and why, per tier; both are free text from the failing tier itself.
@@ -1887,12 +1894,14 @@ export const analyzeVariantResponseSchema = z.object({
       }).optional(),
       provenance: z.string().optional(),
       remoteEngineNote: z.string().nullable().optional(),
+      remoteFailure: z.object({ provider: z.string(), code: z.string() }).nullable().optional(),
       status: z.string().optional()
     }).passthrough(),
     z.object({
       error: z.string(),
       status: z.string().optional(),
-      remoteEngineNote: z.string().nullable().optional()
+      remoteEngineNote: z.string().nullable().optional(),
+      remoteFailure: z.object({ provider: z.string(), code: z.string() }).nullable().optional()
     }).passthrough()
   ]).nullable().optional(),
   esmcEval: esmcEvalResultSchema.nullable().optional(),

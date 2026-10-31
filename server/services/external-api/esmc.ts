@@ -20,12 +20,18 @@ export interface EsmcEvalResult {
   localEmbeddingShift?: number;
   localShiftMap?: EsmcLocalShift[];
   provenance?: string;
+  /** Hub id of the checkpoint that produced the numbers, and how the site was scored. */
+  checkpoint?: string;
+  scoringMethod?: string;
   /** Why the remote Biohub tier did not answer, when the local VESM fallback served this result. */
   remoteEngineNote?: string | null;
+  remoteFailure?: RemoteFailure | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
 
+import { parseShiftWindow } from "./lmShiftWindow.ts";
+import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { queryEsmc } from "./japanfold-client.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
@@ -65,12 +71,7 @@ export async function runEsmcAnalysis(
   try {
     const jfResult = await queryEsmc(sequence, pos, wtRes, mutRes);
     if (jfResult && jfResult.status === "success") {
-      const localShiftMap: EsmcLocalShift[] = jfResult.localShiftMap || [];
-      let localEmbeddingShift = 0.0;
-      if (localShiftMap.length > 0) {
-        const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
-        localEmbeddingShift = sumShift / localShiftMap.length;
-      }
+      const { localShiftMap, localEmbeddingShift } = parseShiftWindow(jfResult.localShiftMap);
       return {
         wtProbability: jfResult.wtProbability,
         mutProbability: jfResult.mutProbability,
@@ -111,7 +112,7 @@ export async function runEsmcAnalysis(
     }), { deadlineAt: Date.now() + 60000 });
 
     if (!sidecarRes.ok) {
-      return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
+      return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: [401, 403].includes(sidecarRes.status) ? "unauthorized" : "offline" };
     }
 
     const data = await sidecarRes.json() as any;
@@ -125,14 +126,10 @@ export async function runEsmcAnalysis(
 
       // Retrieve real embedding shifts from sidecar response
       const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
-      const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
-      let localEmbeddingShift = 0.0;
-      if (localShiftMap.length > 0) {
-        const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
-        localEmbeddingShift = sumShift / localShiftMap.length;
-      }
+      const { localShiftMap, localEmbeddingShift } = parseShiftWindow(data.localShiftMap);
 
-      const provenance = typeof data.provenance === "string" ? data.provenance : "ESMC-6B (Remote)";
+      // No default: a payload that names no model is reported as "model not named", never as the requested one.
+      const provenance = typeof data.provenance === "string" ? data.provenance : undefined;
 
       return {
         wtProbability: wtProb,
@@ -145,7 +142,10 @@ export async function runEsmcAnalysis(
         localEmbeddingShift,
         localShiftMap,
         provenance,
-        remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined
+        checkpoint: typeof data.checkpoint === "string" ? data.checkpoint : undefined,
+        scoringMethod: typeof data.scoringMethod === "string" ? data.scoringMethod : undefined,
+        remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined,
+        remoteFailure: parseRemoteFailure(data.remoteFailure)
       };
     }
     return { error: `VESM sidecar returned unexpected response format`, status: "error" };
@@ -153,7 +153,7 @@ export async function runEsmcAnalysis(
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
     console.warn(`[Local VESM Analysis Warning] Failed to query local VESM sidecar: ${err.message}.`);
-    return { error: `VESM inference in standby (local sidecar warming up or offline)`, status };
+    return { error: isTimeout ? "VESM timed out waiting for the model server" : `VESM inference in standby (local sidecar warming up or offline)`, status };
   }
 }
 

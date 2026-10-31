@@ -21,15 +21,25 @@ export interface EsmcEvalResult {
   localShiftMap?: EsmcLocalShift[];
   klDivergence?: number | null;
   provenance?: string;
+  /** Hub id of the checkpoint that produced the numbers ("facebook/esm2_t30_150M_UR50D"). */
+  checkpoint?: string;
+  /** "masked-marginal" on every current path; absent on results from before it was recorded. */
+  scoringMethod?: string;
+  /** Why the shift trace is absent while the score is present (skipped to stay within the time budget). */
+  embeddingNote?: string;
   /** Why the remote engine produced no score, and why the local candidates failed. */
   remoteEngineNote?: string | null;
+  /** The remote refusal as a code the UI can act on, not prose to parse. */
+  remoteFailure?: RemoteFailure | null;
   fallbackReason?: string | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
 
+import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
+import { parseShiftWindow } from "./lmShiftWindow.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -97,20 +107,14 @@ export async function runEsm2Analysis(
         /**
          * Absence is preserved, never coerced to 0 — the serverless filler API exposes no
          * per-residue feature extraction, and `0.000` on the card cannot be told apart from a
-         * measured zero shift. KL divergence is a separate measurement and is kept as reported.
+         * measured zero shift. Every current path reports KL divergence as absent.
          */
         const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
-        const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
+        const { localShiftMap, localEmbeddingShift } = parseShiftWindow(data.localShiftMap);
         const klDivergence = typeof data.klDivergence === "number" ? data.klDivergence : null;
 
-        let localEmbeddingShift = 0.0;
-        if (localShiftMap.length > 0) {
-          const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
-          localEmbeddingShift = sumShift / localShiftMap.length;
-        }
-
-        const modelFriendlyName = modelName.split('/').pop() || "esm2_t33_650M_UR50D";
-        const provenance = typeof data.provenance === "string" ? data.provenance : `ESM-2 (${modelFriendlyName})`;
+        // No default: a payload that names no model is reported as "model not named", never as the requested one.
+        const provenance = typeof data.provenance === "string" ? data.provenance : undefined;
 
         return {
           wtProbability: wtProb,
@@ -124,18 +128,22 @@ export async function runEsm2Analysis(
           localShiftMap,
           klDivergence,
           provenance,
+          checkpoint: typeof data.checkpoint === "string" ? data.checkpoint : undefined,
+          scoringMethod: typeof data.scoringMethod === "string" ? data.scoringMethod : undefined,
+          embeddingNote: typeof data.embeddingNote === "string" ? data.embeddingNote : undefined,
           remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined,
+          remoteFailure: parseRemoteFailure(data.remoteFailure),
           fallbackReason: typeof data.fallbackReason === "string" ? data.fallbackReason : undefined
         };
       }
       return { error: `ESM-2 sidecar returned unexpected response format`, status: "error" };
     }
-    return { error: `ESM-2 sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
+    return { error: `ESM-2 sidecar returned HTTP ${sidecarRes.status}`, status: [401, 403].includes(sidecarRes.status) ? "unauthorized" : "offline" };
   } catch (err: any) {
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
     console.warn(`[Local ESM-2 Analysis Warning] Failed to query local ESM-2 sidecar: ${err.message}.`);
-    return { error: `ESM-2 inference in standby (local sidecar warming up or offline)`, status };
+    return { error: isTimeout ? "ESM-2 timed out waiting for the model server" : `ESM-2 inference in standby (local sidecar warming up or offline)`, status };
   }
 }
 

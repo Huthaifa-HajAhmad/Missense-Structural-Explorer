@@ -171,19 +171,21 @@ class TestModelServerHelpers(unittest.TestCase):
     def test_saprot_fill_mask_bpe_parsing(self):
         from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
         
+        from tools.model_server_app.engine_resilience import InvalidProviderResponse
+        from tools.model_server_app.utils import AA_LIST
+
         # 1. BPE tokens with leading spaces (e.g. " Sa", " Cc") must match canonical amino acids
-        mock_bpe_preds = [
-            {"token_str": " Sa", "score": 0.45},
-            {"token_str": " Cc", "score": 0.05},
-            {"token_str": " Ad", "score": 0.20},
-            {"token_str": " G#", "score": 0.15},
-            {"token_str": " Lb", "score": 0.15}
-        ]
+        weights = {"S": 0.45, "C": 0.05, "A": 0.20, "G": 0.15, "L": 0.15}
+        mock_bpe_preds = [{"token_str": f" {aa}a", "score": weights.get(aa, 0.01)} for aa in AA_LIST]
         probs = parse_saprot_fill_mask_scores(mock_bpe_preds, expected_wt="S", expected_mut="C")
         self.assertAlmostEqual(sum(probs.values()), 1.0, places=4)
         self.assertGreater(probs["S"], probs["C"])
         self.assertGreater(probs["A"], probs["C"])
-        self.assertEqual(probs["W"], 1e-9 / sum([0.45, 0.05, 0.20, 0.15, 0.15] + [1e-9]*15))
+        self.assertEqual(len(probs), 20)
+
+        # 1b. A distribution that lacks residues is refused, not padded with a made-up floor
+        with self.assertRaisesRegex(InvalidProviderResponse, "5 of 20"):
+            parse_saprot_fill_mask_scores(mock_bpe_preds[:5], expected_wt="S", expected_mut="C")
 
         # 2. Degenerate tokens (all whitespace or unparseable) must raise ValueError
         mock_degenerate_preds = [
@@ -202,13 +204,10 @@ class TestModelServerHelpers(unittest.TestCase):
             {"token_str": " Aa", "score": 0.05},
             {"token_str": " Rd", "score": 0.05}
         ]
-        probs_special = parse_saprot_fill_mask_scores(mock_special_tokens, expected_wt="A", expected_mut="R")
-        # 'M' (from <mask>), 'P' (from <pad>), 'C' (from [CLS]) must receive fallback 1e-9, NOT high probability
-        self.assertAlmostEqual(probs_special["A"], 0.5, delta=0.01)
-        self.assertAlmostEqual(probs_special["R"], 0.5, delta=0.01)
-        self.assertLess(probs_special["M"], 1e-4)
-        self.assertLess(probs_special["P"], 1e-4)
-        self.assertLess(probs_special["C"], 1e-4)
+        # Only " Aa" and " Rd" are residues: '<mask>', '<pad>', '<s>' and '[CLS]' must not be read as
+        # M, P, S or C, so the answer counts as 2 of 20 and is refused.
+        with self.assertRaisesRegex(InvalidProviderResponse, "2 of 20"):
+            parse_saprot_fill_mask_scores(mock_special_tokens, expected_wt="A", expected_mut="R")
 
     def test_encode_pdb_to_3di_alignment_and_insertion_codes(self):
         from tools.model_server_app.utils import encode_pdb_to_3di
@@ -304,17 +303,14 @@ class TestModelServerHelpers(unittest.TestCase):
 class TestSaProtScoreParser(unittest.TestCase):
     def test_valid_scores_parsing(self):
         from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
-        preds = [
-            {"token_str": "Ra", "score": 0.8},
-            {"token_str": "Ha", "score": 0.15},
-            {"token_str": "Aa", "score": 0.05},
-        ]
+        from model_server_app.utils import AA_LIST
+        weights = {"R": 0.8, "H": 0.15, "A": 0.05}
+        preds = [{"token_str": f"{aa}a", "score": weights.get(aa, 0.001)} for aa in AA_LIST]
         probs = parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
         self.assertAlmostEqual(sum(probs.values()), 1.0, places=4)
         self.assertGreater(probs["R"], probs["H"])
         self.assertGreater(probs["H"], probs["A"])
-        # Missing AAs should have small floor probability
-        self.assertEqual(probs["W"], 1e-9 / sum(probs.values()) if False else probs["W"])
+        self.assertGreater(probs["A"], probs["W"])
 
     def test_missing_wt_and_mut_raises(self):
         from model_server_app.routers.saprot import parse_saprot_fill_mask_scores

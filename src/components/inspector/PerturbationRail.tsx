@@ -8,6 +8,7 @@ import { buildPerturbationEvidence, oddsText, type LmReading } from "../../share
 import type { PerturbationModelId } from "../../shared/perturbationModels";
 import { perturbationReadings } from '../../shared/molecularWorkspace';
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
+import { useEvidenceWorkspace } from '../evidence/EvidenceWorkspace';
 
 /**
  * PerturbationRail — the Evidence Lineage inspector for the Structural perturbation tab.
@@ -91,6 +92,7 @@ export function PerturbationRail({
   foldingError?: string | null;
 }) {
   const r = analysisResult as any;
+  const workspace = useEvidenceWorkspace('perturbation');
   const evidence = useMemo(() => {
     if (!r) return null;
     const m = resolveResidueShiftModel({ wildType: r.metadata?.wildType, mutant: r.metadata?.mutant, variant: r.metadata?.variant });
@@ -115,11 +117,12 @@ export function PerturbationRail({
   const selected =
     evidence.lms.find(l => l.id === activePerturbationModel && l.availability.state === "computed") ?? evidence.scored[0] ?? null;
   const { scored, lms, scale, direction, physical, engine } = evidence;
+  const pinned = readings.find(r => r.key === workspace.selected);
+  const pinOrigin = pinned?.key.startsWith("phys:") ? "Packing & geometry" : pinned?.key === "esm3" ? "Sequence embeddings" : "Model comparison";
   const wt = evidence.residues.wtLabel || "native";
   const mut = evidence.residues.mutLabel || "variant";
   const vdw = physical.readings.find(x => x.key === "vdw");
   const clashMark = THRESHOLDS.vdwClash.significantClash;
-  const drift = THRESHOLDS.esm3Drift;
   const sources = lms.filter(l => l.servedBy).map(l => [l.family, l.servedBy!] as const);
   if (evidence.esm3?.servedBy) sources.push(["ESM3", evidence.esm3.servedBy] as const);
   if (physical.available) sources.push(["Physical model", `FoldX BuildModel${physical.runs ? ` · ${physical.runs} runs` : ""}`] as const);
@@ -127,6 +130,15 @@ export function PerturbationRail({
   return (
     <div className="ptb-rail" data-testid="perturbation-rail">
       <EvidenceReadingInspector tab="perturbation" rows={readings} />
+      {workspace.enabled && !workspace.comparison && <section className="ptb-rsec" aria-labelledby="ptb-rail-view">
+        <h3 className="eyebrow" id="ptb-rail-view">{workspace.view === 'records' ? 'Reading the structural measurements' : 'Reading representation changes'}</h3>
+        <p>{workspace.view === 'records' ? 'Each measurement compares a modelled mutant with its reference. Energy components, contact counts and distances answer different questions and are not combined into a score.' : 'Embedding distances describe changes in model representations. They do not measure atomic movement. Compare positions within this run, using the stated distance metric.'}</p>
+        {workspace.selected && (pinned
+          ? <p>{`Pinned from ${pinOrigin}: ${pinned.name}. It stays visible when you switch views.`}</p>
+          : <p>The pinned reading above is retained when you switch views.</p>)}
+      </section>}
+      <details className="ptb-trace-details" key={workspace.view} open={!workspace.enabled || workspace.comparison}>
+      <summary>Full methods, model records and sources</summary>
       {/* ── 1. Trace ── */}
       <section className="ptb-rsec" aria-labelledby="ptb-rail-trace">
         <h3 className="eyebrow" id="ptb-rail-trace">
@@ -139,14 +151,17 @@ export function PerturbationRail({
             <ul className="ptb-step__list">
               {lms.map(l => (
                 <li key={l.id}>
-                  <span>{l.family}</span>
+                  <span>{l.name}</span>
                   <span title={l.servedBy ?? undefined}>{l.availability.state === "computed" ? (l.servedShort || "model not named") : l.availability.label}</span>
                 </li>
               ))}
             </ul>
             {scored.some(l => l.caveats.includes("fallback-model")) && (
-              <span className="ptb-step__warn">A fallback model served at least one row; its row describes the model that ran.</span>
+              <span className="ptb-step__warn">Another model stood in for at least one row; each row names the model that ran.</span>
             )}
+            {scored.filter(l => l.serviceNote !== null).map(l => (
+              <span key={l.id} className="ptb-step__warn">{l.family}: {l.serviceNote}.</span>
+            ))}
           </Step>
           <Step n={2} label="Scale check" state={scored.length < 2 ? "idle" : "done"}>
             <span>
@@ -162,7 +177,7 @@ export function PerturbationRail({
             <ul className="ptb-step__list" data-testid="perturbation-direction-trace">
               {scored.map(l => (
                 <li key={l.id}>
-                  <span>{l.family}</span>
+                  <span>{l.name}</span>
                   <span>{directionText(l, wt, mut)}</span>
                 </li>
               ))}
@@ -202,7 +217,7 @@ export function PerturbationRail({
           <Ruler className="w-3.5 h-3.5" />
           Reading marks · all app-defined
         </h3>
-        <p className="ptb-cuts__title">Rank bands{selected ? ` · ${selected.family}` : ""}</p>
+        <p className="ptb-cuts__title">Rank bands{selected ? ` · ${selected.name}` : ""}</p>
         <ul className="ptb-cuts" data-testid="perturbation-rank-bands">
           {[...RANK_BANDS].reverse().map(b => {
             const active = selected?.band === b.band;
@@ -237,11 +252,13 @@ export function PerturbationRail({
             <span className="ptb-cut__rule">|ΔLLR| &lt; {EVEN_ODDS_LLR.toFixed(2)} (2×)</span>
             {selected?.direction === "even" && <span className="ptb-cut__here">near even</span>}
           </li>
-          <li className="ptb-cut">
-            <span className="ptb-cut__name">ESM3 drift</span>
-            <span className="ptb-cut__rule">{drift.none} · {drift.minor} · {drift.moderate}</span>
-            {evidence.esm3?.drift != null && <span className="ptb-cut__here">{evidence.esm3.drift.toFixed(3)}</span>}
-          </li>
+          {evidence.esm3?.drift != null && (
+            <li className="ptb-cut">
+              <span className="ptb-cut__name">ESM3 drift</span>
+              <span className="ptb-cut__rule">{evidence.esm3.driftResidue !== null ? `peak at residue ${evidence.esm3.driftResidue}` : ""}</span>
+              <span className="ptb-cut__here">{evidence.esm3.drift.toFixed(3)}</span>
+            </li>
+          )}
         </ul>
         <p className="ptb-step__sub">
           None of these is a published cut-point, and no language model here has one: they are reading aids, drawn dashed on the tab.
@@ -253,10 +270,12 @@ export function PerturbationRail({
         <section className="ptb-rsec" aria-labelledby="ptb-rail-model">
           <h3 className="eyebrow" id="ptb-rail-model">
             <Layers className="w-3.5 h-3.5" />
-            Selected model · {selected.family}
+            Selected model · {selected.name}
           </h3>
           <dl className="ptb-kv">
             <div className="ptb-kv__row"><dt>Served by</dt><dd>{selected.servedBy ?? "not named in payload"}</dd></div>
+            <div className="ptb-kv__row"><dt>Scoring method</dt><dd>{selected.scoringMethod ?? "Not recorded by this engine"}</dd></div>
+            {selected.serviceNote !== null && <div className="ptb-kv__row"><dt>Remote service</dt><dd>{selected.serviceNote}</dd></div>}
             <div className="ptb-kv__row"><dt>Registry row</dt><dd>{selected.calibration?.label ?? "—"}{selected.served.inferred ? " (from settings)" : ""}</dd></div>
             <div className="ptb-kv__row"><dt>Cut-point</dt><dd>None published</dd></div>
             <div className="ptb-kv__row"><dt>Embedding width</dt><dd>{selected.embedding.dim ? `${selected.embedding.dim}-dim` : "unknown"}</dd></div>
@@ -374,6 +393,7 @@ export function PerturbationRail({
           ))}
         </ul>
       </section>
+      </details>
     </div>
   );
 }

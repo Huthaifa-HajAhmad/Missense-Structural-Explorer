@@ -16,6 +16,7 @@ from tools.model_server_app.engine_resilience import (
     extract_status,
     raise_if_sdk_error,
     to_full_coordinates,
+    with_remote_failure,
 )
 import hashlib
 import os
@@ -69,6 +70,11 @@ class VesmLocalShiftItem(BaseModel):
     residue: str
     shift: float
 
+class RemoteFailure(BaseModel):
+    """A remote refusal as data: the provider and one of engine_resilience.FAILURE_CODES."""
+    provider: str
+    code: str
+
 class VesmResponse(BaseModel):
     status: str
     wtProbability: float | None = None
@@ -82,10 +88,13 @@ class VesmResponse(BaseModel):
     klDivergence: float | None = None
     conformationState: str | None = None
     provenance: str | None = None
+    checkpoint: str | None = None
+    scoringMethod: str | None = None
     verdict: str | None = None
     hfError: str | None = None
     error: str | None = None
     remoteEngineNote: str | None = None
+    remoteFailure: RemoteFailure | None = None
 
 def predict_vesm_sync(req: VesmRequest):
     validate_missense_residues(req.wt, req.mut)
@@ -193,6 +202,7 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str
 
         embedding_shift = None
         local_shift_map = []
+        cosine_profile = []
 
         # Optimization: Only run the two expensive unmasked forward passes (WT and Mutant)
         # when the caller actually needs embeddings. Triage evaluation (LLR only) skips them,
@@ -214,8 +224,15 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str
                 seq_len = min(wt_emb.size(0), mut_emb.size(0))
                 diff = wt_emb[:seq_len] - mut_emb[:seq_len]
                 distances = torch.norm(diff, p=2, dim=-1)
+                cosine = 1.0 - torch.nn.functional.cosine_similarity(wt_emb[:seq_len], mut_emb[:seq_len], dim=-1)
 
             embedding_shift = round(distances[pos].item(), 4)
+            # Every residue of the window, as cosine distance: the ESM-3 slot's metric. Its Euclidean
+            # ±10 map was drawn and banded as cosine when VESM stood in for ESM-3. Index 0 is <cls>.
+            cosine_profile = [
+                {"position": r, "residue": sequence[r - 1], "shift": round(cosine[r].item(), 4)}
+                for r in range(1, min(len(sequence), seq_len - 2) + 1)
+            ]
 
             for i in range(-10, 11):
                 target_pos = pos + i
@@ -238,7 +255,11 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str
             "positionalEntropy": pos_entropy,
             "embeddingShift": embedding_shift,
             "localShiftMap": to_full_coordinates(local_shift_map, start_offset),
+            # Internal to the sidecar (no response model declares it); the ESM-3 fallback reads it.
+            "cosineProfile": to_full_coordinates(cosine_profile, start_offset),
             "provenance": "VESM-150M (Local)",
+            "checkpoint": "ntranoslab/vesm VESM_150M",
+            "scoringMethod": "masked-marginal",
             "verdict": "raw score"
         }
     except HTTPException:
@@ -258,11 +279,11 @@ def _run_esmc_remote_host(req: VesmRequest, sequence: str, pos: int, wt: str, mu
         request_timeout=REMOTE_REQUEST_TIMEOUT_S,
         max_retry_attempts=REMOTE_MAX_RETRY_ATTEMPTS,
     )
-    protein = ESMProtein(sequence=sequence)
-    protein_tensor = raise_if_sdk_error(client.encode(protein))
-
-    config = LogitsConfig(sequence=True, return_embeddings=req.includeEmbeddings)
-    logits_output = raise_if_sdk_error(client.logits(protein_tensor, config))
+    # The site is scored with the residue hidden ("_" is the SDK's sequence mask character). The
+    # unmasked sequences are encoded further down, only for the embedding shift.
+    masked_protein = ESMProtein(sequence=sequence[: pos - 1] + "_" + sequence[pos:])
+    masked_tensor = raise_if_sdk_error(client.encode(masked_protein))
+    logits_output = raise_if_sdk_error(client.logits(masked_tensor, LogitsConfig(sequence=True)))
 
     seq_logits = None
     if hasattr(logits_output, "logits") and logits_output.logits:
@@ -275,15 +296,6 @@ def _run_esmc_remote_host(req: VesmRequest, sequence: str, pos: int, wt: str, mu
         logits = seq_logits_tensor[0] if seq_logits_tensor.ndim > 2 else seq_logits_tensor
     else:
         raise ValueError("Could not find sequence logits in client response")
-
-    embeddings = None
-    if req.includeEmbeddings:
-        raw_embs = getattr(logits_output, "embeddings", None)
-        if raw_embs is not None:
-            raw_embs_tensor = torch.tensor(raw_embs) if not isinstance(raw_embs, torch.Tensor) else raw_embs
-            embeddings = raw_embs_tensor[0] if raw_embs_tensor.ndim > 2 else raw_embs_tensor
-        else:
-            raise ValueError("Could not find embeddings in client response")
 
     vocab_map = {}
     if hasattr(client, "tokenizer") and client.tokenizer:
@@ -309,20 +321,19 @@ def _run_esmc_remote_host(req: VesmRequest, sequence: str, pos: int, wt: str, mu
     embedding_shift = None
     local_shift_map = []
 
-    if req.includeEmbeddings and embeddings is not None:
-        mut_seq_chars = list(sequence)
-        mut_seq_chars[pos - 1] = mut
-        mut_sequence = "".join(mut_seq_chars)
-        mut_protein = ESMProtein(sequence=mut_sequence)
-        mut_protein_tensor = raise_if_sdk_error(client.encode(mut_protein))
+    if req.includeEmbeddings:
+        embedding_config = LogitsConfig(sequence=True, return_embeddings=True)
 
-        mut_logits_output = raise_if_sdk_error(client.logits(mut_protein_tensor, config))
-        raw_mut_embs = getattr(mut_logits_output, "embeddings", None)
-        if raw_mut_embs is not None:
-            raw_mut_embs_tensor = torch.tensor(raw_mut_embs) if not isinstance(raw_mut_embs, torch.Tensor) else raw_mut_embs
-            mut_embeddings = raw_mut_embs_tensor[0] if raw_mut_embs_tensor.ndim > 2 else raw_mut_embs_tensor
-        else:
-            raise ValueError("Could not find mutant embeddings in client response")
+        def embeddings_of(residues: str) -> torch.Tensor:
+            tensor = raise_if_sdk_error(client.encode(ESMProtein(sequence=residues)))
+            raw = getattr(raise_if_sdk_error(client.logits(tensor, embedding_config)), "embeddings", None)
+            if raw is None:
+                raise ValueError(f"Could not find embeddings in client response for {residues[:12]}…")
+            embs = torch.tensor(raw) if not isinstance(raw, torch.Tensor) else raw
+            return embs[0] if embs.ndim > 2 else embs
+
+        embeddings = embeddings_of(sequence)
+        mut_embeddings = embeddings_of(sequence[: pos - 1] + mut + sequence[pos:])
 
         diff = embeddings - mut_embeddings
         distances = torch.norm(diff, p=2, dim=-1)
@@ -351,10 +362,13 @@ def _run_esmc_remote_host(req: VesmRequest, sequence: str, pos: int, wt: str, mu
         "embeddingShift": embedding_shift,
         "localShiftMap": to_full_coordinates(local_shift_map, start_offset),
         "provenance": f"ESMC-6B ({host_label})",
+        "checkpoint": "esmc-6b-2024-12",
+        "scoringMethod": "masked-marginal",
         "verdict": "raw score"
     }
 
 
 @router.post("/predict/vesm", response_model=VesmResponse)
 async def predict_vesm(req: VesmRequest):
-    return await asyncio.to_thread(predict_vesm_sync, req)
+    # The remote tier here is EvolutionaryScale's ESMC (Forge / Biohub).
+    return with_remote_failure(await asyncio.to_thread(predict_vesm_sync, req), "biohub")

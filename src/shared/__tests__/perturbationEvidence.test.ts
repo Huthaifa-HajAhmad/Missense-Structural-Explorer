@@ -3,6 +3,7 @@ import { buildPerturbationEvidence, perturbationFinding } from "../perturbationE
 import { NAE1_ENERGETICS, NAE1_RESIDUES, NAE1_RESULT } from "./fixtures/nae1Perturbation";
 import { SLC12A4_RESIDUES, SLC12A4_RESULT } from "./fixtures/slc12a4Perturbation";
 import { LEGACY_ENGINE_LABELS } from "../engineStatus";
+import { GATA4_RESULT } from "./fixtures/gata4Perturbation";
 
 const build = (over: Partial<Parameters<typeof buildPerturbationEvidence>[0]> = {}) =>
   buildPerturbationEvidence({
@@ -16,6 +17,10 @@ const build = (over: Partial<Parameters<typeof buildPerturbationEvidence>[0]> = 
   });
 
 describe("buildPerturbationEvidence — NAE1 p.Asp116Gly", () => {
+  it("preserves embedding coverage gaps and measured zeros at their original positions", () => {
+    const evidence = build({ result: { ...NAE1_RESULT, esm3Eval: { perturbationScores: [0, -1, 0.2] } } });
+    expect(evidence.esm3?.perPosition).toEqual([{ position: 1, value: 0 }, { position: 2, value: null }, { position: 3, value: 0.2 }]);
+  });
   it("describes SaProt by the model that served it, not by the settings engine", () => {
     const saprot = build().lms.find(l => l.id === "saprot")!;
     // Settings said remote-hf (→ 650M); the payload says SaProt_35M_AF2 ran.
@@ -118,7 +123,8 @@ describe("buildPerturbationEvidence — NAE1 p.Asp116Gly", () => {
     expect(ev.direction.nFavourNative).toBe(2);
     expect(ev.consensus.nRanked).toBe(2);
     const f = perturbationFinding(ev);
-    expect(f.headline).toBe("SaProt and ESMC favour native Asp over Gly");
+    // Named by the checkpoint that ran: "ESMC" here credited ESMC with VESM-150M's reading.
+    expect(f.headline).toBe("SaProt and VESM-150M favour native Asp over Gly");
   });
 
   it("names ESM3's quantity for what it is and drops the heuristic impact line", () => {
@@ -199,5 +205,141 @@ describe("buildPerturbationEvidence — SLC12A4 p.Gln867His", () => {
     expect(failed.physical.reason).toBe("The FoldX run failed: RepairPDB exceeded its time budget.");
     const none = buildPerturbationEvidence({ result: SLC12A4_RESULT, residues: SLC12A4_RESIDUES });
     expect(none.physical.reason).toBe("No FoldX mutant model was built for this variant.");
+  });
+});
+
+/**
+ * GATA4 p.Ser159Cys — the 2026-10 screenshot: Hugging Face answered 402 (no inference credits), the
+ * host had no CUDA, and VESM-150M filled the ESM-2 card while the finding still credited "ESM-2".
+ */
+describe("buildPerturbationEvidence — the ESM-2 card after a Hugging Face refusal", () => {
+  const withEsm2 = (esm2Eval: any) => build({ result: { ...NAE1_RESULT, esm2Eval: { ...NAE1_RESULT.esm2Eval, ...esm2Eval } } });
+  const billing = { provider: "huggingface", code: "billing" };
+
+  it("names the stand-in that produced the numbers, in the row and in the finding", () => {
+    const ev = withEsm2({ provenance: "VESM-150M (Local Fallback)", remoteFailure: billing, fallbackReason: "esm2_t33_650M_UR50D: OSError: weights unavailable" });
+    const esm2 = ev.lms.find(l => l.id === "esm2")!;
+    expect(esm2.family).toBe("ESM-2");
+    expect(esm2.name).toBe("VESM-150M");
+    expect(esm2.caveats).toContain("fallback-model");
+    expect(esm2.serviceNote).toBe("Hugging Face has no inference credits left on the saved token");
+    const f = perturbationFinding(ev);
+    expect(f.predicate).toContain("in VESM-150M");
+    expect(f.predicate).not.toContain("in ESM-2");
+  });
+
+  it("reads genuine ESM-2 on this server as ESM-2, with the refusal kept as a note", () => {
+    const ev = withEsm2({ provenance: "ESM-2 (esm2_t33_650M_UR50D - Local CPU)", remoteFailure: billing, scoringMethod: "masked-marginal" });
+    const esm2 = ev.lms.find(l => l.id === "esm2")!;
+    expect(esm2.name).toBe("ESM-2");
+    expect(esm2.caveats).not.toContain("fallback-model");
+    expect(esm2.calibration?.id).toBe("esm2_650m");
+    expect(esm2.served.engine).toBe("local");
+    expect(esm2.scoringMethod).toBe("masked-marginal");
+    expect(esm2.serviceNote).toMatch(/no inference credits/);
+  });
+
+  it("resolves the 150M checkpoint to its own row instead of inferring 650M", () => {
+    const esm2 = withEsm2({ provenance: "ESM-2 (esm2_t30_150M_UR50D - Local CPU)" }).lms.find(l => l.id === "esm2")!;
+    expect(esm2.served.inferred).toBe(false);
+    expect(esm2.calibration?.id).toBe("esm2_150m");
+    expect(esm2.embedding.dim).toBe(640);
+  });
+
+  it("ignores a failure code it does not know rather than inventing a cause", () => {
+    const esm2 = withEsm2({ remoteFailure: { provider: "huggingface", code: "solar-flare" } }).lms.find(l => l.id === "esm2")!;
+    expect(esm2.remoteFailure).toBeNull();
+    expect(esm2.serviceNote).toBeNull();
+  });
+
+  it("keeps a provider's raw error out of the reason and in the engine notes", () => {
+    const raw = "upstream 503: <html>Service Unavailable</html>";
+    const esm2 = build({ result: { ...NAE1_RESULT, esm2Eval: { error: raw, status: "offline" } } }).lms.find(l => l.id === "esm2")!;
+    expect(esm2.availability.reason).not.toContain("<html>");
+    expect(esm2.diagnostics).toContainEqual({ tier: "Engine error", text: raw });
+  });
+});
+
+describe("buildPerturbationEvidence — method, input confidence and engine notes", () => {
+  const diff = { rmsd: 0, localRmsd: 0, windowDisplacements: [], clashes: { wtClashCount: 2, mutClashCount: 5, diff: 3 } };
+
+  it("states FoldX's fixed backbone from the recorded method, not from a zero RMSD", () => {
+    const recorded = build({ structuralDiff: { ...diff, rmsd: 0.4, mutantModel: "foldx-buildmodel" } }).physical;
+    expect(recorded.rigidBackbone).toBe(true);
+    expect(recorded.method).toMatch(/^FoldX BuildModel/);
+    const legacy = build({ structuralDiff: diff }).physical;
+    expect(legacy.method).toMatch(/RMSD 0/);
+  });
+
+  it("carries clash counts and contact change as numbers for the figures", () => {
+    const ev = build({ structuralDiff: diff, metrics: { lostContacts: 3, gainedContacts: 1, deltaSasa: 4.2 } });
+    expect(ev.physical.clashCounts).toEqual({ wt: 2, mut: 5 });
+    expect(ev.physical.contactChange).toEqual({ lost: 3, gained: 1 });
+  });
+
+  it("reads the site pLDDT only when the B-factor column holds pLDDT", () => {
+    const at = (bFactorKind: string) =>
+      build({ result: { ...NAE1_RESULT, disruptionPredictor: { level: "low", reason: "", plddt: 42.1, bFactorKind } } }).physical.inputConfidence;
+    expect(at("plddt")).toEqual({ plddt: 42.1, band: expect.any(String) });
+    expect(at("temperature-factor")).toBeNull();
+  });
+
+  it("gives the engine's own reason when the shift trace was skipped for time", () => {
+    const note = "The embedding shift was not computed: its two passes would not finish in time. The score is complete.";
+    const esm2 = build({ result: { ...NAE1_RESULT, esm2Eval: { ...NAE1_RESULT.esm2Eval, provenance: "ESM-2 (esm2_t33_650M_UR50D - Local CPU)", embeddingNote: note } } })
+      .lms.find(l => l.id === "esm2")!;
+    expect(esm2.embedding.absentReason).toBe(note);
+  });
+
+  it("codes an ESM-3 refusal as a plain service note", () => {
+    const esm3 = build({ result: { ...NAE1_RESULT, esm3Eval: { ...NAE1_RESULT.esm3Eval, provenance: "VESM-150M (Local Fallback - ESM-3 remote failed)", remoteEngineNote: "HTTP 451", remoteFailure: { provider: "biohub", code: "region" } } } }).esm3!;
+    expect(esm3.serviceNote).toBe("Biohub is not available from this server's region");
+  });
+});
+
+describe("buildPerturbationEvidence — GATA4 p.Ser159Cys (VESM stands in after a billing refusal)", () => {
+  const ev = buildPerturbationEvidence({
+    result: GATA4_RESULT,
+    residues: { wtCode: "S", mutCode: "C", wtLabel: "Ser", mutLabel: "Cys" }
+  });
+
+  it("credits the finding to the models that ran, not to the card's name", () => {
+    expect(perturbationFinding(ev).headline).toBe("SaProt, VESM-150M and ESMC favour native Ser over Cys");
+  });
+
+  it("states the cause from the engine's code and keeps the raw error in the notes", () => {
+    const esm2 = ev.lms.find(l => l.id === "esm2")!;
+    expect(esm2.name).toBe("VESM-150M");
+    expect(esm2.caveats).toContain("fallback-model");
+    expect(esm2.serviceNote).toBe("Hugging Face has no inference credits left on the saved token");
+    expect(esm2.diagnostics.map(d => d.tier)).toEqual(["Remote engine", "Local engine"]);
+    expect(esm2.scoringMethod).toBe("masked-marginal");
+  });
+});
+
+describe("buildPerturbationEvidence — failed states come from the status code, not from the error text", () => {
+  const failed = (esm2Eval: any) => build({ result: { ...NAE1_RESULT, esm2Eval } }).lms.find(l => l.id === "esm2")!.availability;
+
+  it("reads a timeout from its status even when the text says 'warming up'", () => {
+    const a = failed({ error: "ESM-2 inference in standby (local sidecar warming up or offline)", status: "timeout" });
+    expect(a.reason).toBe("The model timed out.");
+    expect(a.action).toBe("retry");
+  });
+
+  it("offers settings only for a refused credential", () => {
+    expect(failed({ error: "refused", status: "unauthorized" })).toMatchObject({ action: "settings" });
+    // The word "token" in a message is not a status.
+    expect(failed({ error: "Unexpected token < in JSON", status: "error" }).action).toBe("retry");
+  });
+
+  it("says the server did not answer when it was offline", () => {
+    expect(failed({ error: "x", status: "offline" }).reason).toMatch(/did not answer/);
+  });
+});
+
+describe("buildPerturbationEvidence — embedding coverage", () => {
+  it("counts the residues that have a measurement", () => {
+    const e = build({ result: { ...NAE1_RESULT, esm3Eval: { perturbationScores: [-1, -1, 0.2, 0, 0.3] } } }).esm3!;
+    expect(e.coverage).toEqual({ measured: 3, total: 5 });
   });
 });

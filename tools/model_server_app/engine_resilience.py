@@ -87,6 +87,47 @@ def describe_remote_error(exc: BaseException, token: str | None = None) -> str:
     return base
 
 
+class InvalidProviderResponse(ValueError):
+    """The provider answered, but not with what the scoring contract needs (e.g. 19 of 20 residues)."""
+
+
+FAILURE_CODES = ("billing", "auth", "region", "rate-limit", "timeout", "invalid-response", "unavailable")
+
+
+def classify_remote_failure(failure: BaseException | str) -> str:
+    """
+    One of FAILURE_CODES, so the UI names the cause and the action without parsing prose.
+
+    Accepts the exception or a remembered reason string ("HTTP 402 - ..."): a skipped attempt
+    reports the cause of the refusal it is skipping.
+    """
+    # A remembered note keeps the exception's type name (describe_remote_error), so a string still says it.
+    if isinstance(failure, InvalidProviderResponse) or "InvalidProviderResponse" in str(failure):
+        return "invalid-response"
+    status = extract_status(failure if isinstance(failure, BaseException) else RuntimeError(failure))
+    if status == 402:
+        return "billing"
+    if status in (401, 403):
+        return "auth"
+    if status == 451:
+        return "region"
+    if status == 429:
+        return "rate-limit"
+    if isinstance(failure, TimeoutError) or re.search(r"timed? ?out|timeout|exceeded its", str(failure), re.IGNORECASE):
+        return "timeout"
+    return "unavailable"
+
+
+def with_remote_failure(result: Any, provider: str) -> Any:
+    """
+    Adds `remoteFailure` (provider + code) to a router's result from its `remoteEngineNote`, at the
+    endpoint, so every return path of the router carries the code without each branch building it.
+    """
+    if isinstance(result, dict) and result.get("remoteEngineNote") and not result.get("remoteFailure"):
+        result["remoteFailure"] = {"provider": provider, "code": classify_remote_failure(result["remoteEngineNote"])}
+    return result
+
+
 def raise_if_sdk_error(value: Any) -> Any:
     """
     The ESM SDK RETURNS an `ESMProteinError` from `encode` / `logits` once its retries are spent

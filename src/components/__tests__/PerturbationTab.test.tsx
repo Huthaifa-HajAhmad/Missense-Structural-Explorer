@@ -34,8 +34,8 @@ function renderTab(result: any = NAE1_RESULT, extra: Record<string, unknown> = {
 describe("PerturbationTab", () => {
   it('preserves diagnostics and recovery actions after removing duplicate model rows', async () => {
     const result = { ...NAE1_RESULT,
-      saprotEval: { error: 'Request timed out', remoteEngineNote: 'Remote queue exhausted', fallbackReason: 'Local checkpoint unavailable' },
-      esm2Eval: { error: '401 unauthorized' }, esmcEval: { error: 'Engine unavailable' }
+      saprotEval: { error: 'Request timed out', status: 'timeout', remoteEngineNote: 'Remote queue exhausted', fallbackReason: 'Local checkpoint unavailable' },
+      esm2Eval: { error: 'ESM-2 sidecar returned HTTP 401', status: 'unauthorized' }, esmcEval: { error: 'Engine unavailable', status: 'offline' }
     };
     const retry = vi.fn(); const settings = vi.fn();
     render(<EvidenceWorkspaceProvider result={result}>
@@ -120,11 +120,13 @@ describe("PerturbationTab", () => {
       ...NAE1_RESULT,
       esm3Eval: {
         ...NAE1_RESULT.esm3Eval,
-        remoteEngineNote: "remote skipped (recent refusal: 451: Unavailable For Legal Reasons)"
+        remoteEngineNote: "remote skipped (recent refusal: 451: Unavailable For Legal Reasons)",
+        remoteFailure: { provider: "biohub", code: "region" }
       }
     });
     const row = screen.getByTestId("ptb-esm3");
     expect(row.textContent).toContain("Engine notes");
+    expect(row.textContent).toContain("Biohub is not available from this server's region.");
     expect(row.textContent).toContain("remote skipped (recent refusal: 451: Unavailable For Legal Reasons)");
   });
 
@@ -139,6 +141,10 @@ describe("PerturbationTab", () => {
     renderTab();
     fireEvent.click(screen.getAllByRole("button", { name: /^ESMC/ })[0]);
     expect(document.getElementById("ptb-detail-title")!.textContent).toContain("ESMC-6B");
+    // One selector: the strip. The residue detail names the model and points back to it.
+    expect(screen.getByText("Choose a model in the comparison above.")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Model shown in residue detail" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show detail/ })).toBeNull();
   });
 });
 
@@ -197,5 +203,66 @@ describe("PerturbationRail", () => {
     expect(bands.textContent).toContain("Gly · 20/20");
     expect(screen.getByTestId("perturbation-rail").textContent).toContain("480-dim");
     expect(screen.getByTestId("perturbation-rail").textContent).not.toMatch(/template-conditioned|cosine distance while SaProt/);
+    expect(screen.getByTestId("perturbation-rail").textContent).toContain("peak at residue 116");
+  });
+});
+
+describe("PerturbationTab — packing and geometry", () => {
+  it("states the method and input confidence, and draws the clash and contact counts", () => {
+    const result = { ...NAE1_RESULT, disruptionPredictor: { bFactorKind: "plddt", plddt: 58.2 } };
+    render(
+      <EvidenceWorkspaceProvider result={result}>
+        <PerturbationTab {...({
+          analysisState: { result, isLoading: false },
+          foldingEnergetics: NAE1_ENERGETICS,
+          structuralDiff: { mutantModel: "foldx-buildmodel", clashes: { diff: 2, wtClashCount: 3, mutClashCount: 5 } },
+          metrics: { lostContacts: 1, gainedContacts: 2 }
+        } as any)} />
+      </EvidenceWorkspaceProvider>
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Packing & geometry" }));
+    expect(screen.getByText(/Input model confidence at residue 116: pLDDT 58\.2 · Low/)).toBeInTheDocument();
+    expect(screen.getByText("Geometry in a low-confidence region describes the model more than the protein.")).toBeInTheDocument();
+    expect(screen.getByText(/Fixed backbone · 5 runs/)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Heavy-atom clashes: 3 → 5. Reference 3. Mutant 5" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Residue contacts within 4 Å: −1 / +2. Lost 1. Gained 2" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("ptb-phys-clash")).getByText("Plotted above")).toBeInTheDocument();
+    expect(within(screen.getByTestId("ptb-phys-contacts")).getByText("Plotted above")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("No reading mark");
+  });
+});
+
+describe("PerturbationTab — headline figure and inspector access", () => {
+  it("shows a split instead of presenting a minority as the answer", () => {
+    // SaProt favours the variant, ESM-2 is near even, ESMC favours the native residue: no majority.
+    renderTab({
+      ...NAE1_RESULT,
+      saprotEval: { ...NAE1_RESULT.saprotEval, llr: 3 },
+      esm2Eval: { ...NAE1_RESULT.esm2Eval, llr: 0.1 }
+    });
+    const hero = screen.getByTestId("perturbation-finding");
+    expect(hero.textContent).toContain("Split");
+    expect(hero.textContent).toContain("1 favour native Asp · 1 favour Gly · 1 near even at residue 116");
+    expect(hero.textContent).not.toMatch(/\b1 of 3\b/);
+  });
+
+  it("says nothing about where the embedding peak is when its distance is unknown", () => {
+    renderTab({ ...NAE1_RESULT, esm3Eval: { ...NAE1_RESULT.esm3Eval, maxDriftResidue: undefined } });
+    expect(within(screen.getByTestId("ptb-esm3")).queryByText(/^Peak (at|near|away)/)).toBeNull();
+    renderTab();
+    expect(screen.getAllByTestId("ptb-esm3").some(row => /Peak at the variant/.test(row.textContent ?? ""))).toBe(true);
+  });
+
+  it("pins a FoldX reading from its name so the inspector can show its record", () => {
+    render(
+      <EvidenceWorkspaceProvider result={NAE1_RESULT}>
+        <PerturbationTab {...({ analysisState: { result: NAE1_RESULT, isLoading: false }, foldingEnergetics: NAE1_ENERGETICS } as any)} />
+      </EvidenceWorkspaceProvider>
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Packing & geometry" }));
+    const pin = within(screen.getByTestId("ptb-phys-vdw")).getByRole("button", { name: "Van der Waals clash term" });
+    expect(pin).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(pin);
+    expect(pin).toHaveAttribute("aria-pressed", "true");
   });
 });

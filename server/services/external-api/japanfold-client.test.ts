@@ -17,6 +17,24 @@ describe("JapanFold API Client", () => {
     vi.restoreAllMocks();
   });
 
+  describe("fields the service did not return", () => {
+    it.each([
+      ["ESMC", () => queryEsmc("MSLSK", 3, "L", "P")],
+      ["SaProt", () => querySaProt("MSLSK", 3, "L", "P", null)]
+    ])("%s keeps them absent instead of reporting 0", async (_name, call) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: "success", llr: -1.5 })
+      } as any);
+      const result = await call();
+      expect(result).toMatchObject({ llr: -1.5 });
+      for (const field of ["wtProbability", "mutProbability", "positionalEntropy", "embeddingShift"] as const) {
+        expect(result![field]).toBeUndefined();
+      }
+    });
+  });
+
   describe("queryEsmc", () => {
     it("returns parsed zero-shot metrics on successful API response", async () => {
       const mockResponse = {

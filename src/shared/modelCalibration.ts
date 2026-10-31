@@ -87,6 +87,7 @@ export const EMBEDDING_DIMS = {
    */
   saprot35m: 480,
   vesm: 640,
+  esm2_150m: 640,
   esm2_650m: 1280,
   saprot650m: 1280,
   esmc6b: 2560
@@ -135,6 +136,23 @@ export const MODEL_CALIBRATIONS: Record<string, ModelCalibration> = {
       "Masked-marginal LLR on a model-native scale. No published pathogenic/benign " +
       "cut-point exists for ESM-2; the ±0.5 nat resolution that separated the borrowed " +
       "ESM-1b cut-points is below the noise floor of this model's own output.",
+    provenance:
+      "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science. " +
+      "Meier, J., et al. (2021). Language models enable zero-shot prediction of the effects of mutations on protein function. NeurIPS."
+  },
+
+  esm2_150m: {
+    id: "esm2_150m",
+    label: "ESM-2 150M",
+    family: "esm2",
+    status: "uncalibrated",
+    cutPoints: { pathogenic: null, benign: null },
+    cutPointSource: null,
+    embeddingDim: EMBEDDING_DIMS.esm2_150m,
+    note:
+      "Masked-marginal LLR from the 150M-parameter ESM-2 checkpoint, run on this server's CPU. A " +
+      "different checkpoint from ESM-2 650M with its own scale, and the base VESM-150M was fine-tuned " +
+      "from — so agreement between the two is not independent. No published cut-point.",
     provenance:
       "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science. " +
       "Meier, J., et al. (2021). Language models enable zero-shot prediction of the effects of mutations on protein function. NeurIPS."

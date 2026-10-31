@@ -7,6 +7,7 @@ import asyncio
 import time
 from tools.model_server_app.utils import validate_missense_residues
 from tools.model_server_app.routers.vesm import (
+    RemoteFailure,
     VesmRequest,
     predict_vesm_sync,
     remote_failures,
@@ -14,7 +15,7 @@ from tools.model_server_app.routers.vesm import (
     REMOTE_REQUEST_TIMEOUT_S,
     REMOTE_MAX_RETRY_ATTEMPTS,
 )
-from tools.model_server_app.engine_resilience import raise_if_sdk_error, run_with_deadline
+from tools.model_server_app.engine_resilience import raise_if_sdk_error, run_with_deadline, with_remote_failure
 
 # How long the remote ESM-3 tier may take before the request moves on to the local fallback. The Node
 # layer allows the whole sidecar call 40 s (<=500 residues) or 100 s (longer); the remote tier must
@@ -52,18 +53,18 @@ class Esm3Response(BaseModel):
     provenance: str | None = None
     error: str | None = None
     remoteEngineNote: str | None = None
+    remoteFailure: RemoteFailure | None = None
 
 
 def _local_vesm_fallback(sequence: str, pos: int, wt: str, mut: str, provenance: str, note: str | None):
     """Perturbation map from the local VESM-150M pass (shared with the other engines via the cache)."""
     vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
     vesm_res = predict_vesm_sync(vesm_req)
+    # Cosine distance over VESM's whole scoring window, the metric this slot is labelled and banded
+    # in; −1 marks residues outside the window (a sequence longer than 1,022 residues).
     full_length_scores = [-1.0] * len(sequence)
-    for item in vesm_res.get("localShiftMap", []):
-        res_pos = item.get("position")
-        shift_val = item.get("shift", 0.0)
-        if res_pos is not None and 1 <= res_pos <= len(sequence):
-            full_length_scores[res_pos - 1] = shift_val
+    for item in vesm_res["cosineProfile"]:
+        full_length_scores[item["position"] - 1] = item["shift"]
     return {
         "status": "success",
         "perturbationScores": full_length_scores,
@@ -155,6 +156,12 @@ def _predict_esm3_remote(req: Esm3Request, sequence: str, pos: int, mut: str):
     mut_norm = torch.norm(mut_embeddings, dim=-1)
     cosine_sim = dot_product / (wt_norm * mut_norm + 1e-9)
     cosine_dist = 1.0 - cosine_sim
+    # The SDK's embeddings carry <cls> and <eos>: drop them so index i is residue i + 1, the
+    # contract the Node route checks against the structure's CA count.
+    if cosine_dist.shape[0] == len(sequence) + 2:
+        cosine_dist = cosine_dist[1:-1]
+    elif cosine_dist.shape[0] != len(sequence):
+        raise ValueError(f"ESM-3 returned {cosine_dist.shape[0]} embedding rows for {len(sequence)} residues")
     perturbation_scores = [round(val.item(), 4) for val in cosine_dist]
 
     refined_pdb = None
@@ -268,4 +275,4 @@ _inference_semaphore = asyncio.Semaphore(1)
 @router.post("/predict/esm3", response_model=Esm3Response)
 async def predict_esm3(req: Esm3Request):
     async with _inference_semaphore:
-        return await asyncio.to_thread(predict_esm3_sync, req)
+        return with_remote_failure(await asyncio.to_thread(predict_esm3_sync, req), "biohub")

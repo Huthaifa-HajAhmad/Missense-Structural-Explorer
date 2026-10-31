@@ -24,6 +24,26 @@ function Harness({ tab = 'function', result }: { tab?: string; result: AnalysisR
 const inspector = () => within(screen.getByRole('region', { name: 'Selected evidence reading' }));
 
 describe('molecular workspace interaction contracts', () => {
+  it('gives each perturbation view its own question without repeating the model comparison', () => {
+    render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
+    expect(screen.getByTestId('ptb-primer')).toBeInTheDocument();
+    expect(screen.getByTestId('perturbation-finding')).toHaveTextContent('Each model hides that residue');
+    fireEvent.click(screen.getByRole('tab', { name: 'Packing & geometry' }));
+    expect(screen.queryByTestId('perturbation-finding')).not.toBeInTheDocument();
+    // The language-model primer belongs to the language-model views only.
+    expect(screen.queryByTestId('ptb-primer')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What changed in the modelled protein structure?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Sequence embeddings' }));
+    expect(screen.queryByTestId('perturbation-finding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ptb-primer')).not.toBeInTheDocument();
+    expect(screen.getByText(/An embedding is a list of numbers/)).toBeInTheDocument();
+    // Unmeasured residues stay gaps: listed as such, never drawn or tabulated as 0.
+    const profile = screen.getByTestId('ptb-embedding-profile');
+    expect(profile).toHaveTextContent('Measured at 130 of 140 residues');
+    expect(within(profile).getAllByText('Not measured')).toHaveLength(10);
+    expect(profile.querySelector('svg path:nth-of-type(2)')!.getAttribute('d')).not.toMatch(/NaN/);
+    expect(within(profile).getByRole('region', { name: 'Exact changes by position' })).toHaveAttribute('tabindex', '0');
+  });
   it('retains the domain pin, window and layers across navigation, then resets for another substitution at the same residue', () => {
     const result = molecularWorkspaceFixture();
     const view = render(<Harness result={result} />);
@@ -136,8 +156,8 @@ describe('molecular workspace interaction contracts', () => {
   it('does not call a model picked in the strip a reading outside the probability chart', async () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
     await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ }, { timeout: 10_000 });
-    // The detail tabs pin the model id, which is an inspector row but not a dot on the chart.
-    fireEvent.click(screen.getByRole('button', { name: 'ESM-2' }));
+    // The strip picks the model id, which is an inspector row but not a dot on the chart.
+    fireEvent.click(screen.getByRole('button', { name: /^ESM-2/ }));
     expect(screen.queryByText(/outside this probability chart/)).toBeNull();
   });
 

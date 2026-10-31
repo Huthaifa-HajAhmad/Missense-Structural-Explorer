@@ -47,6 +47,8 @@ describe('functionReadings', () => {
         availability: { state: 'failed', label: 'Provider error', reason: 'The provider did not answer.' },
         servedBy: null, nativeRank: null, rank: null, rankSentence: '', caveats: [], preferences: [],
       }],
+      physical: { readings: [], method: null, inputConfidence: null },
+      esm3: null,
     } as unknown as Parameters<typeof perturbationReadings>[0];
     const [reading] = perturbationReadings(evidence);
     expect(reading.value).toBeNull();
@@ -105,12 +107,59 @@ describe('perturbationReadings', () => {
         servedBy: 'esm2', nativeRank: 1, rank: 2, rankSentence: '', caveats: [],
         preferences: [{ aa: 'D', prob: 0.5 }, { aa: 'G', prob: 0.00001 }, { aa: 'A', prob: 0 }],
       }],
+      physical: { readings: [], method: null, inputConfidence: null },
+      esm3: null,
     } as unknown as Parameters<typeof residueProbabilityComparison>[0];
     const model = residueProbabilityComparison(evidence, 'esm2');
     // 0.00001 as a percent is 0.001, below the 0.01% the fixed form can show.
     expect(model.rows.find(r => r.key === 'esm2:G')?.valueText).toBe('1.00e-3%');
     // A probability the model actually returned as 0 is a reading, not a missing one.
     expect(model.rows.find(r => r.key === 'esm2:A')?.valueText).toBe('0%');
+  });
+
+  it('names each model row by the model that ran, not its family', () => {
+    const stand = buildPerturbationEvidence({
+      result: { ...NAE1_RESULT, esm2Eval: { ...NAE1_RESULT.esm2Eval, provenance: 'VESM-150M (Local Fallback)' } },
+      residues: NAE1_RESIDUES, foldingEnergetics: NAE1_ENERGETICS, structuralDiff: null, metrics: null, saprotEngine: 'remote-hf',
+    });
+    const readings = perturbationReadings(stand);
+    expect(readings.find(r => r.key === 'esm2')!.name).toBe('VESM-150M');
+    expect(readings.find(r => r.key === 'esm2:D')!.name).toBe('VESM-150M · D');
+  });
+
+  it('states the scoring method a model returned, and says so when the engine recorded none', () => {
+    const recorded = buildPerturbationEvidence({
+      result: { ...NAE1_RESULT, esm2Eval: { ...NAE1_RESULT.esm2Eval, scoringMethod: 'masked-marginal' } },
+      residues: NAE1_RESIDUES, foldingEnergetics: NAE1_ENERGETICS, structuralDiff: null, metrics: null, saprotEngine: 'remote-hf',
+    });
+    expect(perturbationReadings(recorded).find(r => r.key === 'esm2')!.facts).toContainEqual({ label: 'Scoring method', value: 'masked-marginal' });
+    expect(perturbationReadings(ev).find(r => r.key === 'esm2')!.facts).toContainEqual({ label: 'Scoring method', value: 'Not recorded by this engine' });
+  });
+
+  it('adds one row per measured FoldX reading, and none for a reading that is null', () => {
+    const readings = perturbationReadings(ev);
+    const measured = ev.physical.readings.filter(r => r.value !== null);
+    const unmeasured = ev.physical.readings.filter(r => r.value === null);
+    expect(unmeasured.length).toBeGreaterThan(0);
+    expect(readings.filter(r => r.key.startsWith('phys:')).map(r => r.key)).toEqual(measured.map(r => `phys:${r.key}`));
+    for (const r of unmeasured) expect(readings.some(x => x.key === `phys:${r.key}`)).toBe(false);
+    const vdw = readings.find(r => r.key === 'phys:vdw')!;
+    expect(vdw.group).toBe('FoldX mutant model');
+    expect(vdw.value).toBe(0.62);
+    expect(vdw.facts).toContainEqual({ label: 'Method', value: ev.physical.method ?? 'Not recorded' });
+    expect(vdw.facts.some(f => f.label === 'Input model confidence')).toBe(ev.physical.inputConfidence !== null);
+    expect(vdw.notes.join(' ')).toMatch(/not a stability estimate/);
+    expect(vdw.knowledgeKey).toBeTruthy();
+  });
+
+  it('adds the embedding drift row with its metric, coverage and served model', () => {
+    const drift = perturbationReadings(ev).find(r => r.key === 'esm3')!;
+    expect(drift.group).toBe('Sequence embedding');
+    expect(drift.valueText).toMatch(/^\d\.\d{3}$/);
+    expect(drift.facts).toContainEqual({ label: 'Distance metric', value: 'Cosine distance' });
+    expect(drift.facts).toContainEqual({ label: 'Largest change', value: `${drift.valueText} at residue 116` });
+    expect(drift.facts).toContainEqual({ label: 'At the variant residue', value: drift.valueText });
+    expect(drift.facts).toContainEqual({ label: 'Coverage', value: '130 of 140 residues' });
   });
 });
 

@@ -80,3 +80,30 @@ describe("fetchEsm3StructureEval timeout classification", () => {
     expect(result.error).toBe("connect ECONNREFUSED");
   });
 });
+
+describe("fetchEsm3StructureEval coverage and caching", () => {
+  const answer = (provenance: string, scores: number[]) =>
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "success", perturbationScores: scores, provenance }) })));
+
+  it("reports the share of residues that have a score, not a fixed 100", async () => {
+    answer("VESM-150M (Local Fallback)", [-1, -1, 0.1, 0.2]);
+    const result = await fetchEsm3StructureEval("COVERAGE_PARTIAL", 3, "A", "V", null, null, "AAAA") as any;
+    expect(result.confidence.sequenceCoverage).toBe(50);
+  });
+
+  it("keeps a genuine ESM3 answer for the next request", async () => {
+    answer("ESM3-Medium (Remote)", [0.1, 0.2, 0.3, 0.4]);
+    await fetchEsm3StructureEval("CACHE_GENUINE", 1, "A", "V", null, null, "AAAA");
+    answer("ESM3-Medium (Remote)", [9, 9, 9, 9]);
+    const again = await fetchEsm3StructureEval("CACHE_GENUINE", 1, "A", "V", null, null, "AAAA") as any;
+    expect(again.perturbationScores).toEqual([0.1, 0.2, 0.3, 0.4]);
+  });
+
+  it("does not keep a VESM stand-in, so a fixed token takes effect on the next request", async () => {
+    answer("VESM-150M (Local Fallback - ESM-3 remote failed)", [0.1, 0.2, 0.3, 0.4]);
+    await fetchEsm3StructureEval("CACHE_STAND_IN", 1, "A", "V", null, null, "AAAA");
+    answer("ESM3-Medium (Remote)", [0.5, 0.6, 0.7, 0.8]);
+    const again = await fetchEsm3StructureEval("CACHE_STAND_IN", 1, "A", "V", null, null, "AAAA") as any;
+    expect(again.provenance).toBe("ESM3-Medium (Remote)");
+  });
+});
