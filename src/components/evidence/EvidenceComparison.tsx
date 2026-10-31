@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
+import { EyeOff } from 'lucide-react';
 import { defineChart, dot, ruleX, link, text } from '@tanstack/charts';
 import { Chart } from '@tanstack/charts/react';
 import { scaleLinear } from '@tanstack/charts/scales/linear';
@@ -14,6 +15,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   tab: EvidenceWorkspaceTab; model: EvidenceChartModel; title: string; description: string;
 }) {
   const w = useEvidenceWorkspace(tab);
+  const unplottedId = useId();
   // The hovered reading is kept as a KEY, not as a captured model: tabs rebuild their model on
   // every workspace update, so an object-identity check silently dropped the readout mid-hover.
   const [hoverKey, setHoverKey] = useState<string | null>(null);
@@ -117,9 +119,14 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         chart; saying "outside this chart" for it fired on the normal path. Only a probability reading
         (`<model>:<amino acid>`) that this chart does not plot is genuinely outside it. */}
     {tab === 'perturbation' && w.selected && !selected && w.selected.includes(':') && <p className="evw-caption">The pinned reading is outside this probability chart. Its details remain in the inspector.</p>}
-    {missing.length > 0 && <div className="evw-unplotted"><h3>{model.unplottedHeading}</h3>
-      <p>{model.unplottedBody}</p>
-      <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong>{r.valueText}</strong></button>)}</div>
-    </div>}
+    {/* Its own block: a header strip with an icon and a count, then one row per reading with its state as a chip.
+        Without the strip it read as more caption text under the chart. */}
+    {missing.length > 0 && <section className="evw-unplotted" aria-labelledby={`${unplottedId}-title`}>
+      <header className="evw-unplotted__head">
+        <h3 className="eyebrow" id={`${unplottedId}-title`}><EyeOff className="w-3.5 h-3.5" aria-hidden="true" />{model.unplottedHeading}<span className="evw-unplotted__count">{missing.length}</span></h3>
+        <p>{model.unplottedBody}</p>
+      </header>
+      <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong className="ev-tier" data-tone="muted">{r.valueText}</strong></button>)}</div>
+    </section>}
   </ChartFrame></div>;
 }

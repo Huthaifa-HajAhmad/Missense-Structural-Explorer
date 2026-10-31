@@ -106,7 +106,9 @@
 .pop-hero__body { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 4px; }
 .pop-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
-.pop-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin-top: 2px; }
+/* One line per fact, stacked: the figure, what it is, where it came from, and the counts. Side by side they
+   ran together into one sentence. */
+.pop-hero__figure { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 2px; }
 /* Hero figure: the page's sans, proportional figures — a display number is not a table column. */
 .pop-hero .figure-headline.pop-figure {
   font-family: var(--cs-font-sans);
@@ -118,6 +120,7 @@
   line-height: 1.2;
 }
 .pop-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.pop-hero__figure-label--lead { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 /* No positive frequencies: readable source states replace an empty quantitative frame. */
 .pop-availability { padding: 20px; }
@@ -145,7 +148,6 @@
 .pop-screen[data-comparison] { --pop-hero-cols: minmax(240px, 1.25fr) minmax(0, 1fr); }
 .pop-screen[data-comparison] .pop-hero__body { padding: 16px 20px; display: grid; grid-template-columns: var(--pop-hero-cols); gap: 12px 24px; align-items: center; }
 .pop-screen[data-comparison] .pop-hero__top, .pop-screen[data-comparison] .pop-callout { grid-column: 1 / -1; }
-.pop-screen[data-comparison] .pop-hero__figure { flex-direction: column; align-items: start; }
 .pop-screen[data-comparison] .pop-figure { font-size: 25px; letter-spacing: -.025em; }
 @container (max-width: 650px) {
   .pop-screen[data-comparison] .pop-hero__body { grid-template-columns: minmax(0, 1fr); gap: 10px; }

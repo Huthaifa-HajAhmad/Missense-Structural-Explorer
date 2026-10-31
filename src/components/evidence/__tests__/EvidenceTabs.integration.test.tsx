@@ -113,7 +113,10 @@ describe('Production evidence tabs and their inspectors', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Clinical assertion' }));
     expect(within(inspector).getByRole('heading', { name: 'gnomAD exomes' })).toBeInTheDocument();
     expect(screen.queryByTestId('population-readings')).not.toBeInTheDocument();
+    // The finding card belongs to Comparison; the Clinical assertion view must not print it a second time.
+    expect(screen.queryByTestId('population-finding')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Comparison' }));
+    expect(screen.getByTestId('population-finding')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'gnomAD exomes' })).toHaveAttribute('aria-pressed', 'true');
   });
   afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });

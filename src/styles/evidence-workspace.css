@@ -59,10 +59,14 @@
 .evw-legend__dot[data-tone="good"] { background: var(--cs-text-success); }
 .evw-readout { margin: 0; padding: 14px 22px; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); font-size: 13px; min-height: 48px; font-variant-numeric: tabular-nums; }
 .evw-caption { margin: 0; padding: 12px 22px; font-size: 12px; color: var(--cs-text-secondary); line-height: 1.6; }
-.evw-unplotted { padding: 18px 22px; }
-.evw-unplotted h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
-.evw-unplotted p { margin: 0 0 14px; font-size: 12px; color: var(--cs-text-secondary); }
-.evw-reading-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 20px; }
+/* Readings the chart cannot place. A header-wash strip (the page's two-tone rule) names the block and counts it; the
+   rows below sit on the white body, each with its state as a chip, so the block is not mistaken for caption text. */
+.evw-unplotted { border-top: 1px solid var(--cs-border-subtle); }
+.evw-unplotted__head { display: flex; flex-direction: column; gap: 4px; padding: 12px 22px; background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle); }
+.evw-unplotted__head h3 { margin: 0; }
+.evw-unplotted__head p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
+.evw-unplotted__count { margin-inline-start: 4px; padding: 0 7px; border-radius: 999px; background: var(--cs-surface); border: 1px solid var(--cs-border-subtle); color: var(--cs-text-secondary); font-variant-numeric: tabular-nums; }
+.evw-reading-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 28px; padding: 4px 22px 10px; }
 .evw-reading-list button { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: start; min-height: 44px; padding: 8px 0; border-bottom: 1px solid var(--cs-border-subtle); background: transparent; cursor: pointer; color: var(--cs-text-secondary); font-size: 12px; }
 .evw-reading-list strong { font-weight: 500; font-variant-numeric: tabular-nums; }
 @media (hover: hover) and (pointer: fine) {

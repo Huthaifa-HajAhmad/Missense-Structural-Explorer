@@ -17,7 +17,7 @@ import { formatAlleleFrequency, formatCutPoint, type FrequencyCriterion } from "
  *     at full strength, and its code label is the only one set in ink;
  *   • zone codes sit ABOVE the track, the axis BELOW it, and the marker is the only mark crossing
  *     the track — nothing can overlap it;
- *   • the value is stated once, in the legend, next to the words that say what it is.
+ *   • the value is stated once, as the finding's headline above the ruler; the legend only names each mark.
  *
  * Absence and reported zero have no position on a log axis. Describe them in the caption only.
  */
@@ -52,13 +52,11 @@ interface FrequencyScaleProps {
   criterion: FrequencyCriterion;
   /** Per-source readings with a positive frequency. */
   readings: ReadonlyArray<ScaleReading>;
-  /** Where the rule's frequency came from, for the legend. */
-  ruleSource: string;
 }
 
 type ZoneId = "PM2" | "none" | "BS1" | "BA1";
 
-export function FrequencyScale({ criterion, readings, ruleSource }: FrequencyScaleProps) {
+export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
   const FREQ = THRESHOLDS.populationFrequency;
   const ceiling = criterion.pm2Ceiling ?? FREQ.extremelyRare;
   const otherCeiling = ceiling === FREQ.extremelyRare ? FREQ.extremelyRareRecessive : FREQ.extremelyRare;
@@ -158,10 +156,8 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
             {criterion.absent ? (
               <>Not observed in gnomAD <span className="pop-dim">— read as 0</span></>
             ) : (
-              <>
-                AF the rule read <span className="pop-mono pop-strong">{formatAlleleFrequency(af)}</span>
-                <span className="pop-dim">· {ruleSource}</span>
-              </>
+              // The value and its source are stated above the ruler; a legend only names the mark.
+              "AF the rule read"
             )}
           </span>
         )}
