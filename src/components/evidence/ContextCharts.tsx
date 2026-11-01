@@ -3,7 +3,7 @@
  * equivalent (the number beside it or a table), uses theme tokens only, and carries no
  * good/bad colour: one accent, with opacity for magnitude.
  */
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import type { PextRegion } from '../../shared/pext';
 import type { ResidueMapping } from '../../shared/residueAlignment';
 
@@ -40,7 +40,12 @@ export function PextStrip({ regions, activeIndex, position }: { regions: PextReg
     </g>;
     x += w + GAP; return box;
   });
-  return <div className="xp-pext-scroll" tabIndex={0} role="region" aria-label="Coding region map">
+  // The map is 900px wide. On a narrower screen it scrolls, so start with the variant's region in view instead of at the left edge.
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (scroller.current && markerX !== null) scroller.current.scrollLeft = Math.max(0, markerX - scroller.current.clientWidth / 2);
+  }, [markerX]);
+  return <div ref={scroller} className="xp-pext-scroll" tabIndex={0} role="region" aria-label="Coding region map">
     <svg className="ctx-pext xp-pext-map" viewBox={`0 0 ${W} ${H}`} role="img"
       aria-label={`Mean base-level pext across ${regions.length} coding regions${markerX === null ? '' : `; the variant falls in outlined region ${activeIndex + 1}`}`}>
       {boxes}
