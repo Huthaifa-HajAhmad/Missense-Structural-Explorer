@@ -127,13 +127,10 @@ function ShiftTrace({ lm, position }: { lm: LmReading; position: number | null }
           ) : null
         )}
       </svg>
-      <p className="ptb-scale__source">
+      <p className="ptb-scale__source ptb-shift-note">
         {lm.embedding.metric}
         {lm.embedding.dim ? ` in a ${lm.embedding.dim}-dim space` : ""} — its size tracks the model&apos;s latent width, so compare
-        it only within this model.
-      </p>
-      <p className="ptb-scale__source">
-        Euclidean distance between the model&apos;s final-layer vectors. The Sequence embeddings view uses cosine distance, a different scale.
+        it only within this model. The Sequence embeddings view uses cosine distance, a different scale.
       </p>
     </>
   );
@@ -159,7 +156,6 @@ export function ResidueDetail({
             {/* The served checkpoint stays beside the name: "ESMC" alone hides whether 6B or a stand-in ran. */}
             Residue detail{selected ? <span> · {selected.name}{selected.servedShort ? ` (${selected.servedShort})` : ""}</span> : null}
           </h3>
-          {evidence.scored.length > 1 && <span className="ptb-dim ptb-detail__hint">Choose a model in the comparison above.</span>}
         </div>
 
         {!selected ? (
@@ -171,18 +167,18 @@ export function ResidueDetail({
           <>
             <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
               <div>
-                {workspace.comparison ? <>{comparison.rows.length > 8 && <div className="evw-figure-scope"><span>{overview.rows.length} of {comparison.rows.length} returned residues · {expanded ? 'full distribution' : 'six highest probabilities plus reference and variant'}</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => workspace.toggleGroup('all-probabilities')}>{expanded ? 'Show overview' : `Show all ${comparison.rows.length} residues`}</button></div>}
-                  <div className="evw-controls"><label>Inspect amino acid <select
+                {workspace.comparison ? <><div className="ptb-residue-toolbar">{comparison.rows.length > 8 && <div className="evw-figure-scope"><span>{overview.rows.length} of {comparison.rows.length} returned residues · {expanded ? 'full distribution' : 'top six + reference and variant'}</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => workspace.toggleGroup('all-probabilities')}>{expanded ? 'Show overview' : `Show all ${comparison.rows.length} residues`}</button></div>}
+                  <div className="evw-controls"><label>Amino acid <select
                     value={comparison.rows.some(r => r.key === workspace.selected) ? workspace.selected! : ''}
                     onChange={e => workspace.select(e.target.value || null)}>
                     <option value="">Choose a residue</option>
                     {comparison.rows.map(r => <option key={r.key} value={r.key}>{r.name}</option>)}
-                  </select></label></div>
+                  </select></label></div></div>
                   <EvidenceComparison tab="perturbation" model={overview} title={`${selected.name}: amino-acid preferences`}
-                    description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} /></> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
+                    description={`Model probabilities at residue ${position ?? 'under study'}. Reference and variant are labelled.`} /></> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
               </div>
               {selected.embedding.window.length > 0 && (
-                <div>
+                <div className="ptb-shift-panel">
                   <ShiftTrace lm={selected} position={position} />
                 </div>
               )}

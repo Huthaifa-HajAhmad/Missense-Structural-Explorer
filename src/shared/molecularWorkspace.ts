@@ -55,6 +55,7 @@ export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] 
 
 export function perturbationReadings(ev: PerturbationEvidence): EvidenceChartRow[] {
   const models = ev.lms.flatMap(l => {
+    const modelNotes = [l.rankSentence, l.availability.reason, ...l.caveats.map(c => LM_CAVEAT_TEXT[c].detail)];
     const model: EvidenceChartRow = { key: l.id, name: l.name, value: l.llr, valueText: l.llr === null ? l.availability.label : l.llr.toFixed(2),
       description: l.description, group: 'Language model', tone: 'neutral',
       knowledgeKey: /vesm/i.test(l.servedBy ?? '') ? 'vesm' : l.id,
@@ -62,12 +63,12 @@ export function perturbationReadings(ev: PerturbationEvidence): EvidenceChartRow
         { label: 'ΔLLR', value: l.llr === null ? 'No result' : String(l.llr) },
         { label: 'Reference / variant rank', value: `${l.nativeRank ?? '—'} / ${l.rank ?? '—'}` },
         { label: 'Scoring method', value: l.scoringMethod ?? 'Not recorded by this engine' }],
-      notes: [l.rankSentence, l.availability.reason, ...l.caveats.map(c => LM_CAVEAT_TEXT[c].detail),
+      notes: [...modelNotes,
         'ΔLLR compares the variant with the reference within this model. Raw magnitudes from different model families are not a common scale or clinical evidence.'].filter((s): s is string => Boolean(s)) };
     return [model, ...l.preferences.map(p => ({ ...model, key: `${l.id}:${p.aa}`, name: `${l.name} · ${p.aa}`, value: p.prob,
       valueText: String(p.prob), description: `Model probability for amino acid ${p.aa} at residue ${ev.residues.position ?? 'under study'}.`,
       facts: [{ label: 'Amino acid', value: p.aa }, { label: 'Probability', value: String(p.prob) }, { label: 'Served model', value: l.servedBy ?? 'Not reported' }],
-      notes: [...model.notes, 'This is a model distribution over amino acids at one position, not the probability that the variant causes disease.'] }))];
+      notes: [...modelNotes, 'Probability within this model at this position, not a probability of disease.'].filter((s): s is string => Boolean(s)) }))];
   });
   const physical: EvidenceChartRow[] = ev.physical.readings.filter(r => r.value !== null).map(r => {
     const valueText = `${r.text}${r.unit ? ' ' + r.unit : ''}`;

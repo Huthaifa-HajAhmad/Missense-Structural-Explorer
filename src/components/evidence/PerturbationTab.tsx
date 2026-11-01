@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Atom, HelpCircle, Layers, ListChecks, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, Atom, Layers, ListChecks, Sparkles } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -130,8 +130,8 @@ function ModelSupport({ evidence, onAction }: {
   onAction: (action: NonNullable<ReadingAvailability['action']>) => void;
 }) {
   return <section aria-label="Model provenance and recovery">
-    {evidence.lms.map(lm => <details key={lm.id} className="mol-finding-details">
-      <summary>{lm.family} details and availability</summary>
+    {evidence.lms.map(lm => <div key={lm.id} className="ptb-model-record">
+      <h3>{lm.family} <StatusChip a={lm.availability} /></h3>
       <p>{lm.description} <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.name}`} iconOnly /></p>
       {lm.servedBy && <p>Served by {lm.servedBy}</p>}
       <p>Scoring: {lm.scoringMethod === 'masked-marginal' ? 'the residue is hidden, then the model scores all 20 amino acids there' : lm.scoringMethod ?? 'not recorded by this engine'}.</p>
@@ -146,8 +146,8 @@ function ModelSupport({ evidence, onAction }: {
       {lm.diagnostics.length > 0 && <ul aria-label={`${lm.family} engine notes`}>
         {lm.diagnostics.map(d => <li key={d.tier}><strong>{d.tier}:</strong> {d.text}</li>)}
       </ul>}
-      {lm.availability.state !== 'computed' && <p className="ptb-reason"><StatusChip a={lm.availability} /> <AvailabilityMessage a={lm.availability} onAction={onAction} /></p>}
-    </details>)}
+      {lm.availability.state !== 'computed' && <p className="ptb-reason"><AvailabilityMessage a={lm.availability} onAction={onAction} /></p>}
+    </div>)}
   </section>;
 }
 
@@ -499,37 +499,6 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
   );
 }
 
-/** A short primer for a reader new to protein language models. Collapsed; the tab reads without it. */
-function ReadingPrimer({ wt, mut }: { wt: string; mut: string }) {
-  return (
-    <details className="ptb-primer" data-testid="ptb-primer">
-      <summary>
-        <HelpCircle className="w-3.5 h-3.5" aria-hidden="true" />
-        How to read this tab
-      </summary>
-      <ul>
-        <li>
-          <strong>Language models</strong> have learned from millions of natural proteins which amino acid tends to sit
-          at each position. Hide the residue at this position and each model gives a probability to all 20 amino acids.
-        </li>
-        <li>
-          <strong>The odds</strong> compare two of those probabilities. Odds of 100× for {wt} over {mut} would mean the
-          model rates the native residue 100 times as likely as the variant. ΔLLR is the same comparison on a log scale
-          (negative = the native is preferred).
-        </li>
-        <li>
-          <strong>Each model has its own scale</strong>, so the tab compares the direction each model reads, never the size
-          of their numbers. A <em>flat</em> model spreads its probability almost evenly and has no preference to read.
-        </li>
-        <li>
-          <strong>These probabilities do not tell you whether the variant causes disease.</strong> This app does not use these scores to assign clinical evidence codes. Calibrated predictors are on
-          the In-silico predictors tab.
-        </li>
-      </ul>
-    </details>
-  );
-}
-
 /** Two counts on one shared axis from 0: the reference in ink, the mutant in clay. Each count is printed. */
 function CountFigure({ caption, note, rows }: {
   caption: string;
@@ -680,10 +649,8 @@ export function PerturbationTab({
       <header className="ptb-header">
         <h1 className="screen-title">{evidenceTab('perturbation').label}</h1>
         <p className="screen-tab-description">
-          What protein language models expect at this residue, how FoldX&apos;s mutant model packs, and how far the
-          substitution moves a model&apos;s description of the sequence. Context for curation — none of these is an ACMG input.
+          Sequence preferences, modelled packing and changes in sequence representations. These results provide context, not clinical evidence.
         </p>
-        {(!workspace.enabled || workspace.comparison) && <ReadingPrimer wt={wt} mut={mut} />}
       </header>
       <EvidenceViewTabs tab="perturbation" comparisonLabel="Model comparison" />
       <EvidencePanel tab="perturbation">
@@ -706,10 +673,6 @@ export function PerturbationTab({
             </span>
           </div>
 
-          <p>
-            Here {wt} is the original amino acid and {mut} replaces it{pos !== null ? ` at residue ${pos}` : ""}. Each model hides that
-            residue and estimates how likely each of the 20 amino acids is there, given the rest of the protein&apos;s sequence.
-          </p>
           <div className="ptb-hero__figure">
             <span className="ptb-figure">{figure}</span>
             <span className="ptb-hero__figure-label">{figureLabel}</span>
@@ -720,10 +683,11 @@ export function PerturbationTab({
             {" — "}
             {finding.predicate}.
           </Prose>
+          <p className="ptb-hero__key">Odds compare the two probabilities: 100× means the model rates {wt} 100 times as likely as {mut}. ΔLLR is the same on a log scale (negative = {wt} preferred). Neither is an ACMG input.</p>
 
           <ModelStrip evidence={evidence} selectedId={selected?.id ?? null} onSelect={selectModel} />
 
-          {workspace.comparison && <ModelSupport evidence={evidence} onAction={onAction} />}
+          {workspace.comparison && <details className="mol-finding-details" open={evidence.lms.some(l => l.availability.action) || undefined}><summary>Model records and availability</summary><ModelSupport evidence={evidence} onAction={onAction} /></details>}
 
           <ModelCaveatCallouts evidence={evidence} />
 
