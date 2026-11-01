@@ -6,6 +6,8 @@ import "./harness.css";
 import { LandscapeInspector } from "../../src/components/inspector/LandscapeInspector";
 import { LandscapeFocus } from "../../src/components/sequence/LandscapeFocus";
 import { LandscapeOverview } from "../../src/components/sequence/LandscapeOverview";
+import { LandscapeToolbar } from "../../src/components/sequence/LandscapeToolbar";
+import { LandscapeLegend } from "../../src/components/sequence/LandscapeLegend";
 import { useVariantAnalysisStore } from "../../src/stores/useVariantAnalysisStore";
 import { landscapeKey } from "../../src/shared/landscapeEvidence";
 import { SOD1_LANDSCAPE_ROWS, SOD1_LANDSCAPE_CONTEXT, SOD1_VARIANT_SCORES } from "../../src/shared/__tests__/fixtures/sod1Landscape";
@@ -171,6 +173,7 @@ function mountTab(host: HTMLElement): void {
     positions: [],
     context: SOD1_LANDSCAPE_CONTEXT,
     domains: [{ name: "Cu/Zn superoxide dismutase", start: 1, end: 153 }],
+    domainsLoaded: true,
     window: { start: 1, end: 31 },
     targetPos: 5,
     mode: "mean",
@@ -183,6 +186,22 @@ function mountTab(host: HTMLElement): void {
     "div",
     { style: { width: 1010, padding: 24, background: "var(--cs-bg)" } },
     overview,
+    React.createElement("div", { style: { height: 12 } }),
+    React.createElement(LandscapeToolbar, {
+      scope: "overview",
+      view: { colorBy: "alphaMissense", lanes: { clinvar: true, gnomad: false, regions: true } },
+      onView: () => {},
+      mode: "mean",
+      width: 31,
+      targetPos: 5,
+      available: { regions: false },
+      awayFromTarget: false,
+      onBack: () => {}
+    }),
+    React.createElement(LandscapeLegend, { overview: true, colorBy: "alphaMissense" }),
+    /* Probes: the warning ink the notice and the score-disagreement note use, on the canvas colour. */
+    React.createElement("details", { className: "ls-data-notice", id: "probe-notice" }, React.createElement("summary", null, "Data cautions")),
+    React.createElement("details", { className: "lsr-mismatch", id: "probe-mismatch" }, React.createElement("summary", null, "Score disagreement")),
     React.createElement("div", { style: { height: 12 } }),
     focus
   );
@@ -204,7 +223,7 @@ interface Case {
 const CASES: Case[] = [
   { id: "rail-wide", label: "SOD1 p.Ala5Val rail — 360px, tabs walked", width: 360, kind: "rail", expectAssertions: 13 },
   { id: "rail-dark", label: "SOD1 p.Ala5Val rail — dark", width: 360, dark: true, kind: "rail", expectAssertions: 13 },
-  { id: "tab", label: "SOD1 p.Ala5Val focus grid — 1010px", width: 1010, kind: "tab", expectAssertions: 6 }
+  { id: "tab", label: "SOD1 p.Ala5Val focus grid — 1010px", width: 1010, kind: "tab", expectAssertions: 10 }
 ];
 
 /* ── Rail families, walked tab by tab ─────────────────────────────────────────── */
@@ -282,7 +301,7 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
 function tabChecks(host: HTMLElement): Check[] {
   const out: Check[] = [];
   // One tab stop per grid: each roving grid has exactly one tabIndex=0 cell.
-  const grids = Array.from(host.querySelectorAll<HTMLElement>("[role='group']"));
+  const grids = Array.from(host.querySelectorAll<HTMLElement>("[role='group']")).filter((g) => g.querySelector("[data-rc]"));
   const offenders = grids.map((g) => ({ g, stops: g.querySelectorAll<HTMLElement>("[data-rc][tabindex='0']").length })).filter((x) => x.stops !== 1);
   out.push({ name: "keyboard: one tab stop per roving grid", pass: grids.length > 0 && offenders.length === 0, detail: `${grids.length} grids, ${offenders.length} with ≠1 stop` });
 
@@ -313,6 +332,31 @@ function tabChecks(host: HTMLElement): Check[] {
   const plpContrast = plp && base ? contrast(plp, base) : 0;
   const dist = plp && pp3 ? Math.hypot(plp[0] - pp3[0], plp[1] - pp3[1], plp[2] - pp3[2]) : 0;
   out.push({ name: "clinvar: the P/LP token is ≥ 3:1 on the card and well clear of the PP3 red", pass: plpContrast >= 3 && dist >= 60, detail: `contrast ${plpContrast.toFixed(2)}:1, RGB distance to PP3 red ${dist.toFixed(0)}` });
+
+  /* Controls added around the grid: lane switches, the colour key, and the warning ink. */
+  const lanes = Array.from(host.querySelectorAll<HTMLElement>(".ls-lane-toggle"));
+  const on = lanes.find((l) => l.getAttribute("aria-pressed") === "true");
+  const off = lanes.find((l) => l.getAttribute("aria-pressed") === "false" && l.getAttribute("aria-disabled") !== "true");
+  const onFill = on ? getComputedStyle(on).backgroundColor : "";
+  const offFill = off ? getComputedStyle(off).backgroundColor : "";
+  out.push({ name: "lanes: a switched-on lane has its own fill, not transparent", pass: Boolean(onFill) && onFill !== "rgba(0, 0, 0, 0)" && onFill !== "transparent" && onFill !== offFill, detail: `on ${onFill || "none"} / off ${offFill || "none"}` });
+  const shortLanes = lanes.filter((l) => l.getBoundingClientRect().height < 27.5);
+  out.push({ name: "lanes: every lane switch is at least 28px tall", pass: lanes.length === 3 && shortLanes.length === 0, detail: `${lanes.length} switches, ${shortLanes.length} under 28px` });
+
+  const legend = host.querySelector<HTMLElement>(".ls-legend__bands");
+  const bands = legend ? Array.from(legend.children).filter((c) => !c.classList.contains("ls-legend__title")) as HTMLElement[] : [];
+  const lr = legend?.getBoundingClientRect();
+  const widest = Math.max(0, ...bands.map((b) => b.getBoundingClientRect().width));
+  const spread = lr && bands.length ? bands[bands.length - 1].getBoundingClientRect().right - bands[0].getBoundingClientRect().left : 0;
+  out.push({ name: "legend: bands stay readable-width and still reach both edges", pass: bands.length === 7 && widest <= 113 && Boolean(lr) && spread >= (lr as DOMRect).width * 0.95, detail: `${bands.length} bands, widest ${widest.toFixed(0)}px, spread ${spread.toFixed(0)} of ${lr ? lr.width.toFixed(0) : "?"}px` });
+
+  const canvas = parseColor(getComputedStyle(host.firstElementChild as Element).backgroundColor) ?? parseColor(getComputedStyle(document.body).backgroundColor);
+  const inks = ["probe-notice", "probe-mismatch"].map((id) => {
+    const el = host.querySelector<HTMLElement>(`#${id}`);
+    const ink = el ? parseColor(getComputedStyle(el).color) : null;
+    return ink && canvas ? contrast(ink, canvas) : 0;
+  });
+  out.push({ name: "contrast: warning ink on the canvas is ≥ 4.5:1 (notice and score-disagreement note)", pass: inks.every((c) => c >= 4.5), detail: inks.map((c) => `${c.toFixed(2)}:1`).join(", ") });
   return out;
 }
 

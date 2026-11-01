@@ -146,6 +146,7 @@ describe("LandscapeOverview", () => {
     positions: [],
     context,
     domains: [],
+    domainsLoaded: true,
     window: { start: 1, end: 31 },
     targetPos: 5,
     mode: "mean" as const,
@@ -180,12 +181,20 @@ describe("LandscapeOverview", () => {
     measure.mockRestore();
   });
 
+  it("does not claim the gene has no domain when the UniProt features never loaded", () => {
+    render(<LandscapeOverview {...props(ctx([]))} domainsLoaded={false} />);
+    expect(screen.queryByText("no UniProt domain or region annotated")).toBeNull();
+    expect(screen.getByText("UniProt domain annotation not loaded")).toBeTruthy();
+  });
+
   it("omits the domain and regional-constraint rows when the gene has none, and says so once", () => {
     render(<LandscapeOverview {...props(ctx([]))} />);
     expect(screen.queryByText("Domains")).toBeNull();
     expect(screen.queryByText("Missense O/E")).toBeNull();
     expect(screen.getByText("no UniProt domain or region annotated")).toBeTruthy();
     expect(screen.getByText("no regional missense constraint call for this gene")).toBeTruthy();
+    // Each absence note is its own line, not two facts run together on one row.
+    expect(screen.getByText("no UniProt domain or region annotated").parentElement!.className).toBe("ls-overview__notes");
     // The O/E explanation is for bars that are drawn.
     expect(screen.queryByText(/solid bar = fewer missense observed/)).toBeNull();
   });

@@ -47,9 +47,15 @@ function Preview() {
   const [metric, setMetric] = useState<'mean' | 'max'>('mean');
   const [width, setWidth] = useState(31);
   const { isDark, setTheme } = useSettings();
+  /*
+   * The populated Landscape workspace no longer carries its own cross-workspace row, so the
+   * fixture shell owns the navigation: one select, the same combobox pattern the evidence and
+   * review previews expose to their walks.
+   */
   return <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--cs-bg)', color: 'var(--cs-text-primary)' }}>
     <header style={{ padding: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
       <strong>Synthetic fixture · not scientific evidence</strong>
+      <label>Workspace <select aria-label="Workspace" value={view} onChange={(e) => setView(e.target.value as MasterView)}><option value="landscape">Residue landscape</option><option value="structure_alphafold">3D structure</option></select></label>
       <button className="viz-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
       <button className="viz-action" onClick={() => store.setState({ selectedResidueIndex: 30, landscapeSelection: { key, kind: 'residue', pos: 30 } })}>Missing residue fixture</button>
       <button className="viz-action" onClick={() => store.setState({ customPdbUrl: '/fixture/entry.pdb', customPdbEntry: { url: '/fixture/entry.pdb', text: pdb, numbering: 'author', chainId: 'A', mapping: null, reason: 'Synthetic unmapped entry' } })}>Unmapped entry fixture</button>

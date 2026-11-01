@@ -102,6 +102,7 @@ describe("LandscapeOverview", () => {
         positions={[]}
         context={{ clinvar: null, gnomad: [], regions: [], regionsStatus: "none", transcript: null, regionsBasis: "gnomAD v4.1.1 genomic intervals", errors: ["ClinVar not loaded"] }}
         domains={[]}
+        domainsLoaded
         window={{ start: 101, end: 131 }}
         targetPos={116}
         mode="mean"
@@ -130,6 +131,7 @@ describe("LandscapeOverview", () => {
         positions={[{ residx: 10, amMean: 0.82, revelMean: null, gerp: null, phylop: null }]}
         context={null}
         domains={[]}
+        domainsLoaded
         window={{ start: 1, end: 31 }}
         targetPos={10}
         mode="mean"
@@ -263,7 +265,18 @@ describe("SequenceVisualizer data cautions", () => {
       />
     );
     expect(screen.getByRole("tab", { name: "Whole protein", selected: true })).toBeTruthy();
-    expect(screen.getByText(/The source stopped at its row limit/)).toBeTruthy();
+    // One collapsed notice that names how many cautions it holds, above the heading.
+    const summary = screen.getByText("Data cautions (1) — review before comparing scores");
+    const notice = summary.closest("details")!;
+    expect(notice.open).toBe(false);
+    const heading = screen.getByRole("heading", { name: "Residue landscape" });
+    expect(notice.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(summary);
+    expect(notice.open).toBe(true);
+    expect(within(notice).getByText(/The source stopped at its row limit/)).toBeTruthy();
+    // Focus residue no longer carries its own copy: the notice is the one home for cautions.
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    expect(screen.getAllByText(/The source stopped at its row limit/)).toHaveLength(1);
     sequenceState.sequence = "";
   });
 });
