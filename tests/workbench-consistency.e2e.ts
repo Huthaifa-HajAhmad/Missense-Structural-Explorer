@@ -64,7 +64,8 @@ test('walk through populated workspaces in both themes', { tags: ['design', 'she
   await capture('Energetics');
   await app.open('/tools/exploration-preview/index.html');
   await capture('Landscape');
-  await screen.getByRole('button', 'Inspect in 3D').tap();
+  /* The Landscape workspace no longer carries its own navigation row; the fixture shell switches. */
+  await screen.getByRole('combobox', 'Workspace').selectOption('3D structure');
   await expect(screen.getByRole('heading', '3D structure', { exact: true })).toBeVisible();
   await capture('3D-structure');
 });
