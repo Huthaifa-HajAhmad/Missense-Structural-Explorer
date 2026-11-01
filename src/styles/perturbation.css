@@ -51,23 +51,8 @@
 .ptb-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ptb-section > h2.eyebrow { margin: 0; }
 
-/* ── Header primer ──────────────────────────────────────────── */
+/* ── Header ─────────────────────────────────────────────────── */
 .ptb-header { display: flex; flex-direction: column; gap: 6px; }
-.ptb-primer { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: none; }
-.ptb-primer > summary {
-  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 24px; color: var(--cs-text-accent); border-radius: var(--cs-radius-sm);
-}
-.ptb-primer > summary::-webkit-details-marker { display: none; }
-@media (hover: hover) and (pointer: fine) {
-  .ptb-primer > summary:hover { text-decoration: underline; }
-}
-.ptb-primer > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
-.ptb-primer ul {
-  margin: 6px 0 0; padding: 12px 16px 12px 32px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5;
-  border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface);
-}
-.ptb-primer strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 /* ── Finding ────────────────────────────────────────────────── */
 .ptb-hero__body { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 20px; }
@@ -284,7 +269,6 @@
 .ptb-detail__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 20px; border-bottom: 1px solid var(--cs-border-subtle); }
 .ptb-detail__title { margin: 0; font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
 .ptb-detail__title span { font-weight: 400; color: var(--cs-text-muted); }
-.ptb-detail__hint { font-size: var(--cs-font-size-caption); }
 
 .ptb-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-bottom: 1px solid var(--cs-border-subtle); margin: 0; }
 .ptb-facts > div { padding: 12px 16px; min-width: 0; }
@@ -473,3 +457,32 @@
   .ptb-trace-details > summary::before, .ptb-embedding-profile summary::before { transition: none; }
 }
 .ptb-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* Residue toolbar: the amino-acid picker and the "showing N of M" count share one row. */
+.ptb-screen .ptb-residue-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-block-end: 12px; }
+.ptb-screen .ptb-residue-toolbar .evw-controls { order: -1; padding: 0; margin: 0; }
+.ptb-screen .ptb-residue-toolbar .evw-controls label { flex-direction: row; align-items: center; gap: 8px; }
+.ptb-screen .ptb-residue-toolbar select { min-inline-size: 130px; }
+.ptb-screen[data-comparison] .ptb-residue-toolbar .evw-figure-scope { flex: 1 1 320px; justify-content: flex-start; gap: 12px; padding: 0; margin: 0; }
+
+/* In comparison mode the detail columns stack, so the chart keeps its full width. */
+.ptb-screen[data-comparison] .ptb-detail__grid { grid-template-columns: minmax(0, 1fr); }
+.ptb-screen[data-comparison] .ptb-detail__grid > * + * { border-inline-start: 0; border-block-start: 1px solid var(--cs-border-subtle); }
+
+/* Shift trace: a wrapping row, so the layout does not depend on child order or on the screen width. */
+.ptb-screen .ptb-shift-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+.ptb-shift-panel .ptb-detail__label { flex: 1 1 100%; flex-wrap: wrap; align-items: center; margin: 0; }
+.ptb-shift-panel .ptb-trace { flex: 1 1 240px; max-inline-size: 360px; }
+.ptb-shift-panel .ptb-shift-note { flex: 1 1 180px; margin: 0; }
+
+/* Model records (comparison mode) */
+.ptb-model-record { padding-block: 12px; }
+.ptb-model-record + .ptb-model-record { border-block-start: 1px solid var(--cs-border-subtle); }
+.ptb-model-record h3 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: var(--cs-font-size-prose); }
+.ptb-model-record p { margin-block: 6px 0; }
+.ptb-screen .ptb-facts dt { display: flex; align-items: center; gap: 4px; }
+
+/* Hero (comparison mode) */
+.ptb-screen[data-comparison] .ptb-card.ptb-hero .ptb-hero__body { display: flex; flex-direction: column; }
+.ptb-screen[data-comparison] .ptb-card .ptb-hero__figure { flex-direction: row; align-items: baseline; }
+.ptb-hero__key { margin: 0; max-width: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }

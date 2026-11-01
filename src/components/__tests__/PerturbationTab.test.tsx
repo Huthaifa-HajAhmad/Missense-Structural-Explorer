@@ -42,9 +42,8 @@ describe("PerturbationTab", () => {
       <PerturbationTab {...({ analysisState: { result, isLoading: false }, foldingEnergetics: NAE1_ENERGETICS, onRetryStructural: retry, onOpenSettings: settings } as any)} />
     </EvidenceWorkspaceProvider>);
     const support = within(screen.getByRole('region', { name: 'Model provenance and recovery' }));
-    act(() => {
-      for (const summary of support.getAllByText(/details and availability/, { selector: 'summary' })) fireEvent.click(summary);
-    });
+    // A model with a recovery action opens the records by default, so the action is never hidden.
+    expect(screen.getByText('Model records and availability', { selector: 'summary' }).closest('details')).toHaveAttribute('open');
     expect(support.getByText('Remote queue exhausted')).toBeInTheDocument();
     expect(support.getByText('Local checkpoint unavailable')).toBeInTheDocument();
     expect(screen.queryByTestId('ptb-lm-saprot')).not.toBeInTheDocument();
@@ -77,6 +76,7 @@ describe("PerturbationTab", () => {
     expect(hero.textContent).toContain("3 of 3");
     expect(hero.textContent).toContain("models favour native Asp over Gly at residue 116");
     expect(hero.textContent).toContain("SaProt, ESM-2 and ESMC favour native Asp over Gly");
+    expect(hero.textContent).toMatch(/ΔLLR is the same on a log scale/);
     expect(document.body.textContent).not.toMatch(/\/ 100|Consensus verdict|Moderate disruption|Local perturbation score/i);
   });
 
@@ -142,7 +142,8 @@ describe("PerturbationTab", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^ESMC/ })[0]);
     expect(document.getElementById("ptb-detail-title")!.textContent).toContain("ESMC-6B");
     // One selector: the strip. The residue detail names the model and points back to it.
-    expect(screen.getByText("Choose a model in the comparison above.")).toBeInTheDocument();
+    expect(screen.queryByText("Choose a model in the comparison above.")).toBeNull();
+    expect(screen.queryByText("How to read this tab")).toBeNull();
     expect(screen.queryByRole("group", { name: "Model shown in residue detail" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Show detail/ })).toBeNull();
   });

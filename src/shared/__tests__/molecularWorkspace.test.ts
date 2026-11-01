@@ -82,6 +82,13 @@ describe('perturbationReadings', () => {
     expect(modelRow).toBeDefined();
     const preference = readings.find(r => r.key.startsWith('esm2:'));
     expect(preference).toBeDefined();
+    // Each amino-acid dot carries the model's own rank guard and a probability note, not the ΔLLR scale note.
+    const { rankSentence } = ev.lms.find(l => l.id === 'esm2')!;
+    expect(rankSentence).not.toBe('');
+    expect(preference!.notes).toContain(rankSentence);
+    expect(modelRow!.notes).toContain(rankSentence);
+    expect(preference!.notes.join(' ')).toContain('not a probability of disease');
+    expect(preference!.notes.join(' ')).not.toContain('ΔLLR compares');
     expect(modelRow!.facts.find(f => f.label === 'ΔLLR')).toBeDefined();
     expect(modelRow!.notes.join(' ')).toMatch(/not a common scale/);
   });
