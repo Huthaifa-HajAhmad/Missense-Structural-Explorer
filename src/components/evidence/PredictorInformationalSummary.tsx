@@ -23,6 +23,10 @@ export function PredictorInformationalSummary({
 }) {
   const agreement = localPredictorAgreement(evidence);
   const Heading = headingLevel;
+  // "Not scored" would be a false completed state while an analysis is still producing readings.
+  const notScoredHeading = agreement.missing.some(reading => reading.availability.state === "pending")
+    ? "Not yet returned"
+    : "Not scored";
   const score = (reading: PredictorReading) =>
     showScores ? <span className="prd-context__score">{reading.scoreText}{reading.unit ? ` ${reading.unit}` : ''}</span> : null;
   return <div className="prd-context">
@@ -32,7 +36,7 @@ export function PredictorInformationalSummary({
       {agreement.calibrated.length > 0 && <section><Heading>Published bands / not counted</Heading><dl>{agreement.calibrated.map(({ reading, label }) => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{score(reading)}<span>{label}</span></dd></div>)}</dl></section>}
       <section><Heading>Sequence preference</Heading><p>{agreement.preferenceSummary}</p>{agreement.preference.length > 0 && <dl>{agreement.preference.map(({ reading, label }) => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{score(reading)}<span>{label}</span></dd></div>)}</dl>}</section>
       {agreement.unclassified.length > 0 && <section><Heading>Other scores</Heading><p>No sequence-preference reading: these scores measure different properties.</p><dl>{agreement.unclassified.map(reading => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{score(reading)}<span>{reading.callLabel}</span></dd></div>)}</dl></section>}
-      {agreement.missing.length > 0 && <section><Heading>Not scored</Heading><dl>{agreement.missing.map(reading => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{reading.availability.label ?? ENGINE_STATE_LABELS['no-result']}</dd></div>)}</dl></section>}
+      {agreement.missing.length > 0 && <section><Heading>{notScoredHeading}</Heading><dl>{agreement.missing.map(reading => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{reading.availability.label ?? ENGINE_STATE_LABELS['no-result']}</dd></div>)}</dl></section>}
     </div>
     <p>{agreement.preferenceCaveat}</p>
   </div>;
