@@ -58,6 +58,17 @@ Model proposals for engine-owned codes are hidden (recommended option; the owner
 - Tier-gap wording assumes the standard Richards 2015 rule the engine implements; it does not model ClinGen point-based scoring (Tavtigian 2020).
 - Not checked against a live backend payload: the board was rendered from an NAE1-shaped fixture.
 
+## UI pass (2026-11-01)
+
+- The three exports moved out of the title row into a secondary toolbar under the header: one labelled
+  group, 44px targets, a visible focus ring, and no toolbar in print.
+- The reading guide sits at the trailing edge, opposite the title, as in the Energetics header.
+- The inspector reads in sans. Its section label follows the gene-disease rail (`gene-disease.css`), not
+  the evidence panes' mono `.eyebrow` rank (`typography-tables.css`); that rank is unchanged for every
+  other tab.
+- Selected evidence uses the splicing inspection shell: one border, `--cs-radius-card`, a tinted head and
+  a 16px body. The head is a fixed 44px, so pinning or clearing a lane does not shift the rail.
+
 ## Sources
 
 Richards et al. 2015, Genet Med, doi:10.1038/gim.2015.30. Pejaver et al. 2022, AJHG, doi:10.1016/j.ajhg.2022.10.013.

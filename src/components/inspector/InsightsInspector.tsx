@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { GitBranch, Bot, BookOpen, Sparkles, Vote } from "lucide-react";
+import { GitBranch, Bot, BookOpen, Sparkles, Vote, Pin } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../context/VariantAnalysisContext";
 import { formatEvidenceCode } from "../../shared/thresholds";
@@ -92,13 +92,15 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
 
   return (
     <div className="ins-rail" data-testid="insights-rail">
-      <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
-        <div className="review-selection__head"><span>Selected evidence</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
-        {selected ? <><h3>{selected.name}</h3><p><strong>{selected.lead}</strong> {selected.rest}</p>
-          <p>{selected.counted ? `Counted as ${selected.code}.` : selected.state === 'pending' ? 'Still running; no criterion recorded.' : 'No counted criterion for this area.'}</p>
-          {selected.counted && <p>Recorded strength: {criterionForLane(ev, selected)?.strength ?? 'Strength unavailable'}.</p>}
-          <button type="button" className="review-action" onClick={w.showSelected}>Show in evidence map</button></>
-          : <p>Select an evidence area in the map to keep its reading here.</p>}
+      <section className="review-selection ins-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
+        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />Selected evidence</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
+        <div className="ins-selection__body">
+          {selected ? <><h3>{selected.name}</h3><p><strong>{selected.lead}</strong> {selected.rest}</p>
+            <p>{selected.counted ? `Counted as ${selected.code}.` : selected.state === 'pending' ? 'Still running; no criterion recorded.' : 'No counted criterion for this area.'}</p>
+            {selected.counted && <p>Recorded strength: {criterionForLane(ev, selected)?.strength ?? 'Strength unavailable'}.</p>}
+            <button type="button" className="review-action" onClick={w.showSelected}>Show in evidence map</button></>
+            : <p>Select an evidence area in the map to keep its reading here.</p>}
+        </div>
       </section>
       <section className="rail-section" aria-labelledby="ins-rail-trace">
         <h3 className="eyebrow" id="ins-rail-trace"><GitBranch className="w-3.5 h-3.5" />How the case was built</h3>

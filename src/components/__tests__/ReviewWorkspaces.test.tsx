@@ -44,6 +44,8 @@ describe('Insights reading workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Computational' }));
     const selected = screen.getByRole('region', { name: 'Selected evidence reading' });
     expect(selected).toHaveAttribute('id', INSPECTOR_SECTIONS.evidenceReading);
+    expect(selected).toHaveClass('ins-selection');
+    expect(selected.querySelector('.ins-selection__body')).not.toBeNull();
     expect(selected).toHaveTextContent(`Recorded strength: ${strength}.`);
     expect(selected).not.toHaveTextContent('Not weighted');
     const lane = screen.getByRole('button', { name: 'Computational' }).closest('.ins-lane')!;

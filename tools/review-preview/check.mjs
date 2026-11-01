@@ -59,6 +59,19 @@ try {
  check('Insights view persists', await page.getByRole('tab', { name: 'Criterion records' }).getAttribute('aria-selected') === 'true');
  await page.getByRole('button', { name: 'Show in evidence map' }).click();
  check('Explicit lane reveal focuses', await page.getByRole('button', { name: 'Computational', exact: true }).evaluate(e => e === document.activeElement));
+ // The exports are one labelled group, and the guide sits opposite the title.
+ const exportGroup = page.getByRole('group', { name: 'Export and copy analysis' });
+ check('Exports form one labelled group', (await exportGroup.getByRole('button').count()) === 3);
+ const titleBox = await page.locator('.ins-shell__title').boundingBox();
+ const guideBox = await page.locator('.ins-shell__guide').boundingBox();
+ check('Reading guide sits opposite the title', guideBox.x > titleBox.x + titleBox.width);
+ // The selected-evidence head keeps one height whether or not a lane is pinned.
+ const selectionHead = page.locator('.ins-selection > .review-selection__head');
+ const pinnedHead = (await selectionHead.boundingBox()).height;
+ await page.getByRole('button', { name: 'Clear selection' }).click();
+ const emptyHead = (await selectionHead.boundingBox()).height;
+ check('Selected-evidence head does not jump', Math.abs(pinnedHead - emptyHead) < 1);
+ await page.getByRole('button', { name: 'Computational', exact: true }).click();
  for (const width of [1500, 800, 390]) {
   await page.setViewportSize({ width, height: 1100 });
   check('Insights final section reachable by wheel ' + width, await reachWithWheel(page, page.locator('.ins-screen [role="tabpanel"] > :last-child')));
@@ -81,6 +94,7 @@ try {
  check('Review actions meet 44px touch size', await page.locator('.review-action').evaluateAll(es => { const visible = es.filter(e => e.getBoundingClientRect().height > 0); return visible.length > 0 && visible.every(e => e.getBoundingClientRect().height >= 44); }));
  await page.emulateMedia({ media: 'print' });
  check('Closed classification disclosure prints', await page.locator('.ins-tiers').evaluate(e => e.getBoundingClientRect().height > 0));
+ check('Export toolbar does not print', !(await page.locator('.ins-shell__exports').isVisible()));
  await page.emulateMedia({ media: 'screen' });
  await page.getByRole('tab', { name: 'Written summary' }).click();
  check('Rule-based summary labelled', await page.getByText('Rule-based synthesis', { exact: false }).isVisible());
