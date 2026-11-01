@@ -147,6 +147,22 @@ function announceCompanions(count: number | null, atoms = 0) {
   container.dataset.companionAtoms = String(atoms);
 }
 
+/**
+ * Tells the proof harness that a load finished and how many structures it drew (two for a superposition).
+ * `drawnVersion` goes up on every finished load, so a check can tell a new draw from the previous one.
+ */
+function announceDrawn(structures: number | null) {
+  if (typeof document === "undefined") return;
+  const container = document.getElementById(VIEWER_CONTAINER_ID);
+  if (!container) return;
+  if (structures === null) {
+    delete container.dataset.drawnStructures;
+    return;
+  }
+  container.dataset.drawnStructures = String(structures);
+  container.dataset.drawnVersion = String(Number(container.dataset.drawnVersion ?? "0") + 1);
+}
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -259,6 +275,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       try {
         await plugin.clear();
         if (!active) return;
+        announceDrawn(null);
         structureRef.current = null;
         structure2Ref.current = null;
         polymerRef.current = null;
@@ -402,6 +419,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (active) {
           drawnSourceRef.current = { primaryPdbData, customPdbUrl, comparePdbData, uniprotId, allowFetch };
           isLoadingRef.current = false;
+          announceDrawn(structure2Ref.current ? 2 : 1);
           setLoading(false);
           setReadyVersion(v => v + 1);
         }

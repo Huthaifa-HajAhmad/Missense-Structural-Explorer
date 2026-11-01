@@ -12,9 +12,10 @@ import { SOD1_LANDSCAPE_CONTEXT } from '../../shared/__tests__/fixtures/sod1Land
 vi.mock('../../hooks/useProteinSequence', () => ({ useProteinSequence: () => ({ sequence: 'MAAAAVAAAA', isLoading: false, error: null }) }));
 vi.mock('../LiteratureView', () => ({ default: () => null }));
 vi.mock('../telemetry/LiveTelemetryPanel', () => ({ default: () => null }));
-vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; model: { family: string } }) => <div data-testid="canvas-instance">
+vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; onReturnToVariant?: () => void; model: { family: string } }) => <div data-testid="canvas-instance">
   <button onClick={() => props.onResidueClick(8)}>Pick structure residue 8</button>
   <button onClick={() => props.onResidueClick(5)}>Pick structure residue 5</button>
+  <button onClick={() => props.onReturnToVariant?.()}>Return to variant</button>
   <span>Canvas family: {props.model.family}</span>
 </div> }));
 afterEach(cleanup);
@@ -23,7 +24,7 @@ function Workspace({ initialView = 'landscape' }: { initialView?: MasterView }) 
   const [view, setView] = useState<MasterView>(initialView);
   const [mode, setMode] = useState<'mean' | 'max'>('mean');
   const [width, setWidth] = useState(31);
-  return <SettingsProvider><AppViews masterView={view} setMasterView={setView} pushErrorEntry={vi.fn()} setIsSettingsOpen={vi.fn()}
+  return <SettingsProvider><button onClick={() => setView('landscape')}>Sidebar: Landscape</button><AppViews masterView={view} setMasterView={setView} pushErrorEntry={vi.fn()} setIsSettingsOpen={vi.fn()}
     activeEvidenceTab="population" setActiveEvidenceTab={vi.fn()} metricMode={mode} setMetricMode={setMode} windowSize={width} setWindowSize={setWidth}
     classCardTitle="" classCardHeader="" classBorderSec="" classTextBody="" classTextMute="" /></SettingsProvider>;
 }
@@ -78,7 +79,7 @@ it('defers the canvas, then keeps its identity, family and the Landscape tab acr
   expect(ui.queryByTestId('canvas-instance')).toBeNull();
   const canvas = await openStructure(ui);
   fireEvent.click(ui.getByRole('tab', { name: 'ESMFold' }));
-  fireEvent.click(ui.getByRole('button', { name: 'Open Landscape' }));
+  fireEvent.click(ui.getByRole('button', { name: 'Sidebar: Landscape' }));
   expect(ui.getByRole('tab', { name: 'Focus residue' }).getAttribute('aria-selected')).toBe('true');
   expect(ui.getByTestId('canvas-instance')).toBe(canvas);
   fireEvent.click(ui.getByRole('button', { name: 'Inspect in 3D' }));
@@ -105,15 +106,15 @@ it('keeps a same-position substitution selection intact and clears a stale nucle
   expect(store.getState().selectedGenomicVariant).toBeNull();
 });
 
-it('clears transient hover on navigation', async () => {
+it('clears transient hover when the pointer leaves the structure workspace', async () => {
   const ui = render(<Workspace />);
-  await openStructure(ui);
+  const canvas = await openStructure(ui);
   store.setState({ hoveredResidueIndex: 8 });
-  fireEvent.click(ui.getByRole('button', { name: 'Open Landscape' }));
+  fireEvent.mouseLeave(canvas.closest('.structure-main')!);
   expect(store.getState().hoveredResidueIndex).toBeNull();
 });
 
-it('returns to the queried substitution and keeps keyboard focus on the page', async () => {
+it('returns to the queried substitution from the canvas and keeps keyboard focus on the page', async () => {
   const ui = render(<Workspace />);
   await openStructure(ui);
   fireEvent.click(ui.getByRole('button', { name: 'Pick structure residue 8' }));
@@ -121,5 +122,4 @@ it('returns to the queried substitution and keeps keyboard focus on the page', a
   fireEvent.click(ui.getByRole('button', { name: 'Return to variant' }));
   await waitFor(() => expect(store.getState().selectedResidueIndex).toBe(5));
   expect(store.getState().landscapeSelection).toEqual({ key, kind: 'substitution', pos: 5, alt: 'Val' });
-  expect(document.activeElement).toBe(ui.getByRole('button', { name: 'Open Landscape' }));
 });

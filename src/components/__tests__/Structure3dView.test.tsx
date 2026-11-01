@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, within } from "@testing-library/react";
+import { render, renderHook, cleanup, fireEvent, within } from "@testing-library/react";
 import React from "react";
+import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 import { StructureInspector } from "../inspector/StructureInspector";
 import { StructureToolbar } from "../molstar/StructureToolbar";
 import { StructureLegend } from "../molstar/StructureLegend";
@@ -66,6 +67,9 @@ function seed(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as any);
 }
+
+/** Local coordinates so the ESMFold family can offer its variant and superposition modes. */
+const ESM_COORDINATES = { esmFoldWtPdb: AF, esmFoldMutPdb: MUTANT, esmFoldAlignedPdb: MUTANT };
 
 beforeEach(() => {
   cleanup();
@@ -237,6 +241,18 @@ describe("3D toolbar and legend", () => {
     expect(modes[0].getAttribute("aria-checked")).toBe("true");
   });
 
+  it("lets the site button return to the variant when another residue is selected", () => {
+    const onFocusSite = vi.fn();
+    const away = toolbar(buildStructure3dEvidence(input()), { onFocusSite });
+    const button = away.container.querySelector<HTMLButtonElement>("button[data-testid='structure-site']")!;
+    expect(button.title).toContain("Return to the variant");
+    fireEvent.click(button);
+    expect(onFocusSite).toHaveBeenCalledOnce();
+    cleanup();
+    const onVariant = toolbar(buildStructure3dEvidence(input()), { selectedResidue: 116 });
+    expect(onVariant.container.querySelector<HTMLButtonElement>("button[data-testid='structure-site']")!.title).toBe("Frame the variant site");
+  });
+
   it("names the canvas from its own provenance and marks a clicked residue as a selection", () => {
     const { container } = toolbar(buildStructure3dEvidence(input()));
     expect(container.querySelector("[data-testid='structure-source']")?.textContent).toContain("AF-Q13564-F1 v6");
@@ -282,7 +298,7 @@ describe("3D toolbar and legend", () => {
     expect(legend.textContent).toContain("AlphaFold DB bands");
   });
 
-  it("renders the Close-up toggle button in the toolbar and the Wild-Type vs. Variant side-chain card in the inspector", () => {
+  it("keeps the Close-up toggle and omits the redundant side-chain diagram in both model families", () => {
     const onToggleSiteCloseUp = vi.fn();
     const { container: barContainer } = toolbar(buildStructure3dEvidence(input()), {
       siteCloseUp: true,
@@ -294,11 +310,15 @@ describe("3D toolbar and legend", () => {
     fireEvent.click(closeUpBtn);
     expect(onToggleSiteCloseUp).toHaveBeenCalledTimes(1);
 
-    const { container: railContainer } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
-    const sidechainCard = railContainer.querySelector("[data-testid='structure-sidechain-card']");
-    expect(sidechainCard).toBeTruthy();
-    expect(sidechainCard?.textContent).toContain("Aspartate");
-    expect(sidechainCard?.textContent).toContain("Glycine");
-    expect(sidechainCard?.textContent).toContain("Grantham 94");
+    for (const family of ["alphafold", "esmfold"] as const) {
+      for (const viewMode of ["wildtype", "mutant", "superimposed"] as const) {
+        seed({ viewMode, ...ESM_COORDINATES });
+        // The mode must really be on screen: an unavailable mode falls back to wild type and would make this loop vacuous.
+        expect(renderHook(() => useStructure3dEvidence(family)).result.current.viewMode).toBe(viewMode);
+        const view = render(<StructureInspector family={family} setCustomPdbUrl={() => {}} />);
+        expect(view.container.querySelector("[data-testid='structure-sidechain-card']")).toBeNull();
+        view.unmount();
+      }
+    }
   });
 });

@@ -33,6 +33,8 @@ export interface MolstarViewerProps {
   variantPosition: number | null;
   selectedResidue: number | null;
   onResidueClick: (index: number | null) => void;
+  /** Selects the queried variant again; the site button calls it when another residue is selected. */
+  onReturnToVariant?: () => void;
   onModeChange: (mode: ViewMode) => void;
   onAlignmentScopeChange?: (scope: AlignmentScope) => void;
   onSwitchToAlphaFold?: () => void;
@@ -59,6 +61,7 @@ export default function MolstarViewer({
   variantPosition,
   selectedResidue,
   onResidueClick,
+  onReturnToVariant,
   onModeChange,
   onAlignmentScopeChange,
   onSwitchToAlphaFold,
@@ -235,7 +238,11 @@ export default function MolstarViewer({
           plddtFilter={plddtFilter}
           onPlddtFilterChange={setPlddtFilter}
           onAlignmentScopeChange={onAlignmentScopeChange}
-          onFocusSite={() => model.site.canAddressVariantSite && variantPosition && structure.focusResidue(variantPosition)}
+          onFocusSite={() => {
+            if (!model.site.canAddressVariantSite || !variantPosition) return;
+            if (selectedResidue !== variantPosition) onReturnToVariant?.();
+            structure.focusResidue(variantPosition);
+          }}
           siteCloseUp={siteCloseUp}
           onToggleSiteCloseUp={() => setSiteCloseUp(prev => !prev)}
           onFocusSelection={selection.state === "available" && selection.position ? () => structure.focusResidue(selection.position!) : undefined}

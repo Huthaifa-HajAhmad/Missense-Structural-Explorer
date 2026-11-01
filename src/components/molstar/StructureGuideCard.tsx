@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 
 /** 0xRRGGBB → "#rrggbb": a swatch must be the drawn WebGL colour, so it is data, not a theme token. */
@@ -33,9 +33,16 @@ export function StructureGuideCard({ items, labels, onToggleLabels, labelAll, on
   onToggleLabelAll: () => void;
   onOpenGuide: () => void;
 }) {
-  // Open by default where there is room for it; on a short stage the list would cover the variant site,
+  // Open by default where there is room for it; on a narrow or short stage the list would cover the variant site,
   // so it starts collapsed and the reader opens it.
-  const [open, setOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-height: 640px)").matches);
+  const [open, setOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 640px) and (min-height: 640px)").matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const roomy = window.matchMedia("(min-width: 640px) and (min-height: 640px)");
+    const collapse = () => { if (!roomy.matches) setOpen(false); };
+    roomy.addEventListener("change", collapse);
+    return () => roomy.removeEventListener("change", collapse);
+  }, []);
   if (!items.length) return null;
   return (
     <section className="s3d-guide" aria-label="On this canvas" data-testid="structure-guide-card" tabIndex={0}>

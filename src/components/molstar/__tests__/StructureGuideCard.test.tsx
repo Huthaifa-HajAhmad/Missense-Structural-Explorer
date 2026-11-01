@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StructureGuideCard } from "../StructureGuideCard";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const base = {
   items: [
@@ -46,6 +46,26 @@ describe("StructureGuideCard", () => {
     render(<StructureGuideCard {...base} />);
     fireEvent.click(screen.getByRole("button", { name: /How to read a structure/ }));
     expect(base.onOpenGuide).toHaveBeenCalled();
+  });
+
+  it("keeps the guide available but collapsed on a phone", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    render(<StructureGuideCard {...base} />);
+    expect(screen.queryByLabelText("Residue labels")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show canvas guide" }));
+    expect(screen.getByLabelText("Residue labels")).toBeTruthy();
+  });
+
+  it("collapses when resized to a narrow screen and removes its listener", () => {
+    let changed = () => {};
+    const media = { matches: true, addEventListener: vi.fn((_event, callback) => { changed = callback; }), removeEventListener: vi.fn() };
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+    const view = render(<StructureGuideCard {...base} />);
+    expect(screen.getByLabelText("Residue labels")).toBeTruthy();
+    act(() => { media.matches = false; changed(); });
+    expect(screen.queryByLabelText("Residue labels")).toBeNull();
+    view.unmount();
+    expect(media.removeEventListener).toHaveBeenCalledWith("change", changed);
   });
 
   it("draws nothing when nothing is highlighted", () => {
