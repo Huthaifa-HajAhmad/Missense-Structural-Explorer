@@ -5,6 +5,7 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { LEXICON_VERSION } from "../../shared/literatureScreening";
 import { curatedLinkLabel } from "../../shared/curatedLiterature";
 import { useReviewWorkspace } from '../review/ReviewWorkspace';
+import { tagsByQuote } from "../literature/ScreeningChips";
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 import { safeExternalHref } from '../../shared/externalLink';
 
@@ -304,7 +305,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
           <p>Reading tier {selected.screening.tier} · a screening priority, not a quality score.</p>
           <p>{selected.pinned ? 'Added to the report.' : 'Not added to the report.'}</p>
           {selectionHidden && <p className="lit-rail__warn">This paper is outside the current reading desk or filters. Its source remains selected.</p>}
-          {selected.screening.tags.map((tag, i) => <blockquote key={`${tag.tag}-${i}`}><span>{tag.tag.replace(/-/g, ' ')} · {tag.source.replace(/-/g, ' ')}</span><p>{tag.quote}</p></blockquote>)}
+          {tagsByQuote(selected.screening.tags).map(tag => <blockquote key={tag.quote}><span>{tag.label} · {tag.source.replace(/-/g, ' ')}</span><p>{tag.quote}</p></blockquote>)}
           <details><summary>Abstract</summary><p>{selected.citation.abstract || 'Europe PMC returned no abstract for this record.'}</p></details>
           <div className="review-selection__actions"><button type="button" className="review-action" onClick={workspace.showSelected}>Show selected source record</button><a className="lit-link" href={selected.href} target="_blank" rel="noopener noreferrer">Open paper<span className="sr-only"> (opens in a new tab)</span></a></div></>
           : <p>{workspace.selected ? 'The selected paper is not in this search result. Clear the selection or select another loaded source.' : 'Select a paper to inspect its quoted observations and abstract here. Adding it to the report is a separate action.'}</p>}
@@ -330,17 +331,6 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
         {evidence?.faults.map(f => (
           <p key={f} className="lit-rail__warn" role="status">{f}</p>
         ))}
-      </section>
-
-      <section className="rail-section" aria-labelledby="lit-rail-shortlist">
-        <h3 className="eyebrow" id="lit-rail-shortlist">Shortlist</h3>
-        {evidence ? (
-          <dl className="rail-kv">
-            <div className="rail-kv__row"><dt>Read first</dt><dd>{evidence.shortlist.readFirst}</dd></div>
-            <div className="rail-kv__row"><dt>Read next</dt><dd>{evidence.shortlist.readNext}</dd></div>
-            <div className="rail-kv__row"><dt>Order</dt><dd>{evidence.trace.find(step => step.key === "order")?.sub ?? "Not reported"}</dd></div>
-          </dl>
-        ) : <p className="lit-rail__empty">No shortlist until papers are loaded.</p>}
       </section>
 
       {/* ── 2. Change the search ── */}
@@ -372,9 +362,9 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
           spellCheck={false}
           placeholder="Enter a Europe PMC query…"
         />
-        <button type="button" className="lit-btn lit-btn--block" onClick={handleApplySearch} aria-live="polite">
+        <button type="button" className="lit-btn lit-btn--block lit-btn--quiet" onClick={handleApplySearch} aria-live="polite">
           {justApplied ? <Check aria-hidden="true" /> : <Search aria-hidden="true" />}
-          {justApplied ? "Applied to the list" : "Search Europe PMC"}
+          {justApplied ? "Applied to the list" : "Run this query"}
         </button>
         <p className="rail-step__sub">Enter applies; Shift+Enter adds a line. The gene is added to any query that does not name it.</p>
       </section>

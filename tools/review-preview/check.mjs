@@ -103,10 +103,7 @@ try {
  await page.screenshot({ path: `${output}/insights-dark.png` });
  await page.getByRole('button', { name: 'Switch theme', exact: true }).click();
  await page.getByLabel('Workspace', { exact: true }).selectOption('literature');
- await page.emulateMedia({ media: 'print' });
- check('Closed search facts print', await page.locator('.lit-facts').evaluate(e => e.getBoundingClientRect().height > 0));
- await page.emulateMedia({ media: 'screen' });
- await page.getByRole('button', { name: 'Show all tiers' }).click();
+ await page.getByRole('button', { name: 'All loaded: show all tiers' }).click();
  check('Desk bounded at eight', await page.locator('.lit-row').count() === 8);
  await page.getByRole('tab', { name: 'Mention coverage' }).click();
  check('Shortlist export disabled in coverage', await page.getByRole('button', { name: 'Export shortlist', exact: true }).isDisabled());

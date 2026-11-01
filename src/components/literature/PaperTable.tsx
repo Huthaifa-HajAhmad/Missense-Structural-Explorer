@@ -4,7 +4,7 @@ import type { PaperReading, VariantForms } from "../../shared/literatureEvidence
 import type { GeneConstraint } from "../../shared/literatureScreening";
 import { MarkedText } from "./MarkedText";
 import { MechanismPanel } from "./MechanismPanel";
-import { ScreeningChips, screeningTagLabels } from "./ScreeningChips";
+import { ScreeningChips, tagsByQuote } from "./ScreeningChips";
 import { whyRead } from "../../shared/literatureScreening";
 import { safeExternalHref } from '../../shared/externalLink';
 
@@ -97,8 +97,10 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                     <span className="lit-meta__journal" title={c.journal}>{c.journal || "Journal not listed"}</span>
                     <span className="lit-meta__id lit-mono">{identifier.label}</span>
                   </span>
-                  <a className="lit-link lit-open-paper" href={paper.href} target="_blank" rel="noopener noreferrer" aria-label={`Open paper: ${c.title}`}><ExternalLink aria-hidden="true" />Open paper<span className="sr-only"> (opens in a new tab)</span></a>
-                  {onSelect && <button type="button" className="lit-link lit-inspect-paper" aria-pressed={selectedId === c.id} onClick={() => onSelect(c.id)}>Inspect source</button>}
+                  <span className="lit-row-actions">
+                    <a className="lit-link lit-open-paper" href={paper.href} target="_blank" rel="noopener noreferrer" aria-label={`Open paper: ${c.title}`}><ExternalLink aria-hidden="true" />Open paper<span className="sr-only"> (opens in a new tab)</span></a>
+                    {onSelect && <button type="button" className="lit-link lit-inspect-paper" aria-pressed={selectedId === c.id} onClick={() => onSelect(c.id)}>Inspect source</button>}
+                  </span>
                   {whyRead(paper.screening) && <p className="lit-why-read" title={whyRead(paper.screening) ?? undefined}>Why read this: {whyRead(paper.screening)}</p>}
                   <span className="lit-chips">
                     <ScreeningChips tags={paper.screening.tags} />
@@ -141,9 +143,7 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                 <tr className="lit-detail" id={detailId}>
                   <td />
                   <td colSpan={3}>
-                    {Array.from(new Map(paper.screening.tags.map(tag => [tag.quote, {
-                      ...tag, label: paper.screening.tags.filter(item => item.quote === tag.quote).map(item => screeningTagLabels[item.tag]).join(" · ")
-                    }])).values()).map(tag => (
+                    {tagsByQuote(paper.screening.tags).map(tag => (
                       <figure className="lit-quote" key={`${tag.tag}-${tag.source}`}>
                         <figcaption className="lit-quote__label">{tag.label} · {tag.source.replace(/-/g, " ")}</figcaption>
                         <blockquote><MarkedText text={tag.quote} gene={gene} forms={forms} /></blockquote>
@@ -177,11 +177,6 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                       />
                     )}
                     <div className="lit-actions">
-                      <a className="lit-link" href={paper.href} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink aria-hidden="true" />
-                        {paper.hrefLabel}
-                        <span className="sr-only"> (opens in a new tab)</span>
-                      </a>
                       <button type="button" className="lit-link lit-link--btn" onClick={() => copy(c.id)} aria-live="polite">
                         {copied === c.id ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                         {copied === c.id ? "Copied" : identifier.kind === "pmid" ? "Copy PMID" : "Copy ID"}
