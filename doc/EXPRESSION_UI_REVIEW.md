@@ -22,7 +22,7 @@ No measurements, thresholds or classification rules changed.
 ## Verification
 
 - `npm run lint` (boundaries, focus indicators, verify parity, `tsc --noEmit`): passes.
-- Vitest, `src/components/evidence`, `src/components/inspector`, `EvidenceContextTabs` and `src/shared/__tests__`: 147 files, 2,133 tests pass (run on the branch rebased onto current `main`). New tests cover the singular and plural system count, the summary's place in the panel, the missing scale caption, the blank-transcript fallback, and the provenance table.
-- E2E, `tests/expression-workspace.e2e.ts`: 3 of 3 pass on a fresh Vite server (`APP_URL=http://localhost:3055`). It checks that the navigation, review control and panel tops are identical across the four views at 1440, 800 and 390px, in light and dark.
+- Vitest, `src/components/evidence`, `src/components/inspector`, `EvidenceContextTabs` and `src/shared/__tests__`: 147 files, 2,139 tests pass (run on the branch merged with current `main`; lint and e2e re-run after that merge). New tests cover the singular and plural system count, the summary's place in the panel, the missing scale caption, the blank-transcript fallback, and the provenance table.
+- E2E, `tests/expression-workspace.e2e.ts`: 3 of 3 pass on a fresh Vite server. It checks that the navigation, review control and panel tops are identical across the four views at 1440, 800 and 390px, in light and dark.
 - Browser measurements at 1753px and 800px on the illustrative "Dense expression" preset: value labels end about 55px from the right edge of the plot, the toolbar is one row, and the pext map starts scrolled to the variant's region (scrollLeft 200 of 200 at 800px).
 - The full Vitest suite and the production build were not run for this change. Browser checks use illustrative fixtures, not a live GATA4 analysis.
