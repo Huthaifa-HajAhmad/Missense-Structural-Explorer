@@ -1,5 +1,5 @@
 /* Expression & models: the review frame, the finding, and the coverage strip. Tokens only. */
-.xp-workspace.cx-screen { gap: 24px; }
+.xp-workspace.cx-screen { gap: 16px; }
 .xp-workspace .cx-empty { padding-block: 12px; }
 .xp-summary { padding-block: 4px 8px; display: grid; gap: 6px; }
 .xp-summary h2 { font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
@@ -24,9 +24,6 @@
 .xp-rail .ctx-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .xp-rail .ctx-details > summary:active { color: var(--cs-text-primary); }
 
-.xp-frame__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); gap: 16px; align-items: start; }
-@container (max-width: 640px) { .xp-frame__row { grid-template-columns: minmax(0, 1fr); } }
-
 .xp-hero__body { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 16px; }
 .xp-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .xp-eyebrow { display: inline-flex; align-items: center; gap: 6px; }
@@ -38,13 +35,13 @@
 .xp-hero__finding { color: var(--cs-text-secondary); }
 .xp-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
-.xp-review-settings { border-block: 1px solid var(--cs-border-subtle); }
-.xp-review-settings > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-height: 44px; padding-block: 8px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }
-.xp-review-settings > summary::before { content: '+'; font-size: 16px; }
-.xp-review-settings[open] > summary::before { content: '−'; }
-.xp-review-settings > summary > span { margin-inline-start: auto; font-size: 12px; color: var(--cs-text-secondary); }
+.xp-review-settings { border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface); }
+.xp-review-settings > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-height: 44px; padding: 10px 14px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }
+/* Drawn with borders, not a text character, so screen readers do not read out an arrowhead. */
+.xp-review-settings > summary::after { content: ''; inline-size: 7px; block-size: 7px; margin-inline-start: auto; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); }
+.xp-review-settings[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+.xp-review-settings > summary > span { font-size: 12px; color: var(--cs-text-secondary); }
 .xp-review-settings > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.xp-review-settings > .xp-frame { margin-bottom: 16px; }
 .xp-workspace[data-comparison] { container-type: inline-size; gap: 16px; }
 .xp-workspace[data-comparison] .xp-hero__body { display: grid; grid-template-columns: minmax(200px, .7fr) minmax(0, 1.3fr); gap: 10px 24px; align-items: center; }
 .xp-workspace[data-comparison] :is(.xp-hero__top, .cx-finding-details, .xp-callout) { grid-column: 1 / -1; }
@@ -53,11 +50,9 @@
 .xp-workspace[data-comparison] .cx-finding-details { margin-top: 0; }
 .xp-workspace[data-comparison] .cx-finding-details > summary { padding-block: 6px; }
 .xp-workspace[data-comparison] .cx-explorer { gap: 8px; }
-.xp-workspace[data-comparison] .cx-controls { margin-block: 8px; }
 .xp-workspace[data-comparison] .cx-records { margin-block: 10px; border: 0; }
 @container (max-width: 650px) {
   .xp-workspace[data-comparison] .xp-hero__body { grid-template-columns: minmax(0, 1fr); }
-  .xp-review-settings > summary > span { margin-inline-start: 0; }
 }
 
 /* One cell per review system: measured (top tissue and median) or not sampled by GTEx. */
@@ -95,3 +90,41 @@
 .xp-pext-scroll { overflow: auto; max-inline-size: 100%; }
 .xp-pext-scroll:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .xp-pext-scroll .xp-pext-map { inline-size: 900px; min-inline-size: 900px; block-size: 104px; margin-block: 0; margin-inline: auto; }
+
+/* Keep all four views on the same spacing rhythm. */
+.xp-workspace .evw-panel { gap: 16px; }
+/* These toolbar rules use .xp-workspace.cx-screen because context-workspace.css sets the same properties at the same specificity and loads later; without the extra class the search field shrinks to 22ch.
+   The toolbar keeps that file's bottom alignment and its 38px caption, so search, filters, buttons and the count share one baseline. */
+.xp-workspace.cx-screen .cx-controls { flex: 1 1 26rem; gap: 12px; }
+.xp-workspace.cx-screen .cx-controls label:first-child { flex: 1 1 14rem; }
+.xp-workspace.cx-screen .cx-controls input[type="search"] { inline-size: 100%; }
+.xp-workspace.cx-screen .cx-record-toolbar > .viz-action { min-block-size: 38px; }
+.xp-workspace .cx-guide { border-block-end: 0; }
+.xp-workspace .cx-guide > div { max-inline-size: none; }
+.xp-review-settings > .xp-frame { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
+.xp-review-settings > summary .xp-review-disease { flex: 1 1 25ch; overflow-wrap: anywhere; }
+.xp-review-settings > summary:active { background: var(--cs-surface-2); }
+.xp-workspace .xp-system-note { margin-block: 0; }
+.xp-pext-reference { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-size: 12px; }
+.xp-workspace [data-testid="pext-card"] tr[data-selected] { background: var(--cs-workbench-header-surface); }
+.xp-rail .evw-inspection[data-empty] { border: 0; margin-block-end: 8px; padding-block-end: 0; }
+.xp-rail > .xp-boundary { margin-block: 0 16px; }
+.xp-rail .rail-section { border-block-start: 0; }
+.xp-rail > .ctx-details { border-block: 0; }
+
+/* Expression provenance only (the Species rail still lists its sources as a stack). One row per source: name, then a collapsed release line. */
+.xp-provenance-table { inline-size: 100%; border-collapse: collapse; font-size: 12px; }
+.xp-provenance-table :is(th, td) { text-align: start; vertical-align: top; border-block-end: 1px solid var(--cs-border-subtle); overflow-wrap: anywhere; }
+.xp-provenance-table tbody tr:last-child > * { border-block-end: 0; }
+.xp-provenance-table thead { color: var(--cs-text-muted); }
+.xp-provenance-table thead th { padding: 10px 6px; }
+.xp-provenance-table tbody th { padding: 13px 6px 10px; font-weight: 500; inline-size: 40%; }
+.xp-provenance-table tbody td { padding: 0 6px; }
+.xp-provenance-table .xp-prov { border: 0; padding: 0; margin: 0; }
+.xp-provenance-table .xp-prov > summary { justify-content: start; align-items: center; gap: 6px; padding: 0; min-block-size: 44px; }
+.xp-provenance-table .xp-prov > summary::before { margin-inline-end: 4px; }
+.xp-provenance-table .xp-prov__name { display: none; }
+.xp-provenance-table .xp-prov__meta { margin: 0; }
+
+.xp-pext-reference p { margin-block: 0; }
+.xp-pext-reference p + p { margin-block-start: 4px; }

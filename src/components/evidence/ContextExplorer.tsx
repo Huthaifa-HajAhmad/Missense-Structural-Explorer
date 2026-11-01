@@ -98,6 +98,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
         {(tab === 'expression-models' || group === 'phenotypes') && <label className="cx-check"><input type="checkbox" disabled={expression && !hasReviewSystems} checked={relevantOnly} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />{expression ? 'Selected systems only' : relevantLabel}</label>}
         {expression && !hasReviewSystems && onChooseSystems && <button type="button" className="viz-action" onClick={onChooseSystems}>Choose systems</button>}
       </div>}
+      {page.total > CX_PAGE_LIMIT && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? `Show first ${CX_PAGE_LIMIT}` : `Show all ${page.total} records`}</button>}
       {!config.captionBeforeControls && caption}
       </div>
       {group === 'developmental' && page.sourceCount > 0 && <p className="cx-caption">Sampled age is independent of disease onset. Cohorts are descriptive, not a developmental trajectory.</p>}
@@ -122,13 +123,9 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
             <th scope="row"><InspectReadingButton tab={tab} readingKey={r.key}>{r.name}</InspectReadingButton></th><td>{tab === 'expression-models' && r.value !== null ? `${r.value} TPM` : r.valueText}</td><td>{r.source}<small>{r.description}</small></td>
           </tr>)}</tbody></table></div>}
         </div>}
-      {page.total > CX_PAGE_LIMIT && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? `Show first ${CX_PAGE_LIMIT}` : `Show all ${page.total} records`}</button>}
-      {expression && page.rows.length > 0 && <p className="cx-caption">Selected systems first, then highest median. Filters change visibility, not the source scale.</p>}
-      {/* The matrix's own heading already says to select a submitter or category; repeating it under the figure is noise. */}
-      {page.rows.length > 0 && !(w.comparison && tab === 'gene-disease' && group === 'validity') && <p className="cx-caption">
-        {w.comparison && tab === 'expression-models'
-          ? `Linear TPM scale: 0–${page.max || 1}. The scale uses the full source view and stays fixed when filtering. Zero is plotted at the origin; missing readings have no mark.`
-          : 'Select a record to pin its interpretation and provenance. Tab to a record, then press Enter or Space.'}
+      {/* The select-a-record hint is not repeated under the matrix (its heading says it) or under the expression chart (the readout line says it). */}
+      {!expression && page.rows.length > 0 && !(w.comparison && tab === 'gene-disease' && group === 'validity') && <p className="cx-caption">
+        Select a record to pin its interpretation and provenance. Tab to a record, then press Enter or Space.
       </p>}
     </div>
   </section>;

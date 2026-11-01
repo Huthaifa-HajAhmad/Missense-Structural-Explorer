@@ -48,18 +48,21 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
   const facts = buildSourceFacts({ adult: finding, developmental: context.developmentalLoad, hpa: context.hpaLoad,
     pext: { load: context.pextLoad?.status ?? null, status: context.pextLoad?.data?.status ?? null, locationNote: pextLocation.state === 'no-locus' ? 'No verified GRCh38 position' : pextLocation.state === 'no-region' ? 'Outside the coding regions' : pextLocation.state === 'other-chromosome' ? 'Different chromosome from the gene record' : null,
       region: pextLocation.region ? { mean: pextLocation.region.mean, tissues: pextLocation.region.tissues.length } : null } });
+  const transcript = result.transcriptId?.trim() || result.predictorData?.transcriptId?.trim() || null;
+  const systemCount = context.selection.systems.length;
+  // The compact summary leads the Sampling view, and stands in when a section has no rows to plot. Other views start with their own figure.
+  const showHero = !workspace.enabled || workspace.view === 'records' || (workspace.comparison && !rows.some(row => row.group === (workspace.section || 'adult')));
   const reviewFrame = <ReviewFrame gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />;
   return <div data-evidence-screen className="ctx-screen cx-screen xp-workspace" data-testid="expression-models-screen" data-comparison={workspace.comparison || undefined}>
     <header className="ctx-heading"><div><h1 className="screen-title">{evidenceTab('expression-models').label}</h1><p className="screen-tab-description">Where the gene is measured, and which biological context remains uncovered.</p></div>
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <EvidenceViewTabs tab="expression-models" comparisonLabel="Tissue explorer" />
-    {(!workspace.enabled || workspace.comparison || workspace.view === 'records' || workspace.view === 'pext') && (workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary>Review context · {chosen ? `${chosen.label} · ${chosen.inheritance.label}` : 'No disease selected'}</summary>{reviewFrame}</details> : reviewFrame)}
-    {(!workspace.enabled || workspace.comparison || workspace.view === 'records') && <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} activeFinding={activeFinding} />}
+    {(workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary><strong>Review context</strong><span>{systemCount ? `${systemCount} ${systemCount === 1 ? 'system' : 'systems'}` : 'All systems'}</span><span className="xp-review-disease">{chosen?.label ?? 'No disease selected'}</span></summary>{reviewFrame}</details> : reviewFrame)}
     <EvidencePanel tab="expression-models">
+      {showHero && <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} activeFinding={activeFinding} />}
       {(!workspace.enabled || workspace.comparison || workspace.view === 'records') && <ContextExplorer tab="expression-models" rows={rows} hasReviewSystems={context.selection.systems.length > 0} onChooseSystems={chooseSystems} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}
         empty={<ContextSourceState name={workspace.section === 'developmental' ? 'dGTEx' : 'GTEx'} load={workspace.section === 'developmental' ? context.developmentalLoad : context.expressionLoad} onRetry={workspace.section === 'developmental' ? context.retryDevelopment : context.retryExpression} />} />}
-
     <EvidenceTopic tab="expression-models" view="records">
     <HpoAnnotationCard load={context.hpoLoad} hasDisease={!!context.selection.diseaseKey} hasIds={!!context.hpoIds} diseaseId={chosen?.diseaseId ?? null} selection={context.selection} onChange={context.setSelection} onRetry={context.retryHpo} />
     </EvidenceTopic>
@@ -71,8 +74,8 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     <HpaCard load={context.hpaLoad} onRetry={context.retryHpa} />
     </EvidenceTopic>
     <EvidenceTopic tab="expression-models" view="pext">
-    <p className="ctx-caption">Review systems: {context.selection.systems.length ? context.selection.systems.map(id => REVIEW_SYSTEMS.find(system => system.id === id)?.label).join(', ') : 'All sampled systems'}. Related tissues are listed first; these choices are not patient findings. <button type="button" className="viz-action" onClick={chooseSystems}>Change review systems</button></p>
-    <PextCard load={context.pextLoad} site={site} systems={context.selection.systems} tissueLabels={gtexLabels} onRetry={context.retryPext} />
+    <p className="ctx-caption xp-system-note">Review systems: {context.selection.systems.length ? context.selection.systems.map(id => REVIEW_SYSTEMS.find(system => system.id === id)?.label).join(', ') : 'All sampled systems'}. Related tissues are listed first; these choices are not patient findings. <button type="button" className="viz-action" onClick={chooseSystems}>Change review systems</button></p>
+    <PextCard transcript={transcript} load={context.pextLoad} site={site} systems={context.selection.systems} tissueLabels={gtexLabels} onRetry={context.retryPext} />
     </EvidenceTopic>
     <EvidenceTopic tab="expression-models" view="records"><section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
       <div><dt>Prenatal</dt><dd>Prenatal and organ-specific atlases (BrainSpan, Cardoso-Moreira, stage-specific Bgee) are not read. dGTEx covers the pediatric public age cohorts only.</dd></div>

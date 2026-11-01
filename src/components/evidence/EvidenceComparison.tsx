@@ -14,6 +14,10 @@ import { useEvidenceWorkspace } from './EvidenceWorkspace';
  *  and the axis guide's "0" (centred by CSS) stays over it. */
 const ALPHAGENOME_SIDE_MARGIN = 150;
 
+/** Room right of the expression plot for the value text ("145.6 TPM" is about 60px wide) plus its 18px gap. The row names
+ *  need much more room, but only on the left, so this side stays small. */
+const EXPRESSION_VALUE_MARGIN = 112;
+
 /** Per-tab GEOMETRY only (margins, hit heights, controls); values and interpretation come from the model. */
 export default function EvidenceComparison({ tab, model, title, description }: {
   tab: EvidenceWorkspaceTab; model: EvidenceChartModel; title: string; description: string;
@@ -28,9 +32,9 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const returned = model.rows.filter(r => r.value !== null).length;
   const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models', 'perturbation'].includes(tab);
   // Width of the longest tissue name: about 6.4px per character at 12px, plus 28px of padding, kept between 175 and 245px.
-  // This is an estimate (capital letters run wider), so the cap, not the text, decides for very long names.
+  // This is an estimate (capital letters run wider), so the cap, not the text, decides for very long names. It sizes the left side only.
   const expressionLabelWidth = Math.min(245, Math.max(175, ...model.rows.filter(r => r.value !== null).map(r => Math.ceil(r.name.length * 6.4) + 28)));
-  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : tab === 'expression-models' ? expressionLabelWidth : tab === 'alphagenome' ? ALPHAGENOME_SIDE_MARGIN : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
+  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : tab === 'expression-models' ? EXPRESSION_VALUE_MARGIN : tab === 'alphagenome' ? ALPHAGENOME_SIDE_MARGIN : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
     left: tab === 'expression-models' ? expressionLabelWidth : tab === 'clinical' ? populationLabelWidth(model.rows.filter(r => r.value !== null).map(r => r.name)) : tab === 'alphagenome' ? ALPHAGENOME_SIDE_MARGIN : labelled ? 150 : 135 }),
     [tab, labelled, model, expressionLabelWidth]);
   const rowLabel = useMemo(() => (name: string) => tab === 'clinical' ? populationRowLabel(name) : name, [tab]);

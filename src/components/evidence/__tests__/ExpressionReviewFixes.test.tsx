@@ -13,7 +13,9 @@ const data: PextResponse = { gene: 'TEST', status: 'ready', geneId: 'ENSG1', chr
 
 describe('Expression review fixes', () => {
   it('exposes exact region means and missingness outside mouse hover, and summarises tied tissue values', () => {
-    render(<PextCard load={{ status: 'ready', data }} site={{ chrom: '21', pos: 350 }} systems={[]} onRetry={vi.fn()} />);
+    render(<PextCard transcript="NM_013809.3" load={{ status: 'ready', data }} site={{ chrom: '21', pos: 350 }} systems={[]} onRetry={vi.fn()} />);
+    expect(screen.getByText('NM_013809.3')).toBeVisible();
+    expect(screen.getByText(/They do not show the exon structure or expression of this transcript/)).toBeVisible();
     expect(screen.getByText('Variant in region 2 of 2')).toBeVisible();
     expect(screen.getByText(/All 2 tissues have base-level pext/)).toHaveTextContent('0.00');
     fireEvent.click(screen.getByText('All 2 tissues'));
@@ -24,6 +26,11 @@ describe('Expression review fixes', () => {
     expect(within(table).getByText('Not reported')).toBeVisible();
     expect(within(table).getByText('0.123456')).toBeVisible();
     expect(within(table).getByRole('rowheader', { name: '2 (variant)' })).toBeVisible();
+  });
+  it('names no transcript, and does not claim one, when none is known', () => {
+    render(<PextCard load={{ status: 'ready', data }} site={{ chrom: '21', pos: 350 }} systems={[]} onRetry={vi.fn()} />);
+    expect(screen.queryByText(/Annotation transcript/)).not.toBeInTheDocument();
+    expect(screen.getByText(/expression of the transcript carrying the variant/)).toBeVisible();
   });
   it('keeps relevant tissues visible and other tissues reachable in their disclosure', () => {
     render(<PextCard load={{ status: 'ready', data }} site={{ chrom: '21', pos: 350 }} systems={['renal']} onRetry={vi.fn()} />);

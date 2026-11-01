@@ -21,7 +21,7 @@ function TissueBars({ tissues, labels }: { tissues: Array<{ tissue: string; valu
 }
 
 /** `tissueLabels` maps gnomAD's snake_case tissue ids to the GTEx names the adult table shows, so one tissue has one name. */
-export function PextCard({ load, site, systems, tissueLabels = new Map(), onRetry }: { load?: ContextLoad<PextResponse>; site: PextSite | null; systems: ReviewSystemId[]; tissueLabels?: Map<string, string>; onRetry: () => void }) {
+export function PextCard({ load, site, transcript = null, systems, tissueLabels = new Map(), onRetry }: { transcript?: string | null; load?: ContextLoad<PextResponse>; site: PextSite | null; systems: ReviewSystemId[]; tissueLabels?: Map<string, string>; onRetry: () => void }) {
   const id = useId();
   const data = load?.data ?? null;
   const location = locatePext(data, site);
@@ -43,6 +43,7 @@ export function PextCard({ load, site, systems, tissueLabels = new Map(), onRetr
             </div>
             <div className="xp-pext-key" role="img" aria-label="Mean pext shading scale from zero to one"><span>Mean pext across tissues</span><div aria-hidden="true" /><span>0 <span>1</span></span><small>Darker = higher proportion</small></div>
           </div>
+          <div className="xp-pext-reference">{transcript && <p>Annotation transcript <strong className="ctx-mono">{transcript}</strong></p>}<p>These regions summarize expression across transcripts. They do not show the exon structure or expression of {transcript ? 'this transcript' : 'the transcript carrying the variant'}.</p></div>
           <PextStrip regions={data.regions} activeIndex={location.index} position={site?.pos ?? null} />
           <p className="ctx-caption">{data.regions.length} coding {data.regions.length === 1 ? 'region' : 'regions'} in order, width by coding length, darker = higher mean pext across tissues. Introns are not drawn.</p>
           {location.state !== 'region' && <p className="ctx-prose">{LOCATION_NOTE[location.state]}</p>}
@@ -52,7 +53,7 @@ export function PextCard({ load, site, systems, tissueLabels = new Map(), onRetr
           <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Coding region values"><table className="ctx-table">
             <caption className="ctx-sr-only">Exact mean pext across tissues for every coding region. Missing means are not zero.</caption>
             <thead><tr><th scope="col">Region</th><th scope="col">GRCh38 start</th><th scope="col">GRCh38 end</th><th scope="col">Mean pext</th></tr></thead>
-            <tbody>{data.regions.map((region, index) => <tr key={`${region.start}-${region.stop}`}>
+            <tbody>{data.regions.map((region, index) => <tr key={`${region.start}-${region.stop}`} data-selected={index === location.index || undefined}>
               <th scope="row">{index + 1}{index === location.index ? ' (variant)' : ''}</th><td>{region.start.toLocaleString()}</td><td>{region.stop.toLocaleString()}</td><td>{region.mean === null ? 'Not reported' : region.mean}</td>
             </tr>)}</tbody>
           </table></div>

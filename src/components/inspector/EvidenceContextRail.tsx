@@ -84,6 +84,6 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
       </ul>}</details>
       {!!systems.length && <details className="rail-notes"><summary>What each system covers</summary><ul>{systems.map(id => { const s = REVIEW_SYSTEMS.find(r => r.id === id)!; return <li key={id}><strong>{s.label}</strong>: {s.anatomy}</li>; })}</ul></details>}
     </section>
-    {!!provenance.length && <section className="rail-section" aria-labelledby="ctx-rail-prov"><h3 className="eyebrow" id="ctx-rail-prov">Provenance</h3><div data-testid="context-provenance">{provenance.map(p => <Provenance key={`${p.source}:${p.sha256}`} provenance={p} />)}</div></section>}
+    {!!provenance.length && <section className="rail-section" aria-labelledby="ctx-rail-prov"><h3 className="eyebrow" id="ctx-rail-prov">Provenance</h3><div data-testid="context-provenance">{species ? provenance.map(p => <Provenance key={`${p.source}:${p.sha256}`} provenance={p} />) : <table className="xp-provenance-table"><caption className="ctx-sr-only">Source releases and retrieval details</caption><thead><tr><th scope="col">Source</th><th scope="col">Release / date</th></tr></thead><tbody>{provenance.map(p => <tr key={`${p.source}:${p.sha256}`}><th scope="row">{p.source}</th><td><Provenance provenance={p} name="" /></td></tr>)}</tbody></table>}</div></section>}
   </div>;
 }
