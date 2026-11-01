@@ -2,19 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateMutantPdb = vi.fn();
 const requestBackgroundRepair = vi.fn();
+const runStabilityOracleAnalysisDetailed = vi.fn<(...args: any[]) => Promise<any>>(async () => ({ kind: "unavailable", reason: "not running" }));
+const runRaspLocal = vi.fn<(...args: any[]) => Promise<any>>(async () => null);
+const RASP_STORE_UNAVAILABLE_REASON = "Pre-computed RaSP database unavailable";
+const mutateJobData = vi.fn(async (_jobId: string, fn: (cur: any) => any) => {
+  fn({ remoteJobs: {} });
+});
 
 vi.mock("../biophysics.ts", () => ({
   generateMutantPdb: (...args: unknown[]) => generateMutantPdb(...args),
   enrichBiophysicalResult: (foldx: unknown) => foldx,
   getRaspCoverage: () => null,
-  runRaspLocal: async () => null,
-  runStabilityOracleAnalysis: async () => null
+  runRaspLocal: (...args: any[]) => runRaspLocal(...args),
+  RASP_STORE_UNAVAILABLE_REASON,
+  runStabilityOracleAnalysisDetailed: (...args: any[]) => runStabilityOracleAnalysisDetailed(...args)
 }));
 vi.mock("../infra/biophysical-queue.ts", () => ({
   BiophysicalJobQueue: {
     getInstance: () => ({
       getJobData: async () => null,
-      mutateJobData: async () => undefined,
+      mutateJobData: (jobId: string, fn: (cur: any) => any) => mutateJobData(jobId, fn),
       updateJobPhase: async () => undefined
     })
   }
@@ -37,6 +44,8 @@ const result = (energetics: Record<string, unknown>) => ({ pdb: "x", ddG: 0, sta
 beforeEach(() => {
   generateMutantPdb.mockReset();
   requestBackgroundRepair.mockReset();
+  runStabilityOracleAnalysisDetailed.mockReset().mockResolvedValue({ kind: "unavailable", reason: "not running" });
+  runRaspLocal.mockReset().mockResolvedValue(null);
   requestBackgroundRepair.mockResolvedValue({ status: "scheduled", finished: Promise.resolve() });
 });
 
@@ -127,5 +136,72 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     expect(out).toBe(foldx);
     expect(unhandled, "a failed request must not become an unhandled rejection").not.toHaveBeenCalled();
     process.off("unhandledRejection", unhandled);
+  });
+
+  it("publishes the three StabilityOracle outcomes apart: unavailable, a sidecar rejection, and a score", async () => {
+    const publishedRemote: Record<string, unknown>[] = [];
+    mutateJobData.mockImplementation(async (_jobId: string, fn: (cur: any) => any) => {
+      const next = fn({ remoteJobs: {} });
+      if (next?.remoteJobs) publishedRemote.push(next.remoteJobs);
+    });
+    generateMutantPdb.mockResolvedValue(result({}));
+
+    runStabilityOracleAnalysisDetailed.mockResolvedValueOnce({ kind: "unavailable", reason: "sidecar not reachable" });
+    await runFoldxQueueJobOnServer(data, undefined, "job-unavailable");
+    expect(publishedRemote.some(r => r.stabilityoracleStatus === "unavailable" && r.stabilityoracleVal === null)).toBe(true);
+
+    publishedRemote.length = 0;
+    runStabilityOracleAnalysisDetailed.mockResolvedValueOnce({ kind: "error", message: "Wild-type residue mismatch at position 489" });
+    await runFoldxQueueJobOnServer(data, undefined, "job-error");
+    expect(publishedRemote.some(r => r.stabilityoracleStatus === "error" && (r.stabilityoracleError as string).includes("Wild-type residue mismatch"))).toBe(true);
+
+    publishedRemote.length = 0;
+    runStabilityOracleAnalysisDetailed.mockResolvedValueOnce({
+      kind: "value",
+      result: { ddG: 1.85, isStabilizing: false, contactsAnalyzed: 40, provenance: "StabilityOracle" },
+    });
+    await runFoldxQueueJobOnServer(data, undefined, "job-done");
+    expect(publishedRemote.some(r => r.stabilityoracleStatus === "done" && r.stabilityoracleVal === 1.85)).toBe(true);
+  });
+
+  it("never submits StabilityOracle without the template it scores; it reports unavailability instead", async () => {
+    const publishedRemote: Record<string, unknown>[] = [];
+    mutateJobData.mockImplementation(async (_jobId: string, fn: (cur: any) => any) => {
+      const next = fn({ remoteJobs: {} });
+      if (next?.remoteJobs) publishedRemote.push(next.remoteJobs);
+    });
+    generateMutantPdb.mockResolvedValue(result({}));
+    await runFoldxQueueJobOnServer({ ...data, wtPdb: undefined, uniprotId: "Q9H8M5" }, undefined, "job-no-template");
+    expect(runStabilityOracleAnalysisDetailed).not.toHaveBeenCalled();
+    expect(publishedRemote.some(r => r.stabilityoracleStatus === "unavailable")).toBe(true);
+  });
+
+  it("keeps the RaSP status contract honest: a usable index is done, a store fault is unavailable, and nothing consulted is unavailable too", async () => {
+    const publishedRemote: Record<string, unknown>[] = [];
+    mutateJobData.mockImplementation(async (_jobId: string, fn: (cur: any) => any) => {
+      const next = fn({ remoteJobs: {} });
+      if (next?.remoteJobs) publishedRemote.push(next.remoteJobs);
+    });
+    generateMutantPdb.mockResolvedValue(result({}));
+
+    runRaspLocal.mockResolvedValueOnce({ score: 0.42, reason: null, source: "alphafold" } as any);
+    await runFoldxQueueJobOnServer(data, undefined, "job-rasp-done");
+    expect(publishedRemote.some(r => r.raspStatus === "done" && r.raspVal === 0.42)).toBe(true);
+
+    publishedRemote.length = 0;
+    runRaspLocal.mockResolvedValueOnce({ score: null, reason: RASP_STORE_UNAVAILABLE_REASON } as any);
+    await runFoldxQueueJobOnServer(data, undefined, "job-rasp-store");
+    expect(publishedRemote.some(r => r.raspStatus === "unavailable" && r.raspReason === RASP_STORE_UNAVAILABLE_REASON)).toBe(true);
+
+    publishedRemote.length = 0;
+    runRaspLocal.mockResolvedValueOnce({ score: null, reason: "Residue position is not present in the pre-computed database", source: "alphafold" } as any);
+    await runFoldxQueueJobOnServer(data, undefined, "job-rasp-miss");
+    // A genuine coverage miss stays a completed lookup with the miss sentence attached.
+    expect(publishedRemote.some(r => r.raspStatus === "done" && r.raspVal === null && (r.raspReason as string).includes("not present"))).toBe(true);
+
+    publishedRemote.length = 0;
+    await runFoldxQueueJobOnServer({ ...data, uniprotId: undefined }, undefined, "job-no-uniprot");
+    expect(publishedRemote.some(r => r.raspStatus === "unavailable")).toBe(true);
+    expect(publishedRemote.some(r => r.protvarStatus === "unavailable")).toBe(true);
   });
 });

@@ -75,7 +75,8 @@ describe("ThermoMPNN and Folding Engine verifyStability Bridges", () => {
         uniprotId: "P00439",
         mutation: { chain: "A", position: 2, wt: "T", mt: "V" },
         engine: "esmfold",
-        wtPdb: "ATOM 1 CA ALA A 1 0.000 0.000 0.000 1.00 90.00 C",
+        // Well-formed for the new integrity gate: chain A holds THR (T) at position 2.
+        wtPdb: "ATOM      1  CA  MET A   1       0.000   0.000   0.000  1.00 90.00           C\nATOM      2  CA  THR A   2       1.000   0.000   0.000  1.00 90.00           C",
         wtSeq: "MTEYKL"
       },
       headers: {

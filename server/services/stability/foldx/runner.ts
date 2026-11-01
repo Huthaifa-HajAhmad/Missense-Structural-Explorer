@@ -731,7 +731,7 @@ export async function generateMutantPdbInternal(
             await fs.promises.unlink(path.join(jobDir, name));
           }
         }
-        await fs.promises.writeFile(fullWtPath, cachedRepairRejected ? cleanedWt : wtPdb, "utf8");
+        await fs.promises.writeFile(fullWtPath, cleanedWt, "utf8");
         await execFileAsync(foldxBin, [
           "--command=BuildModel",
           "--pdb=wt.pdb",

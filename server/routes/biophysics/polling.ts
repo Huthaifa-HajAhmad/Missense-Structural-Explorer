@@ -703,24 +703,26 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
       const { wtLetter, mutLetter, posNum, chainParam } = parsed;
 
-      let resolvedChain = chainParam;
-      try {
-        const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
-        const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain === chainParam));
-        if (targetRes) {
-          resolvedChain = targetRes.chain;
-        } else {
-          const fallbackRes = pdbResidues.find(r => r.resSeq === posNum);
-          if (fallbackRes) {
-            resolvedChain = fallbackRes.chain;
-          }
-        }
-      } catch (pdbErr) {
-        console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
+      const cleanedPdb = cleanPdbForFoldX(wtPdb);
+      const pdbResidues = await parseResiduesFromPdbMaybeAsync(cleanedPdb);
+      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain.toUpperCase() === chainParam.toUpperCase()));
+      if (!targetRes) {
+        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum}${chainParam ? ` on chain ${chainParam.toUpperCase()}` : ""} is not found in the PDB structure.`);
+        return;
       }
-      const resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+      const expectedWt3 = AMINO_ACID_1_TO_3[wtLetter.toUpperCase()];
+      if (expectedWt3 && targetRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
+        sendError(
+          res,
+          422,
+          "UNPROCESSABLE_ENTITY",
+          `Wild-type residue mismatch: the mutation expects ${wtLetter} (${expectedWt3}) at position ${posNum}, but the structure has ${targetRes.resName3} on chain ${targetRes.chain}. The structure may use its own numbering.`
+        );
+        return;
+      }
+      const resolvedChainUpper = targetRes.chain.toUpperCase() || "A";
 
-      const ddmutJobId = await submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
+      const ddmutJobId = await submitDdmutJob(cleanedPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
       if (ddmutJobId) {
         await recordJobInRegistry(ddmutJobId, "ddmut", mutation.trim());
       }
@@ -748,17 +750,44 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         return;
       }
 
+      const parsed = parseMutationParam(mutation);
+      if (!parsed) {
+        sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
+        return;
+      }
+      const { wtLetter, mutLetter, posNum, chainParam } = parsed;
+
+      const cleanedPdb = cleanPdbForFoldX(wtPdb);
+      const pdbResidues = await parseResiduesFromPdbMaybeAsync(cleanedPdb);
+      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain.toUpperCase() === chainParam.toUpperCase()));
+      if (!targetRes) {
+        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum}${chainParam ? ` on chain ${chainParam.toUpperCase()}` : ""} is not found in the PDB structure.`);
+        return;
+      }
+      const expectedWt3 = AMINO_ACID_1_TO_3[wtLetter.toUpperCase()];
+      if (expectedWt3 && targetRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
+        sendError(
+          res,
+          422,
+          "UNPROCESSABLE_ENTITY",
+          `Wild-type residue mismatch: the mutation expects ${wtLetter} (${expectedWt3}) at position ${posNum}, but the structure has ${targetRes.resName3} on chain ${targetRes.chain}. The structure may use its own numbering.`
+        );
+        return;
+      }
+      const resolvedChainUpper = targetRes.chain.toUpperCase() || "A";
+      const canonicalMutation = `${wtLetter}${resolvedChainUpper}${posNum}${mutLetter}`;
+
       const apiKey = (req.headers["x-tamarind-api-key"] as string) || undefined;
-      const thermoRes = await submitThermoMpnnJob(wtPdb, mutation, apiKey);
+      const thermoRes = await submitThermoMpnnJob(cleanedPdb, canonicalMutation, apiKey);
 
       if (thermoRes.jobId) {
-        await recordJobInRegistry(thermoRes.jobId, "thermompnn", mutation);
+        await recordJobInRegistry(thermoRes.jobId, "thermompnn", canonicalMutation);
       }
 
       res.json({
         thermompnnJobId: thermoRes.jobId || null,
         thermompnnStatus: thermoRes.status || "pending",
-        prediction: thermoRes.prediction || null,
+        prediction: thermoRes.prediction ?? null,
         error: thermoRes.error || null,
         thermoJobId: thermoRes.jobId || null,
         thermoStatus: thermoRes.status || "pending"

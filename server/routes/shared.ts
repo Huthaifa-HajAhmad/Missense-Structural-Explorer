@@ -97,12 +97,22 @@ export function getRegistryPath(): string {
 /** @deprecated Prefer {@link getRegistryPath}; a frozen path cannot be redirected under test. */
 export const REGISTRY_PATH = path.join(process.cwd(), "temp_jobs", "job_registry.json");
 
-export async function recordJobInRegistry(
+/**
+ * The registry used to lose entries when engines recorded concurrently: the read that an entry's
+ * write is based on straddled `await`s, so three registrations landing in the same second (the
+ * generation route starts them together) each serialized a snapshot that was missing the others'
+ * entries — and a lost entry means the engine's prediction is never backfilled to the mutant
+ * cache and its job can never be found for staleness checks. One process, one writer: every
+ * write waits for the previous one to finish.
+ */
+let registryWriteChain: Promise<void> = Promise.resolve();
+
+async function writeJobToRegistry(
   jobId: string,
   type: "dynamut2" | "ddmut" | "thermompnn",
   mutation: string,
   foldxCacheKey?: string
-) {
+): Promise<void> {
   try {
     const registryPath = getRegistryPath();
     let registry: RegistryJob[] = [];
@@ -136,6 +146,18 @@ export async function recordJobInRegistry(
   } catch (err: any) {
     console.warn("[Job Registry Warning] Failed to write job to registry:", err.message);
   }
+}
+
+export async function recordJobInRegistry(
+  jobId: string,
+  type: "dynamut2" | "ddmut" | "thermompnn",
+  mutation: string,
+  foldxCacheKey?: string
+): Promise<void> {
+  const write = registryWriteChain.then(() => writeJobToRegistry(jobId, type, mutation, foldxCacheKey));
+  // The chain itself must survive a write failure: each write's own try/catch resolves it.
+  registryWriteChain = write;
+  await write;
 }
 
 // ---------------------------------------------------------------------------

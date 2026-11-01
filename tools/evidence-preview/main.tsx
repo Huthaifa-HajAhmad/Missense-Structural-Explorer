@@ -58,7 +58,7 @@ function Preview() {
   const { isDark, setTheme } = useSettings();
   return <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--cs-bg)', color: 'var(--cs-text-primary)' }}>
     <header style={{ padding: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
-      <strong>Illustrative data · not scientific evidence</strong>
+      <strong>Illustrative data &middot; not scientific evidence</strong>
       <button className="viz-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
       <label>Evidence <select aria-label="Evidence" value={tab} onChange={e => {
         const next = e.target.value;

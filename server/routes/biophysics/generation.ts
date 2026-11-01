@@ -25,6 +25,7 @@ import {
   parseResiduesFromPdbMaybeAsync,
   runRaspLocal,
   getRaspCoverage,
+  RASP_STORE_UNAVAILABLE_REASON,
   submitThermoMpnnJob,
   cleanPdbForFoldX,
 } from "../../services/biophysics.ts";
@@ -33,7 +34,7 @@ import {
   buildFoldxCacheKey,
   submitOrJoinFoldxJob,
 } from "../../services/infra/foldx-job-registry.ts";
-import { runStabilityOracleAnalysis } from "../../services/stabilityoracle.ts";
+import { runStabilityOracleAnalysisDetailed } from "../../services/stabilityoracle.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import {
   performGeminiBiophysicalAnalysis,
@@ -687,16 +688,19 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
           }
           if (!inFlight.dynamut2Promise) {
-            inFlight.dynamut2Promise = submitDynaMut2Job(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
+            const createdD2Promise = submitDynaMut2Job(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
               .finally(() => {
                 setTimeout(() => {
                   const current = inFlightRemoteSubmissions.get(foldxCacheKey);
-                  if (current) delete current.dynamut2Promise;
+                  if (current && current.dynamut2Promise === createdD2Promise) {
+                    delete current.dynamut2Promise;
+                  }
                   if (current && !current.dynamut2Promise && !current.ddmutPromise) {
                     inFlightRemoteSubmissions.delete(foldxCacheKey);
                   }
                 }, 60000);
               });
+            inFlight.dynamut2Promise = createdD2Promise;
           }
 
           d2Promise = inFlight.dynamut2Promise
@@ -726,18 +730,21 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           }
           if (!inFlight.ddmutPromise) {
             // Stagger DDMut submission slightly (350ms) to avoid instantaneous host lock / rate limit collision on biosig.lab.uq.edu.au
-            inFlight.ddmutPromise = (async () => {
+            const createdDdmutPromise = (async () => {
               await new Promise(r => setTimeout(r, 350));
               return submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal);
             })().finally(() => {
               setTimeout(() => {
                 const current = inFlightRemoteSubmissions.get(foldxCacheKey);
-                if (current) delete current.ddmutPromise;
+                if (current && current.ddmutPromise === createdDdmutPromise) {
+                  delete current.ddmutPromise;
+                }
                 if (current && !current.dynamut2Promise && !current.ddmutPromise) {
                   inFlightRemoteSubmissions.delete(foldxCacheKey);
                 }
               }, 60000);
             });
+            inFlight.ddmutPromise = createdDdmutPromise;
           }
 
           ddmutPromise = inFlight.ddmutPromise
@@ -765,6 +772,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               if (resObj.status === "done" && resObj.prediction !== null) {
                 thermompnnVal = resObj.prediction;
                 thermompnnStatus = "done";
+                if (cachedFoldx?.energetics) {
+                  cachedFoldx.energetics.thermompnn = resObj.prediction;
+                  writeMutantToCache(foldxCacheKey, cachedFoldx);
+                }
               } else if (resObj.jobId && resObj.status === "pending") {
                 thermompnnJobId = resObj.jobId;
                 thermompnnStatus = "pending";
@@ -806,53 +817,63 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           isCacheHit = true;
 
           let finalStabilityoracleVal = stabilityoracleVal ?? cachedFoldx?.energetics?.stabilityoracle ?? null;
+          let finalStabilityoracleStatus: string | null =
+            typeof finalStabilityoracleVal === "number" ? "done" : null;
+          let finalStabilityoracleError: string | null = null;
+
           if (finalStabilityoracleVal === null && effectiveWtPdb) {
             try {
-              const soRes = await runStabilityOracleAnalysis(
+              const soOutcome = await runStabilityOracleAnalysisDetailed(
                 uniprotId || "UNKNOWN",
                 `${wtLetter}${posNum}${mutLetter}`,
                 uniprotId || "",
                 "",
-                effectiveWtPdb
+                effectiveWtPdb,
+                resolvedChainUpper
               );
-              if (soRes) {
-                finalStabilityoracleVal = soRes.ddG;
+              if (soOutcome.kind === "value" && typeof soOutcome.result.ddG === "number" && Number.isFinite(soOutcome.result.ddG)) {
+                finalStabilityoracleVal = soOutcome.result.ddG;
+                finalStabilityoracleStatus = "done";
+                if (cachedFoldx.energetics) {
+                  // Only a value goes to the long-lived cache. A transient outage's status,
+                  // persisted here, fossilised for a day: later readers inherited "unavailable"
+                  // or "error" for an engine the next lookup would happily answer.
+                  cachedFoldx.energetics.stabilityoracle = finalStabilityoracleVal;
+                  cachedFoldx.energetics.stabilityoracleStatus = "done";
+                  cachedFoldx.energetics.stabilityoracleError = null;
+                  writeMutantToCache(foldxCacheKey, cachedFoldx);
+                }
+              } else if (soOutcome.kind === "error") {
+                // A live sidecar REJECTING this query is not "not installed": say the rejection.
+                finalStabilityoracleStatus = "error";
+                finalStabilityoracleError = soOutcome.message;
+              } else {
+                finalStabilityoracleStatus = "unavailable";
+                finalStabilityoracleError = null;
               }
-              if (cachedFoldx.energetics) {
-                cachedFoldx.energetics.stabilityoracle = finalStabilityoracleVal;
-                cachedFoldx.energetics.stabilityoracleStatus = "done";
-                cachedFoldx.energetics.stabilityoracleError = null;
-              }
-              writeMutantToCache(foldxCacheKey, cachedFoldx);
             } catch (soErr: any) {
               console.warn("[StabilityOracle Cache Backfill Warning]:", soErr.message);
-              if (cachedFoldx.energetics) {
-                cachedFoldx.energetics.stabilityoracleStatus = "error";
-                cachedFoldx.energetics.stabilityoracleError = soErr.message;
-              }
+              finalStabilityoracleStatus = "error";
+              finalStabilityoracleError = soErr.message;
             }
-          } else if (cachedFoldx.energetics) {
-            cachedFoldx.energetics.stabilityoracleStatus = "done";
+          } else if (typeof finalStabilityoracleVal === "number") {
+            finalStabilityoracleStatus = "done";
+            if (cachedFoldx.energetics) {
+              cachedFoldx.energetics.stabilityoracleStatus = "done";
+            }
+          } else {
+            finalStabilityoracleStatus = "unavailable";
+            if (cachedFoldx.energetics) {
+              cachedFoldx.energetics.stabilityoracleStatus = "unavailable";
+            }
           }
 
           let finalThermompnnVal = thermompnnVal ?? cachedFoldx?.energetics?.thermompnn ?? null;
-          if (finalThermompnnVal === null && effectiveWtPdb) {
-            try {
-              const tmRes = await submitThermoMpnnJob(
-                cleanPdbForFoldX(effectiveWtPdb),
-                actualMutation,
-                tamarindApiKey,
-                AbortSignal.timeout(5000)
-              );
-              if (tmRes && typeof tmRes.prediction === "number") {
-                finalThermompnnVal = tmRes.prediction;
-                if (cachedFoldx.energetics) {
-                  cachedFoldx.energetics.thermompnn = finalThermompnnVal;
-                }
-                writeMutantToCache(foldxCacheKey, cachedFoldx);
-              }
-            } catch (tmErr: any) {
-              console.warn("[ThermoMPNN Cache Backfill Warning]:", tmErr.message);
+          if (typeof finalThermompnnVal === "number") {
+            thermompnnStatus = "done";
+            if (cachedFoldx.energetics && cachedFoldx.energetics.thermompnn !== finalThermompnnVal) {
+              cachedFoldx.energetics.thermompnn = finalThermompnnVal;
+              writeMutantToCache(foldxCacheKey, cachedFoldx);
             }
           }
 
@@ -868,15 +889,28 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           if (cachedFoldx.energetics && typeof cachedFoldx.energetics.rasp !== "number" && uniprotId) {
             try {
               const raspRes = await runRaspLocal("", "", resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
-              if (raspRes) {
+              if (raspRes && typeof raspRes.score === "number") {
                 cachedFoldx.energetics.rasp = raspRes.score;
                 cachedFoldx.energetics.raspReason = raspRes.reason;
                 cachedFoldx.energetics.raspSource = raspRes.source;
                 cachedFoldx.energetics.raspCoverage = getRaspCoverage() ?? undefined;
                 cachedFoldx.energetics.raspStatus = "done";
                 cachedFoldx.energetics.raspError = null;
-                // Persist only a real score: a miss may be a store fault that a rebuild will fix.
-                if (typeof raspRes.score === "number") writeMutantToCache(foldxCacheKey, cachedFoldx);
+                writeMutantToCache(foldxCacheKey, cachedFoldx);
+              } else if (raspRes && raspRes.reason === RASP_STORE_UNAVAILABLE_REASON) {
+                // A store the deployment cannot read is not a coverage fact and not a completed
+                // lookup; and persisting either would freeze the state until the next value
+                // arrives. Keep the answer in this response only — reason included, so the
+                // client classifies it as an operator-fixable fault, not about the protein.
+                cachedFoldx.energetics.raspStatus = "unavailable";
+                cachedFoldx.energetics.raspError = RASP_STORE_UNAVAILABLE_REASON;
+                cachedFoldx.energetics.raspReason = RASP_STORE_UNAVAILABLE_REASON;
+              } else if (raspRes) {
+                // A genuine coverage miss: keep the lookup's own sentence as the reason (only in
+                // this response), so the client renders "Not covered" rather than a failure.
+                cachedFoldx.energetics.raspStatus = "unavailable";
+                cachedFoldx.energetics.raspError = null;
+                cachedFoldx.energetics.raspReason = raspRes.reason;
               }
             } catch (raspErr: any) {
               console.warn("[RaSP Cache-Hit Lookup Warning]:", raspErr.message);
@@ -920,6 +954,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             thermompnnError,
             thermompnnVal: finalThermompnnVal,
             stabilityoracleVal: finalStabilityoracleVal,
+            stabilityoracleStatus: finalStabilityoracleStatus,
+            stabilityoracleError: finalStabilityoracleError,
             // Passed explicitly like every other engine, rather than relying on the in-place update above.
             protvarStatus: cachedFoldx.energetics?.protvarStatus ?? null,
             protvarVal: cachedFoldx.energetics?.protvar ?? null,

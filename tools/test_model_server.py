@@ -150,13 +150,35 @@ class TestModelServerHelpers(unittest.TestCase):
             predict_thermompnn_sync(req_empty)
         self.assertEqual(ctx.exception.status_code, 400)
 
-        # 3. Valid PDB structure - either returns official model prediction or explicit 503 (never fake numbers)
+        # 3. Wild-type residue mismatch must raise 422 instead of silently substituting parsed_wt
         sample_pdb = (
             "ATOM      1  N   ARG A 408      11.104  13.205  -9.943  1.00 80.00           N\n"
             "ATOM      2  CA  ARG A 408      11.500  14.500 -10.500  1.00 80.00           C\n"
             "ATOM      3  C   ARG A 408      12.000  14.000 -11.000  1.00 80.00           C\n"
             "ATOM      4  O   ARG A 408      12.500  13.000 -11.500  1.00 80.00           O\n"
         )
+        req_mismatch = ThermoMpnnRequest(pdb_content=sample_pdb, mutation="LA408W")
+        with self.assertRaises(HTTPException) as ctx_mismatch:
+            predict_thermompnn_sync(req_mismatch)
+        self.assertEqual(ctx_mismatch.exception.status_code, 422)
+
+        # 4. Missing position on offset crystal structure (min_resn > 0) must raise 422, not fall back to pos - 1
+        offset_pdb = (
+            "ATOM      1  N   ALA A  50      10.000  10.000  10.000  1.00 20.00           N\n"
+            "ATOM      2  CA  ALA A  50      11.000  10.000  10.000  1.00 20.00           C\n"
+            "ATOM      3  C   ALA A  50      12.000  10.000  10.000  1.00 20.00           C\n"
+            "ATOM      4  O   ALA A  50      13.000  10.000  10.000  1.00 20.00           O\n"
+            "ATOM      5  N   GLY A  55      20.000  10.000  10.000  1.00 20.00           N\n"
+            "ATOM      6  CA  GLY A  55      21.000  10.000  10.000  1.00 20.00           C\n"
+            "ATOM      7  C   GLY A  55      22.000  10.000  10.000  1.00 20.00           C\n"
+            "ATOM      8  O   GLY A  55      23.000  10.000  10.000  1.00 20.00           O\n"
+        )
+        req_missing = ThermoMpnnRequest(pdb_content=offset_pdb, mutation="AA2V")
+        with self.assertRaises(HTTPException) as ctx_missing:
+            predict_thermompnn_sync(req_missing)
+        self.assertEqual(ctx_missing.exception.status_code, 422)
+
+        # 5. Valid PDB structure - either returns official model prediction or explicit 503 (never fake numbers)
         req = ThermoMpnnRequest(pdb_content=sample_pdb, mutation="RA408W")
         try:
             result = predict_thermompnn_sync(req)
@@ -167,6 +189,38 @@ class TestModelServerHelpers(unittest.TestCase):
         except HTTPException as e:
             # Explicit 503 is expected if offline without pre-trained weights
             self.assertEqual(e.status_code, 503)
+
+    def test_stabilityoracle_featurization(self):
+        from tools.model_server_app.routers.stabilityoracle import featurize_pdb_for_stability_oracle
+
+        # Build a multi-chain PDB with HETATM water and varying B-factor / pLDDT columns
+        pdb_high_bfactor = (
+            "HETATM    1  O   HOH A  10       0.000   0.000   0.000  1.00 99.00           O\n"
+            "ATOM      2  N   GLY A  10      50.000  50.000  50.000  1.00 95.00           N\n"
+            "ATOM      3  CA  GLY A  10      51.000  50.000  50.000  1.00 95.00           C\n"
+            "ATOM      4  N   ARG B  10       0.000   0.000   0.000  1.00 95.00           N\n"
+            "ATOM      5  CA  ARG B  10       1.000   0.000   0.000  1.00 95.00           C\n"
+            "ATOM      6  C   ARG B  10       2.000   0.000   0.000  1.00 95.00           C\n"
+            "ATOM      7  O   ARG B  10       2.500   1.000   0.000  1.00 95.00           O\n"
+            "ATOM      8  CA  LEU B  11       3.500   0.000   0.000  1.00 95.00           C\n"
+            "ATOM      9  CB  LEU B  11       4.000   1.200   0.000  1.00 95.00           C\n"
+        )
+        pdb_low_bfactor = pdb_high_bfactor.replace("95.00", "10.00")
+
+        # 1. Chain selection + HETATM exclusion + B-factor/pLDDT invariance
+        coords_hi, types_hi, pp_hi, ca_hi, mask_hi, aa_hi, contacts_hi = featurize_pdb_for_stability_oracle(
+            pdb_high_bfactor, position=10, wt="R", mut="H", chain="B"
+        )
+        coords_lo, types_lo, pp_lo, ca_lo, mask_lo, aa_lo, contacts_lo = featurize_pdb_for_stability_oracle(
+            pdb_low_bfactor, position=10, wt="R", mut="H", chain="B"
+        )
+        self.assertTrue(torch.allclose(ca_hi, torch.tensor([[1.0, 0.0, 0.0]])))
+        self.assertTrue(torch.allclose(pp_hi, pp_lo))
+        self.assertEqual(contacts_hi, 2)  # Only LEU B 11 CA & CB within 10A (HOH A 10 excluded, GLY A 10 far away)
+
+        # 2. Wild-type mismatch on selected chain must raise ValueError
+        with self.assertRaisesRegex(ValueError, "Wild-type residue mismatch"):
+            featurize_pdb_for_stability_oracle(pdb_high_bfactor, position=10, wt="R", mut="H", chain="A")
 
     def test_saprot_fill_mask_bpe_parsing(self):
         from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores

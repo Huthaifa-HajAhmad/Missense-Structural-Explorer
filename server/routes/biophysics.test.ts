@@ -242,6 +242,41 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
       submitSpy.mockRestore();
     });
 
+    it("should reject wild-type residue mismatch on /ddmut-submit and /thermompnn-submit with 422", async () => {
+      const ddmutRoute = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-submit");
+      const thermoRoute = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-submit");
+      expect(ddmutRoute).toBeDefined();
+      expect(thermoRoute).toBeDefined();
+
+      for (const route of [ddmutRoute!, thermoRoute!]) {
+        if (!route?.route) throw new Error("Expected route.route to be defined");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+        let statusCode = 200;
+        let jsonVal: any = null;
+        const req: any = {
+          headers: {},
+          body: {
+            wtPdb: "ATOM      1  CA  ARG A 408      1.000   1.000   1.000  1.00  0.00           C\nEND",
+            mutation: "L408W"
+          }
+        };
+        const res: any = {
+          status(code: number) {
+            statusCode = code;
+            return this;
+          },
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(statusCode).toBe(422);
+        expect(jsonVal?.error?.code).toBe("UNPROCESSABLE_ENTITY");
+      }
+    });
+
     it("should return prediction on /ddmut-job/:jobId when DONE", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-job/:jobId");
       expect(route).toBeDefined();

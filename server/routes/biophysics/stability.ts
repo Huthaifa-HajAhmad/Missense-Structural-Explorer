@@ -19,6 +19,8 @@ import {
   ESM3Engine
 } from "../../services/folding-engines.ts";
 import { verifyStability } from "../../services/biophysics-bridge.ts";
+import { cleanPdbForFoldX, parseResiduesFromPdbMaybeAsync } from "../../services/biophysics.ts";
+import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
 import {
   fetchUniprotSequence,
 } from "../../services/external.ts";
@@ -161,6 +163,35 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
         sendError(res, 500, "INTERNAL_SERVER_ERROR", "No template wildtype PDB structure available.");
         return;
       }
+
+      /**
+       * The same preparation and the same integrity gate the analysis and standalone-submit
+       * routes apply. This route predates them and sat outside both fixes: a client-supplied
+       * template went to FoldX, the remote engines and ThermoMPNN raw — alternate locations,
+       * HETATM ligands and hydrogens intact — and a template whose residue at `position` is not
+       * the mutation's wild type was scored silently at the wrong residue. Refuse like the
+       * other routes do, on the structure the engines will actually receive.
+       */
+      const cleanedWtPdb = cleanPdbForFoldX(resolvedWtPdb);
+      const pdbResidues = await parseResiduesFromPdbMaybeAsync(cleanedWtPdb);
+      const positionNum = Number(position);
+      const chainUpper = String(chain).toUpperCase();
+      const targetRes = pdbResidues.find(r => r.resSeq === positionNum && (!chainUpper || r.chain.toUpperCase() === chainUpper));
+      if (!targetRes) {
+        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${positionNum}${chainUpper ? ` on chain ${chainUpper}` : ""} is not found in the PDB structure.`);
+        return;
+      }
+      const expectedWt3 = AMINO_ACID_1_TO_3[String(wt).toUpperCase()];
+      if (expectedWt3 && targetRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
+        sendError(
+          res,
+          422,
+          "UNPROCESSABLE_ENTITY",
+          `Wild-type residue mismatch: the mutation expects ${wt} (${expectedWt3}) at position ${positionNum}, but the structure has ${targetRes.resName3} on chain ${targetRes.chain}. The structure may use its own numbering.`
+        );
+        return;
+      }
+      resolvedWtPdb = cleanedWtPdb;
 
       const clientAbortController = new AbortController();
       // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.

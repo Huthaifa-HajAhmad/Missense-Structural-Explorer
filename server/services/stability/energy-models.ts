@@ -625,7 +625,15 @@ export async function submitThermoMpnnJob(
         const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
         console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
         if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
-          return { jobId: "local_warming", prediction: null, status: "pending", error: `ThermoMPNN engine is warming up: ${detail}` };
+          /**
+           * Warming is a deployment phase, not a job: no pollable id may exist for it.
+           *
+           * The previous answer, `{ jobId: "local_warming", status: "pending" }`, was registered
+           * as a real job and handed to the client as pollable — every poll then hit a Tamarind
+           * job named `local_warming`, 404'd, and the warming engine surfaced as "Provider
+           * error". Say what is true instead: not-available-yet, with the reason it will change.
+           */
+          return { jobId: null, prediction: null, status: "unavailable", error: `ThermoMPNN engine is warming up: ${detail}` };
         }
         if (!keyToUse) {
           noteRefusal("tamarind");
@@ -747,7 +755,15 @@ async function sendTamarindSubmission(
     }
 
     if (data) {
-      const jobId = data.jobId || data.id || data.job_id || generatedJobName;
+      /**
+       * Only a job id Tamarind actually returned is a job. Falling back to our own
+       * `jobName` here fabricated a pending entry from any success-shaped JSON that
+       * carried neither a score nor an id — registered, cached it, and sent the client
+       * to poll a job that did not exist upstream, ending in a false "Tamarind job
+       * execution failed". The plain-text branch below may use the generated name,
+       * because we sent it and Tamarind accepted it ("X submitted to queue").
+       */
+      const jobId = data.jobId || data.id || data.job_id || null;
       const rawDdg = data.Score ?? data.prediction ?? data.ddg ?? data.delta_delta_g ?? data.score ?? null;
       if (typeof rawDdg === "number") {
         thermompnnCache.set(cacheKey, { prediction: rawDdg, jobId, status: "done" });
@@ -758,6 +774,12 @@ async function sendTamarindSubmission(
         submittingKeys.set(jobId, keyToUse);
       return { jobId, prediction: null, status: "pending" };
       }
+      return {
+        jobId: null,
+        prediction: null,
+        status: "unavailable",
+        error: `Tamarind API answered but returned neither a score nor a job ID: ${JSON.stringify(data).slice(0, 120)}`
+      };
     } else {
       // Plain text response "myJobName submitted to queue."
       const jobId = generatedJobName;
@@ -821,7 +843,23 @@ export async function pollThermoMpnnJob(
     if (status === "done") {
       const rawDdg = jobData.Score ?? jobData.prediction ?? jobData.ddg ?? jobData.delta_delta_g ?? jobData.score ?? jobData.result?.ddg ?? null;
       const prediction = typeof rawDdg === "number" ? rawDdg : null;
-      return { status: "done", prediction };
+      if (prediction !== null) {
+        return { status: "done", prediction };
+      }
+      /**
+       * "Complete" without a number is an upstream failure to deliver, not a terminal success.
+       *
+       * Returning a terminal `done, null` made the client stop polling on a job that produced
+       * nothing, and the enricher — which only holds engines open on `pending` — declared the
+       * evidence complete with ThermoMPNN silently missing from it. Report it as an upstream
+       * error instead: it renders as "Provider error — can be retried", which is honest about
+       * the run and actionable.
+       */
+      return {
+        status: "error",
+        prediction: null,
+        error: (jobData.error as string) || "Tamarind job completed without returning a numeric ΔΔG score; re-submitting may produce one."
+      };
     }
 
     if (status === "error") {
