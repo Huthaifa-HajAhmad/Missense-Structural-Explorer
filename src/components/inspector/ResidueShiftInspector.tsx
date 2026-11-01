@@ -54,7 +54,7 @@ function buildCopyText(params: {
   for (const row of model.properties ?? []) {
     const unit = row.unit ? ` ${row.unit}` : "";
     lines.push(
-      `- ${row.label}: ${row.wildTypeNative ?? row.wildTypeValue} → ${row.mutantNative ?? row.mutantValue}${unit} (${Math.round(row.absoluteDelta)}% of the scale; ${row.plainChange})`
+      `- ${row.label}: ${row.wildTypeNative ?? row.wildTypeValue} ${row.direction === "unchanged" ? "=" : "→"} ${row.mutantNative ?? row.mutantValue}${unit} (${Math.round(row.absoluteDelta)}% of the scale; ${row.plainChange})`
     );
   }
   if (model.backbone) lines.push(`- ${model.backbone.title} ${model.backbone.body}`);

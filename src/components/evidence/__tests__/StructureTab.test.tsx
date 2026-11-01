@@ -45,7 +45,7 @@ describe("StructureTab", () => {
   it("states one finding and says no ACMG criterion reads this tab", () => {
     renderTab();
     expect(screen.getByTestId("residue-pair")).toHaveTextContent("Asp→Gly");
-    expect(screen.getByTestId("residue-pair-sub")).toHaveTextContent("Grantham distance 94, moderately conservative");
+    expect(screen.getByTestId("residue-grantham")).toHaveTextContent("Grantham distance 94, moderately conservative");
     expect(screen.getByTestId("residue-finding-text")).toHaveTextContent(
       "The side chain loses its negative charge and becomes less polar, 23.1 Å from the nearest predicted pocket."
     );
@@ -142,6 +142,9 @@ describe("StructureTab", () => {
     const charge = screen.getByRole("button", { name: /^Net charge/ });
     expect(charge.querySelector(".rsx-track__wt")).toHaveAttribute("data-coincident");
     expect(charge.querySelector(".rsx-track__mut")).not.toBeNull();
+    expect(charge).toHaveTextContent('No change');
+    expect(charge).toHaveTextContent('0 = 0');
+    expect(charge.querySelector('.rsx-track__direction')).toBeNull();
   });
 
   it("ends prose-only environment rows on their content, not an empty cell", () => {
@@ -244,6 +247,16 @@ describe("StructureTab", () => {
     const rsa = screen.getByTestId("burial-rsa-row");
     expect(rsa).toHaveTextContent("42.0%");
     expect(rsa).toHaveTextContent("Surface");
+  });
+
+  it("states the structure the burial reading came from, using the server's label", () => {
+    renderTab({
+      analysisState: {
+        result: { ...NAE1_RESULT, disruptionPredictor: { level: "low", reason: "", plddt: null, burialStatus: "surface", rsa: 0.42, neighborCount: 9, structureLabel: "AlphaFold model" } },
+        isLoading: false
+      }
+    });
+    expect(screen.getByTestId("burial-cause")).toHaveTextContent("AlphaFold model");
   });
 
   it("uses no red or green: this tab makes no pathogenic or benign call", () => {

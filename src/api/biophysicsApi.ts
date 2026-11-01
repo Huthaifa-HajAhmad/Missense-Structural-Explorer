@@ -296,6 +296,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
       params: { gene: string; uniprotId: string; variant: string; acmgWeighting?: string; saprotEngine?: string },
       signal?: AbortSignal
     ): Promise<{
+      disruptionPredictor?: import("../shared/contracts").DisruptionPredictorResult;
       esm3Eval: any;
       esmcEval: any;
       esm2Eval: any;

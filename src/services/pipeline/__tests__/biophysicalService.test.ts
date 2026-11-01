@@ -203,6 +203,7 @@ describe("biophysicalService", () => {
     it("progressively enriches structural assessments", async () => {
       const mockApiClient = {
         getStructuralAssessments: vi.fn().mockResolvedValue({
+          disruptionPredictor: { level: "low", rsa: 0.6, burialStatus: "surface", structureLabel: "AlphaFold model" },
           esm3Eval: { score: 0.91 },
           esmcEval: { score: 0.88 },
           esm2Eval: { score: 0.85 },
@@ -227,6 +228,7 @@ describe("biophysicalService", () => {
 
       await new Promise(resolve => setTimeout(resolve, 10));
 
+      expect(state.result.disruptionPredictor).toMatchObject({ rsa: 0.6, burialStatus: "surface" });
       expect(state.result.esm3Eval).toEqual({ score: 0.91 });
       expect(state.result.saprotEval).toEqual({ score: 0.94 });
     });

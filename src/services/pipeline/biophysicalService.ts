@@ -411,6 +411,7 @@ export function fetchProgressiveStructuralAssessments(
       }
 
       setAnalysisState((prev: any) => mergeResultPatch(prev, {
+        ...(structRes.disruptionPredictor ? { disruptionPredictor: structRes.disruptionPredictor } : {}),
         esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
         esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
         metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
@@ -422,6 +423,7 @@ export function fetchProgressiveStructuralAssessments(
       if (ownsCachedAnalysis(cached, params)) {
         setCachedVariant(params.gene, params.variant, params.uniprotId, {
           analysisResult: mergeResultPatch({ result: cached.analysisResult }, {
+            ...(structRes.disruptionPredictor ? { disruptionPredictor: structRes.disruptionPredictor } : {}),
             esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
             esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
             metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
