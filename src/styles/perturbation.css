@@ -51,7 +51,7 @@
 .ptb-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ptb-section > h2.eyebrow { margin: 0; }
 
-/* ── Header ──────────────────────────────────────────────────── */─────────────────────────────────────────── */
+/* ── Header ─────────────────────────────────────────────────── */
 .ptb-header { display: flex; flex-direction: column; gap: 6px; }
 
 /* ── Finding ────────────────────────────────────────────────── */
