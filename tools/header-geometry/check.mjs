@@ -87,6 +87,9 @@ const dom = spawnSync(
     "--force-device-scale-factor=1",
     `--user-data-dir=${path.join(here, ".browser-profile")}`,
     "--virtual-time-budget=8000",
+    // Page errors reach stderr as CONSOLE lines; a throw inside the measurements leaves the result empty.
+    "--enable-logging=stderr",
+    "--v=0",
     "--dump-dom",
     pathToFileURL(distIndex).href,
   ],
@@ -104,7 +107,8 @@ if (!match) {
   console.error(`  DOM near geometry-result: ${at < 0 ? "element missing" : raw.slice(Math.max(0, at - 100), at + 400)}`);
   const report = raw.indexOf("geometry-report");
   if (report >= 0) console.error(`  geometry-report: ${raw.slice(report, report + 1500)}`);
-  console.error(`  browser stderr (last 1500 chars): ${String(dom.stderr ?? "").slice(-1500)}`);
+  const pageLines = String(dom.stderr ?? "").split("\n").filter(line => line.includes("CONSOLE"));
+  console.error(`  page console (${pageLines.length} lines): ${pageLines.slice(-12).join("\n")}`);
   console.error("  (the harness prints its checks into #geometry-report as well)");
   process.exit(2);
 }
