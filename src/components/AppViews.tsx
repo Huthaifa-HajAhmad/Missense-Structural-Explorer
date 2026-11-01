@@ -514,8 +514,6 @@ export function AppViews({
             >
               <header className="structure-workspace__header">
                 <div className="workspace-heading"><h2 className="screen-title" tabIndex={-1} data-workspace-focus="structure">3D structure</h2><p>Inspect the selected residue in its structural context.</p></div>
-                <WorkspaceSelection position={selectedResidueIndex} variantPosition={variantPosition} destination="Open Landscape"
-                  onNavigate={() => navigateWorkspace("landscape")} onReset={handleReturnToVariant} />
                 <WorkspaceTabs id="structure-family" label="Structure model" value={isEsm ? "esmfold" : "alphafold"}
                   tabs={[{ id: "alphafold", label: "AlphaFold & FoldX" }, { id: "esmfold", label: "ESMFold" }]}
                   onChange={family => setMasterView(family === "esmfold" ? "structure_esmfold" : "structure_alphafold")} />
@@ -545,6 +543,7 @@ export function AppViews({
                         variantPosition={variantPosition}
                         selectedResidue={selectedResidueIndex ?? null}
                         onResidueClick={handleResidueClickMemo}
+                        onReturnToVariant={handleReturnToVariant}
                         onModeChange={setViewMode}
                         onAlignmentScopeChange={handleAlignmentScopeChange}
                         onSwitchToAlphaFold={() => setMasterView("structure_alphafold")}

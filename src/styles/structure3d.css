@@ -58,7 +58,7 @@
 
 /* Navigation above one persistent WebGL canvas. */
 .structure-workspace__header { display: flex; flex-direction: column; gap: 16px; padding: 24px 24px 0; flex-shrink: 0; }
-.structure-workspace__canvas { padding: 16px; min-height: 480px; }
+.structure-workspace__canvas { padding: 16px; min-block-size: clamp(620px, 78dvh, 960px); flex-shrink: 0; }
 .structure-workspace .s3d-viewer { border-radius: 12px; border-color: var(--cs-border-subtle); }
 .structure-workspace .s3d-viewer:fullscreen { border-radius: 0; border: 0; }
 .structure-main { overflow-y: auto; }
@@ -76,7 +76,7 @@
 @media (max-width: 1000px) {
   .structure-workspace .structure-main { height: auto; overflow: visible; }
   .structure-workspace__header { padding: 20px 16px 0; }
-  .structure-workspace__canvas { height: min(650px, 65dvh); min-height: 420px; flex: none; padding: 12px; }
+  .structure-workspace__canvas { block-size: clamp(620px, 78dvh, 960px); min-block-size: 620px; flex: none; padding: 12px; }
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────── */
