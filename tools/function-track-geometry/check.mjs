@@ -84,26 +84,45 @@ if (!existsSync(distIndex)) {
 }
 
 console.log(`function-track-check: rendering in ${path.basename(browser)}…`);
-const args = [
-  "--headless=new",
-  "--disable-gpu",
-  "--no-first-run",
-  "--hide-scrollbars",
-  "--allow-file-access-from-files",
-  "--force-device-scale-factor=1",
-  `--user-data-dir=${path.join(here, ".browser-profile")}`,
-  // Tall enough that TRACK_SHOT captures every case below the (long) assertion report.
-  `--window-size=1060,${process.env.TRACK_H ?? (process.env.TRACK_SHOT ? 6400 : 3000)}`,
-  "--virtual-time-budget=8000",
-  "--dump-dom",
-];
-if (process.env.TRACK_SHOT) args.push(`--screenshot=${shot}`);
-args.push(pathToFileURL(distIndex).href);
 
-const dom = spawnSync(browser, args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+/**
+ * `--dump-dom` is a ONE-SHOT read and the page fills `#geometry-result` from a
+ * `requestAnimationFrame` after `document.fonts.ready`; when the dump wins that race the
+ * harness looks broken rather than failing an assertion (see `header-geometry/check.mjs`,
+ * where the same race was measured). Read again with a fresh browser and a larger budget
+ * before concluding the page is broken.
+ */
+const budgets = [8000, 30000, 30000];
+const render = (budgetMs) => {
+  const args = [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-first-run",
+    "--hide-scrollbars",
+    "--allow-file-access-from-files",
+    "--force-device-scale-factor=1",
+    `--user-data-dir=${path.join(here, ".browser-profile")}`,
+    // Tall enough that TRACK_SHOT captures every case below the (long) assertion report.
+    `--window-size=1060,${process.env.TRACK_H ?? (process.env.TRACK_SHOT ? 6400 : 3000)}`,
+    `--virtual-time-budget=${budgetMs}`,
+    "--dump-dom",
+  ];
+  if (process.env.TRACK_SHOT) args.push(`--screenshot=${shot}`);
+  args.push(pathToFileURL(distIndex).href);
+  return spawnSync(browser, args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+};
 
-const raw = String(dom.stdout ?? "");
-const match = raw.match(/id="geometry-result"[^>]*>([A-Za-z0-9+/=]+)</);
+let dom;
+let match;
+for (const [attempt, budgetMs] of budgets.entries()) {
+  dom = render(budgetMs);
+  match = String(dom.stdout ?? "").match(/id="geometry-result"[^>]*>([A-Za-z0-9+/=]+)</);
+  if (match) break;
+  if (attempt < budgets.length - 1) {
+    console.warn(`function-track-check: no report in the dumped DOM at ${budgetMs}ms; rendering again…`);
+  }
+}
+
 if (!match) {
   console.error("function-track-check: could not read #geometry-result from the rendered DOM.");
   if (dom.error) console.error(`  ${dom.error.message}`);
