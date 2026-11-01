@@ -3,7 +3,7 @@ import React from "react";
 import { render, screen, within, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import EnergeticsView from "../EnergeticsView";
-import { energeticsAgreementText, buildEnergeticsEvidence } from "../../shared/energeticsEvidence";
+import { energeticsAgreementText, buildEnergeticsEvidence, LARGE_STRUCTURE_REPAIR_NOTE } from "../../shared/energeticsEvidence";
 import { DdgRuler } from "../energetics/DdgRuler";
 import { SettingsProvider } from "../../context/SettingsContext";
 
@@ -617,5 +617,39 @@ describe("EnergeticsView — ProtVar FoldX reference row", () => {
     expect(text).toMatch(/Not counted/);
     for (const count of baseText.match(/\d+ of 6 engines/g) ?? []) expect(text).toContain(count);
     expect(text).not.toMatch(/of 7 engines/);
+  });
+});
+
+describe("EnergeticsView — header, call chip and repair note", () => {
+  const MODERATE = {
+    foldx: 0.58, foldxMean: 0.58, foldxSd: 0, ddmut: -0.08, thermompnn: -0.38,
+    foldxRepairSkipped: true, foldxRepairSkippedReason: "large-structure",
+    structureProvenance: { source: "alphafold", chainId: "A", foldxRuns: 5 } as any,
+  };
+  const settled = { foldingEnergetics: MODERATE, foldingStatus: "success", foldingError: null, dynamut2Status: "unavailable", ddmutStatus: "done", thermompnnStatus: "done" };
+
+  it("keeps the guide button in the header, beside the title", () => {
+    const { container } = renderView(settled);
+    const guide = screen.getByRole("button", { name: /How to read stability estimates/ });
+    expect(guide.closest(".nrg-header")).not.toBeNull();
+    expect(container.querySelector(".nrg-navigation")?.contains(guide)).toBe(false);
+  });
+
+  it("gives a moderate call the warning tone, the same tone the inspector reads", () => {
+    renderView(settled);
+    const chip = within(screen.getByTestId("energetics-foldx")).getByText("Moderately destabilizing");
+    expect(chip.getAttribute("data-tone")).toBe("warning");
+  });
+
+  it("shows the large-structure repair reason as text in the FoldX row, beside the inline chip", () => {
+    renderView(settled);
+    const row = screen.getByTestId("energetics-foldx");
+    expect(within(row).getByText("Unrepaired template")).toBeInTheDocument();
+    expect(row).toHaveTextContent(LARGE_STRUCTURE_REPAIR_NOTE);
+  });
+
+  it("offers a DynaMut2-only retry when DynaMut2 returned nothing", () => {
+    renderView(settled);
+    expect(screen.getByRole("button", { name: "Retry DynaMut2" })).toBeInTheDocument();
   });
 });

@@ -22,6 +22,7 @@ import {
   type EnergeticsReading,
 } from "../shared/energeticsEvidence";
 import { DdgRuler } from "./energetics/DdgRuler";
+import { RetryDynamut2 } from "./energetics/RetryDynamut2";
 import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../shared/foldxPhase";
 import { describeRunsOn, hostPhrase } from "../shared/jobPlacement";
 import { WorkspaceTabs } from './ui/WorkspaceTabs';
@@ -412,7 +413,7 @@ function ReadingRow({
   const state = reading.outcome.state;
   const running = state === "running" || state === "skipped";
   const ddgText = has ? signedDdg(reading.ddg, unit).replace(/ (kcal|kJ)\/mol$/, "") : null;
-  const isTitleCaveat = (c: EnergeticsReading["caveats"][number]) => reading.key === "rasp" && c === "rosetta-surrogate";
+  const isTitleCaveat = (c: EnergeticsReading["caveats"][number]) => c === "unrepaired-template" || (reading.key === "rasp" && c === "rosetta-surrogate");
   const titleCaveats = reading.caveats.filter(isTitleCaveat);
   const detailCaveats = reading.caveats.filter(c => !isTitleCaveat(c));
   return (
@@ -544,7 +545,10 @@ const EnergeticsView = memo(function EnergeticsView({
       <div className={`${classCard} nrg-scroll`} id="energetics-view">
         <div className="nrg-screen">
           <header className="nrg-header">
-            <h1 className="screen-title">Energetics</h1>
+            <div className="nrg-header__row">
+              <h1 className="screen-title">Energetics</h1>
+              <ResearchGuideButton topic="energetics" label="How to read stability estimates" />
+            </div>
             <p className="screen-tab-description">Predicted change in folding stability (ΔΔG) from six engines.</p>
           </header>
           <p className="nrg-dim">Run a variant to estimate its effect on folding stability.</p>
@@ -570,7 +574,8 @@ const EnergeticsView = memo(function EnergeticsView({
       <div className="nrg-screen" data-view={tab}>
         <header className="nrg-header">
           <div className="nrg-header__row">
-          <h1 className="screen-title">Energetics</h1>
+            <h1 className="screen-title">Energetics</h1>
+            <ResearchGuideButton topic="energetics" label="How to read stability estimates" />
           </div>
           {tab === 'records' && <p className="screen-tab-description">
             How might this substitution change protein stability?
@@ -579,7 +584,13 @@ const EnergeticsView = memo(function EnergeticsView({
         </header>
         <div className="nrg-navigation">
           <WorkspaceTabs id="energetics" label="Energetics views" tabs={ENERGY_TABS} value={tab} onChange={setTab} />
-          <ResearchGuideButton topic="energetics" label="How to read stability estimates" />
+          <RetryDynamut2
+            variant={result.metadata?.variant}
+            uniprotId={result.metadata?.uniprotId ?? null}
+            energetics={foldingEnergetics}
+            status={dynamut2Status}
+            onSubmitted={() => setHidePendingEngines(false)}
+          />
           {selected && <button type="button" className="nrg-inspect-button" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityMethod)}>Inspect {evidence.readings.find(r => r.key === selected)?.name} →</button>}
         </div>
 

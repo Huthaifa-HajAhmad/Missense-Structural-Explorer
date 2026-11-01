@@ -37,8 +37,11 @@
 .nrg-query span { color: var(--cs-text-muted); }
 .nrg-navigation { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
 .nrg-navigation .workspace-tabs { flex: 1; min-width: 240px; }
-.nrg-inspect-button { min-height: 36px; padding: 6px 12px; border: 1px solid var(--cs-border); border-radius: 18px; color: var(--cs-text-primary); background: var(--cs-surface); font-size: 13px; }
-.nrg-inspect-button:focus-visible, .nrg-selected-method:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.nrg-retry { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.nrg-retry__button, .nrg-inspect-button { min-height: 36px; padding: 6px 12px; border: 1px solid var(--cs-border); border-radius: 18px; color: var(--cs-text-primary); background: var(--cs-surface); font-size: 13px; }
+.nrg-retry__button:disabled { color: var(--cs-text-muted); cursor: not-allowed; }
+.nrg-retry__note { margin: 0; font-size: 13px; color: var(--cs-text-muted); }
+.nrg-retry__button:focus-visible, .nrg-inspect-button:focus-visible, .nrg-selected-method:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .nrg-hero[data-compact="true"] .nrg-summary { padding-top: 14px; }
 .nrg-template-check { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); font-size: 13px; color: var(--cs-text-secondary); }
 .nrg-template-check strong { color: var(--cs-text-primary); font-weight: 600; }
@@ -48,13 +51,13 @@
   .nrg-method-button:hover { color: var(--cs-text-accent); }
 }
 @media (hover: hover) and (pointer: fine) {
-  .nrg-inspect-button:hover, .nrg-missing-methods button:hover { background: var(--cs-surface-2); }
+  .nrg-retry__button:enabled:hover, .nrg-inspect-button:hover, .nrg-missing-methods button:hover { background: var(--cs-surface-2); }
 }
 .nrg-chart-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; width: 100%; padding-top: 6px; }
 .nrg-chart-controls label { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; font-size: 13px; }
 .nrg-chart-controls select { padding: 6px 10px; background: var(--cs-surface-2); color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: 8px; min-height: 34px; }
 .nrg-chart-controls input { width: 16px; height: 16px; accent-color: var(--cs-accent-clay); }
-.nrg-axis-guide { display: flex; justify-content: space-between; gap: 16px; padding: 12px 24px 0 112px; color: var(--cs-text-secondary); font-size: 12px; }
+.nrg-axis-guide { display: flex; justify-content: space-between; gap: 16px; padding: 12px var(--nrg-plot-right, 72px) 0 var(--nrg-plot-left, 112px); color: var(--cs-text-secondary); font-size: 12px; }
 .nrg-chart-readout { min-height: 58px; margin: 0; padding: 14px 22px; background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; }
 .nrg-chart-key { display: inline-flex; align-items: center; gap: 8px; }
 .nrg-chart-key i { width: 10px; height: 10px; border-radius: 50%; background: var(--cs-accent-clay); }
@@ -65,9 +68,10 @@
 .nrg-missing-methods small { color: var(--cs-text-secondary); }
 .nrg-missing-methods button[aria-pressed="true"] { border-color: var(--cs-accent-clay); background: var(--cs-surface-2); }
 .nrg-chart-help { padding: 14px 22px; border-top: 1px solid var(--cs-border-subtle); }
+.nrg-chart-help summary { display: list-item; list-style-position: inside; }
 .nrg-chart-help summary, .nrg-lineage > summary { cursor: pointer; min-height: 32px; color: var(--cs-text-primary); font-weight: 600; }
 .nrg-chart-help p { margin: 10px 0; font-size: 13px; line-height: 1.65; }
-.nrg-method-button { border: 0; background: none; color: var(--cs-text-primary); font-weight: 600; padding: 6px 0; text-align: left; min-height: 32px; }
+.nrg-method-button { border: 0; background: none; color: var(--cs-text-primary); font-weight: 600; padding: 0; text-align: left; min-height: 32px; }
 .nrg-table tr[data-selected="true"] { background: var(--cs-surface-2); }
 .nrg-selected-method { margin: 0 0 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-accent-wash); }
 .nrg-selected-method h2 { color: var(--cs-text-primary); font-size: 21px; margin: 8px 0; font-weight: 600; }
@@ -85,7 +89,6 @@
 }
 @container (max-width: 560px) {
   .energetics-workspace .nrg-screen { padding: 16px; }
-  .nrg-axis-guide { padding-left: 16px; }
 }
 .nrg-dim { color: var(--cs-text-muted); }
 
@@ -125,7 +128,7 @@
 .nrg-comparison-figure .viz-frame__head { padding: 18px 20px 8px; gap: 8px 18px; }
 .nrg-comparison-figure .viz-frame__head p { font-size: 13px; line-height: 1.5; max-inline-size: 80ch; }
 .nrg-comparison-figure .nrg-chart-controls { inline-size: auto; padding-block-start: 0; gap: 8px 16px; }
-.nrg-comparison-figure .nrg-axis-guide { padding-block-start: 8px; padding-inline-end: 72px; }
+.nrg-comparison-figure .nrg-axis-guide { padding-block-start: 8px; }
 .nrg-comparison-figure .nrg-chart-readout { min-block-size: 44px; padding: 10px 20px; }
 .nrg-comparison-figure .nrg-chart-help { padding: 8px 20px; }
 .nrg-comparison-figure .viz-frame__foot { padding: 10px 20px; }
@@ -135,7 +138,7 @@
 @container (max-width: 560px) {
   .nrg-hero[data-compact="true"] { grid-template-columns: minmax(0, 1fr); }
   .nrg-comparison-figure .viz-frame__head { padding: 16px 12px 8px; }
-  .nrg-comparison-figure .nrg-axis-guide { padding-inline: 12px; font-size: 11px; }
+  .nrg-comparison-figure .nrg-axis-guide { font-size: 11px; }
 }
 
 .nrg-card {
@@ -332,17 +335,17 @@
     linear-gradient(to left, color-mix(in srgb, var(--cs-text-primary) 12%, transparent), transparent) right / 10px 100% no-repeat scroll,
     var(--cs-surface);
 }
-.nrg-table { width: 100%; min-width: 680px; border-collapse: collapse; table-layout: fixed; }
+.nrg-table { --nrg-cell-pad-y: 14px; width: 100%; min-width: 770px; border-collapse: collapse; table-layout: fixed; }
 .nrg-col-engine { width: 36%; }
 .nrg-col-value { width: 120px; }
-.nrg-col-call { width: 164px; }
+.nrg-col-call { width: 192px; }
 .nrg-table thead th {
   padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
   background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .nrg-table td,
 .nrg-table tbody th {
-  padding: 11px 16px; text-align: left; vertical-align: top; font-weight: inherit;
+  padding: var(--nrg-cell-pad-y) 16px; text-align: left; vertical-align: top; font-weight: inherit;
   border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-secondary);
 }
 .nrg-table tbody:last-of-type tr:last-child > * { border-bottom: 0; }
@@ -394,13 +397,14 @@
 .nrg-reason__detail > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .nrg-reason__detail > p { margin: 2px 0 0; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); overflow-wrap: anywhere; }
 
-.nrg-status { text-align: left !important; white-space: nowrap; }
-.nrg-table td.nrg-status { padding-top: 13px; }
+.nrg-status { text-align: left !important; white-space: normal; }
+.nrg-status .ev-tier { white-space: normal; max-inline-size: 100%; }
+.nrg-table td.nrg-status { padding-top: calc(var(--nrg-cell-pad-y) + 2px); }
 .nrg-call__sub { display: block; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); white-space: normal; }
 
 .nrg-info {
   display: inline-flex; align-items: center; justify-content: center;
-  inline-size: 44px; block-size: 44px; flex: none; border-radius: 6px; border: 0; background: transparent;
+  inline-size: 32px; block-size: 32px; flex: none; border-radius: 6px; border: 0; background: transparent;
   color: var(--cs-text-muted); cursor: pointer;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -414,7 +418,7 @@
 .nrg-caveats--inline .ev-tier { padding: 2px 8px 2px 7px; font-size: var(--cs-font-size-badge); }
 
 .nrg-scale { min-width: 180px; }
-.nrg-table td.nrg-scale { padding-top: 14px; }
+.nrg-table td.nrg-scale { padding-top: calc(var(--nrg-cell-pad-y) + 3px); }
 
 .nrg-table-foot {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
