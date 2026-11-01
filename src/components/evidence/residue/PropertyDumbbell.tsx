@@ -8,6 +8,11 @@ interface PropertyDumbbellProps {
   mutant: string;
 }
 
+/** Gaps on the 0–100 scale, in points. */
+const COINCIDENT_BELOW = 0.5;
+/** The arrow head needs room between the two markers; a closer pair shows the markers alone. */
+const MIN_ARROW_SPAN = 8;
+
 export function PropertyDumbbell({
   row,
   wildType,
@@ -18,12 +23,14 @@ export function PropertyDumbbell({
   const low = formatNativeResidueValue(row.key, source.min);
   const high = formatNativeResidueValue(row.key, source.max);
 
-  const isSameValue = row.direction === "unchanged" || Math.abs(row.mutantPosition - row.wildTypePosition) < 0.5;
+  const span = Math.abs(row.mutantPosition - row.wildTypePosition);
+  // Markers closer than this sit on top of each other, so the ring draws the pair as one.
+  const isSameValue = row.direction === "unchanged" || span < COINCIDENT_BELOW;
 
   const label =
     `${row.label}: ${wildType} ${row.wildTypeNative ?? row.wildTypeValue}, ${mutant} ${row.mutantNative ?? row.mutantValue}` +
     ` on a scale from ${low} to ${high}${unit}.` +
-    (isSameValue ? " Both residues share the same value on this scale." : "");
+    (row.direction === "unchanged" ? " Both residues share the same value on this scale." : "");
 
   return (
     // A <span> (phrasing content) rather than a <div>: this track is rendered inside a <button> in the
@@ -31,8 +38,9 @@ export function PropertyDumbbell({
     // residue.css restores the layout the div had.
     <span className="rsx-track rsx-track--dumbbell" role="img" aria-label={label}>
       <span className="rsx-track__bar">
-        {/* The two residue markers are the reading. A filled connecting span made the scale
-            look like a second quantitative bar, so position and the Shift column carry the move. */}
+        {span >= MIN_ARROW_SPAN && <span className="rsx-track__direction" aria-hidden="true"
+          data-direction={row.mutantPosition > row.wildTypePosition ? "right" : "left"}
+          style={{ left: `${Math.min(row.wildTypePosition, row.mutantPosition)}%`, width: `${span}%` }} />}
         <span
           className="rsx-track__wt"
           data-coincident={isSameValue || undefined}

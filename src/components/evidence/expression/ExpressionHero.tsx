@@ -11,7 +11,6 @@ export function ExpressionHero({ finding, facts, onset, compact = false, activeF
   if (compact && activeFinding) return <section className="xp-summary" aria-label="Expression finding" data-testid="expression-finding">
     <span className="ctx-eyebrow">{activeFinding.source}</span>
     <h2>{activeFinding.headline}</h2><p>{activeFinding.detail}</p>
-    <p className="xp-boundary">Gene-level expression context, not a measurement of this variant’s effect. No ACMG criterion is added or changed.</p>
     <details><summary>Coverage and source status</summary>
       {activeFinding.source.startsWith('Adult') && finding.coverage.length > 0 && <ul>{finding.coverage.map(c => <li key={c.id}>{c.label}: {c.top ? `${c.top.label}, ${c.top.value} TPM` : c.state === 'no-reading' ? 'No gene reading' : 'Not sampled by GTEx'}</li>)}</ul>}
       <dl className="xp-facts">{facts.map(f => <div key={f.key} className="xp-fact"><dt>{f.label}</dt><dd>{f.value}<span className="xp-fact__sub">{f.sub}</span></dd></div>)}</dl>

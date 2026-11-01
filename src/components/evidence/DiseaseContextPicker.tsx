@@ -3,6 +3,7 @@ import { selectDisease, type PhenotypeSelection } from '../../shared/phenotypeFr
 import type { GeneDiseaseResponse } from '../../shared/diseaseFrame';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
+import { ChoiceMenu } from '../ui/ChoiceMenu';
 
 /**
  * The disease choice that scopes the tab. With nothing to choose from it is a one-line statement of
@@ -48,11 +49,13 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
   }
   const fields = <>
     <label className={inline ? 'ctx-label' : 'gd-picker__label'} htmlFor={id}>{inline ? 'Disease' : `Review ${gene} for`}</label>
-    <select id={id} className="ctx-select" value={stale ? '' : selection.diseaseKey ?? ''}
-      onChange={event => onChange(selectDisease(selection, event.target.value || null))}>
-      <option value="">Choose a disease and inheritance</option>
-      {frames.map(frame => <option key={frame.key} value={frame.key}>{frame.label} · {frame.inheritance.label} · {frame.diseaseId}{frame.selectionSource === 'Gene2Phenotype' ? ' · G2P choice; no GenCC assertion' : ''}</option>)}
-    </select>
+    <ChoiceMenu id={id} label="Diseases and inheritance" value={stale ? '' : selection.diseaseKey ?? ''}
+      hint={selection.diseaseKey && !stale ? 'Change' : `${frames.length} available`}
+      options={[{ value: '', label: 'Choose a disease and inheritance' }, ...frames.map(frame => ({
+        value: frame.key, label: frame.label,
+        detail: `${frame.inheritance.label} · ${frame.diseaseId}${frame.selectionSource === 'Gene2Phenotype' ? ' · G2P choice; no GenCC assertion' : ''}`,
+      }))]}
+      onChange={key => onChange(selectDisease(selection, key || null))} />
     {frames.length === 1 && selection.diseaseKey !== frames[0].key && <button type="button" className="ctx-button" onClick={() => onChange(selectDisease(selection, frames[0].key))}>{compact ? 'Review this disease' : <>Review the only curated disease: {frames[0].label}</>}</button>}
     {selectionNote}
     {stale && load.status === 'ready' && <p role="status">The saved disease choice is absent from this snapshot. Choose it again; your review systems have been kept.</p>}

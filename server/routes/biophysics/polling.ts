@@ -17,6 +17,7 @@ import {
 } from "../../services/external.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
+  cleanPdbForFoldX,
   submitThermoMpnnJob,
   pollThermoMpnnJob,
   enrichBiophysicalResult,
@@ -30,7 +31,7 @@ import { requireUser, noStore } from "../../auth/middleware.ts";
 import { submitterId } from "../../auth/principal.ts";
 import { withProvenanceFor } from "../../../src/shared/computeProvenance.ts";
 import { LEGACY_OWNER, SYSTEM_OWNER } from "../../services/infra/queue-owners.ts";
-import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { PROVIDER_RATE_LIMITED } from "../../../src/shared/providerLimits.ts";
 import { isProviderRateLimited } from "../../services/infra/provider-pause.ts";
 
@@ -646,24 +647,28 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
       const { wtLetter, mutLetter, posNum, chainParam } = parsed;
 
-      let resolvedChain = chainParam;
-      try {
-        const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
-        const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain === chainParam));
-        if (targetRes) {
-          resolvedChain = targetRes.chain;
-        } else {
-          const fallbackRes = pdbResidues.find(r => r.resSeq === posNum);
-          if (fallbackRes) {
-            resolvedChain = fallbackRes.chain;
-          }
-        }
-      } catch (pdbErr) {
-        console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
+      // The same preparation and residue check the analysis route applies before it submits to DynaMut2,
+      // so a retry is scored on the input the first attempt would have used, or is refused for the same reason.
+      const cleanedPdb = cleanPdbForFoldX(wtPdb);
+      const pdbResidues = await parseResiduesFromPdbMaybeAsync(cleanedPdb);
+      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain.toUpperCase() === chainParam.toUpperCase()));
+      if (!targetRes) {
+        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum}${chainParam ? ` on chain ${chainParam.toUpperCase()}` : ""} is not found in the PDB structure.`);
+        return;
       }
-      const resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+      const expectedWt3 = AMINO_ACID_1_TO_3[wtLetter.toUpperCase()];
+      if (expectedWt3 && targetRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
+        sendError(
+          res,
+          422,
+          "UNPROCESSABLE_ENTITY",
+          `Wild-type residue mismatch: the mutation expects ${wtLetter} (${expectedWt3}) at position ${posNum}, but the structure has ${targetRes.resName3} on chain ${targetRes.chain}. The structure may use its own numbering.`
+        );
+        return;
+      }
+      const resolvedChainUpper = targetRes.chain.toUpperCase() || "A";
 
-      const dynamut2JobId = await submitDynaMut2Job(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
+      const dynamut2JobId = await submitDynaMut2Job(cleanedPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
       if (dynamut2JobId) {
         await recordJobInRegistry(dynamut2JobId, "dynamut2", mutation.trim());
       }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIDE_CHAIN_TOPOLOGY, diffSideChains } from "../sideChainTopology";
+import { SIDE_CHAIN_TOPOLOGY, describeAtomName, diffSideChains } from "../sideChainTopology";
 
 /** Side-chain heavy atoms (beyond N, CA, C, O) in the standard residue definitions. */
 const HEAVY_ATOMS: Record<string, number> = {
@@ -13,6 +13,12 @@ describe("side-chain topology", () => {
       expect(SIDE_CHAIN_TOPOLOGY[code].atoms.length, code).toBe(count);
     }
     expect(Object.keys(SIDE_CHAIN_TOPOLOGY).sort()).toEqual(Object.keys(HEAVY_ATOMS).sort());
+  });
+
+  it("names every side-chain atom in plain words", () => {
+    const words = Object.values(SIDE_CHAIN_TOPOLOGY).flatMap(residue => residue.atoms.map(atom => [atom.name, describeAtomName(atom)]));
+    expect(words.filter(([, text]) => /undefined/.test(text))).toEqual([]);
+    expect(Object.fromEntries(words)).toMatchObject({ CB: "beta carbon", OD1: "delta oxygen 1", SG: "gamma sulfur", NH2: "eta nitrogen 2", OH: "eta oxygen" });
   });
 
   it("only bonds atoms that exist, and connects every atom to the backbone", () => {

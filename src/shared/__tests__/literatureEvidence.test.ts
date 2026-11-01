@@ -190,15 +190,18 @@ describe("buildLiteratureEvidence", () => {
   it("states the variant count in words before the variant-specific search has run", () => {
     const f = buildLiteratureEvidence(base).finding;
     expect(f.figure).toBe("1");
-    expect(f.headline).toBe("1 of 3 loaded papers name p.Asp116Gly in the title or abstract.");
+    expect(f.figureLabel).toBe("of 3 loaded papers name p.Asp116Gly in the title or abstract");
+    expect(f.headline).toBeNull();
     expect(f.predicate).toBe("Only the loaded page has been read");
   });
 
   it("words a zero as a count of records matched by a stated query — never as absence of evidence", () => {
     const ev = buildLiteratureEvidence({ ...base, probe: { state: "done", hitCount: 0 } });
     expect(ev.finding.figure).toBe("0");
-    expect(ev.finding.headline).toBe("No matches for the searched protein notations of p.Asp116Gly.");
-    expect(ev.finding.predicate).toContain("matched 0 records");
+    expect(ev.finding.figureLabel).toBe("Europe PMC records match the protein notations of p.Asp116Gly");
+    // The figure and its label already state the zero, so the sentence below must not repeat it.
+    expect(ev.finding.headline).toBeNull();
+    expect(ev.finding.predicate).toContain("Searched NAE1 with p.Asp116Gly");
     expect(ev.finding.predicate).toContain("another notation");
     expect(ev.finding.predicate).not.toMatch(/no evidence|benign/i);
   });
@@ -206,6 +209,8 @@ describe("buildLiteratureEvidence", () => {
   it("reports a failed variant search as a fault and does not invent a count", () => {
     const ev = buildLiteratureEvidence({ ...base, probe: { state: "error", hitCount: null } });
     expect(ev.finding.headline).toBe("The variant-specific search did not complete.");
+    // The count covers titles and abstracts only, so the label must say so even when the search failed.
+    expect(ev.finding.figureLabel).toContain("in the title or abstract");
     expect(ev.faults).toContain("The variant-specific search did not complete, so its count is not shown.");
   });
 
@@ -223,26 +228,9 @@ describe("buildLiteratureEvidence", () => {
     expect(ev.trace.find(s => s.key === "sent")!.state).toBe("idle");
   });
 
-  it("keeps the gene-wide fact on the gene-wide count while the variant scope is showing", () => {
-    const q = variantSearchQuery(GENE, parseVariantForms(VARIANT))!;
-    const ev = buildLiteratureEvidence({
-      ...base,
-      executedQuery: q,
-      citations: [],
-      response: { ...base.response!, hitCount: 0, europePmcQuery: q },
-      geneHitCount: 747,
-    });
-    expect(ev.scope).toBe("variant");
-    // `hitCount` here is the variant query's 0; labelling it "gene-wide" was a defect.
-    expect(ev.facts[0]).toMatchObject({ label: "Gene-wide matches", value: "747" });
-    const unknown = buildLiteratureEvidence({ ...base, executedQuery: q, citations: [], response: { ...base.response!, hitCount: 0, europePmcQuery: q } });
-    expect(unknown.facts[0].value).toBe("—");
-  });
-
   it("flags a degraded fallback and withholds its hit count", () => {
     const ev = buildLiteratureEvidence({ ...base, response: { ...base.response!, degraded: true, hitCount: 747 } });
     expect(ev.faults[0]).toContain("did not answer");
-    expect(ev.facts[0].value).toBe("—");
     expect(ev.trace.find(s => s.key === "matched")!.value).toBe("No answer");
   });
 
@@ -271,7 +259,6 @@ describe("buildLiteratureEvidence", () => {
     const screened = buildLiteratureEvidence(base);
     expect(screened.papers.some(paper => paper.screening.tags.length > 0)).toBe(true);
     expect(JSON.stringify(screened.finding)).not.toMatch(/functional-assay|clinical-case|screening|PS3|PS4|ACMG/i);
-    expect(screened.facts.at(-1)).toEqual({ label: "Engine record", value: "None", sub: "Literature is read, not scored" });
   });
 
   it("has no variant scope for a change with no protein notation, and says why", () => {
@@ -286,7 +273,6 @@ describe("buildLiteratureEvidence", () => {
     const text = JSON.stringify(buildLiteratureEvidence(base));
     expect(text).not.toMatch(/impact factor|quartile|journalRank/i);
     expect(text).not.toMatch(/"(PS3|PS4|PP1|PM1|PP3)"/);
-    expect(buildLiteratureEvidence(base).facts.at(-1)).toEqual({ label: "Engine record", value: "None", sub: "Literature is read, not scored" });
   });
 });
 

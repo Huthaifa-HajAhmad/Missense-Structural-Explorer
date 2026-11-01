@@ -6,8 +6,7 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { describeDeNovoCapacityNotice, readProteinLength, resolveDeNovoFoldingCapacity } from "../../shared/foldingLimits";
 import { alphafoldDbCoverage } from "../../shared/alphafoldAvailability";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
-import type { CoordinateIdentity, ModelFamily, ResidueSideChainSummary, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
-import { ResidueGlyph } from "../evidence/residue/ResidueGlyph";
+import type { CoordinateIdentity, ModelFamily, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
 import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
 
 function Step({ step }: { step: TraceStep }) {
@@ -33,40 +32,6 @@ function IdentityRow({ role, identity }: { role: string; identity: CoordinateIde
         <span className="s3d-canvas-card__sub">{[identity.kind, identity.detail].filter(Boolean).join(" · ")}</span>
         <span className="s3d-canvas-card__sub">{identity.channel.note}</span>
       </span>
-    </div>
-  );
-}
-
-function SideChainBrief({ sideChain }: { sideChain: ResidueSideChainSummary | null }) {
-  if (!sideChain) return null;
-  return (
-    <div className="s3d-sidechain-card" data-testid="structure-sidechain-card">
-      <div className="s3d-sidechain-card__head">
-        <span className="s3d-sidechain-card__title">
-          {sideChain.wildTypeLabel} → {sideChain.mutantLabel}
-        </span>
-        {sideChain.grantham !== null && (
-          <span className="s3d-sidechain-card__badge" data-class={sideChain.granthamClass}>
-            Grantham {sideChain.grantham} · {sideChain.granthamClass}
-          </span>
-        )}
-      </div>
-      <ResidueGlyph
-        diff={sideChain.diff}
-        wildType={sideChain.wildTypeCode}
-        mutant={sideChain.mutantCode}
-        wildTypeName={sideChain.wildTypeName}
-        mutantName={sideChain.mutantName}
-      />
-      <p className="s3d-sidechain-card__note">
-        2D side-chain atom topology, matched by atom name; it is not a coordinate measurement. Grantham distance is a
-        physicochemical difference between the two amino acids, not a pathogenicity score.
-      </p>
-      {sideChain.backboneCaveat && (
-        <p className="s3d-sidechain-card__caveat">
-          <strong>{sideChain.backboneCaveat.title}</strong> {sideChain.backboneCaveat.body}
-        </p>
-      )}
     </div>
   );
 }
@@ -99,20 +64,18 @@ function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; 
         )}
         {site.region && <div className="s3d-kv__row"><dt>UniProt region</dt><dd>{site.region}</dd></div>}
       </dl>
-      {isWildType && <SideChainBrief sideChain={site.sideChain} />}
     </section>
   );
 }
 
 function ComparisonSection({ model }: { model: Structure3dEvidence }) {
-  const { comparison, readings, site } = model;
+  const { comparison, readings } = model;
   return (
     <section className="s3d-rsec" aria-labelledby="s3d-rail-compare">
       <h3 className="eyebrow" id="s3d-rail-compare">
         <span><Ruler className="w-3.5 h-3.5" aria-hidden="true" />{comparison.rigidBackbone ? "Side-chain comparison" : "Coordinate comparison"}</span>
         {comparison.fit && !comparison.rigidBackbone && <span className="s3d-rsec__meta">{comparison.fit} fit</span>}
       </h3>
-      <SideChainBrief sideChain={site.sideChain} />
       {comparison.state === "ready" && readings.length > 0 ? (
         <>
           <p className="s3d-section-intro">{comparison.headline}.</p>

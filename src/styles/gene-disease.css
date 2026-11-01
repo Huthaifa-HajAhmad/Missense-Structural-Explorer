@@ -19,7 +19,7 @@
 /* Disease choice: a slim control row, not a card. */
 .gd-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-card, 12px); }
 .gd-picker__label { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); white-space: nowrap; }
-.gd-picker .ctx-select { flex: 1 1 280px; width: auto; }
+.gd-picker .cm { flex: 1 1 280px; }
 .gd-picker__note { flex-basis: 100%; }
 .gd-picker--empty { justify-content: space-between; color: var(--cs-text-secondary); }
 
@@ -48,7 +48,10 @@
 .gd-table { width: 100%; min-width: 680px; border-collapse: collapse; text-align: left; }
 .gd-table thead { background: var(--cs-workbench-header-surface); }
 .gd-table thead th { height: var(--gd-bar-h); padding: 0 16px; border-bottom: 1px solid var(--cs-border-subtle); }
-.gd-table td, .gd-table tbody th { padding: 11px 16px; vertical-align: top; }
+.gd-table td, .gd-table tbody th { padding: 11px 16px; vertical-align: middle; }
+/* A chip or scale sits alone in its cell. As a block it has no text line (and its baseline slack) around it,
+   so the cell can centre it on the row instead of leaving it 2 to 3px above the label. */
+.gd-table td > .ev-tier { display: flex; inline-size: fit-content; max-inline-size: 100%; }
 .gd-table tbody th { font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); }
 .gd-table tbody tr + tr > * { border-top: 1px solid var(--cs-border-subtle); }
 .gd-table tbody tr.gd-group > th { padding: 8px 16px; background: var(--cs-workbench-header-surface); font-size: var(--cs-font-size-badge); letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-semibold); }
@@ -58,7 +61,7 @@
 .gd-table td.gd-mono { white-space: nowrap; }
 .gd-table thead th:nth-child(2) { min-width: 190px; }
 .gd-table thead th:nth-child(4) { min-width: 200px; }
-.gd-table .ctx-scale { display: flex; margin-top: 8px; }
+.gd-table .ctx-scale { display: flex; }
 .gd-empty td { padding: 14px 16px; }
 .gd-empty strong { display: block; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .gd-empty__reason { display: block; margin-top: 2px; max-width: 60ch; color: var(--cs-text-secondary); }
@@ -108,7 +111,7 @@
 .gd-picker-help { flex-basis: 100%; font-size: var(--cs-font-size-caption); }
 .gd-picker-help > summary { cursor: pointer; padding-block: 4px; }
 .gd-screen .gd-hero__finding { font-size: var(--cs-font-size-prose); }
-.gd-screen .cx-assertion { min-inline-size: 36px; min-block-size: 36px; }
+.gd-screen .cx-assertion { inline-size: 30px; block-size: 30px; }
 .gd-screen .cx-caption { margin-block: 4px; }
 .gd-screen .cx-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .gd-screen .cx-finding-details > summary { padding-inline: 0; }
@@ -142,7 +145,7 @@
 .gd-screen .ctx-select { appearance: auto; padding-inline-end: 28px; }
 .gd-screen .gd-picker__note { font-size: var(--cs-font-size-caption); }
 .gd-screen :is(.cx-matrix, .gd-table) tr[data-selected="true"] > * { background: color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface)); }
-.gd-screen .cx-matrix .evw-reading-button { min-block-size: 36px; text-align: start; text-decoration: underline; text-underline-offset: 3px; }
+.gd-screen .cx-matrix .evw-reading-button { min-block-size: 30px; text-align: start; text-decoration: underline; text-underline-offset: 3px; }
 .gd-rail { gap: 20px; }
 .gd-rail .evw-inspection { margin-block: 0; }
 .gd-rail .evw-inspection h3, .gd-rail .gd-source-section > h3 { font-size: 16px; letter-spacing: normal; text-transform: none; color: var(--cs-text-primary); }
@@ -177,4 +180,14 @@
 .gd-screen.cx-screen .cx-controls label { display: flex; flex: 1; flex-direction: row; align-items: center; gap: 8px; white-space: nowrap; }
 .gd-screen.cx-screen .cx-controls input { flex: 1; inline-size: 100%; min-inline-size: 0; }
 .gd-screen.cx-screen .cx-matrix :is(th, td) { padding-block: 4px; padding-inline: 16px; vertical-align: middle; }
+/* One rhythm with the readings table: a 40px head bar and foot bar around rows of one fixed height. The head
+   was 28px (the 4px row padding applied to it too) and the foot 44px (the shared figure caption padding). */
+.gd-screen.cx-screen .cx-matrix thead th { block-size: var(--gd-bar-h); padding-block: 0; font-weight: var(--cs-font-weight-semibold); }
+.gd-screen.cx-screen .cx-matrix tbody :is(th, td) { block-size: 38px; padding-block: 2px; border-block-start: 1px solid var(--cs-border-subtle); }
+.gd-screen .viz-frame__foot { align-items: center; min-block-size: var(--gd-bar-h); padding: 8px 16px; border-block-start: 1px solid var(--cs-border-subtle); }
+/* The dot is the data; the box around it only appears when it is hovered or chosen. */
+.gd-screen .cx-assertion { border-color: transparent; }
+@media (hover: hover) and (pointer: fine) { .gd-screen .cx-assertion:hover { border-color: var(--cs-border); } }
+.gd-screen .cx-assertion[aria-pressed="true"] { border-color: var(--cs-accent-clay); }
+.gd-screen .cx-assertion > span[aria-hidden] { font-size: 18px; line-height: 1; }
 .gd-screen[data-comparison] .cx-records { margin: 0; }

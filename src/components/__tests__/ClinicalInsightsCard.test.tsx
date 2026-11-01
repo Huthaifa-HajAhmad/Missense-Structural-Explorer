@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import ClinicalInsightsCard from "../ClinicalInsightsCard";
 import { SettingsProvider } from "../../context/SettingsContext";
@@ -291,5 +291,27 @@ describe('Current Insights evidence', () => {
     const initial = lane().textContent;
     view.rerenderCard(result, { foldingEnergetics: { thermompnn: -2, stabilityoracle: -2 } });
     expect(lane().textContent).not.toBe(initial);
+  });
+});
+
+/**
+ * The exports moved out of the header's title row into a secondary toolbar. These assertions keep the
+ * toolbar a single labelled group of real buttons, so a later restyle cannot quietly drop the grouping,
+ * the `type` or the loading lock the layout pass added.
+ */
+describe('Export toolbar', () => {
+  it('groups the three exports as one labelled toolbar of plain buttons', () => {
+    renderCard(baseResult());
+    const group = screen.getByRole('group', { name: 'Export and copy analysis' });
+    const buttons = within(group).getAllByRole('button');
+    expect(buttons).toHaveLength(3);
+    for (const button of buttons) expect(button).toHaveAttribute('type', 'button');
+    expect(within(group).getByRole('button', { name: /Provenance Manifest/i })).toBeEnabled();
+  });
+
+  it('locks every export while the analysis is still loading', () => {
+    renderCard(baseResult(), { analysisState: { result: baseResult(), isLoading: true, error: null } });
+    const group = screen.getByRole('group', { name: 'Export and copy analysis' });
+    for (const button of within(group).getAllByRole('button')) expect(button).toBeDisabled();
   });
 });

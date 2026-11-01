@@ -58,8 +58,10 @@ test('expression expansion, exact pins and source availability', { tags: ['expre
   await screen.getByRole('combobox', 'Evidence').selectOption('Expression');
   await screen.getByRole('tab', 'Tissue explorer').tap();
   await screen.getByRole('combobox', 'Sampled age cohort').selectOption('Pre-pubertal (8 to approximately 13)');
-  await expect(screen.getByTestId('expression-finding')).toContainText('29 TPM');
-  await expect(screen.getByText(/Linear TPM scale: 0–36/)).toBeVisible();
+  // The chart carries the value; the tissue explorer no longer repeats it in a summary or a scale caption.
+  await expect(screen.getByRole('img', /Pediatric tissue and age cohorts/)).toContainText('29 TPM');
+  await expect(screen.getByTestId('expression-finding')).toHaveCount(0);
+  await expect(screen.getByText(/Linear TPM scale/)).toHaveCount(0);
   await screen.getByRole('tab', 'Sampling & coverage').tap();
   await screen.getByRole('button', 'Brain').press('Enter');
   await expect(inspector).toContainText('29');
@@ -106,13 +108,21 @@ test('pext map explains region shading without an unrelated RNA headline', { tag
       const dark = await browser.evaluate(() => document.documentElement.classList.contains('dark'));
       if (dark !== (theme === 'dark')) await screen.getByRole('button', 'Switch theme').tap();
       expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      for (const [view, card] of [['Tissue explorer', 'expression-finding'], ['Sampling & coverage', 'context-records'], ['Protein measurements', 'hpa-card'], ['Expression at variant', 'pext-card']]) {
+      const tops: Array<Record<string, number | null>> = [];
+      for (const [view, card] of [['Tissue explorer', 'context-records'], ['Sampling & coverage', 'context-records'], ['Protein measurements', 'hpa-card'], ['Expression at variant', 'pext-card']]) {
         await screen.getByRole('tab', view).tap();
         await expect(screen.getByTestId(card)).toBeVisible();
-        await expect(screen.getByTestId('expression-finding')).toHaveCount(view === 'Protein measurements' || view === 'Expression at variant' ? 0 : 1);
+        // Only the sampling view opens with the source summary; the other three open with their own figure.
+        await expect(screen.getByTestId('expression-finding')).toHaveCount(view === 'Sampling & coverage' ? 1 : 0);
         expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        tops.push(await browser.evaluate(() => {
+          const top = (selector: string) => { const node = document.querySelector(selector); return node ? Math.round(node.getBoundingClientRect().top + window.scrollY) : null; };
+          return { navigation: top('.evw-navigation'), review: top('.xp-review-settings'), panel: top('.xp-workspace > .evw-panel') };
+        }));
         await app.screenshot(`${view}-${width}-${theme}`);
       }
+      // The shared chrome must not move when the reader switches view.
+      for (const key of ['navigation', 'review', 'panel']) expect(new Set(tops.map(t => t[key])).size).toBe(1);
     }
   }
 });

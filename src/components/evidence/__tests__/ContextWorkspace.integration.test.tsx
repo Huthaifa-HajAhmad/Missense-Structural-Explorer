@@ -35,7 +35,7 @@ describe('production context tabs and linked inspectors', () => {
     expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Protein measurements' }));
     expect(screen.getByRole('heading', { name: 'Protein Atlas' })).toBeInTheDocument();
-    expect(within(screen.getByTestId('expression-models-screen')).queryByText(/Review context/, { selector: 'summary' })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('expression-models-screen')).getByText('Review context')).toBeVisible();
     expect(screen.queryByRole('columnheader', { name: 'RNA samples' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
     expect(screen.getByRole('heading', { name: 'Base-level pext' })).toBeInTheDocument();
@@ -73,6 +73,36 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(within(systems).getByRole('button', { name: 'Renal' }));
     expect(screen.getByRole('rowheader', { name: 'Kidney cortex' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Expression at variant' })).toHaveAttribute('aria-selected', 'true');
+  });
+  it('counts review systems in the collapsed review summary and keeps the source summary inside the panel', () => {
+    const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    const summary = within(screen.getByTestId('expression-models-screen')).getByText('Review context').closest('summary')!;
+    expect(summary).toHaveTextContent('All systems');
+    const systems = screen.getByRole('group', { name: 'Review systems' });
+    act(() => { fireEvent.click(within(systems).getByRole('button', { name: 'Renal' })); });
+    expect(summary).toHaveTextContent('1 system');
+    expect(summary).not.toHaveTextContent('1 systems');
+    act(() => { fireEvent.click(within(systems).getByRole('button', { name: 'Hepatic' })); });
+    expect(summary).toHaveTextContent('2 systems');
+    // The tissue explorer opens with its own chart: no summary above it and no scale caption under the toolbar.
+    expect(screen.queryByTestId('expression-finding')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Linear TPM scale/)).not.toBeInTheDocument();
+    // The sampling view opens with the summary, as the first thing in the panel, so the shared controls above it do not move.
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
+    const panel = document.getElementById('evidence-expression-models-panel-records')!;
+    expect(panel.firstElementChild).toBe(within(panel).getByTestId('expression-finding'));
+  });
+  it('names the annotation transcript from the first non-blank source', () => {
+    const f = contextWorkspaceFixture();
+    const result = { ...f.result, transcriptId: '  ', predictorData: { ...f.result.predictorData, transcriptId: 'NM_000454.5', gnomadVariantId: '21-150-A-T', gnomadVariantAssembly: 'GRCh38' as const } } as AnalysisResult;
+    store.setState({ extraContexts: { ...store.getState().extraContexts, 'pext:SOD1': { status: 'ready', data: { gene: 'SOD1', status: 'ready', geneId: 'ENSG1', chrom: '21', flags: [], provenance: null, message: null, regions: [{ start: 100, stop: 200, mean: 0.5, tissues: [] }] } } } });
+    render(<Harness result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
+    expect(screen.getByText('NM_000454.5')).toBeVisible();
+    expect(screen.getByText(/expression of this transcript/)).toBeVisible();
   });
   it('expands every chart record and recovers a pin beyond the initial twenty', async () => {
     const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
@@ -278,10 +308,11 @@ describe('gene-disease review states', () => {
     expect(screen.getByTestId('dosage-card')).toBeInTheDocument();
     fireEvent.click(choice.getByRole('button', { name: 'Review this disease' }));
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue(f.disease.frames[0].key);
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveTextContent(f.disease.frames[0].label);
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveFocus();
     fireEvent.click(screen.getByRole('tab', { name: 'Variant context' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Review SOD1 for' }), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Review SOD1 for' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Choose a disease and inheritance' }));
     fireEvent.click(screen.getByRole('button', { name: 'Review this disease' }));
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveFocus();
@@ -321,7 +352,7 @@ describe('gene-disease review states', () => {
     for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
     store.setState(f.state);
     render(<Harness result={f.result} />);
-    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveTextContent('Choose a disease and inheritance');
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.queryByText(/records shown/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();

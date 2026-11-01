@@ -1,3 +1,5 @@
+vi.mock("../structure/structure-fetcher.ts", () => ({ fetchAlphafoldPdb: vi.fn(async () => null) }));
+vi.mock("../structure/pocket/disruption.ts", () => ({ predictStructuralDisruption: vi.fn(async () => ({ level: "low", plddt: 90, reason: "Measured", rsa: 0.6, burialStatus: "surface" })) }));
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runCoreAnalysis, isStaleCachedPayload, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
 import { payloadIdentityRecordOf } from "./core-identity.ts";
@@ -114,6 +116,33 @@ describe("Analysis Orchestrator Unit Tests", () => {
   const stamp = (payload: any, context: ParsedVariantContext = baseContext) => ({
     ...payload,
     _internal: { ...(payload?._internal || {}), coreIdentity: payloadIdentityRecordOf(context) }
+  });
+
+  it("refreshes missing burial during structural retry and returns it to the client", async () => {
+    const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
+    vi.mocked(fetchAlphafoldPdb).mockResolvedValueOnce("MOCK_AF_PDB");
+    const result = await runStructuralAnalysis(baseContext, null, null);
+    expect(result.disruptionPredictor).toMatchObject({ rsa: 0.6, burialStatus: "surface", structureLabel: "AlphaFold model" });
+  });
+
+  it("keeps the earlier burial reading and the model results when the AlphaFold refresh throws", async () => {
+    const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
+    vi.mocked(fetchAlphafoldPdb).mockRejectedValueOnce(new Error("AlphaFold is down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await runStructuralAnalysis(baseContext, null, null);
+    expect(result.esm3Eval).toEqual({ score: -4.5 });
+    expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
+    expect(result.disruptionPredictor).not.toHaveProperty("structureLabel");
+    warn.mockRestore();
+  });
+
+  it("keeps the earlier burial reading when the refresh still has no accessibility value", async () => {
+    const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
+    const { predictStructuralDisruption } = await import("../structure/pocket/disruption.ts");
+    vi.mocked(fetchAlphafoldPdb).mockResolvedValueOnce("MOCK_AF_PDB");
+    vi.mocked(predictStructuralDisruption).mockResolvedValueOnce({ level: "unknown", reason: "No accessibility", plddt: 90 } as never);
+    const result = await runStructuralAnalysis(baseContext, null, null);
+    expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
   });
 
   it("should run synchronous core analysis and persist result to cache", async () => {

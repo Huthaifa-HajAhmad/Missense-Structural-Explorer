@@ -32,6 +32,15 @@ describe('context rail (Expression & models)', () => {
     const prv = within(screen.getByTestId('context-provenance'));
     for (const name of ['GTEx', 'Human Protein Atlas']) expect(prv.getByText(name)).toBeInTheDocument();
   });
+  it('lists provenance as one row per source, each with a collapsed release line and no repeated source name', () => {
+    render(<EvidenceContextRail analysisResult={result} expression />);
+    const table = within(screen.getByTestId('context-provenance')).getByRole('table', { name: 'Source releases and retrieval details' });
+    const row = within(table).getByRole('rowheader', { name: 'GTEx' }).closest('tr')!;
+    const details = row.querySelector('details')!;
+    expect(details).not.toHaveAttribute('open');
+    expect(details.querySelector('summary')).toHaveTextContent('gtex_v10');
+    expect(details.querySelector('.xp-prov__name')).toBeEmptyDOMElement();
+  });
   it('states the reading and the interpretation boundary, and keeps a gap out of the figure', () => {
     render(<EvidenceContextRail analysisResult={result} expression />);
     const trace = within(screen.getByTestId('context-trace'));

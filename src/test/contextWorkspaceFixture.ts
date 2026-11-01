@@ -57,6 +57,9 @@ export function contextWorkspaceFixture(example = 'Mixed') {
       id: `d${n}`, level, submitter: `Panel ${String.fromCharCode(65 + n)}`, submitterId: `s${n}`,
       evaluatedAt: '2026-08-20', reportUrl: 'https://example.org/illustrative',
     }));
+    const score = (code: 0 | 3, withDisease: boolean) => ({ state: 'scored' as const, code, disease: withDisease ? frame.label : null, diseaseId: withDisease ? frame.diseaseId : null, history: null });
+    state.dosageContexts = { [gene]: ready({ gene, status: 'ready', message: null, provenance: null, record: { symbol: gene, geneId: frame.geneId, location: null,
+      haploinsufficiency: score(3, true), triplosensitivity: score(0, false), evaluatedAt: '2026-08-20', reportUrl: 'https://example.org/illustrative' } }) };
     disease.mechanismContext!.records = [{ id: 'G2P-example', geneId: frame.geneId, gene,
       diseaseId: frame.diseaseId, diseaseLabel: frame.label, allelicRequirement: 'monoallelic_autosomal',
       mechanism: 'undetermined', confidence: 'moderate', support: 'inferred', modifier: '', categorisation: '',

@@ -418,9 +418,20 @@ p.ag-card__foot > span { display: inline; }
   .ag-btn, .ag-actions { display: none; }
 }
 
-/* The finding sits beside the figure, so its bold lead is its own line; the scope's count and
-   control row share one optical line instead of centring against a taller label stack. */
+/* The finding sits beside the figure, so its bold lead is its own line. The scope bar puts the count (a bold
+   line over a quiet sorting note) and the input-type control on one line, with a rule under it. */
 .ag-screen .ag-prose strong { display: block; margin-block-end: 6px; }
-.ag-screen .evw-figure-scope { align-items: end; padding-block: 12px; gap: 12px; }
+.ag-screen .evw-figure-scope { align-items: center; padding-block: 14px; gap: 16px; border-block-end: 1px solid var(--cs-border-subtle); }
+.ag-screen .evw-scope-count { display: grid; gap: 4px; }
+.ag-screen .evw-scope-count strong { color: var(--cs-text-primary); font-weight: 600; }
+.ag-screen .evw-controls { align-items: end; gap: 10px; }
 .ag-screen .evw-figure-scope select { inline-size: 12rem; }
 .ag-screen .evw-figure-scope .viz-action { min-block-size: 36px; }
+
+/* The axis guide over the contribution chart: "Lowers score ←", a centred 0, "→ Raises score". The guide is padded
+   by the same --evw-plot-left/right as the plot, so its centre is the middle of the scale. That is the zero line
+   only because the contribution domain is symmetric (buildAttributionComparison returns [-bound, bound]); an
+   uneven domain would need the 0 moved. */
+.evw-comparison[data-tab="alphagenome"] .evw-axis-guide { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.evw-comparison[data-tab="alphagenome"] .evw-axis-guide > :last-child { text-align: end; }
+.evw-comparison[data-tab="alphagenome"] .evw-axis-guide strong { color: var(--cs-text-primary); font-weight: 600; }

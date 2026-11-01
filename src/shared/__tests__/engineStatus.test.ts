@@ -849,3 +849,24 @@ describe("engineStatus — a cancelled run is not a failure", () => {
     }
   });
 });
+
+describe("engineStatus — an engine that answered 'no score' is not an engine that was down", () => {
+  it("says ProtVar has no precomputed score only when ProtVar itself said so", () => {
+    const missed = resolveEngineOutcome({ id: "protvar", value: null, status: "done", problem: "coverage-miss", detail: "No precomputed data for this variant." });
+    expect(missed.state).toBe("not-covered");
+    expect(missed.label).toBe("No precomputed score");
+  });
+
+  it("keeps the generic label when ProtVar was merely unavailable or failed", () => {
+    const unavailable = resolveEngineOutcome({ id: "protvar", value: null, status: "unavailable" });
+    expect(unavailable.state).toBe("not-covered");
+    expect(unavailable.label).toBe(ENGINE_STATE_LABELS["not-covered"]);
+    const failed = resolveEngineOutcome({ id: "protvar", value: null, status: "error", problem: "upstream-error" });
+    expect(failed.label).toBe(ENGINE_STATE_LABELS[failed.state]);
+  });
+
+  it("does not rename another engine's coverage miss", () => {
+    const rasp = resolveEngineOutcome({ id: "rasp", value: null, problem: "coverage-miss" });
+    expect(rasp.label).toBe(ENGINE_STATE_LABELS["not-covered"]);
+  });
+});

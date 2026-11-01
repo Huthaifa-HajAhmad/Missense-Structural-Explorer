@@ -42,6 +42,15 @@ function HowTo({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
+/**
+ * A token field with the notes that belong to it — the saved-to-account strip and the last-request
+ * line. The card's hairlines are drawn between token fields, never between a field and its own
+ * notes, which otherwise land on the note text and read as a strike-through.
+ */
+function TokenField({ children }: { children: React.ReactNode }) {
+  return <div className="settings-token-field">{children}</div>;
+}
+
 export function ConnectionsSection() {
   const { settings, updateSetting, serverGeminiReady } = useSettings();
   const { tests, runTest, linking, linkError, linkGeminiKey, clearLinkError } = useApiConnections();
@@ -175,42 +184,46 @@ export function ConnectionsSection() {
           }}
           description="Authorizes structural mutations, AlphaFold proxies, and session creation on this lab server."
         />
-        <SecretInput
-          label="EvolutionaryScale (Forge) token"
-          placeholder="Enter EvolutionaryScale Forge API key…"
-          value={settings.biohubApiToken || ""}
-          onChange={(value) => updateSetting("biohubApiToken", value)}
-          description="Enables ESM3 multimodal generative structural refinement on forge.evolutionaryscale.ai."
-          action={{
-            label: "Test connection",
-            busyLabel: "Testing…",
-            busy: tests.biohub.testing,
-            // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-            disabled: !settings.biohubApiToken?.trim() && !secrets.saved?.biohub?.readable,
-            run: () => runTest("biohub", { useSaved: !settings.biohubApiToken?.trim() })
-          }}
-          status={tests.biohub.status}
-        />
-        <AccountTokenControls kind="biohub" label="Biohub" browserToken={settings.biohubApiToken || ""} clearBrowserToken={() => updateSetting("biohubApiToken", "")} secrets={secrets} />
-        <LastCredentialUse kind="biohub" />
-        <SecretInput
-          label="Hugging Face access token"
-          placeholder="Enter HF_TOKEN…"
-          value={settings.hfToken || ""}
-          onChange={(value) => updateSetting("hfToken", value)}
-          description="Enables GPN-Star phylogeny LM, SaProt structure-aware scoring, and ESM-2 via Hugging Face inference."
-          action={{
-            label: "Test connection",
-            busyLabel: "Testing…",
-            busy: tests.hf.testing,
-            // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-            disabled: !settings.hfToken?.trim() && !secrets.saved?.huggingface?.readable,
-            run: () => runTest("hf", { useSaved: !settings.hfToken?.trim() })
-          }}
-          status={tests.hf.status}
-        />
-        <AccountTokenControls kind="huggingface" label="Hugging Face" browserToken={settings.hfToken || ""} clearBrowserToken={() => updateSetting("hfToken", "")} secrets={secrets} />
-        <LastCredentialUse kind="huggingface" />
+        <TokenField>
+          <SecretInput
+            label="EvolutionaryScale (Forge) token"
+            placeholder="Enter EvolutionaryScale Forge API key…"
+            value={settings.biohubApiToken || ""}
+            onChange={(value) => updateSetting("biohubApiToken", value)}
+            description="Enables ESM3 multimodal generative structural refinement on forge.evolutionaryscale.ai."
+            action={{
+              label: "Test connection",
+              busyLabel: "Testing…",
+              busy: tests.biohub.testing,
+              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
+              disabled: !settings.biohubApiToken?.trim() && !secrets.saved?.biohub?.readable,
+              run: () => runTest("biohub", { useSaved: !settings.biohubApiToken?.trim() })
+            }}
+            status={tests.biohub.status}
+          />
+          <AccountTokenControls kind="biohub" label="Biohub" browserToken={settings.biohubApiToken || ""} clearBrowserToken={() => updateSetting("biohubApiToken", "")} secrets={secrets} />
+          <LastCredentialUse kind="biohub" />
+        </TokenField>
+        <TokenField>
+          <SecretInput
+            label="Hugging Face access token"
+            placeholder="Enter HF_TOKEN…"
+            value={settings.hfToken || ""}
+            onChange={(value) => updateSetting("hfToken", value)}
+            description="Enables GPN-Star phylogeny LM, SaProt structure-aware scoring, and ESM-2 via Hugging Face inference."
+            action={{
+              label: "Test connection",
+              busyLabel: "Testing…",
+              busy: tests.hf.testing,
+              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
+              disabled: !settings.hfToken?.trim() && !secrets.saved?.huggingface?.readable,
+              run: () => runTest("hf", { useSaved: !settings.hfToken?.trim() })
+            }}
+            status={tests.hf.status}
+          />
+          <AccountTokenControls kind="huggingface" label="Hugging Face" browserToken={settings.hfToken || ""} clearBrowserToken={() => updateSetting("hfToken", "")} secrets={secrets} />
+          <LastCredentialUse kind="huggingface" />
+        </TokenField>
         <SecretInput
           label="AlphaGenome Atlas API key"
           placeholder="Enter ALPHAGENOME_API_KEY…"
@@ -226,24 +239,26 @@ export function ConnectionsSection() {
           }}
           status={tests.alphagenome.status}
         />
-        <SecretInput
-          label="Tamarind Bio API key"
-          placeholder="Enter TAMARIND_API_KEY…"
-          value={settings.tamarindApiKey || ""}
-          onChange={(value) => updateSetting("tamarindApiKey", value)}
-          description="Remote execution and fallback for ThermoMPNN ΔΔG stability predictions on app.tamarind.bio."
-          action={{
-            label: "Test connection",
-            busyLabel: "Testing…",
-            busy: tests.tamarind.testing,
-            // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-            disabled: !settings.tamarindApiKey?.trim() && !secrets.saved?.tamarind?.readable,
-            run: () => runTest("tamarind", { useSaved: !settings.tamarindApiKey?.trim() })
-          }}
-          status={tests.tamarind.status}
-        />
-        <AccountTokenControls kind="tamarind" label="Tamarind" browserToken={settings.tamarindApiKey || ""} clearBrowserToken={() => updateSetting("tamarindApiKey", "")} secrets={secrets} />
-        <LastCredentialUse kind="tamarind" />
+        <TokenField>
+          <SecretInput
+            label="Tamarind Bio API key"
+            placeholder="Enter TAMARIND_API_KEY…"
+            value={settings.tamarindApiKey || ""}
+            onChange={(value) => updateSetting("tamarindApiKey", value)}
+            description="Remote execution and fallback for ThermoMPNN ΔΔG stability predictions on app.tamarind.bio."
+            action={{
+              label: "Test connection",
+              busyLabel: "Testing…",
+              busy: tests.tamarind.testing,
+              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
+              disabled: !settings.tamarindApiKey?.trim() && !secrets.saved?.tamarind?.readable,
+              run: () => runTest("tamarind", { useSaved: !settings.tamarindApiKey?.trim() })
+            }}
+            status={tests.tamarind.status}
+          />
+          <AccountTokenControls kind="tamarind" label="Tamarind" browserToken={settings.tamarindApiKey || ""} clearBrowserToken={() => updateSetting("tamarindApiKey", "")} secrets={secrets} />
+          <LastCredentialUse kind="tamarind" />
+        </TokenField>
         <SettingsBlock className="!py-3">
           <HowTo title="How to get a Tamarind Bio API key">
             Visit{" "}

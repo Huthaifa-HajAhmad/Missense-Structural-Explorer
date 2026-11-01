@@ -51,6 +51,7 @@ import {
   type RemoteStatus,
 } from "./engineStatus.ts";
 import type { StructureProvenance } from "./contracts.ts";
+import { FOLDX_REPAIR_MAX_RESIDUES } from "./computeRouting.ts";
 import { RASP_SOURCE_LABEL, type RaspCoverage, type RaspSource } from "./raspIndex.ts";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,10 @@ const ENGINE_GROUP: Record<EnergyEngineId, EnergeticsGroup> = {
 };
 
 export type EnergeticsCaveat = "unrepaired-template" | "low-plddt" | "excluded" | "rosetta-surrogate" | "protvar-stand-in";
+
+/** Why a large structure is not repaired. Shown beside the FoldX value on the Comparison and Engine records tabs. */
+export const LARGE_STRUCTURE_REPAIR_NOTE =
+  `Repair is skipped above ${FOLDX_REPAIR_MAX_RESIDUES} residues to limit waiting time; a cached repair is still reused. This is a deliberate limit, not a repair failure.`;
 
 export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; detail: string }> = {
   "unrepaired-template": {
@@ -133,8 +138,11 @@ export interface EnergeticsReading {
   counted: boolean;
   /** "Destabilizing" | "Moderately destabilizing" | "Neutral" | "Stabilizing", from the engine's own marks. */
   callLabel: string | null;
-  /** Chip tone: red only for a value past the engine's destabilizing mark. */
-  callTone: "danger" | "neutral" | "muted";
+  /**
+   * Chip tone from the engine's own risk band: red past the destabilizing mark, amber for the moderate
+   * band, plain otherwise. Every surface reads this one value, so the table and the inspector agree.
+   */
+  callTone: "danger" | "warning" | "neutral" | "muted";
   /** The engine's own destabilizing mark (canonical kcal/mol). */
   strongMark: number;
   marks: EnergeticsMark[];
@@ -212,6 +220,8 @@ export interface EnergeticsStructure {
   /** "Repaired", "Repair reused", "Not repaired (…)", "Repair failed" or null when unknown. */
   repair: string | null;
   repairState: "repaired" | "unrepaired" | "failed" | "unknown";
+  /** Why repair was skipped (the server's reason code), or null when it was not skipped. */
+  repairSkippedReason: string | null;
   /** AlphaFold DB release the model came from, when the template is predicted. */
   afdbVersion: string | null;
   /**
@@ -372,10 +382,10 @@ export function listNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStructure, "repair" | "repairState"> {
-  if (!e) return { repair: null, repairState: "unknown" };
+function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStructure, "repair" | "repairState" | "repairSkippedReason"> {
+  if (!e) return { repair: null, repairState: "unknown", repairSkippedReason: null };
   // A deliberate skip is not a failure: if both are ever set, say the template was not repaired.
-  if (e.foldxRepairFailed && !e.foldxRepairSkipped) return { repair: "Repair failed", repairState: "failed" };
+  if (e.foldxRepairFailed && !e.foldxRepairSkipped) return { repair: "Repair failed", repairState: "failed", repairSkippedReason: null };
   if (e.foldxRepairSkipped) {
     const why =
       e.foldxRepairSkippedReason === "large-structure"
@@ -387,11 +397,11 @@ function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStr
             : e.foldxRepairSkippedReason === "cached-repair-rejected"
               ? " (cached repair rejected; original template used)"
               : "";
-    return { repair: `Not repaired${why}`, repairState: "unrepaired" };
+    return { repair: `Not repaired${why}`, repairState: "unrepaired", repairSkippedReason: typeof e.foldxRepairSkippedReason === "string" ? e.foldxRepairSkippedReason : null };
   }
-  if (e.foldxRepairCached) return { repair: "Repaired (reused)", repairState: "repaired" };
-  if (num(e.foldxMean ?? e.foldx) !== null) return { repair: "Repaired", repairState: "repaired" };
-  return { repair: null, repairState: "unknown" };
+  if (e.foldxRepairCached) return { repair: "Repaired (reused)", repairState: "repaired", repairSkippedReason: null };
+  if (num(e.foldxMean ?? e.foldx) !== null) return { repair: "Repaired", repairState: "repaired", repairSkippedReason: null };
+  return { repair: null, repairState: "unknown", repairSkippedReason: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +505,9 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
       if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs${runRange(e?.rawDdGs)}`);
       if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd)}, not an error bar`);
       if (outcome.excluded) parts.push(outcome.reason);
-      note = parts.length ? parts.join("; ") + "." : null;
+      const summary = parts.length ? parts.join("; ") + "." : null;
+      // On this tab the caveat chip's hover text is the only other explanation, and hover text is not reachable by keyboard or touch.
+      note = repair.repairSkippedReason === "large-structure" ? [summary, LARGE_STRUCTURE_REPAIR_NOTE].filter(Boolean).join(" ") : summary;
     } else if (outcome.id === "protvar" && has) {
       note =
         `Precomputed by EBI ProtVar with FoldX on ${protvarModel ?? "the AlphaFold DB model"}` +
@@ -510,7 +522,8 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
 
     const risk = outcome.risk;
     const callLabel = has ? (outcome.excluded ? "Not counted" : risk?.label ?? null) : null;
-    const callTone: EnergeticsReading["callTone"] = !has || outcome.excluded ? "muted" : risk?.id === "high" ? "danger" : "neutral";
+    const callTone: EnergeticsReading["callTone"] =
+      !has || outcome.excluded ? "muted" : risk?.severity === "danger" ? "danger" : risk?.severity === "warn" ? "warning" : "neutral";
 
     const marks: EnergeticsMark[] = [
       { value: engine.stabilizingCut, label: `${engine.stabilizingCut} stabilizing (local)`, side: "stabilizing" },

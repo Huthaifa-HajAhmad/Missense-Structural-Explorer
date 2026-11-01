@@ -93,7 +93,7 @@ export function StructureToolbar(props: StructureToolbarProps) {
           {site.substitution && (
             site.canAddressVariantSite ? (
               <>
-                <button type="button" className="s3d-site" onClick={props.onFocusSite} title="Frame the variant site" data-testid="structure-site">
+                <button type="button" className="s3d-site" onClick={props.onFocusSite} title={props.selectedResidue && props.selectedResidue !== props.variantPosition ? "Return to the variant: select it again and frame it" : "Frame the variant site"} data-testid="structure-site">
                   <Crosshair aria-hidden="true" />{site.substitution}
                 </button>
                 {props.onToggleSiteCloseUp && (

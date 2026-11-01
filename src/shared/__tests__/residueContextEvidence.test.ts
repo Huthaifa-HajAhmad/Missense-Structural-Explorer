@@ -121,6 +121,12 @@ describe("buildResidueContextEvidence on NAE1 p.Asp116Gly", () => {
     expect(model.trace[4].value).toMatch(/No ACMG criterion/);
   });
 
+  it("names the structure the reading came from, and falls back for older payloads", () => {
+    const measured = { burialStatus: "surface", rsa: 0.42, neighborCount: 9 };
+    expect(nae1({ disruption: { ...measured, structureLabel: "AlphaFold model" } }).burial!.structure).toBe("AlphaFold model");
+    expect(nae1({ disruption: measured }).burial!.structure).toMatch(/1YOV/);
+  });
+
   it("gives a measured burial word when accessibility is present", () => {
     const model = nae1({ disruption: { burialStatus: "surface", rsa: 0.42, neighborCount: 9 } });
     expect(model.burial!.status).toBe("surface");

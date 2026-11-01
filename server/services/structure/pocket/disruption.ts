@@ -3,6 +3,7 @@ import { PACKING_NEIGHBOUR_BANDS } from "../../../../src/shared/burialEvidence.t
 import { executeSasaEval } from "../sasa-runner.ts";
 
 export interface DisruptionPrediction {
+  structureLabel?: string;
   level: "high" | "low" | "unknown";
   reason: string;
   /**

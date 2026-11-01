@@ -1,4 +1,6 @@
 import { hasInterruptedPredictorReadings } from '../../../src/shared/predictorRecovery.ts';
+import { fetchAlphafoldPdb } from "../structure/structure-fetcher.ts";
+import { predictStructuralDisruption } from "../structure/pocket/disruption.ts";
 import { fetchClinVarData, type ClinVarData } from "../external-api/clinvar.ts";
 import { fetchPredictorData } from "../prediction/index.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
@@ -628,6 +630,22 @@ export async function runStructuralAnalysis(
     serviceStatus: coreData.serviceStatus
   });
 
+  // The retry used to refresh language models only, leaving missing burial data unchanged.
+  // This is a best-effort extra: if it fails, or still finds no accessibility value, the reading the
+  // core run produced is kept, so the language-model retry never fails because of it.
+  let disruptionPredictor = coreData.disruptionPredictor;
+  if (disruptionPredictor?.rsa == null) {
+    try {
+      const pdb = await fetchAlphafoldPdb(context.uniprotId);
+      if (pdb) {
+        const refreshed = await predictStructuralDisruption(pdb, context.wt1Letter, context.pos, context.mut1Letter, "A", "alphafold");
+        if (refreshed.rsa != null) disruptionPredictor = { ...refreshed, structureLabel: "AlphaFold model" };
+      }
+    } catch (err) {
+      console.warn("[Structural Retry Warning] Burial refresh failed; keeping the earlier reading:", err);
+    }
+  }
+
   const basePayload = cachedCoreUsable && cachedPayload ? cachedPayload : assembleCoreResponsePayload(coreData, context);
 
   /**
@@ -653,6 +671,7 @@ export async function runStructuralAnalysis(
 
   const updatedPayload = {
     ...basePayload,
+    disruptionPredictor,
     esm3Eval: structuralData.esm3Eval,
     esmcEval: structuralData.esmcEval,
     esm2Eval: structuralData.esm2Eval,
@@ -683,6 +702,7 @@ export async function runStructuralAnalysis(
   void persistVariantAnalysisPayload(context, updatedPayload, ruleBasedInsights?.acmgVerdict || null);
 
   return {
+    disruptionPredictor,
     esm3Eval: structuralData.esm3Eval,
     esmcEval: structuralData.esmcEval,
     esm2Eval: structuralData.esm2Eval,

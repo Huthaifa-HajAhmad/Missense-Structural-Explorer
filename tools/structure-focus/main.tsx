@@ -76,6 +76,12 @@ const HOTSPOT_SET: ResidueFocus = {
 };
 const guideCard = () => document.querySelector<HTMLElement>('[data-testid="structure-guide-card"]');
 const companionLabels = () => container()?.getAttribute("data-companion-labels") ?? null;
+const drawnStructures = () => container()?.getAttribute("data-drawn-structures") ?? null;
+const drawnVersion = () => Number(container()?.getAttribute("data-drawn-version") ?? "0");
+
+// The same coordinates isolate viewer behavior; this is not a predicted variant structure.
+const VARIANT_PDB = SOD1_PDB.split("\n").map(line => line.startsWith("ATOM") && Number(line.slice(22, 26)) === 5
+  ? line.slice(0, 17) + "VAL" + line.slice(20) : line).join("\n");
 
 const store = useVariantAnalysisStore;
 
@@ -86,6 +92,16 @@ function seed(): void {
       variant: "p.Ala5Val",
       uniprotId: "P00441",
       pdbText: SOD1_PDB,
+      active3dModelTab: "alphafold2",
+      mutantPdb: VARIANT_PDB,
+      foldingStatus: "success",
+      foldingEnergetics: { structureProvenance: { source: "alphafold", uniprotId: "P00441" } },
+      foldxReference: { state: "ready", reason: null, provenance: { source: "alphafold", uniprotId: "P00441" } },
+      foldxReferencePdb: SOD1_PDB,
+      foldxAlignedPdb: VARIANT_PDB,
+      esmFoldWtPdb: SOD1_PDB,
+      esmFoldMutPdb: VARIANT_PDB,
+      esmFoldAlignedPdb: VARIANT_PDB,
       pdbTextProvenance: null,
       viewMode: "wildtype",
       selectedResidueIndex: null,
@@ -116,8 +132,9 @@ function seed(): void {
  * store selectors, and importing the whole workspace would mount nine other views and their data.
  */
 function Canvas() {
-  const model = useStructure3dEvidence("alphafold");
-  const pdbText = useVariantAnalysisStore((s) => s.pdbText);
+  const family = useVariantAnalysisStore(s => s.active3dModelTab === "esmfold2" ? "esmfold" : "alphafold");
+  const model = useStructure3dEvidence(family);
+  const pdbText = model.viewMode === "mutant" ? VARIANT_PDB : SOD1_PDB;
   const selectedResidueIndex = useVariantAnalysisStore((s) => s.selectedResidueIndex);
   const residues = useMemo(() => indexStructureResidues(pdbText), [pdbText]);
   const selection = useMemo(
@@ -132,7 +149,7 @@ function Canvas() {
         selection={selection}
         active
         primaryPdbData={pdbText}
-        comparePdbData={null}
+        comparePdbData={model.viewMode === "superimposed" ? VARIANT_PDB : null}
         allowFetch={false}
         variantPosition={5}
         selectedResidue={selectedResidueIndex ?? null}
@@ -231,6 +248,33 @@ async function run(): Promise<void> {
   store.getState().selectResidueWithFocus(58, DISULFIDE);
   const restored = await until("restore disulfide", () => companionAtoms() > 0, 45_000);
   record("the focus can be re-applied after clearing", restored, `${companionAtoms()} atoms`);
+
+  // Every case starts from a cleared focus and ends with a fresh draw, so a result left over from the case before
+  // cannot pass. A reload is proven by `drawnVersion` going up; the focus is re-applied only after it.
+  const sourceOf = { wildtype: "wild type", mutant: "variant", superimposed: "wild type + variant" } as const;
+  const modeLabel = { wildtype: "Wild type", mutant: "Variant", superimposed: "Superposition" } as const;
+  let previousSource: string = sourceOf.wildtype;
+  for (const family of ["alphafold2", "esmfold2"] as const) {
+    for (const viewMode of ["wildtype", "mutant", "superimposed"] as const) {
+      const name = `${family} ${viewMode}`;
+      store.getState().setSelectedResidueIndex(null);
+      await until("clear before mode", () => companionAtoms() === 0 && companionLabels() === null, 10_000);
+      const versionBefore = drawnVersion();
+      store.setState({ active3dModelTab: family, viewMode });
+      const expectedStructures = viewMode === "superimposed" ? "2" : "1";
+      const mustReload = sourceOf[viewMode] !== previousSource;
+      const loaded = await until("mode load", () => (!mustReload || drawnVersion() > versionBefore) && drawnStructures() === expectedStructures, 60_000);
+      previousSource = sourceOf[viewMode];
+      record(`${name} loads ${expectedStructures === "2" ? "both structures" : "one structure"} after the switch`, loaded, `${drawnStructures()} structure(s), load ${versionBefore} to ${drawnVersion()}, reload ${mustReload ? "required" : "not needed"}`);
+      store.getState().selectResidueWithFocus(58, DISULFIDE);
+      const drawn = await until("mode companions", () => companionAtoms() > 0 && companionLabels() === "on", 30_000);
+      record(`${name} draws highlighted atoms and labels`, drawn, `${companionAtoms()} atoms, labels ${companionLabels()}`);
+      const checked = document.querySelector('[data-testid="structure-modes"] [aria-checked="true"]')?.textContent?.trim();
+      record(`${name} keeps the requested mode`, checked === modeLabel[viewMode], `${checked}`);
+    }
+  }
+  store.setState({ active3dModelTab: "alphafold2", viewMode: "wildtype" });
+  await until("final draw", () => companionAtoms() > 0 && drawnStructures() === "1", 60_000);
 
   document.title = `3D focus check — ${CHECKS.filter((c) => c.pass).length}/${CHECKS.length} passed`;
   // Written last: a crash before this leaves #geometry-result empty, and the runner reports an incomplete run

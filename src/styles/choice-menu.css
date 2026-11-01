@@ -1,0 +1,36 @@
+/* ChoiceMenu: the themed single-choice field and its list. No arrow glyph anywhere: the field says
+   what it does in words ("Change", "3 available") and the open list is drawn as a card. */
+.cm { position: relative; min-width: 0; }
+.cm__field {
+  display: flex; align-items: center; gap: 14px; inline-size: 100%; min-block-size: 44px; padding: 3px 14px;
+  border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input); background: var(--cs-surface);
+  color: var(--cs-text-primary); font: inherit; text-align: start; cursor: pointer;
+}
+.cm__field[aria-expanded="true"] { border-color: var(--cs-accent-clay); }
+.cm__field:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.cm__value { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
+.cm__field .cm__title { font-weight: var(--cs-font-weight-medium); }
+.cm__value[data-empty] .cm__title { color: var(--cs-text-secondary); font-weight: 400; }
+.cm__title, .cm__field .cm__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm__detail { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.35; }
+.cm__field .cm__title { line-height: 1.35; }
+.cm__hint { flex: none; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) { .cm__field:hover { border-color: var(--cs-text-muted); } }
+
+/* The list lives in document.body (so a card's overflow cannot clip it): it sets its own type. */
+.cm__list {
+  position: fixed; z-index: 60; box-sizing: border-box; margin: 0; padding: 6px; list-style: none; overflow: auto; overscroll-behavior: contain;
+  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-prose); line-height: 1.5;
+  background: var(--cs-surface); color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-card);
+  /* The one floating surface in a shadowless system needs a cue that it sits above the page. */
+  box-shadow: 0 16px 40px -16px color-mix(in srgb, var(--cs-text-primary) 35%, transparent);
+  animation: cm-in 0.12s ease-out both;
+}
+@keyframes cm-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cm__list { animation: none; } }
+.cm__option { display: flex; flex-direction: column; gap: 1px; padding: 8px 12px; border-radius: var(--cs-radius-input); cursor: pointer; }
+.cm__option .cm__title { font-weight: var(--cs-font-weight-medium); overflow-wrap: anywhere; }
+.cm__option[data-none] .cm__title { color: var(--cs-text-secondary); font-weight: 400; }
+.cm__option[data-active] { background: var(--cs-bg-subtle); }
+.cm__option[aria-selected="true"] { background: var(--cs-accent-wash); box-shadow: inset 2px 0 var(--cs-accent-clay); }
+.cm__option[aria-selected="true"][data-active] { background: color-mix(in oklch, var(--cs-accent-clay) 14%, var(--cs-surface)); }

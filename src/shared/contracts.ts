@@ -1151,6 +1151,7 @@ export const alphagenomeAviSchema = z.object({
   aviPhred: z.number().nullable().optional(),
   aviRaw: z.number().nullable().optional(),
   aviQuantile: z.number().nullable().optional(),
+  /** A percentage from 0 to 100, not a fraction: 0.229 means the top 0.229% of possible changes. */
   topPercentile: z.number().nullable().optional(),
   topModality: z.string().nullable().optional(),
   topFeatureImportance: z.number().nullable().optional(),
@@ -1746,6 +1747,8 @@ export const analyzeVariantResponseSchema = z.object({
     neighborCount: z.number().optional(),
     rsa: z.number().nullable().optional(),
     sasa: z.number().nullable().optional(),
+    /** The structure the reading came from, e.g. "AlphaFold model" or "PDB 1ABC". */
+    structureLabel: z.string().optional(),
     /** Why accessibility was not measured, when the SASA step failed. */
     sasaUnavailableReason: z.string().optional()
   }).optional(),
@@ -2654,6 +2657,7 @@ export interface UniprotFeaturesData {
 }
 
 export interface DisruptionPredictorResult {
+  structureLabel?: string;
   level: "high" | "low" | "unknown";
   reason: string;
   /** AlphaFold pLDDT at the site; null when the structure was experimental (see `bFactorKind`). */

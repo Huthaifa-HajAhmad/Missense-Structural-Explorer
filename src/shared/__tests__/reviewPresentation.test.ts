@@ -16,7 +16,7 @@ describe('loaded literature coverage', () => {
     const mixed = evidence.papers.map((paper, i) => ({ ...paper, citation: { ...paper.citation, abstract: i === 0 ? 'Measured enzyme activity.' : i === 1 ? '   ' : '' } }));
     expect(literatureTextCoverage(mixed)).toEqual({ total: 3, withAbstract: 1, withoutAbstract: 2 });
     expect(literatureTextCoverage([])).toEqual({ total: 0, withAbstract: 0, withoutAbstract: 0 });
-    expect(evidence.facts.find(f => f.label === 'Query matches loaded')?.value).toBe('2');
+    expect(evidence.trace.find(step => step.key === 'order')?.value).toContain('2 loaded · 1 curated added');
   });
   it('does not divide by zero for an empty loaded set', () => {
     expect(literatureCoverage([]).every(row => row.count === 0 && row.total === 0 && row.percent === 0)).toBe(true);

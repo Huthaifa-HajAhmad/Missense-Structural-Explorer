@@ -1,10 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { buildEnergeticsEvidence } from '../energeticsEvidence';
+import { LARGE_STRUCTURE_REPAIR_NOTE, buildEnergeticsEvidence } from '../energeticsEvidence';
+import { FOLDX_REPAIR_MAX_RESIDUES } from '../computeRouting';
 import { buildEnergeticsComparison, energeticsComparisonHeadline, energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates } from '../energeticsComparison';
 import { KJ_PER_KCAL } from '../engineStatus';
 
 const evidence = (extra = {}) => buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.62, foldxMean: 2.62, dynamut2: 0.36, ddmut: 0, thermompnn: 1.2, ...extra }, foldingStatus: 'success' });
 describe('Energetics comparison scientific display contract', () => {
+  it('explains a deliberate large-template repair skip beside the estimate, in whole sentences', () => {
+    const e = evidence({ foldxRepairSkipped: true, foldxRepairSkippedReason: 'large-structure', structureProvenance: { source: 'alphafold', chainId: 'A' } });
+    const notes = energeticsComparisonCautions(e);
+    expect(notes).toContain('FoldX used an unrepaired template, which can distort the estimate.');
+    expect(notes).toContain(LARGE_STRUCTURE_REPAIR_NOTE);
+    expect(LARGE_STRUCTURE_REPAIR_NOTE).toContain(`above ${FOLDX_REPAIR_MAX_RESIDUES} residues`);
+    expect(LARGE_STRUCTURE_REPAIR_NOTE).toContain('not a repair failure');
+    // The Engine records tab shows it as visible row text, not only as hover text on the chip.
+    expect(e.readings.find(r => r.key === 'foldx')?.note).toContain(LARGE_STRUCTURE_REPAIR_NOTE);
+  });
+  it('does not add the large-structure sentence for other repair-skip reasons', () => {
+    const e = evidence({ foldxRepairSkipped: true, foldxRepairSkippedReason: 'repair-exceeds-budget', structureProvenance: { source: 'alphafold', chainId: 'A' } });
+    expect(energeticsComparisonCautions(e)).not.toContain(LARGE_STRUCTURE_REPAIR_NOTE);
+    expect(e.readings.find(r => r.key === 'foldx')?.note ?? '').not.toContain(LARGE_STRUCTURE_REPAIR_NOTE);
+  });
+  it('gives the moderate band its own warning tone, so every surface agrees', () => {
+    const tones = Object.fromEntries(evidence({ foldx: 0.58, foldxMean: 0.58 }).readings.map(r => [r.key, r.callTone]));
+    expect(tones.foldx).toBe('warning');
+    expect(evidence({ foldx: 2.62, foldxMean: 2.62 }).readings.find(r => r.key === 'foldx')?.callTone).toBe('danger');
+    expect(evidence({ foldx: 0.1, foldxMean: 0.1 }).readings.find(r => r.key === 'foldx')?.callTone).toBe('neutral');
+  });
+  it('distinguishes a missing ProtVar score from a provider failure', () => {
+    const miss = evidence({ protvar: null, protvarStatus: 'done', protvarReason: 'No precomputed data for this variant.' });
+    expect(buildEnergeticsComparison(miss, 'kcal/mol').missing.find(r => r.key === 'protvar')?.status).toBe('No precomputed score');
+    const failed = evidence({ protvar: null, protvarStatus: 'error', protvarError: 'Provider unavailable' });
+    expect(buildEnergeticsComparison(failed, 'kcal/mol').missing.find(r => r.key === 'protvar')?.status).not.toBe('No precomputed score');
+  });
   it('stages a majority with its exception instead of calling four of five "disagree"', () => {
     const urod = buildEnergeticsEvidence({
       foldingEnergetics: {

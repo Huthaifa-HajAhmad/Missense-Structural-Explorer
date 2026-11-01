@@ -272,7 +272,8 @@ export function buildAlphaGenomeEvidence({
   const topPercent = !assessed
     ? null
     : finite(alphagenome?.topPercentile) ?? (phred !== null && phred >= 0 ? Math.pow(10, -phred / 10) * 100 : null);
-  const oneIn = topPercent !== null && topPercent > 0 ? Math.round(100 / topPercent) : null;
+  // "1 in N" only helps for a rare rank. Past the top half it rounds to "1 in 2" or "1 in 1", which says nothing.
+  const oneIn = topPercent !== null && topPercent > 0 && topPercent <= 50 ? Math.round(100 / topPercent) : null;
 
   const attributions = assessed ? (alphagenome?.featureAttributions ?? null) : null;
 
@@ -366,8 +367,23 @@ export function fmtSigned(v: number, digits = 3): string {
 export function fmtPercent(p: number): string {
   if (p >= 10) return `${p.toFixed(0)}%`;
   if (p >= 1) return `${p.toFixed(1)}%`;
-  if (p >= 0.01) return `${Number(p.toPrecision(2))}%`;
-  return `${p.toExponential(1)}%`;
+  if (p >= 0.001) return `${Number(p.toPrecision(2))}%`;
+  // The server keeps four decimals and the rank ruler stops at the top 0.001%, so a smaller number adds nothing.
+  return "<0.001%";
+}
+
+/**
+ * The big number on the rank. `topPercent` is a percentage from 0 to 100 (0.229 means 0.229%), the
+ * share of all possible single-letter DNA changes that score at least this high. "Top 0.23%" says that
+ * without making the reader flip it. Past the top half "Top 63%" would sound like praise, so say so plainly.
+ */
+export function rankHeadline(topPercent: number): string {
+  return topPercent <= 50 ? `Top ${fmtPercent(topPercent)}` : "Below the middle";
+}
+
+/** The same rank as one plain sentence fragment, for the guide and the screen-reader text. */
+export function rankSentence(topPercent: number): string {
+  return `${fmtPercent(topPercent)} of possible single-letter DNA changes score at least this high`;
 }
 
 export function fmtShare(s: number): string {
@@ -386,8 +402,18 @@ export function fmtPercentAbove(topPercent: number): string {
   return `${Number(above.toFixed(digits))}%`;
 }
 
+/** Said once, after the split. The table foot and the comparison caption repeat it where they show shares. */
+const SHARE_NOTE =
+  " Percentages compare the absolute size of each contribution, ignoring whether it raises or lowers the score. They are not disease-risk percentages.";
+
+/** "a", "a and b", "a, b and c". */
+function naturalList(items: string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 /**
- * The finding: a bold headline saying where the score comes from, and one sentence with the split.
+ * The finding: a bold headline naming the largest inputs, and a short paragraph with the split, the
+ * note on what the percentages mean, and any coverage gap.
  * Returns null when no feature vector arrived — the tab states that absence on its own line.
  */
 export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail: string } | null {
@@ -402,10 +428,9 @@ export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail:
   const reused = ev.groups
     .filter(g => AVI_ORIGIN[g.group] === "reused" && g.share !== null && g.share >= 0.005)
     .sort((a, b) => (b.share as number) - (a.share as number));
-  const reusedShare = 1 - newShare;
-  const reusedList = reused.map(g => `${AVI_GROUP_SHORT[g.group]} (${fmtShare(g.share as number)})`);
-  const joined =
-    reusedList.length <= 1 ? reusedList.join("") : `${reusedList.slice(0, -1).join(", ")} and ${reusedList[reusedList.length - 1]}`;
+  // Only the groups the sentence names, so the percentage matches the list beside it.
+  const reusedShare = reused.reduce((sum, g) => sum + (g.share as number), 0);
+  const joined = naturalList(reused.map(g => `${AVI_GROUP_SHORT[g.group]} (${fmtShare(g.share as number)})`));
   const lm = ev.largestMolecular;
   // Common nouns read lower-case mid-sentence; assay names (CAGE, RNA-seq, TF binding) keep theirs.
   const lmName = lm ? (/^(Splicing|Polyadenylation|Histone marks)$/.test(lm.name) ? lm.name.toLowerCase() : lm.name) : "";
@@ -413,21 +438,21 @@ export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail:
 
   if (newShare >= 0.5) {
     return {
-      headline: "Main driver: AlphaGenome molecular predictions.",
+      headline: "Largest inputs: molecular effects predicted by AlphaGenome.",
       detail:
-        `${fmtShare(newShare)} of the reported contribution magnitude comes from AlphaGenome's predicted molecular effects${led}.` +
-        (reused.length ? ` The rest comes from ${joined}. These other inputs are not independent molecular predictions.` : "") + coverage,
+        `${fmtShare(newShare)} of the total input contribution comes from AlphaGenome's molecular predictions${led}.` +
+        (reused.length ? ` The rest comes from ${joined}. These other inputs are not independent molecular predictions.` : "") + SHARE_NOTE + coverage,
     };
   }
   // "Reused" is not "shown on Predictors": Cactus and PhastCons are the same kind of evidence as
   // phyloP and GERP, not the same scores, and variant-type indicators are not on that tab at all.
   return {
-    headline: "Main driver: evidence this workspace already reads.",
+    headline: `Largest ${reused.length === 1 ? "input" : "inputs"}: ${naturalList(reused.map(g => AVI_GROUP_SHORT[g.group]))}.`,
     detail:
-      `${fmtShare(reusedShare)} of the reported contribution magnitude comes from ${joined}. ` +
+      `${fmtShare(reusedShare)} of the total input contribution comes from ${joined}. ` +
       (newShare === 0 || !lm
         ? "No non-zero molecular contribution was returned."
-        : `AlphaGenome's own molecular predictions account for ${fmtShare(newShare)}${led}.`) + coverage,
+        : `The remaining ${fmtShare(newShare)} comes from AlphaGenome's molecular predictions${led}.`) + SHARE_NOTE + coverage,
   };
 }
 
