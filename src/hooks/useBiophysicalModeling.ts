@@ -78,7 +78,11 @@ export function useBiophysicalModeling(
     const metadata = result?.metadata;
     if (!metadata?.gene || !metadata.variant || !metadata.uniprotId || !metadata.pipelineRunId) return;
     const cached = getCachedVariant(metadata.gene, metadata.variant);
-    if (cached?.analysisResult?.metadata?.pipelineRunId !== metadata.pipelineRunId || cached.uniprotId !== metadata.uniprotId) return;
+    if (!cached || cached.uniprotId !== metadata.uniprotId) return;
+    // An interrupted predictor bundle deliberately omits `analysisResult` so the core is re-run;
+    // biophysics statuses must still be persisted while that happens, or a job completed during
+    // the refresh is lost and recomputed on the next reload.
+    if (cached.analysisResult && cached.analysisResult.metadata?.pipelineRunId !== metadata.pipelineRunId) return;
     setCachedVariant(metadata.gene, metadata.variant, metadata.uniprotId, {
       foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError,
       dynamut2JobId, ddmutJobId, thermompnnJobId

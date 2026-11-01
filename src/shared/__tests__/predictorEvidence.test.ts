@@ -364,4 +364,30 @@ describe("local informational agreement", () => {
     // bare "None", and the two surfaces cannot disagree about what is missing.
     expect(empty.tail.find(t => t.startsWith("Not scored:"))).toContain("(");
   });
+
+  it("labels an interrupted provider as timed out, not a completed miss", () => {
+    const evidence = buildPredictorEvidence({
+      result: gzf1({
+        conservationData: {
+          ...gzf1().conservationData,
+          metarnn: null,
+          popeve: null,
+          modelStatus: { base: "timeout", popeve: "timeout" },
+        },
+      }),
+    });
+    for (const key of ["metarnn", "popeve"]) {
+      const availability = evidence.readings.find(r => r.key === key)!.availability;
+      expect(availability.label).toBe("Timed out");
+      expect(availability.action).toBe("retry");
+      expect(availability.reason).toMatch(/analysis budget/);
+    }
+    // A provider that answered and holds no score is a completed miss, and stays worded as one.
+    const settled = buildPredictorEvidence({
+      result: gzf1({
+        conservationData: { ...gzf1().conservationData, metarnn: null, modelStatus: { base: "settled" } },
+      }),
+    });
+    expect(settled.readings.find(r => r.key === "metarnn")!.availability.label).toBe("No result");
+  });
 });

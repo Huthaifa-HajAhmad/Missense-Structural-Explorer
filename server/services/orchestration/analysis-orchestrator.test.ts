@@ -158,6 +158,15 @@ describe("Analysis Orchestrator Unit Tests", () => {
     expect(mockDb.saveVariantAnalysisAsync).toHaveBeenCalled();
   });
 
+  it("refreshes an interrupted popEVE result even when overall availability is false", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp({
+      conservationData: { available: false, metarnn: 0.732, esm1b: -5.59, eigenPhred: 4.82, popeve: null, modelStatus: { base: "settled", popeve: "timeout" } },
+    }), id: "interrupted" });
+    await runCoreAnalysis(baseContext);
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    expect(fetchCoreVariantData).toHaveBeenCalledTimes(1);
+  });
+
   it("should return cached analysis when valid SQLite cache entry exists", async () => {
     /**
      * STAMPED, because an unstamped row is no longer reusable — it records no identity to verify

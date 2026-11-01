@@ -1,0 +1,197 @@
+{
+  "conservationData": {
+    "alphagenome": {
+      "acmgStrength": "indeterminate",
+      "atlasUrl": "https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=chr8:11708788:C%3EG",
+      "aviPhred": null,
+      "aviQuantile": null,
+      "aviRaw": null,
+      "featureAttributions": null,
+      "message": "AlphaGenome Atlas: Key Required / Standby",
+      "status": "unavailable",
+      "topFeatureImportance": null,
+      "topModality": null,
+      "topPercentile": null
+    },
+    "aouFrequency": null,
+    "assemblyRefusals": null,
+    "available": true,
+    "bayesdel": 0.0123862000182271,
+    "clinpred": 0.655626118183136,
+    "clinpredPred": null,
+    "consurf": null,
+    "dann": 0.988106369972229,
+    "dbscsnv": null,
+    "eigenPhred": 4.822350978851318,
+    "eigenRaw": null,
+    "esm1b": -5.5976105,
+    "esm1bPred": null,
+    "gerp": 3.700000047683716,
+    "gpnStar": -8.41,
+    "gpnStarMessage": "GPN-Star requires genomic coordinates (GRCh38) for whole-genome Tabix lookup.",
+    "gpnStarStatus": "live",
+    "metarnn": 0.73214996,
+    "metarnnPred": null,
+    "phylop": 2.430999994277954,
+    "popeve": -3.376,
+    "revel": 0.786,
+    "revelProvenance": "Genos Web Query",
+    "source": "Genos Web Query",
+    "spliceProximity": {
+      "adjacentIntronNumber": 2,
+      "distance": 140,
+      "exonEnd": 11708928,
+      "exonId": null,
+      "exonLength": 1073,
+      "exonNumber": 2,
+      "exonStart": 11707856,
+      "genomicPos": 11708788,
+      "intronNumber": null,
+      "isCanonicalJunction": true,
+      "isNearSpliceSite": false,
+      "junctionType": "donor",
+      "nearbyExons": [
+        {
+          "end": 11708928,
+          "number": 2,
+          "start": 11707856
+        }
+      ],
+      "nearestJunctionCoord": 11708928,
+      "regionType": "exonic",
+      "strand": "+",
+      "totalExons": 7,
+      "transcriptId": "ENST00000335135.8"
+    },
+    "spliceai": {
+      "dp": {
+        "ds_ag": 276,
+        "ds_al": 281,
+        "ds_dg": 437,
+        "ds_dl": 140
+      },
+      "ds_ag": 0,
+      "ds_al": 0,
+      "ds_dg": 0,
+      "ds_dl": 0,
+      "max_ds": 0,
+      "provenance": {
+        "annotationSet": "MANE Select",
+        "computedLive": true,
+        "distanceBp": 500,
+        "masked": 1,
+        "source": "broad-lookup",
+        "transcriptId": "ENST00000532059.6"
+      }
+    },
+    "spliceaiFailure": null
+  },
+  "esm2Eval": {
+    "error": "ESM-2 sidecar returned HTTP 401",
+    "status": "unauthorized"
+  },
+  "esmcEval": {
+    "error": "VESM sidecar returned HTTP 401",
+    "status": "unauthorized"
+  },
+  "metadata": {
+    "acmgWeighting": null,
+    "gene": "GATA4",
+    "mutant": "Cys",
+    "residueIndex": 159,
+    "uniprotId": "P43694",
+    "variant": "p.Ser159Cys",
+    "wildType": "Ser"
+  },
+  "predictorData": {
+    "amClass": "likely_benign",
+    "amPathogenicity": 0.1935,
+    "amProvenance": "VEP AlphaMissense plugin",
+    "available": true,
+    "caddPhred": 25.2,
+    "canonicalEnsemblId": "ENST00000335135.8",
+    "gnomadVariantAssembly": "GRCh38",
+    "gnomadVariantId": "8-11708788-C-G",
+    "isCanonical": false,
+    "isManePlusClinical": false,
+    "isManeSelect": true,
+    "locusResolution": {
+      "canonicalBy": "vep",
+      "policyVersion": 2,
+      "retryable": false,
+      "route": "vep-hgvs",
+      "steps": [
+        {
+          "detail": "NM_001308093.3:p.Ser159Cys: attempt timeout",
+          "outcome": "failed",
+          "step": "vep-hgvs"
+        },
+        {
+          "detail": "NM_001308093:p.Ser159Cys: attempt timeout",
+          "outcome": "failed",
+          "step": "vep-hgvs"
+        },
+        {
+          "detail": "ENST00000532059.6:p.Ser159Cys: no bound transcript consequence for this notation",
+          "outcome": "failed",
+          "step": "vep-hgvs"
+        },
+        {
+          "detail": "ENST00000532059:p.Ser159Cys: attempt timeout",
+          "outcome": "failed",
+          "step": "vep-hgvs"
+        },
+        {
+          "detail": "ENST00000335135.8:p.Ser159Cys: attempt timeout",
+          "outcome": "failed",
+          "step": "vep-hgvs"
+        },
+        {
+          "outcome": "ok",
+          "step": "vep-hgvs"
+        }
+      ]
+    },
+    "maneRefSeqId": "NM_001308093.3",
+    "source": "Ensembl VEP API",
+    "transcriptId": "ENST00000532059"
+  },
+  "ruleBasedInsights": {
+    "acmgCriteria": [
+      {
+        "code": "PP3",
+        "reason": "3/7 predictors agree on pathogenic impact. (Votes \u2014 pathogenic: REVEL 0.786, MetaRNN 0.732, ClinPred 0.656; indeterminate: CADD 25.2, AlphaMissense 0.194, BayesDel 0.012, popEVE -3.376. Informational, not counted: GPN-Star -8.41, ESM-1b -5.60, Eigen 4.8, DANN 0.988. \u26a0 Partial evidence \u2014 unavailable: ESMC / VESM, ESM-2, SAPROT)"
+      },
+      {
+        "code": "PM2",
+        "reason": "Variant is extremely rare in population databases (gnomAD ancestry-grouped maximum 0.0013% \u2264 0.01% app-defined threshold: lower ceiling: curated GenCC inheritance includes Autosomal dominant). Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting)."
+      }
+    ],
+    "acmgVerdict": "Variant of Uncertain Significance (VUS)",
+    "partialEvidence": {
+      "available": [
+        "CADD",
+        "REVEL",
+        "ALPHAMISSENSE",
+        "BAYESDEL",
+        "METARNN",
+        "CLINPRED",
+        "EIGEN",
+        "DANN",
+        "POPEVE",
+        "ESM-1B",
+        "GPN-STAR"
+      ],
+      "unavailable": [
+        "ESMC / VESM",
+        "ESM-2",
+        "SAPROT"
+      ]
+    },
+    "plausibility": "Plausibly pathogenic based on gathered evidence: PP3, PM2."
+  },
+  "saprotEval": {
+    "error": "SaProt sidecar returned HTTP 401",
+    "status": "unauthorized"
+  }
+}

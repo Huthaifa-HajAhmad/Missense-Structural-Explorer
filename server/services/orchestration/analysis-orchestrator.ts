@@ -1,3 +1,4 @@
+import { hasInterruptedPredictorReadings } from '../../../src/shared/predictorRecovery.ts';
 import { fetchAlphafoldPdb } from "../structure/structure-fetcher.ts";
 import { predictStructuralDisruption } from "../structure/pocket/disruption.ts";
 import { fetchClinVarData, type ClinVarData } from "../external-api/clinvar.ts";
@@ -76,6 +77,7 @@ function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T,
 
 export function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
+  if (hasInterruptedPredictorReadings(payload)) return true;
   // The persisted outer key is gene + protein + weighting, not nucleotide identity. A supplied
   // allele must escape a prior definitive ambiguity (or a different ALT at the same position).
   const requested = context ? predictorCoordinateFromContext(context) : null;

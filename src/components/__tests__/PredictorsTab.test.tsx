@@ -56,6 +56,33 @@ describe("PredictorsTab", () => {
     expect(row.textContent).toContain("Not scored");
   });
 
+  it("separates missing marked tools from returned scores in Comparison", () => {
+    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, metarnn: null, popeve: null, eigenPhred: null } }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    const groups = screen.getByTestId("predictor-unplotted-groups");
+    for (const name of ["MetaRNN", "popEVE", "ESM1b", "Eigen"]) {
+      const button = within(groups).getByRole("button", { name: new RegExp(name) });
+      expect(button.textContent).toContain("No result");
+      expect(button.textContent).not.toContain("?");
+    }
+    expect(groups.querySelectorAll("section").length).toBeGreaterThan(1);
+  });
+
+  it("names a timed-out provider instead of calling it a completed miss", () => {
+    renderTab(gzf1({
+      conservationData: {
+        ...gzf1().conservationData,
+        metarnn: null,
+        popeve: null,
+        modelStatus: { base: "timeout", popeve: "timeout" },
+      },
+    }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    const row = screen.getByTestId("predictor-local-agreement");
+    expect(row.textContent).toContain("Timed out");
+    expect(row.textContent).not.toContain("MetaRNN (No result)");
+  });
+
   it("starts the informational table groups collapsed and expands them on request", () => {
     renderTab(gzf1());
     const table = screen.getByTestId("predictor-readings");
@@ -73,6 +100,11 @@ describe("PredictorsTab", () => {
       const fam = within(card).getByTestId(`predictor-family-${g}`);
       expect(fam.textContent).toMatch(/What it measures/);
       expect(fam.textContent).toMatch(/Why it is not counted/);
+      // The scientific explanation is visible by default; it may be collapsed on request, but a
+      // print/PDF must not silently lose the sentence that says why the model is not counted.
+      const guide = fam.querySelector("details.prd-family-guide")!;
+      expect(guide.hasAttribute("open")).toBe(true);
+      expect(within(guide as HTMLElement).getByText(/What it measures/)).toBeInTheDocument();
     }
     expect(card.textContent).toMatch(/never change the PP3 \/ BP4 call/);
   });

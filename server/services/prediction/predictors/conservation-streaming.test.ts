@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   local: vi.fn(),
+  popeveOnline: vi.fn(),
   alphagenome: vi.fn(),
   gpnByCoordinate: vi.fn(),
   spliceai: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("../dbnsfp_local.ts", () => ({
 }));
 vi.mock("./popeve-resolver.ts", () => ({
   fetchPopEVEScore: vi.fn(async () => null),
-  fetchPopEVEScoreOnline: vi.fn(async () => null),
+  fetchPopEVEScoreOnline: mocks.popeveOnline,
 }));
 vi.mock("../../external-api/alphagenome-bridge.ts", () => ({ fetchAlphaGenome: mocks.alphagenome }));
 vi.mock("../../external-api/spliceai_broad.ts", async (importOriginal) => ({
@@ -58,6 +59,7 @@ describe("conservation models stream independently", () => {
   beforeEach(() => {
     clearAllCaches(true);
     vi.clearAllMocks();
+    mocks.popeveOnline.mockResolvedValue(null);
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
     mocks.gpnByCoordinate.mockResolvedValue({ score: null, status: "unavailable" });
   });
@@ -104,6 +106,28 @@ describe("conservation models stream independently", () => {
     expect(result.spliceai?.max_ds).toBe(0.71);
     expect(result.modelStatus).toBeUndefined();
     expect(snapshots.every(s => !conservationFullySettled(s))).toBe(true);
+  });
+
+  it("publishes GATA4 popEVE before the genomic and base lookups finish", async () => {
+    const predictor = deferred<any>();
+    mocks.popeveOnline.mockResolvedValue(-3.376);
+    mocks.local.mockResolvedValue({ revel: 0.786, metarnn: 0.73214996, esm1b: -5.5976105, eigenPhred: 4.822350978851318, popeve: null });
+    const snapshots: ConservationData[] = [];
+    const final = fetchConservationDataProgressive({
+      gene: "GATA4", variant: "p.Ser159Cys", pos: 159, uniprotId: "P43694",
+      predictorPromise: predictor.promise, genosPromise: Promise.resolve(null),
+      onPartial: s => snapshots.push(s),
+    });
+    await vi.waitFor(() => expect(snapshots.at(-1)?.popeve).toBe(-3.376));
+    expect(snapshots.at(-1)?.modelStatus?.popeve).toBe("settled");
+    expect(snapshots.at(-1)?.modelStatus?.base).toBe("pending");
+    expect(expireConservationSnapshot(snapshots.at(-1)!).popeve).toBe(-3.376);
+    predictor.resolve({ gnomadVariantId: "8-11708788-C-G", gnomadVariantAssembly: "GRCh38" });
+    const result = await final;
+    expect(result.popeve).toBe(-3.376);
+    expect(result.metarnn).toBe(0.73214996);
+    expect(result.esm1b).toBe(-5.5976105);
+    expect(mocks.popeveOnline).toHaveBeenCalledTimes(1);
   });
 
   it("withholds the frozen dbNSFP SpliceAI score until the live lookup has answered", async () => {
