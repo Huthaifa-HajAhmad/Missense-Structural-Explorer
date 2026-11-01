@@ -76,7 +76,19 @@ if (!existsSync(distIndex)) {
 
 const browser = findBrowser();
 console.log(`geometry-check: rendering in ${path.basename(browser)}…`);
-const dom = spawnSync(
+
+/**
+ * `--dump-dom` is a ONE-SHOT read: Chrome dumps the DOM when the virtual-time budget
+ * expires, and the page only fills `#geometry-result` from the `requestAnimationFrame`
+ * that runs after `document.fonts.ready`. When the dump beats that callback the harness
+ * looks broken instead of failing an assertion — five consecutive runs of one PR
+ * reported exactly this while three other branches reported it identically, and a local
+ * launch reproduced it at the full 8s budget. So read again, with a fresh browser and a
+ * larger budget, before concluding the page is broken. A page that never reports still
+ * fails, with the same message.
+ */
+const budgets = [8000, 30000, 30000];
+const render = (budgetMs) => spawnSync(
   browser,
   [
     "--headless=new",
@@ -86,29 +98,27 @@ const dom = spawnSync(
     "--allow-file-access-from-files",
     "--force-device-scale-factor=1",
     `--user-data-dir=${path.join(here, ".browser-profile")}`,
-    "--virtual-time-budget=8000",
-    // Page errors reach stderr as CONSOLE lines; a throw inside the measurements leaves the result empty.
-    "--enable-logging=stderr",
-    "--v=0",
+    `--virtual-time-budget=${budgetMs}`,
     "--dump-dom",
     pathToFileURL(distIndex).href,
   ],
   { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
 );
 
-const raw = String(dom.stdout ?? "");
-const match = raw.match(/id="geometry-result"[^>]*>([A-Za-z0-9+/=]+)</);
+let dom;
+let match;
+for (const [attempt, budgetMs] of budgets.entries()) {
+  dom = render(budgetMs);
+  match = String(dom.stdout ?? "").match(/id="geometry-result"[^>]*>([A-Za-z0-9+/=]+)</);
+  if (match) break;
+  if (attempt < budgets.length - 1) {
+    console.warn(`geometry-check: no report in the dumped DOM at ${budgetMs}ms; rendering again…`);
+  }
+}
+
 if (!match) {
   console.error("geometry-check: could not read #geometry-result from the rendered DOM.");
   if (dom.error) console.error(`  ${dom.error.message}`);
-  // Say how the browser ended: a crash, a timeout and an empty page need different fixes.
-  console.error(`  browser exit status=${dom.status} signal=${dom.signal}, stdout ${raw.length} chars`);
-  const at = raw.indexOf("geometry-result");
-  console.error(`  DOM near geometry-result: ${at < 0 ? "element missing" : raw.slice(Math.max(0, at - 100), at + 400)}`);
-  const report = raw.indexOf("geometry-report");
-  if (report >= 0) console.error(`  geometry-report: ${raw.slice(report, report + 1500)}`);
-  const pageLines = String(dom.stderr ?? "").split("\n").filter(line => line.includes("CONSOLE"));
-  console.error(`  page console (${pageLines.length} lines): ${pageLines.slice(-12).join("\n")}`);
   console.error("  (the harness prints its checks into #geometry-report as well)");
   process.exit(2);
 }

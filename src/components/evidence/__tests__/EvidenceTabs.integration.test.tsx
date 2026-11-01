@@ -64,7 +64,7 @@ describe('Production evidence tabs and their inspectors', () => {
     expect(screen.getByTestId('avi-composition')).not.toHaveTextContent('of the score');
     expect(screen.getByText('New to AlphaGenome?')).toBeInTheDocument();
     expect(screen.getByText('What do AVI, Phred and SHAP mean?')).toBeInTheDocument();
-    expect(screen.getByTestId('avi-caveat')).toHaveTextContent('not a probability of pathogenicity');
+    expect(screen.getByTestId('avi-caveat')).toHaveTextContent('This is a rank, not the chance that the variant causes disease');
   });
   it('names each dot colour with a word in the Predictors and AlphaGenome footers', async () => {
     const result = evidenceWorkspaceFixture('Partial');
