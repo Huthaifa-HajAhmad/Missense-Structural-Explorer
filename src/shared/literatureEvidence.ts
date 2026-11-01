@@ -84,7 +84,6 @@ export interface PaperReading {
   citation: Citation;
   identifier: PaperIdentifier;
   href: string;
-  hrefLabel: string;
   mentions: CitationMentions;
   screening: PaperScreening;
   pinned: boolean;
@@ -125,8 +124,6 @@ export interface LiteratureEvidenceInput {
   groupFilter: GroupFilter;
   pinnedIds: ReadonlySet<string>;
   probe: VariantProbe;
-  /** The gene-wide default query's hit count, remembered across a scope switch; `null` when unknown. */
-  geneHitCount?: number | null;
   load: LiteratureLoadState;
   error: string | null;
   /** Attention is the default; newest sorts loaded records by publication year. */
@@ -138,16 +135,10 @@ export interface LiteratureEvidenceInput {
   curated?: CuratedCoverage | null;
   /**
    * Curated records among `citations` that the query itself did NOT match. They are shown, but they are
-   * not query membership: the loaded/hit-count facts must never treat them as Europe PMC records for
+   * not query membership: the loaded and hit counts must never treat them as Europe PMC records for
    * this query.
    */
   curatedAdded?: number;
-}
-
-export interface FactCell {
-  label: string;
-  value: string;
-  sub: string;
 }
 
 export interface TraceStep {
@@ -171,8 +162,8 @@ export interface LiteratureEvidence {
   visible: PaperReading[];
   counts: { total: number; variant: number; gene: number; elsewhere: number; visible: number; pinned: number };
   shortlist: ShortlistCounts;
-  finding: { figure: string; figureLabel: string; headline: string; predicate: string };
-  facts: FactCell[];
+  /** `headline` is null when the figure and its label already say it. */
+  finding: { figure: string; figureLabel: string; headline: string | null; predicate: string };
   trace: TraceStep[];
   /** Plain-language faults, in order; empty when the run is clean. */
   faults: string[];
@@ -185,6 +176,8 @@ export interface LiteratureEvidence {
   curated: CuratedCoverage | null;
   /** Curated records shown among `papers` that the query itself did not match. */
   curatedAdded: number;
+  /** Loaded records this query itself matched: every loaded paper except curated additions. */
+  queryTotal: number;
 }
 
 export interface ShortlistCounts {
@@ -398,14 +391,13 @@ export function paperIdentifier(id: string): PaperIdentifier {
  * Where "open the article" goes. A stored URL is trusted only when absolute: cached legacy rows can
  * carry `null`, and a non-PMID id must never become a dead `pubmed…/<id>/` deep link.
  */
-export function paperLink(citation: Citation): { href: string; label: string; usable: boolean } {
+export function paperLink(citation: Citation): { href: string; usable: boolean } {
   const usable = !!citation.url && /^https?:\/\//i.test(citation.url);
   if (usable) {
-    const pmid = /^\d+$/.test(citation.id);
-    return { href: citation.url as string, label: pmid ? "View on PubMed" : "View article", usable: true };
+    return { href: citation.url as string, usable: true };
   }
-  if (/^\d+$/.test(citation.id)) return { href: `https://pubmed.ncbi.nlm.nih.gov/${citation.id}/`, label: "View on PubMed", usable: false };
-  return { href: `https://europepmc.org/search?query=${encodeURIComponent(citation.id)}`, label: "Search Europe PMC", usable: false };
+  if (/^\d+$/.test(citation.id)) return { href: `https://pubmed.ncbi.nlm.nih.gov/${citation.id}/`, usable: false };
+  return { href: `https://europepmc.org/search?query=${encodeURIComponent(citation.id)}`, usable: false };
 }
 
 // ── Local narrowing ───────────────────────────────────────────────────────────────────────────────
@@ -458,7 +450,6 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       citation,
       identifier: paperIdentifier(citation.id),
       href: link.href,
-      hrefLabel: link.label,
       mentions,
       screening: screenPaper({ citation, gene, forms, mentions, curatedLinks: citation.curatedLinks }),
       pinned: pinnedIds.has(citation.id),
@@ -502,9 +493,6 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
   // Curated additions are shown but are not this query's records: keep them out of the loaded page count.
   const curatedAdded = Math.max(0, Math.min(input.curatedAdded ?? 0, counts.total));
   const queryTotal = counts.total - curatedAdded;
-  // "Gene-wide" is the default query's count. While another scope is showing, `hitCount` is THAT
-  // query's count, so the fact reads the remembered gene-wide figure instead of mislabelling it.
-  const geneWide = scope === "gene" ? hitCount : input.geneHitCount ?? null;
 
   // ── The finding ──
   let finding: LiteratureEvidence["finding"];
@@ -520,52 +508,27 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     const c = probe.hitCount as number;
     finding = {
       figure: n(c),
-      figureLabel: `Europe PMC ${plural(c, "record matches", "records match")} these protein notations`,
-      headline: c === 0 ? `No matches for the searched protein notations of ${label}.` : `Europe PMC matched ${n(c)} ${plural(c, "record", "records")} for these protein notations.`,
+      figureLabel: `Europe PMC ${plural(c, "record matches", "records match")} the protein notations of ${label}`,
+      headline: null,
       predicate: c === 0
-        ? `A search for ${gene} with ${forms.forms.join(", ")} matched 0 records, in titles, abstracts and open-access full text. A report under another notation, such as a nucleotide change, would not match`
+        ? `Searched ${gene} with ${forms.forms.join(", ")} in titles, abstracts and open-access full text. A report under another notation, such as a nucleotide change, would not match`
         : `Matched on ${gene} with ${forms.forms.join(", ")}; ${scope === "variant" ? "inspect them in the reading desk" : `choose "Naming ${label}" in the reading desk to read them`}`,
     };
   } else if (probe.state === "error") {
     finding = {
       figure: `${counts.variant}`,
-      figureLabel: `of ${counts.total} loaded ${plural(counts.total, "paper names", "papers name")} ${label}`,
+      figureLabel: `of ${counts.total} loaded ${plural(counts.total, "paper names", "papers name")} ${label} in the title or abstract`,
       headline: `The variant-specific search did not complete.`,
       predicate: `Only the ${counts.total} loaded ${plural(counts.total, "paper has", "papers have")} been read for ${label}; that is not a count of everything Europe PMC holds`,
     };
   } else {
     finding = {
       figure: `${counts.variant}`,
-      figureLabel: `of ${counts.total} loaded ${plural(counts.total, "paper names", "papers name")} ${label}`,
-      headline: counts.variant === 0 ? `None of the loaded papers names ${label} in its title or abstract.` : `${counts.variant} of ${counts.total} loaded ${plural(counts.total, "paper names", "papers name")} ${label} in the title or abstract.`,
+      figureLabel: `of ${counts.total} loaded ${plural(counts.total, "paper names", "papers name")} ${label} in the title or abstract`,
+      headline: null,
       predicate: probe.state === "loading" ? "Checking Europe PMC for records that name it" : "Only the loaded page has been read",
     };
   }
-
-  // ── Facts ──
-  const facts: FactCell[] = [
-    {
-      label: "Gene-wide matches",
-      value: geneWide !== null ? n(geneWide) : "—",
-      sub: scope === "gene" && degraded ? "Europe PMC did not answer" : geneWide !== null ? "Europe PMC, default gene query" : "Not reported yet",
-    },
-    {
-      // A fixed label: table heads are uppercased by the house style, which would turn "p.Asp116Gly"
-      // into "P.ASP116GLY" — a notation that is not the variant. The variant goes in the sub line.
-      label: "Naming the variant",
-      value: !forms ? "—" : probeDone ? n(probe.hitCount as number) : probe.state === "loading" ? "…" : probe.state === "error" ? "Search incomplete" : "Not searched",
-      sub: !forms ? "No protein notation" : probeDone ? `${forms.label} · title, abstract or open-access text` : `${forms.label} · ${probe.state === "error" ? "search incomplete" : "not searched yet"}`,
-    },
-    {
-      label: "Query matches loaded",
-      value: n(queryTotal),
-      sub: [
-        degraded ? "Cached fallback; query membership unverified" : hitCount !== null && hitCount > queryTotal ? `${n(queryTotal)} of ${n(hitCount)} query matches loaded` : "All retrieved query matches",
-        curatedAdded > 0 ? `${n(curatedAdded)} more from a curated variant record, not this query` : null,
-      ].filter(Boolean).join(" · ")
-    },
-    { label: "Engine record", value: "None", sub: "Literature is read, not scored" },
-  ];
 
   // ── Trace ──
   const faults: string[] = [];
@@ -582,7 +545,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     {
       key: "scope",
       label: "Scope you chose",
-      value: scope === "gene" ? `Default search on ${gene}` : scope === "variant" ? `Protein-notation search for ${label}` : "Your own query",
+      value: scope === "gene" ? `Default search on ${gene}` : scope === "variant" ? `Protein-notation search for ${label}` : "Focused or typed query",
       sub: scope === "custom" ? "Scoped to the gene unless it already names it" : undefined,
       state: "done",
     },
@@ -598,7 +561,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       key: "matched",
       label: "Europe PMC matched",
       value: degraded ? "No answer" : hitCount !== null ? `${n(hitCount)} ${plural(hitCount, "record", "records")}` : "Not reported",
-      sub: hitCount !== null && !degraded ? `${n(queryTotal)} query matches loaded. Retrieval uses Europe PMC's default ranking; the cached list is ordered by year before screening.` : undefined,
+      sub: hitCount !== null && !degraded ? `${n(queryTotal)} ${plural(queryTotal, "query match", "query matches")} loaded. Retrieval uses Europe PMC's default ranking; the cached list is ordered by year before screening.` : undefined,
       state: degraded ? "warn" : hitCount !== null ? "done" : "idle",
     },
     {
@@ -653,7 +616,6 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     counts,
     shortlist,
     finding,
-    facts,
     trace,
     faults,
     response,
@@ -662,5 +624,6 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     displayed: visible.map(p => p.citation),
     curated,
     curatedAdded,
+    queryTotal,
   };
 }

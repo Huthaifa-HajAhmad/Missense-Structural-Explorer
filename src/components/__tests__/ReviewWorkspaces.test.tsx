@@ -104,6 +104,16 @@ describe('Literature reading workspace', () => {
     const [ev, setEv] = React.useState<LiteratureEvidence | null>(null);
     return <ReviewWorkspaceProvider result={result}><LiteratureView gene="NAE1" variant="p.Asp116Gly" onEvidenceChange={e => { setEv(e); report(e); }} /><LiteratureInspector gene="NAE1" variant="p.Asp116Gly" evidence={ev} /></ReviewWorkspaceProvider>;
   }
+  it('prints a quote once in the rail when several observations rest on it', async () => {
+    const title = 'NAE1 p.Asp116Gly in a patient';
+    api.getLiterature.mockResolvedValue({ gene: 'NAE1', citations: [{ ...papers[0], title, abstract: '' }], hitCount: 1, degraded: false });
+    render(<Harness report={() => {}} />);
+    fireEvent.click(within(await screen.findByTestId('paper-91000000')).getByRole('button', { name: 'Inspect source' }));
+    const rail = await screen.findByRole('region', { name: 'Selected paper' });
+    const quotes = Array.from(rail.querySelectorAll('blockquote')).filter(quote => quote.textContent?.includes(title));
+    expect(quotes).toHaveLength(1);
+    expect(quotes[0]).toHaveTextContent('Variant named · Gene named');
+  });
   it('gives coverage its own view and exports no invisible paper rows', async () => {
     let latest: LiteratureEvidence | null = null;
     render(<Harness report={e => { latest = e; }} />);
@@ -174,7 +184,7 @@ describe('Literature reading workspace', () => {
   it('downloads eight displayed records and all twelve shortlist records', async () => {
     render(<Harness report={() => {}} />);
     await screen.findByTestId('literature-table');
-    fireEvent.click(screen.getByRole('button', { name: 'Show all tiers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'All loaded: show all tiers' }));
     await waitFor(() => expect(screen.getByText('The 8 papers shown, with any filter applied.')).toBeInTheDocument());
     const blobs: Blob[] = [];
     const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
@@ -226,7 +236,7 @@ describe('Literature reading workspace', () => {
     expect(zeroGroup).toHaveTextContent('0 / 11');
     fireEvent.click(zeroGroup);
     expect(screen.getByText('None in this group')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Show all text-check groups' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Any: show all text-check groups' }));
     expect(screen.getByTestId('literature-table')).toBeInTheDocument();
   });
   it('preserves a draft query while revealing a source outside its narrowing filter', async () => {
@@ -246,7 +256,7 @@ describe('Literature reading workspace', () => {
     let latest: LiteratureEvidence | null = null;
     render(<Harness report={e => { latest = e; }} />);
     await screen.findByTestId('literature-table');
-    fireEvent.click(screen.getByRole('button', { name: 'Show all tiers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'All loaded: show all tiers' }));
     expect(within(screen.getByTestId('literature-table')).getAllByTestId(/^paper-/)).toHaveLength(8);
     await waitFor(() => expect(latest!.displayed).toHaveLength(8));
     expect(latest!.counts.total).toBe(12);
