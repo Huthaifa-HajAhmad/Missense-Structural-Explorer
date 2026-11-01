@@ -88,18 +88,17 @@ describe("Literature tab — the finding", () => {
     renderView();
     const finding = await screen.findByTestId("literature-finding");
     await waitFor(() => expect(within(finding).getByTestId("literature-figure").textContent).toBe("0"));
-    expect(finding.textContent).toContain("No matches for the searched protein notations of p.Asp116Gly.");
-    expect(finding.textContent).toContain("matched 0 records");
+    expect(finding.textContent).toContain("Europe PMC records match the protein notations of p.Asp116Gly");
+    expect(finding.textContent).toContain("Searched NAE1 with p.Asp116Gly");
     expect(finding.textContent).toContain("another notation");
     expect(finding.textContent).not.toMatch(/no evidence|benign|N\/A/i);
   });
 
-  it("states that nothing here is counted in the ACMG verdict and that the engine record is none", async () => {
+  it("states that nothing here is counted in the ACMG verdict", async () => {
     serve();
     renderView();
     const finding = await screen.findByTestId("literature-finding");
     expect(within(finding).getByText("Not counted in the ACMG verdict")).toBeTruthy();
-    expect(within(finding).getByText("Literature is read, not scored")).toBeTruthy();
   });
 
   it("reports a failed variant search as a fault, never as a zero", async () => {
@@ -119,7 +118,7 @@ describe("Literature tab — the finding", () => {
     serve({ degraded: true, hitCount: null, fetchedAt: null });
     renderView();
     await waitFor(() => expect(screen.getAllByText(/Europe PMC did not answer this search/).length).toBeGreaterThan(0));
-    expect(screen.getByText("Europe PMC did not answer")).toBeTruthy();
+    expect(screen.getByTestId("literature-list-foot").textContent).toContain("cached");
   });
 });
 
@@ -128,7 +127,7 @@ describe("Literature tab — the papers", () => {
     serve();
     renderView();
     await screen.findByTestId("paper-41695624");
-    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "All loaded: show all tiers" }));
     const row = await screen.findByTestId("paper-PMC13295995");
     expect(within(row).getByText("Not in title/abstract")).toBeTruthy();
     expect(within(await screen.findByTestId("paper-41695624")).getByText("Gene named")).toBeTruthy();
@@ -155,7 +154,7 @@ describe("Literature tab — the papers", () => {
     fireEvent.click(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }));
     await waitFor(() => expect(getLiterature).toHaveBeenCalled());
     expect(getLiterature).toHaveBeenCalledWith(GENE, false, expect.any(AbortSignal), VARIANT_Q, expect.objectContaining({ variant: VARIANT }));
-    expect(await screen.findByText("No matches for these protein notations of p.Asp116Gly")).toBeTruthy();
+    expect(await screen.findByText("No papers for this search")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -163,7 +162,8 @@ describe("Literature tab — the papers", () => {
     serve({ citations: [NEDD, HIT, FISH], hitCount: 3 }, { citations: [HIT], hitCount: 1 });
     renderView();
     await screen.findByTestId("paper-30000001");
-    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "All loaded: show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.click(screen.getByRole("button", { name: /Neither in title\/abstract/ }));
     expect(screen.queryByTestId("paper-30000001")).toBeNull();
     expect(screen.getByTestId("paper-PMC13295995")).toBeTruthy();
@@ -175,7 +175,8 @@ describe("Literature tab — the papers", () => {
     const shortlist = await screen.findByRole("group", { name: "Filter by reading tier" });
     expect(within(shortlist).getByRole("button", { name: /Read first2/ })).toBeTruthy();
     expect(within(shortlist).getByRole("button", { name: /Read next0/ }).hasAttribute("disabled")).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "All loaded: show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     const controls = screen.getByRole("group", { name: "Filter by screening observation" });
     fireEvent.click(within(controls).getByRole("button", { name: /Assay language2/ }));
     fireEvent.click(within(controls).getByRole("button", { name: /Clinical study1/ }));
@@ -189,7 +190,7 @@ describe("Literature tab — the papers", () => {
     renderView();
     const table = await screen.findByTestId("literature-table");
     expect(within(table).getAllByTestId(/^paper-/)[0].getAttribute("data-testid")).toBe("paper-30000001");
-    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "All loaded: show all tiers" }));
     fireEvent.click(screen.getByRole("button", { name: "Newest" }));
     expect(within(table).getAllByTestId(/^paper-/)[0].getAttribute("data-testid")).toBe("paper-41695624");
   });
@@ -199,6 +200,7 @@ describe("Literature tab — the papers", () => {
     serve({ citations: [FUNCTIONAL, clinical], hitCount: 2 });
     renderView();
     await screen.findByTestId("paper-30000002");
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     const filters = screen.getByRole("group", { name: "Filter by screening observation" });
     fireEvent.click(within(filters).getByRole("button", { name: /Assay language1/ }));
     fireEvent.click(within(filters).getByRole("button", { name: /Clinical study1/ }));
@@ -236,9 +238,9 @@ describe("Literature tab — the papers", () => {
     expect(await screen.findByText(/VAR_088123/)).toBeTruthy();
     expect(screen.getByRole("link", { name: /Provider record/ }).getAttribute("href")).toBe(curatedLink.sourceUrl);
     // The curated-only record is shown but is not query membership: the loaded fact stays at 1.
-    const loadedFact = screen.getByText("Query matches loaded").closest(".lit-fact") as HTMLElement;
-    expect(within(loadedFact).getByText("1")).toBeTruthy();
-    expect(within(loadedFact).queryByText("2")).toBeNull();
+    const foot = screen.getByTestId("literature-list-foot").textContent;
+    expect(foot).toContain("1 of 1 Europe PMC match loaded");
+    expect(foot).toContain("1 added from a curated variant record");
   });
 
   it("pins and unpins a paper from the row, without opening it", async () => {
@@ -276,6 +278,62 @@ describe("Literature tab — the papers", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.getByTestId("paper-41695624")).toBeTruthy();
     spy.mockRestore();
+  });
+});
+
+describe("Literature tab — one statement of each thing", () => {
+  it("does not repeat the page title or the selected tab as a heading, and has no facts panel", async () => {
+    serve();
+    renderView();
+    const finding = await screen.findByTestId("literature-finding");
+    expect(within(finding).queryByText("Published literature")).toBeNull();
+    expect(screen.queryByText("Search coverage and engine record")).toBeNull();
+    const heading = screen.getByRole("heading", { name: "Reading desk" });
+    expect(heading.classList.contains("sr-only")).toBe(true);
+  });
+
+  it("keeps the gene count on its button while the variant scope is showing", async () => {
+    serve();
+    renderView();
+    await screen.findByTestId("paper-41695624");
+    fireEvent.click(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }));
+    await screen.findByText("No papers for this search");
+    expect(screen.getByRole("button", { name: /All on NAE1/ }).textContent).toContain("747");
+  });
+
+  it("marks a focused search as the active one instead of calling it a custom query", async () => {
+    serve();
+    renderView();
+    await screen.findByTestId("paper-41695624");
+    const clinical = screen.getByRole("button", { name: "Clinical reports" });
+    expect(clinical.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(clinical);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Clinical reports" }).getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.queryByText("Custom query")).toBeNull();
+  });
+
+  it("hides the filters until asked and shows how many are active when closed", async () => {
+    serve();
+    renderView();
+    await screen.findByTestId("paper-41695624");
+    expect(screen.queryByRole("group", { name: "Filter by screening observation" })).toBeNull();
+    const toggle = screen.getByRole("button", { name: "Filters" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: /Name only NAE1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(screen.getByRole("button", { name: /Filters/ }).textContent).toContain("1 active");
+    expect(screen.queryByRole("group", { name: "Filter by screening observation" })).toBeNull();
+  });
+
+  it("gives the list one closing strip, with paging and expansion together", async () => {
+    serve({ citations: [NEDD], hitCount: 60, nextCursor: "page-2" });
+    renderView();
+    await screen.findByTestId("paper-41695624");
+    const foot = screen.getByTestId("literature-list-foot");
+    expect(foot.textContent).toContain("Showing 1 of 1 matching paper");
+    expect(foot.textContent).toContain("1 of 60 Europe PMC matches loaded");
+    expect(within(foot).getByRole("button", { name: "Load 25 more" })).toBeTruthy();
   });
 });
 
@@ -328,7 +386,7 @@ describe("Literature rail — the trace", () => {
     const onSearch = vi.fn();
     render(<LiteratureInspector gene={GENE} variant={VARIANT} evidence={null} searchQuery="custom AND term" onSearch={onSearch} />);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Search Europe PMC/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Run this query/ }));
     });
     expect(onSearch).toHaveBeenCalledWith("custom AND term");
   });
@@ -377,11 +435,11 @@ describe("pagination and honest summary inputs", () => {
     const view = renderView();
     await screen.findByTestId("paper-41695624");
     expect(screen.getByRole("button", { name: /Read next1/ }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "All loaded: show all tiers" }));
     getLiterature.mockResolvedValueOnce({ gene: GENE, citations: [NEDD, HIT], hitCount: 60, nextCursor: null, degraded: false });
     fireEvent.click(screen.getByRole("button", { name: "Load 25 more" }));
     await screen.findByTestId("paper-30000001");
-    expect(screen.getByRole("button", { name: "Show all tiers" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "All loaded: show all tiers" }).getAttribute("aria-pressed")).toBe("true");
     expect(getLiterature).toHaveBeenLastCalledWith(GENE, false, expect.any(AbortSignal), undefined, { cursor: "page-2" });
     await waitFor(() => expect(view.evidence()?.counts.total).toBe(3));
     expect(screen.queryByRole("button", { name: "Load 25 more" })).toBeNull();

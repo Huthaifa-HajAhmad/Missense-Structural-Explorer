@@ -25,7 +25,7 @@ import type { StructureProvenance } from "../shared/contracts";
  * rather than built on the wrong structure.
  */
 
-type Reference =
+export type Reference =
   | { pdb: string; provenance: StructureProvenance; basis: "foldx-paired" | "template" }
   | { reason: string };
 
@@ -33,7 +33,7 @@ function sameId(a: string | null | undefined, b: string | null | undefined): boo
   return (a ?? "").trim().toUpperCase() === (b ?? "").trim().toUpperCase();
 }
 
-async function fetchTemplate(args: {
+export async function fetchTemplate(args: {
   apiClient: any;
   template: StructureProvenance;
   uniprotId: string | null;

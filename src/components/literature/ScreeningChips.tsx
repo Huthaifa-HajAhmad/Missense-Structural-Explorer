@@ -40,4 +40,10 @@ export function ScreeningChips({ tags }: { tags: readonly ScreeningTag[] }) {
   );
 }
 
-export { labels as screeningTagLabels };
+/** One entry per quoted sentence: several observations can rest on the same quote, so their labels are joined. */
+export function tagsByQuote(tags: readonly ScreeningTag[]): Array<ScreeningTag & { label: string }> {
+  return Array.from(new Map(tags.map(tag => [tag.quote, {
+    ...tag,
+    label: tags.filter(item => item.quote === tag.quote).map(item => labels[item.tag]).join(" · "),
+  }])).values());
+}

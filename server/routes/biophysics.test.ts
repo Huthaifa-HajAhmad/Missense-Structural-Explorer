@@ -279,6 +279,48 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
     });
   });
 
+  describe("/dynamut2-submit retry endpoint", () => {
+    const pdbWith = (resName: string, chain = "A", resSeq = 408) =>
+      `ATOM      1  CA  ${resName} ${chain}${String(resSeq).padStart(4)}       1.000   1.000   1.000  1.00  0.00           C
+END`;
+    async function submit(body: any) {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-submit");
+      if (!route || !route.route) throw new Error("Route /dynamut2-submit not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+      const dynamutServices = await import("../services/dynamut.ts");
+      const submitSpy = vi.spyOn(dynamutServices, "submitDynaMut2Job").mockResolvedValue("77777");
+      const out: { status: number; body: any } = { status: 200, body: null };
+      const res: any = {
+        json(payload: any) { out.body = payload; return this; },
+        status(code: number) { out.status = code; return this; },
+      };
+      await handler({ body } as any, res, () => {});
+      return { out, submitSpy };
+    }
+
+    it("submits the cleaned template on the chain the structure has the residue on", async () => {
+      const { out, submitSpy } = await submit({ wtPdb: pdbWith("ARG", "B"), mutation: "R408W" });
+      expect(submitSpy).toHaveBeenCalledWith(expect.any(String), "B", 408, "R", "W");
+      expect(out.body).toEqual({ dynamut2JobId: "77777", dynamut2Status: "pending" });
+      submitSpy.mockRestore();
+    });
+
+    it("refuses a wild-type residue that does not match, as the analysis route does", async () => {
+      const { out, submitSpy } = await submit({ wtPdb: pdbWith("ALA"), mutation: "R408W" });
+      expect(out.status).toBe(422);
+      expect(JSON.stringify(out.body)).toContain("Wild-type residue mismatch");
+      expect(submitSpy).not.toHaveBeenCalled();
+      submitSpy.mockRestore();
+    });
+
+    it("refuses a position the structure does not contain", async () => {
+      const { out, submitSpy } = await submit({ wtPdb: pdbWith("ARG", "A", 12), mutation: "R408W" });
+      expect(out.status).toBe(422);
+      expect(submitSpy).not.toHaveBeenCalled();
+      submitSpy.mockRestore();
+    });
+  });
+
   describe("SSE /jobs/events endpoint and pdbRef resolution", () => {
     it("should establish SSE stream on /jobs/events and emit connected event", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/jobs/events");

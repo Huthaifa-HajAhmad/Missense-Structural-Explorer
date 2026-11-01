@@ -1,5 +1,5 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
-import { AGREEMENT_CHIP, absenceText, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
  * Missing values never become points; filtering never changes agreement or the full-data axis.
@@ -21,7 +21,10 @@ export function energeticsComparisonCautions(evidence: EnergeticsEvidence): stri
   const notes: string[] = [];
   if (evidence.lowPlddt !== null) notes.push(`Low confidence in the AlphaFold template here (pLDDT ${evidence.lowPlddt.toFixed(1)}); inspect the structure basis.`);
   const unrepaired = evidence.readings.filter(r => r.caveats.includes('unrepaired-template'));
-  if (unrepaired.length) notes.push(`${unrepaired.map(r => r.name).join(', ')} used an unrepaired template, which can distort the estimate.`);
+  if (unrepaired.length) {
+    notes.push(`${unrepaired.map(r => r.name).join(', ')} used an unrepaired template, which can distort the estimate.`);
+    if (evidence.structure?.repairSkippedReason === 'large-structure') notes.push(LARGE_STRUCTURE_REPAIR_NOTE);
+  }
   // The cross-check names the other FoldX value beside the caveat it bears on.
   if (evidence.foldxTemplateCheck && (unrepaired.length || evidence.foldxTemplateCheck.state !== 'consistent')) notes.push(evidence.foldxTemplateCheck.headline);
   // A reference-only row is excluded by design, so it is not a caution with a reason to look up.

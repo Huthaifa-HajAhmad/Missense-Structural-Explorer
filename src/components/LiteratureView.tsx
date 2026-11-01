@@ -1,6 +1,6 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
-import { AlertTriangle, BookOpen, Library, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, Search } from "lucide-react";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { describeConnectionFailure } from "../shared/fetch-retry";
@@ -48,7 +48,7 @@ interface LiteratureViewProps {
 
 /** Worded with the gene symbol so each filter reads exactly like the chip on the rows it selects. */
 const groupLabel = (g: GroupFilter, gene: string): string =>
-  g === "all" ? "Any mention" : g === "variant" ? "Name the variant" : g === "gene" ? `Name only ${gene}` : "Neither in title/abstract";
+  g === "all" ? "Any" : g === "variant" ? "Name the variant" : g === "gene" ? `Name only ${gene}` : "Neither in title/abstract";
 
 const screeningFilters: Array<{ tag: ScreeningTagName; label: string }> = [
   { tag: "functional-assay", label: "Assay language" },
@@ -66,8 +66,9 @@ const screeningFilters: Array<{ tag: ScreeningTagName; label: string }> = [
  * which papers actually name the variant? A finding, then two reading views:
  *
  *   1. THE FINDING — how many Europe PMC records name the variant (a background search answers it on
- *      load), stating the query's reach and limits. Search facts live in a disclosure.
- *   2. READING DESK exposes a bounded bibliography with an explicit expand control.
+ *      load), stating the query's reach and limits.
+ *   2. READING DESK exposes a bounded bibliography with an explicit expand control. Its controls are two
+ *      groups: what to ask Europe PMC, and what to show from the papers already loaded.
  *      MENTION COVERAGE owns the loaded-text figure without duplicating the bibliography.
  *   3. THE TRACE — persistent selected source, query as sent, matches and loaded records in the rail.
  *
@@ -106,6 +107,7 @@ export default function LiteratureView({
   const [sortOrder, setSortOrder] = useState<"attention" | "newest">("attention");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [tagFilters, setTagFilters] = useState<ScreeningTagName[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   const [probe, setProbe] = useState<VariantProbe>({ state: "idle", hitCount: null });
@@ -322,14 +324,13 @@ export default function LiteratureView({
         groupFilter,
         pinnedIds,
         probe,
-        geneHitCount,
         load: isLoading ? "loading" : error && citations.length === 0 ? "error" : response ? "ready" : "idle",
         error,
         sortOrder,
         curated: curatedCoverage,
         curatedAdded,
       }),
-    [gene, variant, citations, response, executedQuery, isNarrowingFilter, activeFilter, groupFilter, pinnedIds, probe, geneHitCount, isLoading, error, sortOrder, curatedCoverage, curatedAdded]
+    [gene, variant, citations, response, executedQuery, isNarrowingFilter, activeFilter, groupFilter, pinnedIds, probe, isLoading, error, sortOrder, curatedCoverage, curatedAdded]
   );
 
   const loadedSetKey = citations.map(citation => citation.id).join("|");
@@ -401,7 +402,7 @@ export default function LiteratureView({
       evidence.faults,
       evidence.scope,
       evidence.variantQuery,
-      evidence.finding.headline,
+      evidence.finding,
       evidence.response,
     ]);
     if (key === lastReportedKey.current) return;
@@ -423,9 +424,14 @@ export default function LiteratureView({
       });
   };
 
-  const { counts, finding, facts, faults } = displayedEvidence;
-  // Curated additions are shown but are not this query's records.
-  const queryTotal = Math.max(0, counts.total - curatedAdded);
+  const { counts, finding, faults, queryTotal } = displayedEvidence;
+  const activeFilterCount = tagFilters.length + Number(groupFilter !== "all");
+  // Focused searches offered beside the two scope buttons. Each one runs a Europe PMC query.
+  const presets = [
+    ...(aliasQuery ? [{ label: "Verified nucleotide aliases", query: aliasQuery }] : []),
+    { label: "Clinical reports", query: `TITLE_ABS:${gene} AND (patient OR proband OR "case report" OR segregation)` },
+    { label: "Functional studies", query: `TITLE_ABS:${gene} AND ("functional assay" OR "enzyme activity" OR "in vitro" OR rescue)` },
+  ];
   const analysisConstraint = useVariantAnalysisStore(st => st.analysisState.result?.gnomadConstraint ?? null);
   const constraintStatus = useVariantAnalysisStore(st => st.analysisState.result?.serviceStatus?.gnomadConstraint ?? null);
   const constraint = useMemo<GeneConstraint | null>(() => analysisConstraint ? {
@@ -458,55 +464,33 @@ export default function LiteratureView({
         </header>
 
         {/* ── 1. The finding ─────────────────────────────────────────────────────────────── */}
-        <section className="lit-card lit-hero" aria-labelledby="lit-finding-title" data-testid="literature-finding">
-          <div className="lit-hero__body">
-            <div className="lit-hero__top">
-              <span className="eyebrow" id="lit-finding-title">
-                <BookOpen className="w-3.5 h-3.5" />
-                Published literature
-              </span>
-              <span className="ev-tier" data-tone="muted" title="The ACMG rule engine reads no literature: nothing on this tab is counted in the verdict.">
-                Not counted in the ACMG verdict
-              </span>
-            </div>
-
-            <div className="lit-hero__figure">
-              <span className="figure-headline lit-figure" data-testid="literature-figure">{finding.figure}</span>
-              <span className="lit-hero__figure-label">{finding.figureLabel}</span>
-            </div>
-
-            <Prose className="detail-prose lit-hero__finding">
-              <strong>{finding.headline}</strong>
-              {" "}
-              {finding.predicate}.
-            </Prose>
-
-            {faults.map(fault => (
-              <p key={fault} role="status" className="lit-callout" data-tone="warning">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>{fault}</span>
-              </p>
-            ))}
+        <section className="lit-hero" aria-label="Published literature finding" data-testid="literature-finding">
+          <div className="lit-hero__figure">
+            <span className="figure-headline lit-figure" data-testid="literature-figure">{finding.figure}</span>
+            <span className="lit-hero__figure-label">{finding.figureLabel}</span>
+            <span className="ev-tier" data-tone="muted" title="The ACMG rule engine reads no literature: nothing on this tab is counted in the verdict.">
+              Not counted in the ACMG verdict
+            </span>
           </div>
 
-          <details className="lit-search-facts"><summary>Search coverage and engine record</summary><dl className="lit-facts">
-            {facts.map(f => (
-              <div key={f.label} className="lit-fact">
-                <dt>{f.label}</dt>
-                <dd>
-                  <span className="lit-fact__value">{f.value}</span>
-                  <span className="lit-fact__sub">{f.sub}</span>
-                </dd>
-              </div>
-            ))}
-          </dl></details>
+          <Prose className="detail-prose lit-hero__finding">
+            {finding.headline && <><strong>{finding.headline}</strong>{" "}</>}
+            {finding.predicate}.
+          </Prose>
+
+          {faults.map(fault => (
+            <p key={fault} role="status" className="lit-callout" data-tone="warning">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span>{fault}</span>
+            </p>
+          ))}
         </section>
 
         <ReviewNavigation tab="literature" workspace={workspace} />
         <div role="tabpanel" id={`review-literature-panel-${workspace.view}`} aria-labelledby={`review-literature-tab-${workspace.view}`}>
         {workspace.view === 'records' && counts.total > 0 && <section className="lit-coverage" aria-labelledby="lit-coverage-title">
           <header><h2 id="lit-coverage-title">What the loaded text names</h2><p>{counts.total} loaded papers{curatedAdded > 0 ? ` (including ${curatedAdded} curated additions)` : ''} · literal title and abstract checks · select a group to open matching papers</p></header>
-          <div className="lit-coverage__rows">{coverage.map(row => <button type="button" key={row.level} onClick={() => { setGroupFilter(row.level); setTierFilter('all'); setTagFilters([]); workspace.setView('map'); document.getElementById('review-literature-tab-map')?.focus(); }}>
+          <div className="lit-coverage__rows">{coverage.map(row => <button type="button" key={row.level} onClick={() => { setGroupFilter(row.level); setTierFilter('all'); setTagFilters([]); setFiltersOpen(true); workspace.setView('map'); document.getElementById('review-literature-tab-map')?.focus(); }}>
             <span>{row.level === 'variant' ? `Names ${forms?.label}` : row.level === 'gene' ? `Names ${forms ? 'only ' : ''}${gene}` : forms ? 'Neither in title / abstract' : 'Gene not in title / abstract'}</span>
             <span className="lit-coverage__track" aria-hidden="true"><i style={{ inlineSize: `${row.percent}%` }} /></span>
             <span className="lit-mono">{row.count}<small> / {row.total}</small></span>
@@ -523,124 +507,156 @@ export default function LiteratureView({
 
         {/* ── 2. The papers ──────────────────────────────────────────────────────────────── */}
         {workspace.view === 'records' && counts.total === 0 && <section className="lit-empty"><h2>No loaded text to compare</h2><p>{isLoading ? 'The search is running.' : error ? 'The search failed. Retry from the reading desk.' : 'Search or load papers in the reading desk to inspect their mention coverage.'}</p><button type="button" className="review-action" onClick={() => { workspace.setView('map'); document.getElementById('review-literature-tab-map')?.focus(); }}>Open reading desk</button></section>}
-        {workspace.view === 'map' && <section className="lit-section" aria-labelledby="lit-papers-title">
-          <h2 className="eyebrow" id="lit-papers-title">
-            <Library className="w-3.5 h-3.5" />
-            Reading desk
-            {counts.pinned > 0 && <span className="lit-eyebrow-meta">{counts.pinned} in the report</span>}
-          </h2>
+        {workspace.view === 'map' && <section aria-labelledby="lit-papers-title">
+          {/* The visible name is the selected tab; this keeps the section named for screen readers. */}
+          <h2 className="sr-only" id="lit-papers-title">Reading desk</h2>
 
-          <div className="lit-card lit-papers" data-testid="literature-papers">
-            <div className="lit-toolbar">
-              <div className="lit-scope" role="group" aria-label="Which papers to search for">
-                <button
-                  type="button"
-                  className="lit-seg"
-                  aria-pressed={evidence.scope === "gene"}
-                  disabled={isLoading && evidence.scope === "gene"}
-                  onClick={() => runSearch(false, "")}
-                >
-                  All on {gene}
-                  {fmt(geneCount) && <span className="lit-seg__n">{fmt(geneCount)}</span>}
-                </button>
-                {forms && variantQuery && (
-                  <button
-                    type="button"
-                    className="lit-seg"
-                    aria-pressed={evidence.scope === "variant"}
-                    disabled={isLoading && evidence.scope === "variant"}
-                    onClick={() => runSearch(false, variantQuery)}
+          <div data-testid="literature-papers">
+            <div className="lit-controls">
+              {/* What to ask Europe PMC. Every button here runs a search. */}
+              <div className="lit-control-group" role="group" aria-label="Search Europe PMC">
+                <div className="lit-control-row lit-control-row--search">
+                  <span className="lit-control-row__label" aria-hidden="true">Search</span>
+                  <form
+                    className="lit-search"
+                    role="search"
+                    onSubmit={e => {
+                      e.preventDefault();
+                      // Explicit search, not a cache read: the button promises "Search Europe PMC", so a
+                      // fresh cached set must not satisfy it without going upstream.
+                      runSearch(true);
+                    }}
                   >
-                    Naming {forms.label}
-                    {fmt(variantHit) && <span className="lit-seg__n">{fmt(variantHit)}</span>}
-                  </button>
-                )}
-                {evidence.scope === "custom" && (
-                  <span className="ev-tier" data-tone="neutral" title="A query you typed or applied from the inspector">Custom query</span>
-                )}
-              </div>
-
-              <form
-                className="lit-search"
-                role="search"
-                onSubmit={e => {
-                  e.preventDefault();
-                  // Explicit search, not a cache read: the button promises "Search Europe PMC", so a
-                  // fresh cached set must not satisfy it without going upstream.
-                  runSearch(true);
-                }}
-              >
-                <label className="sr-only" htmlFor="lit-search-input">Search literature</label>
-                <Search className="lit-search__icon" aria-hidden="true" />
-                <input
-                  id="lit-search-input"
-                  type="text"
-                  value={internalQuery}
-                  onChange={e => { setRevealedDraft(null); setInternalQuery(e.target.value); }}
-                  placeholder="Keyword, author or MeSH — typing narrows this list, Enter searches Europe PMC"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button type="submit" className="lit-btn" disabled={isLoading}>
-                  Search Europe PMC
-                </button>
-              </form>
-            </div>
-
-            <div className="lit-presets" aria-label="Focused search suggestions">
-              <span>Explore:</span>
-              {aliasQuery && <button type="button" className="lit-link" disabled={isLoading} onClick={() => runSearch(false, aliasQuery)}>Verified nucleotide aliases</button>}
-              <button type="button" className="lit-link" disabled={isLoading} onClick={() => runSearch(false, `TITLE_ABS:${gene} AND (patient OR proband OR "case report" OR segregation)`)}>Clinical reports</button>
-              <button type="button" className="lit-link" disabled={isLoading} onClick={() => runSearch(false, `TITLE_ABS:${gene} AND ("functional assay" OR "enzyme activity" OR "in vitro" OR rescue)`)}>Functional studies</button>
-            </div>
-
-            {counts.total > 0 && (
-              <>
-              <div className="lit-groups lit-tiers" role="group" aria-label="Filter by reading tier">
-                {(["readFirst", "readNext", "all"] as TierFilter[]).map(tier => {
-                  const count = tier === "readFirst" ? evidence.shortlist.readFirst : tier === "readNext" ? evidence.shortlist.readNext : evidence.counts.total;
-                  const label = tier === "readFirst" ? "Read first" : tier === "readNext" ? "Read next" : "All loaded";
-                  return <button key={tier} type="button" className="lit-group" aria-label={tier === "all" ? "Show all tiers" : undefined} aria-pressed={tierFilter === tier} disabled={tier !== "all" && count === 0} onClick={() => setTierFilter(tier)}>{label}<span className="lit-group__n">{count}</span></button>;
-                })}
-                <span className="lit-sort" role="group" aria-label="Sort papers">
-                  <span>Sort:</span>
-                  <button type="button" className="lit-group" aria-pressed={sortOrder === "attention"} onClick={() => setSortOrder("attention")}>Relevance</button>
-                  <button type="button" className="lit-group" aria-pressed={sortOrder === "newest"} onClick={() => setSortOrder("newest")}>Newest</button>
-                </span>
-              </div>
-              <details className="lit-filter-details">
-                <summary>Refine papers{tagFilters.length || groupFilter !== "all" ? ` / ${tagFilters.length + Number(groupFilter !== "all")} active` : ""}</summary>
-                <p className="lit-filter-note">Filters combine: a paper must match every selected observation and mention group. Counts describe the full loaded set.</p>
-              <div className="lit-groups" role="group" aria-label="Filter by screening observation">
-                {screeningFilters.map(({ tag, label }) => {
-                  const count = evidence.shortlist.tags[tag];
-                  const active = tagFilters.includes(tag);
-                  return <button key={tag} type="button" className="lit-group" aria-pressed={active} disabled={count === 0} onClick={() => setTagFilters(current => active ? current.filter(item => item !== tag) : [...current, tag])}>{label}<span className="lit-group__n">{count}</span></button>;
-                })}
-              </div>
-              <div className="lit-groups" role="group" aria-label="Filter by what the text check found">
-                {(["all", ...(forms ? (["variant"] as const) : []), "gene", "elsewhere"] as GroupFilter[]).map(g => {
-                  const n = g === "all" ? counts.total : counts[g];
-                  return (
-                    <button
-                      key={g}
-                      type="button"
-                      className="lit-group"
-                      aria-label={g === "all" ? "Show all text-check groups" : undefined}
-                      aria-pressed={groupFilter === g}
-                      disabled={g !== "all" && n === 0}
-                      onClick={() => setGroupFilter(g)}
-                    >
-                      {groupLabel(g, gene)}
-                      <span className="lit-group__n">{n}</span>
+                    <label className="sr-only" htmlFor="lit-search-input">Search literature</label>
+                    <Search className="lit-search__icon" aria-hidden="true" />
+                    <input
+                      id="lit-search-input"
+                      type="text"
+                      value={internalQuery}
+                      onChange={e => { setRevealedDraft(null); setInternalQuery(e.target.value); }}
+                      placeholder="Keyword, author or MeSH — typing narrows this list, Enter searches Europe PMC"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <button type="submit" className="lit-btn" disabled={isLoading}>
+                      Search Europe PMC
                     </button>
-                  );
-                })}
+                  </form>
+                </div>
+                <div className="lit-control-row">
+                  <div className="lit-groups" role="group" aria-label="Which papers to search for">
+                    <button
+                      type="button"
+                      className="lit-seg"
+                      aria-pressed={evidence.scope === "gene"}
+                      disabled={isLoading && evidence.scope === "gene"}
+                      onClick={() => runSearch(false, "")}
+                    >
+                      All on {gene}
+                      {fmt(geneCount) && <span className="lit-seg__n">{fmt(geneCount)}</span>}
+                    </button>
+                    {forms && variantQuery && (
+                      <button
+                        type="button"
+                        className="lit-seg"
+                        aria-pressed={evidence.scope === "variant"}
+                        disabled={isLoading && evidence.scope === "variant"}
+                        onClick={() => runSearch(false, variantQuery)}
+                      >
+                        Naming {forms.label}
+                        {fmt(variantHit) && <span className="lit-seg__n">{fmt(variantHit)}</span>}
+                      </button>
+                    )}
+                    {presets.map(preset => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        className="lit-seg"
+                        aria-pressed={preset.query.toLowerCase() === executedFilter.toLowerCase()}
+                        disabled={isLoading}
+                        onClick={() => runSearch(false, preset.query)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    {evidence.scope === "custom" && !presets.some(preset => preset.query.toLowerCase() === executedFilter.toLowerCase()) && (
+                      <span className="ev-tier" data-tone="neutral" title="A query you typed or applied from the inspector">Custom query</span>
+                    )}
+                  </div>
+                </div>
               </div>
-                {(tagFilters.length > 0 || groupFilter !== "all") && <button type="button" className="lit-link lit-filter-clear" onClick={() => { setTagFilters([]); setGroupFilter("all"); }}>Clear refinements</button>}
-              </details>
-              </>
-            )}
+
+              {/* What to show from the papers already loaded. Nothing here calls Europe PMC. */}
+              {counts.total > 0 && (
+                <div className="lit-control-group" role="group" aria-label="Show loaded papers">
+                  <div className="lit-control-row">
+                    <span className="lit-control-row__label" aria-hidden="true">Show</span>
+                    <div className="lit-groups">
+                      <div className="lit-groups" role="group" aria-label="Filter by reading tier">
+                        {(["readFirst", "readNext", "all"] as TierFilter[]).map(tier => {
+                          const count = tier === "readFirst" ? evidence.shortlist.readFirst : tier === "readNext" ? evidence.shortlist.readNext : evidence.counts.total;
+                          const label = tier === "readFirst" ? "Read first" : tier === "readNext" ? "Read next" : "All loaded";
+                          return <button key={tier} type="button" className="lit-group" aria-label={tier === "all" ? "All loaded: show all tiers" : undefined} aria-pressed={tierFilter === tier} disabled={tier !== "all" && count === 0} onClick={() => setTierFilter(tier)}>{label}<span className="lit-group__n">{count}</span></button>;
+                        })}
+                      </div>
+                      <button type="button" className="lit-group lit-filter-toggle" aria-expanded={filtersOpen} aria-controls="lit-filters" onClick={() => setFiltersOpen(open => !open)}>
+                        Filters
+                        {activeFilterCount > 0 && <span className="lit-group__n">{activeFilterCount} active</span>}
+                        <ChevronDown aria-hidden="true" />
+                      </button>
+                      <span className="lit-sort" role="group" aria-label="Sort papers">
+                        <span>Sort</span>
+                        <button type="button" className="lit-group" aria-pressed={sortOrder === "attention"} title="Orders papers by screening tier, 1 to 6. A reading order, not a quality score." onClick={() => setSortOrder("attention")}>Screening tier</button>
+                        <button type="button" className="lit-group" aria-pressed={sortOrder === "newest"} onClick={() => setSortOrder("newest")}>Newest</button>
+                      </span>
+                    </div>
+                  </div>
+                  {filtersOpen && (
+                    <div className="lit-control-group" id="lit-filters">
+                      <div className="lit-control-row">
+                        <span className="lit-control-row__label" aria-hidden="true">Observed</span>
+                        <div className="lit-groups" role="group" aria-label="Filter by screening observation">
+                          {screeningFilters.map(({ tag, label }) => {
+                            const count = evidence.shortlist.tags[tag];
+                            const active = tagFilters.includes(tag);
+                            return <button key={tag} type="button" className="lit-group" aria-pressed={active} disabled={count === 0} onClick={() => setTagFilters(current => active ? current.filter(item => item !== tag) : [...current, tag])}>{label}<span className="lit-group__n">{count}</span></button>;
+                          })}
+                        </div>
+                      </div>
+                      <div className="lit-control-row">
+                        <span className="lit-control-row__label" aria-hidden="true">Mentions</span>
+                        <div className="lit-groups" role="group" aria-label="Filter by what the text check found">
+                          {(["all", ...(forms ? (["variant"] as const) : []), "gene", "elsewhere"] as GroupFilter[]).map(g => {
+                            const n = g === "all" ? counts.total : counts[g];
+                            return (
+                              <button
+                                key={g}
+                                type="button"
+                                className="lit-group"
+                                aria-label={g === "all" ? "Any: show all text-check groups" : undefined}
+                                aria-pressed={groupFilter === g}
+                                disabled={g !== "all" && n === 0}
+                                onClick={() => setGroupFilter(g)}
+                              >
+                                {groupLabel(g, gene)}
+                                {g !== "all" && <span className="lit-group__n">{n}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="lit-control-row">
+                        <p className="lit-filter-note">
+                          A paper must match every selected filter. Counts are for all loaded papers.
+                          {activeFilterCount > 0 && <>{" "}<button type="button" className="lit-link" onClick={() => { setTagFilters([]); setGroupFilter("all"); }}>Clear filters</button></>}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
 
             {error && (
               <div role="alert" className="lit-callout lit-callout--banner" data-tone="warning">
@@ -688,11 +704,11 @@ export default function LiteratureView({
                 ) : (
                   <>
                     <p className="lit-empty__title">
-                      {evidence.scope === "variant" && forms ? `No matches for these protein notations of ${forms.label}` : "No papers returned"}
+                      {evidence.scope === "variant" && forms ? "No papers for this search" : "No papers returned"}
                     </p>
                     <p className="lit-empty__body">
                       {evidence.scope === "variant" && forms
-                        ? `Europe PMC matched 0 records for ${gene} with ${forms.forms.join(", ")}. A report under another notation would not match; try All on ${gene}, or write your own query.`
+                        ? `Try All on ${gene}, or write your own query.`
                         : executedFilter
                           ? "Europe PMC returned no records for this query. Edit the search and press Enter."
                           : `Europe PMC returned no records for the default ${gene} query. Try a keyword or a MeSH term.`}
@@ -705,26 +721,29 @@ export default function LiteratureView({
                 selectedId={workspace.selected} onSelect={workspace.select} reveal={groupFilter === "all" && tierFilter === "all" && !tagFilters.length && !isNarrowingFilter ? workspace.reveal : 0} onRevealed={workspace.finishReveal} />
             )}
 
-            {screeningVisible.length > READING_DESK_LIMIT && <div className="lit-load-more">
-              <span>Showing {deskPapers.length} of {screeningVisible.length} matching loaded papers.</span>
-              <button type="button" className="lit-link" onClick={() => workspace.setAllPapers(!workspace.allPapers)}>{workspace.allPapers ? `Show first ${READING_DESK_LIMIT}` : 'Show all matching papers'}</button>
-            </div>}
-
             {moreError && <p className="lit-callout" role="alert" data-tone="warning">{moreError}</p>}
-            {response?.nextCursor && !response.degraded && <div className="lit-load-more">
-              <span>{queryTotal} query matches loaded{response.hitCount !== null ? ` of ${response.hitCount.toLocaleString("en-GB")}` : ""}. Screening covers these papers only.</span>
-              <button type="button" className="lit-btn" disabled={moreLoading || isLoading} onClick={() => void loadMore()}>{moreLoading ? "Loading more..." : "Load 25 more"}</button>
-            </div>}
-            <div className="lit-card__foot">
-              <span>
-                Europe PMC · {counts.visible.toLocaleString("en-GB")} shown
-                {response?.hitCount != null && !response.degraded && response.hitCount > queryTotal
-                  ? ` · first ${queryTotal.toLocaleString("en-GB")} of ${response.hitCount.toLocaleString("en-GB")} query matches loaded`
-                  : ""}
-                {curatedAdded > 0 ? ` · ${curatedAdded.toLocaleString("en-GB")} from a curated variant record` : ""}
-              </span>
-              <span>{sortOrder === "attention" ? "Screening tiers 1–6; ties keep the supplied list order." : "Publication year, newest first."} Titles and abstracts checked.</span>
-            </div>
+            {counts.total > 0 && (
+              <div className="lit-list-foot" data-testid="literature-list-foot">
+                <p>
+                  {[
+                    screeningVisible.length > 0 ? `Showing ${deskPapers.length.toLocaleString("en-GB")} of ${screeningVisible.length.toLocaleString("en-GB")} matching ${screeningVisible.length === 1 ? "paper" : "papers"}` : null,
+                    response?.degraded
+                      ? `${queryTotal.toLocaleString("en-GB")} cached ${queryTotal === 1 ? "paper" : "papers"}`
+                      : `${queryTotal.toLocaleString("en-GB")}${response?.hitCount != null ? ` of ${response.hitCount.toLocaleString("en-GB")}` : ""} Europe PMC ${(response?.hitCount ?? queryTotal) === 1 ? "match" : "matches"} loaded`,
+                    curatedAdded > 0 ? `${curatedAdded.toLocaleString("en-GB")} added from a curated variant record` : null,
+                    counts.pinned > 0 ? `${counts.pinned.toLocaleString("en-GB")} in the report` : null,
+                  ].filter(Boolean).join(" · ")}. Screening covers loaded papers only.
+                </p>
+                <div className="lit-list-foot__actions">
+                  {screeningVisible.length > READING_DESK_LIMIT && (
+                    <button type="button" className="lit-btn lit-btn--quiet" onClick={() => workspace.setAllPapers(!workspace.allPapers)}>{workspace.allPapers ? `Show first ${READING_DESK_LIMIT}` : "Show all matching papers"}</button>
+                  )}
+                  {response?.nextCursor && !response.degraded && (
+                    <button type="button" className="lit-btn lit-btn--quiet" disabled={moreLoading || isLoading} onClick={() => void loadMore()}>{moreLoading ? "Loading more..." : "Load 25 more"}</button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </section>}
         </div>
