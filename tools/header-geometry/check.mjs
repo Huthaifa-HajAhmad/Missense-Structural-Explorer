@@ -98,6 +98,10 @@ const match = raw.match(/id="geometry-result"[^>]*>([A-Za-z0-9+/=]+)</);
 if (!match) {
   console.error("geometry-check: could not read #geometry-result from the rendered DOM.");
   if (dom.error) console.error(`  ${dom.error.message}`);
+  console.error(`  browser exit status ${dom.status}, signal ${dom.signal}`);
+  console.error(`  stderr tail: ${String(dom.stderr ?? "").slice(-1500)}`);
+  console.error(`  geometry-result element: ${raw.match(/id="geometry-result"[^>]*>[^<]{0,300}/)?.[0] ?? "absent"}`);
+  console.error(`  page title/body start: ${raw.slice(0, 300)}`);
   console.error("  (the harness prints its checks into #geometry-report as well)");
   process.exit(2);
 }
