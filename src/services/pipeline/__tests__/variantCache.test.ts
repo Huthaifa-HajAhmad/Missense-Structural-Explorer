@@ -220,3 +220,22 @@ describe("biophysics attempt cooldown — across a reload", () => {
     expect(reloaded.getCachedVariant("RELOADB", "p.Ala1Val")).toBeNull();
   });
 });
+
+
+describe("interrupted predictor cache recovery", () => {
+  beforeEach(() => { installSessionStorageShim(); clearClientVariantCache(); });
+  it("refreshes incomplete scores while retaining structural artifacts", () => {
+    setCachedVariant("GATA4", "p.Ser159Cys", "P43694", {
+      pdbText: "ATOM retained", foldingStatus: "complete",
+      analysisResult: { conservationData: { available: false, popeve: null, modelStatus: { popeve: "timeout" } } },
+    });
+    const cached = getCachedVariant("GATA4", "p.Ser159Cys");
+    expect(cached?.analysisResult).toBeUndefined();
+    expect(cached?.pdbText).toBe("ATOM retained");
+  });
+  it("keeps a completed provider miss instead of repeatedly requesting it", () => {
+    const result = { conservationData: { popeve: null, modelStatus: { popeve: "settled" } } };
+    setCachedVariant("GATA4", "p.Ser159Cys", "P43694", { analysisResult: result });
+    expect(getCachedVariant("GATA4", "p.Ser159Cys")?.analysisResult).toEqual(result);
+  });
+});

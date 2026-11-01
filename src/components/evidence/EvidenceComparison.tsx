@@ -126,7 +126,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         <h3 className="eyebrow" id={`${unplottedId}-title`}><EyeOff className="w-3.5 h-3.5" aria-hidden="true" />{model.unplottedHeading}<span className="evw-unplotted__count">{missing.length}</span></h3>
         <p>{model.unplottedBody}</p>
       </header>
-      <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong className="ev-tier" data-tone="muted">{r.valueText}</strong></button>)}</div>
+      {tab === 'predictors' ? <div className="prd-unplotted-groups" data-testid="predictor-unplotted-groups" role="region" aria-label="Predictors outside the calibrated comparison">{Array.from(new Set(missing.map(r => r.group))).map(group => <section key={group}><h4>{group}</h4><div className="evw-reading-list">{missing.filter(r => r.group === group).map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span><strong>{r.valueText}</strong></button>)}</div></section>)}</div> : <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong className="ev-tier" data-tone="muted">{r.valueText}</strong></button>)}</div>}
     </section>}
   </ChartFrame></div>;
 }

@@ -13,12 +13,12 @@ import {
   buildPredictorEvidence,
   groupReadings,
   informationalSummary,
-  localPredictorAgreement,
   predictorSummary,
   type PredictorEvidence,
   type PredictorReading,
 } from "../../shared/predictorEvidence";
 import { buildLadderEvidence } from "../../shared/ladderEvidence";
+import { PredictorInformationalSummary } from "./PredictorInformationalSummary";
 import { ScoreRuler } from "./predictors/ScoreRuler";
 import { StrengthLadder } from "./predictors/StrengthLadder";
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
@@ -177,20 +177,13 @@ function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
   );
 }
 
-function LocalAgreementRow({ evidence }: { evidence: PredictorEvidence }) {
-  const agreement = localPredictorAgreement(evidence);
-  return <div className="prd-frow" data-testid="predictor-local-agreement">
-    <div className="prd-frow__label">
-      <span className="prd-frow__name">Local agreement / informational</span>
-      <span className="prd-frow__sub">never counted by the vote</span>
-    </div>
-    <div className="prd-frow__body">
-      {agreement.lead.map(note => <p key={note} className="prd-frow__note">{note}</p>)}
-      {[...agreement.calibrated, ...agreement.preference].map(({ reading, label }) =>
-        <p key={reading.key} className="prd-frow__note"><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton>: {label}</p>)}
-      {agreement.tail.map(note => <p key={note} className="prd-frow__note">{note}</p>)}
-    </div>
-    <div className="prd-frow__call"><span className="ev-tier" data-tone="muted">Context only</span></div>
+function LocalAgreementRow({ evidence, showScores = true }: { evidence: PredictorEvidence; showScores?: boolean }) {
+  return <div data-testid="predictor-local-agreement">
+    <header className="prd-hero__head prd-context-head">
+      <h2 className="eyebrow">Local agreement / informational</h2>
+      <span className="ev-tier" data-tone="muted">Context only / never counted by the vote</span>
+    </header>
+    <PredictorInformationalSummary evidence={evidence} headingLevel="h3" showScores={showScores} />
   </div>;
 }
 
@@ -397,10 +390,10 @@ function InformationalCard({ evidence }: { evidence: PredictorEvidence }) {
   return (
     <section className="prd-card" aria-labelledby="prd-info-title" data-testid="predictor-informational">
       <div className="prd-hero__head">
-        <span className="eyebrow" id="prd-info-title">
+        <h2 className="eyebrow" id="prd-info-title">
           <Info className="w-3.5 h-3.5" />
           Informational models · not counted
-        </span>
+        </h2>
         <span className="ev-tier" data-tone="muted">Context only</span>
       </div>
       <p className="prd-info-lede">
@@ -415,18 +408,19 @@ function InformationalCard({ evidence }: { evidence: PredictorEvidence }) {
             <span className="prd-fam__sub">{f.headline}</span>
           </div>
           <div className="prd-fam__body">
-            <p><b>What it measures.</b> {f.what}</p>
-            <p><b>Why it is not counted.</b> {f.why}</p>
-            <p><b>How to read it.</b> {f.read}</p>
-            <p className="prd-fam__scores">
-              {f.readings.map(r => (
-                <span key={r.key}>
-                  {r.name}
-                  <span className="prd-mono">{r.score !== null ? r.scoreText : "—"}</span>
-                  {r.score !== null && r.calibrated && <span>· {formatEvidenceCode(r.callLabel)}</span>}
-                </span>
-              ))}
-            </p>
+            <details className="prd-family-guide" open>
+              <summary>How to read {f.label.toLowerCase()}</summary>
+              <p><b>What it measures.</b> {f.what}</p>
+              <p><b>Why it is not counted.</b> {f.why}</p>
+              <p><b>How to read it.</b> {f.read}</p>
+            </details>
+            <div className="prd-fam__scores">
+              {f.readings.map(r => <span key={r.key}>
+                <InspectReadingButton tab="predictors" readingKey={r.key}>{r.name}</InspectReadingButton>
+                <span className="prd-mono">{r.score !== null ? r.scoreText : r.availability.label ?? ENGINE_STATE_LABELS['no-result']}</span>
+                {r.score !== null && r.calibrated && <span>{formatEvidenceCode(r.callLabel)}</span>}
+              </span>)}
+            </div>
           </div>
         </div>
       ))}
@@ -530,7 +524,7 @@ function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSetti
       {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
       {/* Local agreement is not the engine's reading, so it gets its own card rather than a row
           inside the engine card: its own note says these readings never change PP3 / BP4. */}
-      {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>}
+      {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} showScores={false} /></section>}
       {(!workspace.enabled || workspace.view === 'records') && <>
       <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>
       <InformationalCard evidence={evidence} />

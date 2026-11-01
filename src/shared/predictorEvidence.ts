@@ -321,9 +321,42 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     : isLoading || isModelLoading ? { state: "pending", label: ENGINE_STATE_LABELS.running, reason: null, action: null }
     : { state: "absent", label: NO_RESULT, reason: null, action: null };
 
+  /**
+   * A provider budget expiry is not a completed miss.
+   *
+   * `modelStatus` is the only record of whether a model answered, was still in flight, or ran out of
+   * time. Without it a timed-out lookup rendered exactly like "the provider has no score for this
+   * variant" — the distinction the Predictors screen must make. The label and the retry action come
+   * from here so the table, the agreement card and the inspector all say the same thing.
+   */
+  type ConservationStatusKey = keyof NonNullable<NonNullable<AnalysisResult["conservationData"]>["modelStatus"]>;
+  const statusOf = (model: ConservationStatusKey) => cd?.modelStatus?.[model] ?? null;
+  const runningAvailability: PredictorReading["availability"] = {
+    state: "pending", label: ENGINE_STATE_LABELS.running, reason: null, action: null,
+  };
+  const timedOutAvailability: PredictorReading["availability"] = {
+    state: "absent",
+    label: "Timed out",
+    reason: "The provider did not answer before the analysis budget ended.",
+    action: "retry",
+  };
+  const statusAware = (
+    score: number | null,
+    model: ConservationStatusKey,
+    fallback: () => PredictorReading["availability"],
+  ): PredictorReading["availability"] => {
+    if (score !== null) return present;
+    const status = statusOf(model);
+    if (isLoading || status === "pending") return runningAvailability;
+    if (status === "timeout") return timedOutAvailability;
+    return fallback();
+  };
+  const availFor = (score: number | null, model: ConservationStatusKey, reason: string | null = null) =>
+    statusAware(score, model, () => absent(reason));
+
   const fromAvailability = (a: EvidenceAvailability, action: PredictorReading["availability"]["action"]): PredictorReading["availability"] => {
     if (a.hasValue) return present;
-    if (isLoading || a.state === "pending") return { state: "pending", label: ENGINE_STATE_LABELS.running, reason: null, action: null };
+    if (isLoading || a.state === "pending") return runningAvailability;
     return {
       state: "absent",
       label: a.label,
@@ -342,6 +375,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     score: number | null,
     decimals: number,
     extra: Partial<PredictorReading>,
+    statusKey: ConservationStatusKey | null = null,
   ) => {
     const call = calibratedCall(tool, score);
     const { label, tone } = callFromCalibrated(call);
@@ -363,7 +397,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       callTone: score === null ? "muted" : tone,
       caveats: [],
       note: null,
-      availability: avail(score),
+      availability: statusKey ? availFor(score, statusKey) : avail(score),
       source: dbSource,
       knowledgeKey: null,
       link: null,
@@ -374,12 +408,12 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   calibratedVoter("revel", "REVEL", "revel", revel, 3, {
     description: "Ensemble of 13 missense predictors; no allele-frequency feature.",
     knowledgeKey: "revel",
-  });
+  }, "base");
   calibratedVoter("bayesdel", "BayesDel", "bayesdel", bayesdel, 3, {
     description: "Naïve-Bayes combination of deleteriousness scores — the build without allele frequency.",
     scale: { min: -1.3, max: 0.8 },
     knowledgeKey: "bayesdel",
-  });
+  }, "base");
   calibratedVoter("am", "AlphaMissense", "alphaMissense", am, 3, {
     description: "Protein language and structure model, weakly labelled from primate and human population variants.",
     note: amClass ? `AlphaMissense's own label: ${amClass.replace(/_/g, " ")}` : null,
@@ -401,6 +435,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     score: number | null,
     cut: number,
     extra: Partial<PredictorReading>,
+    statusKey: ConservationStatusKey | null = null,
   ) => {
     const signal = concordance.signals[key] ?? "unavailable";
     readings.push({
@@ -426,7 +461,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       callTone: SIGNAL_TONE[signal],
       caveats: ["uses-af", "clinvar-trained"],
       note: null,
-      availability: avail(score),
+      availability: statusKey ? availFor(score, statusKey) : avail(score),
       source: dbSource,
       knowledgeKey: null,
       link: null,
@@ -437,12 +472,12 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     description: "Recurrent network over 16 scores, 8 conservation measures and gnomAD allele frequency.",
     knowledgeKey: "metarnn",
     cutpoints: { kind: "authors", source: "Li et al. 2022", bands: [], marks: [{ value: THRESHOLDS.metaRnn.pathogenic, side: "path", label: "≥ 0.5" }] },
-  });
+  }, "base");
   authorVoter("clinpred", "ClinPred", clinpred, THRESHOLDS.clinPred.pathogenic, {
     description: "Random forest and gradient boosting over existing scores and gnomAD allele frequency.",
     knowledgeKey: "clinpred",
     cutpoints: { kind: "authors", source: "Alirezaie et al. 2018", bands: [], marks: [{ value: THRESHOLDS.clinPred.pathogenic, side: "path", label: "≥ 0.5" }] },
-  });
+  }, "base");
 
   {
     const signal = concordance.signals.popeve ?? "unavailable";
@@ -473,7 +508,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       callTone: signal === "pathogenic" ? "danger" : signal === "vus" ? "neutral" : "muted",
       caveats: ["no-benign-cut"],
       note: null,
-      availability: popeve !== null ? present : fromAvailability(popAvail, null),
+      availability: statusAware(popeve, "popeve", () => fromAvailability(popAvail, null)),
       source: "popEVE precomputed tracks (evemodel.org)",
       knowledgeKey: "popeve",
       link: null,
@@ -502,7 +537,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       callTone: esm1b === null ? "muted" : tone,
       caveats: [],
       note: null,
-      availability: avail(esm1b),
+      availability: availFor(esm1b, "base"),
       source: dbSource,
       knowledgeKey: "esm1b",
       link: null,
@@ -595,7 +630,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
               alphagenome?.topModality ? `largest feature: ${alphagenome.topModality}` : null,
             ].filter(Boolean).join(" · ") || null
           : null,
-      availability: aviAvailabilityFor(fromAvailability(aviAvail, "configure-alphagenome"), alphagenome?.message ?? null),
+      availability: statusAware(avi, "alphagenome", () => aviAvailabilityFor(fromAvailability(aviAvail, "configure-alphagenome"), alphagenome?.message ?? null)),
       source: "Google DeepMind AlphaGenome",
       knowledgeKey: "alphagenome",
       link: { tab: "alphagenome", label: "Open AlphaGenome" },
@@ -637,7 +672,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       callTone: "muted",
       caveats: [],
       note: null,
-      availability: fromAvailability(gpnAvail, "configure-gpn"),
+      availability: statusAware(gpn, "gpnStar", () => fromAvailability(gpnAvail, "configure-gpn")),
       source: "Song lab GPN-Star",
       knowledgeKey: "gpn_star",
       link: null,
@@ -661,7 +696,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     callTone: "muted",
     caveats: [],
     note: null,
-    availability: avail(eigen),
+    availability: availFor(eigen, "base"),
     source: dbSource,
     knowledgeKey: "eigen",
     link: null,
@@ -684,7 +719,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     callTone: "muted",
     caveats: [],
     note: null,
-    availability: avail(dann),
+    availability: availFor(dann, "base"),
     source: dbSource,
     knowledgeKey: "dann",
     link: null,
@@ -712,7 +747,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       callTone: score === null ? "muted" : tone,
       caveats: [],
       note: null,
-      availability: avail(score),
+      availability: availFor(score, "base"),
       source: dbSource,
       knowledgeKey: key,
       link: null,
@@ -738,9 +773,8 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     callTone: "muted",
     caveats: [],
     note: null,
-    availability: consurf !== null
-      ? present
-      : absent("ConSurf-DB returned no grade for this protein.", "No grade"),
+    availability: statusAware(consurf, "consurf", () =>
+      absent("ConSurf-DB returned no grade for this protein.", "No grade")),
     source: "ConSurf-DB",
     knowledgeKey: "consurf",
     link: null,
@@ -1064,9 +1098,10 @@ export const LOCAL_AGREEMENT_COPY = {
 /**
  * The local agreement in words, plus the rows the caller may pin.
  *
- * `lead` and `tail` bracket those pinned rows: both surfaces (the Comparison card and the inspector
- * rail) render `lead`, then the contributors, then `tail`, so the wording cannot drift even though
- * the chrome differs. Absent readings are stated only when they exist — "none" is not a finding.
+ * The named fields (`descriptive`, `preferenceSummary`, `preferenceCaveat`) are what the shared
+ * component renders; the `lead`/`tail` arrays remain the composed copy for callers that need one
+ * string, so the wording cannot drift even though the chrome differs. Absent readings are stated
+ * only when they exist — "none" is not a finding.
  */
 export function localPredictorAgreement(evidence: PredictorEvidence) {
   const rows = evidence.readings.filter(r => !r.votes);
@@ -1079,25 +1114,27 @@ export function localPredictorAgreement(evidence: PredictorEvidence) {
   const alternate = preferenceRows.filter(r => r.score! > 0).length;
   const preferenceSummary = preferenceRows.length === 0
     ? "No uncalibrated sequence-preference scores returned."
-    : `${native} favour native, ${alternate} favour alternate, ${preferenceRows.length - native - alternate} equal preference (${preferenceRows.length} sequence models).`;
+    : `${native} favour native, ${alternate} favour alternate, ${preferenceRows.length - native - alternate} equal preference (${preferenceRows.length} sequence model${preferenceRows.length === 1 ? "" : "s"}).`;
+  const descriptive = `${scoredRows.length} of ${rows.length} non-voting readings scored. ${LOCAL_AGREEMENT_COPY.descriptive}`;
+  const preferenceCaveat = LOCAL_AGREEMENT_COPY.preference;
   return {
     total: rows.length,
     scored: scoredRows.length,
     preferenceSummary,
-    lead: [
-      `${scoredRows.length} of ${rows.length} non-voting readings scored. ${LOCAL_AGREEMENT_COPY.descriptive}`,
-      preferenceSummary,
-    ],
+    descriptive,
+    preferenceCaveat,
+    lead: [descriptive, preferenceSummary],
     tail: [
       ...(unclassified.length ? [`${LOCAL_AGREEMENT_COPY.noPreference}: ${unclassified.map(r => r.name).join(", ")}.`] : []),
       ...(missing.length ? [`Not scored: ${missing.map(r => `${r.name} (${r.availability.label})`).join(", ")}.`] : []),
-      LOCAL_AGREEMENT_COPY.preference,
+      preferenceCaveat,
     ],
     // A calibrated non-voting tool keeps its published code only as a band name: naming it is not
-    // counting it, and the section above says so.
+    // counting it, and the section above says so. The code is formatted here, not in the renderer,
+    // so the tab and the inspector cannot show `PP3_Moderate` in one place and `PP3 Moderate` in another.
     calibrated: scoredRows.filter(r => r.calibrated).map(r => ({
       reading: r,
-      label: `${r.callLabel} ${LOCAL_AGREEMENT_COPY.calibratedBand}`,
+      label: `${formatEvidenceCode(r.callLabel)} ${LOCAL_AGREEMENT_COPY.calibratedBand}`,
     })),
     preference: preferenceRows.map(r => ({
       reading: r,

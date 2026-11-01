@@ -300,7 +300,7 @@ export async function fetchConservationData(
             const [popEVEScore, consurfVal, gpnTabixRes, alphaRes] = await Promise.all([popEVEPromise, consurfPromise, gpnTabixPromise, alphaPromise]);
 
             let popEVEVal = rec.popeve ?? popEVEScore;
-            if (popEVEVal === null) {
+            if (popEVEVal === null && enrichCoordinateHere) {
               const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
               const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
               popEVEVal = await Promise.race([onlinePromise, fastTimeout]);
@@ -375,7 +375,7 @@ export async function fetchConservationData(
           const consurfVal = await consurfPromise;
 
           let popEVEVal = activeGenosRec.popeve;
-          if (popEVEVal === null) {
+          if (popEVEVal === null && enrichCoordinateHere) {
             popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
           }
 
@@ -440,7 +440,7 @@ export async function fetchConservationData(
           const consurfVal = await consurfPromise;
 
           let popEVEVal = pubDbnsfp.popeve ?? null;
-          if (popEVEVal === null) {
+          if (popEVEVal === null && enrichCoordinateHere) {
             popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
           }
 
@@ -634,7 +634,10 @@ export async function fetchConservationData(
                 const parsed = safeParseFloat(eVal);
                 if (parsed !== null) finalPopEVE = parsed;
               }
-              if (finalPopEVE === null) {
+              // When the progressive caller owns enrichment, it already started the online
+              // protein-file lookup; asking again here races it (the resolver caches only after a
+              // response, so both requests would go out). Its result is merged as `parts.popeve`.
+              if (finalPopEVE === null && enrichCoordinateHere) {
                 finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
               }
 
@@ -842,8 +845,9 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
     consurf: state(has("consurf")),
     spliceProximity: state(has("spliceProximity")),
     alphagenome: state(has("alphagenome")),
-    // Base is preferred for PopEVE, so the coordinate lookup alone cannot finalise it.
-    popeve: state(base && (parts.base!.popeve != null || has("popeve"))),
+    // A returned protein-file score can be shown before the base lookup finishes.
+    // An absent score still waits for the base before it is called settled.
+    popeve: state(parts.popeve != null || (base && (parts.base!.popeve != null || has("popeve")))),
     gpnStar: state(
       (has("gpnTabix") && tabixScored) ||
       (has("gpnTabix") && has("gpn") && (parts.gpn!.score != null || base))
@@ -1082,8 +1086,12 @@ export async function fetchConservationDataProgressive(
 
   // 3. The coordinate models, each published as it answers.
   // PopEVE matches chrom/pos/ref/alt against a GRCh38-only index (`popeve_grch38.vcf.gz`).
-  const popeveTask = track("popeve", coordinateModel(({ parsedCoord: c, usableBy }) =>
-    usableBy("popEVE") ? fetchPopEVEScore(c.chrom, c.pos, c.ref, c.alt) : null));
+  // The protein file needs no genomic lookup. Start it now so a slow predictor cannot
+  // use the analysis time budget before popEVE is even requested (GATA4 S159C).
+  const popeveTask = track("popeve", fetchPopEVEScoreOnline(uniprotId || gene, variant)
+    .then(score => score ?? coordinateModel(({ parsedCoord: c, usableBy }) =>
+      usableBy("popEVE") ? fetchPopEVEScore(c.chrom, c.pos, c.ref, c.alt) : null))
+    .catch(() => null));
   // GPN-Star is a GRCh38-only Tabix index.
   const gpnTabixTask = track("gpnTabix", coordinateModel(({ parsedCoord: c, usableBy }) =>
     usableBy("gpn-star") ? fetchGpnStarByCoordinate(c.chrom, c.pos, c.ref, c.alt) : null));

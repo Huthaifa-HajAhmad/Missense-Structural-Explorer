@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { PredictorInformationalSummary } from "../evidence/PredictorInformationalSummary";
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 import { buildPredictorComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, GitBranch, Ruler, Scale } from "lucide-react";
@@ -6,7 +7,7 @@ import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
 import { REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
-import { buildPredictorEvidence, localPredictorAgreement } from "../../shared/predictorEvidence";
+import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import {
   CLINGEN_CLASS_BANDS,
@@ -79,7 +80,6 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   }), [analysisResult, isLoading, isModelLoading, alphagenomeConfigured]);
   const ev = useMemo(() => buildLadderEvidence({ result: analysisResult, predictor: evidence }), [analysisResult, evidence]);
   const comparisonRows = useMemo(() => buildPredictorComparison(evidence, ev).rows, [evidence, ev]);
-  const agreement = localPredictorAgreement(evidence);
   const { constraint } = ev;
   const { vote, voters, engine } = evidence;
   // The engine's own PP3/BP4 on the point scale, as recorded: "PP3" is +1, "BP4_Strong" is -4.
@@ -206,9 +206,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
       {/* Local agreement is descriptive, so it reads after the trace rather than above it. */}
       <section className="prd-rsec" aria-label="Local informational agreement">
         <h3 className="eyebrow">Local agreement / informational</h3>
-        {agreement.lead.map(note => <p key={note}>{note}</p>)}
-        {[...agreement.calibrated, ...agreement.preference].map(({ reading, label }) => <p key={reading.key}>{reading.name}: {label}</p>)}
-        {agreement.tail.map(note => <p key={note}>{note}</p>)}
+        <PredictorInformationalSummary evidence={evidence} />
       </section>
 
       {/* ── 2. Bands reached ── */}

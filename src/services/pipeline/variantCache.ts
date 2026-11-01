@@ -1,3 +1,4 @@
+import { hasInterruptedPredictorReadings } from '../../shared/predictorRecovery';
 /**
  * variantCache.ts — High-fidelity client-side cache for complete variant analysis snapshots.
  * Caches 3D structures (WT + Mutant), FoldX energetics, ACMG, predictions, pockets, and homologs.
@@ -165,6 +166,7 @@ function getCacheKey(gene: string, variant: string): string {
 /** Reads reusable artifacts separately from context-dependent interpretation. */
 export function getCachedVariant(gene: string, variant: string, expected?: AnalysisCacheContext): CachedVariantBundle | null {
   const compatible = (entry: CachedVariantBundle): CachedVariantBundle | null => {
+    if (hasInterruptedPredictorReadings(entry.analysisResult)) entry = { ...entry, analysisResult: undefined };
     if (!expected) return entry;
     // A missing reference is not permission to reuse another isoform's coordinates or mutation.
     if (!expected.uniprotId || (entry.uniprotId || "").toUpperCase() !== expected.uniprotId) return null;
