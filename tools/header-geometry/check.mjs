@@ -100,6 +100,10 @@ if (!match) {
   if (dom.error) console.error(`  ${dom.error.message}`);
   // Say how the browser ended: a crash, a timeout and an empty page need different fixes.
   console.error(`  browser exit status=${dom.status} signal=${dom.signal}, stdout ${raw.length} chars`);
+  const at = raw.indexOf("geometry-result");
+  console.error(`  DOM near geometry-result: ${at < 0 ? "element missing" : raw.slice(Math.max(0, at - 100), at + 400)}`);
+  const report = raw.indexOf("geometry-report");
+  if (report >= 0) console.error(`  geometry-report: ${raw.slice(report, report + 1500)}`);
   console.error(`  browser stderr (last 1500 chars): ${String(dom.stderr ?? "").slice(-1500)}`);
   console.error("  (the harness prints its checks into #geometry-report as well)");
   process.exit(2);
