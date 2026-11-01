@@ -381,17 +381,17 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     <div className={`${classCard} ins-shell`} id="clinical-insights-report-card">
       {/* Card Header */}
       <div className={`ins-shell__header ${classCardHeader}`}>
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="ins-shell__heading">
+          <div className="ins-shell__title-row">
             <h3 className={`ins-shell__title screen-title ${classCardTitle}`}>
               Insights
             </h3>
-            <ResearchGuideButton topic="insights" label="How this interpretation is assembled" />
             {analysisState.result && analysisState.result.isDemoData && isPresetData && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border cs-badge cs-badge-clay">
                 Preset Profile
               </span>
             )}
+            <ResearchGuideButton topic="insights" label="How this interpretation is assembled" className="rgd-trigger ins-shell__guide" />
           </div>
           <span className="ins-shell__notice">
             <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -400,12 +400,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         </div>
         
         {analysisState.result && (
-          <div className="ins-shell__exports">
+          <div className="ins-shell__exports" role="group" aria-label="Export and copy analysis">
             {/* Export Provenance Manifest Button */}
             <button
+              type="button"
               onClick={handleExportProvenanceJSON}
               disabled={analysisState.isLoading}
-              className="cs-btn-ghost cs-btn-ghost-accent !text-[11px] !px-2.5 !py-1 select-none"
+              className="ins-export"
               title="Export verifiable scientific provenance manifest (model hashes, data versions, and structure metadata)"
             >
               <Download className="w-3.5 h-3.5" />
@@ -414,9 +415,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
 
             {/* Export JSON Button */}
             <button
+              type="button"
               onClick={handleExportJSON}
               disabled={analysisState.isLoading}
-              className="cs-btn-ghost !text-[11px] !px-2.5 !py-1 select-none"
+              className="ins-export"
               title="Export structured analysis payload as JSON file"
             >
               <Download className="w-3.5 h-3.5" />
@@ -425,9 +427,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
 
             {/* Copy Report Button */}
             <button
+              type="button"
               onClick={handleCopyReport}
               disabled={analysisState.isLoading}
-              className="cs-btn-ghost !text-[11px] !px-2.5 !py-1 select-none"
+              className="ins-export"
               title="Copy markdown report to clipboard"
             >
               {copied ? (
@@ -442,6 +445,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                 </>
               )}
             </button>
+            {/* The button's own label flips to "Copied"; this live region is what announces it. `aria-live`
+                only — a `role="status"` here would be a second status landmark beside the streaming callout. */}
+            <span className="sr-only" aria-live="polite">{copied ? "Report copied to clipboard" : ""}</span>
           </div>
         )}
       </div>
