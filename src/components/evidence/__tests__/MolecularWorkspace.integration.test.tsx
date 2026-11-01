@@ -26,8 +26,8 @@ const inspector = () => within(screen.getByRole('region', { name: 'Selected evid
 describe('molecular workspace interaction contracts', () => {
   it('gives each perturbation view its own question without repeating the model comparison', () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
-    expect(screen.getByTestId('ptb-primer')).toBeInTheDocument();
-    expect(screen.getByTestId('perturbation-finding')).toHaveTextContent('Each model hides that residue');
+    expect(screen.queryByTestId('ptb-primer')).not.toBeInTheDocument();
+    expect(screen.getByTestId('perturbation-finding')).toHaveTextContent('models favour');
     fireEvent.click(screen.getByRole('tab', { name: 'Packing & geometry' }));
     expect(screen.queryByTestId('perturbation-finding')).not.toBeInTheDocument();
     // The language-model primer belongs to the language-model views only.
@@ -135,7 +135,7 @@ describe('molecular workspace interaction contracts', () => {
     expect(screen.getByText(/7 of 20 returned residues/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show all 20 residues' }));
     // The comparison exposes every residue, including probabilities too small to target reliably.
-    const picker = screen.getByRole('combobox', { name: 'Inspect amino acid' });
+    const picker = screen.getByRole('combobox', { name: /Amino acid/ });
     const glycine = within(picker).getByRole('option', { name: /G/ }) as HTMLOptionElement;
     fireEvent.change(picker, { target: { value: glycine.value } });
     expect(inspector().getByRole('heading', { name: 'SaProt · G' })).toBeInTheDocument();
