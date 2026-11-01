@@ -98,6 +98,9 @@ const match = raw.match(/id="geometry-result"[^>]*>([A-Za-z0-9+/=]+)</);
 if (!match) {
   console.error("geometry-check: could not read #geometry-result from the rendered DOM.");
   if (dom.error) console.error(`  ${dom.error.message}`);
+  // Say how the browser ended: a crash, a timeout and an empty page need different fixes.
+  console.error(`  browser exit status=${dom.status} signal=${dom.signal}, stdout ${raw.length} chars`);
+  console.error(`  browser stderr (last 1500 chars): ${String(dom.stderr ?? "").slice(-1500)}`);
   console.error("  (the harness prints its checks into #geometry-report as well)");
   process.exit(2);
 }
