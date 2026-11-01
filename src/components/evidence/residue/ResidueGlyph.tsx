@@ -1,6 +1,6 @@
 import React from "react";
 import type { SideChainDiff, SideChainGlyph, GlyphStatus } from "../../../shared/sideChainTopology";
-import { BACKBONE_ANCHORS } from "../../../shared/sideChainTopology";
+import { BACKBONE_ANCHORS, describeAtomName } from "../../../shared/sideChainTopology";
 
 interface ResidueGlyphProps {
   diff: SideChainDiff | null;
@@ -176,6 +176,10 @@ export function ResidueGlyph({
 }: ResidueGlyphProps) {
   if (!diff) return null;
 
+  // One entry per atom name: Ser and Cys share CB, so it is listed once.
+  const atomsByName = new Map([...diff.wildType.atoms, ...diff.mutant.atoms].map(atom => [atom.name, atom] as const));
+  const atomKey = [...atomsByName.values()].map(atom => `${atom.name} = ${describeAtomName(atom)}`);
+
   return (
     <div className="rsx-glyph-panel" data-testid="residue-glyph-pair">
       <div className="rsx-glyph-pair">
@@ -221,6 +225,7 @@ export function ResidueGlyph({
         <div className="rsx-glyph-summary" data-testid="glyph-diff-summary">
           <span className="rsx-glyph-badge">Side-chain atoms</span>
           <span className="rsx-glyph-diff-text">{diff.summary}</span>
+          <span className="rsx-atom-key">N = nitrogen; Cα = alpha carbon{atomKey.length ? `; ${atomKey.join("; ")}` : ""}.</span>
         </div>
       )}
     </div>

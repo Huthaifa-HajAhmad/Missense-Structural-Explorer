@@ -85,18 +85,13 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
                 : pair.position
                   ? `Position ${pair.position}`
                   : null}
-              {pair.grantham !== null && (
-                <>
-                  {" · "}Grantham distance <span className="rsx-mono">{pair.grantham}</span>, {pair.granthamClass}
-                </>
-              )}
             </span>
           </div>
           <Prose className="rsx-finding" data-testid="residue-finding-text">
             <strong>{model.finding.headline}</strong> {model.finding.detail}
           </Prose>
           {pair.grantham !== null && (
-            <p className="rsx-term">Grantham distance scores how chemically different the two amino acids are, from composition, polarity and size (5–215). A larger score is a bigger difference, not a higher chance of disease.</p>
+            <p className="rsx-term" data-testid="residue-grantham"><strong>Grantham distance {pair.grantham}, {pair.granthamClass}.</strong> It scores how chemically different the two amino acids are, from composition, polarity and size (5–215). A larger score is a bigger difference, not a higher chance of disease.</p>
           )}
         </div>
         {model.glyph && (

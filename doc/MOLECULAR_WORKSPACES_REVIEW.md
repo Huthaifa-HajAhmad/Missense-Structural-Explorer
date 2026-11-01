@@ -143,3 +143,17 @@ between overlapping source annotations and a biological consensus:
 - [InterPro visualization guide](https://www.ebi.ac.uk/training/online/courses/interpro-quick-tour/visualising-interpro-data/).
 - [Overlapping homologous superfamilies](https://www.ebi.ac.uk/training/online/courses/interpro-functional-and-structural-analysis/what-is-an-interpro-entry/overlapping-homologous-superfamilies/).
 - Richards et al., ACMG/AMP interpretation framework: DOI [10.1038/gim.2015.30](https://doi.org/10.1038/gim.2015.30), as cited by the existing Functional domains audit. No change to its application here.
+
+## Residue clarity and missing burial follow-up
+
+Moved Grantham distance below the finding and the property marker key to the footer. Added directional arrows and an atom-label key. The pocket distance strip has one key that names every mark, including the reference the diamond is measured to (the cavity centre, or the centroid of the pocket residues when no centre is reported). When experimental coordinates return no structure, burial analysis tries AlphaFold and records the actual structure used. No thresholds or clinical rules changed.
+
+The structural retry also measures missing burial using AlphaFold and returns the result to the client and its cache. Previously it refreshed only language models. Validation: lint/type checks, 121 relevant tests, and the residue browser test at desktop and phone widths with dark-theme coverage passed. The full suite had 6,064 passing tests and one About-view clipboard failure, which passed on a separate rerun.
+
+The final clarity pass defines only atom labels drawn in the current pair. Unchanged properties say “No change”, use an equals sign, and have no direction arrow. Regular distance-axis labels replace crowded cut-point labels; the dashed app marks are named with their values in the strip key. Pocket residue rows adapt to the available width. Both residue browser tests passed without retries, including the 80.7 Å GATA4 pocket at 390px. The separate live test in `tests/proof/gata4-burial.e2e.ts` passed: GATA4 p.Ser159Cys reports Surface, with the same accessibility percentage in the tab and inspector. Evidence is saved under `.e2e/proof/residue-followup-final/` and `.e2e/proof/gata4-live-burial/`.
+
+## Review follow-up
+
+A code review of this pass led to these changes. The strip key now shows the reference the distance is really measured to, instead of a fixed "pocket centre". The direction arrow is drawn only when the two markers are far enough apart for its head (8 points of the 0–100 scale); markers closer than 0.5 points are drawn as one ringed pair. The burial refresh in the structural retry is best-effort: if AlphaFold fails, or still gives no accessibility value, the earlier reading is kept and the language-model results are returned as before. Atom names are described in `sideChainTopology.ts`, next to the topology that owns them. The copied text uses `=` for unchanged rows, like the tab.
+
+Validation: `npm run lint` (boundaries, focus indicators, verify parity, `tsc --noEmit`) passed with no errors. 223 tests in the residue, burial and retry files passed, and `tests/residue-glyph.e2e.ts` passed at 1440 px and 390 px. The live GATA4 test was not re-run for this follow-up.

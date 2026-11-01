@@ -126,6 +126,7 @@ export interface ResidueContextInput {
   scalesLoading?: boolean;
   /** `result.disruptionPredictor`, or null when the structure step returned nothing. */
   disruption?: {
+    structureLabel?: string;
     /** The disruption call this reading came with; only `unknown` promises a structural failure. */
     level?: "high" | "low" | "unknown" | null;
     burialStatus?: string | null;
@@ -320,7 +321,7 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   const d = input.disruption;
   const hasBurialData =
     !!d && (d.burialStatus != null || d.neighborCount != null || d.rsa != null || !!d.sasaUnavailableReason);
-  const structure = describeStructureSource(input.pdbId, input.pdbSource);
+  const structure = d?.structureLabel ?? describeStructureSource(input.pdbId, input.pdbSource);
   const burial = hasBurialData
     ? {
         ...deriveBurialEvidence({ burialStatus: d!.burialStatus, neighbourCount: d!.neighborCount, rsa: d!.rsa }),

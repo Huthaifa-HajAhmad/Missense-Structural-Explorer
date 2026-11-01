@@ -12,6 +12,7 @@ import { contextWorkspaceFixture } from '../../src/test/contextWorkspaceFixture'
 import { molecularWorkspaceFixture } from '../../src/test/molecularWorkspaceFixture';
 import { NAE1_ENERGETICS, NAE1_METRICS, NAE1_SITE, NAE1_STRUCTURAL_DIFF } from '../../src/shared/__tests__/fixtures/nae1Perturbation';
 import { GATA4_RESULT } from '../../src/shared/__tests__/fixtures/gata4Perturbation';
+import { NAE1_POCKET } from '../../src/shared/__tests__/fixtures/nae1ResidueShifts';
 import { splicingWorkspaceFixture, SPLICING_WORKSPACE_CASES } from '../../src/test/splicingWorkspaceFixture';
 import type { MasterView } from '../../src/components/MasterSidebar';
 
@@ -20,6 +21,19 @@ function scenario(name: string, scope: 'context' | 'molecular' | 'evidence' | 's
   const f = scope === 'splicing' ? { state: null, result: splicingWorkspaceFixture(name) } : scope === 'evidence' ? { state: null, result: evidenceWorkspaceFixture(name) } : scope === 'molecular' ? { state: null, result: name === 'GATA4' ? GATA4_RESULT : name === 'NAE1' ? { ...molecularWorkspaceFixture(name), disruptionPredictor: NAE1_SITE } : molecularWorkspaceFixture(name) } : contextWorkspaceFixture(name);
   unavailablePediatric = name === 'Pediatric unavailable' ? f.state?.developmentalContexts?.[f.result.metadata!.gene!]?.data : null;
   store.setState({ ...f.state, gene: f.result.metadata!.gene, variant: f.result.metadata!.variant, uniprotId: f.result.metadata!.uniprotId,
+    computedPocket: scope === 'molecular' && name === 'GATA4' ? {
+      ...NAE1_POCKET, cavityCentreDistance: 80.7, pocketDistance: 80.7,
+      pocketResidues: [
+        { name: 'THR', index: 280, chain: 'A', distance: 73.3 },
+        { name: 'THR', index: 279, chain: 'A', distance: 75.8 },
+        { name: 'ASN', index: 293, chain: 'A', distance: 76.5 },
+        { name: 'ILE', index: 315, chain: 'A', distance: 78.4 },
+        { name: 'THR', index: 278, chain: 'A', distance: 78.8 },
+        { name: 'CYS', index: 292, chain: 'A', distance: 79.1 },
+        { name: 'GLN', index: 316, chain: 'A', distance: 80.6 },
+        { name: 'ALA', index: 294, chain: 'A', distance: 80.6 },
+      ],
+    } : null,
     foldingEnergetics: scope === 'molecular' && name === 'NAE1' ? NAE1_ENERGETICS : null,
     structuralDiff: scope === 'molecular' && name === 'NAE1' ? NAE1_STRUCTURAL_DIFF : null,
     foldxMetrics: scope === 'molecular' && name === 'NAE1' ? NAE1_METRICS : null,

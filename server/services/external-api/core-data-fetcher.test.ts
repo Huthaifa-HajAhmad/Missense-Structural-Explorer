@@ -136,6 +136,16 @@ describe("Core Data Fetcher Service Unit Tests", () => {
     mut1Letter: "W"
   };
 
+  it("measures burial using AlphaFold when experimental coordinates are unavailable", async () => {
+    const { fetchPdbFromRcsb, fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
+    const { predictStructuralDisruption } = await import("../stability/biophysics.ts");
+    vi.mocked(fetchPdbFromRcsb).mockResolvedValueOnce(null);
+    const result = await fetchCoreVariantData(baseContext, 2000);
+    expect(fetchAlphafoldPdb).toHaveBeenCalledWith("P00439");
+    expect(predictStructuralDisruption).toHaveBeenCalledWith("MOCK_AF_PDB", "R", 408, "W", "A", "alphafold");
+    expect(result.disruptionPredictor?.structureLabel).toBe("AlphaFold model");
+  });
+
   it("should successfully fetch and assemble all core data components", async () => {
     const result = await fetchCoreVariantData(baseContext, 2000);
 

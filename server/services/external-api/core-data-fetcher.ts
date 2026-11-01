@@ -563,12 +563,18 @@ async function runCoreFetch(
           { uniprotId, sequence, pos, expectedWt1: wt1Letter }
         );
         chainId = pdbMap.chainId;
-      } else {
+      }
+      // An experimental mapping can exist even when its coordinates cannot be loaded.
+      if (!wtPdbText) {
+        structureSource = "alphafold";
         wtPdbText = await fetchAlphafoldPdb(uniprotId);
         chainId = "A";
       }
       if (wtPdbText) {
-        return predictStructuralDisruption(wtPdbText, wt1Letter, pos, mut1Letter, chainId, structureSource);
+        const prediction = await predictStructuralDisruption(wtPdbText, wt1Letter, pos, mut1Letter, chainId, structureSource);
+        // "experimental" is only set when the mapping exists, so the PDB id is there.
+        const structureLabel = structureSource === "alphafold" ? "AlphaFold model" : `PDB ${pdbMap!.pdbId}`;
+        return { ...prediction, structureLabel };
       }
     } catch (err) {
       console.warn("[Triage Parallel Run Warning] Failed to predict structural disruption:", err);

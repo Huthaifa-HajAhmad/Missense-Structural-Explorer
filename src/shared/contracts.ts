@@ -1747,6 +1747,8 @@ export const analyzeVariantResponseSchema = z.object({
     neighborCount: z.number().optional(),
     rsa: z.number().nullable().optional(),
     sasa: z.number().nullable().optional(),
+    /** The structure the reading came from, e.g. "AlphaFold model" or "PDB 1ABC". */
+    structureLabel: z.string().optional(),
     /** Why accessibility was not measured, when the SASA step failed. */
     sasaUnavailableReason: z.string().optional()
   }).optional(),
@@ -2655,6 +2657,7 @@ export interface UniprotFeaturesData {
 }
 
 export interface DisruptionPredictorResult {
+  structureLabel?: string;
   level: "high" | "low" | "unknown";
   reason: string;
   /** AlphaFold pLDDT at the site; null when the structure was experimental (see `bFactorKind`). */

@@ -191,14 +191,10 @@
 .rsx-key-cut { width: 0; height: 12px; border-left: 1px dashed var(--cs-text-muted); }
 
 /* ── Pocket residues ─────────────────────────────────────── */
-.rsx-residues { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@container (max-width: 640px) { .rsx-residues { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.rsx-residues > li { border-top: 1px solid var(--cs-border-subtle); }
-.rsx-residues > li:nth-child(-n + 4) { border-top: 0; }
-@container (max-width: 640px) {
-  .rsx-residues > li:nth-child(-n + 4) { border-top: 1px solid var(--cs-border-subtle); }
-  .rsx-residues > li:nth-child(-n + 2) { border-top: 0; }
-}
+/* As many columns as fit. The column count is unknown, so each cell draws a line above itself
+   with a shadow, and the list's overflow:hidden clips the first row's line. */
+.rsx-residues { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+.rsx-residues > li { box-shadow: 0 -1px 0 var(--cs-border-subtle); }
 .rsx-residue {
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%;
   min-height: 36px; padding: 8px 16px; background: none; border: 0; cursor: pointer; text-align: left;
@@ -364,7 +360,7 @@
   background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .rsx-pocket-strip__header {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
 }
 .rsx-pocket-strip__origin-label { font-weight: var(--cs-font-weight-medium); }
@@ -395,10 +391,11 @@
 .rsx-pocket-strip__axis-tick {
   position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; font-family: var(--cs-font-mono);
 }
-.rsx-pocket-strip__axis-tick--dashed { border-bottom: 1px dashed var(--cs-text-muted); }
-.rsx-pocket-strip__axis-tick--centre {
-  color: var(--cs-accent-clay); font-weight: var(--cs-font-weight-medium);
-}
+/* Key shapes: each one is drawn like the mark it names on the bar. */
+.rsx-pocket-strip__key { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.rsx-key-origin { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--cs-text-primary); }
+.rsx-key-centre { flex: none; width: 8px; height: 8px; background: var(--cs-accent-clay); transform: rotate(45deg); }
+.rsx-key-tick { flex: none; width: 2px; height: 12px; border-radius: 1px; background: var(--cs-text-secondary); }
 .rsx-pocket-strip__residues-wrap { margin-top: 8px; }
 .rsx-pocket-strip__residues-list {
   background: var(--cs-surface); border: 1px solid var(--cs-border-subtle);
@@ -430,3 +427,14 @@
   background: var(--cs-surface); font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
 }
 .rsx-context-line__pair { font-size: 14px; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+
+.rsx-atom-key { display: block; flex-basis: 100%; font-family: var(--cs-font-sans); color: var(--cs-text-secondary); line-height: 1.6; }
+/* The arrow runs between the two markers. It uses left/right like the markers do, so it never
+   mirrors away from them in a right-to-left page. Both markers are drawn after it and sit on top. */
+.rsx-track__direction { position: absolute; top: 50%; height: 2px; background: var(--cs-accent-clay); transform: translateY(-50%); }
+.rsx-track__direction::after { content: ""; position: absolute; top: -3px; width: 8px; height: 8px; border-top: 2px solid var(--cs-accent-clay); border-right: 2px solid var(--cs-accent-clay); }
+/* The tip stops at the edge of the marker it points to (marker radius 6px). */
+.rsx-track__direction[data-direction="right"]::after { right: 8px; transform: rotate(45deg); }
+.rsx-track__direction[data-direction="left"]::after { left: 8px; transform: rotate(-135deg); }
+.rsx-key-arrow { font-style: normal; line-height: 1; color: var(--cs-accent-clay); }
+.rsx-screen .mol-key { margin-block: 0 8px; }

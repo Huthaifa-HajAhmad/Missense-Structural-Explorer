@@ -19,7 +19,7 @@ export function PocketDistanceStrip({
     <div className="rsx-pocket-strip" data-testid="pocket-distance-strip">
       <div className="rsx-pocket-strip__header">
         <div className="rsx-pocket-strip__origin-label">
-          <span>Axis: distance from {origin} (centroid, Å)</span>
+          <span>Distance from {origin}, in Å</span>
         </div>
         {onViewIn3d && (
           <button
@@ -40,10 +40,10 @@ export function PocketDistanceStrip({
           <span
             className="rsx-pocket-strip__origin-marker"
             style={{ left: "0%" }}
-            title={`Origin: ${origin} (0 Å)`}
+            title={`${origin}, 0 Å (distances run from its centroid)`}
           />
 
-          {/* App's cut-point marks: 4 Å, 8 Å, 12 Å */}
+          {/* The app's own cut-points (dashed lines), named in the key below. */}
           {marks.map(m => {
             const pos = Math.max(0, Math.min(100, (m / max) * 100));
             return (
@@ -56,12 +56,12 @@ export function PocketDistanceStrip({
             );
           })}
 
-          {/* Cavity centre diamond ◆ */}
+          {/* Diamond: the point the tab's distance is measured to. */}
           {centre && (
             <span
               className="rsx-pocket-strip__centre-marker"
               style={{ left: `${centre.position}%` }}
-              title={`Cavity centre: ${centre.distance.toFixed(1)} Å from ${origin}`}
+              title={`${centre.distance.toFixed(1)} Å from ${origin} to ${centre.reference}`}
             />
           )}
 
@@ -78,36 +78,25 @@ export function PocketDistanceStrip({
 
         {/* Axis tick labels */}
         <div className="rsx-pocket-strip__axis" aria-hidden="true">
-          <span className="rsx-pocket-strip__axis-tick" style={{ left: "0%" }}>
+          <span className="rsx-pocket-strip__axis-tick" style={{ left: "0%", transform: "none" }}>
             0 Å
           </span>
-          {marks.map(m => {
-            const pos = Math.max(0, Math.min(100, (m / max) * 100));
-            return (
-              <span
-                key={`axis-${m}`}
-                className="rsx-pocket-strip__axis-tick rsx-pocket-strip__axis-tick--dashed"
-                style={{ left: `${pos}%` }}
-              >
-                {m}
-              </span>
-            );
-          })}
-          {centre && (
-            <span
-              className="rsx-pocket-strip__axis-tick rsx-pocket-strip__axis-tick--centre"
-              style={{ left: `${centre.position}%` }}
-            >
-              ◆ {centre.distance.toFixed(1)} Å ({centre.reference})
-            </span>
-          )}
+          <span className="rsx-pocket-strip__axis-tick" style={{ left: "50%" }}>{max / 2} Å</span>
           <span className="rsx-pocket-strip__axis-tick" style={{ left: "100%", transform: "translateX(-100%)" }}>
             {max} Å
           </span>
         </div>
       </div>
 
-      {/* Pocket residues interactive pills in staggered lanes */}
+      {/* One key for every mark on the bar. Each shape is drawn in CSS like its mark, so no glyph
+          character is read aloud as "black circle". */}
+      <div className="rsx-legend rsx-pocket-strip__key" data-testid="pocket-strip-key">
+        <span><i className="rsx-key-origin" aria-hidden="true" />{origin}, 0 Å</span>
+        {centre && <span><i className="rsx-key-centre" aria-hidden="true" />{centre.distance.toFixed(1)} Å to {centre.reference}</span>}
+        <span><i className="rsx-key-tick" aria-hidden="true" />Pocket residues</span>
+        <span><i className="rsx-key-cut" aria-hidden="true" />This app&apos;s {marks.join(", ")} Å cut-points</span>
+      </div>
+      {/* Pocket residues, nearest first. */}
       {residues.length > 0 && (
         <div className="rsx-pocket-strip__residues-wrap">
           <ul className="rsx-residues rsx-pocket-strip__residues-list" data-testid="pocket-residues">

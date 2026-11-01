@@ -37,6 +37,18 @@ const n = (name: string, x: number, y: number): TopologyAtom => ({ name, element
 const o = (name: string, x: number, y: number): TopologyAtom => ({ name, element: "O", x, y });
 const s = (name: string, x: number, y: number): TopologyAtom => ({ name, element: "S", x, y });
 
+const ELEMENT_WORDS = { C: "carbon", N: "nitrogen", O: "oxygen", S: "sulfur" } as const;
+/** PDB names mark how far an atom is from the backbone with a Greek letter: CB is beta, CG gamma. */
+const POSITION_WORDS: Readonly<Record<string, string>> = {
+  B: "beta", G: "gamma", D: "delta", E: "epsilon", Z: "zeta", H: "eta",
+};
+
+/** An atom name in plain words: "OD1" is "delta oxygen 1". */
+export function describeAtomName(atom: TopologyAtom): string {
+  const number = atom.name.slice(2);
+  return `${POSITION_WORDS[atom.name[1]]} ${ELEMENT_WORDS[atom.element]}${number ? ` ${number}` : ""}`;
+}
+
 /** Backbone anchors drawn in every glyph. */
 export const BACKBONE_ANCHORS = {
   N: { x: -0.87, y: -0.5 },
