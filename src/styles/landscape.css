@@ -21,6 +21,8 @@
      PP3 red the predictor bands use, so the overview's ClinVar lane cannot be read as an
      AlphaMissense band. */
   --ls-clinvar-plp: color-mix(in srgb, var(--cs-accent-mag) 90%, var(--cs-surface));
+  /* Selected-control wash. The shared tokens have no soft clay, so it is mixed here. */
+  --ls-clay-soft: color-mix(in srgb, var(--cs-accent-clay) 14%, var(--cs-surface));
 }
 
 .ls-band[data-band="pp3-strong"]     { background: color-mix(in srgb, var(--cs-danger) 72%, var(--cs-surface)); color: #fff; }
@@ -127,7 +129,6 @@
   color: var(--cs-text-secondary);
 }
 .ls-finding__body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--cs-text-primary); }
-.ls-finding__caution { font-size: 12px; color: var(--cs-text-warning); }
 
 /* Substitution heatmap and aligned nucleotide lane. Cell height comes from
    --ls-cell-h (≥ 24px, WCAG 2.5.8) and is shared by the heatmap rows, the
@@ -172,9 +173,10 @@
 }
 
 /* ==========================================================================
-   Landscape pill groups (ls-pill). Shared by the rail's tablist and the main
-   panel's toolbar (Colour by / Residue summary / Focus width / Lanes), so the
-   tab speaks one visual language: dark-filled active pill, outlined inactive.
+   Landscape pill groups (ls-pill). Used by the single-choice controls in the main
+   panel's toolbar (Colour by / Residue summary / Focus width / window steps):
+   dark-filled active pill, outlined inactive. Lane switches are not pills;
+   they are the checked rectangles called ls-lane-toggle at the end of this file.
    ========================================================================== */
 .ls-pill {
   min-height: 24px;
@@ -261,7 +263,7 @@
 }
 
 .lsr-verdict { display: flex; flex-direction: column; gap: 5px; }
-.lsr-verdict__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lsr-verdict__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .lsr-verdict__score {
   font-family: var(--cs-font-mono);
   font-size: 13px;
@@ -346,7 +348,8 @@
   .lsr-strip__chip:hover { border-color: var(--cs-text-secondary); }
 }
 .lsr-strip__chip[data-on="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); z-index: 2; }
-.lsr-strip__chip[data-query="true"] { box-shadow: 0 0 0 1.5px var(--cs-accent-clay); z-index: 1; }
+/* A border, not a shadow: borders survive forced-colours mode, shadows do not. */
+.lsr-strip__chip[data-query="true"] { border-width: 2px; border-color: var(--cs-accent-clay); z-index: 1; }
 .lsr-strip__chip:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; z-index: 3; }
 .lsr-strip__axis {
   position: absolute;
@@ -364,8 +367,10 @@
 .lsr-scatter circle[data-point="true"] { cursor: pointer; }
 .lsr-scatter circle[data-point="true"]:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
-.landscape-canvas { width: 100%; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 22px; }
-.landscape-canvas__heading { display: flex; align-items: center; gap: 12px; }
+.landscape-canvas { width: 100%; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.landscape-canvas__heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; }
+.landscape-canvas__heading > div { flex: 1 1 28rem; }
+.landscape-canvas__heading > button { margin-inline-start: auto; }
 .landscape-canvas__heading p { font-size: 13px; line-height: 1.5; max-width: 70ch; }
 .landscape-canvas__content { min-width: 0; }
 .viz-panel button:focus-visible,
@@ -379,7 +384,7 @@
 .ls-finding__details summary { font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 4px; width: fit-content; }
 .ls-finding__details summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .ls-finding__details p { margin: 8px 0; }
-.landscape-toolbar { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 14px 0; }
+.landscape-toolbar { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 0 0 4px; }
 .landscape-toolbar .ls-pill { min-height: 28px; }
 .lsr-root { gap: 22px; }
 .lsr-selection-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -414,7 +419,7 @@
 .viz-range input:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .viz-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .viz-filters button { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--cs-border-subtle); font-size: 12px; color: var(--cs-text-secondary); cursor: pointer; }
-.viz-filters button[aria-pressed="true"] { border-color: var(--cs-accent-clay); background: var(--cs-accent-clay-soft); color: var(--cs-text-primary); }
+.viz-filters button[aria-pressed="true"] { border-color: var(--cs-accent-clay); background: var(--ls-clay-soft); color: var(--cs-text-primary); }
 .viz-filters button span { font-variant-numeric: tabular-nums; opacity: .8; }
 .viz-scope { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--cs-text-secondary); }
 .lsr-scatter { overflow-x: auto; }
@@ -459,11 +464,57 @@
 .ls-overview__group { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--cs-border-subtle); padding-top: 14px; }
 .ls-overview__missing { margin: 0; font-size: 11.5px; color: var(--cs-text-secondary); line-height: 1.5; }
 .ls-overview__footer { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; padding-top: 14px; border-top: 1px solid var(--cs-border-subtle); font-size: 11.5px; color: var(--cs-text-secondary); }
+.ls-overview__footer .viz-action { margin-inline-start: auto; }
+.ls-overview__notes { display: flex; flex-direction: column; gap: 6px; }
 .ls-overview__query { color: var(--cs-accent-clay); cursor: pointer; min-height: 28px; border-radius: 4px; }
 .ls-overview__bin { cursor: pointer; }
 .ls-overview :is(button,input,[role="slider"],[role="button"]):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.lsr-mismatch { padding: 12px; border-radius: 10px; border: 1px solid var(--cs-border); background: var(--cs-surface-2); color: var(--cs-text-warning); font-size: 12px; line-height: 1.6; }
+/* Warning ink on a plain surface: the -on-soft token is the one that passes AA in both themes. */
+.lsr-mismatch { padding: 6px 10px; border-radius: 4px; border: 0; border-inline-start: 2px solid var(--cs-text-warning); background: transparent; color: var(--cs-text-warning-on-soft); font-size: 12px; line-height: 1.6; }
 @media (max-width: 600px) { .ls-overview { padding: 14px; } .ls-overview__label { width: 52px; } }
 .ls-overview__empty-class { fill: var(--cs-text-muted); font: 11px 'Source Sans 3 Variable', sans-serif; }
 
 .ls-overview__readout { flex-basis: 100%; min-height: 18px; }
+
+/* The inspector already shows the selected residue. */
+.landscape-workspace__selection { display: none; }
+
+/* Data-cautions notice: one collapsed line above the heading; the native marker matches the other disclosures. */
+.ls-data-notice { color: var(--cs-text-warning-on-soft); font-size: 12px; line-height: 1.5; }
+.ls-data-notice > summary { display: list-item; list-style-position: inside; cursor: pointer; border-radius: 4px; inline-size: fit-content; min-block-size: 28px; line-height: 28px; }
+.ls-data-notice > summary > svg { display: inline-block; vertical-align: -2px; margin-inline-end: 6px; }
+.ls-data-notice > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.ls-data-notice > summary:active { opacity: .75; }
+.ls-data-notice > div { padding-block: 6px; padding-inline-start: 20px; }
+.ls-data-notice p { margin-block: 0 6px; }
+
+/* Colour key: bands keep a readable width and spread to both edges instead of stretching. */
+.ls-legend { display: flex; flex-direction: column; gap: 10px; padding-block: 12px; color: var(--cs-text-secondary); font-size: 11px; border-block-start: 1px solid var(--cs-border-subtle); }
+.ls-legend__bands { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 12px; }
+.ls-legend__title { flex-basis: 100%; font-weight: 600; color: var(--cs-text-primary); }
+
+.ls-pill:active, .viz-action:active, .lsr-return:active, .lsr-strip__chip:active { opacity: .75; }
+
+.lsr-context-source { margin-block-start: 4px; font-family: var(--cs-font-sans); }
+.lsr-context-source > summary { inline-size: fit-content; min-block-size: 28px; cursor: pointer; color: var(--cs-text-secondary); border-radius: 4px; }
+.lsr-context-source > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.lsr-context-source > summary:active { opacity: .75; }
+.lsr-context-source p { margin-block: 6px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.lsr-context-source p:first-of-type { font-family: var(--cs-font-mono); }
+.lsr-context-source ul { margin-block: 6px 0; padding-inline-start: 16px; }
+.lsr-context-source li + li { margin-block-start: 6px; }
+
+/* Independent lane switches differ from the single-choice summary controls. A lane with nothing to draw
+   is aria-disabled (still focusable, so its reason can be read), not removed from the tab order. */
+.ls-lane-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ls-lane-toggle { display: inline-flex; align-items: center; gap: 6px; min-block-size: 28px; padding-block: 4px; padding-inline: 8px; border: 1px solid var(--cs-border); border-radius: 6px; font-size: 11px; color: var(--cs-text-secondary); cursor: pointer; background: var(--cs-surface); }
+.ls-lane-toggle[aria-pressed="true"] { background: var(--ls-clay-soft); border-color: var(--cs-accent-clay); color: var(--cs-text-primary); }
+.ls-lane-toggle[aria-pressed="false"] .ls-lane-toggle__check { visibility: hidden; }
+.ls-lane-toggle[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.ls-lane-toggle:focus-visible, .lsr-mismatch > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.ls-lane-toggle:active, .lsr-mismatch > summary:active { opacity: .75; }
+@media (hover: hover) and (pointer: fine) {
+  .ls-lane-toggle:not([aria-disabled="true"]):hover { border-color: var(--cs-text-secondary); }
+}
+.lsr-mismatch > summary { cursor: pointer; min-block-size: 28px; inline-size: fit-content; border-radius: 4px; }
+.lsr-mismatch p { margin-block: 6px 0; }

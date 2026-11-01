@@ -48,6 +48,14 @@ const SOURCES = [
   { label: "dbNSFP — Liu et al., Genome Med 2020", doi: "10.1186/s13073-020-00803-9" }
 ];
 
+interface ContextRow {
+  label: string;
+  value: string;
+  source?: string;
+  records?: string[];
+  recordsLabel?: string;
+}
+
 const finite = (v: unknown): number | null => {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
@@ -135,7 +143,7 @@ function SubstitutionStrip({
         return isMoved(p) ? <span key={`a-${p.alt}`} className="lsr-strip__anchor" aria-hidden="true" style={{ left: `${p.anchorLeft + STRIP_CHIP_W / 2}px` }} /> : null;
       })}
       {placements.map((p) => {
-        const on = p.alt === highlight || p.alt === target;
+        const on = p.alt === highlight;
         return (
           <button
             key={p.alt}
@@ -143,6 +151,7 @@ function SubstitutionStrip({
             className="lsr-strip__chip"
             data-on={on ? "true" : undefined}
             data-query={p.alt === target ? "true" : undefined}
+            aria-current={on ? "true" : undefined}
             style={{ left: `${p.chipLeft + STRIP_CHIP_W / 2}px` }}
             onClick={() => onPick(p.alt)}
             aria-label={`${wt}→${p.alt} ${TOOL_NAME[tool]} ${p.value.toFixed(3)} (${bandLabel(tool, p.value)})`}
@@ -248,20 +257,30 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
   const residueContext = (() => {
     const ctx = overview?.data?.context;
-    if (!activeResIndex || !ctx) return [] as Array<{ label: string; value: string }>;
-    const out: Array<{ label: string; value: string }> = [];
+    if (!activeResIndex || !ctx) return [] as ContextRow[];
+    const out: ContextRow[] = [];
     const cv = ctx.clinvar?.filter((c) => c.pos === activeResIndex) ?? [];
-    if (ctx.clinvar)
+    if (ctx.clinvar) {
+      const own = cv.filter(c => clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null));
+      const others = cv.filter(c => !own.includes(c));
       out.push({
         label: "ClinVar",
-        value: cv.length
-          ? cv.map((c) => `${c.hgvsp} ${c.significance}${clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null) ? " (queried)" : ""}`).join("; ")
-          : "no missense here"
+        value: own.length
+          ? own.map(c => `${c.hgvsp} ${c.significance} (queried)`).join("; ")
+          : cv.length ? `${cv.length} missense record${cv.length === 1 ? "" : "s"} at this residue` : "no missense here",
+        records: others.map(c => `${c.hgvsp} ${c.significance}`),
+        // "other" only makes sense when the queried record is already on screen.
+        recordsLabel: `${others.length}${own.length ? " other" : ""} substitution record${others.length === 1 ? "" : "s"}`
       });
+    }
     const gn = ctx.gnomad?.find((x) => x.pos === activeResIndex);
     if (ctx.gnomad) out.push({ label: "gnomAD", value: gn ? `${gn.variants} missense, max AC ${gn.maxAc}` : "no missense here" });
     const region = ctx.regions?.find((r) => activeResIndex >= r.start && activeResIndex <= r.end);
-    if (ctx.regions) out.push({ label: "Regional O/E", value: region ? `${region.oe ?? "—"} (${region.start}–${region.end}, ${ctx.regionsBasis})` : "no constrained region" });
+    if (ctx.regions) out.push({
+      label: "Regional O/E",
+      value: region ? `${region.oe ?? "Not reported"} across residues ${region.start}–${region.end}` : "no constrained region",
+      source: region ? ctx.regionsBasis : undefined
+    });
     return out;
   })();
 
@@ -288,7 +307,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
             subs={(activeRow?.substitutions ?? [])
               .map((x) => ({ alt: x.alt, v: tool === "revel" ? x.revel : x.am }))
               .filter((x): x is { alt: string; v: number } => x.v !== null)}
-            highlight={selectedAlt}
+            highlight={selectedAlt ?? (verdict.isQuery ? target.mut : null)}
             target={isTarget ? target.mut : null}
             onPick={(alt) => {
               if (!activeResIndex) return;
@@ -388,15 +407,11 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                       <div className="lsr-readsas">
                         <span className="font-semibold">Reads as</span> · {readsAsSentence(verdict)}
                       </div>
-                      {/*
-                        One line here; the full text is the finding's data caution on the tab, which
-                        is on screen beside this rail. Repeating the whole paragraph in both places
-                        made the rail long and the two copies could drift.
-                      */}
                       {verdict.mismatch && (
-                        <p className="lsr-mismatch" role="note" title={verdict.mismatch}>
-                          Pipeline and dbNSFP disagree on this variant — see the missing-data caution on the Landscape tab.
-                        </p>
+                        <details className="lsr-mismatch">
+                          <summary>Score disagreement — read with caution</summary>
+                          <p>{verdict.mismatch}</p>
+                        </details>
                       )}
                       <div className="lsr-verdict" role="list" aria-label="What the scores are read on">
                         {verdict.calls.map((c) => (
@@ -419,20 +434,32 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                           </span>
                         )}
                       </div>
-
-                      {residueContext.length > 0 && (
-                        <div className="lsr-kv">
-                          {residueContext.map((r) => (
-                            <div key={r.label} className="lsr-kv__row">
-                              <span className="lsr-kv__label">{r.label}</span>
-                              <span className="lsr-kv__value">{r.value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </>
                   ) : (
                     <div className="text-[11px] italic text-cs-text-muted">No residue scores are loaded for residue {activeResIndex}.</div>
+                  )}
+
+                  {/* Population and clinical context does not depend on a score, so it shows for unscored residues too. */}
+                  {residueContext.length > 0 && (
+                    <div className="lsr-kv">
+                      {residueContext.map((r) => (
+                        <div key={r.label} className="lsr-kv__row">
+                          <span className="lsr-kv__label">{r.label}</span>
+                          <div className="lsr-kv__value">
+                            <span>{r.value}</span>
+                            {!!r.records?.length && <details className="lsr-context-source">
+                              <summary>{r.recordsLabel}</summary>
+                              <ul>{r.records.map((record, index) => <li key={index}>{record}</li>)}</ul>
+                            </details>}
+                            {r.source && <details className="lsr-context-source">
+                              <summary>Source details</summary>
+                              <p>{r.source}</p>
+                              <p>O/E is the observed-to-expected ratio for missense variation in this region, not a score for this substitution.</p>
+                            </details>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </>
               )}
@@ -468,7 +495,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
       {activeResIndex && activeRow && !noRecord && <section aria-label="Substitution scores" className="lsr-panelbox">
         <h4 className="lsr-section-title">Substitutions at {resSymbol}{activeResIndex}</h4>
-        <p className="lsr-help">Select a letter to inspect that substitution.</p>
+        <p className="lsr-help">Select a letter to inspect that substitution. Filled = the substitution the reading above is on; clay outline = queried variant.</p>
             <div className="lsr-card flex flex-col gap-3">
               {toolBlock("revel")}
               {toolBlock("alphaMissense")}

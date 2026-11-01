@@ -107,7 +107,7 @@ export function windowRange(center: number, size: number, length: number): { sta
  * The Landscape workspace: four pill tabs on one residue axis and one selection, which the
  * inspector reads. Whole protein (overview and gene context), Focus residue (finding, residues,
  * every substitution, conservation, legend), Predictor agreement, and Nucleotide map. Data cautions
- * render above every tab but Focus residue, whose finding card carries them itself.
+ * sit in one collapsed notice above the heading, on every tab.
  */
 const SequenceVisualizer = memo(function SequenceVisualizer({
   uniprotId,
@@ -413,16 +413,20 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const awayFromTarget = targetPos > 0 && (targetPos < range.start || targetPos > range.end);
   return (
     <div id="sequence-alignment-visualizer" className="landscape-canvas text-cs-text-primary">
+      {landscapeData && cautions.length > 0 && <details className="ls-data-notice">
+        <summary><AlertTriangle size={14} aria-hidden="true" /><span>Data cautions ({cautions.length}) — review before comparing scores</span></summary>
+        <div>{cautions.map(c => <p key={c}>{c}</p>)}</div>
+      </details>}
       <div className="landscape-canvas__heading">
         <div>
           <h3 className="screen-title">Residue landscape</h3>
-          <ResearchGuideButton topic="landscape" label="How to compare residue readings" />
           <p className="text-xs mt-0.5 text-cs-text-muted">
             {targetPos > 0
               ? `Predictors, conservation, population and nucleotide ranks on one residue axis around ${mutation.wt}${targetPos}${mutation.mut}`
               : "Predictors, conservation, population and nucleotide ranks on one residue axis"}
           </p>
         </div>
+        <ResearchGuideButton topic="landscape" label="How to compare residue readings" />
       </div>
 
       <WorkspaceTabs id="landscape" label="Landscape views" tabs={workspaceTabs} value={workspaceTab} onChange={setWorkspaceTab} />
@@ -463,27 +467,13 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
                   <span className="text-[12px] text-cs-text-muted">
                     PM1 context only: no ACMG code is proposed here. Band colours on residue summaries orient; they do not score evidence.
                   </span>
-                  {finding.cautions.map((c) => (
-                    <span key={c} className="ls-finding__caution flex items-start gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      {c}
-                    </span>
-                  ))}
+
                 </>
               )}
             </div>
           </section>}
 
-          {workspaceTab !== "focus" && landscapeData && cautions.length > 0 && <section className="ls-finding" aria-label="Landscape data cautions">
-            <div className="ls-finding__body">
-              {cautions.map((c) => (
-                <span key={c} className="ls-finding__caution flex items-start gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  {c}
-                </span>
-              ))}
-            </div>
-          </section>}
+
 
           {(workspaceTab === "map" || workspaceTab === "focus") && <LandscapeToolbar
             scope={workspaceTab === "map" ? "overview" : "focus"}
@@ -517,6 +507,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             context={overview?.data?.context ?? null}
             contextStatus={contextStatus}
             domains={domains}
+            domainsLoaded={Array.isArray(uniprotFeatures)}
             window={range}
             targetPos={targetPos}
             mode={metricMode}

@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
 import type { SummaryMode } from "../../shared/landscapeEvidence";
 import type { LandscapeViewState } from "../../stores/slices/searchSlice";
 
@@ -90,7 +90,7 @@ export function LandscapeToolbar({ scope, view, onView, mode, onMode, width, onW
           </button>
         </div>
       )}
-      {scope !== "focus" && <div className="flex items-center gap-2">
+      {scope !== "focus" && <div className="ls-lane-controls" role="group" aria-label="Visible lanes">
         <span className="text-[11px] font-semibold text-cs-text-secondary">Lanes</span>
         {lanes.map((l) => {
           const empty = available?.[l.key] === false;
@@ -99,12 +99,14 @@ export function LandscapeToolbar({ scope, view, onView, mode, onMode, width, onW
               key={l.key}
               type="button"
               aria-pressed={view.lanes[l.key] && !empty}
-              disabled={empty}
+              aria-disabled={empty || undefined}
               title={empty ? "Nothing to draw for this gene" : undefined}
-              onClick={() => onView({ lanes: { ...view.lanes, [l.key]: !view.lanes[l.key] } })}
-              className="ls-pill"
-              data-active={view.lanes[l.key] && !empty ? "true" : undefined}
+              onClick={() => {
+                if (!empty) onView({ lanes: { ...view.lanes, [l.key]: !view.lanes[l.key] } });
+              }}
+              className="ls-lane-toggle"
             >
+              <Check size={12} aria-hidden="true" className="ls-lane-toggle__check" />
               {l.label}
             </button>
           );

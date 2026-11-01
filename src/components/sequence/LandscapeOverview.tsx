@@ -22,6 +22,8 @@ interface Props {
   context: LandscapeContext | null;
   contextStatus?: "loading" | "ready" | "error" | "idle";
   domains: DomainSpan[];
+  /** False when the UniProt features never loaded, so "no domain" must not be claimed as a fact. */
+  domainsLoaded: boolean;
   window: { start: number; end: number };
   targetPos: number;
   mode: SummaryMode;
@@ -48,6 +50,7 @@ export function LandscapeOverview({
   context,
   contextStatus,
   domains,
+  domainsLoaded,
   window,
   targetPos,
   mode,
@@ -702,7 +705,7 @@ export function LandscapeOverview({
             </>
           ),
         )}
-      <footer className="ls-overview__footer">
+      <div className="ls-overview__footer">
         <span className="font-mono ls-overview__readout">
           {detail ?? hoverText}
         </span>
@@ -721,23 +724,23 @@ export function LandscapeOverview({
             Explore focus {box.start}–{box.end} →
           </button>
         )}
-      </footer>
-      <p className="ls-overview__missing">
-        Protein-wide context does not assign ACMG evidence. Unscored residues
-        remain empty; zero is a scored value at the baseline.
-      </p>
-      {status === "ready" && domains.length === 0 && (
+      </div>
+      <div className="ls-overview__notes">
         <p className="ls-overview__missing">
-          no UniProt domain or region annotated
+          Protein-wide context does not assign ACMG evidence. Unscored residues
+          remain empty; zero is a scored value at the baseline.
         </p>
-      )}
-      {lanes.regions &&
-        status === "ready" &&
-        context?.regions?.length === 0 && (
+        {status === "ready" && domains.length === 0 && (
+          <p className="ls-overview__missing">
+            {domainsLoaded ? "no UniProt domain or region annotated" : "UniProt domain annotation not loaded"}
+          </p>
+        )}
+        {lanes.regions && status === "ready" && context?.regions?.length === 0 && (
           <p className="ls-overview__missing">
             no regional missense constraint call for this gene
           </p>
         )}
+      </div>
     </section>
   );
 }

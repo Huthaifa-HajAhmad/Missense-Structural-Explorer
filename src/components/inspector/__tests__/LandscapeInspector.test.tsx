@@ -69,11 +69,11 @@ describe("LandscapeInspector", () => {
     render(<LandscapeInspector analysisResult={conflicting} />);
     expect(screen.getByRole("button", { name: "Query D116G" })).toBeTruthy();
     expect(screen.getByText(/queried substitution D116G reads/)).toBeTruthy();
-    // F9: the rail carries a one-line pointer; the full caution stays on the tab, and the pointer's
-    // title keeps the full text reachable without printing the paragraph twice.
-    const note = screen.getByRole("note");
-    expect(note.textContent).toContain("see the missing-data caution on the Landscape tab");
-    expect(note.getAttribute("title")).toContain("AlphaMissense 0.108 from the predictors pipeline vs 0.362 in dbNSFP");
+    const note = screen.getByText("Score disagreement — read with caution").closest("details")!;
+    expect(note.open).toBe(false);
+    fireEvent.click(screen.getByText("Score disagreement — read with caution"));
+    expect(note.open).toBe(true);
+    expect(note.textContent).toContain("AlphaMissense 0.108 from the predictors pipeline vs 0.362 in dbNSFP");
     expect(screen.queryByText(/^Ranks/)).toBeNull();
   });
 
@@ -82,11 +82,36 @@ describe("LandscapeInspector", () => {
     render(<LandscapeInspector analysisResult={result} onSelectResidueIndex={onSelect} />);
     // Context reads as key/value rows on the Summary tab; the basis comes from the payload (PR #72).
     expect(screen.getByText("2 missense, max AC 10")).toBeTruthy();
-    expect(screen.getByText("0.41 (96–262, gnomAD v4.1.1 regional missense)")).toBeTruthy();
+    expect(screen.getByText("0.41 across residues 96–262")).toBeTruthy();
+    const source = screen.getByText("Source details").closest("details")!;
+    expect(source.open).toBe(false);
+    fireEvent.click(screen.getByText("Source details"));
+    expect(source.open).toBe(true);
+    expect(source.textContent).toContain("gnomAD v4.1.1 regional missense");
+    expect(source.textContent).toContain("not a score for this substitution");
     const v = screen.getAllByRole("button", { name: /^D→V AlphaMissense 0\.950/ })[0];
     fireEvent.click(v);
     expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ kind: "substitution", pos: 116, alt: "V" });
     expect(onSelect).toHaveBeenCalledWith(116);
+  });
+
+  it("marks only the selected letter as current while keeping the queried outline", () => {
+    act(() => useVariantAnalysisStore.setState({ landscapeSelection: { key: KEY, kind: "substitution", pos: 116, alt: "V" } }));
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    const queryChips = container.querySelectorAll('[data-query="true"]');
+    expect(queryChips.length).toBe(2);
+    queryChips.forEach(chip => expect(chip.hasAttribute("aria-current")).toBe(false));
+    const selected = container.querySelectorAll('.lsr-strip__chip[aria-current="true"]');
+    expect(selected.length).toBe(2);
+    selected.forEach(chip => expect(chip.textContent?.trim()).toBe("V"));
+  });
+
+  it("fills the queried letter before any pick, matching the reading it sits under", () => {
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    const current = container.querySelectorAll('.lsr-strip__chip[aria-current="true"]');
+    expect(current.length).toBe(2);
+    current.forEach(chip => expect(chip.textContent?.trim()).toBe("G"));
+    expect(screen.getByText(/Filled = the substitution the reading above is on/)).toBeTruthy();
   });
 
   it("keeps the selection and substitutions visible without inspector tabs", () => {
@@ -157,6 +182,27 @@ describe("LandscapeInspector", () => {
     expect(screen.queryByText(/REVEL × AlphaMissense/)).toBeNull();
   });
 
+  it("still shows population and clinical context on a residue that has no score record", () => {
+    act(() => useVariantAnalysisStore.setState({
+      selectedResidueIndex: 6,
+      landscapeSelection: { key: KEY, kind: "residue", pos: 6 },
+      landscapeOverview: {
+        key: KEY, status: "ready", error: null,
+        data: { positions: [], meta: {} as any, context: {
+          clinvar: [{ pos: 6, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Gly6Arg" }],
+          gnomad: [{ pos: 6, variants: 3, maxAc: 40 }], regions: [], regionsStatus: "none", transcript: null, regionsBasis: "gnomAD v4.1.1 regional missense", errors: []
+        } }
+      }
+    } as any));
+    const gap: any = { ...result, landscapeData: [{ residx: 6, amMean: null, amCount: 0, revelMean: null, revelCount: 0, gerp: null, phylop: null, nucleotideCount: 0 }] };
+    render(<LandscapeInspector analysisResult={gap} />);
+    expect(screen.getByText(/dbNSFP has no missense record at residue 6/)).toBeTruthy();
+    expect(screen.getByText("3 missense, max AC 40")).toBeTruthy();
+    expect(screen.getByText("1 missense record at this residue")).toBeTruthy();
+    // No queried record here, so the list is not "other" records.
+    expect(screen.getByText("1 substitution record")).toBeTruthy();
+  });
+
   it("marks the queried variant in the residue's ClinVar list, apart from the other records", () => {
     act(() =>
       useVariantAnalysisStore.setState({
@@ -179,12 +225,17 @@ describe("LandscapeInspector", () => {
       } as any)
     );
     render(<LandscapeInspector analysisResult={result} />);
-    expect(screen.getByText("p.Asp116Gly Pathogenic (queried); p.Asp116Val Pathogenic")).toBeTruthy();
+    expect(screen.getByText("p.Asp116Gly Pathogenic (queried)")).toBeTruthy();
+    const others = screen.getByText("1 other substitution record").closest("details")!;
+    expect(others.open).toBe(false);
+    fireEvent.click(screen.getByText("1 other substitution record"));
+    expect(others.open).toBe(true);
+    expect(others.textContent).toContain("p.Asp116Val Pathogenic");
   });
 
   it("keeps the method and citations behind one disclosure below the selection", () => {
     const { container } = render(<LandscapeInspector analysisResult={result} />);
-    const d = container.querySelector("details")!;
+    const d = container.querySelector<HTMLDetailsElement>("details.lsr-sources")!;
     expect(d.open).toBe(false);
     expect(d.textContent).toContain("Pejaver et al.");
   });
@@ -237,3 +288,4 @@ describe("placeStripChips", () => {
     }
   });
 });
+
