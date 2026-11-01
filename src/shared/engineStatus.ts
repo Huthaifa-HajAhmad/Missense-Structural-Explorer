@@ -93,6 +93,11 @@ export interface EngineDescriptor {
    * ProtVar's precomputed FoldX is FoldX — counting it would count one method twice.
    */
   referenceOnly?: boolean;
+  /**
+   * Replaces the generic "Not covered" label when the engine itself answered that it has no value for
+   * this variant (a coverage miss). A plain outage keeps the generic label: it is not a claim about the table.
+   */
+  coverageMissLabel?: string;
 }
 
 /**
@@ -205,6 +210,7 @@ export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
     absenceClass: "coverage",
     summary: "FoldX ΔΔG precomputed by EBI ProtVar on the AlphaFold DB model. Shown for reference; not counted.",
     referenceOnly: true,
+    coverageMissLabel: "No precomputed score",
   },
 ] as const;
 
@@ -692,7 +698,7 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
     id: obs.id,
     engine,
     state,
-    label: ENGINE_STATE_LABELS[state],
+    label: state === "not-covered" && obs.problem === "coverage-miss" && engine.coverageMissLabel ? engine.coverageMissLabel : ENGINE_STATE_LABELS[state],
     tone: STATE_TONES[state],
     reason: state === "computed" && excluded
       ? foldxCause

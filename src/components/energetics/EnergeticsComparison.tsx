@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useMemo, useState } from 'react';
 import { defineChart, dot, ruleX, link, text } from '@tanstack/charts';
 import { Chart } from '@tanstack/charts/react';
@@ -8,6 +9,9 @@ import { chartTheme } from '../charts/chartTheme';
 import { buildEnergeticsComparison, type EnergySort, type EnergeticsChartOptions } from '../../shared/energeticsComparison';
 import type { EnergeticsEvidence } from '../../shared/energeticsEvidence';
 import type { EnergyEngineId, EnergyUnit } from '../../shared/engineStatus';
+
+/** The plot's inner margins, in px. The axis guide above the chart takes its side padding from the same numbers (CSS variables on the figure). */
+const PLOT_MARGIN = { top: 12, right: 72, bottom: 54, left: 112 };
 
 export default function EnergeticsComparison({ evidence, unit, selected, onSelect, options, onOptions }: {
   evidence: EnergeticsEvidence; unit: EnergyUnit; selected: EnergyEngineId | null;
@@ -22,7 +26,7 @@ export default function EnergeticsComparison({ evidence, unit, selected, onSelec
   const definition = useMemo(() => {
     return defineChart({
       theme: chartTheme,
-      margin: { top: 12, right: 72, bottom: 54, left: 112 },
+      margin: PLOT_MARGIN,
       scales: {
         x: { scale: scaleLinear().domain(model.domain), grid: { strokeOpacity: 0.45 },
           axis: { label: { text: `ΔΔG (${unit})`, fontSize: 13, fontWeight: 500, opacity: 1 }, ticks: { count: 5 }, tickLabels: { fontSize: 12, opacity: 1 } } },
@@ -55,7 +59,7 @@ export default function EnergeticsComparison({ evidence, unit, selected, onSelec
   }, [model, selected, showMarks, unit]);
   const pinned = model.points.find(p => p.key === selected);
   const figureEmpty = figureEmptyText(countedOnly, model.points.length);
-  return <div className="nrg-comparison-figure"><ChartFrame title="Compare stability estimates"
+  return <div className="nrg-comparison-figure" style={{ '--nrg-plot-left': `${PLOT_MARGIN.left}px`, '--nrg-plot-right': `${PLOT_MARGIN.right}px` } as CSSProperties}><ChartFrame title="Compare stability estimates"
     description="One prediction per method. Distance from zero shows the predicted change; select a dot to inspect its basis."
     summary={model.summary}
     empty={figureEmpty}
