@@ -10,6 +10,10 @@ import { populationLabelWidth, populationRowLabel, type EvidenceChartModel, type
 import { AVI_GROUP_LABEL } from '../../shared/alphagenomeEvidence';
 import { useEvidenceWorkspace } from './EvidenceWorkspace';
 
+/** Room for the row names on each side of the AlphaGenome plot. Equal on both sides so the zero line sits in the middle
+ *  and the axis guide's "0" (centred by CSS) stays over it. */
+const ALPHAGENOME_SIDE_MARGIN = 150;
+
 /** Per-tab GEOMETRY only (margins, hit heights, controls); values and interpretation come from the model. */
 export default function EvidenceComparison({ tab, model, title, description }: {
   tab: EvidenceWorkspaceTab; model: EvidenceChartModel; title: string; description: string;
@@ -23,9 +27,12 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const limit = tab === 'alphagenome' && !expanded ? 8 : Infinity;
   const returned = model.rows.filter(r => r.value !== null).length;
   const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models', 'perturbation'].includes(tab);
-  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : tab === 'expression-models' ? 132 : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
-    left: tab === 'expression-models' ? 245 : tab === 'clinical' ? populationLabelWidth(model.rows.filter(r => r.value !== null).map(r => r.name)) : labelled ? 150 : 135 }),
-    [tab, labelled, model]);
+  // Width of the longest tissue name: about 6.4px per character at 12px, plus 28px of padding, kept between 175 and 245px.
+  // This is an estimate (capital letters run wider), so the cap, not the text, decides for very long names.
+  const expressionLabelWidth = Math.min(245, Math.max(175, ...model.rows.filter(r => r.value !== null).map(r => Math.ceil(r.name.length * 6.4) + 28)));
+  const margin = useMemo(() => ({ top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : tab === 'expression-models' ? expressionLabelWidth : tab === 'alphagenome' ? ALPHAGENOME_SIDE_MARGIN : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
+    left: tab === 'expression-models' ? expressionLabelWidth : tab === 'clinical' ? populationLabelWidth(model.rows.filter(r => r.value !== null).map(r => r.name)) : tab === 'alphagenome' ? ALPHAGENOME_SIDE_MARGIN : labelled ? 150 : 135 }),
+    [tab, labelled, model, expressionLabelWidth]);
   const rowLabel = useMemo(() => (name: string) => tab === 'clinical' ? populationRowLabel(name) : name, [tab]);
   const plotted = useMemo(() => model.rows.filter(r => r.value !== null).slice(0, limit).map((r, row) => ({ ...r, value: r.value as number, row })), [model, limit]);
   const missing = model.rows.filter(r => r.value === null);
@@ -42,7 +49,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
     },
     marks: [
       ...(tab === 'alphagenome' || tab === 'perturbation' || tab === 'expression-models' ? [ruleX([0], { stroke: 'var(--cs-text-secondary)', strokeWidth: 1.5 }),
-        decorative(link(plotted, { id: 'contribution', key: 'key', x1: () => 0, x2: 'value', y1: 'row', y2: 'row', stroke: d => d.tone === 'accent' ? 'var(--cs-accent-clay)' : 'var(--cs-text-secondary)', strokeWidth: 7, strokeOpacity: .55 }))] : []),
+        decorative(link(plotted, { id: 'contribution', key: 'key', x1: () => 0, x2: 'value', y1: 'row', y2: 'row', stroke: d => d.tone === 'accent' ? 'var(--cs-accent-clay)' : 'var(--cs-text-secondary)', strokeWidth: 7, strokeOpacity: .55, lineCap: 'butt' }))] : []),
       ...(['accent', 'neutral', 'danger', 'good'] as const).map(tone => dot(plotted.filter(p => p.tone === tone), {
         id: `reading-${tone}`, key: 'key', x: 'value', y: 'row', r: 6,
         fill: tone === 'accent' ? 'var(--cs-accent-clay)' : tone === 'danger' ? 'var(--cs-text-danger)' : tone === 'good' ? 'var(--cs-text-success)' : 'var(--cs-text-secondary)',
@@ -83,16 +90,16 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       </>}
       <span>{tab === 'alphagenome' ? 'Arrow keys explore; Enter pins or clears a reading.' : 'Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. The inspector retains exact values and provenance.'}</span></>}>
     {tab === 'alphagenome' && <div className="evw-figure-scope">
-      {returned > 0 && <span>{Math.min(returned, limit)} of {returned} returned contributions · largest magnitude first</span>}
+      {returned > 0 && <span className="evw-scope-count"><strong>{Math.min(returned, limit)} of {returned} inputs shown</strong><span>Sorted by contribution size</span></span>}
       <div className="evw-controls">
-      <label>Feature family <select value={w.filter} onChange={e => w.setFilter(e.target.value as AttributionFilter)}>
-        <option value="all">All features</option>{Object.entries(AVI_GROUP_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+      <label>Input type <select value={w.filter} onChange={e => w.setFilter(e.target.value as AttributionFilter)}>
+        <option value="all">All inputs</option>{Object.entries(AVI_GROUP_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
       </select></label>
       {returned > 8 && <button type="button" className="viz-action" aria-expanded={expanded} onClick={() => w.toggleGroup('all-attributions')}>{expanded ? 'Show largest 8' : `Show all ${returned}`}</button>}</div></div>}
     {plotted.length > 0 && <div className="evw-chart-scroll" role="region" aria-label={`${title} chart`} tabIndex={0}>
       <div className="evw-chart-canvas" data-wide={tab === 'predictors' || tab === 'expression-models' || undefined}
         style={{ ['--evw-plot-left' as string]: `${margin.left}px`, ['--evw-plot-right' as string]: `${margin.right}px`, ['--evw-band-count' as string]: model.ticks.length }}>
-        {tab === 'alphagenome' && <div className="evw-axis-guide"><span>← Lowers AVI score</span><span>Raises AVI score →</span></div>}
+        {tab === 'alphagenome' && <div className="evw-axis-guide" aria-hidden="true"><span>Lowers score ←</span><strong>0</strong><span>→ Raises score</span></div>}
         {tab === 'predictors' && <div className="evw-band-head" aria-label="Published evidence bands">{model.tickLabels.map(label => <span key={label} data-direction={label.startsWith('BP4') ? 'benign' : label.startsWith('PP3') ? 'pathogenic' : 'neither'}><b>{label.split(' ')[0]}</b>{label.includes(' ') && <small>{label.substring(label.indexOf(' ') + 1)}</small>}</span>)}</div>}
         <div className="evw-plot">
         {tab === 'predictors' && <div className="evw-band-grid" aria-hidden="true">{model.tickLabels.map(label => <span key={label} data-direction={label.startsWith('BP4') ? 'benign' : label.startsWith('PP3') ? 'pathogenic' : 'neither'} />)}</div>}
@@ -112,7 +119,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       // itself hovered or keyboard-focused.
       return `${row.key === w.selected ? 'Pinned: ' : ''}${row.name} · ${row.valueText}`;
     })()}</p>
-    {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All features to see it here.</p>}
+    {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All inputs to see it here.</p>}
     {tab === 'alphagenome' && selected?.value != null && !plotted.some(r => r.key === selected.key) && <p className="evw-caption">The pinned feature is outside the largest 8. Choose Show all to see it; its details remain in the inspector.</p>}
     {tab === 'clinical' && <p className="evw-caption">AC counts copies; AN counts assessed alleles, not people. Cohorts can overlap. The engine input is the frequency the ACMG rule read; it is not another cohort.</p>}
     {/* The perturbation model strip pins its model id, which is an inspector row but not a dot on this

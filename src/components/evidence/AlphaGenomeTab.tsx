@@ -19,8 +19,9 @@ import {
   AVI_ORIGIN_NOTE,
   aviFinding,
   buildAlphaGenomeEvidence,
-  fmtPercentAbove,
   fmtShare,
+  rankHeadline,
+  rankSentence,
   type AlphaGenomeEvidence,
   type AviFeatureReading,
 } from "../../shared/alphagenomeEvidence";
@@ -84,7 +85,7 @@ const RULER_LABELS: Array<{ phred: number; top: string }> = [
 function RankRuler({ phred, topPercent }: { phred: number; topPercent: number | null }) {
   const off = phred > RULER_MAX;
   const at = (Math.max(0, Math.min(phred, RULER_MAX)) / RULER_MAX) * 100;
-  const desc = `Phred ${phred.toFixed(1)}${topPercent !== null ? `, higher than ${fmtPercentAbove(topPercent)} of possible single-nucleotide changes` : ""}${off ? " (beyond the drawn range)" : ""}. Axis: genome-wide rank from all SNVs to the top 0.001%.`;
+  const desc = `Phred ${phred.toFixed(1)}${topPercent !== null ? `, ${rankSentence(topPercent)}` : ""}${off ? " (beyond the drawn range)" : ""}. Axis: genome-wide rank from all SNVs to the top 0.001%.`;
   return (
     <figure className="ag-rank" role="img" aria-label={`Genome-wide rank: ${desc}`} data-testid="avi-rank-ruler">
       <div className="ag-rank__track" aria-hidden="true">
@@ -425,13 +426,17 @@ function AlphaGenomeTabBody({
           <div className="ag-hero__body">
             <div className="ag-figure">
               <span className="figure-headline ag-figure__value" data-testid="avi-headline">
-                {ev.topPercent !== null ? `Higher than ${fmtPercentAbove(ev.topPercent)}` : `Phred ${(ev.phred as number).toFixed(1)}`}
+                {ev.topPercent !== null ? rankHeadline(ev.topPercent) : `Phred ${(ev.phred as number).toFixed(1)}`}
               </span>
               <span className="ag-figure__label">
                 {ev.topPercent !== null
-                  ? "of the ~9 billion possible GRCh38 single-nucleotide changes"
+                  ? "of all possible single-letter DNA changes in the human genome (GRCh38), ranked by AVI score."
                   : "genome-wide impact score"}
-                {ev.oneIn !== null ? ` — about 1 in ${ev.oneIn.toLocaleString("en-GB")}` : ""}
+                {ev.topPercent !== null
+                  ? ev.oneIn !== null
+                    ? ` About 1 in ${ev.oneIn.toLocaleString("en-GB")} changes scores this high.`
+                    : ` ${rankSentence(ev.topPercent)}.`
+                  : ""}
               </span>
             </div>
 
@@ -533,8 +538,8 @@ function AlphaGenomeTabBody({
         {scored && (
           <p className="ag-card__foot" data-testid="avi-caveat">
             <span>
-              <strong>A rank, not a probability of pathogenicity.</strong> Trained to separate rare from common gnomAD
-              variants, so it overlaps with PM2/BS1. Missense changes tend to rank high genome-wide, partly because
+              <strong>This is a rank, not the chance that the variant causes disease.</strong> The model was trained to separate rare
+              from common gnomAD variants, so it overlaps with PM2/BS1. Missense changes tend to rank high genome-wide, partly because
               AlphaMissense is one of the inputs.
             </span>
           </p>

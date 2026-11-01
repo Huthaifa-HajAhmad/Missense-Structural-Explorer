@@ -37,13 +37,13 @@ describe('Evidence workspace interactions', () => {
     }
     const { container } = render(<EvidenceWorkspaceProvider result={result}><Overview /></EvidenceWorkspaceProvider>);
     await screen.findByRole('img', { name: /^Bounded contributions/ });
-    expect(screen.getByText(/8 of 18 returned contributions/)).toBeInTheDocument();
+    expect(screen.getByText(/8 of 18 inputs shown/)).toBeInTheDocument();
     // Visible rows, not a rebuilt scientific model; expansion leaves the original inputs untouched.
     const before = JSON.stringify(model);
     fireEvent.click(screen.getByRole('button', { name: 'Pin smaller feature' }));
     expect(screen.getByText(/pinned feature is outside the largest 8/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show all 18' }));
-    expect(screen.getByText(/18 of 18 returned contributions/)).toBeInTheDocument();
+    expect(screen.getByText(/18 of 18 inputs shown/)).toBeInTheDocument();
     expect(screen.queryByText(/pinned feature is outside the largest 8/)).not.toBeInTheDocument();
     expect(screen.getByText(`Pinned: ${pin.name} · ${pin.valueText}`)).toBeInTheDocument();
     expect(JSON.stringify(model)).toBe(before);
@@ -68,14 +68,14 @@ describe('Evidence workspace interactions', () => {
     await waitFor(() => expect(screen.getByLabelText('View state').textContent).not.toBe(firstPin));
     const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });
     expect(within(inspector).getByText(/Signed contribution/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Feature family'), { target: { value: 'indicator' } });
+    fireEvent.change(screen.getByLabelText('Input type'), { target: { value: 'indicator' } });
     expect(screen.getByText(/pinned feature is outside this filter/)).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /^Feature contributions/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Rank & composition' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin RNA-seq record' }));
     expect(within(inspector).getByText('The returned contribution is zero.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Comparison' }));
-    expect(screen.getByLabelText('Feature family')).toHaveValue('indicator');
+    expect(screen.getByLabelText('Input type')).toHaveValue('indicator');
     expect(screen.getByLabelText('View state')).toHaveTextContent('MAX_ABS_RNA_SEQ');
   });
   it('retains each tab’s state but resets synchronously when the analysed allele changes', () => {
@@ -135,7 +135,10 @@ describe('Evidence workspace interactions', () => {
     fireEvent.click(screen.getAllByRole('tab')[0]);
     await screen.findByRole('img', { name: /^Feature contributions/ });
     expect(screen.getByText(/Pinned: Splicing · −0\.08/)).toBeInTheDocument();
-    expect(screen.getByText('← Lowers AVI score')).toBeInTheDocument();
+    const guide = screen.getByText('Lowers score ←').parentElement as HTMLElement;
+    expect(guide).toHaveTextContent('Lowers score ←0→ Raises score');
+    // The chart's own text alternative already says which way is which, so the guide is for sighted readers.
+    expect(guide).toHaveAttribute('aria-hidden', 'true');
     const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });
     expect(within(inspector).getByRole('heading', { name: /^Splicing$/ })).toBeInTheDocument();
     expect(inspector).toHaveTextContent('lowers the raw AVI score');

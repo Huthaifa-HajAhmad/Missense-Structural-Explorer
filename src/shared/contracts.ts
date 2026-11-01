@@ -1151,6 +1151,7 @@ export const alphagenomeAviSchema = z.object({
   aviPhred: z.number().nullable().optional(),
   aviRaw: z.number().nullable().optional(),
   aviQuantile: z.number().nullable().optional(),
+  /** A percentage from 0 to 100, not a fraction: 0.229 means the top 0.229% of possible changes. */
   topPercentile: z.number().nullable().optional(),
   topModality: z.string().nullable().optional(),
   topFeatureImportance: z.number().nullable().optional(),
