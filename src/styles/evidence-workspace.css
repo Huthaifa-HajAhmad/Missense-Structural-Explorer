@@ -31,6 +31,9 @@
 .evw-comparison { min-width: 0; }
 .evw-comparison[data-tab="clinical"] .evw-chart-canvas { min-width: 650px; }
 .evw-comparison[data-tab="predictors"] .evw-chart-canvas { min-width: 900px; }
+/* Both of these reserve label room on each side, so the canvas keeps at least 260px for the scale between them. */
+.evw-comparison[data-tab="alphagenome"] .evw-chart-canvas { min-width: calc(var(--evw-plot-left) + var(--evw-plot-right) + 260px); }
+.evw-comparison[data-tab="expression-models"] .evw-chart-canvas { min-width: max(720px, calc(var(--evw-plot-left) + var(--evw-plot-right) + 260px)); }
 .evw-comparison[data-story] .viz-frame__head { padding: 18px 22px 12px; }
 .evw-comparison[data-story] .viz-frame__head > :first-child { flex: 1 1 340px; min-width: 0; }
 .evw-comparison[data-story] .viz-frame__head h2 { font-size: 17px; }

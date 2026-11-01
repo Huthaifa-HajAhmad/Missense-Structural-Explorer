@@ -42,9 +42,25 @@ describe('context tab claims and interactions', () => {
   it('requires explicit disease choice and preserves systems when selecting', () => {
     const selection = { ...emptyPhenotypeSelection(), systems: ['hearing' as const] }; const onChange = vi.fn();
     render(<DiseaseContextPicker gene="TEST" load={context.value.diseaseLoad} selection={selection} onChange={onChange} onRetry={vi.fn()} />);
-    expect(screen.getByRole('combobox')).toHaveValue('');
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: frame.key } });
+    expect(screen.getByRole('combobox')).toHaveTextContent('Choose a disease and inheritance');
+    fireEvent.click(screen.getByRole('combobox'));
+    expect(screen.getByRole('listbox', { name: 'Diseases and inheritance' })).toBeVisible();
+    fireEvent.click(screen.getByRole('option', { name: /Example disease/ }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ systems: ['hearing'], diseaseKey: frame.key }));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+  it('picks a disease from the keyboard and closes with Escape', () => {
+    const onChange = vi.fn();
+    render(<DiseaseContextPicker gene="TEST" load={context.value.diseaseLoad} selection={context.value.selection} onChange={onChange} onRetry={vi.fn()} />);
+    const field = screen.getByRole('combobox');
+    fireEvent.keyDown(field, { key: 'ArrowDown' });
+    expect(field).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    fireEvent.keyDown(field, { key: 'ArrowDown' });
+    fireEvent.keyDown(field, { key: 'ArrowDown' });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ diseaseKey: frame.key }));
   });
   it('shows ClinGen dosage as gene-level context scoped to the selected disease by exact ID', () => {
     const score = (code: number, diseaseId: string | null) => ({ state: 'scored', code, disease: diseaseId ? 'Example disease' : null, diseaseId, history: null });
@@ -70,7 +86,7 @@ describe('context tab claims and interactions', () => {
   it('offers one-click selection when exactly one disease is curated, without choosing for the user', () => {
     const onChange = vi.fn();
     render(<DiseaseContextPicker gene="TEST" load={context.value.diseaseLoad} selection={context.value.selection} onChange={onChange} onRetry={vi.fn()} />);
-    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(screen.getByRole('combobox')).toHaveTextContent('Choose a disease and inheritance');
     fireEvent.click(screen.getByRole('button', { name: /Review the only curated disease: Example disease/ }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ diseaseKey: frame.key }));
   });

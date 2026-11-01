@@ -278,10 +278,11 @@ describe('gene-disease review states', () => {
     expect(screen.getByTestId('dosage-card')).toBeInTheDocument();
     fireEvent.click(choice.getByRole('button', { name: 'Review this disease' }));
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue(f.disease.frames[0].key);
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveTextContent(f.disease.frames[0].label);
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveFocus();
     fireEvent.click(screen.getByRole('tab', { name: 'Variant context' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Review SOD1 for' }), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Review SOD1 for' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Choose a disease and inheritance' }));
     fireEvent.click(screen.getByRole('button', { name: 'Review this disease' }));
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveFocus();
@@ -321,7 +322,7 @@ describe('gene-disease review states', () => {
     for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
     store.setState(f.state);
     render(<Harness result={f.result} />);
-    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveTextContent('Choose a disease and inheritance');
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.queryByText(/records shown/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
