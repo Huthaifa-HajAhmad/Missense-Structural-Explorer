@@ -67,6 +67,7 @@ describe("/generate-mutant joins an in-flight pre-warm FoldX job", () => {
     vi.spyOn(biophysics, "submitThermoMpnnJob").mockResolvedValue({ status: "unavailable" } as any);
     vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(null as any);
     vi.spyOn(stabilityOracle, "runStabilityOracleAnalysis").mockResolvedValue(null as any);
+    vi.spyOn(stabilityOracle, "runStabilityOracleAnalysisDetailed").mockResolvedValue({ kind: "unavailable", reason: "test" } as any);
     vi.spyOn(uniprot, "fetchUniprotSequence").mockResolvedValue("");
     return { d2, ddmut };
   }

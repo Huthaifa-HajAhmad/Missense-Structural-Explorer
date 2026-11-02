@@ -22,6 +22,7 @@ class StabilityOracleRequest(BaseModel):
     wt: str
     mut: str
     wtPdb: str | None = None
+    chain: str | None = None
 
 class StabilityOracleResponse(BaseModel):
     status: str
@@ -92,21 +93,38 @@ def get_stability_oracle_model():
         loaded_models[model_key] = (None, model)
         return model
 
-def featurize_pdb_for_stability_oracle(pdb_content: str, position: int, wt: str, mut: str, max_atoms: int = 512):
+def featurize_pdb_for_stability_oracle(
+    pdb_content: str,
+    position: int,
+    wt: str,
+    mut: str,
+    max_atoms: int = 512,
+    chain: str | None = None
+):
     wt1 = wt.upper()
     mut1 = mut.upper()
     wt3 = AA_1TO3.get(wt1, wt1)
     mut3 = AA_1TO3.get(mut1, mut1)
+    requested_chain = (chain or "").strip().upper()
 
-    atoms = []
-    target_ca = None
+    raw_atoms = []
+    chains_seen = []
 
     for line in pdb_content.splitlines():
-        if not (line.startswith("ATOM  ") or line.startswith("HETATM")):
+        if not line.startswith("ATOM  "):
+            continue
+        if len(line) < 54:
+            continue
+        alt_loc = line[16]
+        if alt_loc not in (" ", "A", "1"):
+            continue
+        icode = line[26].strip()
+        if icode:
             continue
         try:
             atom_name = line[12:16].strip()
             res_name = line[17:20].strip().upper()
+            line_chain = (line[21].strip() or "A").upper()
             res_seq = int(line[22:26].strip())
             x = float(line[30:38].strip())
             y = float(line[38:46].strip())
@@ -114,39 +132,87 @@ def featurize_pdb_for_stability_oracle(pdb_content: str, position: int, wt: str,
             element = line[76:78].strip() if len(line) >= 78 else atom_name[0]
             if not element:
                 element = atom_name[0]
+            if element.upper() == "H":
+                continue
 
-            is_target = (res_seq == position)
-            if is_target and atom_name == "CA":
-                target_ca = (x, y, z)
+            if line_chain not in chains_seen:
+                chains_seen.append(line_chain)
 
             charge = RES_CHARGE.get(res_name, 0.0)
-            try:
-                b_factor = float(line[60:66].strip())
-            except Exception:
-                b_factor = 20.0
-            sasa = min(max(b_factor / 10.0, 0.0), 30.0)
-
-            atoms.append({
+            raw_atoms.append({
                 "x": x, "y": y, "z": z,
+                "chain": line_chain,
+                "res_seq": res_seq,
+                "res_name": res_name,
+                "atom_name": atom_name,
                 "element": element,
                 "charge": charge,
-                "sasa": sasa,
-                "is_target": is_target
             })
         except Exception:
             continue
 
-    if target_ca is None:
-        raise ValueError(f"Alpha carbon (CA) for position {position} not found in PDB structure.")
+    if not raw_atoms:
+        raise ValueError("No valid protein ATOM records found in PDB structure.")
 
-    for a in atoms:
+    if requested_chain and requested_chain in chains_seen:
+        target_chain = requested_chain
+    else:
+        # Match chain holding the requested position if unique, else first chain
+        matching_chains = sorted({a["chain"] for a in raw_atoms if a["res_seq"] == position})
+        target_chain = matching_chains[0] if matching_chains else chains_seen[0]
+
+    target_ca = None
+    target_res_name = None
+    for a in raw_atoms:
+        is_target = (a["chain"] == target_chain and a["res_seq"] == position)
+        a["is_target"] = is_target
+        if is_target:
+            if target_res_name is None:
+                target_res_name = a["res_name"]
+            if a["atom_name"] == "CA":
+                target_ca = (a["x"], a["y"], a["z"])
+
+    if target_ca is None:
+        raise ValueError(f"Alpha carbon (CA) for position {position} on chain {target_chain} not found in PDB structure.")
+
+    if target_res_name and wt3 in AA_INDEX and target_res_name != wt3:
+        raise ValueError(
+            f"Wild-type residue mismatch at position {position} on chain {target_chain}: "
+            f"structure has {target_res_name}, expected {wt3} ({wt1})."
+        )
+
+    for a in raw_atoms:
         dx = a["x"] - target_ca[0]
         dy = a["y"] - target_ca[1]
         dz = a["z"] - target_ca[2]
         a["dist"] = math.sqrt(dx * dx + dy * dy + dz * dz)
 
-    atoms.sort(key=lambda a: a["dist"])
-    selected_atoms = atoms[:max_atoms]
+    raw_atoms.sort(key=lambda a: a["dist"])
+    selected_atoms = raw_atoms[:max_atoms]
+
+    # Compute geometric solvent accessibility proxy from 3D heavy-atom packing around each selected atom
+    # (never from column 61-66, which holds pLDDT on AlphaFold models and B-factors on crystals).
+    env_atoms = [a for a in raw_atoms if a["dist"] <= 22.0]
+    env_coords = np.array([[a["x"], a["y"], a["z"]] for a in env_atoms], dtype=np.float32)
+    env_res_keys = [(a["chain"], a["res_seq"]) for a in env_atoms]
+
+    for a in selected_atoms:
+        if len(env_atoms) <= 1:
+            a["sasa"] = 30.0
+            continue
+        ax, ay, az = a["x"], a["y"], a["z"]
+        d2 = (
+            (env_coords[:, 0] - ax) ** 2
+            + (env_coords[:, 1] - ay) ** 2
+            + (env_coords[:, 2] - az) ** 2
+        )
+        self_key = (a["chain"], a["res_seq"])
+        neighbor_count = sum(
+            1 for idx, dist_sq in enumerate(d2)
+            if dist_sq <= 64.0 and env_res_keys[idx] != self_key
+        )
+        sasa_est = 30.0 * math.exp(-float(neighbor_count) / 18.0)
+        a["sasa"] = min(max(sasa_est, 0.0), 30.0)
 
     coords_tensor = torch.zeros([1, max_atoms, 3], dtype=torch.float32)
     atom_types_tensor = torch.zeros([1, max_atoms], dtype=torch.long)
@@ -189,10 +255,11 @@ def predict_stabilityoracle_sync(req: StabilityOracleRequest):
 
     try:
         coords, atom_types, pp, ca, mask, aa_feats, contacts = featurize_pdb_for_stability_oracle(
-            req.wtPdb, req.position, req.wt, req.mut
+            req.wtPdb, req.position, req.wt, req.mut, chain=req.chain
         )
     except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+        status_code = 422 if "mismatch" in str(ve).lower() or "not found" in str(ve).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(ve))
     except Exception as fe:
         raise HTTPException(status_code=500, detail=f"PDB featurization failed: {fe}")
 

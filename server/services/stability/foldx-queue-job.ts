@@ -18,8 +18,14 @@ import { CONFIG } from "../../config.ts";
  * finishes the job when the computer's validated result arrives (`services/infra/agent-jobs.ts`).
  */
 import { BiophysicalJobQueue } from "../infra/biophysical-queue.ts";
-import { enrichBiophysicalResult, generateMutantPdb, getRaspCoverage, runRaspLocal, runStabilityOracleAnalysis } from "../biophysics.ts";
-import { fetchUniprotSequence } from "../uniprot.ts";
+import {
+  enrichBiophysicalResult,
+  generateMutantPdb,
+  getRaspCoverage,
+  RASP_STORE_UNAVAILABLE_REASON,
+  runRaspLocal,
+  runStabilityOracleAnalysisDetailed,
+} from "../biophysics.ts";
 import { requestBackgroundRepair } from "./foldx/background-repair.ts";
 import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../external-api/protvar.ts";
 
@@ -80,17 +86,40 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
 
   /** RaSP is a bundled-table lookup. Run it beside RepairPDB so it can never inherit FoldX's multi-minute wait. */
   const rasp = (async () => {
-    if (previousRemoteJobs.raspStatus === "done") return;
+    if (previousRemoteJobs.raspStatus === "done" || previousRemoteJobs.raspStatus === "unavailable") return;
     if (!data.uniprotId || !position || !wtAa || !mutAa) {
-      await publishRemoteJobs(jobId, { raspStatus: "done" });
+      // The lookup was never given what it needs. `done` asserted that the index had been
+      // consulted and let the client call it "not covered" against an engine that never ran;
+      // anything this deployment cannot execute here is `unavailable`, like the engines below.
+      await publishRemoteJobs(jobId, { raspStatus: "unavailable", raspError: "No UniProt accession or variant fields for the RaSP lookup" });
       return;
     }
-    await publishRemoteJobs(jobId, { raspStatus: "pending" });
+    await publishRemoteJobs(jobId, { raspStatus: "pending", raspError: null });
     try {
       const result = await runRaspLocal("", "", chain, position, wtAa, mutAa, data.uniprotId);
+      const hasScore = typeof result?.score === "number";
+      if (!hasScore && result?.reason === RASP_STORE_UNAVAILABLE_REASON) {
+        /**
+         * The index is unusable — a property of this deployment, not of the variant. A `done`
+         * with no value left the classification to the reason text alone; `unavailable` plus
+         * that reason renders as "not configured / operator can fix" instead of asserting a
+         * fact about the protein.
+         */
+        await publishRemoteJobs(jobId, {
+          raspVal: null,
+          // The reason stays: the client sorts a store-fault sentence under "not configured"
+          // (`classifyRaspMissReason`) and relies on it to distinguish that from a coverage miss.
+          raspReason: RASP_STORE_UNAVAILABLE_REASON,
+          raspSource: undefined,
+          raspCoverage: getRaspCoverage() ?? undefined,
+          raspError: RASP_STORE_UNAVAILABLE_REASON,
+          raspStatus: "unavailable",
+        });
+        return;
+      }
       await publishRemoteJobs(jobId, {
-        raspVal: result?.score ?? null,
-        raspReason: result?.reason,
+        raspVal: hasScore ? result!.score : null,
+        raspReason: hasScore ? undefined : (result?.reason ?? undefined),
         raspSource: result?.source,
         raspCoverage: getRaspCoverage() ?? undefined,
         raspError: null,
@@ -107,9 +136,10 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
    * RaSP for the same reason — a remote table read must never wait behind the local FoldX run.
    */
   const protvar = (async () => {
-    if (previousRemoteJobs.protvarStatus === "done") return;
+    if (previousRemoteJobs.protvarStatus === "done" || previousRemoteJobs.protvarStatus === "unavailable") return;
     if (!data.uniprotId || !position || !wtAa || !mutAa) {
-      await publishRemoteJobs(jobId, { protvarStatus: "done" });
+      // Same honesty rule as RaSP above: nothing was looked up, so this is not done.
+      await publishRemoteJobs(jobId, { protvarStatus: "unavailable", protvarError: "No UniProt accession or variant fields for the ProtVar lookup" });
       return;
     }
     await publishRemoteJobs(jobId, { protvarStatus: "pending" });
@@ -124,24 +154,35 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
   /** StabilityOracle uses the input template, so it can run while FoldX repairs that template. */
   const stabilityOracle = (async () => {
     if (previousRemoteJobs.stabilityoracleStatus === "done") return;
-    if (!data.wtPdb && !data.uniprotId) {
-      await publishRemoteJobs(jobId, { stabilityoracleStatus: "done" });
+    if (!data.wtPdb) {
+      // The sidecar scores the wild-type structure itself; without a template every request is a
+      // guaranteed rejection. Short-circuit so the sidecar log stays free of self-inflicted 400s.
+      await publishRemoteJobs(jobId, { stabilityoracleStatus: "unavailable", stabilityoracleError: null });
       return;
     }
     await publishRemoteJobs(jobId, { stabilityoracleStatus: "pending", stabilityoracleError: null });
     try {
-      const sequence = data.uniprotId ? await fetchUniprotSequence(data.uniprotId).catch(() => "") : "";
-      const result = await runStabilityOracleAnalysis(
+      // Sidecar unreachable and sidecar rejection are different outcomes (no sidecar here vs. a
+      // live sidecar refusing this query), and the job record now keeps them apart.
+      const outcome = await runStabilityOracleAnalysisDetailed(
         data.uniprotId || "UNKNOWN",
         `${wtAa}${position}${mutAa}`,
         data.uniprotId || "",
-        sequence,
+        "",
         data.wtPdb,
+        chain,
       );
+      const hasScore = outcome.kind === "value" && Number.isFinite(outcome.result.ddG);
       await publishRemoteJobs(jobId, {
-        stabilityoracleVal: result?.ddG ?? null,
-        stabilityoracleStatus: "done",
-        stabilityoracleError: null,
+        stabilityoracleVal: hasScore ? outcome.result!.ddG : null,
+        stabilityoracleStatus: hasScore ? "done" : outcome.kind === "error" ? "error" : "unavailable",
+        stabilityoracleError: hasScore
+          ? null
+          : outcome.kind === "error"
+            ? outcome.message
+            : outcome.kind === "unavailable"
+              ? null
+              : "StabilityOracle did not return a score",
       });
     } catch (err: any) {
       console.warn("[Queue Worker] Independent StabilityOracle evaluation failed:", err?.message ?? err);

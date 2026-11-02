@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -8,6 +8,10 @@ import {
   runRaspLocal,
   enrichBiophysicalResult,
   RASP_STORE_UNAVAILABLE_REASON,
+  submitThermoMpnnJob,
+  pollThermoMpnnJob,
+  clearEnergyModelCaches,
+  resetTamarindSubmissionsForTests,
 } from "./energy-models.ts";
 import { buildRaspSqliteDatabase } from "./build-rasp-sqlite.ts";
 
@@ -404,5 +408,82 @@ describe("enrichBiophysicalResult — ProtVar reference value", () => {
   it("keeps a ProtVar value already on the cached payload", () => {
     const cached = { ...foldxRaw, energetics: { ...foldxRaw.energetics, protvar: 1.1, protvarStatus: "done", protvarModel: "AF-X-F1" } };
     expect(enrichBiophysicalResult(cached, {}).energetics).toMatchObject({ protvar: 1.1, protvarStatus: "done", protvarModel: "AF-X-F1" });
+  });
+});
+
+/**
+ * ThermoMPNN's status contract, at the two seams that shape it: the Tamarind submission and the
+ * poller. A "complete" upstream job without a numeric ΔΔG is an upstream failure to deliver, not
+ * a terminal success; a warming or unreachable engine is not a pollable job; and an answer with
+ * neither a score nor a job id invents nothing to poll.
+ */
+describe("ThermoMPNN status contract", () => {
+  const ENV = ["TAMARIND_API_KEY", "THERMOMPNN_PROVIDER", "SHARED_TOKEN_FALLBACK", "EGRESS_GOVERNOR"] as const;
+  let saved: Record<string, string | undefined>;
+  const PDB = "ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND";
+
+  beforeEach(() => {
+    saved = Object.fromEntries(ENV.map(k => [k, process.env[k]]));
+    process.env.TAMARIND_API_KEY = "tamarind-team-key-000000";
+    resetTamarindSubmissionsForTests();
+    clearEnergyModelCaches();
+  });
+
+  afterEach(() => {
+    for (const k of ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    vi.restoreAllMocks();
+  });
+
+  it("maps a completed Tamarind job without a numeric score to a retryable upstream error", async () => {
+    process.env.THERMOMPNN_PROVIDER = "remote";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ jobs: [{ jobName: "job-no-number", JobStatus: "Complete", Score: "NA" }] }),
+      { status: 200 }
+    ) as any);
+
+    const result = await pollThermoMpnnJob("job-no-number");
+    expect(result.status).toBe("error");
+    expect(result.prediction).toBeNull();
+    expect(result.error).toContain("without");
+  });
+
+  it("keeps a completed job with a real (non-zero) score as done", async () => {
+    process.env.THERMOMPNN_PROVIDER = "remote";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ jobs: [{ jobName: "job-ok", JobStatus: "Complete", Score: 0.0 }] }),
+      { status: 200 }
+    ) as any);
+
+    const result = await pollThermoMpnnJob("job-ok");
+    expect(result.status).toBe("done");
+    expect(result.prediction).toBe(0.0);
+  });
+
+  it("does not fabricate a pollable job when the Tamarind answer carries neither a score nor a job ID", async () => {
+    process.env.THERMOMPNN_PROVIDER = "remote";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ detail: "queued, id missing" }),
+      { status: 200 }
+    ) as any);
+
+    const result = await submitThermoMpnnJob(PDB, "AA1V");
+    expect(result.status).toBe("unavailable");
+    expect(result.jobId).toBeNull();
+  });
+
+  it("reports a warming sidecar as not-available-yet with no pollable id", async () => {
+    process.env.THERMOMPNN_PROVIDER = "local";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ detail: "ThermoMPNN model is warming up" }),
+      { status: 503 }
+    ) as any);
+
+    const result = await submitThermoMpnnJob(PDB, "AA1V");
+    expect(result.status).toBe("unavailable");
+    expect(result.jobId).toBeNull();
+    expect(result.error).toContain("warming up");
   });
 });

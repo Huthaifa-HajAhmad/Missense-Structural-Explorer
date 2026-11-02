@@ -381,8 +381,19 @@ export async function pollBioSigJob(
 
     if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
       const ddG = typeof pollJson.prediction === "number" ? pollJson.prediction : parseFloat(pollJson.prediction);
+      if (!Number.isFinite(ddG)) {
+        /**
+         * The upstream answered "completed" with a non-numeric prediction (`NA`, `""`, `nan`).
+         * Reporting `DONE` with a null value made the client stop polling on a job that had
+         * produced nothing, and the enricher — which holds an engine open only on `pending` —
+         * counted the evidence as complete with this engine silently missing from it. DDMut-PPI
+         * already maps the same shape to a failure; do the same here.
+         */
+        console.warn(`[${toolName} API] Completed job ${jobId} returned a non-numeric prediction:`, pollJson.prediction);
+        return { status: "ERROR", prediction: null };
+      }
       console.log(`[${toolName} API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
-      return { status: "DONE", prediction: Number.isFinite(ddG) ? ddG : null };
+      return { status: "DONE", prediction: ddG };
     }
 
     // Check for explicit error or failure returned by upstream BioSig API
