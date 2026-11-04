@@ -148,6 +148,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/biophysics/verify-stability",
   "/structure/multimer",
   "/api/v1/structure/multimer",
+  "/structure/multimer/import",
+  "/api/v1/structure/multimer/import",
   "/ppi/binding-affinity",
   "/api/v1/ppi/binding-affinity",
   "/alphagenome/region-saturation",

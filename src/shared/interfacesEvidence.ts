@@ -716,7 +716,7 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     Object.assign(model, {
       state: "not-requested",
       stateLabel: null,
-      reason: `Not run. Boltz-2 can model the ${rec.label.toLowerCase()} (${plural(modelChains, "chain")}, variant on chain A). It is a GPU job${observedPartners.length ? ", and solved structures already answer whether the residue is at an interface" : ""}.`,
+      reason: `Not run. Boltz-2 can model the ${rec.label.toLowerCase()} (${plural(modelChains, "chain")}, variant on chain A) as a provider GPU job, or free in your own browser with LocalFold${observedPartners.length ? ", though solved structures already answer whether the residue is at an interface" : ""}.`,
     });
   } else if (staleAsm) {
     Object.assign(model, { state: "pending", stateLabel: ENGINE_STATE_LABELS.running, reason: "A stored result predates per-structure support; reading it again." });

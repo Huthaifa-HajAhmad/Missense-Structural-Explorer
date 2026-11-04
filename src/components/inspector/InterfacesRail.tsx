@@ -206,8 +206,10 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
           <summary>The complex model and the binding change</summary>
           <ul>
             <li>
-              Boltz-2 runs only on request. Chain A carries the variant and every other chain is wild type: for a homomer that is one
-              mutant copy, closer to a heterozygous carrier than a homozygous one. ipTM scores all interfaces together.
+              Boltz-2 runs only when you ask for one: as a provider job, or free in your own browser with LocalFold
+              (its contacts are then measured here at 4.5 Å, and a saved PDB carries no ipTM). Chain A carries the
+              variant and every other chain is wild type: for a homomer that is one mutant copy, closer to a
+              heterozygous carrier than a homozygous one. ipTM scores all interfaces together.
             </li>
             <li>
               DDMut-PPI substitutes the residue in a wild-type complex. It was trained on experimental structures, so a solved

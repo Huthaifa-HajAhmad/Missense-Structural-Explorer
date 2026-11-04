@@ -195,6 +195,8 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/sidecar-health");
       expect(PUBLIC_ENDPOINTS).toContain("/structure/multimer");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/structure/multimer");
+      expect(PUBLIC_ENDPOINTS).toContain("/structure/multimer/import");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/structure/multimer/import");
       expect(PUBLIC_ENDPOINTS).toContain("/ppi/binding-affinity");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/ppi/binding-affinity");
       expect(PUBLIC_ENDPOINTS).toContain("/alphagenome/region-saturation");

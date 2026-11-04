@@ -306,6 +306,25 @@
   background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .ifc-card > .ifc-foot:first-child { border-top: 0; }
+
+/* The LocalFold hand-off: the same fold done on the reader's own GPU, offered beside the provider job
+   rather than instead of it. The note is the disclosure — the three limits (WebGPU, a one-off weights
+   download, the MSA egress) — in the flow of the foot, not a tooltip nobody opens. */
+.ifc-foot.ifc-local-fold > span { flex: 1 1 320px; min-width: 0; }
+/* `.ifc-link` pushes itself right, which is right for one link at a row's edge and wrong for two that
+   wrap onto their own lines at 360 px: each would sit under the right edge of the note. */
+.ifc-foot.ifc-local-fold > .ifc-link { margin-left: 0; }
+.ifc-link[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.ifc-local-fold__note {
+  margin: 0; padding: 8px 16px;
+  font-size: var(--cs-font-size-caption); line-height: 1.65; color: var(--cs-text-muted);
+  border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface);
+}
+/* A refusal is not a footnote: same strip, danger ink, so a sighted reader sees what `role="alert"`
+   tells a screen reader. */
+.ifc-local-fold__note[role="alert"] { color: var(--cs-text-danger-on-soft); }
+
 .ifc-legend__item { display: inline-flex; align-items: center; gap: 8px; }
 .ifc-key { display: inline-block; flex: none; width: 14px; height: 10px; border-radius: 2px; }
 .ifc-key[data-kind="support"] {

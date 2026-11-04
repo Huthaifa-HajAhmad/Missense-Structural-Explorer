@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InterfacesTab } from "../InterfacesTab";
 import { trackTicks } from "../interfaces/InterfaceTrack";
@@ -45,6 +45,15 @@ function hangingFetch() {
 }
 
 const RESULT: any = { ...SLC12A4.result, multimerData: SLC12A4.assembly, ppiBindingData: SLC12A4.ppi };
+
+/**
+ * The LocalFold note is rendered twice on purpose — an always-mounted `role="status"` line for screen
+ * readers and a visible paragraph — so a note assertion must look at the strip, not at "the" element
+ * with that text.
+ */
+function localFoldText(): string {
+  return Array.from(document.querySelectorAll(".ifc-local-fold__note")).map(node => node.textContent ?? "").join(" | ");
+}
 
 function renderTab(result: any) {
   const props = { analysisState: { result, isLoading: false }, energyUnit: "kcal/mol", formatDdGValue: (v: number) => `${v}`, onTabChange: vi.fn() } as any;
@@ -339,7 +348,165 @@ describe("InterfacesTab & rail — one readiness source", () => {
     expect(partners).toHaveTextContent("Provider error");
     expect(partners).not.toHaveTextContent("Reading…");
   });
+});
 
+describe("InterfacesTab — the LocalFold hand-off", () => {
+  it("offers the free browser fold beside the provider job, and says what leaves the machine", () => {
+    renderTab(RESULT);
+    const fold = screen.getByTestId("local-fold");
+    expect(within(fold).getByRole("button", { name: /Fold in LocalFold/ })).toBeInTheDocument();
+    expect(within(fold).getByRole("button", { name: /Load a model from LocalFold/ })).toBeInTheDocument();
+    // The one line that keeps a browser fold honest: the alignment search is the part that goes out.
+    expect(fold).toHaveTextContent("api.colabfold.com");
+  });
+
+  it("saves the job file, opens localfold.org, and states a complex past the browser budget", async () => {
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:job");
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true, writable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true, writable: true });
+    // The anchor would otherwise navigate jsdom (and print "Not implemented"), which also hides
+    // whether the download was triggered at all.
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    const handoff = {
+      url: "https://localfold.org/?model=boltz2",
+      filename: "SLC12A4_localFold_job.json",
+      jobJson: "[]\n",
+      residues: 2170,
+      tooLarge: true,
+    };
+    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => ({ ...RESULT.multimerData, handoff }) });
+    renderTab(RESULT);
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByTestId("local-fold")).getByRole("button", { name: /Fold in LocalFold/ }));
+    });
+
+    // The tab is opened synchronously, before the request: after an await a popup blocker eats it.
+    expect(openSpy.mock.invocationCallOrder[0]).toBeLessThan(fetchWithAuthMock.mock.invocationCallOrder[0]);
+    expect(openSpy).toHaveBeenCalledWith("https://localfold.org/?model=boltz2", "_blank", "noopener,noreferrer");
+    expect(fetchWithAuthMock).toHaveBeenCalledWith(
+      "/api/v1/structure/multimer",
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"handoff":true') })
+    );
+    // The file itself: a JSON blob named after the job, saved through a real anchor click.
+    expect((createObjectURL.mock.calls[0][0] as Blob).type).toBe("application/json");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect((clickSpy.mock.instances[0] as unknown as HTMLAnchorElement).download).toBe("SLC12A4_localFold_job.json");
+    // Not a silent gate: the reader is told the size before waiting hours on it.
+    expect(localFoldText()).toContain("past what a browser fold is expected to finish");
+    clickSpy.mockRestore();
+    openSpy.mockRestore();
+  });
+
+  it("reads a saved model back through the import endpoint", async () => {
+    const imported = { ...RESULT.multimerData, status: "success", provenance: "Boltz-2 via LocalFold (browser)" };
+    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => imported });
+    renderTab(RESULT);
+
+    const input = screen.getByLabelText("A PDB model saved from LocalFold");
+    const file = new File(["ATOM      1  CA  ASP A 867       0.000   0.000   0.000  1.00 90.00           C"], "model.pdb", { type: "text/plain" });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    expect(await waitFor(() => localFoldText().includes("heavy-atom contacts within 4.5 Å"))).toBe(true);
+    expect(fetchWithAuthMock).toHaveBeenCalledWith(
+      "/api/v1/structure/multimer/import",
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"structure":"ATOM') })
+    );
+  });
+});
+
+describe("InterfacesTab — a LocalFold import never costs the model it replaces", () => {
+  /** A built provider model, so a refused import has something to destroy. */
+  const built = {
+    ...SLC12A4.assembly,
+    status: "success",
+    complexPdb: "ATOM      1  CA  GLY A 867       0.000   0.000   0.000  1.00 90.00           C",
+    ipTm: 0.82,
+    pTm: 0.74,
+    provenance: "Boltz-2 via JapanFold",
+    interfaceContacts: [{ resA: 867, resB: 40, distance: 3.1 }],
+    variantAtInterface: true,
+  } as any;
+
+  function upload(fileName = "model.pdb") {
+    const input = screen.getByLabelText("A PDB model saved from LocalFold");
+    const file = new File(["ATOM      1  CA  GLY A 867       0.000   0.000   0.000  1.00 90.00           C"], fileName, { type: "text/plain" });
+    return act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+  }
+
+  it("keeps the built model when the file is refused, and says why", async () => {
+    // The refusal used to be stored before it was read, wiping a fold the reader had paid for.
+    fetchWithAuthMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...built,
+        status: "failed",
+        complexPdb: null,
+        interfaceContacts: [],
+        error: "That model holds one chain; this assembly folds A, B.",
+      }),
+    });
+    renderTab({ ...RESULT, multimerData: built });
+
+    await upload();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("this assembly folds A, B");
+    // The model is still the provider's: same provenance, coordinates still downloadable.
+    expect(document.body.textContent).toContain("Boltz-2 via JapanFold");
+    expect(screen.getByRole("button", { name: /Download model/ })).toBeInTheDocument();
+  });
+
+  it("names LocalFold once its model is the one on screen, and does not invent a confidence", async () => {
+    fetchWithAuthMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...built,
+        provenance: "Boltz-2 via LocalFold (browser)",
+        ipTm: null,
+        pTm: null,
+        interfaceContacts: [{ resA: 867, resB: 40, distance: 3.0 }],
+      }),
+    });
+    renderTab({ ...RESULT, multimerData: built });
+
+    await upload();
+
+    // The note appears only after the import resolves, so it is the wait for the state below.
+    await waitFor(() => expect(localFoldText()).toContain("heavy-atom contacts within 4.5 Å"));
+    // The provenance sits beside the chain list in one element, so match the page's text, not a node.
+    expect(document.body.textContent).toContain("Boltz-2 via LocalFold (browser)");
+    // ipTM is null for a PDB-only model: the row must say so, not "No result" next to a built model.
+    expect(screen.getByText("Not reported", { selector: ".ev-tier" })).toBeInTheDocument();
+  });
+
+  it("does not start a second hand-off while the first is in flight", async () => {
+    const createObjectURL = vi.fn(() => "blob:job");
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true, writable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true, writable: true });
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    let release: (value: unknown) => void = () => {};
+    fetchWithAuthMock.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    renderTab({ ...RESULT, multimerData: built });
+    const button = within(screen.getByTestId("local-fold")).getByRole("button", { name: /Fold in LocalFold/ });
+
+    await act(async () => { fireEvent.click(button); });
+    // Two distinct user clicks are two events, so the busy flag has painted between them.
+    await act(async () => { fireEvent.click(button); });
+
+    expect(fetchWithAuthMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release({ ok: true, json: async () => ({ ...built, handoff: { url: "https://localfold.org/?model=boltz2", filename: "x.json", jobJson: "[]", residues: 100, tooLarge: false } }) });
+    });
+    openSpy.mockRestore();
+  });
+});
+
+describe("InterfacesTab & rail — a lookup still in flight", () => {
   it("keeps a genuinely in-flight lookup pending, with the Reading marker and no animation", async () => {
     fetchWithAuthMock.mockImplementation(hangingFetch());
     const result = { ...RESULT, ppiBindingData: null };
