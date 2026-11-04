@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { cleanPdbForFoldX } from "../stability/foldx/pdb-utils.ts";
 import { getFoldxCacheKey, type FoldxCacheKeyOptions } from "../stability/foldx/cache.ts";
+import { countResidues } from "../stability/foldx/estimate.ts";
+import { foldxIntendedRepairMode } from "../../../src/shared/foldxRepairMode.ts";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +52,9 @@ export function buildFoldxCacheKey(
 ): string {
   const normalizedPdb = cleanPdbForFoldX(wtPdbText);
   const pdbHash = crypto.createHash("sha256").update(normalizedPdb).digest("hex");
-  return getFoldxCacheKey(pdbHash, mutation, options);
+  // The repair mode comes from the template's size alone, so this key is the same on every machine.
+  const repairMode = foldxIntendedRepairMode(countResidues(normalizedPdb));
+  return getFoldxCacheKey(pdbHash, mutation, { ...options, repairMode });
 }
 
 /**

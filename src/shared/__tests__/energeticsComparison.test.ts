@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { LOCAL_REPAIR_BENCHMARK } from '../foldxRepairBenchmark.generated';
 import { LARGE_STRUCTURE_REPAIR_NOTE, buildEnergeticsEvidence } from '../energeticsEvidence';
-import { FOLDX_REPAIR_MAX_RESIDUES } from '../computeRouting';
 import { buildEnergeticsComparison, energeticsComparisonHeadline, energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates } from '../energeticsComparison';
 import { KJ_PER_KCAL } from '../engineStatus';
 
@@ -11,7 +11,7 @@ describe('Energetics comparison scientific display contract', () => {
     const notes = energeticsComparisonCautions(e);
     expect(notes).toContain('FoldX used an unrepaired template, which can distort the estimate.');
     expect(notes).toContain(LARGE_STRUCTURE_REPAIR_NOTE);
-    expect(LARGE_STRUCTURE_REPAIR_NOTE).toContain(`above ${FOLDX_REPAIR_MAX_RESIDUES} residues`);
+    expect(LARGE_STRUCTURE_REPAIR_NOTE).toContain('above 400 residues');
     expect(LARGE_STRUCTURE_REPAIR_NOTE).toContain('not a repair failure');
     // The Engine records tab shows it as visible row text, not only as hover text on the chip.
     expect(e.readings.find(r => r.key === 'foldx')?.note).toContain(LARGE_STRUCTURE_REPAIR_NOTE);
@@ -20,6 +20,23 @@ describe('Energetics comparison scientific display contract', () => {
     const e = evidence({ foldxRepairSkipped: true, foldxRepairSkippedReason: 'repair-exceeds-budget', structureProvenance: { source: 'alphafold', chainId: 'A' } });
     expect(energeticsComparisonCautions(e)).not.toContain(LARGE_STRUCTURE_REPAIR_NOTE);
     expect(e.readings.find(r => r.key === 'foldx')?.note ?? '').not.toContain(LARGE_STRUCTURE_REPAIR_NOTE);
+  });
+  it('states the local-repair offset as visible text, not only in a hover title', () => {
+    const e = evidence({
+      repairMode: 'fix-shell:r15-seq14:v1',
+      repairModeIntended: 'fix-shell:r15-seq14:v1',
+      repairShell: { radiusA: 15, sequenceBuffer: 14, sphereResidues: 62, movableResidues: 62, totalResidues: 875, sequenceBufferApplied: false },
+      structureProvenance: { source: 'alphafold', chainId: 'A' },
+    });
+    const notes = energeticsComparisonCautions(e);
+    // The measured spread is the disclosure; a reader must not have to hover to find it.
+    expect(notes.some(n => n.includes('variants with a measured stability change'))).toBe(true);
+    expect(notes.some(n => n.includes(`changed the band for ${LOCAL_REPAIR_BENCHMARK.bandChanges}`))).toBe(true);
+    expect(notes.some(n => n.includes('Do not compare it with a whole-chain FoldX value'))).toBe(true);
+  });
+  it('does not add the local-repair offset when the template was repaired whole', () => {
+    const e = evidence({ repairMode: 'full', repairModeIntended: 'full', structureProvenance: { source: 'alphafold', chainId: 'A' } });
+    expect(energeticsComparisonCautions(e).some(n => n.includes('variants with a measured stability change'))).toBe(false);
   });
   it('gives the moderate band its own warning tone, so every surface agrees', () => {
     const tones = Object.fromEntries(evidence({ foldx: 0.58, foldxMean: 0.58 }).readings.map(r => [r.key, r.callTone]));

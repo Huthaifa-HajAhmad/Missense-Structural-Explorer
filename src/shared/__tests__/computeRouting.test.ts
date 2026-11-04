@@ -1,18 +1,20 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_ROUTING_POLICY,
-  FOLDX_REPAIR_MAX_RESIDUES,
+  FOLDX_FULL_REPAIR_MAX_RESIDUES,
   compareVersions,
   costModelKey,
   decidePlacement,
   foldxPriorP50Ms,
   foldxRepairApplies,
   hostClassOf,
+  nativeFoldxRepairPriorMs,
   type CostModels,
   type HostFeatures,
   type JobFeatures,
   type RoutingPolicy,
 } from "../computeRouting";
+import { FIX_SHELL_MODE, foldxIntendedRepairMode } from "../foldxRepairMode";
 
 const GIB = 1024 ** 3;
 
@@ -97,32 +99,45 @@ describe("priors (plan section 2.3)", () => {
     const repair = (r: number) =>
       foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: true }, false) - foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: false }, false);
     expect(repair(154)).toBeCloseTo(49_000, -2);
-    expect(repair(400)).toBeGreaterThan(repair(154)); // grows with size
+    expect(repair(FOLDX_FULL_REPAIR_MAX_RESIDUES)).toBeGreaterThan(repair(154)); // whole-chain repair grows with size
   });
 
-  it("native RepairPDB passes through the 305-residue point too; emulated is never faster than native", () => {
+  it("the whole-chain curve still passes through the 305-residue point; emulated is never faster than native", () => {
+    // The same curve reproduces both native measurements: 49 s at 154 and 205.4 s at 305 (foldx/cache.ts).
+    // Jobs above FOLDX_FULL_REPAIR_MAX_RESIDUES no longer use it (they repair locally), but its anchors stay true.
+    expect(nativeFoldxRepairPriorMs(305)).toBeCloseTo(205_400, -3);
     const repair = (r: number, emulated: boolean) =>
       foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: true }, emulated) - foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: false }, emulated);
-    // The same curve reproduces both native measurements: 49 s at 154 and 205.4 s at 305 (foldx/cache.ts).
-    expect(repair(305, false)).toBeCloseTo(205_400, -3);
     // The engine must never claim Box64 repair is FASTER than bare metal (the inversion the review found).
-    for (const r of [154, 200, 305, 400]) expect(repair(r, true)).toBeGreaterThan(repair(r, false));
+    for (const r of [154, 200, 233, 305, 400, 875]) expect(repair(r, true)).toBeGreaterThan(repair(r, false));
+  });
+
+  it("above the whole-chain limit the repair is the local one: a constant, not the 89 to 284 s of a full repair", () => {
+    const repair = (r: number, emulated: boolean) =>
+      foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: true }, emulated) - foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: false }, emulated);
+    expect(repair(442, false)).toBe(15_000);
+    expect(repair(875, false)).toBe(15_000);
+    expect(repair(875, true)).toBeCloseTo(15_000 * 5.6, -2);
+    // The step at the boundary goes DOWN: repairing less region is cheaper than repairing the whole chain.
+    expect(repair(FOLDX_FULL_REPAIR_MAX_RESIDUES + 1, false)).toBeLessThan(repair(FOLDX_FULL_REPAIR_MAX_RESIDUES, false));
   });
 
   it("the decision for 1,085 residues on the server is a prior with p90 = 2 x p50", () => {
     const d = decidePlacement(foldxJob(1085), [server], policy(), NONE);
     expect(d.prediction?.basis).toBe("prior");
-    expect(d.prediction?.wallMs?.p50).toBeCloseTo(167_200, -2);
+    const buildModelOnly = foldxPriorP50Ms({ residues: 1085, numberOfRuns: 5, repair: false }, true);
+    expect(buildModelOnly).toBeCloseTo(167_200, -2);
+    // BuildModel plus the local repair every size above the whole-chain limit now gets.
+    expect(d.prediction?.wallMs?.p50).toBe(buildModelOnly + Math.round(15_000 * 5.6));
     expect(d.prediction?.wallMs?.p90).toBe((d.prediction?.wallMs?.p50 ?? 0) * 2);
   });
 
-  it("the 400/401 boundary switches RepairPDB, for both predicted and experimental models", () => {
-    expect(foldxRepairApplies(FOLDX_REPAIR_MAX_RESIDUES)).toBe(true);
-    expect(foldxRepairApplies(FOLDX_REPAIR_MAX_RESIDUES + 1)).toBe(false);
+  it("every size is repaired: the whole chain up to 233 residues, the region around the variant above", () => {
     expect(foldxRepairApplies(200)).toBe(true);
-    const withRepair = foldxPriorP50Ms({ residues: 400, numberOfRuns: 5, repair: true }, true);
-    const without = foldxPriorP50Ms({ residues: 401, numberOfRuns: 5, repair: false }, true);
-    expect(withRepair).toBeGreaterThan(without);
+    expect(foldxRepairApplies(401)).toBe(true); // the retired policy stopped at 400
+    expect(foldxRepairApplies(1085)).toBe(true);
+    expect(foldxIntendedRepairMode(FOLDX_FULL_REPAIR_MAX_RESIDUES)).toBe("full");
+    expect(foldxIntendedRepairMode(FOLDX_FULL_REPAIR_MAX_RESIDUES + 1)).toBe(FIX_SHELL_MODE);
   });
 });
 

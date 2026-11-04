@@ -182,6 +182,27 @@ export const energeticsDataSchema = z.object({
   foldxRepairRefresh: z.object({ after: z.number().finite(), until: z.number().finite() }).optional(),
   /** The repaired template was reused from cache instead of recomputed — same coordinates, disclosed. */
   foldxRepairCached: z.boolean().optional(),
+  /**
+   * The repair the template actually got (`src/shared/foldxRepairMode.ts`), the one it was meant to get,
+   * how much of the structure a local repair could move, and what the value rests on. Absent on results
+   * from before these were kept.
+   */
+  repairMode: z.enum(["full", "fix-shell:r15-seq14:v1", "none"]).optional(),
+  repairModeIntended: z.enum(["full", "fix-shell:r15-seq14:v1"]).optional(),
+  repairShell: z
+    .object({
+      radiusA: z.number(),
+      sequenceBuffer: z.number(),
+      sphereResidues: z.number(),
+      movableResidues: z.number(),
+      totalResidues: z.number(),
+      sequenceBufferApplied: z.boolean(),
+    })
+    .optional(),
+  conditions: z.object({ pH: z.number(), temperature: z.number(), ionicStrength: z.number() }).optional(),
+  templateExtent: z
+    .object({ residueCount: z.number(), chainId: z.string(), firstResidue: z.number(), lastResidue: z.number() })
+    .optional(),
   foldxError: z.string().nullable().optional(),
   dynamut2: nullableFiniteNumber.optional(),
   ddmut: nullableFiniteNumber.optional(),

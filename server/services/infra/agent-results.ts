@@ -18,9 +18,11 @@
  * server once (plan 9). Nothing here throws on bad input.
  */
 import { z } from "zod";
+import { FIX_SHELL_MODE, FOLDX_REPAIR_MODES, foldxIntendedRepairMode, type FoldxRepairMode } from "../../../src/shared/foldxRepairMode.ts";
 import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
 import { parseResiduesFromPdb } from "../structure/pdb-parser.ts";
 import { cleanPdbForFoldX } from "../stability/foldx/pdb-utils.ts";
+import { countResidues } from "../stability/foldx/estimate.ts";
 import { parseQueueMutation } from "../stability/foldx-queue-job.ts";
 
 /** Largest structure text a result may carry. The submit routes accept 10 MB of PDB. */
@@ -58,6 +60,27 @@ export const foldxAgentResultSchema = z
         foldxRepairSkipped: z.boolean().optional(),
         foldxRepairSkippedReason: z.string().max(300).optional(),
         foldxRepairCached: z.boolean().optional(),
+        repairMode: z.enum(FOLDX_REPAIR_MODES as [FoldxRepairMode, ...FoldxRepairMode[]]).optional(),
+        repairModeIntended: z.enum(["full", FIX_SHELL_MODE]).optional(),
+        repairShell: z
+          .object({
+            radiusA: finite,
+            sequenceBuffer: finite,
+            sphereResidues: z.number().int().nonnegative(),
+            movableResidues: z.number().int().nonnegative(),
+            totalResidues: z.number().int().nonnegative(),
+            sequenceBufferApplied: z.boolean()
+          })
+          .optional(),
+        conditions: z.object({ pH: finite, temperature: finite, ionicStrength: finite }).optional(),
+        templateExtent: z
+          .object({
+            residueCount: z.number().int().nonnegative(),
+            chainId: z.string().max(4),
+            firstResidue: z.number().int(),
+            lastResidue: z.number().int()
+          })
+          .optional(),
         bFactorMetadata: z.unknown().optional(),
         rasp: z.null().optional(),
         raspReason: z.undefined().optional(),
@@ -140,6 +163,25 @@ export function validateFoldxAgentResult(job: { wtPdb: string; mutation: string 
   if (r.foldedResidueIndex !== want.position) reasons.push(`the result is for residue ${r.foldedResidueIndex}, the job asked for ${want.position}`);
   if (r.resolvedChain && r.resolvedChain.toUpperCase() !== want.chain) reasons.push(`the result is for chain ${r.resolvedChain}, the job asked for chain ${want.chain}`);
   if (Math.abs(r.energetics.foldxMean - r.ddG) > 1e-6) reasons.push("ddG and the FoldX mean disagree");
+
+  /**
+   * The repair a job is meant to get is a function of the template's size alone, so a result computed
+   * under a different one is a different measurement of the same variant even when every other check
+   * passes: a worker built before the local repair existed repairs the whole chain up to 400 residues,
+   * so above 233 it returns a whole-chain value where this job asks for the local one. Refusing it lets
+   * the caller hand the job to the server (plan 9) rather than show two answers for one variant.
+   *
+   * `none` is accepted: it says the repair the job asked for did not happen, which the payload discloses
+   * and `writeMutantToCache` refuses to store. A result that names no mode is accepted only where the
+   * job asks for a whole-chain repair, which is what every older worker did at those sizes.
+   */
+  const intended = foldxIntendedRepairMode(countResidues(cleanPdbForFoldX(job.wtPdb)));
+  const reported = r.energetics.repairMode;
+  if (reported === undefined) {
+    if (intended !== "full") reasons.push(`the result does not say which repair it used; this template needs "${intended}"`);
+  } else if (reported !== intended && reported !== "none") {
+    reasons.push(`the result used repair "${reported}", this template needs "${intended}"`);
+  }
 
   const chain = (r.resolvedChain ?? want.chain).toUpperCase();
   const mutant = parseResiduesFromPdb(r.pdb);

@@ -1,12 +1,5 @@
 import { CONFIG } from "../../../config.ts";
-import { FOLDX_REPAIR_MAX_RESIDUES, nativeFoldxRepairPriorMs } from "../../../../src/shared/computeRouting.ts";
-
-/**
- * Structures above this size skip RepairPDB (a cost guard; see runner.ts). Shared with the budget
- * test, which relies on it: a long BuildModel and a RepairPDB can never stack in one job. Defined in
- * `src/shared/computeRouting.ts` so the placement engine's `repair` flag reads the same number.
- */
-export { FOLDX_REPAIR_MAX_RESIDUES };
+import { nativeFoldxRepairPriorMs } from "../../../../src/shared/computeRouting.ts";
 
 export interface BuildModelBudgetInput {
   residueCount: number;
@@ -139,9 +132,13 @@ export function backgroundRepairBudgetMs(
   return Math.round(Math.max(t.foldxRepairMs, wanted));
 }
 
-/** The largest complete structure the repair gate admits under emulation (bounds the repaired path in the nest test). */
+/**
+ * The largest complete structure a whole-chain repair fits under emulation, the slowest supported host
+ * (bounds the repaired path in the nest test). `FOLDX_FULL_REPAIR_MAX_RESIDUES` is this number written
+ * down once for every machine; `budget.test.ts` fails if the two drift apart.
+ */
 export function emulatedRepairResidueLimit(t: RepairTimeouts = CONFIG.timeouts): number {
-  return Math.min(FOLDX_REPAIR_MAX_RESIDUES, Math.floor(t.foldxRepairMs / t.foldxEmulatedRepairMsPerResidue));
+  return Math.floor(t.foldxRepairMs / t.foldxEmulatedRepairMsPerResidue);
 }
 
 /** Never hand a stage less than this: a smaller budget fails instantly and says nothing about the structure. */

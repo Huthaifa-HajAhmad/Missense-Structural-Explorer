@@ -36,7 +36,8 @@ vi.mock("./foldx/background-repair.ts", () => ({
   requestBackgroundRepair: (...args: unknown[]) => requestBackgroundRepair(...args)
 }));
 
-const { runFoldxQueueJobOnServer, foldxFailureResult } = await import("./foldx-queue-job.ts");
+const { runFoldxQueueJobOnServer, foldxFailureResult, finishFoldxQueueJob } = await import("./foldx-queue-job.ts");
+const cache = await import("./foldx/cache.ts");
 
 const data = { wtPdb: "PDB TEXT", mutation: "SA489C", uniprotId: "Q9H8M5", options: { pH: 7.4, temperature: 298.15, ionicStrength: 0.15 } };
 const result = (energetics: Record<string, unknown>) => ({ pdb: "x", ddG: 0, status: "success", energetics: { foldxMean: 0, ...energetics } });
@@ -203,5 +204,39 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     await runFoldxQueueJobOnServer({ ...data, uniprotId: undefined }, undefined, "job-no-uniprot");
     expect(publishedRemote.some(r => r.raspStatus === "unavailable")).toBe(true);
     expect(publishedRemote.some(r => r.protvarStatus === "unavailable")).toBe(true);
+  });
+});
+
+describe("finishFoldxQueueJob and the cached FoldX entry", () => {
+  const key = cache.getFoldxCacheKey("queue-job-companions", "SA489C", { repairMode: "full" });
+  const foldx = (energetics: Record<string, unknown>) => ({
+    pdb: "x", ddG: 0.13, status: "success",
+    energetics: { foldxMean: 0.13, repairMode: "full", rasp: null, stabilityoracle: null, thermompnn: null, ...energetics }
+  });
+
+  beforeEach(async () => {
+    process.env.FOLDX_CACHE_DIR = (await import("fs")).mkdtempSync((await import("path")).join((await import("os")).tmpdir(), "queue-job-cache-"));
+    cache.mutantCache.clear();
+  });
+
+  it("keeps the companion engines' values with the entry FoldX wrote before them", async () => {
+    // FoldX writes its entry first, with nothing from the companions...
+    cache.writeMutantToCache(key, foldx({}));
+    // ...and the job finishes with their values merged in (the enrich step is a pass-through in this file).
+    await finishFoldxQueueJob(undefined, data, foldx({ stabilityoracle: 0.58, rasp: 0.8 }), Promise.resolve(), key);
+    expect((await cache.getMutantFromCache(key)).energetics).toMatchObject({ stabilityoracle: 0.58, stabilityoracleStatus: "done", rasp: 0.8 });
+  });
+
+  it("still finishes the job when the cache cannot be written to", async () => {
+    const spy = vi.spyOn(cache, "backfillMutantCacheCompanions").mockRejectedValue(new Error("disk full"));
+    const done = foldx({ stabilityoracle: 0.58 });
+    await expect(finishFoldxQueueJob(undefined, data, done, Promise.resolve(), key)).resolves.toBe(done);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("writes nothing when no entry was stored (a failed or unrepaired run)", async () => {
+    await finishFoldxQueueJob(undefined, data, foldx({ stabilityoracle: 0.58 }), Promise.resolve());
+    expect(await cache.getMutantFromCache(key)).toBeNull();
   });
 });

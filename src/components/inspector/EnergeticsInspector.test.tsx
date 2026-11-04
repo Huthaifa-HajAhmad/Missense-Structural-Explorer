@@ -85,6 +85,9 @@ describe("EnergeticsInspector — the rule trace", () => {
     // F8: a missing engine carries its reason, not a bare name.
     expect(steps[1]).toHaveTextContent("No value: DynaMut2 — The run ended without returning a value");
     expect(steps[1]).toHaveTextContent("RaSP — No precomputed RaSP score is available");
+    // Each reason ends in a full stop; joining them with "; " used to print ".;" between engines.
+    expect(steps[1].textContent).not.toMatch(/\.;/);
+    expect(steps[1].textContent).toMatch(/No value: .*\.$/);
     expect(steps[2]).toHaveTextContent("1 destabilizing · 0 moderate · 2 not destabilizing");
     expect(steps[3]).toHaveTextContent("Engines disagree · median −0.06 kcal/mol");
     expect(steps[3].getAttribute("data-state")).toBe("warn");

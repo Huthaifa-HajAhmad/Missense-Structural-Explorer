@@ -5,6 +5,7 @@ import { LRUCache } from "lru-cache";
 import { defaultCacheRegistry } from "../../infra/cache-registry.ts";
 import { mayServe } from "../../../../src/shared/computeProvenance.ts";
 import { serverProvenance } from "../../infra/host-probe.ts";
+import { FIX_SHELL_MODE, type FoldxIntendedRepairMode } from "../../../../src/shared/foldxRepairMode.ts";
 
 export const mutantCache = new LRUCache<string, any>({
   max: 100,
@@ -55,10 +56,6 @@ export function getCacheFilename(cacheKey: string): string {
  */
 export async function getMutantFromCache(cacheKey: string, requesterId?: string | null): Promise<any | null> {
   const found = await readMutantFromCache(cacheKey);
-  // A completed background repair supersedes the provisional mutant on the next request.
-  // Retain the old cache record for backfill/maintenance; serving it would hide the repair for 24 h.
-  if (found?.energetics?.foldxRepairSkipped && found.energetics.foldxRepairCacheKey &&
-      await getRepairedStructureFromCache(found.energetics.foldxRepairCacheKey)) return null;
   return found && mayServe(found, requesterId) ? found : null;
 }
 
@@ -125,6 +122,16 @@ export function writeMutantToCache(cacheKey: string, result: any) {
       return;
     }
 
+    // The key names the repair this result is meant to have (`repair:` segment). A result that got a
+    // different repair (it timed out, or a full repair did not fit a slow host) or does not say which it
+    // got (an older agent) would be served later under a name it does not match. It is shown to the
+    // reader who asked, and not kept.
+    const keyMode = repairModeOfCacheKey(cacheKey);
+    if (keyMode && result.energetics?.repairMode !== keyMode) {
+      console.log(`[FoldX Cache] Not caching: the key expects repair "${keyMode}", the run did "${result.energetics?.repairMode ?? "not reported"}".`);
+      return;
+    }
+
     // Every stored result says where it ran. Results written here without one were computed by
     // this server (agent results arrive with their own, WP-F).
     if (!result.computeProvenance) result.computeProvenance = serverProvenance(null, "foldx");
@@ -162,18 +169,80 @@ export interface FoldxCacheKeyOptions {
   toolVersion?: string;
 }
 
+/**
+ * Options for a result's key. `repairMode` is the repair the run is meant to get, decided from the
+ * template's size alone (`foldxIntendedRepairMode`), so it is the same on every machine. Required, so no
+ * caller can build a key that forgets it.
+ */
+export type FoldxMutantKeyOptions = FoldxCacheKeyOptions & { repairMode: FoldxIntendedRepairMode };
+
 export function getFoldxCacheKey(
   pdbHash: string,
   mutation: string,
-  options?: FoldxCacheKeyOptions
+  options: FoldxMutantKeyOptions
 ): string {
   // v3: the run-averaging rule changed (MAD outlier filter removed, see parser.ts). A v2 entry holds
   // a mean and SD that discarded legitimate runs, so it must not be served as the current answer.
   // v4 invalidates results from the retired AlphaFold repair bypass.
-  const FOLDX_CACHE_VERSION = "v4";
-  const seed = options?.seed !== undefined ? options.seed : 12345;
-  const tool = options?.toolVersion ? `_foldx:${options.toolVersion}` : "";
-  return `${pdbHash}_${mutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${FOLDX_CACHE_VERSION}${tool}`;
+  // v5: the repair mode is part of the key and of the stored result. A v4 entry may hold a ΔΔG from an
+  // unrepaired template that a background repair later replaced, so it must not be served as current.
+  const FOLDX_CACHE_VERSION = "v5";
+  const seed = options.seed !== undefined ? options.seed : 12345;
+  const tool = options.toolVersion ? `_foldx:${options.toolVersion}` : "";
+  return `${pdbHash}_${mutation}_pH:${options.pH ?? 7.0}_temp:${options.temperature ?? 298}_ion:${options.ionicStrength ?? 0.05}_seed:${seed}_repair:${options.repairMode}_version:${FOLDX_CACHE_VERSION}${tool}`;
+}
+
+/** The repair mode a key was built for, or null for a key without one. */
+export function repairModeOfCacheKey(cacheKey: string): FoldxIntendedRepairMode | null {
+  const mode = /_repair:([^_]+)_version:/.exec(cacheKey)?.[1];
+  return mode === "full" || mode === FIX_SHELL_MODE ? mode : null;
+}
+
+/**
+ * Keeps a companion engine's value with the FoldX entry it belongs to.
+ *
+ * FoldX writes its entry when it finishes, and RaSP, ProtVar and StabilityOracle land after it (the queue
+ * job runs them beside FoldX and merges them in `finishFoldxQueueJob`). Without this the entry kept
+ * `null` for each of them for 24 hours, so every revisit asked the model service again and showed
+ * "No result" whenever it happened to be down.
+ *
+ * Only an answer is kept: a number, or ProtVar's finished "no prediction". A failed or unavailable
+ * engine is never written, so one outage is not repeated for a day.
+ */
+export async function backfillMutantCacheCompanions(cacheKey: string, finished: any): Promise<void> {
+  const stored = await getMutantFromCacheForBackfill(cacheKey);
+  const into = stored?.energetics;
+  const from = finished?.energetics;
+  if (!into || !from) return;
+
+  let changed = false;
+  const keep = (field: string, value: unknown) => {
+    if (value !== undefined && into[field] !== value) {
+      into[field] = value;
+      changed = true;
+    }
+  };
+  const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+
+  if (isNumber(from.stabilityoracle)) {
+    keep("stabilityoracle", from.stabilityoracle);
+    keep("stabilityoracleStatus", "done");
+    keep("stabilityoracleError", null);
+  }
+  if (isNumber(from.rasp)) {
+    keep("rasp", from.rasp);
+    keep("raspSource", from.raspSource);
+    keep("raspCoverage", from.raspCoverage);
+    keep("raspStatus", "done");
+    keep("raspError", null);
+  }
+  if (from.protvarStatus === "done") {
+    for (const field of ["protvar", "protvarStatus", "protvarPlddt", "protvarModel", "protvarReason"] as const) keep(field, from[field]);
+    keep("protvarError", null);
+  }
+  if (isNumber(from.thermompnn)) keep("thermompnn", from.thermompnn);
+
+  if (changed) writeMutantToCache(cacheKey, stored);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,14 +283,64 @@ defaultCacheRegistry.registerCache("repairedStructureCache", repairedStructureCa
 /** Bump when the FoldX binary or the repair command line changes. */
 const REPAIR_CACHE_VERSION = "v1";
 
-/** Repair depends on the structure and the force-field environment — never on the substitution. */
-export function getRepairCacheKey(pdbHash: string, options?: FoldxCacheKeyOptions): string {
+/** The residue a local (`fix-shell`) repair was centred on. A full repair has none. */
+export interface FixShellScope {
+  chain: string;
+  resSeq: number;
+  insCode: string;
+}
+
+/**
+ * Repair depends on the structure and the force-field environment — never on the substitution. A full
+ * repair is keyed by those alone. A local (`fix-shell`) repair also depends on WHICH residue it was
+ * centred on, so it is keyed by that residue too: every substitution at one position shares one, and a
+ * different position never reuses it.
+ */
+export function getRepairCacheKey(pdbHash: string, options?: FoldxCacheKeyOptions, shell?: FixShellScope): string {
   const seed = options?.seed !== undefined ? options.seed : 12345;
-  return `repair_${pdbHash}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${REPAIR_CACHE_VERSION}`;
+  const conditions = `pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}`;
+  if (shell) {
+    return `repair_${pdbHash}_at:${shell.chain}${shell.resSeq}${shell.insCode}_${conditions}_mode:${FIX_SHELL_MODE}`;
+  }
+  return `repair_${pdbHash}_${conditions}_version:${REPAIR_CACHE_VERSION}`;
 }
 
 const repairCacheMisses = new LRUCache<string, true>({ max: 200, ttl: 30_000 });
 defaultCacheRegistry.registerCache("repairCacheMisses", repairCacheMisses, { ttlDesc: "30s" });
+
+/**
+ * A repair that just failed is not retried on the next request.
+ *
+ * `--fix-residues-file` still completes truncated side chains, so a crystal with many of them can run
+ * past the repair cap and time out. The failure is disclosed (`repairMode: "none"`) and never cached as
+ * a result, but without this every later request repeats the same dead work — and for a local repair
+ * nothing else ever fills its cache key, so it would repeat forever. Ten minutes is long enough that a
+ * burst of readers shares one answer and short enough that a transient crash does not disable the
+ * repair for the day.
+ */
+const repairFailureBackoff = new LRUCache<string, true>({ max: 200, ttl: 10 * 60 * 1000 });
+defaultCacheRegistry.registerCache("repairFailureBackoff", repairFailureBackoff, { ttlDesc: "10m" });
+
+/** Process-lifetime count of failed repair attempts (the `none` instrumentation). */
+let repairFailureTotalCount = 0;
+
+export function noteRepairFailure(cacheKey: string): void {
+  repairFailureBackoff.set(cacheKey, true);
+  repairFailureTotalCount += 1;
+}
+
+export function repairRecentlyFailed(cacheKey: string): boolean {
+  return repairFailureBackoff.has(cacheKey);
+}
+
+/** A successful repair clears its own backoff, so a transient failure never outlives a good run. */
+export function clearRepairFailure(cacheKey: string): void {
+  repairFailureBackoff.delete(cacheKey);
+}
+
+export function repairFailureTotal(): number {
+  return repairFailureTotalCount;
+}
 
 /** A cached template rejected by BuildModel must not wedge every later request for its 30-day TTL. */
 export async function invalidateRepairedStructure(cacheKey: string): Promise<void> {

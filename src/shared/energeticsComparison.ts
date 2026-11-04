@@ -1,5 +1,6 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
 import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { FIX_SHELL_OFFSET_NOTE } from './foldxRepairMode';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
  * Missing values never become points; filtering never changes agreement or the full-data axis.
@@ -25,6 +26,9 @@ export function energeticsComparisonCautions(evidence: EnergeticsEvidence): stri
     notes.push(`${unrepaired.map(r => r.name).join(', ')} used an unrepaired template, which can distort the estimate.`);
     if (evidence.structure?.repairSkippedReason === 'large-structure') notes.push(LARGE_STRUCTURE_REPAIR_NOTE);
   }
+  // The offset is a limit of the measurement, not a footnote: it belongs in the reading order of the
+  // Comparison tab, not only in a hover title (the same reason the unrepaired note is visible here).
+  if (evidence.readings.some(r => r.caveats.includes('local-repair'))) notes.push(FIX_SHELL_OFFSET_NOTE);
   // The cross-check names the other FoldX value beside the caveat it bears on.
   if (evidence.foldxTemplateCheck && (unrepaired.length || evidence.foldxTemplateCheck.state !== 'consistent')) notes.push(evidence.foldxTemplateCheck.headline);
   // A reference-only row is excluded by design, so it is not a caution with a reason to look up.

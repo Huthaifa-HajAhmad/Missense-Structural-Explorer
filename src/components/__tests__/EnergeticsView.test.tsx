@@ -57,7 +57,7 @@ function analysisState() {
   };
 }
 
-function renderView(overrides: Record<string, unknown> = {}) {
+function renderView(overrides: Record<string, unknown> = {}, opts: { records?: boolean } = {}) {
   const props = {
     ...CLASS_PROPS,
     analysisState: analysisState(),
@@ -80,8 +80,10 @@ function renderView(overrides: Record<string, unknown> = {}) {
     </SettingsProvider>
   );
   // These existing scientific contracts exercise the detailed records, now a named workspace tab.
-  const records = within(rendered.container).queryByRole('tab', { name: 'Engine records' });
-  if (records) fireEvent.click(records);
+  if (opts.records !== false) {
+    const records = within(rendered.container).queryByRole('tab', { name: 'Engine records' });
+    if (records) fireEvent.click(records);
+  }
   return rendered;
 }
 
@@ -203,6 +205,29 @@ describe("EnergeticsView — a fully populated run", () => {
     ddmutStatus: "done",
     thermompnnStatus: "done",
   };
+
+  it("marks the verdict provisional while an engine is still running, and not once all have settled", () => {
+    renderView({ ...settled, dynamut2Status: "pending", dynamut2: undefined, foldingEnergetics: { ...FULL, dynamut2: null } });
+    expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · 1 still running");
+    expect(screen.getByTestId("energetics-summary")).toHaveTextContent("DynaMut2 is still running, so this reading may change.");
+  });
+
+  it("shows no provisional marker for a settled run", () => {
+    renderView(settled);
+    expect(screen.queryByTestId("energetics-provisional")).toBeNull();
+  });
+
+  it("marks the default Comparison headline provisional too, not only the records tab", () => {
+    renderView({ ...settled, dynamut2Status: "pending", dynamut2: undefined, foldingEnergetics: { ...FULL, dynamut2: null } }, { records: false });
+    expect(screen.getByTestId("energetics-verdict").tagName).toBe("H2");
+    expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · 1 still running");
+  });
+
+  it("shows no provisional marker on the Comparison headline once every engine has settled", () => {
+    renderView(settled, { records: false });
+    expect(screen.getByTestId("energetics-verdict").tagName).toBe("H2");
+    expect(screen.queryByTestId("energetics-provisional")).toBeNull();
+  });
 
   it("reports full coverage and full agreement", () => {
     const { container } = renderView(settled);
@@ -651,5 +676,42 @@ describe("EnergeticsView — header, call chip and repair note", () => {
   it("offers a DynaMut2-only retry when DynaMut2 returned nothing", () => {
     renderView(settled);
     expect(screen.getByRole("button", { name: "Retry DynaMut2" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The 0.5 and 1.5 kcal/mol marks are far finer than FoldX's measured error, so the error has to be on
+ * screen beside the number. It is the benchmark's error for the repair the value actually got: quoting
+ * one figure for both modes would misstate whichever regime the reader is in.
+ */
+describe("EnergeticsView — the measured error beside the FoldX value", () => {
+  const withRepair = (repairMode: string | null, extra: Record<string, unknown> = {}) => ({
+    ...MACO1_ENERGETICS,
+    foldx: 1.2,
+    foldxMean: 1.2,
+    foldxRepairFailed: false,
+    ...(repairMode ? { repairMode } : {}),
+    ...extra,
+  });
+
+  it("prints the whole-chain error when the template was repaired whole", () => {
+    renderView({ foldingEnergetics: withRepair("full"), foldingStatus: "success" });
+    const chip = screen.getByTestId("foldx-measured-error");
+    expect(chip).toHaveTextContent("±1.9 vs measured");
+    expect(chip.getAttribute("title")).toMatch(/rough guide/);
+  });
+
+  it("prints the local repair's own error when only the region was repaired", () => {
+    renderView(
+      {
+        foldingEnergetics: withRepair("fix-shell:r15-seq14:v1", {
+          repairShell: { movableResidues: 60, totalResidues: 400 },
+        }),
+        foldingStatus: "success",
+      }
+    );
+    const chip = screen.getByTestId("foldx-measured-error");
+    expect(chip).toHaveTextContent("±2.5 vs measured");
+    expect(chip.getAttribute("title")).toMatch(/rough guide/);
   });
 });

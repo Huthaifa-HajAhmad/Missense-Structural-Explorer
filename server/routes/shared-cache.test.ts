@@ -152,11 +152,11 @@ describe("P2Rank: one run for two people", () => {
 });
 
 describe("FoldX shared cache", () => {
-  const key = getFoldxCacheKey("hash", "VA600E");
-  const result = (p?: ComputeProvenance) => ({ status: "success", ddG: 1.2, computeProvenance: p });
+  const key = getFoldxCacheKey("hash", "VA600E", { repairMode: "full" });
+  const result = (p?: ComputeProvenance) => ({ status: "success", ddG: 1.2, computeProvenance: p, energetics: { repairMode: "full" } });
 
   it("serves a server result to anyone, and stamps provenance when it is stored", async () => {
-    writeMutantToCache(key, { status: "success", ddG: 1.2 });
+    writeMutantToCache(key, { status: "success", ddG: 1.2, energetics: { repairMode: "full" } });
     const got = await getMutantFromCache(key, "anyone");
     expect(got.computeProvenance).toMatchObject({ computedOn: "server", ownerId: null });
   });
@@ -175,8 +175,8 @@ describe("FoldX shared cache", () => {
   });
 
   it("a tool version separates results only when it is known, so existing entries stay valid", () => {
-    expect(getFoldxCacheKey("h", "VA600E")).toBe("h_VA600E_pH:7_temp:298_ion:0.05_seed:12345_version:v4");
-    expect(getFoldxCacheKey("h", "VA600E", { toolVersion: "5.1" })).not.toBe(getFoldxCacheKey("h", "VA600E"));
+    expect(getFoldxCacheKey("h", "VA600E", { repairMode: "full" })).toBe("h_VA600E_pH:7_temp:298_ion:0.05_seed:12345_repair:full_version:v5");
+    expect(getFoldxCacheKey("h", "VA600E", { repairMode: "full", toolVersion: "5.1" })).not.toBe(getFoldxCacheKey("h", "VA600E", { repairMode: "full" }));
     expect(pocketResultCacheKey(pdb(), 3, "A", "2.5")).not.toBe(pocketResultCacheKey(pdb(), 3, "A"));
   });
 

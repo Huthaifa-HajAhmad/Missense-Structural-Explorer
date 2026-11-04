@@ -51,7 +51,7 @@ import {
   type RemoteStatus,
 } from "./engineStatus.ts";
 import type { StructureProvenance } from "./contracts.ts";
-import { FOLDX_REPAIR_MAX_RESIDUES } from "./computeRouting.ts";
+import { FIX_SHELL_MODE, FIX_SHELL_OFFSET_NOTE, REPAIR_MODE_LABEL, isFoldxRepairMode, type FoldxRepairMode } from "./foldxRepairMode.ts";
 import { RASP_SOURCE_LABEL, type RaspCoverage, type RaspSource } from "./raspIndex.ts";
 
 // ---------------------------------------------------------------------------
@@ -83,17 +83,27 @@ const ENGINE_GROUP: Record<EnergyEngineId, EnergeticsGroup> = {
   protvar: "physics",
 };
 
-export type EnergeticsCaveat = "unrepaired-template" | "low-plddt" | "excluded" | "rosetta-surrogate" | "protvar-stand-in";
+export type EnergeticsCaveat = "unrepaired-template" | "local-repair" | "low-plddt" | "excluded" | "rosetta-surrogate" | "protvar-stand-in";
 
-/** Why a large structure is not repaired. Shown beside the FoldX value on the Comparison and Engine records tabs. */
+/**
+ * The size the retired policy stopped repairing at. Results from that policy are still on screen, in job
+ * records and in exports, so their explanation stays. New results repair every size (`foldxRepairMode.ts`).
+ */
+const LEGACY_REPAIR_SKIP_ABOVE_RESIDUES = 400;
+
+/** Why a result from the retired policy was not repaired. Shown beside the FoldX value on the Comparison and Engine records tabs. */
 export const LARGE_STRUCTURE_REPAIR_NOTE =
-  `Repair is skipped above ${FOLDX_REPAIR_MAX_RESIDUES} residues to limit waiting time; a cached repair is still reused. This is a deliberate limit, not a repair failure.`;
+  `Repair was skipped above ${LEGACY_REPAIR_SKIP_ABOVE_RESIDUES} residues to limit waiting time. This is a deliberate limit, not a repair failure.`;
 
 export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; detail: string }> = {
   "unrepaired-template": {
     label: "Unrepaired template",
     detail:
       "FoldX ran on the template without RepairPDB. The FoldX authors recommend repairing a structure before BuildModel; unrepaired clashes and strained rotamers can distort the ΔΔG.",
+  },
+  "local-repair": {
+    label: "Local repair",
+    detail: FIX_SHELL_OFFSET_NOTE,
   },
   "low-plddt": {
     label: "Low pLDDT",
@@ -208,6 +218,11 @@ export interface EnergeticsAgreement {
   median: number | null;
   min: number | null;
   max: number | null;
+  /**
+   * True while a counting engine is still running and at least one has already reported. The reading
+   * is then a snapshot: it can move to another band when the rest arrive, and it is shown as such.
+   */
+  provisional: boolean;
 }
 
 export interface EnergeticsStructure {
@@ -222,6 +237,10 @@ export interface EnergeticsStructure {
   repairState: "repaired" | "unrepaired" | "failed" | "unknown";
   /** Why repair was skipped (the server's reason code), or null when it was not skipped. */
   repairSkippedReason: string | null;
+  /** Which repair the template got (`foldxRepairMode.ts`), or null for a result from before it was kept. */
+  repairMode: FoldxRepairMode | null;
+  /** How much a local repair could move, when it was a local repair. */
+  repairShell: { movableResidues: number; totalResidues: number } | null;
   /** AlphaFold DB release the model came from, when the template is predicted. */
   afdbVersion: string | null;
   /**
@@ -382,10 +401,15 @@ export function listNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStructure, "repair" | "repairState" | "repairSkippedReason"> {
-  if (!e) return { repair: null, repairState: "unknown", repairSkippedReason: null };
+function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStructure, "repair" | "repairState" | "repairSkippedReason" | "repairMode" | "repairShell"> {
+  const repairMode = e && isFoldxRepairMode(e.repairMode) ? e.repairMode : null;
+  const shell = repairMode === FIX_SHELL_MODE && typeof e?.repairShell?.movableResidues === "number" && typeof e?.repairShell?.totalResidues === "number"
+    ? { movableResidues: e.repairShell.movableResidues as number, totalResidues: e.repairShell.totalResidues as number }
+    : null;
+  const base = { repairMode, repairShell: shell };
+  if (!e) return { ...base, repair: null, repairState: "unknown", repairSkippedReason: null };
   // A deliberate skip is not a failure: if both are ever set, say the template was not repaired.
-  if (e.foldxRepairFailed && !e.foldxRepairSkipped) return { repair: "Repair failed", repairState: "failed", repairSkippedReason: null };
+  if (e.foldxRepairFailed && !e.foldxRepairSkipped) return { ...base, repair: "Repair failed", repairState: "failed", repairSkippedReason: null };
   if (e.foldxRepairSkipped) {
     const why =
       e.foldxRepairSkippedReason === "large-structure"
@@ -397,11 +421,12 @@ function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStr
             : e.foldxRepairSkippedReason === "cached-repair-rejected"
               ? " (cached repair rejected; original template used)"
               : "";
-    return { repair: `Not repaired${why}`, repairState: "unrepaired", repairSkippedReason: typeof e.foldxRepairSkippedReason === "string" ? e.foldxRepairSkippedReason : null };
+    return { ...base, repair: `Not repaired${why}`, repairState: "unrepaired", repairSkippedReason: typeof e.foldxRepairSkippedReason === "string" ? e.foldxRepairSkippedReason : null };
   }
-  if (e.foldxRepairCached) return { repair: "Repaired (reused)", repairState: "repaired", repairSkippedReason: null };
-  if (num(e.foldxMean ?? e.foldx) !== null) return { repair: "Repaired", repairState: "repaired", repairSkippedReason: null };
-  return { repair: null, repairState: "unknown", repairSkippedReason: null };
+  const how = repairMode === FIX_SHELL_MODE ? "Repaired locally" : "Repaired";
+  if (e.foldxRepairCached) return { ...base, repair: `${how} (reused)`, repairState: "repaired", repairSkippedReason: null };
+  if (num(e.foldxMean ?? e.foldx) !== null) return { ...base, repair: how, repairState: "repaired", repairSkippedReason: null };
+  return { ...base, repair: null, repairState: "unknown", repairSkippedReason: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -488,6 +513,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     if (has && outcome.excluded) caveats.push("excluded");
     if (has && outcome.id === "foldx" && standIn) caveats.push("protvar-stand-in");
     if (has && outcome.id === "foldx" && !standIn && repair.repairState === "unrepaired") caveats.push("unrepaired-template");
+    if (has && outcome.id === "foldx" && !standIn && repair.repairMode === FIX_SHELL_MODE && repair.repairState === "repaired") caveats.push("local-repair");
     if (outcome.id === "protvar" || (outcome.id === "foldx" && standIn)) {
       // ProtVar always ran on an AlphaFold model, so its own pLDDT is the one that applies.
       if (has && protvarPlddt !== null && protvarPlddt < 70) caveats.push("low-plddt");
@@ -505,6 +531,9 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
       if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs${runRange(e?.rawDdGs)}`);
       if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd)}, not an error bar`);
       if (outcome.excluded) parts.push(outcome.reason);
+      if (repair.repairShell && repair.repairState === "repaired") {
+        parts.push(`repaired locally: ${repair.repairShell.movableResidues} of ${repair.repairShell.totalResidues} residues could move`);
+      }
       const summary = parts.length ? parts.join("; ") + "." : null;
       // On this tab the caveat chip's hover text is the only other explanation, and hover text is not reachable by keyboard or touch.
       note = repair.repairSkippedReason === "large-structure" ? [summary, LARGE_STRUCTURE_REPAIR_NOTE].filter(Boolean).join(" ") : summary;
@@ -610,6 +639,10 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     median: medianOf(values),
     min: values.length ? Math.min(...values) : null,
     max: values.length ? Math.max(...values) : null,
+    // A run still in progress is a snapshot; the reference-only rows (ProtVar) never hold a verdict back.
+    provisional:
+      counted.length > 0 &&
+      readings.some(r => r.outcome.state === "running" && !r.outcome.engine.referenceOnly),
   };
 
   const structure: EnergeticsStructure | null = prov
@@ -653,6 +686,14 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     add("FoldX runs", runs ?? undefined);
     add("Random seed", num(prov?.seed) ?? undefined);
   }
+  if (foldxHas && repair.repairMode) add("FoldX repair", REPAIR_MODE_LABEL[repair.repairMode]);
+  if (foldxHas && typeof e?.conditions?.pH === "number" && typeof e?.conditions?.temperature === "number" && typeof e?.conditions?.ionicStrength === "number") {
+    add("FoldX conditions", `pH ${e.conditions.pH} · ${e.conditions.temperature} K · ${e.conditions.ionicStrength} M`);
+  }
+  if (foldxHas && typeof e?.templateExtent?.residueCount === "number") {
+    const x = e.templateExtent;
+    add("Template residues", `${x.residueCount} (chain ${x.chainId}: ${x.firstResidue} to ${x.lastResidue})`);
+  }
   const raspSrc = e?.raspSource as RaspSource | undefined;
   if (readings.find(r => r.key === "rasp")?.ddg !== null && raspSrc) add("RaSP table", RASP_SOURCE_LABEL[raspSrc]);
   if (protvarValue !== null) add("ProtVar model", protvarModel ?? undefined);
@@ -668,6 +709,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
           protvarModel,
           structure,
           repairState: repair.repairState,
+          repairMode: repair.repairMode,
         })
       : null;
 
@@ -705,6 +747,7 @@ function buildFoldxTemplateCheck(args: {
   protvarModel: string | null;
   structure: EnergeticsStructure | null;
   repairState: EnergeticsStructure["repairState"];
+  repairMode: FoldxRepairMode | null;
 }): FoldxTemplateCheck {
   const { local, protvar, protvarModel, structure, repairState } = args;
   const delta = protvar - local;
@@ -737,6 +780,7 @@ function buildFoldxTemplateCheck(args: {
       : "They differ in template and pipeline (and ProtVar models a single chain), so the gap is not an error bar on either value; it shows how template-sensitive FoldX is for this variant."
   );
   if (repairState === "unrepaired" && !tpl.alphafold) parts.push("The local template was not repaired, which can add to the gap.");
+  if (args.repairMode === FIX_SHELL_MODE) parts.push("The local run repaired only the region around the variant, while ProtVar's FoldX is a whole-chain run, so this is not the same procedure and the gap can come from that alone.");
   if (!args.localCounted) parts.push("The local value is not counted in the agreement.");
 
   return {
@@ -886,6 +930,13 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
     );
   } else if (a.nCounted > 0) {
     rest.push(`${returnedCount} of ${coverage.intended} engines returned a value${countedTail}.`);
+  }
+
+  if (a.provisional) {
+    tone = "warning";
+    rest.push(
+      `${named(ev.running)} ${ev.running.length === 1 ? "is" : "are"} still running, so this reading may change.`
+    );
   }
 
   if (ev.foldxTemplateCheck) {

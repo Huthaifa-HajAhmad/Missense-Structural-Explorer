@@ -1044,6 +1044,14 @@ export function enrichBiophysicalResult(
       foldxRepairRefresh: foldxRawResult?.energetics?.foldxRepairRefresh,
       ...(foldxRepairSkippedReason ? { foldxRepairSkippedReason } : {}),
       ...(foldxRepairCached ? { foldxRepairCached: true } : {}),
+      // Which repair the template got and under what conditions: the whitelist drops what it does not name.
+      ...(foldxRawResult?.energetics?.repairMode ? {
+        repairMode: foldxRawResult.energetics.repairMode,
+        repairModeIntended: foldxRawResult.energetics.repairModeIntended,
+        ...(foldxRawResult.energetics.repairShell ? { repairShell: foldxRawResult.energetics.repairShell } : {}),
+        conditions: foldxRawResult.energetics.conditions,
+        templateExtent: foldxRawResult.energetics.templateExtent
+      } : {}),
       foldxError: foldxRawResult?.energetics?.foldxError ?? foldxRawResult?.error ?? null,
       dynamut2: dynamut2Val,
       ddmut: ddmutVal,

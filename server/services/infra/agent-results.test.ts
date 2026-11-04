@@ -51,6 +51,39 @@ describe("validateFoldxAgentResult", () => {
     expect(validateFoldxAgentResult(job, ok(), "5.0").ok).toBe(false);
     expect(validateFoldxAgentResult(job, ok(), "5.2").ok).toBe(true);
   });
+
+  describe("repair mode (a different estimator is a different answer)", () => {
+    const FIX = "fix-shell:r15-seq14:v1";
+    const big = (mutate: boolean) => {
+      const res = Array.from({ length: 240 }, (_, i) => (i === 1 && mutate ? "GLU" : i === 1 ? "VAL" : "ALA"));
+      return pdb(res);
+    };
+    const bigJob = { wtPdb: big(false), mutation: "VA2E" };
+    const bigOk = (over: Record<string, unknown> = {}) =>
+      ok({ pdb: big(true), energetics: { foldxMean: 1.8, rawDdGs: [1.7, 1.9] }, ...over });
+
+    it("accepts the mode the template size asks for, on either side of the threshold", () => {
+      expect(validateFoldxAgentResult(job, ok({ energetics: { foldxMean: 1.8, repairMode: "full" } }), "5.1").ok).toBe(true);
+      expect(validateFoldxAgentResult(bigJob, bigOk({ energetics: { foldxMean: 1.8, repairMode: FIX } }), "5.1").ok).toBe(true);
+    });
+
+    it("refuses a whole-chain result where the template needs the local repair", () => {
+      const v = validateFoldxAgentResult(bigJob, bigOk({ energetics: { foldxMean: 1.8, repairMode: "full" } }), "5.1");
+      expect(v.ok).toBe(false);
+      if (!v.ok) expect(v.reasons.join(" ")).toMatch(/used repair "full", this template needs "fix-shell/);
+    });
+
+    it("refuses a result that names no mode when the local repair was required", () => {
+      const v = validateFoldxAgentResult(bigJob, bigOk({ energetics: { foldxMean: 1.8 } }), "5.1");
+      expect(v.ok).toBe(false);
+      if (!v.ok) expect(v.reasons.join(" ")).toMatch(/does not say which repair/);
+    });
+
+    it("accepts a disclosed unrepaired result, which the cache refuses to store", () => {
+      const v = validateFoldxAgentResult(bigJob, bigOk({ energetics: { foldxMean: 1.8, repairMode: "none" } }), "5.1");
+      expect(v.ok).toBe(true);
+    });
+  });
 });
 
 describe("validateP2RankAgentResult", () => {

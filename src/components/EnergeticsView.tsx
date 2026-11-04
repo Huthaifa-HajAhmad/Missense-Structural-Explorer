@@ -21,6 +21,7 @@ import {
   type EnergeticsEvidence,
   type EnergeticsReading,
 } from "../shared/energeticsEvidence";
+import { foldxBandCaveat, foldxMeasuredError } from "../shared/foldxRepairMode";
 import { DdgRuler } from "./energetics/DdgRuler";
 import { RetryDynamut2 } from "./energetics/RetryDynamut2";
 import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../shared/foldxPhase";
@@ -159,7 +160,7 @@ const ProgressPanel = memo(function ProgressPanel({
       ? runsOn && runsOn.where !== "server" ? `Waiting for ${host} to pick it up.` : "Waiting for a compute worker to start this job."
     : view?.detail ?? `${runsOn ? host.charAt(0).toUpperCase() + host.slice(1) : "The compute server"} has not reported a stage yet.`;
   const repairNote = !foldxFinished && progress?.phase === "repairing"
-    ? "FoldX does not report a percentage for structure repair. A first repair can take a few minutes; the repaired template is reused on later variants."
+    ? "FoldX does not report a percentage for structure repair. It takes seconds for a large structure (only the region around the variant is repaired) and up to a few minutes for a small one (the whole chain); a repair is reused for later variants it applies to."
     : null;
   // "3 jobs ahead · starts in about 4 min": the server's own position and estimate (src/shared/jobsCopy.ts).
   const queueNote = queued ? describeQueueWait(progress?.queuePosition, progress?.queueEtaMs) : null;
@@ -442,6 +443,17 @@ function ReadingRow({
           <>
             {ddgText}
             <span className="nrg-unit">{unit}</span>
+            {reading.key === "foldx" && (
+              // The benchmark's error for the repair this value actually got, beside the number rather
+              // than only in the method note: the 0.5 / 1.5 marks are far finer than that error.
+              <span
+                className="nrg-num__error"
+                data-testid="foldx-measured-error"
+                title={foldxBandCaveat(reading.caveats.includes("local-repair"))}
+              >
+                ±{foldxMeasuredError(reading.caveats.includes("local-repair")).rmse.toFixed(1)} vs measured
+              </span>
+            )}
           </>
         ) : (
           <span className="nrg-dim">—</span>
@@ -611,9 +623,18 @@ const EnergeticsView = memo(function EnergeticsView({
               <Activity className="w-3.5 h-3.5" aria-hidden="true" />
               Folding stability · ΔΔG
             </span>
-            {tab === 'comparison' ? <h2 className="nrg-finding-heading" data-testid="energetics-verdict">{energeticsComparisonHeadline(evidence)}</h2> : <span className="ev-tier nrg-verdict" data-tone={chip.tone} data-testid="energetics-verdict">
-              {chip.label}
-            </span>}
+            <div className="nrg-verdict-group">
+              {tab === 'comparison'
+                ? <h2 className="nrg-finding-heading" data-testid="energetics-verdict">{energeticsComparisonHeadline(evidence)}</h2>
+                : <span className="ev-tier nrg-verdict" data-tone={chip.tone} data-testid="energetics-verdict">
+                    {chip.label}
+                  </span>}
+              {agreement.provisional && (
+                <span className="nrg-verdict-pending" data-testid="energetics-provisional">
+                  Provisional · {evidence.running.length} still running
+                </span>
+              )}
+            </div>
           </div>
 
           {tab === 'records' && <div className="nrg-hero__figure">
