@@ -151,3 +151,118 @@ test('pediatric provider failure exposes recovery on the sampling view', { tags:
   })).toEqual({ direction: 'column', inset: '16px' });
   await app.screenshot('pediatric-provider-error-card');
 });
+
+
+test('expression record controls have consistent heights', { tags: ['expression'], timeout: 120_000, retries: 0 }, async ({ app, screen, browser }) => {
+  await skipTour(browser);
+  await app.open('/tools/evidence-preview/index.html');
+  await screen.getByRole('combobox', 'Evidence').selectOption('Expression');
+  await screen.getByRole('combobox', 'Example').selectOption('Dense expression');
+  await screen.getByText('Review context', { exact: true }).tap();
+  const selected = await browser.evaluate(() => [...document.querySelectorAll('.xp-frame .ctx-chip[aria-pressed="true"]')].map(node => node.textContent!));
+  for (const name of selected) await screen.getByRole('button', name, { exact: true }).tap();
+  await expect(screen.getByRole('button', 'Choose systems')).toBeVisible();
+  for (const width of [1440, 800, 390]) {
+    await browser.setViewport({ width, height: 1000 });
+    const controls = [screen.getByRole('searchbox', 'Search records'), screen.getByRole('button', 'Choose systems'), screen.getByRole('button', 'Show all 54 records')];
+    for (const control of controls) {
+      const box = await control.boundingBox();
+      expect(box !== null && Math.abs(box.height - 38) <= 0.5).toBe(true);
+    }
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await app.screenshot(`record-controls-${width}`);
+  }
+  await screen.getByRole('tab', 'Pediatric RNA').tap();
+  await expect(screen.getByRole('combobox', 'Sampled age cohort')).toBeVisible();
+  const cohort = await screen.getByRole('combobox', 'Sampled age cohort').boundingBox();
+  expect(cohort !== null && Math.abs(cohort.height - 38) <= 0.5).toBe(true);
+});
+
+
+test('secondary source controls keep their width, selection border and keyboard navigation', { tags: ['expression'], timeout: 120_000, retries: 0 }, async ({ app, screen, browser }) => {
+  await skipTour(browser);
+  await app.open('/tools/evidence-preview/index.html');
+  await screen.getByRole('combobox', 'Evidence').selectOption('Expression');
+  const adult = screen.getByRole('tab', 'Adult RNA');
+  const before = await adult.boundingBox();
+  await adult.press('ArrowRight');
+  await expect(screen.getByRole('tab', 'Pediatric RNA')).toBeSelected();
+  const after = await adult.boundingBox();
+  expect(before !== null && after !== null && Math.abs(before.width - after.width) < 0.5).toBe(true);
+  expect(await browser.evaluate(() => {
+    const selected = document.querySelector('.workspace-tabs[data-variant="secondary"] [aria-selected="true"]')!;
+    const style = getComputedStyle(selected);
+    return style.borderTopColor !== getComputedStyle(selected.parentElement!).borderTopColor;
+  })).toBe(true);
+  await screen.getByRole('tab', 'Pediatric RNA').press('ArrowLeft');
+  await expect(adult).toBeSelected();
+  await app.screenshot('secondary-source-selection');
+});
+
+test('Gene-disease presentation and search share a height and grow with text', { tags: ['expression'], timeout: 120_000, retries: 0 }, async ({ app, screen, browser }) => {
+  await skipTour(browser);
+  await app.open('/tools/evidence-preview/index.html');
+  await screen.getByRole('combobox', 'Evidence').selectOption('Gene-disease');
+  await screen.getByRole('combobox', 'Example').selectOption('Differing assertions');
+  const mode = screen.getByRole('group', 'Validity presentation');
+  const search = screen.getByRole('searchbox', 'Search records');
+  for (const width of [1440, 800, 390]) {
+    await browser.setViewport({ width, height: 900 });
+    const groupBox = await mode.boundingBox();
+    const searchBox = await search.boundingBox();
+    expect(groupBox !== null && searchBox !== null && Math.abs(groupBox.height - searchBox.height) <= 0.5).toBe(true);
+    expect(groupBox !== null && Math.abs(groupBox.height - 38) <= 0.5).toBe(true);
+  }
+  await browser.evaluate(() => {
+    document.querySelectorAll<HTMLElement>('.cx-record-toolbar input[type="search"], .cx-record-toolbar .gd-view-control button').forEach(node => { node.style.fontSize = '24px'; });
+    return null;
+  });
+  const grownMode = await mode.boundingBox();
+  const grownSearch = await search.boundingBox();
+  expect(grownMode !== null && grownMode.height > 38 && grownSearch !== null && grownSearch.height > 38).toBe(true);
+  expect(grownMode !== null && grownSearch !== null && Math.abs(grownMode.height - grownSearch.height) <= 0.5).toBe(true);
+  expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await app.screenshot('record-controls-text-zoom');
+});
+
+
+test('coding map labels remain legible for narrow and dense regions', { tags: ['expression'], timeout: 120_000, retries: 0 }, async ({ app, screen, browser }) => {
+  await skipTour(browser);
+  await app.open('/tools/evidence-preview/index.html');
+  await screen.getByRole('combobox', 'Evidence').selectOption('Expression');
+  for (const count of [9, 320]) {
+    await browser.evaluate(async ({ count }: { count: number }) => {
+      const modulePath = '/src/stores/useVariantAnalysisStore.ts';
+      const { useVariantAnalysisStore: store } = await import(modulePath);
+      const analysis = store.getState().analysisState;
+      const gene = analysis.result.metadata.gene;
+      let start = 100;
+      const lengths = count === 9 ? [1621, 35, 144, 138, 170, 94, 66, 185, 207] : Array.from({ length: count }, () => 10);
+      const regions = lengths.map(length => {
+        const region = { start, stop: start + length - 1, mean: 1, tissues: [] };
+        start += length + 20;
+        return region;
+      });
+      const active = count === 9 ? 0 : 159;
+      const pos = regions[active].start + 1;
+      store.setState({ analysisState: { ...analysis, result: { ...analysis.result, predictorData: { ...analysis.result.predictorData, gnomadVariantId: `21-${pos}-A-T`, gnomadVariantAssembly: 'GRCh38' } } } });
+      store.setState({ extraContexts: { ...store.getState().extraContexts, [`pext:${gene}`]: { status: 'ready', data: { gene, status: 'ready', geneId: 'illustrative', chrom: '21', flags: [], provenance: null, message: null, regions } } } });
+      return null;
+    }, { count });
+    await screen.getByRole('tab', 'Expression at variant').tap();
+    await expect(screen.getByRole('img', new RegExp(`Mean base-level pext across ${count} coding regions`))).toBeVisible();
+    const labels = await browser.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.querySelectorAll<SVGTextElement>('.xp-pext-map [data-region-label]')].map(node => {
+        const box = node.getBBox();
+        return { number: node.textContent, start: box.x, end: box.x + box.width, y: box.y };
+      });
+    });
+    expect(labels.some(label => label.number === (count === 9 ? '2' : '160'))).toBe(true);
+    if (count === 9) expect(labels.length).toBe(9);
+    else expect(labels.length < 50).toBe(true);
+    for (let i = 1; i < labels.length; i++) expect(labels[i].start > labels[i - 1].end).toBe(true);
+    expect(new Set(labels.map(label => label.y)).size).toBe(1);
+    await app.screenshot(`coding-map-${count}-regions`);
+  }
+});

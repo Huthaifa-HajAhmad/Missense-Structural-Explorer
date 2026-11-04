@@ -103,3 +103,19 @@
 
 /* Card source messages retain their inset after the shared notice reset. */
 .ctx-card__body.cx-source-state { padding-inline: 16px; }
+
+/* Record filters and actions share one size, including buttons inside the filters. */
+.cx-screen .cx-record-toolbar :is(input[type="search"], select, .viz-action) {
+  box-sizing: border-box;
+  min-block-size: 38px;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cx-screen .cx-record-toolbar .viz-action { white-space: nowrap; }
+.cx-screen .cx-record-toolbar .cx-check { min-block-size: 38px; }
+
+.cx-screen .cx-record-toolbar .gd-view-control { box-sizing: border-box; min-block-size: 38px; }
+.cx-screen .cx-record-toolbar .gd-view-control button { box-sizing: border-box; min-block-size: 30px; padding-block: 4px; line-height: 1.5; }

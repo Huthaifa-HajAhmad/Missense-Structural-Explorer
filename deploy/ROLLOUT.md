@@ -127,3 +127,32 @@ app and proxy restarts retained the worker role and selected route. A deliberate
 upstream confirmed that a synthetic provider credential was absent from Caddy's error logs.
 All rehearsal containers, their network, and their test database volume were removed.
 This did not route production traffic, rotate keys, or exercise real ML inference under overlap.
+
+## Pediatric RNA database
+
+The dGTEx snapshot is runtime data, excluded from the Docker image and Git. Rebuilding
+or restarting the image does not install it. The app reads
+`DGTEX_CONTEXT_PATH`, default `/app/data/dgtex-context.sqlite` in the container.
+Install the validated `data/dgtex-context.sqlite` in the host data directory mounted
+at `/app/data` (the directory used by the active deployment). Alternatively run
+`npm run data:dgtex -- --help` on a source checkout to see the import inputs.
+Do not place it only inside the image: the runtime data mount hides that copy.
+
+After installation, request the developmental-expression endpoint for CNNM2 and
+check `status: ready` and nonempty observations. A missing snapshot is an installation
+failure, not an absence of pediatric expression.
+
+Verified on the OCI VM on 2026-11-04: installed the snapshot in the host mount
+`/home/ubuntu/Missense-Structural-Explorer/data/dgtex-context.sqlite` after checking
+SHA-256 `76f9f4423592e9ff04147bd582eeeb7b58e10a8e769da25f5f486bf7a028a189`.
+The active `missense-resolve-blue` container's request to
+`http://localhost:3000/api/v1/evidence-context/CNNM2/development` returned
+`{"status":"ready","observations":125,"message":null}` (observations is the
+array length). This verified the live container and its data mount; no application
+code was deployed. The serving code revision was not captured in that check.
+
+Rechecked on 2026-11-04 after the normal blue/green deployment changed the active
+container to `missense-resolve-green`. The same request still returned ready with
+125 observations. `/api/v1/version` reported commit
+`10b6ffcf984d030736f6198eb38fb33db41b83a5`, built `2026-11-04T17:41:52Z`.
+The snapshot therefore survived a container replacement through the host data mount.
