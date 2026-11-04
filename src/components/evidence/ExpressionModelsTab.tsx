@@ -16,6 +16,7 @@ import { pextSiteFromVariantId, locatePext } from '../../shared/pext';
 import { isFallbackLocus } from '../../shared/locusResolution';
 import { expressionWorkspaceFinding } from '../../shared/expressionWorkspaceFinding';
 import { evidenceTab } from '../../shared/evidenceTabs';
+import { pextMark, proteinAtlasMark } from '../../shared/viewMarks';
 
 export function ExpressionModelsTab({ analysisState }: TabComponentProps) {
   if (!analysisState.result) return null;
@@ -56,7 +57,7 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     <header className="ctx-heading"><div><h1 className="screen-title">{evidenceTab('expression-models').label}</h1><p className="screen-tab-description">Where the gene is measured, and which biological context remains uncovered.</p></div>
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
-    <EvidenceViewTabs tab="expression-models" comparisonLabel="Tissue explorer" />
+    <EvidenceViewTabs tab="expression-models" comparisonLabel="Tissue explorer" marks={{ protein: proteinAtlasMark(context.hpaLoad?.data), pext: pextMark(pextLocation.region) }} />
     {(workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary><strong>Review context</strong><span>{systemCount ? `${systemCount} ${systemCount === 1 ? 'system' : 'systems'}` : 'All systems'}</span><span className="xp-review-disease">{chosen?.label ?? 'No disease selected'}</span></summary>{reviewFrame}</details> : reviewFrame)}
     <EvidencePanel tab="expression-models">
       {showHero && <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} activeFinding={activeFinding} />}

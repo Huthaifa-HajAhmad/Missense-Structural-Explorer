@@ -5,6 +5,7 @@ import { LRUCache } from "lru-cache";
 import { clinvarCache, getCachedOrFetch } from "../infra/cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import { buildClinvarKey } from "../infra/cache-keys.ts";
+import { parseVcvConditions, type ClinVarCondition } from "./clinvar-conditions.ts";
 
 export interface FetchClinVarOptions {
   originalNotation?: string;
@@ -18,7 +19,9 @@ export interface ClinVarData {
   reviewStatus: string;
   alleleFrequencies: { source: string; value: any }[];
   trait: string;
-  conditions?: Array<{ label: string; xrefs: Array<{ source: string; id: string }> }>;
+  conditions?: ClinVarCondition[];
+  /** `full-record`: every condition, from ClinVar's variant record. `summary-only`: only those behind the aggregate. */
+  conditionsRead?: "full-record" | "summary-only";
   uid: string | null;
   hasOtherPathogenicVariantSameAA?: boolean;
 }
@@ -76,7 +79,9 @@ export async function fetchClinVarData(
     l1Cache: options.l1Cache ?? clinvarCache,
     ttlSeconds: 7 * 24 * 60 * 60,
     bypassSqlite: options.bypassSqlite,
-    shouldCache: (result: ClinVarData) => result.uid !== null && result.classification !== "Not found in ClinVar",
+    // A record whose full variant record could not be read is shown honestly but not kept for a week:
+    // the next request, after the short in-memory hold, tries again.
+    shouldCache: (result: ClinVarData) => result.uid !== null && result.classification !== "Not found in ClinVar" && result.conditionsRead === "full-record",
     fetcher: async () => {
       const defaultRes: ClinVarData = {
         classification: "Not found in ClinVar",
@@ -233,10 +238,22 @@ export async function fetchClinVarData(
   const lastEvaluated = matchedEntry.germline_classification?.last_evaluated || "";
   const reviewStatus = matchedEntry.germline_classification?.review_status || "";
   const traits = (matchedEntry.germline_classification?.trait_set || []).map((t: any) => t.trait_name || "").filter(Boolean).join(", ");
-  const conditions = (matchedEntry.germline_classification?.trait_set || []).map((t: any) => ({
+  const summaryConditions: ClinVarCondition[] = (matchedEntry.germline_classification?.trait_set || []).map((t: any) => ({
     label: t.trait_name || '',
     xrefs: (t.trait_xrefs || []).map((xref: { db_source: string; db_id: string }) => ({ source: xref.db_source, id: xref.db_id }))
   }));
+  // The summary lists only conditions behind the aggregate classification; the variant record lists all of
+  // them, each with its own record. It is best effort and must stay cheap: one attempt, a short timeout
+  // that is our cap (not evidence about NCBI, so it never counts toward the shared host breaker). If it
+  // fails, the summary conditions stand and the payload says so (`conditionsRead`), so no screen reads a
+  // missing condition as an absent one. Whether the record was read comes from the parse, not its size.
+  const vcvUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=clinvar&rettype=vcv&is_variationid=true&from_esearch=true&id=${encodeURIComponent(matchedId)}${apiKeyParam}`;
+  const vcvConditions = await fetchWithRetry(vcvUrl, { headers: { "User-Agent": "Missense-Structural-Explorer/1.0" }, timeout: 6000, cappedByCaller: true }, 1)
+    .then(res => (res.ok ? res.text() : null))
+    .then(xml => (xml ? parseVcvConditions(xml) : null))
+    .catch(() => null);
+  const conditions = vcvConditions ?? summaryConditions;
+  const conditionsRead = vcvConditions ? "full-record" as const : "summary-only" as const;
   
   const alleleFrequencies = (matchedEntry.allele_freq_set || []).map((freq: any) => ({
     source: freq.source || "Unknown",
@@ -250,9 +267,13 @@ export async function fetchClinVarData(
         alleleFrequencies,
         trait: traits,
         conditions,
+        conditionsRead,
         uid: matchedId,
         hasOtherPathogenicVariantSameAA
       };
+      // Not kept for a week (see `shouldCache`), but kept for a few minutes so a burst of requests for this
+      // variant does not repeat the failing request each time.
+      if (conditionsRead === "summary-only") (options.l1Cache ?? clinvarCache).set(cacheKey, resVal, { ttl: 5 * 60 * 1000 });
       return resVal;
     }
   });

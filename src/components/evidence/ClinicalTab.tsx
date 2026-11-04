@@ -22,6 +22,7 @@ import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorks
 import { buildPopulationComparison } from '../../shared/evidenceComparison';
 import EvidenceComparison from './EvidenceComparison';
 import { evidenceTab } from '../../shared/evidenceTabs';
+import { clinvarMark } from '../../shared/viewMarks';
 
 /**
  * Population Data.
@@ -369,7 +370,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
           ACMG frequency criterion that supports.
         </p>
       </header>
-      <EvidenceViewTabs tab="clinical" />
+      <EvidenceViewTabs tab="clinical" marks={{ records: clinvarMark(result.clinvar, result.serviceStatus) }} />
       <EvidencePanel tab="clinical">
 
       {/* ── 1. The finding ───────────────────────────────────────────────────────────────────

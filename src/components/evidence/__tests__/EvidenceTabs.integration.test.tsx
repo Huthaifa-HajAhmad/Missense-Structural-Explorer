@@ -97,6 +97,25 @@ describe('Production evidence tabs and their inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand Context Inspector' }));
     await waitFor(() => expect(screen.getByLabelText('Context & Provenance Inspector')).toBeInTheDocument());
   });
+  it.each([['Partial', true], ['Absent', false]] as const)('marks the Clinical assertion tab only when ClinVar returned a classification (%s)', (example, marked) => {
+    const result = evidenceWorkspaceFixture(example);
+    render(<EvidenceWorkspaceProvider result={result}><ClinicalTab {...({ analysisState: { result } } as TabComponentProps)} /></EvidenceWorkspaceProvider>);
+    const tab = screen.getByRole('tab', { name: 'Clinical assertion' });
+    expect(tab.hasAttribute('data-marked')).toBe(marked);
+    expect(tab.querySelector('.workspace-tabs__mark') !== null).toBe(marked);
+    if (marked) {
+      expect(tab).toHaveAccessibleDescription('ClinVar has a classification for this variant');
+      // The open tab is already showing the record, so it carries no dot.
+      fireEvent.click(tab);
+      expect(tab.querySelector('.workspace-tabs__mark')).toBeNull();
+    }
+  });
+  it('does not mark the Clinical assertion tab for a classification of "Unknown"', () => {
+    const base = evidenceWorkspaceFixture('Partial');
+    const result = { ...base, clinvar: { ...base.clinvar!, classification: 'Unknown' } } as typeof base;
+    render(<EvidenceWorkspaceProvider result={result}><ClinicalTab {...({ analysisState: { result } } as TabComponentProps)} /></EvidenceWorkspaceProvider>);
+    expect(screen.getByRole('tab', { name: 'Clinical assertion' }).hasAttribute('data-marked')).toBe(false);
+  });
   beforeEach(() => { localStorage.clear(); });
   it.each(['Absent', 'Zero', 'Missing'])('shows inspectable source states instead of an empty chart for %s', (example) => {
     const result = evidenceWorkspaceFixture(example);

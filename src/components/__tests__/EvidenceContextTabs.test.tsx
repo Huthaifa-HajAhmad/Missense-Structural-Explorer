@@ -104,6 +104,42 @@ describe('context tab claims and interactions', () => {
     view([{ label: 'Old', xrefs: [] }]);
     expect(within(screen.getByTestId('variant-locus-card')).getByText(/no usable identifiers/)).toBeVisible();
   });
+  it('shows ClinVar’s own record for the matched disease, and says when only the summary was read', () => {
+    context.value.selection.diseaseKey = frame.key;
+    const record = { accession: 'RCV000172914', classification: 'Pathogenic', reviewStatus: 'no assertion criteria provided', lastEvaluated: '2014-04-01', inAggregate: false };
+    const clinvar = (conditions: any[], conditionsRead?: string) => ({ ...props.analysisState.result, clinvar: { classification: 'Pathogenic', reviewStatus: 'criteria provided, multiple submitters, no conflicts', lastEvaluated: '', alleleFrequencies: [], trait: 'not provided', uid: '1', conditions, conditionsRead } });
+    const view = (conditions: any[], conditionsRead?: string) => render(<GeneDiseaseTab {...({ analysisState: { ...props.analysisState, result: clinvar(conditions, conditionsRead) } } as any)} />);
+    let r = view([{ label: 'Example disease', xrefs: [{ source: 'MONDO', id: 'MONDO:1' }], record }, { label: 'not provided', xrefs: [{ source: 'MedGen', id: 'C3661900' }] }], 'full-record');
+    const card = within(screen.getByTestId('variant-locus-card'));
+    expect(card.getByText(/lists the selected disease/)).toBeVisible();
+    expect(card.getByTestId('variant-locus-record')).toHaveTextContent('ClinVar’s record for this condition: Pathogenic · no assertion criteria provided · evaluated 1 Apr 2014');
+    expect(card.getByRole('link', { name: /RCV000172914/ })).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/RCV000172914/');
+    expect(card.getByText(/not part of ClinVar’s variant-level aggregate/)).toBeVisible();
+    expect(card.queryByText(/Only the conditions behind/)).not.toBeInTheDocument();
+    r.unmount();
+    // The file may not say whether the record counts toward the aggregate; the card says that rather than nothing.
+    r = view([{ label: 'Example disease', xrefs: [{ source: 'MONDO', id: 'MONDO:1' }], record: { ...record, inAggregate: null } }], 'full-record');
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/does not say whether this record counts/)).toBeVisible();
+    r.unmount();
+    // Only the placeholder, and only the summary was read: the card must not claim nothing else exists.
+    r = view([{ label: 'not provided', xrefs: [{ source: 'MedGen', id: 'C3661900' }] }], 'summary-only');
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/named no condition/)).toBeVisible();
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/Only the conditions behind ClinVar’s aggregate classification were read/)).toBeVisible();
+    r.unmount();
+    // A condition with no comparable identifier is named as such, not called "other".
+    r = view([{ label: 'Some syndrome', xrefs: [{ source: 'MedGen', id: 'C1' }] }], 'full-record');
+    const unmatched = within(screen.getByTestId('variant-locus-card'));
+    expect(unmatched.getByText(/Cannot be compared \(no MONDO, OMIM or Orphanet identifier\): Some syndrome/)).toBeVisible();
+    expect(unmatched.queryByText(/records other conditions/)).not.toBeInTheDocument();
+    r.unmount();
+    // ClinVar's record of absence: no "read only the aggregate" caveat and no aggregate classification to quote.
+    const sentinel = { classification: 'Not found in ClinVar', lastEvaluated: '', reviewStatus: '', alleleFrequencies: [], trait: '', uid: null };
+    render(<GeneDiseaseTab {...({ analysisState: { ...props.analysisState, result: { ...props.analysisState.result, clinvar: sentinel } } } as any)} />);
+    const absent = within(screen.getByTestId('variant-locus-card'));
+    expect(absent.getByText(/holds no record of this variant/)).toBeVisible();
+    expect(absent.queryByText(/Only the conditions behind/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/variant-level aggregate and is not attributed/)).not.toBeInTheDocument();
+  });
   it('leads with refutation and retains every submitter', () => {
     context.value.selection.diseaseKey = frame.key; render(<GeneDiseaseTab {...props} />);
     expect(within(screen.getByTestId('gene-disease-finding')).getByText('Disputed, refuted or no known relationship')).toBeInTheDocument();

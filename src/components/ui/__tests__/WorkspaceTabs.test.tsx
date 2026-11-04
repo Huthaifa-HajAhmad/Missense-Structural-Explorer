@@ -11,6 +11,33 @@ function Harness({ variant }: { variant?: 'secondary' } = {}) {
   return <WorkspaceTabs variant={variant} id="t" label="Tabs" tabs={tabs} value={value} onChange={setValue} />;
 }
 
+it('marks a tab with a dot and a description, and keeps the tab name unchanged', () => {
+  const ui = render(<WorkspaceTabs id="t" label="Tabs" tabs={[{ id: 'a', label: 'A' }, { id: 'b', label: 'B', mark: 'Holds a record' }]} value="a" onChange={() => {}} />);
+  const marked = ui.getByRole('tab', { name: 'B' });
+  expect(marked).toHaveAccessibleDescription('Holds a record');
+  expect(marked).toHaveAttribute('data-marked');
+  expect(marked).toHaveAttribute('title', 'Holds a record');
+  expect(marked.querySelector('.workspace-tabs__mark')).not.toBeNull();
+  expect(ui.getByRole('tab', { name: 'A' })).not.toHaveAttribute('data-marked');
+  expect(ui.getByRole('tab', { name: 'A' }).querySelector('.workspace-tabs__mark')).toBeNull();
+  expect(ui.getByRole('tab', { name: 'A' }).hasAttribute('aria-describedby')).toBe(false);
+});
+
+it('shows no dot on the open tab, and brings it back when another tab is opened', () => {
+  const marked = [{ id: 'a', label: 'A', mark: 'Holds record A' }, { id: 'b', label: 'B', mark: 'Holds record B' }] as const;
+  function Open() {
+    const [value, setValue] = useState<'a' | 'b'>('a');
+    return <WorkspaceTabs id="t" label="Tabs" tabs={marked} value={value} onChange={setValue} />;
+  }
+  const ui = render(<Open />);
+  expect(ui.getByRole('tab', { name: 'A' }).querySelector('.workspace-tabs__mark')).toBeNull();
+  expect(ui.getByRole('tab', { name: 'B' }).querySelector('.workspace-tabs__mark')).not.toBeNull();
+  fireEvent.click(ui.getByRole('tab', { name: 'B' }));
+  expect(ui.getByRole('tab', { name: 'B' }).querySelector('.workspace-tabs__mark')).toBeNull();
+  expect(ui.getByRole('tab', { name: 'A' }).querySelector('.workspace-tabs__mark')).not.toBeNull();
+  expect(ui.getByRole('tab', { name: 'A' })).toHaveAccessibleDescription('Holds record A');
+});
+
 it.each([undefined, 'secondary'] as const)('moves selection and focus in %s tabs with one tab stop', variant => {
   const ui = render(<Harness variant={variant} />);
   if (variant) expect(ui.getByRole('tablist')).toHaveAttribute('data-variant', 'secondary');

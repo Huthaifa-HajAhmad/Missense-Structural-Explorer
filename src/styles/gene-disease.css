@@ -137,7 +137,14 @@
 .gd-view-control button[aria-pressed="true"] { background: var(--cs-surface); border-color: var(--cs-accent-clay); color: var(--cs-text-primary); box-shadow: inset 0 -2px 0 var(--cs-accent-clay); }
 .gd-screen .gd-view-control button:active { background: var(--cs-bg-subtle); }
 .gd-view-control button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
-.gd-pin-notice { font-size: var(--cs-font-size-caption); padding-block: 8px; }
+/* A dosage source with no reading (none curated, still loading, or failed): one card, left-aligned, the
+   message filling the card. The shared notice centred it and capped its lines at 72ch. */
+.gd-state { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px; }
+/* `.gd-screen .cx-notice` (centred rows) is more specific than `.cx-source-state` (start-aligned column), so
+   the alignment is set here at a higher specificity or the message stays centred in the card. */
+.gd-screen .gd-state .cx-source-state { padding: 0; align-items: flex-start; }
+.gd-state .cx-source-state p { max-inline-size: none; }
+.gd-state .gd-caption { margin: 0; }
 .gd-disease-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-workbench-header-surface); }
 .gd-disease-choice > div { flex: 1 1 30ch; min-inline-size: 0; }
 .gd-disease-choice h2 { font-size: 18px; color: var(--cs-text-primary); overflow-wrap: anywhere; }

@@ -17,6 +17,7 @@ import { buildHotspotEvidence } from '../../../shared/hotspotEvidence';
 import { hotspotInputFrom } from '../../../shared/hotspotInput';
 import { useVariantAnalysisStore } from '../../../stores/useVariantAnalysisStore';
 import { hotspotsSlot } from '../../../shared/evidenceKeys';
+import { hotspotMark } from '../../../shared/viewMarks';
 import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
 import type { HotspotContext } from '../../../shared/hotspotEvidence';
 import { HotspotsView } from './HotspotsView';
@@ -398,7 +399,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
           What UniProtKB and InterPro annotate at and around the variant residue, and whether it meets PM1.
         </p>
       </header>
-      <EvidenceViewTabs tab="function" comparisonLabel="Protein map" />
+      <EvidenceViewTabs tab="function" comparisonLabel="Protein map" marks={{ hotspots: hotspotMark(hotspots?.rungs) }} />
       <EvidencePanel tab="function">
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────

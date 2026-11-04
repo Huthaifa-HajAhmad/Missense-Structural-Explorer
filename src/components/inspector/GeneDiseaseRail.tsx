@@ -32,7 +32,7 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
     <section className="gd-source-section" aria-labelledby="gd-rail-sources"><h3 id="gd-rail-sources">Sources &amp; availability</h3>
       <div data-testid="context-sources">{sourceRows.map(({ name, reading, provenance }) => {
         const state = sourceReadingState(reading);
-        const status = { label: state.tone === 'good' ? 'Available' : state.label, tone: state.tone === 'good' ? 'neutral' : state.tone };
+        const status = { label: state.tone === 'good' ? 'Available' : state.label, tone: state.tone };
         const note = <>{reading.reason && <p className="detail-prose">{reading.reason}</p>}
           {model.stale.filter(a => a.source === provenance?.source).map(a => <p key={a.source}>{a.label}</p>)}</>;
         return provenance ? <Provenance key={name} name={name} provenance={provenance} rolling={name === 'ClinGen dosage'} status={status}>{note}</Provenance>

@@ -10,6 +10,7 @@ import { VariantLocusCard } from './VariantLocusCard';
 import { GeneDiseaseReadings } from './GeneDiseaseReadings';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { evidenceTab } from '../../shared/evidenceTabs';
+import { dosageMark } from '../../shared/viewMarks';
 
 const SECTIONS = [
   { id: 'validity', label: 'Validity' },
@@ -28,25 +29,24 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   const workspace = useEvidenceWorkspace('gene-disease');
   const { verdict, selected } = model;
   const root = useRef<HTMLDivElement>(null);
-  const [focusRequest, setFocusRequest] = useState<'pin' | 'review' | null>(null);
+  // Set after a first disease choice, so focus moves to the Validity tab that appears.
+  const [focusValidityTab, setFocusValidityTab] = useState(false);
   const section = SECTIONS.find(s => s.id === workspace.section)?.id ?? 'validity';
-  const pinned = rows.find(r => r.key === workspace.selected);
   useLayoutEffect(() => {
-    if (!focusRequest) return;
-    const target = root.current?.querySelector<HTMLButtonElement>(focusRequest === 'pin'
-      ? 'button.evw-reading-button[aria-pressed="true"]'
-      : '#gene-disease-sections-tab-validity');
+    if (!focusValidityTab) return;
+    const target = root.current?.querySelector<HTMLButtonElement>('#gene-disease-sections-tab-validity');
     target?.focus();
     target?.scrollIntoView?.({ block: 'nearest' });
-    setFocusRequest(null);
-  }, [focusRequest]);
+    setFocusValidityTab(false);
+  }, [focusValidityTab]);
   const dosage = <section className="gd-section" aria-labelledby="gd-dosage-title">
     <div className="gd-section-heading"><h2 id="gd-dosage-title">Gene dosage</h2>
       <p className="detail-prose">Whole-gene copy-number evidence; independent of disease selection.</p></div>
     {model.dosage.state === 'ready' ? <GeneDiseaseReadings model={model} section="dosage" onRetryDosage={context.retryDosage} />
-      : <div data-testid="dosage-card"><ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage}
+      : <div className="gd-card gd-state" data-testid="dosage-card"><ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage}
         loadingMessage={`Checking ClinGen dosage curation for ${context.gene}. This may take a few moments.`} />
-        {model.dosage.state === 'not-found' && context.dosageLoad?.data?.provenance && <p className="gd-caption">Source table retrieved {context.dosageLoad.data.provenance.retrievedAt.slice(0, 10)}. No matching gene record was found.</p>}
+        {/* The source's own message already says no record was found; only the date is new. */}
+        {model.dosage.state === 'not-found' && context.dosageLoad?.data?.provenance && <p className="gd-caption">Source table retrieved {context.dosageLoad.data.provenance.retrievedAt.slice(0, 10)}.</p>}
       </div>}
   </section>;
   const mechanism = selected && <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />;
@@ -64,17 +64,12 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
       context.setSelection(selection);
       if (!selected && selection.diseaseKey) {
         workspace.setOptions({ section: 'validity', query: '' });
-        setFocusRequest('review');
+        setFocusValidityTab(true);
       }
     }} onRetry={context.retryDisease} />
 
     {selected && <>
-      {workspace.enabled && <div className="gd-navigation"><WorkspaceTabs id="gene-disease-sections" label="Gene–disease evidence" tabs={SECTIONS} value={section} onChange={next => workspace.setOptions({ section: next, query: '' })} /></div>}
-      {pinned && pinned.group !== section && <p className="gd-pin-notice">{pinned.name} remains pinned in the inspector. <button type="button" className="viz-action" onClick={() => {
-        workspace.setOptions({ section: pinned.group, query: '', relevantOnly: false });
-        workspace.setView('records');
-        setFocusRequest('pin');
-      }}>Show pinned record</button></p>}
+      {workspace.enabled && <div className="gd-navigation"><WorkspaceTabs id="gene-disease-sections" label="Gene–disease evidence" tabs={SECTIONS.map(s => s.id === 'dosage' ? { ...s, mark: dosageMark(model.dosage) } : s)} value={section} onChange={next => workspace.setOptions({ section: next, query: '' })} /></div>}
       <div className="gd-section-panel" role={workspace.enabled ? 'tabpanel' : undefined} id={`gene-disease-sections-panel-${section}`} aria-labelledby={workspace.enabled ? `gene-disease-sections-tab-${section}` : undefined}>
         {(section === 'validity' || !workspace.enabled) && <>
           <section className="gd-card gd-hero" aria-labelledby="gd-finding-title" data-testid="gene-disease-finding" data-verdict={verdict.kind}>

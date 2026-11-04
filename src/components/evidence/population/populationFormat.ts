@@ -42,12 +42,18 @@ export function reviewStars(status: string | null | undefined): number | null {
 /**
  * A ClinVar date in the day-month-year order a UK clinical reader expects ("12 Mar 2024"), and never
  * the browser's locale default, which printed 3/12/2024 on a US-locale machine.
+ *
+ * A date with no time ("2014-04-01") is a calendar day, not a moment. `new Date` reads it as midnight UTC,
+ * so formatting it in the reader's zone showed the day before for anyone west of UTC ("31 Mar 2014").
+ * It is read and shown in UTC, which is the zone it was parsed in; a value that carries a time is shown
+ * in the reader's own zone as before.
  */
 export function formatClinicalDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const calendarDay = /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", ...(calendarDay ? { timeZone: "UTC" } : {}) });
 }
 
 /**

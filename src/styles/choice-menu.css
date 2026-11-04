@@ -34,3 +34,7 @@
 .cm__option[data-active] { background: var(--cs-bg-subtle); }
 .cm__option[aria-selected="true"] { background: var(--cs-accent-wash); box-shadow: inset 2px 0 var(--cs-accent-clay); }
 .cm__option[aria-selected="true"][data-active] { background: color-mix(in oklch, var(--cs-accent-clay) 14%, var(--cs-surface)); }
+/* "Choose…" is the absence of a choice, not a choice: it never wears the selected wash, so the only
+   highlight with nothing chosen is the hover or keyboard one. */
+.cm__option[data-none][aria-selected="true"] { background: transparent; box-shadow: none; }
+.cm__option[data-none][aria-selected="true"][data-active] { background: var(--cs-bg-subtle); }

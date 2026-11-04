@@ -67,7 +67,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
     {species && trace}
     {!species && model.assertions.some(a => a.adverse) && <p className="rail-step__warn" role="note">The selected disease has disputed, refuted or no-known-relationship assertions. Expression cannot resolve that dispute.</p>}
     <section className="rail-section" aria-labelledby="ctx-rail-sources"><h3 className="eyebrow" id="ctx-rail-sources">{species ? 'Sources read' : 'Source availability'}</h3>
-      <dl className="rail-kv rail-kv--sources" data-testid="context-sources">{sources.map(s => { const st = s.state ?? slotState(s.slot); return <div className="rail-kv__row" key={s.name}><dt>{s.name}</dt><dd><span className="ev-tier" data-tone={st.tone === 'good' ? 'neutral' : st.tone}>{st.label}</span></dd></div>; })}</dl>
+      <dl className="rail-kv rail-kv--sources" data-testid="context-sources">{sources.map(s => { const st = s.state ?? slotState(s.slot); return <div className="rail-kv__row" key={s.name}><dt>{s.name}</dt><dd><span className="ev-tier" data-tone={st.tone}>{st.label}</span></dd></div>; })}</dl>
     </section>
     {!species && <ContextDisclosure tab={tab} id="review-trace" title="Review context and reading">{trace}</ContextDisclosure>}
     <section className="rail-section" aria-labelledby="ctx-rail-method"><h3 className="eyebrow" id="ctx-rail-method">Method</h3>
