@@ -13,7 +13,6 @@
 .cx-coverage-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cs-accent-clay); }
 .cx-coverage-table button:focus-visible, .sm-review > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) { .cx-coverage-table button:hover { border-color: var(--cs-accent-clay); } }
-.sm-review > summary { padding: 10px 0; cursor: pointer; min-height: 44px; color: var(--cs-text-primary); }
 .sm-finding { margin: 0; padding: 16px 20px; border-inline-start: 3px solid var(--cs-accent-clay); background: var(--cs-accent-wash); line-height: 1.6; }
 .sm-finding strong { color: var(--cs-text-primary); }
 .sm-workspace[data-comparison] { gap: 16px; }
@@ -103,6 +102,28 @@
 
 /* Card source messages retain their inset after the shared notice reset. */
 .ctx-card__body.cx-source-state { padding-inline: 16px; }
+
+/* Species review controls follow the Expression workspace summary. */
+.sm-review { border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface); }
+.sm-review > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-block-size: 44px; padding: 10px 14px; cursor: pointer; color: var(--cs-text-primary); font-size: 13px; }
+.sm-review > summary > span { font-size: 12px; color: var(--cs-text-secondary); }
+.sm-review-disease { flex: 1 1 25ch; overflow-wrap: anywhere; }
+.sm-review > summary::after { content: ''; inline-size: 7px; block-size: 7px; margin-inline-start: auto; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); }
+.sm-review[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+.sm-review > .xp-frame { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
+.sm-workspace .sm-screen-heading { padding-block-end: 0; }
+.sm-workspace .sm-screen-heading h3 { margin-block: 0; }
+.sm-mouse-screen > .sm-screen-note { display: block; margin-block: 0; line-height: 1.6; }
+.sm-phenotype-summary { display: grid; gap: 8px; line-height: 1.6; }
+.sm-phenotype-summary strong { color: var(--cs-text-primary); }
+.sm-phenotype-summary p { margin-block: 0; }
+.sm-summary-label { font-size: 12px; color: var(--cs-text-secondary); }
+.sm-partial-note { margin-block: 0; line-height: 1.6; }
+.sm-alignment-card { border: 0; background: transparent; overflow: visible; }
+.sm-alignment-card > .ctx-card__head { border: 1px solid var(--cs-border-subtle); border-block-end: 0; border-radius: 12px 12px 0 0; }
+.sm-alignment-summary { border: 1px solid var(--cs-border-subtle); border-block-start: 0; border-radius: 0 0 12px 12px; margin-block-end: 20px; background: var(--cs-surface); }
+.sm-alignment-summary .ctx-prose { margin-block: 0; }
+.sm-alignment-card > .ctx-table-wrap { border: 1px solid var(--cs-border-subtle); border-radius: 12px; overflow: auto; }
 
 /* Record filters and actions share one size, including buttons inside the filters. */
 .cx-screen .cx-record-toolbar :is(input[type="search"], select, .viz-action) {

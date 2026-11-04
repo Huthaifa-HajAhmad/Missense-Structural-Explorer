@@ -22,23 +22,25 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
   const speciesCount = new Set(rows.map(r => r.taxon)).size;
   // A blank store is a read that has not answered yet, not an empty gene: the count line waits for the
   // first answer rather than printing "0 species" while the sources below still say they are reading.
-  const readingSources = [c.modelLoad, c.alignmentLoad, c.phenotypesLoad].every(l => !l || l.status === 'loading');
+  const sourceLoads = [c.modelLoad, c.alignmentLoad, c.phenotypesLoad];
+  const readingSources = sourceLoads.every(l => !l || l.status === 'loading');
+  const failedSources = sourceLoads.every(l => l?.status === 'error' || l?.data?.status === 'error');
   const phenotypes = c.phenotypesLoad?.data;
   const incomplete = phenotypes?.species.filter(s => s.status === 'error') ?? [];
   const omitted = phenotypes?.species.reduce((n, s) => n + (s.status === 'ready' ? Math.max(0, s.total - s.phenotypes.length) : 0), 0) ?? 0;
+  const reviewFrame = <ReviewFrame gene={c.gene} load={c.diseaseLoad} selection={c.selection} onChange={c.setSelection} onRetry={c.retryDisease} />;
   return <div data-evidence-screen className="ctx-screen cx-screen sm-workspace" data-testid="species-models-screen" data-comparison={w.comparison || undefined}>
     <header><h1 className="screen-title">{evidenceTab('species-models').label}</h1><p className="screen-tab-description">Explore orthologs, the aligned variant site, and curated animal phenotypes.</p></header>
     <EvidenceViewTabs tab="species-models" comparisonLabel="Species explorer" />
     {c.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices remain with their original transcript, isoform and assembly.</p>}
+    {w.enabled ? <details className="sm-review"><summary><strong>Review context</strong><span>{c.selection.systems.length ? `${c.selection.systems.length} ${c.selection.systems.length === 1 ? 'system' : 'systems'}` : 'All systems'}</span><span className="sm-review-disease">{model.selected?.label ?? 'No disease selected'}</span></summary>{reviewFrame}</details> : reviewFrame}
     {(!w.enabled || w.comparison) && <>
-    <details className="sm-review" open={!w.enabled || undefined}><summary>Review context · {model.selected ? `${model.selected.label} · ${model.selected.inheritance.label}` : 'No disease selected'}</summary><ReviewFrame gene={c.gene} load={c.diseaseLoad} selection={c.selection} onChange={c.setSelection} onRetry={c.retryDisease} /></details>
-    <p className="sm-finding" role="status">{readingSources ? <>Reading the model-organism sources.</> : <><strong>{speciesCount} species with returned records.</strong> {rows.filter(r => r.group === 'orthologs').length} Alliance orthologs and {rows.filter(r => r.group === 'alignment').length} Ensembl alignments retain their own identifiers.</>}</p>
-    <p>These sources describe different aspects of a model. A matching residue or phenotype does not show that a human variant is tolerated or disease-causing.</p>
+    <p className="sm-finding" role="status">{readingSources ? <>Reading the model-organism sources.</> : failedSources ? <>Model-organism sources could not be read. Retry the sources below.</> : <><strong>{speciesCount} species with returned records.</strong> {rows.filter(r => r.group === 'orthologs').length} Alliance orthologs and {rows.filter(r => r.group === 'alignment').length} Ensembl alignments retain their own identifiers.{omitted > 0 && <> {omitted} returned phenotype {omitted === 1 ? 'summary' : 'summaries'} could not be resolved into term records; displayed phenotype counts are partial.</>}</>}</p>
     </>}
     {(!w.enabled || w.comparison || w.view === 'phenotypes') && <>
     {phenotypes?.mapping === 'unavailable' && <p className="cx-notice">Cross-species term mapping is unavailable. Curated phenotype records remain available without disease-overlap claims.</p>}
-    {incomplete.length > 0 && <p className="cx-notice">Phenotypes could not be read completely for {incomplete.map(s => s.symbol).join(', ')}. <button type="button" className="viz-action" onClick={c.retryPhenotypes}>Retry phenotypes</button></p>}
-    {omitted > 0 && <p className="cx-notice">{omitted} returned phenotype summaries could not be resolved into the displayed term records. Coverage is partial; displayed counts are not the full annotation set.</p>}
+    {incomplete.length > 0 && <p className="cx-notice">Phenotypes could not be read completely for {[...new Set(incomplete.map(s => s.symbol))].join(', ')}. <button type="button" className="viz-action" onClick={c.retryPhenotypes}>Retry phenotypes</button></p>}
+    {omitted > 0 && w.enabled && !w.comparison && w.view === 'phenotypes' && <p className="cx-notice">{omitted} returned phenotype {omitted === 1 ? 'summary' : 'summaries'} could not be resolved into the displayed term records. Coverage is partial; displayed counts are not the full annotation set.</p>}
     </>}
     <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}{(!w.enabled || w.comparison) && <ContextExplorer tab="species-models" rows={rows}
       groups={[{ id: 'orthologs', label: 'Orthologs' }, { id: 'alignment', label: 'Variant site' }, { id: 'phenotypes', label: 'Phenotypes' }]}
