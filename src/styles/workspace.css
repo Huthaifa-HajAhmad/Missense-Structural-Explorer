@@ -46,7 +46,7 @@ aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(
   border-radius: var(--cs-radius-card);
 }
 .exploration-workspace .landscape-main { background: var(--cs-surface); border-radius: inherit; scrollbar-gutter: stable; }
-/* Workspace tabs are a ruled index, not buttons: plain labels on the section's hairline, and the
+/* Primary workspace tabs are a ruled index, not buttons: plain labels on the section's hairline, and the
    selected one is marked by ink plus a 2px clay rule that sits ON that hairline. No fill, no box, no
    pill — the same grammar as the Analysis monitor's Services/Pipeline switch. Weight never changes
    with selection, so the labels do not shift when the selection moves. */
@@ -79,3 +79,15 @@ aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(
   .exploration-workspace > aside[data-workspace-inspector-rail] > div:last-child { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .workspace-tabs button { transition: none; } }
+
+/* Secondary source navigation matches the Gene-disease presentation control. */
+.workspace-tabs[data-variant="secondary"] { display: inline-flex; align-self: start; gap: 4px; padding: 3px; border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-bg); }
+.workspace-tabs[data-variant="secondary"] button { min-block-size: 30px; margin-block: 0; padding-inline: 14px; border: 1px solid transparent; border-radius: 6px; font-weight: 500; }
+.workspace-tabs[data-variant="secondary"] button[aria-selected="true"] { background: var(--cs-surface); border-color: var(--cs-accent-clay); box-shadow: inset 0 -2px 0 var(--cs-accent-clay); }
+.workspace-tabs[data-variant="secondary"] button:active { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .workspace-tabs[data-variant="secondary"] button:hover:not([aria-selected="true"]) { border-color: var(--cs-border); background: var(--cs-surface); }
+}
+@media (forced-colors: active) {
+  .workspace-tabs[data-variant="secondary"] button[aria-selected="true"] { border-color: Highlight; color: Highlight; }
+}

@@ -124,3 +124,19 @@
 .sm-alignment-summary { border: 1px solid var(--cs-border-subtle); border-block-start: 0; border-radius: 0 0 12px 12px; margin-block-end: 20px; background: var(--cs-surface); }
 .sm-alignment-summary .ctx-prose { margin-block: 0; }
 .sm-alignment-card > .ctx-table-wrap { border: 1px solid var(--cs-border-subtle); border-radius: 12px; overflow: auto; }
+
+/* Record filters and actions share one size, including buttons inside the filters. */
+.cx-screen .cx-record-toolbar :is(input[type="search"], select, .viz-action) {
+  box-sizing: border-box;
+  min-block-size: 38px;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cx-screen .cx-record-toolbar .viz-action { white-space: nowrap; }
+.cx-screen .cx-record-toolbar .cx-check { min-block-size: 38px; }
+
+.cx-screen .cx-record-toolbar .gd-view-control { box-sizing: border-box; min-block-size: 38px; }
+.cx-screen .cx-record-toolbar .gd-view-control button { box-sizing: border-box; min-block-size: 30px; padding-block: 4px; line-height: 1.5; }

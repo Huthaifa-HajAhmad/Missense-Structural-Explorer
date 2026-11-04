@@ -87,7 +87,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
   }, [page]);
   const caption = (!config.hideControlsWhenEmpty || page.sourceCount > 0) && <p className="cx-caption" role="status">{page.rows.length} of {page.sourceCount} records shown{page.total !== page.sourceCount ? `; ${page.total} match the filters` : ''}.</p>;
   return <section ref={explorerRef} className="cx-explorer" aria-label="Explore source readings">
-    {groups.length > 1 && <WorkspaceTabs id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
+    {groups.length > 1 && <WorkspaceTabs variant="secondary" id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
     <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
       <div className="cx-record-toolbar">
       {toolbarStart}

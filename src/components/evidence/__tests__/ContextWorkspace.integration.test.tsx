@@ -66,7 +66,8 @@ describe('production context tabs and linked inspectors', () => {
     render(<Harness result={result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
-    expect(screen.getByText(/Review systems: Nervous system, Hearing/)).toBeVisible();
+    expect(screen.getByText('Your choices, not patient findings', { selector: '.xp-system-note span' })).toBeVisible();
+    expect(screen.queryByText(/Related tissues are listed first/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change review systems' }));
     const systems = screen.getByRole('group', { name: 'Review systems' });
     expect(systems.contains(document.activeElement)).toBe(true);
