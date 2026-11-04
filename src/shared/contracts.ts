@@ -86,8 +86,18 @@ export const clinVarDataSchema = z.object({
   trait: z.string(),
   /** Raw condition identifiers retained for an explicit disease choice; no label-based matching. */
   conditions: z.array(z.object({
-    label: z.string(), xrefs: z.array(z.object({ source: z.string(), id: z.string() }))
+    label: z.string(), xrefs: z.array(z.object({ source: z.string(), id: z.string() })),
+    /** ClinVar's own record for this condition (RCV). Present only when the full variant record was read. */
+    record: z.object({
+      accession: z.string().regex(/^RCV\d{9}$/),
+      classification: z.string(), reviewStatus: z.string(), lastEvaluated: z.string(),
+      /** Whether the record counts toward the variant-level aggregate; null when ClinVar's file does not say. */
+      inAggregate: z.boolean().nullable(),
+    }).optional(),
   })).optional(),
+  /** Where `conditions` came from. `full-record`: ClinVar's variant record, every condition. `summary-only`: the
+   * summary endpoint, which lists only conditions behind the aggregate. Absent on analyses saved before this field. */
+  conditionsRead: z.enum(['full-record', 'summary-only']).optional(),
   uid: z.string().nullable(),
   hasOtherPathogenicVariantSameAA: z.boolean().optional()
 });

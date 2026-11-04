@@ -56,6 +56,9 @@ aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(
 @media (hover: hover) and (pointer: fine) {
   .workspace-tabs button:hover:not([aria-selected="true"]) { color: var(--cs-text-primary); border-block-end-color: var(--cs-border); }
 }
+/* A marked tab holds a finding the open tab does not show. The dot is the same clay as the selected rule
+   and the sidebar's data dots: small, after the label, never a fill or a badge with a number. */
+.workspace-tabs__mark { flex: none; inline-size: 6px; block-size: 6px; margin-inline-start: .4rem; border-radius: 50%; background: var(--cs-accent-clay); }
 .workspace-tabs button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px; }
 .workspace-tabs button:active { color: var(--cs-text-accent); }
 @media (prefers-reduced-motion: no-preference) {

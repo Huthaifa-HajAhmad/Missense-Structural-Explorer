@@ -280,7 +280,7 @@ describe('gene-disease review states', () => {
   it('keeps category and presentation independent and scopes each finding to its evidence', () => {
     render(<Harness result={contextWorkspaceFixture('Differing assertions').result} />);
     const tabs = screen.getByRole('tablist', { name: 'Gene–disease evidence' });
-    expect(within(tabs).getAllByRole('tab').map(t => t.textContent)).toEqual(['Validity', 'Dosage', 'Mechanism', 'Variant context']);
+    expect(within(tabs).getAllByRole('tab').map(t => t.firstChild?.textContent)).toEqual(['Validity', 'Dosage', 'Mechanism', 'Variant context']);
     fireEvent.click(screen.getByRole('button', { name: 'Records' }));
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('dosage-card')).not.toBeInTheDocument();
@@ -334,19 +334,30 @@ describe('gene-disease review states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear pin' }));
     expect(screen.getByRole('heading', { name: 'Review overview' })).toBeInTheDocument();
   });
-  it('restores a hidden pin to its source and keyboard target without fetching', () => {
+  it('keeps a pin in the inspector on the other Gene–disease sections without a notice about it', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Panel C: Disputed Evidence' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Show pinned record' }));
-    const point = screen.getByRole('button', { name: 'Panel C' });
-    expect(point).toHaveFocus();
-    expect(point).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Panel C');
+    for (const name of ['Dosage', 'Mechanism', 'Variant context']) {
+      fireEvent.click(screen.getByRole('tab', { name }));
+      expect(screen.queryByText(/remains pinned/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show pinned record' })).not.toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Panel C');
+    }
     expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+  it('puts a dot on the Dosage tab only when ClinGen scored the gene', () => {
+    // Default fixture: no dosage record. Nothing to point to.
+    const none = render(<Harness result={contextWorkspaceFixture().result} />);
+    expect(screen.getByRole('tab', { name: 'Dosage' })).not.toHaveAttribute('data-marked');
+    none.unmount();
+    // Scored (haploinsufficiency 3): the Dosage tab says so while another section is open.
+    const f = contextWorkspaceFixture('Differing assertions'); store.setState(f.state);
+    render(<Harness result={f.result} />);
+    expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Dosage' })).toHaveAccessibleDescription('ClinGen scored this gene’s dosage sensitivity');
+    expect(screen.getByRole('tab', { name: 'Dosage' }).querySelector('.workspace-tabs__mark')).not.toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
+    expect(screen.getByRole('tab', { name: 'Dosage' }).querySelector('.workspace-tabs__mark')).toBeNull();
   });
   it('offers disease selection without empty search or record instructions', () => {
     const f = contextWorkspaceFixture();

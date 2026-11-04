@@ -39,10 +39,13 @@ test('gene-disease finding, hidden pins and empty states remain legible', { tags
   await expect(screen.getByRole('searchbox')).toHaveCount(0);
   await expect(screen.getByRole('button', 'Try again')).toHaveCount(0);
   await app.screenshot('gene-disease-no-dosage');
-  await screen.getByRole('button', 'Show pinned record').tap();
-  await expect(screen.getByRole('button', 'Panel B')).toHaveAttribute('aria-pressed', 'true');
-  expect(await browser.evaluate(() => document.activeElement?.textContent ?? null)).toBe('Panel B');
+  // A pin from another section stays in the inspector; the page adds no notice or button about it.
+  await expect(screen.getByRole('button', 'Show pinned record')).toHaveCount(0);
+  await expect(inspector.getByRole('heading', 'Panel B')).toBeVisible();
+  await screen.getByRole('tab', 'Validity').tap();
   await screen.getByRole('button', 'Records').tap();
+  // The pin survived the trip through the other sections: its record is still the pressed one, and the inspector still shows it.
+  await expect(screen.getByRole('button', 'Panel B')).toHaveAttribute('aria-pressed', 'true');
   await expect(inspector.getByRole('heading', 'Panel B')).toBeVisible();
   await screen.getByRole('button', 'Comparison').tap();
   await screen.getByText('Reference & methods', { exact: true }).tap();

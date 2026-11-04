@@ -42,11 +42,14 @@ export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
     setOptions,
     setView, setFilter, select, toggleGroup };
 }
-export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string }) {
+/** `marks` maps a view id to one sentence saying what that view holds. Pass only views that have a
+ * positive finding the open view does not show; the tab then gets a dot. */
+export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison', marks }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string; marks?: Partial<Record<View, string>> }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return null;
+  const views: { id: View; label: string }[] = [{ id: 'comparison', label: comparisonLabel }, ...(tab === 'interfaces' ? [{ id: 'partners' as const, label: 'Partners' }] : []), { id: 'records', label: EVIDENCE_DETAIL_LABELS[tab] }, ...(extraViews[tab] ?? [])];
   return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${evidenceTab(tab).label} views`}
-    tabs={[{ id: 'comparison', label: comparisonLabel }, ...(tab === 'interfaces' ? [{ id: 'partners' as const, label: 'Partners' }] : []), { id: 'records', label: EVIDENCE_DETAIL_LABELS[tab] }, ...(extraViews[tab] ?? [])]} value={w.view} onChange={w.setView} /></div>;
+    tabs={views.map(view => ({ ...view, mark: marks?.[view.id] }))} value={w.view} onChange={w.setView} /></div>;
 }
 export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; children: ReactNode }) {
   const w = useEvidenceWorkspace(tab);
