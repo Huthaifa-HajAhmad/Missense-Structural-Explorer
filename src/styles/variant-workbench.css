@@ -53,6 +53,12 @@
 .workbench-history-clear { display: inline-flex; align-items: center; gap: .375rem; padding-inline: .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 11px; cursor: pointer; }
 .workbench-history-clear:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .workbench-history-clear:active { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+/* The first-run tray's own header action, in the slot "Clear history" takes once the tray is populated. */
+.workbench-tour-link { display: inline-flex; align-items: center; gap: .375rem; padding-inline: .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-secondary); font-size: 11px; font-weight: 500; cursor: pointer; transition: color 150ms ease-out, background-color 150ms ease-out; }
+.workbench-tour-link > svg { inline-size: 14px; block-size: 14px; }
+.workbench-tour-link:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+.workbench-tour-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.workbench-tour-link:active { background: var(--cs-surface-2); }
 /* The list rules are the only row lines: a boxed current row would sit against its neighbour's rule as a double line. */
 .workbench-recent[aria-pressed="true"] { background: var(--cs-surface-2); box-shadow: inset 2px 0 0 var(--cs-accent-clay); }
 .workbench-recent-identity { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr); align-items: baseline; gap: .125rem 1rem; flex: 1; min-inline-size: 0; }
@@ -67,9 +73,13 @@
 .workbench-recent:active { background: var(--cs-bg-subtle); }
 .workbench-benchmarks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: .5rem 1.25rem; padding: 0 var(--workbench-pad) 1rem; }
 .workbench-recents-empty > div > p { padding: .75rem var(--workbench-pad) 0; }
-.workbench-recents-empty > button { margin-inline: var(--workbench-pad); }
-.workbench-benchmark { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-block-end: 1px solid var(--cs-border-subtle); padding-block: .5rem; }
-.workbench-benchmark > button { padding-inline: 0; }
+.workbench-benchmark { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .375rem; border-block-end: 1px solid var(--cs-border-subtle); padding-block: .5rem; }
+/* The run action is a surface of its own: it bleeds into the tray's padding by exactly the padding it
+   puts back, so the gene stays on the card's content grid while the highlighted state has an edge of its
+   own. Rounded on all four corners — a top-only radius read as a band cut off above "Fill form only". */
+.workbench-benchmark > button { margin-inline-start: -.75rem; padding: .5rem .75rem; border-radius: 8px; transition: background-color 150ms ease-out; }
+.workbench-benchmark > button:hover { background: var(--cs-surface-2); }
+.workbench-benchmark > button:active { background: var(--cs-bg-subtle); }
 .workbench-benchmark > div { padding: 0; }
 .workbench-benchmark > button > span:last-child { font-size: 11px; }
 .workbench-benchmark > div button { padding-inline: .5rem; margin-inline: 0; }

@@ -1,11 +1,13 @@
 import React from "react";
 import { Check, Copy, FileText, Terminal, X } from "lucide-react";
 import type { ConsoleEntry } from "../../types/devConsole";
-import { buildCurl, buildMarkdownReport, effectiveImpact, formatClock, stringifyPayload } from "./consoleUtils";
+import { buildCurl, buildMarkdownReport, effectiveImpact, formatClock, formatRelativeTime, stringifyPayload } from "./consoleUtils";
 import { useCopy } from "./useCopy";
 
 interface Props {
   entry: ConsoleEntry;
+  /** Shared ticking clock from the list, so the header ages with the row it came from. */
+  now?: number;
   onClose: () => void;
 }
 
@@ -53,7 +55,7 @@ function CopyButton({
 }
 
 /** Right-hand detail pane for one log entry: every fact in one scrollable column, no sub-tabs. */
-export default function ConsoleInspector({ entry, onClose }: Props) {
+export default function ConsoleInspector({ entry, now, onClose }: Props) {
   const { copy, status } = useCopy();
   const http = entry.httpMeta;
   const ctx = entry.sessionContext;
@@ -70,7 +72,13 @@ export default function ConsoleInspector({ entry, onClose }: Props) {
           {entry.level}
         </span>
         <ImpactBadge entry={entry} />
-        <span className="cx-mono" style={{ color: "var(--cs-text-muted)" }} title={new Date(entry.timestamp).toISOString()}>
+        <span
+          className="cx-mono"
+          style={{ color: "var(--cs-text-muted)" }}
+          title={new Date(entry.timestamp).toLocaleString()}
+        >
+          {formatRelativeTime(entry.timestamp, now ?? Date.now())}
+          <span aria-hidden> · </span>
           {formatClock(entry.timestamp)}
           {entry.count > 1 ? ` · ×${entry.count}` : ""}
         </span>
