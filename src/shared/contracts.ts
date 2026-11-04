@@ -2544,6 +2544,26 @@ export interface MultimerExperimentalInterfaces {
   crystalChecked?: boolean;
 }
 
+/**
+ * The LocalFold hand-off: what the browser needs to fold this complex on the reader's own GPU.
+ *
+ * There is no endpoint behind localfold.org — Boltz-2 runs in the page, on WebGPU — so the app cannot
+ * call it. What it can do is hand over the job and read the model back: this payload is the job file,
+ * the page to open it on, and the size that decides whether a browser can finish it.
+ */
+export interface MultimerHandoff {
+  /** localfold.org with Boltz-2 preselected (`?model=boltz2`). */
+  url: string;
+  /** Suggested name for the saved job file. */
+  filename: string;
+  /** AlphaFold 3 job JSON in the open-source dialect — what LocalFold's own job loader reads. */
+  jobJson: string;
+  /** Residues across every chain: what decides whether a browser can hold the fold. */
+  residues: number;
+  /** Past what a browser fold is expected to finish. Said, never used to refuse the hand-off. */
+  tooLarge: boolean;
+}
+
 export interface MultimerData {
   status: MultimerStatus;
   gene: string;
@@ -2573,6 +2593,8 @@ export interface MultimerData {
   failure?: MultimerModelFailure | null;
   /** Provider job still running (status "running"): ask again and the server resumes it. */
   jobId?: string | null;
+  /** Present when the caller asked for it: the job to fold this complex in the reader’s browser. */
+  handoff?: MultimerHandoff;
 }
 
 export type UniprotFeatureType = 

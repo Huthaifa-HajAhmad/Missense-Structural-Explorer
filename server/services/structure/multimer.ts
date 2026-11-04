@@ -8,6 +8,9 @@
  *      Chain A carries the variant; every other chain is wild type. ON REQUEST ONLY (`model: true`):
  *      the pipeline asks for the lookups alone, so no GPU job starts for a tab nobody opened, and a
  *      job that outlives one request is resumed by the next ("running"), never submitted twice.
+ *   2b. The same fold, done in the reader's browser (LocalFold). There is no endpoint to call, so this
+ *      service only hands over the job (`handoff: true`) and reads the model back when the reader saves
+ *      it (`importMultimerModel`). Same chains, same contacts, provenance that names the machine.
  *   3. Interface residues observed in solved PDB structures (PDBe-KB), which need no model at all,
  *      with per-residue support (in how many of the pair's structures each residue is interfacial).
  *
@@ -34,6 +37,8 @@ import {
   variantContacts,
   type SubunitAssembly,
 } from "../../../src/shared/multimerAssembly.ts";
+import { localFoldHandoff } from "../../../src/shared/multimerHandoff.ts";
+import { interfaceContactsFromPdb, oneLetterOf, residueNameAt } from "./model-contacts.ts";
 import type {
   MultimerAssemblyPartner,
   MultimerAssemblyRecord,
@@ -46,6 +51,16 @@ import type {
 export type MultimerAnalysisResult = MultimerData;
 
 const CHAIN_LETTERS = ["A", "B", "C", "D"];
+
+/** Where the provider's model came from. Untouched by the LocalFold hand-off (see LOCALFOLD_PROVENANCE). */
+const JAPANFOLD_PROVENANCE = "Boltz-2 via JapanFold";
+
+/**
+ * An imported model is the same model on a different machine, so it says which: the fold ran in the
+ * reader's browser, nothing reached a fold server, and the contacts below were measured here from the
+ * file rather than reported by the service.
+ */
+const LOCALFOLD_PROVENANCE = "Boltz-2 via LocalFold (browser)";
 
 async function resolvePartners(
   assembly: SubunitAssembly,
@@ -116,25 +131,46 @@ export function failureSentence(f: { kind: string; httpStatus?: number | null; d
   }
 }
 
-export async function analyzeMultimerStructure(
+/** The assembly, its chains and the sequences that would be folded — before any folding is chosen. */
+interface PlannedMultimer {
+  assembly: SubunitAssembly;
+  position: number | null;
+  /** In fold order: `chainId` A carries the variant, every other chain is wild type. */
+  chainSpecs: Array<{ chainId: string; sequence: string }>;
+  chains: MultimerChain[];
+  /** `status: "not-requested"` or `"success"`: what a fold answers with once coordinates exist. */
+  modelled: MultimerData;
+}
+
+type PlanOutcome = { ok: true; plan: PlannedMultimer } | { ok: false; result: MultimerData };
+
+/**
+ * Read the assembly and decide which chains a fold would use: the shared half of the provider model,
+ * the browser hand-off and the import. It never folds anything, so all three agree on the chains.
+ */
+async function planMultimer(
   gene: string,
   variant: string,
   uniprotId: string,
-  signal?: AbortSignal,
-  { model = false, waitMs }: { model?: boolean; waitMs?: number } = {}
-): Promise<MultimerAnalysisResult> {
+  signal?: AbortSignal
+): Promise<PlanOutcome> {
   const parsedMut = parseMutationParam(variant);
   const position = parsedMut?.posNum && parsedMut.posNum > 0 ? parsedMut.posNum : null;
 
-  const base = {
+  const base: MultimerData = {
+    status: "failed",
     gene,
     uniprotId,
+    oligomericState: "Not stated",
+    chainCount: 1,
+    chainIds: ["A"],
     complexPdb: null,
     ipTm: null,
     pTm: null,
-    interfaceContacts: [] as MultimerData["interfaceContacts"],
+    interfaceContacts: [],
     variantPosition: position,
     variantAtInterface: null,
+    provenance: "Error",
   };
 
   try {
@@ -158,7 +194,15 @@ export async function analyzeMultimerStructure(
     const record = toRecord(assembly, partners, subunitComment, gene);
     const experimental = await experimentalTask;
 
-    const common = { ...base, subunitComment, assembly: record, experimental, oligomericState: assembly.label };
+    // The chain list the reader sees is on every outcome, model or not.
+    const common: MultimerData = {
+      ...base,
+      subunitComment,
+      assembly: record,
+      experimental,
+      oligomericState: assembly.label,
+      provenance: subunitComment ? "UniProt SUBUNIT" : "UniProt (no SUBUNIT record)",
+    };
 
     const notModelled = (reason: MultimerNotModelledReason): MultimerData => ({
       ...common,
@@ -170,18 +214,18 @@ export async function analyzeMultimerStructure(
     });
 
     if (assembly.kind === "monomer") {
-      return { ...common, status: "monomeric", chainCount: 1, chainIds: ["A"], provenance: "UniProt SUBUNIT" };
+      return { ok: false, result: { ...common, status: "monomeric", chainCount: 1, chainIds: ["A"], provenance: "UniProt SUBUNIT" } };
     }
     if (assembly.kind === "unstated" || assembly.kind === "interactions-only" || assembly.kind === "complex") {
-      return notModelled(assembly.kind);
+      return { ok: false, result: notModelled(assembly.kind) };
     }
-    if (!sequence) return notModelled("no-sequence");
+    if (!sequence) return { ok: false, result: notModelled("no-sequence") };
 
     // The variant must name the residue the sequence has; modelling a different residue is not this variant.
     let mutSequence = sequence;
     if (parsedMut && position) {
       const actual = sequence[position - 1];
-      if (!actual || actual.toUpperCase() !== parsedMut.wtLetter.toUpperCase()) return notModelled("reference-mismatch");
+      if (!actual || actual.toUpperCase() !== parsedMut.wtLetter.toUpperCase()) return { ok: false, result: notModelled("reference-mismatch") };
       mutSequence = sequence.slice(0, position - 1) + parsedMut.mutLetter.toUpperCase() + sequence.slice(position);
     }
 
@@ -190,19 +234,19 @@ export async function analyzeMultimerStructure(
 
     if (assembly.kind === "homomer") {
       const copies = assembly.copies ?? 2;
-      if (copies > MAX_MODELLED_CHAINS) return notModelled("too-many-chains");
+      if (copies > MAX_MODELLED_CHAINS) return { ok: false, result: notModelled("too-many-chains") };
       chainSpecs = Array.from({ length: copies }, (_, i) => ({
         ...self,
         carriesVariant: i === 0,
         sequence: i === 0 ? mutSequence : sequence,
       }));
     } else {
-      if (assembly.copies !== 2) return notModelled("heteromer-stoichiometry");
+      if (assembly.copies !== 2) return { ok: false, result: notModelled("heteromer-stoichiometry") };
       // A heterodimer has exactly one other chain; "with X or Y" names two and is not guessed between.
       const partner = partners.length === 1 ? partners[0] : null;
-      if (!partner?.accession) return notModelled("heteromer-partner");
+      if (!partner?.accession) return { ok: false, result: notModelled("heteromer-partner") };
       const partnerSeq = await fetchUniprotSequence(partner.accession).catch(() => "");
-      if (!partnerSeq) return notModelled("heteromer-partner");
+      if (!partnerSeq) return { ok: false, result: notModelled("heteromer-partner") };
       chainSpecs = [
         { ...self, sequence: mutSequence },
         { accession: partner.accession, gene: partner.gene, length: partnerSeq.length, carriesVariant: false, sequence: partnerSeq },
@@ -211,45 +255,195 @@ export async function analyzeMultimerStructure(
 
     const chains: MultimerChain[] = chainSpecs.map(({ sequence: _s, ...c }, i) => ({ ...c, id: CHAIN_LETTERS[i] }));
     const chainIds = chains.map(c => c.id);
-    const modelled = { ...common, chainCount: chains.length, chainIds, chains, provenance: "Boltz-2 via JapanFold" };
+    const modelled: MultimerData = { ...common, status: "not-requested", chainCount: chains.length, chainIds, chains, provenance: JAPANFOLD_PROVENANCE };
 
-    // The assembly can be modelled; whether it is, is the reader's choice.
-    if (!model) return { ...modelled, status: "not-requested" };
+    return {
+      ok: true,
+      plan: {
+        assembly,
+        position,
+        chainSpecs: chainSpecs.map((c, i) => ({ chainId: CHAIN_LETTERS[i], sequence: c.sequence })),
+        chains,
+        modelled,
+      },
+    };
+  } catch (err: any) {
+    if (err?.name === "AbortError") throw err;
+    return { ok: false, result: { ...base, error: sanitizeErrorMessage(err) } };
+  }
+}
 
-    const outcome = await runBoltz2Multimer(
-      chainSpecs.map((c, i) => ({ chainId: CHAIN_LETTERS[i], sequence: c.sequence })),
-      signal,
-      waitMs ? { waitMs } : undefined
-    );
+/** The variant-carrying job name, e.g. "NAE1 p.Asp116Gly" for the page's own title and the file name. */
+function localFoldJobName(gene: string, variant: string): string {
+  return `${gene} ${variant}`;
+}
+
+export async function analyzeMultimerStructure(
+  gene: string,
+  variant: string,
+  uniprotId: string,
+  signal?: AbortSignal,
+  { model = false, waitMs, handoff = false }: { model?: boolean; waitMs?: number; handoff?: boolean } = {}
+): Promise<MultimerAnalysisResult> {
+  const planned = await planMultimer(gene, variant, uniprotId, signal);
+  if (!planned.ok) return planned.result;
+  const { plan } = planned;
+  // The hand-off is offered whatever the model's own state is: a reader whose provider job failed, or
+  // who never asked for one, can still fold the same chains in their browser.
+  const withHandoff = (result: MultimerData): MultimerData =>
+    handoff
+      ? { ...result, handoff: localFoldHandoff(localFoldJobName(gene, variant), plan.chainSpecs.map(c => ({ id: c.chainId, sequence: c.sequence }))) }
+      : result;
+
+  // The assembly can be modelled; whether it is, is the reader's choice.
+  if (!model) return withHandoff({ ...plan.modelled, status: "not-requested" });
+
+  try {
+    const outcome = await runBoltz2Multimer(plan.chainSpecs, signal, waitMs ? { waitMs } : undefined);
 
     if (outcome.status === "done") {
       const boltz = outcome.result;
-      const homomeric = assembly.kind === "homomer";
-      return {
-        ...modelled,
+      const homomeric = plan.assembly.kind === "homomer";
+      return withHandoff({
+        ...plan.modelled,
         status: "success",
         complexPdb: boltz.complexPdb,
         ipTm: boltz.ipTm,
         pTm: boltz.pTm,
         interfaceContacts: boltz.interfaceContacts,
-        variantAtInterface: position !== null ? variantContacts(boltz.interfaceContacts, position, homomeric).length > 0 : null,
+        variantAtInterface: plan.position !== null ? variantContacts(boltz.interfaceContacts, plan.position, homomeric).length > 0 : null,
         provenance: boltz.provenance,
-      };
+      });
     }
     if (outcome.status === "running") {
-      return { ...modelled, status: "running", jobId: outcome.jobId };
+      return withHandoff({ ...plan.modelled, status: "running", jobId: outcome.jobId });
     }
-    return { ...modelled, status: "failed", failure: outcome.failure, error: failureSentence(outcome.failure) };
+    return withHandoff({ ...plan.modelled, status: "failed", failure: outcome.failure, error: failureSentence(outcome.failure) });
   } catch (err: any) {
     if (err?.name === "AbortError") throw err;
-    return {
-      ...base,
-      status: "failed",
-      oligomericState: "Not stated",
-      chainCount: 1,
-      chainIds: ["A"],
-      provenance: "Error",
-      error: sanitizeErrorMessage(err),
-    };
+    // No model came back, so the provenance is the fault, not the provider: a stored payload must not
+    // name a service that threw while it was being asked.
+    return withHandoff({ ...plan.modelled, status: "failed", provenance: "Error", error: sanitizeErrorMessage(err) });
   }
+}
+
+/** Why an imported complex cannot be read for this variant, in the reader's terms. */
+function importNeedsComplex(result: MultimerData): string {
+  if (result.status === "monomeric") {
+    return "UniProt states a monomer: there is no subunit interface to read from a complex model.";
+  }
+  return "This assembly is not modelled as a complex here, so an imported complex has nothing to be scored against.";
+}
+
+/**
+ * A complex the reader folded themselves (LocalFold, in their browser) as this variant's model.
+ *
+ * The chains are the ones the assembly already decides — the file is not allowed to invent a different
+ * complex. Two things are checked before any contact is believed: the file holds every chain the
+ * assembly folds, and chain A carries the variant's own residue number. Either failing is a stated
+ * refusal, not an empty interface: a model of a different construct would otherwise read as "no
+ * contact at the variant", which is the false negative this whole tab is built to avoid.
+ *
+ * ipTM and pTM are null: LocalFold reports them in its own panel and in the AF3 archive, and the PDB
+ * alone does not carry them. Reporting a number here would be inventing one.
+ */
+export async function importMultimerModel(
+  gene: string,
+  variant: string,
+  uniprotId: string,
+  structureText: string,
+  signal?: AbortSignal
+): Promise<MultimerData> {
+  const planned = await planMultimer(gene, variant, uniprotId, signal);
+  if (!planned.ok) {
+    // Nothing was imported, so the provenance stays the plan's: naming LocalFold here would claim a
+    // model from a machine that never folded anything.
+    return { ...planned.result, error: planned.result.error ?? importNeedsComplex(planned.result) };
+  }
+  const { plan } = planned;
+  const refused = (message: string): MultimerData => ({
+    ...plan.modelled,
+    status: "failed",
+    failure: null,
+    ipTm: null,
+    pTm: null,
+    provenance: LOCALFOLD_PROVENANCE,
+    error: message,
+  });
+
+  let parsed;
+  try {
+    parsed = interfaceContactsFromPdb(structureText);
+  } catch (err: any) {
+    return refused(err?.message ?? "That file could not be read as a PDB model.");
+  }
+
+  const expected = plan.chains.map(c => c.id);
+  const missing = expected.filter(id => !parsed.chainIds.includes(id));
+  if (missing.length > 0) {
+    return refused(
+      `That model holds chain${parsed.chainIds.length === 1 ? "" : "s"} ${parsed.chainIds.join(", ")}; this assembly folds ${expected.join(", ")}. ` +
+      `Fold chains ${expected.join(" and ")} together — a monomer fold cannot answer an interface question.`
+    );
+  }
+  // Extra chains are refused, not ignored: `InterfaceContact` names no chain, so a contact with a
+  // chain the assembly never folded would be printed as a contact with the modelled partner.
+  const extra = parsed.chainIds.filter(id => !expected.includes(id));
+  if (extra.length > 0) {
+    return refused(
+      `That model also holds chain${extra.length === 1 ? "" : "s"} ${extra.join(", ")}; this assembly folds ` +
+      `${expected.join(", ")}. Fold exactly those chains, so every contact belongs to a chain this complex names.`
+    );
+  }
+  // A model is this variant's only if chain A's residue at the variant's position is the substituted
+  // residue: a wild-type fold, a homolog, or another protein numbered 1..N would otherwise pass on
+  // numbering alone and be scored as this mutant.
+  if (plan.position === null) {
+    return refused(
+      "This variant has no residue position this app can read, so a model cannot be checked against it."
+    );
+  }
+  const residues = parsed.residuesByChain["A"] ?? [];
+  if (!residues.includes(plan.position)) {
+    const span = residues.length ? `${residues[0]}–${residues[residues.length - 1]}` : "none";
+    return refused(
+      `Chain A in that model has no residue ${plan.position} (it numbers ${span}), so it is not this variant's fold.`
+    );
+  }
+  const expectedLength = plan.chains[0]?.length ?? null;
+  if (expectedLength !== null && residues.length !== expectedLength) {
+    return refused(
+      `Chain A in that model numbers ${residues.length} residues; this chain has ${expectedLength}. ` +
+      `The job folds the whole chain, so a shorter or longer chain A is a different construct.`
+    );
+  }
+  const found = oneLetterOf(residueNameAt(parsed, "A", plan.position));
+  const asked = plan.chainSpecs[0]?.sequence[plan.position - 1]?.toUpperCase() ?? null;
+  // A modified or unknown residue at the variant's position is not the substitution that was asked for,
+  // and comparing nothing would silently accept it.
+  if (found === null) {
+    const named = residueNameAt(parsed, "A", plan.position);
+    return refused(
+      `Residue ${plan.position} of chain A is ${named ?? "unnamed"} in that model, which is not a standard amino acid, ` +
+      `so it cannot be the ${asked ?? "asked-for"} substitution.`
+    );
+  }
+  if (asked !== null && found !== asked) {
+    return refused(
+      `Residue ${plan.position} of chain A is ${found} in that model, and this variant's job asked for ${asked}. ` +
+      `That is a different construct (wild type, or another protein), not this mutant's fold.`
+    );
+  }
+
+  const homomeric = plan.assembly.kind === "homomer";
+  return {
+    ...plan.modelled,
+    status: "success",
+    complexPdb: structureText,
+    ipTm: null,
+    pTm: null,
+    interfaceContacts: parsed.contacts,
+    variantAtInterface: plan.position !== null ? variantContacts(parsed.contacts, plan.position, homomeric).length > 0 : null,
+    provenance: LOCALFOLD_PROVENANCE,
+  };
 }

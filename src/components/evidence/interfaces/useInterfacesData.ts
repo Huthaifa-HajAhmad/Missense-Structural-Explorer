@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MultimerData, PpiBindingData, PpiBindingShift } from "../../../shared/contracts";
+import type { MultimerData, MultimerHandoff, PpiBindingData, PpiBindingShift } from "../../../shared/contracts";
 import { useApiClient, extractErrorMessage } from "../../../apiClient";
 import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 import { getDeduplicatedPromise } from "../../../variantAnalysisUtils";
 import { setCachedVariant } from "../../../services/pipeline/variantCache";
 import { isStaleAssembly, isStalePpi, type LoadState } from "../../../shared/interfacesEvidence";
+import { CLIENT_LOCALFOLD_REQUEST_BUDGET_MS } from "../../../shared/multimerHandoff";
 import { publishInterfacesLive } from "./interfacesLive";
 
 /**
@@ -17,6 +18,11 @@ import { publishInterfacesLive } from "./interfacesLive";
  *                                                  one request answers "running" and is asked again
  *                                                  every POLL_MS while the tab is open; the server
  *                                                  resumes the same job, it never submits a second.
+ *             POST /structure/multimer {handoff}  the same chains as a job file for LocalFold, where the
+ *                                                  fold runs in the reader's browser for nothing. No
+ *                                                  job starts anywhere; the file is downloaded here.
+ *   import    POST /structure/multimer/import      a model the reader folded in LocalFold, read back as
+ *                                                  this variant's complex (contacts measured from it).
  *   lookups   POST /ppi/binding-affinity           partners, IntAct methods, STRING lists, sites.
  *   binding   POST /ppi/binding-shift              DDMut-PPI on a wild-type complex: ON REQUEST, and
  *                                                  followed the same way while it is "running".
@@ -96,6 +102,97 @@ export function useInterfacesData(result: any) {
     // re-read the assembly) after every write. Only "is there a usable stored payload" matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, Boolean(freshStoredAsm), fetchAssembly]);
+
+  // ── LocalFold: the same fold, in the reader's browser ─────────────────
+  //
+  // There is no endpoint to call: Boltz-2 runs in the page at localfold.org, on WebGPU. The app hands
+  // over the job file and reads the saved model back. Neither call starts anything on a provider, so
+  // neither is gated behind the GPU-job request above.
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [localFoldError, setLocalFoldError] = useState<string | null>(null);
+
+  // The key every answer must still belong to: these two calls are not keyed state like `asm`, and a
+  // reply that lands after the reader switched variants must be dropped, not painted on the new one.
+  // Assigned in an effect, not during render: a render that never commits must not move the guard.
+  const keyRef = useRef(key);
+  useEffect(() => { keyRef.current = key; }, [key]);
+  const asmRef = useRef<Keyed<MultimerData> | null>(null);
+  useEffect(() => { asmRef.current = asm; }, [asm]);
+
+  useEffect(() => { setLocalFoldError(null); }, [key]);
+
+  const requestHandoff = useCallback(async (): Promise<MultimerHandoff | null> => {
+    if (!gene || !variant || !uniprotId || !key) return null;
+    const startedFor = key;
+    setHandoffBusy(true);
+    setLocalFoldError(null);
+    try {
+      const response = await fetchWithAuth("/api/v1/structure/multimer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gene, variant, uniprotId, handoff: true }),
+        timeout: CLIENT_LOCALFOLD_REQUEST_BUDGET_MS,
+      });
+      if (!response.ok) throw new Error(await extractErrorMessage(response, "The assembly service did not answer."));
+      const data = (await response.json()) as MultimerData;
+      if (keyRef.current !== startedFor) return null;
+      if (!data.handoff) throw new Error("This assembly has no complex to fold, so there is nothing to hand over.");
+      // Deliberately not written back to the store: a job file is something the reader saved, and
+      // carrying it inside every cached analysis would persist a file nobody renders.
+      return data.handoff;
+    } catch (err: any) {
+      if (keyRef.current === startedFor) setLocalFoldError(err?.message || "The job file could not be prepared.");
+      return null;
+    } finally {
+      // Always clear: the flag is not per-variant, so leaving it set would strand the next variant's
+      // button as "busy" forever.
+      setHandoffBusy(false);
+    }
+  }, [gene, variant, uniprotId, key, fetchWithAuth]);
+
+  const importLocalFoldModel = useCallback(async (structure: string): Promise<boolean> => {
+    if (!gene || !variant || !uniprotId || !key) return false;
+    const startedFor = key;
+    setImportBusy(true);
+    setLocalFoldError(null);
+    try {
+      const response = await fetchWithAuth("/api/v1/structure/multimer/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gene, variant, uniprotId, structure }),
+        timeout: CLIENT_LOCALFOLD_REQUEST_BUDGET_MS,
+      });
+      if (keyRef.current !== startedFor) return false;
+      if (!response.ok) {
+        setLocalFoldError(await extractErrorMessage(response, "That model could not be read."));
+        return false;
+      }
+      const data = (await response.json()) as MultimerData;
+      if (keyRef.current !== startedFor) return false;
+      // A refusal is the reader's file to fix (wrong chains, mmCIF, not this construct). It must NOT
+      // replace a model the tab already holds: one mistyped file used to cost the reader a whole fold,
+      // because the refusal was stored before this check.
+      if (data.status !== "success") {
+        setLocalFoldError(data.error ?? "That model was not read for this variant.");
+        return false;
+      }
+      // Keep solved-interface evidence the tab already had if re-reading it upstream failed this time.
+      const previous = asmRef.current?.key === key ? asmRef.current.data : null;
+      const merged = previous?.experimental && data.experimental?.status !== "ok"
+        ? { ...data, experimental: previous.experimental }
+        : data;
+      setAsm({ key, status: "ready", data: merged });
+      patchResult(gene, variant, { multimerData: merged });
+      return true;
+    } catch (err: any) {
+      if (keyRef.current === startedFor) setLocalFoldError(err?.message || "That model could not be read.");
+      return false;
+    } finally {
+      setImportBusy(false);
+    }
+  }, [gene, variant, uniprotId, key, fetchWithAuth]);
+
 
   // ── Lookups ──────────────────────────────────────────────────────────
   const storedPpi = (result?.ppiBindingData ?? null) as PpiBindingData | null;
@@ -222,5 +319,11 @@ export function useInterfacesData(result: any) {
     retryAssembly: () => void fetchAssembly(false),
     retryLookups: () => void fetchLookups(),
     requestShift: () => void requestShift(),
+    // LocalFold: the job file, and the model the reader brings back.
+    requestHandoff,
+    importLocalFoldModel,
+    handoffBusy,
+    importBusy,
+    localFoldError,
   };
 }

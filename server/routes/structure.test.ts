@@ -521,6 +521,35 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
     });
   });
 
+  describe("POST /structure/multimer/import", () => {
+    it("rejects a request with no model text", async () => {
+      const importRoute: any = apiRouter.stack.find(
+        (s: any) => s.route && (s.route.path === "/structure/multimer/import"
+          || (Array.isArray(s.route.path) && s.route.path.includes("/structure/multimer/import")))
+      );
+      expect(importRoute).toBeDefined();
+
+      const handler = importRoute.route.stack[importRoute.route.stack.length - 1].handle;
+      let statusCode = 0;
+      let errorBody: any = null;
+      const req: any = { body: { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" } };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      await handler(req, res);
+      expect(statusCode).toBe(400);
+      expect(errorBody?.error?.code).toBe("BAD_REQUEST");
+    });
+  });
+
   describe("POST /ppi/binding-affinity", () => {
     it("rejects request if gene or variant missing", async () => {
       const ppiRoute: any = apiRouter.stack.find(

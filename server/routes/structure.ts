@@ -5,6 +5,9 @@
  *   POST /esmfold
  *   POST /esm3-structure-eval
  *   POST /structural-diff
+ *   POST /structure/multimer            the assembly, and on request either the provider complex or the LocalFold hand-off
+ *   POST /structure/multimer/import     a complex model the reader folded in their browser
+ *   (plus /ppi/*, /pdb/*, /biophysics/* — the file is grouped by resource, not exhaustively listed here)
  */
 import { type Router } from "express";
 import { sendError, validateUniProt, validateGene, validateVariant, AuditLogger, formatZodError, onClientDisconnect } from "../utils.ts";
@@ -37,7 +40,7 @@ import {
 import { formatResidueCount } from "../../src/shared/foldingLimits.ts";
 import { applyMutation } from "../utils/mutation.ts";
 import { CONFIG } from "../config.ts";
-import { analyzeMultimerStructure } from "../services/multimer.ts";
+import { analyzeMultimerStructure, importMultimerModel } from "../services/multimer.ts";
 import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
 import { governedFetch } from "../services/infra/http-client.ts";
 import { credentialAvailable, credentialForCall, ownCredential, resolveCredential } from "../services/infra/credentials.ts";
@@ -679,7 +682,24 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     uniprotId: z.string().trim().min(3, "uniprotId is required").max(20),
     // The complex model is a GPU job the reader asks for; without it the answer is the curated
     // assembly and the solved-structure interfaces alone.
-    model: z.boolean().optional()
+    model: z.boolean().optional(),
+    // The same chains as a job file for LocalFold, where the fold runs in the reader's browser.
+    // Free, so it is offered without the GPU job above.
+    handoff: z.boolean().optional()
+  });
+
+  /**
+   * A model the reader folded themselves. The text is the file LocalFold saves (PDB), capped at 8 MB —
+   * inside the 10 MB this route's body parser accepts, so an oversized file is refused by the schema
+   * with its own message rather than by the parser. A wrong construct is refused in the payload
+   * (status "failed" with the reason), because it is the reader's input to correct, not a malformed
+   * request.
+   */
+  const multimerImportSchema = z.object({
+    gene: z.string().trim().min(1, "gene is required").max(30),
+    variant: z.string().trim().min(3, "variant is required").max(50),
+    uniprotId: z.string().trim().min(3, "uniprotId is required").max(20),
+    structure: z.string().min(1, "structure is required").max(8_000_000)
   });
 
   // Lookups only. The old body also took `wtPdb`/`mutPdb`/`chainA`/`chainB`; zod strips them now, so an
@@ -717,10 +737,34 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
       const result = await analyzeMultimerStructure(validGene, validVariant, validUniprot, clientAbortController.signal, {
         model: parseResult.data.model === true,
+        handoff: parseResult.data.handoff === true,
       });
       res.json(result);
     } catch (err: any) {
       sendError(res, 400, "BAD_REQUEST", err.message || "Failed to analyze multimer structure.");
+    }
+  });
+
+  apiRouter.post("/structure/multimer/import", jsonParserPdb, async (req, res) => {
+    const parseResult = multimerImportSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    const clientAbortController = new AbortController();
+    // The reader can navigate away while the assembly is re-read; stop the lookups with them.
+    onClientDisconnect(res, () => clientAbortController.abort());
+    try {
+      const result = await importMultimerModel(
+        validateGene(parseResult.data.gene),
+        validateVariant(parseResult.data.variant),
+        validateUniProt(parseResult.data.uniprotId),
+        parseResult.data.structure,
+        clientAbortController.signal
+      );
+      res.json(result);
+    } catch (err: any) {
+      sendError(res, 400, "BAD_REQUEST", err.message || "Failed to read the imported complex.");
     }
   });
 

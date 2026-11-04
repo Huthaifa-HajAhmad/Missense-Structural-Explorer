@@ -75,11 +75,12 @@ export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChar
         { label: 'Mapped sites', value: p.sites.map(s => `${s.start}–${s.end}`).join(', ') || 'None returned' }],
       notes: [p.qualifier, 'Association scores are not binding energies. Different evidence sources can describe the same partner; they are not separate votes.'].filter((s): s is string => Boolean(s)) });
   }
-  rows.push({ knowledgeKey: 'boltz2', key: 'complex-model', name: 'Predicted complex', value: ev.model.iptm, valueText: ev.model.iptm === null ? ev.model.stateLabel ?? 'No result' : String(ev.model.iptm),
+  rows.push({ knowledgeKey: 'boltz2', key: 'complex-model', name: 'Predicted complex', value: ev.model.iptm, valueText: ev.model.state === 'built' && ev.model.iptm === null ? 'Not reported' : ev.model.iptm === null ? ev.model.stateLabel ?? 'No result' : String(ev.model.iptm),
     description: ev.model.reason ?? 'The returned complex model and its interface confidence.', group: 'model', tone: 'neutral',
     facts: [{ label: 'ipTM', value: ev.model.iptm === null ? 'Not reported' : String(ev.model.iptm) },
       { label: 'pTM', value: ev.model.ptm === null ? 'Not reported' : String(ev.model.ptm) },
-      { label: 'Served model', value: ev.model.provenance ?? 'Not reported' }],
+      // A failed attempt carries a fault ("Error"), not a served model; only a built payload names one.
+      { label: 'Served model', value: ev.model.state === 'built' && ev.model.provenance ? ev.model.provenance : 'Not reported' }],
     notes: ['Confidence is not binding affinity. Contacts in the variant model do not establish loss of wild-type contacts.'] });
   rows.push({ knowledgeKey: 'ddmut_ppi', key: 'binding-change', name: 'Binding energy change', value: ev.binding.value,
     valueText: ev.binding.valueText ?? ev.binding.stateLabel ?? 'No result', description: ev.binding.reason ?? ev.binding.directionText ?? 'DDMut-PPI on a wild-type complex.', group: 'binding', tone: 'neutral',

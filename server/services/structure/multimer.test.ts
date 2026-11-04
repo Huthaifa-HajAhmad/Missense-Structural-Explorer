@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { analyzeMultimerStructure } from "./multimer.ts";
+import { analyzeMultimerStructure, importMultimerModel } from "./multimer.ts";
 import { clearBoltzJobs, clearJapanFoldCache } from "../external-api/japanfold-client.ts";
 import { clearPdbeInterfaceCache } from "../external-api/pdbe-interfaces.ts";
 import { clearAllCaches } from "../infra/cache.ts";
@@ -263,5 +263,189 @@ describe("analyzeMultimerStructure", () => {
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
+  });
+});
+
+/** One ATOM line, columns as the PDB format defines them. */
+function atomLine(serial: number, name: string, resName: string, chain: string, resSeq: number, x: number, y: number, z: number): string {
+  return `ATOM  ${String(serial).padStart(5)} ${name.padStart(4)} ${resName.padStart(3)} ${chain}${String(resSeq).padStart(4)}    ${x.toFixed(3).padStart(8)}${y.toFixed(3).padStart(8)}${z.toFixed(3).padStart(8)}  1.00 90.00           C`;
+}
+
+/**
+ * A complete model of the assembly: chain A numbered 1..120 (GLY at 116 — the mutant this variant
+ * asks for — unless `wildType`), chain B 1..80. The two chains sit on parallel ladders 10 Å apart so
+ * exactly one residue pair is within the 4.5 Å cutoff: A's `residueNumber` against B's residue 40.
+ *
+ * Complete chains on purpose: the import checks that chain A is the construct the job folded, and a
+ * one-residue stub cannot satisfy that check.
+ */
+function importedModel({
+  gap = 3.2,
+  residueNumber = 116,
+  partner = true,
+  extraChain = false,
+  lengthA = 120,
+  wildType = false,
+  numberOffset = 0,
+}: {
+  gap?: number;
+  residueNumber?: number;
+  partner?: boolean;
+  extraChain?: boolean;
+  lengthA?: number;
+  wildType?: boolean;
+  numberOffset?: number;
+} = {}): string {
+  const lines: string[] = [];
+  let serial = 1;
+  for (let i = 1; i <= lengthA; i += 1) {
+    const resName = i === residueNumber ? (wildType ? "ASP" : "GLY") : "ALA";
+    lines.push(atomLine(serial++, "CA", resName, "A", i + numberOffset, 10 * i, 0, 0));
+  }
+  // The partner chain hangs off one column of A: its residue 40 sits `gap` Å from A's `residueNumber`,
+  // and each neighbour is 10 Å further away, so exactly one residue pair is inside the cutoff.
+  for (const chain of partner ? (extraChain ? ["B", "C"] : ["B"]) : []) {
+    const sign = chain === "C" ? -1 : 1;
+    for (let j = 1; j <= 80; j += 1) {
+      lines.push(atomLine(serial++, "CA", "ALA", chain, j, 10 * residueNumber, sign * (gap + 10 * (j - 40)), 0));
+    }
+  }
+  return lines.join("\n");
+}
+
+describe("LocalFold hand-off", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearAllCaches(true);
+    clearJapanFoldCache();
+    clearPdbeInterfaceCache();
+    clearBoltzJobs();
+  });
+
+  it("hands the same chains over as an AlphaFold 3 job, without starting a provider job", async () => {
+    // The free path: no job is submitted anywhere, and the file folds in the reader's browser.
+    const calls = mockNet({ subunit: "Homodimer." });
+    const res = await analyzeMultimerStructure("NAE1", "p.Asp116Gly", "Q13564", undefined, { handoff: true });
+    expect(res.status).toBe("not-requested");
+    expect(res.handoff?.url).toBe("https://localfold.org/?model=boltz2");
+    expect(res.handoff?.residues).toBe(SELF_SEQ.length * 2);
+    expect(res.handoff?.tooLarge).toBe(false);
+
+    const job = JSON.parse(res.handoff!.jobJson);
+    expect(job[0].dialect).toBe("alphafold3");
+    expect(job[0].version).toBe(2);
+    expect(job[0].sequences.map((s: any) => s.protein.id)).toEqual([["A"], ["B"]]);
+    // Chain A is the mutant; B is the wild type. A merged `count: 2` would fold the wild type twice.
+    expect(job[0].sequences[0].protein.sequence[115]).toBe("G");
+    expect(job[0].sequences[1].protein.sequence).toBe(SELF_SEQ);
+    expect(calls.some(u => u.includes("/v1/predictions"))).toBe(false);
+  });
+
+  it("hands a heterodimer the partner's sequence, not the variant chain's", async () => {
+    // The homodimer test cannot see this: there B legitimately IS the self sequence. The branch that
+    // resolves a partner's FASTA is the one a merged job would break.
+    mockNet({
+      subunit: "Heterodimer of UBA3 and NAE1.",
+      interactions: [{ accession: "Q8TBC4", gene: "UBA3" }],
+    });
+    const res = await analyzeMultimerStructure("NAE1", "p.Asp116Gly", "Q13564", undefined, { handoff: true });
+    const job = JSON.parse(res.handoff!.jobJson);
+    expect(job[0].sequences[0].protein.sequence[115]).toBe("G");
+    expect(job[0].sequences[1].protein.sequence).toBe(PARTNER_SEQ);
+    expect(res.handoff!.residues).toBe(SELF_SEQ.length + PARTNER_SEQ.length);
+  });
+
+  it("does not carry a hand-off unless it is asked for", async () => {
+    mockNet({ subunit: "Homodimer." });
+    const res = await analyzeMultimerStructure("NAE1", "p.Asp116Gly", "Q13564");
+    expect(res.handoff).toBeUndefined();
+  });
+});
+
+describe("importMultimerModel", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearAllCaches(true);
+    clearJapanFoldCache();
+    clearPdbeInterfaceCache();
+    clearBoltzJobs();
+  });
+
+  it("reads a LocalFold model back, measuring contacts and naming the machine", async () => {
+    const calls = mockNet({ subunit: "Homodimer." });
+    const pdb = importedModel();
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", pdb);
+    expect(res.status).toBe("success");
+    expect(res.provenance).toBe("Boltz-2 via LocalFold (browser)");
+    expect(res.complexPdb).toBe(pdb);
+    // The PDB carries no confidence scores, so none is invented.
+    expect(res.ipTm).toBeNull();
+    expect(res.pTm).toBeNull();
+    expect(res.interfaceContacts).toEqual([{ resA: 116, resB: 40, distance: 3.2 }]);
+    expect(res.variantAtInterface).toBe(true);
+    expect(calls.some(u => u.includes("/v1/predictions"))).toBe(false);
+  });
+
+  it("refuses a monomer fold and names the chains the assembly folds", async () => {
+    mockNet({ subunit: "Homodimer." });
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", importedModel({ partner: false }));
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/folds A, B/);
+    expect(res.interfaceContacts).toEqual([]);
+  });
+
+  it("refuses a model of a different construct rather than reporting no contact", async () => {
+    mockNet({ subunit: "Homodimer." });
+    // The wild type's own fold: residue 116 is Asp, and this job asked for Gly.
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", importedModel({ wildType: true }));
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/asked for G/);
+    expect(res.interfaceContacts).toEqual([]);
+  });
+
+  it("refuses a model whose chain A is numbered from somewhere else", async () => {
+    mockNet({ subunit: "Homodimer." });
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", importedModel({ numberOffset: 200 }));
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/no residue 116/);
+  });
+
+  it("refuses a chain A of the wrong length", async () => {
+    mockNet({ subunit: "Homodimer." });
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", importedModel({ lengthA: 119 }));
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/119 residues; this chain has 120/);
+  });
+
+  it("refuses a file that also holds a chain the assembly did not fold", async () => {
+    // A contact with a third chain would be printed as a contact with the modelled partner: the
+    // contact type names no chain.
+    mockNet({ subunit: "Homodimer." });
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", importedModel({ extraChain: true }));
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/also holds chain C/);
+  });
+
+  it("refuses a variant whose position cannot be read, instead of accepting an unchecked model", async () => {
+    mockNet({ subunit: "Homodimer." });
+    const res = await importMultimerModel("NAE1", "not-a-variant", "Q13564", importedModel());
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/no residue position/);
+  });
+
+  it("says an mmCIF file is not read, instead of reading an empty interface", async () => {
+    mockNet({ subunit: "Homodimer." });
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", "data_test\n#\nATOM 1 N MET A 1 1.0 2.0 3.0\n");
+    expect(res.status).toBe("failed");
+    expect(res.error).toMatch(/mmCIF/);
+  });
+
+  it("will not read a complex for a protein UniProt states as a monomer", async () => {
+    mockNet({ subunit: "Monomer." });
+    const res = await importMultimerModel("NAE1", "p.Asp116Gly", "Q13564", importedModel());
+    expect(res.status).toBe("monomeric");
+    expect(res.error).toMatch(/monomer/);
+    // Nothing was imported, so the payload must not claim a LocalFold model.
+    expect(res.provenance).not.toMatch(/LocalFold/);
   });
 });

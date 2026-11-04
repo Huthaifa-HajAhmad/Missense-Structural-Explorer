@@ -219,5 +219,36 @@ dark and 820 px with headless Edge.
 - JapanFold's job-results shape for Boltz-2 is assumed to match ESMFold-2's (`id`, `links.results`,
   `status`/`ready`); not observed live.
 - Large entries available only as mmCIF are skipped for the solved wild type, not converted.
-- `/structure/multimer` is still a public endpoint with no rate limit.
+- `/structure/multimer` is still a public endpoint with no rate limit; so is `/structure/multimer/import`,
+  which additionally parses up to 8 MB of reader-supplied PDB (bounded in atoms, contacts and pairs
+  examined, so a hostile file is refused rather than stalling the event loop).
 - S15 (isoform mapping check on the axis).
+
+## Update, 4 November 2026 — a second way to get the complex model, with no provider
+
+`localfold.org` runs Boltz-2 in the reader's browser on WebGPU. It has no API, so this is a hand-off,
+not a provider swap:
+
+- `POST /structure/multimer {handoff: true}` returns the assembly **and** an AlphaFold 3 job (open
+  dialect: one `protein` entry per chain, `id` list = one copy, integers seeds) for exactly the chains
+  the provider path would submit. Chain A carries the variant; B (or B–D) is wild type.
+- `POST /structure/multimer/import {structure}` takes the PDB LocalFold saves and returns the same
+  `MultimerData` shape with `provenance: "Boltz-2 via LocalFold (browser)"`. Contacts are **measured
+  here**: one row per residue pair, nearest heavy-atom pair ≤ 4.5 Å, `ATOM` records only, across
+  chain A and its partners. `ipTM`/`pTM` stay null — a saved PDB carries no scores — and the tab says
+  "Not reported" rather than inventing or blanking them.
+
+Refusals, each stated rather than read as "no contact": a file that is mmCIF; no coordinates; no
+chain A; a chain the assembly did not fold (extra chains are refused because `InterfaceContact` names
+no chain, so their contacts would be printed as the modelled partner's); a chain A without the
+variant's residue number, of the wrong length, or with the wild-type residue there; a variant whose
+position cannot be parsed. Bounds: 60,000 atoms and 200,000 residue pairs, so the public endpoint
+cannot be handed a file that costs minutes and gigabytes. A refusal never replaces a model the tab
+already holds.
+
+**Not verified live.** No LocalFold fold was run from here (no WebGPU in the test environment), so
+chain letters and residue numbering of its saved PDB are taken from its source
+(`shared/af3/featurise/featurise.js`, `shared/af3/structure/pdb.js`), which numbers every chain from
+1 and letters them in fold order. The import's checks assume exactly that, and its tests pin the
+refusals around it.
+

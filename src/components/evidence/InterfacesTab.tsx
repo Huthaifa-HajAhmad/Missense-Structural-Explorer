@@ -1,6 +1,6 @@
 import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Box, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Waypoints, X, Zap } from "lucide-react";
+import { AlertTriangle, Box, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Upload, Waypoints, X, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { STRING_CONFIDENCE_CUTS } from "../../shared/thresholds";
@@ -31,6 +31,7 @@ import { InterfaceOverview } from "./interfaces/InterfaceOverview";
 import { Prose } from "../ui/Prose";
 import { evidenceTab } from '../../shared/evidenceTabs';
 import { interfaceSelection } from "../../shared/residueFocus";
+import { LOCALFOLD_EGRESS_NOTE, LOCALFOLD_MAX_RESIDUES, LOCALFOLD_MAX_UPLOAD_BYTES, LOCALFOLD_URL } from "../../shared/multimerHandoff";
 
 /**
  * Interfaces & PPI.
@@ -68,6 +69,26 @@ function downloadModel(pdb: string, name: string) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Save the hand-off job. Same mechanism as the model download: a Blob and a synthetic link. */
+function downloadJob(text: string, name: string) {
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * The text of a file the reader picked. `Blob.text()` is standard in every browser that can run
+ * LocalFold at all (Chrome 113+, Safari 18+), and unlike a `FileReader` it settles on the microtask
+ * queue, so the control does not sit busy behind an IO callback.
+ */
+function readText(file: File): Promise<string> {
+  return file.text();
 }
 
 function Statement({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
@@ -274,7 +295,13 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
   const setQuery = (value: string) => workspace.enabled ? workspace.setOptions({ query: value }) : setLocalQuery(value);
   const [setAsideOpen, setSetAsideOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // LocalFold is the one pair of controls whose state is not keyed by `asm`: a note about one variant
+  // must not sit under the next one, and a reply that arrives after a switch must be dropped.
+  const [localFoldNote, setLocalFoldNote] = useState<string | null>(null);
+  const localFoldInput = useRef<HTMLInputElement | null>(null);
   const variantKey = `${result?.metadata?.gene ?? ""}|${result?.metadata?.variant ?? ""}`;
+  const localFoldVariant = useRef(variantKey);
+  localFoldVariant.current = variantKey;
   const firstVariant = useRef(variantKey);
   const urlSeeded = useRef(false);
   useEffect(() => {
@@ -285,6 +312,7 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
     setQuery("");
     setLocalFolds(new Set());
     setSetAsideOpen(false);
+    setLocalFoldNote(null);
   }, [variantKey]);
   useEffect(() => {
     if (workspace.enabled && !workspace.initialized) {
@@ -367,6 +395,50 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
       else next.add(id);
       return next;
     });
+  };
+
+  // ── LocalFold: the same fold, in the reader's browser ──────────────────
+  const canLocalFold =
+    ev.chains.length > 1 && model.state !== "not-applicable" && model.state !== "not-modelled" && model.state !== "pending";
+
+  const onLocalFold = async () => {
+    if (data.handoffBusy) return;
+    const forVariant = variantKey;
+    // Opened first, synchronously: a tab opened after an await is a tab a popup blocker eats.
+    window.open(LOCALFOLD_URL, "_blank", "noopener,noreferrer");
+    const handoff = await data.requestHandoff();
+    if (handoff === null) {
+      if (forVariant === localFoldVariant.current) {
+        setLocalFoldNote("No job file was saved, so the LocalFold tab that opened has nothing to load — close it and try again.");
+      }
+      return;
+    }
+    if (forVariant !== localFoldVariant.current) return;
+    downloadJob(handoff.jobJson, handoff.filename);
+    setLocalFoldNote(
+      `Downloading ${handoff.filename} (${handoff.residues} residues across ${ev.chains.length} chains) — allow downloads for this page if it does not appear. ` +
+      `In LocalFold: check Model is Boltz-2, choose “Load job JSON…”, fold, then press PDB and load that file back here.` +
+      (handoff.tooLarge
+        ? ` ${handoff.residues} residues is past what a browser fold is expected to finish (about ${LOCALFOLD_MAX_RESIDUES} residues); expect it to fail or take a long time.`
+        : "")
+    );
+  };
+
+  const onLocalFoldFile = async (file: File | undefined) => {
+    if (!file || data.importBusy) return;
+    if (file.size > LOCALFOLD_MAX_UPLOAD_BYTES) {
+      setLocalFoldNote(
+        `That file is ${Math.round(file.size / 1e6)} MB; this reader takes up to ${LOCALFOLD_MAX_UPLOAD_BYTES / 1e6} MB. ` +
+        `Save the folded PDB, not LocalFold's .zip archive.`
+      );
+      return;
+    }
+    try {
+      const read = await data.importLocalFoldModel(await readText(file));
+      setLocalFoldNote(read ? `Read ${file.name}. Its contacts are the model's, measured here as heavy-atom contacts within 4.5 Å.` : null);
+    } catch (err: any) {
+      setLocalFoldNote(err?.message ?? "That file could not be read.");
+    }
   };
 
   const modelAction = model.canRequest ? (
@@ -695,7 +767,11 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
                     <span className="ifc-group__title">Predicted complex</span>
                     <ResearchGuideButton topic="boltz2" label="About this complex prediction" iconOnly />
                     <span className="ifc-group__meta">
-                      Boltz-2 via JapanFold, on request
+                      {model.state === "built" && model.provenance
+                        ? model.provenance
+                        : model.canRequest || model.state === "running"
+                          ? "Boltz-2 via JapanFold, or free in your browser with LocalFold"
+                          : "Boltz-2"}
                       {ev.chains.length > 1 && model.state !== "not-applicable" && model.state !== "not-modelled" ? ` · chains ${ev.chains.map(c => `${c.id} ${c.label}`).join(", ")} · variant on A` : ""}
                     </span>
                   </span>
@@ -712,7 +788,7 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
                     <td className="ifc-scale">{model.iptm !== null && <IptmRuler value={model.iptm} band={model.band} />}</td>
                     <td className="ifc-num">{model.iptm !== null ? model.iptm.toFixed(2) : "—"}</td>
                     <td className="ifc-status">
-                      <span className="ev-tier" data-tone={model.band ? "neutral" : "muted"}>{model.band ? IPTM_BAND_LABEL[model.band] : ENGINE_STATE_LABELS["no-result"]}</span>
+                      <span className="ev-tier" data-tone={model.band ? "neutral" : "muted"}>{model.band ? IPTM_BAND_LABEL[model.band] : model.iptm === null ? "Not reported" : ENGINE_STATE_LABELS["no-result"]}</span>
                     </td>
                   </tr>
                   <tr>
@@ -758,6 +834,48 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
               </button>
             )}
           </div>
+          {canLocalFold && (
+            <div className="ifc-foot ifc-local-fold" data-testid="local-fold">
+              <span>{LOCALFOLD_EGRESS_NOTE}</span>
+              <button
+                type="button"
+                className="ifc-link"
+                onClick={() => { if (!data.handoffBusy) void onLocalFold(); }}
+                aria-busy={data.handoffBusy || undefined}
+                aria-disabled={data.handoffBusy || undefined}
+              >
+                <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                Fold in LocalFold (free, your browser)
+              </button>
+              <button
+                type="button"
+                className="ifc-link"
+                onClick={() => { if (!data.importBusy) localFoldInput.current?.click(); }}
+                aria-busy={data.importBusy || undefined}
+                aria-disabled={data.importBusy || undefined}
+              >
+                <Upload className="w-3 h-3" aria-hidden="true" />
+                Load a model from LocalFold
+              </button>
+              <input
+                ref={localFoldInput}
+                type="file"
+                accept=".pdb,.ent,text/plain"
+                hidden
+                aria-label="A PDB model saved from LocalFold"
+                onChange={event => {
+                  const file = event.target.files?.[0];
+                  // Cleared before the read, so picking the same file again fires a change event.
+                  event.target.value = "";
+                  void onLocalFoldFile(file);
+                }}
+              />
+            </div>
+          )}
+          {/* Mounted empty and filled on change, so assistive technology announces the transition. */}
+          <p className="sr-only" role="status" aria-live="polite">{localFoldNote ?? ""}</p>
+          {localFoldNote && <p className="ifc-local-fold ifc-local-fold__note">{localFoldNote}</p>}
+          {data.localFoldError && <p className="ifc-local-fold ifc-local-fold__note" role="alert">{data.localFoldError}</p>}
         </div>
       </section>
 
