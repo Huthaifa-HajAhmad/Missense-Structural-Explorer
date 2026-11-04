@@ -16,7 +16,7 @@ export function ResidueAlignmentCard({ load, residue, onRetry }: { load?: Contex
   const rows = [...evidence.rows].sort((a, b) => speciesOrder(a.h.taxonId) - speciesOrder(b.h.taxonId) || a.h.geneId.localeCompare(b.h.geneId));
   const carriers = rows.filter(r => r.m.carriesVariantResidue);
   const label = `${AMINO_ACID_1_TO_3_TITLE[residue.wildType] ?? residue.wildType}${residue.position ?? ''}${AMINO_ACID_1_TO_3_TITLE[residue.mutant] ?? residue.mutant}`;
-  return <section className="ctx-card" aria-labelledby={id} data-testid="residue-alignment-card">
+  return <section className="ctx-card sm-alignment-card" aria-labelledby={id} data-testid="residue-alignment-card">
     <div className="ctx-card__head"><h2 id={id}>Residue in orthologs</h2><span className="ctx-caption">Ensembl Compara · protein alignment</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading protein alignments.</div>
       : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'alignments could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
@@ -29,8 +29,8 @@ export function ResidueAlignmentCard({ load, residue, onRetry }: { load?: Contex
             : <>Ensembl aligns protein {data?.sourceProteinId}, which is not the sequence this analysis used. No residue is mapped, because positions can shift between isoforms.</>}</p>
       : !rows.length ? <p className="ctx-card__body">Ensembl returned no ortholog alignment for the covered organisms.</p>
       : evidence.ready && <>
-        {data?.message && <p className="ctx-card__body ctx-caption" role="note">{data.message}</p>}
-        <div className="ctx-card__body">
+        <div className="ctx-card__body sm-alignment-summary">
+          {data?.message && <p className="ctx-caption" role="note">{data.message}</p>}
           <p className="ctx-prose">Residue <span className="ctx-mono">{label}</span> is the same amino acid in <strong>{evidence.identical} of {rows.length}</strong> aligned orthologs.
             {carriers.length > 0 && <> The substituted residue <span className="ctx-mono">{AMINO_ACID_1_TO_3_TITLE[residue.mutant] ?? residue.mutant}</span> is the normal residue in {carriers.map(c => speciesLabel(c.h.taxonId, c.h.species)).join(', ')}; that shows it exists at this site in another species, not that it is tolerated in human.</>}</p>
         </div>

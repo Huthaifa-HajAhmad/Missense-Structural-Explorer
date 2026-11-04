@@ -24,17 +24,17 @@ export function ModelPhenotypesCard({ load, diseaseTerms, diseaseName, onRetry }
       : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'phenotypes could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status !== 'ready' ? <p className="ctx-card__body">{data?.message}</p>
       : <>
-        <p className="ctx-card__body ctx-prose">{diseaseName
-          ? <>Phenotypes the animal models share with the HPO terms of <strong>{diseaseName}</strong> are marked. A shared phenotype shows the same trait was recorded; it does not show the gene causes this disease.</>
+        <div className="ctx-card__body sm-phenotype-summary">{diseaseName
+          ? <><span className="sm-summary-label">Disease phenotype comparison</span><strong>{diseaseName}</strong><p>Matching disease traits are marked. A shared trait does not establish that the gene causes this disease.</p></>
           : <>Choose a disease to mark phenotypes that match its HPO terms.</>}
-        {data.mapping === 'unavailable' && <span className="ctx-block ctx-caption">The uPheno match table could not be read, so no cross-species matches are shown.</span>}</p>
+        {data.mapping === 'unavailable' && <span className="ctx-block ctx-caption">The uPheno match table could not be read, so no cross-species matches are shown.</span>}</div>
         {!species.length && <p className="ctx-card__body">No ortholog in a covered organism.</p>}
         {species.map(s => { const { matched, other } = splitByDiseaseMatch(s.phenotypes, diseaseTerms);
           return <details key={s.orthologId} className="ctx-details ctx-details--table" open={matched.length > 0}>
-            <summary>{speciesLabel(s.taxonId, s.species)} <span className="ctx-mono">{s.symbol}</span> <span className="ctx-caption">· {s.status === 'error' ? 'could not be read' : `${s.total} curated${matched.length ? ` · ${matched.length} match${matched.length === 1 ? '' : 'es'}` : ''}`}</span></summary>
+            <summary>{speciesLabel(s.taxonId, s.species)} <span className="ctx-mono">{s.symbol}</span> <span className="ctx-caption">· {s.status === 'error' ? 'could not be read' : `${s.phenotypes.length} displayed / ${s.total} ${s.total === 1 ? 'summary' : 'summaries'}${matched.length ? ` · ${matched.length} match${matched.length === 1 ? '' : 'es'}` : ''}`}</span></summary>
             {s.status === 'error' ? <p className="ctx-card__body ctx-notice"><span>{ENGINE_STATE_LABELS['upstream-error']} — this ortholog was not read completely.</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></p>
               : !s.total ? <p className="ctx-card__body ctx-caption">No curated phenotype annotation. That is not evidence of a normal organism.</p>
-              : <>{matched.length > 0 && <Rows rows={matched} terms={diseaseTerms} />}
+              : <>{s.total > s.phenotypes.length && <p className="ctx-card__body sm-partial-note">{s.total - s.phenotypes.length} {s.total - s.phenotypes.length === 1 ? 'summary has' : 'summaries have'} no resolved phenotype terms in this response. {s.phenotypes.length ? 'The available terms are listed below.' : 'No term details can be displayed; this is not a negative phenotype result.'}</p>}{matched.length > 0 && <Rows rows={matched} terms={diseaseTerms} />}
                 {other.length > 0 && (matched.length ? <details className="ctx-details ctx-details--table"><summary>Other curated phenotypes ({other.length})</summary><Rows rows={other} terms={diseaseTerms} /></details> : <Rows rows={other} terms={diseaseTerms} />)}</>}
           </details>; })}
       </>}

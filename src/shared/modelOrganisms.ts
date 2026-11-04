@@ -52,7 +52,7 @@ export function groupOrthologs(orthologs: Ortholog[]): OrthologGroup[] {
 }
 
 // Local display grouping of IMPC top-level MP terms. Not an official MP-to-system mapping.
-const MP_TERMS: Record<ReviewSystemId, string[]> = {
+export const MP_TERMS: Record<ReviewSystemId, string[]> = {
   skeletal: ['skeleton phenotype', 'limbs/digits/tail phenotype', 'craniofacial phenotype'],
   cardiovascular: ['cardiovascular system phenotype'],
   nervous: ['nervous system phenotype', 'behavior/neurological phenotype'],

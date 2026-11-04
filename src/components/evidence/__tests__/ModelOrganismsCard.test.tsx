@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ModelOrganismsCard } from '../ModelOrganismsCard';
 import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
@@ -54,5 +54,24 @@ describe('ModelOrganismsCard null-coverage safeguards', () => {
     const noMouse: ModelOrganismResponse = { ...response, orthologs: [response.orthologs[1]], impc: null };
     render(<ModelOrganismsCard load={ready(noMouse)} systems={['nervous']} onRetry={() => {}} />);
     expect(screen.getByText(/No mouse ortholog, so no IMPC screen to read/)).toBeInTheDocument();
+  });
+});
+
+
+describe('Reported mouse phenotype categories', () => {
+  it('keeps significant and non-significant categories beside their system result', () => {
+    const data: ModelOrganismResponse = { ...response, impc: { status: 'ready', screens: [{
+      ...response.impc!.screens[0], significant: ['skeleton phenotype'],
+      notSignificant: ['craniofacial phenotype', 'nervous system phenotype'],
+    }] } };
+    render(<ModelOrganismsCard load={ready(data)} systems={['skeletal', 'nervous', 'muscle']} onRetry={() => {}} />);
+    const grid = within(screen.getByRole('region', { name: 'Mouse screen for your review systems' }));
+    const skeletal = within(grid.getByRole('row', { name: /Skeletal/ }));
+    expect(skeletal.getByText('Significant in some terms only')).toBeInTheDocument();
+    expect(skeletal.getByText('skeleton phenotype', { exact: false })).toHaveTextContent('skeleton phenotype \u00b7 Significant difference');
+    expect(skeletal.getByText('craniofacial phenotype', { exact: false })).toHaveTextContent('craniofacial phenotype \u00b7 No significant difference');
+    expect(grid.getByRole('row', { name: /Nervous system/ })).toHaveTextContent('nervous system phenotype \u00b7 No significant difference');
+    expect(grid.getByRole('row', { name: /Muscle/ })).toHaveTextContent('Not reported');
+    expect(grid.getByRole('table').textContent).not.toContain('?');
   });
 });
