@@ -205,14 +205,17 @@
 .qe__tool:active, .qe__example:active, .qe-fields__summary:active, .workbench-ai-summary:active { background: var(--cs-bg-subtle); }
 
 @media (min-width: 64rem) {
+  .workbench-deck { grid-template-rows: min-content minmax(min-content, 1fr); min-block-size: max(40rem, calc(100dvh - 14rem)); }
+  .workbench-recents { align-self: stretch; }
+  /* Keep the monitor usable even when Recents has only one entry. */
   .workbench-rail { grid-row-end: span 2; align-self: stretch; position: relative; }
   .workbench-rail-body { position: absolute; inset: 0; }
 }
 @container (width < 54rem) {
-  .workbench-deck { grid-template-columns: minmax(0, 1fr); }
+  .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; min-block-size: 0; }
   .workbench-deck > :is(.workbench-query, .workbench-recents, .workbench-rail) { grid-column: 1; grid-row: auto; }
   /* Stacked, the monitor flows naturally with the page. */
-  .workbench-rail.cs-panel { block-size: auto; }
+  .workbench-rail.cs-panel { block-size: auto; min-block-size: 0; }
   .workbench-rail-body { position: static; }
   .workbench-pipeline-stages { overflow-y: visible; }
   .workbench-rail .telemetry-scroll { overflow-y: visible; }

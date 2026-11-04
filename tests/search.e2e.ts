@@ -97,4 +97,28 @@ describe('variant search form', { tags: ['search'] }, () => {
     await expect(screen.getByRole('region', 'No recent analyses')).toBeVisible();
     await expect(screen.getByRole('button', /^Select recent search/)).toHaveCount(0);
   });
+
+  test('one recent entry does not shorten the monitor', async ({ app, browser, screen }) => {
+    await browser.addInitScript(() => {
+      localStorage.setItem('variant_search_history', JSON.stringify([
+        { gene: 'CNNM2', variant: 'p.Glu357Lys', uniprotId: 'Q9H8M5' },
+      ]));
+    });
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+    await screen.getByRole('tab', 'Pipeline').tap();
+    const layout = await browser.evaluate(() => {
+      const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
+      const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
+      const query = document.querySelector('.workbench-query')!.getBoundingClientRect();
+      return { height: monitor.height, aligned: Math.abs(monitor.bottom - recents.bottom) < 2, gap: recents.top - query.bottom };
+    });
+    expect(layout.height >= 640, 'monitor keeps its full desktop height');
+    expect(layout.aligned, 'Recents follows the monitor bottom edge');
+    expect(layout.gap <= 20, 'Recents starts directly below the query form');
+    await app.screenshot('single-recent-full-monitor');
+    await browser.setViewport({ width: 390, height: 844 });
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow on mobile');
+  });
 });

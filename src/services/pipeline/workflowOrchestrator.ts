@@ -820,7 +820,7 @@ export async function executeFullAnalysisWorkflow({
     function triggerNarrative(bpResult: any) {
       if (activeSignal.aborted || getActiveRequestId() !== requestId) return Promise.resolve();
       if (mode !== "automatic") {
-        searchSink.addToHistory(targetGene, targetVariant, targetUniprot);
+        searchSink.addToHistory(targetGene, targetVariant, targetUniprot, historyQuery());
         if (residueIndex != null) searchSink.setSelectedResidueIndex(residueIndex);
         analysisSink.setIsNarrativeLoading(false);
         setAnalysisState((prev: any) => mergeResultPatch(prev, { metadata: { narrativeMode: mode } }, baseParams, "narrative", "skipped"));
