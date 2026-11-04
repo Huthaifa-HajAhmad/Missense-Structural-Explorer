@@ -634,7 +634,7 @@ button.cx-tile[aria-pressed="true"] {
 .dev-console-list-compact .cx-level { margin-top: 4px; }
 
 @media (max-width: 760px) {
-  .dev-console-entry { grid-template-columns: 52px 10px minmax(0, 1fr) auto; }
+  .dev-console-entry { grid-template-columns: 58px 10px minmax(0, 1fr) auto; }
   .dev-console-entry .dev-console-source-tag { display: none; }
 }
 

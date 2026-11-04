@@ -2027,21 +2027,24 @@ function VariantSearchPanel({
                   <div className="workbench-recents-heading">
                     <span className="workbench-index" aria-hidden="true">02</span>
                     <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
+                    {/* Same slot as "Clear history" once the tray is populated: the card's own secondary
+                        action, right-aligned, instead of a button between the sentence and the benchmarks. */}
+                    {onOpenOnboarding && (
+                      <button
+                        type="button"
+                        onClick={onOpenOnboarding}
+                        className="workbench-tour-link"
+                        title="Walk through one analysis, from query to report"
+                      >
+                        <Compass className="w-3.5 h-3.5" aria-hidden="true" />
+                        Take the tour
+                      </button>
+                    )}
                   </div>
                   <p className="text-[12px] text-cs-text-muted mt-0.5">
                     Variants you analyse in this session will appear here. To start, load a benchmark control:
                   </p>
                 </div>
-                {onOpenOnboarding && (
-                  <button
-                    type="button"
-                    onClick={onOpenOnboarding}
-                    className="self-start sm:self-auto inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[var(--cs-radius-input)] text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                  >
-                    <Compass className="w-3.5 h-3.5" />
-                    Take the tour
-                  </button>
-                )}
               </div>
               {/* Each card runs the benchmark, the same as a Recent analyses chip. The card is a control of its own
                   so it can carry a second, form-only action without nesting interactive elements. */}
@@ -2056,7 +2059,7 @@ function VariantSearchPanel({
                       onClick={() => runBenchmark(preset)}
                       aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
                       title={preset.description}
-                      className="text-left flex flex-col gap-0.5 px-3 pt-2.5 pb-1.5 rounded-t-[var(--cs-radius-card)] cursor-pointer transition-colors duration-150 hover:bg-cs-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                      className="text-left flex flex-col gap-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
                     >
                       <span className="flex items-baseline gap-2">
                         <span className="text-[12.5px] font-semibold text-cs-text-primary">{preset.gene}</span>

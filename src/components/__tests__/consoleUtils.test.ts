@@ -10,6 +10,7 @@ import {
   effectiveImpact,
   findOutlierSpans,
   formatDuration,
+  formatRelativeTime,
   matchesFilters,
 } from "../console/consoleUtils";
 
@@ -51,6 +52,20 @@ describe("formatDuration", () => {
     expect(formatDuration(26545)).toBe("26.5s");
     expect(formatDuration(320880)).toBe("5m 21s");
     expect(formatDuration(-1)).toBe("—");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const now = 1_700_000_000_000;
+  it("steps through the units a reader scans the console with", () => {
+    expect(formatRelativeTime(now - 1_000, now)).toBe("just now");
+    expect(formatRelativeTime(now - 42_000, now)).toBe("42s ago");
+    expect(formatRelativeTime(now - 3 * 60_000, now)).toBe("3m ago");
+    expect(formatRelativeTime(now - 5 * 3_600_000, now)).toBe("5h ago");
+    expect(formatRelativeTime(now - 2 * 86_400_000, now)).toBe("2d ago");
+  });
+  it("never reads as the future when a clock skews ahead", () => {
+    expect(formatRelativeTime(now + 30_000, now)).toBe("just now");
   });
 });
 

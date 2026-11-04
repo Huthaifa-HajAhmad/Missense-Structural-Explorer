@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Activity, Filter, Layers, ShieldCheck } from "lucide-react";
 import type { ConsoleEntry, LogStream } from "../../types/devConsole";
 import ConsoleInspector, { ImpactBadge } from "./ConsoleInspector";
-import { effectiveImpact, formatClock } from "./consoleUtils";
+import { effectiveImpact, formatRelativeTime } from "./consoleUtils";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -57,6 +57,13 @@ export default function ConsoleLogView({
 
   // Each stream keeps its own entries; a selection never carries across.
   useEffect(() => setSelectedId(null), [stream]);
+
+  // Rows age in place, so "3m ago" has to keep up. A slow tick beats a per-second re-render.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape" && selected) {
@@ -124,7 +131,7 @@ export default function ConsoleLogView({
           className="dev-console-entry"
         >
           <span className="cx-time" title={new Date(entry.timestamp).toLocaleString()}>
-            {formatClock(entry.timestamp)}
+            {formatRelativeTime(entry.timestamp, now)}
           </span>
           <span className="cx-level" data-level={entry.level} aria-label={entry.level} role="img" />
           <span className="dev-console-source-tag" data-source={entry.source}>
@@ -158,7 +165,7 @@ export default function ConsoleLogView({
       >
         {body}
       </div>
-      {selected && <ConsoleInspector entry={selected} onClose={() => setSelectedId(null)} />}
+      {selected && <ConsoleInspector entry={selected} now={now} onClose={() => setSelectedId(null)} />}
     </div>
   );
 }

@@ -151,3 +151,74 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     await app.screenshot('04-both-routes-quiet');
   });
 });
+
+/**
+ * The first-run tray (design review, three annotated marks): where the tour action belongs, and the two
+ * defects in the benchmark tile's highlighted state - a top-only radius that read as a band cut off
+ * mid-tile, and a tint whose left edge sat 1px from the gene label.
+ */
+describe('first-run tray design', { tags: ['search'] }, () => {
+  beforeEach(async ({ app, browser }) => {
+    await skipTour(browser);
+    await browser.setViewport({ width: 1440, height: 900 });
+    await app.open('/');
+  });
+
+  test('the tour action sits in the tray header, above the sentence and the benchmarks', async ({ app, browser }) => {
+    const heading = await box(browser.locator('.workbench-recents-heading'), 'tray header');
+    const tour = await box(browser.locator('.workbench-tour-link'), 'tour action');
+    const sentence = await box(browser.locator('.workbench-recents-empty > div > p'), 'tray sentence');
+
+    // In the header band: the slot "Clear history" takes once the tray is populated.
+    expect(
+      tour.y >= heading.y - 1 && tour.y + tour.height <= heading.y + heading.height + 1,
+      `tour action spans ${tour.y.toFixed(1)}-${(tour.y + tour.height).toFixed(1)}px, outside the ${heading.y.toFixed(1)}-${(heading.y + heading.height).toFixed(1)}px header band`
+    );
+    // Right-aligned in it, not floating in the reading column.
+    expect(
+      heading.x + heading.width - (tour.x + tour.width) <= 32,
+      `tour action ends ${(heading.x + heading.width - (tour.x + tour.width)).toFixed(1)}px from the header's right edge`
+    );
+    // And above the sentence, so "load a benchmark control" is the last thing read before the list.
+    expect(
+      tour.y + tour.height <= sentence.y + 1,
+      `tour action ends at ${(tour.y + tour.height).toFixed(1)}px, inside the sentence at ${sentence.y.toFixed(1)}px`
+    );
+
+    await app.screenshot('05-tray-header');
+  });
+
+  test('the highlighted benchmark is one rounded surface, clear of its own text', async ({ app, browser, screen }) => {
+    await screen.getByRole('button', 'Run benchmark PAH p.Arg408Trp').hover();
+
+    const surface = await browser.evaluate(() => {
+      const run = document.querySelector<HTMLButtonElement>('.workbench-benchmark > button')!;
+      const style = getComputedStyle(run);
+      const gene = run.querySelector<HTMLElement>('span > span')!;
+      const radius = style.borderRadius.split(/[\s/]+/).filter(Boolean);
+      return {
+        radii: radius,
+        background: style.backgroundColor,
+        // The tint's own edge against the first glyph of the label.
+        textInset: gene.getBoundingClientRect().left - run.getBoundingClientRect().left,
+      };
+    });
+
+    // All four corners, or the band stops mid-tile against "Fill form only" (was 8px 8px 0 0).
+    expect(
+      new Set(surface.radii).size === 1 && parseFloat(surface.radii[0]) >= 6,
+      `corner radii are ${surface.radii.join(' ')} (must be one value, at least 6px)`
+    );
+    expect(
+      surface.background !== 'rgba(0, 0, 0, 0)' && surface.background !== 'transparent',
+      'hovering the run action paints its surface'
+    );
+    // Room between the surface's left edge and the text it holds (was 1px).
+    expect(
+      surface.textInset >= 8,
+      `the gene sits ${surface.textInset.toFixed(1)}px from the surface's left edge`
+    );
+
+    await app.screenshot('06-benchmark-hover');
+  });
+});
