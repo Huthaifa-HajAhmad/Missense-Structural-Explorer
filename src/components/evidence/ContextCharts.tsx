@@ -27,18 +27,37 @@ export const maxOf = (values: Array<number | null>) => Math.max(0, ...values.map
 export function PextStrip({ regions, activeIndex, position }: { regions: PextRegion[]; activeIndex: number; position: number | null }) {
   const total = regions.reduce((n, r) => n + (r.stop - r.start + 1), 0) || 1;
   const W = 900; const H = 104; const GAP = regions.length > 120 ? 0.5 : 3; const usable = Math.max(W / 2, W - GAP * (regions.length - 1));
-  let x = 0; let markerX: number | null = null;
-  const boxes = regions.map((r, i) => {
-    const w = Math.max(0.5, ((r.stop - r.start + 1) / total) * usable);
-    if (i === activeIndex && position !== null) markerX = x + ((position - r.start + 0.5) / (r.stop - r.start + 1)) * w;
-    const box = <g key={`${r.start}-${r.stop}`}>
+  let x = 0;
+  const layout = regions.map(region => {
+    const width = Math.max(0.5, ((region.stop - region.start + 1) / total) * usable);
+    const item = { region, x, width };
+    x += width + GAP;
+    return item;
+  });
+  const active = layout[activeIndex];
+  const markerX = active && position !== null
+    ? active.x + ((position - active.region.start + 0.5) / (active.region.stop - active.region.start + 1)) * active.width : null;
+  // Reserve room for the active region's number, then fit other numbers without overlap.
+  // The full values table retains every region, even when a dense map cannot label them all.
+  const labels = layout.map((item, i) => {
+    const halfWidth = String(i + 1).length * 4 + 3;
+    const center = Math.max(halfWidth, Math.min(W - halfWidth, item.x + item.width / 2));
+    return { center, start: center - halfWidth, end: center + halfWidth };
+  });
+  const activeLabel = labels[activeIndex];
+  let previousLabelEnd = -Infinity;
+  const boxes = layout.map(({ region: r, x, width: w }, i) => {
+    const label = labels[i];
+    const showLabel = i === activeIndex || (label.start >= previousLabelEnd + 4
+      && (!activeLabel || label.end + 4 <= activeLabel.start || label.start >= activeLabel.end + 4));
+    if (showLabel) previousLabelEnd = label.end;
+    return <g key={`${r.start}-${r.stop}`}>
       <rect x={x} y={42} width={w} height={30} rx={3} fill={r.mean === null ? 'var(--cs-surface-2)' : 'currentColor'}
         fillOpacity={r.mean === null ? 1 : 0.12 + 0.88 * Math.min(1, r.mean)} stroke={i === activeIndex ? 'var(--cs-text-primary)' : r.mean === null ? 'var(--cs-text-secondary)' : 'none'} strokeDasharray={r.mean === null ? '3 2' : undefined} strokeWidth={2}>
-        <title>{`Coding region ${i + 1} of ${regions.length}: ${r.start.toLocaleString()}–${r.stop.toLocaleString()}, mean pext ${r.mean === null ? 'not reported' : r.mean.toFixed(2)}`}</title>
+        <title>{`Coding region ${i + 1} of ${regions.length}: ${r.start.toLocaleString()} to ${r.stop.toLocaleString()}, mean pext ${r.mean === null ? 'not reported' : String(r.mean)}`}</title>
       </rect>
-      {w >= 26 && <text x={x + w / 2} y={94} textAnchor="middle" fill="var(--cs-text-secondary)" fontSize={13}>{i + 1}</text>}
+      {showLabel && <text data-region-label={i + 1} x={label.center} y={94} textAnchor="middle" fill="var(--cs-text-secondary)" fontSize={13}>{i + 1}</text>}
     </g>;
-    x += w + GAP; return box;
   });
   // The map is 900px wide. On a narrower screen it scrolls, so start with the variant's region in view instead of at the left edge.
   const scroller = useRef<HTMLDivElement>(null);

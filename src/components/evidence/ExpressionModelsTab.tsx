@@ -15,7 +15,6 @@ import { PextCard } from './PextCard';
 import { pextSiteFromVariantId, locatePext } from '../../shared/pext';
 import { isFallbackLocus } from '../../shared/locusResolution';
 import { expressionWorkspaceFinding } from '../../shared/expressionWorkspaceFinding';
-import { REVIEW_SYSTEMS } from '../../shared/phenotypeFrame';
 import { evidenceTab } from '../../shared/evidenceTabs';
 
 export function ExpressionModelsTab({ analysisState }: TabComponentProps) {
@@ -74,7 +73,7 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     <HpaCard load={context.hpaLoad} onRetry={context.retryHpa} />
     </EvidenceTopic>
     <EvidenceTopic tab="expression-models" view="pext">
-    <p className="ctx-caption xp-system-note">Review systems: {context.selection.systems.length ? context.selection.systems.map(id => REVIEW_SYSTEMS.find(system => system.id === id)?.label).join(', ') : 'All sampled systems'}. Related tissues are listed first; these choices are not patient findings. <button type="button" className="viz-action" onClick={chooseSystems}>Change review systems</button></p>
+    <div className="xp-system-note"><span>Your choices, not patient findings</span><button type="button" className="viz-action" onClick={chooseSystems}>Change review systems</button></div>
     <PextCard transcript={transcript} load={context.pextLoad} site={site} systems={context.selection.systems} tissueLabels={gtexLabels} onRetry={context.retryPext} />
     </EvidenceTopic>
     <EvidenceTopic tab="expression-models" view="records"><section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">

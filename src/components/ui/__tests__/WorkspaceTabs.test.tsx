@@ -6,13 +6,15 @@ import { WorkspaceTabs } from '../WorkspaceTabs';
 
 afterEach(cleanup);
 const tabs = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' }] as const;
-function Harness() {
+function Harness({ variant }: { variant?: 'secondary' } = {}) {
   const [value, setValue] = useState<'a' | 'b' | 'c'>('a');
-  return <WorkspaceTabs id="t" label="Tabs" tabs={tabs} value={value} onChange={setValue} />;
+  return <WorkspaceTabs variant={variant} id="t" label="Tabs" tabs={tabs} value={value} onChange={setValue} />;
 }
 
-it('moves selection and focus with arrow, Home and End keys, with one tab stop', () => {
-  const ui = render(<Harness />);
+it.each([undefined, 'secondary'] as const)('moves selection and focus in %s tabs with one tab stop', variant => {
+  const ui = render(<Harness variant={variant} />);
+  if (variant) expect(ui.getByRole('tablist')).toHaveAttribute('data-variant', 'secondary');
+  else expect(ui.getByRole('tablist')).not.toHaveAttribute('data-variant');
   const list = ui.getByRole('tablist');
   fireEvent.keyDown(list, { key: 'ArrowLeft' });
   expect(ui.getByRole('tab', { name: 'C' }).getAttribute('aria-selected')).toBe('true');

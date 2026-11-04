@@ -104,7 +104,6 @@
 .xp-review-settings > .xp-frame { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
 .xp-review-settings > summary .xp-review-disease { flex: 1 1 25ch; overflow-wrap: anywhere; }
 .xp-review-settings > summary:active { background: var(--cs-surface-2); }
-.xp-workspace .xp-system-note { margin-block: 0; }
 .xp-pext-reference { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-size: 12px; }
 .xp-workspace [data-testid="pext-card"] tr[data-selected] { background: var(--cs-workbench-header-surface); }
 .xp-rail .evw-inspection[data-empty] { border: 0; margin-block-end: 8px; padding-block-end: 0; }
@@ -128,3 +127,13 @@
 
 .xp-pext-reference p { margin-block: 0; }
 .xp-pext-reference p + p { margin-block-start: 4px; }
+
+.xp-workspace .xp-frame .ctx-card__head { background: color-mix(in oklch, var(--cs-accent-clay) 8%, var(--cs-surface)); color: var(--cs-text-primary); }
+.xp-workspace .xp-frame .ctx-card__head h2 { color: var(--cs-text-primary); }
+.xp-workspace .cx-frame-focus[open] { border-block-start: 1px solid var(--cs-border-subtle); padding-block-start: 12px; }
+.xp-workspace .xp-frame-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 16px 24px; padding-block-start: 12px; }
+.xp-workspace .xp-frame-fields > .ctx-field { padding-block-start: 0; margin: 0; max-inline-size: none; }
+.xp-workspace .cx-frame-focus .ctx-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.xp-workspace .xp-system-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-block: 0; font-size: 12px; color: var(--cs-text-secondary); }
+.xp-workspace .xp-system-note .viz-action { min-block-size: 38px; }
+.xp-workspace [data-testid="pext-card"] > p.ctx-card__body { margin-block: 0; line-height: 1.6; }

@@ -13,10 +13,10 @@ const LOCATION_NOTE = {
 
 function TissueBars({ tissues, labels }: { tissues: Array<{ tissue: string; value: number | null }>; labels: Map<string, string> }) {
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Base-level pext by tissue"><table className="ctx-table">
-    <caption className="ctx-sr-only">Base-level pext in this coding region, one value per GTEx v10 tissue.</caption>
+    <caption className="ctx-sr-only">Base-level pext in this coding region, values for the GTEx v10 tissues shown in this table.</caption>
     <thead><tr><th scope="col">Tissue</th><th scope="col" className="ctx-num">Base-level pext</th></tr></thead>
     <tbody>{tissues.map(t => <tr key={t.tissue}><th scope="row">{labels.get(t.tissue) ?? pextTissueLabel(t.tissue)}</th>
-      <td className="ctx-num"><span className="ctx-mono">{t.value === null ? 'No value' : t.value.toFixed(2)}</span><MeasureBar value={t.value} max={1} label={`pext ${t.value ?? 'unreported'}`} /></td></tr>)}</tbody>
+      <td className="ctx-num"><span className="ctx-mono">{t.value === null ? 'No value' : String(t.value)}</span><MeasureBar value={t.value} max={1} label={`pext ${t.value ?? 'unreported'}`} /></td></tr>)}</tbody>
   </table></div>;
 }
 
@@ -27,8 +27,8 @@ export function PextCard({ load, site, transcript = null, systems, tissueLabels 
   const location = locatePext(data, site);
   const tissues = location.region ? orderPextTissues(location.region, systems) : null;
   // Tied values make a "top 8" arbitrary, so say so instead of listing identical rows.
-  const values = new Set((location.region?.tissues ?? []).map(t => t.value === null ? null : t.value.toFixed(2)));
-  const uniform = values.size === 1 && !values.has(null) ? [...values][0] : null;
+  const values = new Set((location.region?.tissues ?? []).map(t => t.value));
+  const uniform = values.size === 1 ? [...values][0] ?? null : null;
   return <section className="ctx-card" aria-labelledby={id} data-testid="pext-card">
     <div className="ctx-card__head"><h2 id={id}>Base-level pext</h2><span className="ctx-caption">gnomAD v4 · GTEx v10 · coding regions</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading pext.</div>
@@ -62,10 +62,10 @@ export function PextCard({ load, site, transcript = null, systems, tissueLabels 
           {!!tissues.relevant.length && <TissueBars tissues={tissues.relevant} labels={tissueLabels} />}
           {!!tissues.other.length && (tissues.relevant.length
             ? <details className="ctx-details ctx-details--table"><summary>Other tissues ({tissues.other.length})</summary><TissueBars tissues={tissues.other} labels={tissueLabels} /></details>
-            : uniform
-              ? <p className="ctx-card__body">All {tissues.other.length} tissues have base-level pext <span className="ctx-mono">{uniform}</span> in this region, so there is no ranking to show.</p>
+            : uniform !== null
+              ? <p className="ctx-card__body">{tissues.other.length === 1 ? 'The tissue has' : `All ${tissues.other.length} tissues have`} base-level pext <span className="ctx-mono">{String(uniform)}</span> in this region in the returned source data. This is a proportion, not RNA abundance; it does not mean equal expression in these tissues.</p>
               : <TissueBars tissues={tissues.other.slice(0, 8)} labels={tissueLabels} />)}
-          {!tissues.relevant.length && tissues.other.length > (uniform ? 0 : 8) && <details className="ctx-details ctx-details--table"><summary>All {tissues.other.length} tissues</summary><TissueBars tissues={tissues.other} labels={tissueLabels} /></details>}
+          {!tissues.relevant.length && tissues.other.length > (uniform !== null ? 0 : 8) && <details className="ctx-details ctx-details--table"><summary>All {tissues.other.length} {tissues.other.length === 1 ? 'tissue' : 'tissues'}</summary><TissueBars tissues={tissues.other} labels={tissueLabels} /></details>}
         </>}
       </>}
     <p className="ctx-card__foot">Base-level pext is a maximum over every transcript touching the base. It does not show that the transcript carrying this missense is expressed, and no cut-point is applied. Tissue count comes from the response; tissues with too few GTEx samples are excluded. Context only.</p>
