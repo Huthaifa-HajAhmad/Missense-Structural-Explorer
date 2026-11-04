@@ -36,9 +36,9 @@ function fixture(settings: any = { narrativeMode: "off" }) {
   sinks.analysis.setAnalysisState = vi.fn(updater => { state = typeof updater === "function" ? updater(state) : updater; });
   return {
     settings, sinks, get state() { return state; }, replace: (next: any) => { state = next; activeId++; },
-    run: (uniprotId = "P00439") => executeFullAnalysisWorkflow({
-      targetGeneArg: "PAH", targetVariantArg: "p.Arg408Trp", targetUniprotArg: uniprotId,
-      options: { apiClient: {}, fetchWithAuth: vi.fn(), settings, userDirections: "", sinks },
+    run: (uniprotId = "P00439", variant = "p.Arg408Trp", apiClient = {}) => executeFullAnalysisWorkflow({
+      targetGeneArg: "PAH", targetVariantArg: variant, targetUniprotArg: uniprotId,
+      options: { apiClient, fetchWithAuth: vi.fn(), settings, userDirections: "", sinks },
       activeSignal: new AbortController().signal, requestId: 1, getActiveRequestId: () => activeId,
       getTraceContext: () => ({ activeTraceId: "test", traceStart: performance.now(), addTraceSpan: vi.fn() }),
       fetchHomologs: vi.fn(), fetchPocketData: vi.fn(), mutantFoldAbortRef: { current: null }
@@ -63,6 +63,14 @@ beforeEach(() => {
 });
 
 describe("foreground readiness and stage ownership", () => {
+  it.each(["off", "on-demand"])("keeps the genomic submission in Recents with narrative mode %s", async narrativeMode => {
+    const f = fixture({ narrativeMode });
+    const query = "12-103234271-C-T";
+    const translateVariant = vi.fn().mockResolvedValue({ ...core.metadata, assembly: "GRCh38", genomicCoordinates: query });
+    await f.run("P00439", query, { translateVariant });
+    expect(translateVariant).toHaveBeenCalled();
+    expect(f.sinks.search.addToHistory).toHaveBeenCalledWith("PAH", "p.Arg408Trp", "P00439", query);
+  });
   it("retains enrichment through the actual final-frame callback path and caches the retained evidence", async () => {
     const held = deferred<any>();
     vi.mocked(fetchBiophysicalAnalysis).mockImplementationOnce((_params, _api, _signal, onChunk) => held.promise.then(payload => { onChunk?.(payload); return payload; }));

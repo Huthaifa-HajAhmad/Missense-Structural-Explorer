@@ -23,6 +23,8 @@ export interface SearchHistoryItem {
    * cDNA or an accession-qualified notation). A Recents click replays this, so the re-run takes the
    * same route as the original: a coordinate input keeps its coordinate-first predictor query instead
    * of being re-derived from protein HGVS, which Ensembl cannot do for codon-ambiguous substitutions.
+   *
+   * Omitted means "unknown, keep whatever the entry already had"; an explicit empty string clears it.
    */
   query?: string;
 }

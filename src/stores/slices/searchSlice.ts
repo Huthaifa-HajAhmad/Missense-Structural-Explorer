@@ -249,7 +249,20 @@ export const createSearchSlice: StateCreator<
       const filtered = state.history.filter(
         (h) => !(h.gene === item.gene && h.variant === item.variant)
       );
-      const updated = [item, ...filtered].slice(0, maxItems);
+      const previous = state.history.find(h => h.gene === item.gene && h.variant === item.variant);
+      /**
+       * An absent `query` means "this update knows nothing about the submitted notation" — a later
+       * protein-level save of the same result — so the nucleotide notation the first submission
+       * carried survives it. Dropping it here is what sent a coordinate-first variant back through
+       * protein HGVS on replay, a route Ensembl refuses for codon-ambiguous substitutions.
+       *
+       * An explicit empty string is the opposite statement: the caller is CLEARING the notation (a
+       * reader who re-entered the canonical protein form on purpose), so it is stored as absent
+       * rather than retained, and Recents replays `variant` again.
+       */
+      const retained = item.query === undefined && previous?.query ? { ...item, query: previous.query } : item;
+      const entry = retained.query === "" ? { ...retained, query: undefined } : retained;
+      const updated = [entry, ...filtered].slice(0, maxItems);
       try {
         localStorage.setItem("variant_search_history", JSON.stringify(updated));
       } catch (_) {}

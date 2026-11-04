@@ -56,4 +56,27 @@ describe("Recents replay", () => {
     useVariantAnalysisStore.getState().requestRerun();
     expect(useVariantAnalysisStore.getState().rerunNonce).toBe(before + 2);
   });
+
+  it("keeps the original query when a protein-only update saves the same result", () => {
+    const store = useVariantAnalysisStore.getState();
+    const item = { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" };
+    store.addToHistory({ ...item, query: "16-66823281-T-C" });
+    store.addToHistory(item);
+    const executeAnalysis = vi.fn();
+    store.handleSelectHistoryItem(useVariantAnalysisStore.getState().history[0], { executeAnalysis });
+    expect(executeAnalysis).toHaveBeenCalledWith("NAE1", "16-66823281-T-C", "Q13564");
+    store.addToHistory({ ...item, query: "16-66823281-T-G" });
+    expect(useVariantAnalysisStore.getState().history[0].query).toBe("16-66823281-T-G");
+  });
+
+  it("clears the retained notation when a caller explicitly passes an empty query", () => {
+    const store = useVariantAnalysisStore.getState();
+    const item = { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" };
+    store.addToHistory({ ...item, query: "16-66823281-T-C" });
+    store.addToHistory({ ...item, query: "" });
+    expect(useVariantAnalysisStore.getState().history[0].query).toBeUndefined();
+    const executeAnalysis = vi.fn();
+    store.handleSelectHistoryItem(useVariantAnalysisStore.getState().history[0], { executeAnalysis });
+    expect(executeAnalysis).toHaveBeenCalledWith("NAE1", "p.Asp116Gly", "Q13564");
+  });
 });
