@@ -13,6 +13,7 @@ widen the surface.
 
 ## 1. Decision Routing
 
+* **Routes, Guards, Test Coverage, Outside Hosts, Environment Variables**: Grep `doc/code-map/*.csv` first (`code-map.md`). It is exact for the current branch and costs no tokens to refresh.
 * **Conceptual & Semantic Code Search**: Use **zvec-grep** (`npm run search -- "<query>"`). Fuses BM25 full-text + local vector embeddings (`potion-code-16m-v2`). **Agents MUST NOT blind-grep or crawl directories when wording or file locations are unknown.**
 * **API Surfaces & Skeletons (Token-Efficient)**: Use **Graft** (`graft_file_api` MCP or `npm run graft -- skeleton <file>`). Saves ~90% tokens when checking signatures/types.
 * **Transitive Callers & Blast Radius**: Use **Graft** (`graft_trace_calls` MCP or `npm run graft -- callers <symbol> -d <N>`).
