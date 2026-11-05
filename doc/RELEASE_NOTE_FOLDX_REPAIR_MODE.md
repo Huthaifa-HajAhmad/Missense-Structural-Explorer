@@ -19,6 +19,8 @@
 - Stored whole-chain repairs stay valid, so templates of 233 residues or fewer do not repeat their repair.
 - Paired computers running a build from before this change: a result for a template above 233 residues is refused and the job goes to the server. Results for smaller templates are still accepted, but not cached.
 
+**Not changed, on purpose:** FoldX still gets one chain. Sending partner chains was tested and made the error larger (bench doc section 9.7).
+
 **To watch after deploy**
 
 - The log line `[FoldX] No repair on this run` shows how often a run falls back to no repair. In-memory counters reset on restart, so use the logs.

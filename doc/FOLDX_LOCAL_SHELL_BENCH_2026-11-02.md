@@ -490,3 +490,20 @@ What readers can take from a verdict, as measured bands (low / moderate / high):
 | High | 15 / 6 / 79 (n 66) | 0 / 10 / 90 (n 48) | 11 / 14 / 76 (n 37) |
 
 So a "high" verdict is usually right, a "moderate" verdict says little, and "no destabilization" still hides a measured high change in 4 to 18% of cases. These shares are not shown in the app: they are from three engines, not the six the app can use. DynaMut2, DDMut and RaSP are still not tested.
+
+### 9.7 Partner chains in the FoldX template (2026-11-05)
+
+The app cuts a PDB entry down to one chain before FoldX sees it, so a residue at a chain interface loses its neighbours. Would FoldX be closer to the lab if the chains touching the site stayed? The rule was fixed before any run (header of `scripts/foldx-partner-chain-benchmark.ts`): send partner chains only if, on S669 interface variants, the RMSE falls by 0.10 kcal/mol or more with the chain-resampled 95% interval below zero, the band match does not fall, and the independent set (T2837 and FireProtDB, no entry shared with S669, Ssym, p53 or myoglobin) moves the same way. Each template uses the repair the app would choose for its size. An interface variant has a partner-chain atom within 10 Å of its alpha carbon.
+
+| Set | Variants | RMSE, one chain | RMSE, with partners | Difference (95%) | Band match |
+| :--- | ---: | ---: | ---: | :--- | :--- |
+| S669 | 149 on 36 chains | 2.01 | 2.35 | +0.34 (+0.10 to +0.56) | 51.7% to 47.0% |
+| Independent | 75 on 26 chains | 1.78 | 1.99 | +0.21 (−0.04 to +0.54) | 54.7% to 53.3% |
+
+**Outcome: not adopted.** All three conditions fail. Partner chains made the error larger on both sets, and the S669 interval lies wholly above zero. Not deciding anything, but pointing the same way:
+
+- Direct contact only (a partner atom within 5 Å of the variant residue): S669 RMSE 1.86 to 2.59 on 72 variants, and the largest single change is 6.85 kcal/mol. Independent: 1.87 to 2.11 on 49.
+- No repair on either side: the difference is about the same (+0.34 on S669, +0.19 independent), so repair does not cause it.
+- Templates grow (median 243 residues on S669, largest 854), and many pass the 233-residue limit, which changes the repair. The no-repair rows are the control for that.
+
+The cause is not established. One possibility is that some partner chains in a PDB file are crystal contacts, not real partners. So the app keeps sending one chain. StabilityOracle is different: it reads partner chains only when a supplied file holds them, and they helped it (research doc).
