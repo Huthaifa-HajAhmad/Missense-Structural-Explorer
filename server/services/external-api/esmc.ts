@@ -35,6 +35,10 @@ import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { queryEsmc } from "./japanfold-client.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
+import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
+
+/** How long the sidecar's VESM-150M call may take (first-run model load included). */
+const ESMC_SIDECAR_BUDGET_MS = 60000;
 
 export type ModelEvalError = {
   error: string;
@@ -99,7 +103,8 @@ export async function runEsmcAnalysis(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret
+        "X-Sidecar-Secret": sidecarSecret,
+        [SIDECAR_BUDGET_HEADER]: String(ESMC_SIDECAR_BUDGET_MS)
       },
       body: JSON.stringify({
         sequence: sequence,
@@ -108,11 +113,11 @@ export async function runEsmcAnalysis(
         mut: mutRes,
         biohubToken: token
       }),
-      signal: AbortSignal.timeout(60000) // VESM-150M needs up to 60s for first-run model load
-    }), { deadlineAt: Date.now() + 60000 });
+      signal: AbortSignal.timeout(ESMC_SIDECAR_BUDGET_MS) // VESM-150M needs up to 60s for first-run model load
+    }), { deadlineAt: Date.now() + ESMC_SIDECAR_BUDGET_MS });
 
     if (!sidecarRes.ok) {
-      return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: [401, 403].includes(sidecarRes.status) ? "unauthorized" : "offline" };
+      return sidecarFailure("VESM", sidecarRes.status);
     }
 
     const data = await sidecarRes.json() as any;

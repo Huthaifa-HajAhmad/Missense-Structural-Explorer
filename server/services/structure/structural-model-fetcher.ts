@@ -10,6 +10,7 @@ import { runEsm2Analysis } from "../external-api/esm2.ts";
 import { runSaprotAnalysis, type SaprotEvalResult } from "../external-api/saprot.ts";
 import { BUDGET_EXPIRED, createTimeoutScope, type TimeoutScope } from "../orchestration/timeout-scope.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
+import type { StructuralModelFrame, StructuralModelKey, StructuralModelStatus } from "../../../src/shared/structuralStream.ts";
 
 export interface StructuralAnalysisData {
   esm3Eval: ESM3StructureEvalResult | ModelEvalError | null;
@@ -93,6 +94,11 @@ export function isPdbMappingCompatibleWithContext(
 /**
  * Executes deep learning structural models (ESM3, ESMC, ESM-2 650M, SaProt) with timeout racing
  * and single-pass shared PDB text resolution.
+ *
+ * `onModel` is told about each model THE MOMENT it settles (its result, or its timeout/error), long
+ * before the slowest one lets this function return. A reader that shows each model as it arrives
+ * never loses a finished model to a slower one. The returned object is unchanged and still carries
+ * all four, so a caller that ignores `onModel` behaves exactly as before.
  */
 export async function fetchStructuralModelData(
   context: ParsedVariantContext,
@@ -102,7 +108,8 @@ export async function fetchStructuralModelData(
   prefetched?: {
     pdbMappingPromise?: Promise<PdbBestStructureMapping | null>;
     pdbMapping?: PdbBestStructureMapping | null;
-  }
+  },
+  onModel?: (frame: StructuralModelFrame) => void
 ): Promise<StructuralAnalysisData> {
   /**
    * One budget scope for the four races, disposed in a `finally`.
@@ -114,7 +121,7 @@ export async function fetchStructuralModelData(
    */
   const budgets = createTimeoutScope();
   try {
-    return await runStructuralModels(context, biohubToken, hfToken, timeoutMs, prefetched, budgets);
+    return await runStructuralModels(context, biohubToken, hfToken, timeoutMs, prefetched, budgets, onModel);
   } finally {
     budgets.dispose();
   }
@@ -129,7 +136,8 @@ async function runStructuralModels(
     pdbMappingPromise?: Promise<PdbBestStructureMapping | null>;
     pdbMapping?: PdbBestStructureMapping | null;
   } | undefined,
-  budgets: TimeoutScope
+  budgets: TimeoutScope,
+  onModel?: (frame: StructuralModelFrame) => void
 ): Promise<StructuralAnalysisData> {
   const {
     gene,
@@ -332,20 +340,7 @@ async function runStructuralModels(
    * Timing the inner promise would put a 300 s bar on a 45 s request. So the measured span is
    * `min(model, budget)`, which is exactly the bar the waterfall should draw.
    */
-  const fastEsm3Promise = timeModel("esm3", withModelBudget("ESM3", esm3EvalPromise));
-  const fastEsmcPromise = timeModel("esmc", withModelBudget("VESM-150M", esmcEvalPromise));
-  const fastEsm2Promise = timeModel("esm2Eval", withModelBudget("ESM-2", esm2EvalPromise));
-  const fastSaprotPromise = timeModel("saprot", withModelBudget("SaProt", saprotEvalPromise));
-
-  const [esm3Eval, esmcEval, esm2Eval, saprotEval, pdbMapping] = await Promise.all([
-    fastEsm3Promise,
-    fastEsmcPromise,
-    fastEsm2Promise,
-    fastSaprotPromise,
-    pdbMappingPromise
-  ]);
-
-  const getStatus = (evalRes: any): "ok" | "error" | "timeout" | "offline" => {
+  const getStatus = (evalRes: any): StructuralModelStatus => {
     if (!evalRes) return "offline";
     if ("error" in evalRes && evalRes.error) {
       if (evalRes.status === "timeout") return "timeout";
@@ -354,6 +349,29 @@ async function runStructuralModels(
     }
     return "ok";
   };
+
+  /**
+   * Tells the caller about one model the moment its span is recorded. Chained AFTER `timeModel`, so
+   * the duration it reports is the one the final payload will carry.
+   */
+  const announce = <T,>(key: StructuralModelKey, settled: Promise<T>): Promise<T> =>
+    settled.then(evaluation => {
+      onModel?.({ type: "model", key, evaluation, status: getStatus(evaluation), durationMs: structuralTimings[key] ?? 0 });
+      return evaluation;
+    });
+
+  const fastEsm3Promise = announce("esm3", timeModel("esm3", withModelBudget("ESM3", esm3EvalPromise)));
+  const fastEsmcPromise = announce("esmc", timeModel("esmc", withModelBudget("VESM-150M", esmcEvalPromise)));
+  const fastEsm2Promise = announce("esm2Eval", timeModel("esm2Eval", withModelBudget("ESM-2", esm2EvalPromise)));
+  const fastSaprotPromise = announce("saprot", timeModel("saprot", withModelBudget("SaProt", saprotEvalPromise)));
+
+  const [esm3Eval, esmcEval, esm2Eval, saprotEval, pdbMapping] = await Promise.all([
+    fastEsm3Promise,
+    fastEsmcPromise,
+    fastEsm2Promise,
+    fastSaprotPromise,
+    pdbMappingPromise
+  ]);
 
   const structuralServiceStatus: Record<string, "ok" | "error" | "timeout" | "offline"> = {
     esm3: getStatus(esm3Eval),

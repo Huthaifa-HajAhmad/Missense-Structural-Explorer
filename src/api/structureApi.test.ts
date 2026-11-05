@@ -1,5 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { parseProvenanceFromHeaders } from "./structureApi";
+import { describe, expect, it, vi } from "vitest";
+import { createStructureApi, parseProvenanceFromHeaders } from "./structureApi";
+import { SEQUENCE_LOOKUP_BUDGET_MS, HOMOLOG_DISCOVERY_BUDGET_MS } from "../shared/structureLookupBudgets";
+
+it("lets sequence and homolog requests outlast their server work", async () => {
+  const fetchWithAuth = vi.fn()
+    .mockResolvedValueOnce(Response.json({ sequence: "MPEPTIDE" }))
+    .mockResolvedValueOnce(Response.json({ homologs: [] }));
+  const api = createStructureApi(fetchWithAuth);
+  const signal = new AbortController().signal;
+  expect(await api.getSequence("Q9H8M5", signal)).toBe("MPEPTIDE");
+  expect(await api.getHomologs("Q9H8M5", 357, signal)).toEqual([]);
+  expect(fetchWithAuth.mock.calls[0][1].timeout).toBeGreaterThan(SEQUENCE_LOOKUP_BUDGET_MS);
+  expect(fetchWithAuth.mock.calls[1][1].timeout).toBeGreaterThan(SEQUENCE_LOOKUP_BUDGET_MS + HOMOLOG_DISCOVERY_BUDGET_MS);
+  expect(fetchWithAuth.mock.calls[1]).toEqual(["/api/v1/homologs/Q9H8M5?pos=357", expect.objectContaining({ signal })]);
+});
 
 /**
  * The viewer's disclosure travels in response headers. The server side is pinned by

@@ -103,6 +103,12 @@ export const CONFIG = {
   timeouts: {
     coreAnalysisMs: parseInt(process.env.CORE_TIMEOUT_MS || "45000", 10),
     structuralModelsMs: parseInt(process.env.STRUCTURAL_TIMEOUT_MS || "120000", 10),
+    /**
+     * Cap on the work AFTER the four deep models: the best-effort burial refresh (an AlphaFold download
+     * plus one accessibility run). Without it that step had no deadline of its own, so a slow structure
+     * host could hold the final answer long after every model had settled.
+     */
+    structuralTailMs: parseInt(process.env.STRUCTURAL_TAIL_TIMEOUT_MS || "20000", 10),
     /** Whole-job cap for a queued FoldX job, covering every stage below. */
     foldxSec: parseInt(process.env.FOLDX_TIMEOUT_S || "900", 10),
     /** Wait for a concurrency slot before FoldX starts (counts against the job cap). */

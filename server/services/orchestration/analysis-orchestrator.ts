@@ -25,6 +25,8 @@ import {
   type CorePrefetchOptions
 } from "../external-api/core-data-fetcher.ts";
 import { findRunningCoreFetch, runSharedCoreFetch } from "./core-singleflight.ts";
+import { BUDGET_EXPIRED, createTimeoutScope } from "./timeout-scope.ts";
+import type { StructuralModelFrame, StructuralStreamFrame } from "../../../src/shared/structuralStream.ts";
 import { checkPayloadCompatibility, structuralIdentityRecordOf, type IdentityScope } from "./core-identity.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
 import { predictorCoordinateFromContext, isBuildDegradedResult, type PredictorData } from "../../../src/shared/contracts.ts";
@@ -287,21 +289,34 @@ export async function streamCoreAnalysis(
 ): Promise<any> {
   if (signal?.aborted) return null;
 
-  /**
-   * Armed BEFORE the first await.
-   *
-   * Chunk 1 cannot be written until ClinVar AND the predictors have answered (that pair is the
-   * fast triage's own barrier), so the first silence of a run is at its very start — precisely when
-   * the client's idle bound would otherwise fire on a healthy request.
-   *
-   * The body is guarded: it is the one write on this stream that runs outside any awaited call and
-   * any `try`, so a throw here (a torn socket) would surface as a timer-context uncaught exception
-   * rather than as a stream error. On a throw the interval retires rather than repeating.
-   */
+  return withHeartbeat(
+    () => onChunk({ chunkIndex: 0, isFinal: false, type: "heartbeat" }),
+    signal,
+    () => runStream(context, onChunk, signal)
+  );
+}
+
+/**
+ * Runs `run` while `writeHeartbeat` is called every `STREAM_HEARTBEAT_MS`, so a healthy-but-slow
+ * stream is never silent for longer than the client's idle bound. Shared by every NDJSON stream here.
+ *
+ * Armed BEFORE the first await: the first silence of a run is at its very start (the core stream cannot
+ * write chunk 1 until ClinVar AND the predictors have answered), precisely when the client's idle
+ * bound would otherwise fire on a healthy request.
+ *
+ * The timer body is guarded: it is the one write that runs outside any awaited call and any `try`,
+ * so a throw here (a torn socket) would surface as a timer-context uncaught exception rather than as
+ * a stream error. On a throw the interval retires rather than repeating.
+ */
+async function withHeartbeat<T>(
+  writeHeartbeat: () => void,
+  signal: AbortSignal | undefined,
+  run: () => Promise<T>
+): Promise<T> {
   const heartbeats = setInterval(() => {
     try {
       if (signal?.aborted) return;
-      onChunk({ chunkIndex: 0, isFinal: false, type: "heartbeat" });
+      writeHeartbeat();
     } catch (err: any) {
       console.warn("[Stream Heartbeat] Writer threw; retiring the heartbeat:", err?.message ?? err);
       clearInterval(heartbeats);
@@ -309,7 +324,7 @@ export async function streamCoreAnalysis(
   }, STREAM_HEARTBEAT_MS);
 
   try {
-    return await runStream(context, onChunk, signal);
+    return await run();
   } finally {
     clearInterval(heartbeats);
   }
@@ -561,11 +576,16 @@ async function runStream(
 
 /**
  * High-level orchestration for /analyze-variant/structural endpoint.
+ *
+ * `options.onModel` hears about each deep model as it settles (see `fetchStructuralModelData`), and
+ * `options.signal` lets a caller whose reader has left skip the best-effort burial refresh. Both are
+ * optional: called with three arguments this behaves exactly as it always did.
  */
 export async function runStructuralAnalysis(
   context: ParsedVariantContext,
   biohubToken: string | null,
-  hfToken: string | null
+  hfToken: string | null,
+  options?: { onModel?: (frame: StructuralModelFrame) => void; signal?: AbortSignal }
 ) {
   const {
     gene,
@@ -606,7 +626,7 @@ export async function runStructuralAnalysis(
        * silently demoted the run to AlphaFold.
        */
       pdbMapping: cachedPdbMapping ?? undefined
-    }),
+    }, options?.onModel),
     cachedCoreUsable ? Promise.resolve(cachedPayload) : runSharedCoreFetch(context, { timeoutMs: CONFIG.timeouts.coreAnalysisMs })
   ]);
 
@@ -631,18 +651,32 @@ export async function runStructuralAnalysis(
   });
 
   // The retry used to refresh language models only, leaving missing burial data unchanged.
-  // This is a best-effort extra: if it fails, or still finds no accessibility value, the reading the
-  // core run produced is kept, so the language-model retry never fails because of it.
+  // This is a best-effort extra: if it fails, runs out of time, or still finds no accessibility value,
+  // the reading the core run produced is kept, so the language-model retry never fails because of it.
+  //
+  // It has its own deadline (`structuralTailMs`). It used to have none: an AlphaFold download (up to
+  // six candidate URLs, each retried) plus an accessibility run could hold the answer long after every
+  // model had settled. A reader that has already left skips it altogether.
   let disruptionPredictor = coreData.disruptionPredictor;
-  if (disruptionPredictor?.rsa == null) {
+  if (disruptionPredictor?.rsa == null && !options?.signal?.aborted) {
+    const tailBudget = createTimeoutScope();
     try {
-      const pdb = await fetchAlphafoldPdb(context.uniprotId);
-      if (pdb) {
-        const refreshed = await predictStructuralDisruption(pdb, context.wt1Letter, context.pos, context.mut1Letter, "A", "alphafold");
-        if (refreshed.rsa != null) disruptionPredictor = { ...refreshed, structureLabel: "AlphaFold model" };
+      const refresh = (async () => {
+        const pdb = await fetchAlphafoldPdb(context.uniprotId);
+        return pdb
+          ? predictStructuralDisruption(pdb, context.wt1Letter, context.pos, context.mut1Letter, "A", "alphafold")
+          : null;
+      })();
+      const refreshed = await tailBudget.race(refresh, CONFIG.timeouts.structuralTailMs);
+      if (refreshed === BUDGET_EXPIRED) {
+        console.warn(`[Structural Retry Warning] Burial refresh did not finish in ${CONFIG.timeouts.structuralTailMs}ms; keeping the earlier reading.`);
+      } else if (refreshed && refreshed.rsa != null) {
+        disruptionPredictor = { ...refreshed, structureLabel: "AlphaFold model" };
       }
     } catch (err) {
       console.warn("[Structural Retry Warning] Burial refresh failed; keeping the earlier reading:", err);
+    } finally {
+      tailBudget.dispose();
     }
   }
 
@@ -713,4 +747,35 @@ export async function runStructuralAnalysis(
     structuralTimings,
     structuralTimingOffsets
   };
+}
+
+/**
+ * The streaming form of {@link runStructuralAnalysis}, for `POST /analyze-variant/structural` when the
+ * caller asks for NDJSON (frame shapes: `src/shared/structuralStream.ts`).
+ *
+ * Why it streams: the route used to answer once, with one JSON body, when the SLOWEST of four models
+ * had settled or run out of time. A model that finished at 20 s waited for one that needed 120 s, and
+ * when the caller's own timer fired first, every finished model was thrown away with the slow one.
+ * Now each model is written the moment it settles, a heartbeat keeps a slow run from looking dead, and
+ * the `final` frame carries exactly the object the buffered route returns (the authority; the model
+ * frames are early copies of its fields).
+ */
+export async function streamStructuralAnalysis(
+  context: ParsedVariantContext,
+  biohubToken: string | null,
+  hfToken: string | null,
+  onFrame: (frame: StructuralStreamFrame) => void,
+  signal?: AbortSignal
+): Promise<Awaited<ReturnType<typeof runStructuralAnalysis>> | null> {
+  if (signal?.aborted) return null;
+
+  return withHeartbeat(
+    () => onFrame({ type: "heartbeat" }),
+    signal,
+    async () => {
+      const result = await runStructuralAnalysis(context, biohubToken, hfToken, { onModel: onFrame, signal });
+      onFrame({ type: "final", data: result });
+      return result;
+    }
+  );
 }

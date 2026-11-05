@@ -9,6 +9,7 @@ import { validateAndParseVariantRequest } from "./variant-parser.ts";
 import {
   runCoreAnalysis,
   runStructuralAnalysis,
+  streamStructuralAnalysis,
 } from "../../services/analysis-orchestrator.ts";
 import { PrewarmManager, isPrewarmEnabled } from "../../services/prewarm-manager.ts";
 
@@ -261,6 +262,37 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     // Only what the request brought; each model resolves saved and team tokens when it calls (WP-I4).
     const biohubToken = (req.headers["x-biohub-token"] as string) || null;
     const hfToken = (req.headers["x-hf-token"] as string) || null;
+
+    /**
+     * Streaming is opt-in (`Accept: application/x-ndjson`); every other caller gets the one buffered
+     * JSON body it always got. Frame shapes: `src/shared/structuralStream.ts`.
+     */
+    if (String(req.headers.accept ?? "").includes("application/x-ndjson")) {
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+
+      const abortController = new AbortController();
+      // Same reason as the core stream: the body was read long ago, so only `res` can tell that the
+      // reader has left.
+      onClientDisconnect(res, () => abortController.abort());
+
+      const write = (frame: unknown) => {
+        if (!res.writableEnded && !abortController.signal.aborted) res.write(JSON.stringify(frame) + "\n");
+      };
+
+      try {
+        await streamStructuralAnalysis(context, biohubToken, hfToken, write, abortController.signal);
+        if (!res.writableEnded) res.end();
+      } catch (error: any) {
+        if (abortController.signal.aborted) return;
+        console.error("Structural stream failure:", error);
+        write({ type: "error", error: error.message || "An error occurred during structural analysis." });
+        if (!res.writableEnded) res.end();
+      }
+      return;
+    }
 
     try {
       const result = await runStructuralAnalysis(context, biohubToken, hfToken);

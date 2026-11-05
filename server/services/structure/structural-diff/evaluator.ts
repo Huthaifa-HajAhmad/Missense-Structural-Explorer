@@ -9,6 +9,8 @@ import { promisify } from "util";
 import { LRUCache } from "lru-cache";
 import { CONFIG } from "../../../config.ts";
 import { defaultCacheRegistry } from "../../infra/cache-registry.ts";
+import { SIDECAR_BUDGET_HEADER } from "../../infra/sidecar-budget.ts";
+import { toolsVenvPython } from "../../infra/tools-python.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,7 +38,8 @@ export async function runEsm2Eval(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Sidecar-Secret": process.env.SIDECAR_SECRET || ""
+        "X-Sidecar-Secret": process.env.SIDECAR_SECRET || "",
+        [SIDECAR_BUDGET_HEADER]: String(httpTimeoutMs)
       },
       body: JSON.stringify({ sequence: seq, position: pos, wt, mut, includeEmbeddings: false }),
       signal: AbortSignal.timeout(httpTimeoutMs)
@@ -49,7 +52,27 @@ export async function runEsm2Eval(
         return result;
       }
     }
+    /**
+     * A refused pass (`503`, the CPU gate turning away a caller whose deadline had passed) means the
+     * model server ANSWERED and was too busy to start one. The CLI fallback starts a second copy of the
+     * model on the same CPUs — exactly what this function already refuses to do after a timeout — so it
+     * must not run here either, or a busy server gets slower by being asked twice.
+     */
+    if (res.status === 503) {
+      console.warn("[ESM2-Eval] The model server was too busy to start this pass; not starting a second model process.");
+      return null;
+    }
   } catch (err: any) {
+    /**
+     * A TIMEOUT means the model server is alive and busy. Loading a second copy of the model in a new
+     * process on the same two CPUs only makes it slower, and on the production VM that process could
+     * not even start (`python -m uv` does not exist in the container's virtual environment). Every
+     * other failure (nothing listening, a refused connection) still falls back to the command line.
+     */
+    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+      console.warn(`[ESM2-Eval] The model server did not answer within ${httpTimeoutMs / 1000}s; not starting a second model process.`);
+      return null;
+    }
     if (process.env.NODE_ENV !== "production") {
       console.log(`[ESM2-Eval] Model server is offline or error: ${err.message}. Falling back to CLI subprocess.`);
     }
@@ -61,7 +84,12 @@ export async function runEsm2Eval(
     return null;
   }
   try {
-    const { stdout } = await execFileAsync("python", ["-m", "uv", "run", pythonScript, seq, pos.toString(), wt, mut], { timeout: 30000 });
+    // The tools environment's own interpreter first; `uv run` only when that environment is absent.
+    const venvPython = toolsVenvPython();
+    const [command, args] = venvPython
+      ? [venvPython, [pythonScript, seq, pos.toString(), wt, mut]]
+      : ["uv", ["run", "--no-project", pythonScript, seq, pos.toString(), wt, mut]];
+    const { stdout } = await execFileAsync(command, args, { timeout: 30000 });
     const parsed = JSON.parse(stdout.trim());
     if (parsed.status === "success" && typeof parsed.llr === "number") {
       const result = { llr: parsed.llr, verdict: parsed.verdict };
