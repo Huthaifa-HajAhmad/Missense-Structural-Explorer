@@ -28,7 +28,8 @@
 .evw-chart-canvas { min-width: 480px; }
 .evw-chart-canvas[data-wide] { min-width: 720px; }
 /* Each question keeps its own geometry. Values are aligned outside the quantitative field. */
-.evw-comparison { min-width: 0; }
+/* The figure and the card of readings it could not place are two blocks with one gap between them. */
+.evw-comparison { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .evw-comparison[data-tab="clinical"] .evw-chart-canvas { min-width: 650px; }
 .evw-comparison[data-tab="predictors"] .evw-chart-canvas { min-width: 900px; }
 /* Both of these reserve label room on each side, so the canvas keeps at least 260px for the scale between them. */
@@ -62,15 +63,22 @@
 .evw-legend__dot[data-tone="good"] { background: var(--cs-text-success); }
 .evw-readout { margin: 0; padding: 14px 22px; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); font-size: 13px; min-height: 48px; font-variant-numeric: tabular-nums; }
 .evw-caption { margin: 0; padding: 12px 22px; font-size: 12px; color: var(--cs-text-secondary); line-height: 1.6; }
-/* Readings the chart cannot place. A header-wash strip (the page's two-tone rule) names the block and counts it; the
-   rows below sit on the white body, each with its state as a chip, so the block is not mistaken for caption text. */
-.evw-unplotted { border-top: 1px solid var(--cs-border-subtle); }
+/* The figure's caption is its own bar, like the head. It closes the figure under the table of unplaceable readings,
+   and without a band of its own the axis label read as one more row of that table. */
+.evw-comparison .viz-frame__foot { background: var(--cs-workbench-header-surface); }
+/* Readings the chart cannot place are a card of their own below the figure, not the figure's last rows: the
+   header-wash strip (the page's two-tone rule) names the block and counts it, and the card edge makes the split. */
+.evw-unplotted { border: 1px solid var(--cs-border); border-radius: 16px; background: var(--cs-surface); overflow: hidden; }
 .evw-unplotted__head { display: flex; flex-direction: column; gap: 4px; padding: 12px 22px; background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle); }
 .evw-unplotted__head h3 { margin: 0; }
 .evw-unplotted__head p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
 .evw-unplotted__count { margin-inline-start: 4px; padding: 0 7px; border-radius: 999px; background: var(--cs-surface); border: 1px solid var(--cs-border-subtle); color: var(--cs-text-secondary); font-variant-numeric: tabular-nums; }
-.evw-reading-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 28px; padding: 4px 22px 10px; }
+/* One reading per line. Two columns put two different sources on one visual row — name, state, name, state — so the
+   block read as a four-column table with every state far from the name it belongs to. */
+.evw-reading-list { display: flex; flex-direction: column; padding: 4px 22px 4px; }
 .evw-reading-list button { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: start; min-height: 44px; padding: 8px 0; border-bottom: 1px solid var(--cs-border-subtle); background: transparent; cursor: pointer; color: var(--cs-text-secondary); font-size: 12px; }
+/* The figure's own caption rule closes the block, so the list's last row does not draw a second hairline above it. */
+.evw-reading-list button:last-child { border-bottom: 0; }
 .evw-reading-list strong { font-weight: 500; font-variant-numeric: tabular-nums; }
 @media (hover: hover) and (pointer: fine) {
   .evw-reading-list button:hover { color: var(--cs-text-accent); }
@@ -141,5 +149,4 @@
 @media (max-width: 520px) {
   .evidence-workspace #evidence-dashboard-card > .overflow-y-auto { padding: 16px; }
   .evw-axis-guide { --evw-guide-left: 22px; }
-  .evw-reading-list { grid-template-columns: 1fr; }
 }

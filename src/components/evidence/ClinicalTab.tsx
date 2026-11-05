@@ -261,18 +261,13 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
     : reading.mostCopies ? `${reading.mostCopies.label} · most copies in any one cohort`
     : null;
   // Where that frequency came from. gnomAD's "grouped maximum" is the highest frequency among its ancestry
-  // groups, so the group is named in plain words and a second line says why the rule reads a group at all.
+  // groups, so the group is named in plain words rather than repeated as the engine's own label.
   const readsGroupMaximum = !criterion.absent && reading.ruleSource.startsWith("gnomAD ancestry-grouped maximum");
   const leadSource = criterion.absent || reading.ruleAf === null ? null
     : readsGroupMaximum
       ? reading.ruleSource.replace("gnomAD ancestry-grouped maximum", "Highest of gnomAD's ancestry groups")
       : reading.ruleSource;
-  const leadWhy = readsGroupMaximum
-    ? "The rule reads the ancestry group where this allele is most frequent, so a variant common in one population is not hidden by the global average."
-    : null;
-  const countsLine = reading.ruleAf !== null && reading.mostCopies
-    ? `Most copies in one cohort: ${reading.mostCopies.counts} · ${reading.mostCopies.label}`
-    : null;
+  const mostCopies = reading.ruleAf !== null ? reading.mostCopies : null;
   const disagreement = cohortDisagreement(evidence);
 
 
@@ -397,8 +392,27 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
             </span>
             {leadLabel && <span className="pop-hero__figure-label pop-hero__figure-label--lead">{leadLabel}</span>}
             {leadSource && <span className="pop-hero__figure-label" data-testid="rule-source">{leadSource}</span>}
-            {leadWhy && <span className="pop-hero__figure-label pop-dim" data-testid="rule-source-why">{leadWhy}</span>}
-            {countsLine && <span className="pop-hero__figure-label pop-mono" data-testid="most-copies">{countsLine}</span>}
+            {mostCopies && (
+              <div className="pop-hero__counts" data-testid="most-copies">
+                <span className="pop-hero__counts-label">
+                  Most copies in any one cohort <span className="pop-dim">· {mostCopies.label}</span>
+                </span>
+                <dl className="pop-hero__counts-pairs">
+                  {mostCopies.ac !== null && (
+                    <div>
+                      <dt>AC<span className="sr-only"> (allele count)</span></dt>
+                      <dd>{formatCount(mostCopies.ac)}</dd>
+                    </div>
+                  )}
+                  {mostCopies.an !== null && (
+                    <div>
+                      <dt>AN<span className="sr-only"> (alleles assessed)</span></dt>
+                      <dd>{formatCount(mostCopies.an)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
           </div>
 
           <Prose className="detail-prose pop-hero__finding">

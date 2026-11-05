@@ -160,11 +160,14 @@ describe("ClinicalTab — the governing reading is the headline, counts beneath 
     // the counts headline was All of Us's while the verdict was computed from gnomAD.
     const figure = container.querySelector(".figure-headline") as HTMLElement;
     expect(figure.textContent).toBe("5.50e-6");
-    // What it is, where it came from (the grouped maximum in plain words) and why the rule reads a group.
+    // What it is, and where it came from (the grouped maximum in plain words).
     expect(screen.getByText("The frequency the rule read")).toBeTruthy();
     expect(screen.getByTestId("rule-source").textContent).toMatch(/^Highest of gnomAD's ancestry groups/);
-    expect(screen.getByTestId("rule-source-why").textContent).toMatch(/where this allele is most frequent/);
-    expect(screen.getByTestId("most-copies").textContent).toBe("Most copies in one cohort: AC 8 · AN 1,459,156 · Exomes");
+    // The busiest cohort's counts, each figure under its own field name rather than one run-on string.
+    const counts = screen.getByTestId("most-copies");
+    expect(counts.textContent).toContain("Most copies in any one cohort · Exomes");
+    expect(within(counts).getByText("8")).toBeTruthy();
+    expect(within(counts).getByText("1,459,156")).toBeTruthy();
     // The rule's own input, labelled as its own line inside the same card.
     const headlineCard = screen.getByTestId("population-finding");
     // The value is stated once, as the headline. The scale's legend only names the mark: a number in the
@@ -510,7 +513,6 @@ describe("ClinicalTab — UROD p.Gly318Arg from gnomAD r4", () => {
     expect((container.querySelector(".figure-headline") as HTMLElement).textContent).toBe("1.62%");
     expect(screen.getByText("The frequency the rule read")).toBeTruthy();
     expect(screen.getByTestId("rule-source").textContent).toBe("gnomAD filtering allele frequency (FAF95) · African/African American (afr)");
-    expect(screen.queryByTestId("rule-source-why")).toBeNull();
     expect(screen.getByTestId("verdict-chip").textContent).toBe("BS1");
   });
 

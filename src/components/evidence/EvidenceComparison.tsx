@@ -92,7 +92,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         <span className="evw-legend"><i className="evw-legend__dot" data-tone="accent" />Molecular prediction</span>
         <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Other input</span>
       </>}
-      <span>{tab === 'alphagenome' ? 'Arrow keys explore; Enter pins or clears a reading.' : 'Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. The inspector retains exact values and provenance.'}</span></>}>
+      <span>{tab === 'alphagenome' ? 'Arrow keys explore; Enter pins or clears a reading.' : 'Hover or use arrow keys · click or press Enter to pin'}</span></>}>
     {tab === 'alphagenome' && <div className="evw-figure-scope">
       {returned > 0 && <span className="evw-scope-count"><strong>{Math.min(returned, limit)} of {returned} inputs shown</strong><span>Sorted by contribution size</span></span>}
       <div className="evw-controls">
@@ -130,8 +130,9 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         chart; saying "outside this chart" for it fired on the normal path. Only a probability reading
         (`<model>:<amino acid>`) that this chart does not plot is genuinely outside it. */}
     {tab === 'perturbation' && w.selected && !selected && w.selected.includes(':') && <p className="evw-caption">The pinned reading is outside this probability chart. Its details remain in the inspector.</p>}
-    {/* Its own block: a header strip with an icon and a count, then one row per reading with its state as a chip.
-        Without the strip it read as more caption text under the chart. */}
+  </ChartFrame>
+    {/* Its own card below the figure: a header strip with an icon and a count, then one row per reading with its
+        state as a chip. Inside the figure it read as the chart's last table rows; the card edge makes the split. */}
     {missing.length > 0 && <section className="evw-unplotted" aria-labelledby={`${unplottedId}-title`}>
       <header className="evw-unplotted__head">
         <h3 className="eyebrow" id={`${unplottedId}-title`}><EyeOff className="w-3.5 h-3.5" aria-hidden="true" />{model.unplottedHeading}<span className="evw-unplotted__count">{missing.length}</span></h3>
@@ -139,5 +140,5 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       </header>
       {tab === 'predictors' ? <div className="prd-unplotted-groups" data-testid="predictor-unplotted-groups" role="region" aria-label="Predictors outside the calibrated comparison">{Array.from(new Set(missing.map(r => r.group))).map(group => <section key={group}><h4>{group}</h4><div className="evw-reading-list">{missing.filter(r => r.group === group).map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span><strong>{r.valueText}</strong></button>)}</div></section>)}</div> : <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong className="ev-tier" data-tone="muted">{r.valueText}</strong></button>)}</div>}
     </section>}
-  </ChartFrame></div>;
+  </div>;
 }
