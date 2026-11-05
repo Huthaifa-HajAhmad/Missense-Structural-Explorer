@@ -133,7 +133,7 @@ These conditions appear in the cache key but **not in the stored payload**.
 | Line references (§2, §3) | Most point at unrelated code — e.g. `generation.ts#L318-L355` is structure resolution. The plan was written against an older tree. |
 | Cache: `getLocalRepairCacheKey(wtHash, chain, pos)` + "upgrade only if \|ΔΔG_full − ΔΔG_local\| > 0.10" | **Self-defeating.** Answers become cache-warmth dependent again; 0.10 is far below both the 0.47/0.73 offsets and GATA4's 0.45 repair step; a background worker cannot evaluate a per-variant difference. |
 | Tier 3 host-aware thresholds (233 Box64 / 600 native) | Same variant, different template, different ΔΔG depending on which machine served it — the opposite of reproducibility. The 600 aa/150 s figure contradicts the repo's own cost model (852 s). |
-| ±0.15 kcal/mol straddle guard | Smaller than FoldX's accuracy (RMSE ≈ 0.5–1) and than the 0.45 repair step. It would almost never fire where it matters. |
+| ±0.15 kcal/mol straddle guard | Smaller than FoldX's accuracy (RMSE about 2 on S669, section 9.3) and than the 0.45 repair step. It would almost never fire where it matters. |
 | P1-1 "feed true Å² SASA" | The value is a per-atom channel written to `pp_tensor[0, i, 1]` and capped at 30 (`stabilityoracle.py` L228). Unnormalised Shrake–Rupley Å² changes the input distribution of a fixed checkpoint — a new model-input drift, the same class of defect being fixed. |
 | Tier 2 "strip + splice back" | Untested complexity, aimed at templates that (GATA4: 442 aa) do not need it, layered on a repair path already shown not to be equivalent. |
 
@@ -347,3 +347,146 @@ whole-chain changed the band for 96 of 667.
 residues, so nothing here tests sizes like CNNM2 (875), where the earlier gaps were found. Only 13 chains are above
 233 residues, so "no detectable difference" there is a wide interval, not proof that they are the same. A few
 chains supply many rows, which is why the intervals resample chains.
+
+### 9.4 What a FoldX value can say: a held-out test (2026-11-04)
+
+Section 9.3 compares repairs on S669 alone. This section treats FoldX as an instrument and tests it on data used for no
+fitting: Ssym direct, 342 lab-measured variants on 15 proteins, sharing no PDB entry with S669. All 342 completed.
+`scripts/foldx-measurement-analysis.py logs/foldx_bench/s669 logs/foldx_bench/ssym` reproduces every number; intervals
+resample whole chains. "Shown value" means what the app shows: whole-chain up to 233 residues, local above.
+
+**Rules fixed before Ssym was run, and what happened**
+
+| Rule | Result | Outcome |
+| :--- | :--- | :--- |
+| 1. A repair mode changes only if another is better by more than 0.1 kcal/mol RMSE on both sets | Local minus whole-chain, 90%: S669 −0.007 to +0.080, Ssym +0.007 to +0.054 | Equivalent on both. **Rule stays** |
+| 2. Recalibrate only if held-out RMSE falls by over 0.1 and band agreement does not fall | RMSE 1.55 to 1.24, band agreement 63.2% to 48.0% | **Rejected** |
+| 3. An 80% interval is credible only with 75% to 85% held-out coverage | Coverage 88.0% (81.2% to 91.1%); mean width 3.99 kcal/mol | **Rejected** |
+| 4. A band reliability table only if every row is within 15 points of the held-out set | Largest gap 22 points | **Rejected** |
+| 5. To be called informative, beat both baselines on Ssym | Band: +6.1 to +28.4 points, passes. RMSE gain over a constant: −0.217 to +0.448, fails | **Mixed** |
+
+| | S669 | Ssym direct |
+| :--- | ---: | ---: |
+| Variants, chains | 667, 94 | 342, 15 |
+| Correlation, shown value | 0.331 | 0.641 |
+| RMSE, shown value | 1.965 | 1.552 |
+| RMSE of always predicting the S669 mean | 1.637 | 1.542 |
+| Slope of measured on FoldX | 0.309 | 0.500 |
+| Band matches measurement | 47.7% | 63.2% |
+| Always "no destabilization" | 41.1% | 43.3% |
+| RMSE, exposed sites / buried sites | 1.53 / 2.32 | 1.05 / 1.80 |
+
+Measured band when FoldX shows each band (low / moderate / high, percent):
+
+| FoldX shows | S669 | Ssym direct |
+| :--- | ---: | ---: |
+| Low | 52 / 28 / 20 | 74 / 22 / 4 |
+| Moderate | 48 / 25 / 27 | 32 / 35 / 33 |
+| High | 21 / 20 / 59 | 12 / 24 / 64 |
+
+**What this settles**
+
+1. **The repair question is closed.** Local repair came out slightly worse than whole-chain repair at 233 residues or fewer
+   on both sets (+0.04 on each, intervals excluding zero), but inside the margin. That is a reason to keep whole-chain repair
+   where it is affordable, and no reason to change anything. Above 233 there is too little data: S669's interval just crosses
+   the margin (+0.101), and Ssym has one such chain.
+2. **Large FoldX values overstate the change; the overall spread is about right.** FoldX's spread of values is 1.07 and 1.28
+   times the measured spread, so it is not simply "too large". The low slope (0.31, 0.50) mostly reflects the weak correlation:
+   slope is correlation times the ratio of spreads. A first version of this note read the slope as "2 to 3 times too large",
+   which was wrong. What is true: values from 3 to 5 averaged 3.8 and 3.6, and the lab values 2.2 and 2.8; values in the middle
+   are close on average (0.94 and 0.96 against 0.84 and 1.04). A constant still matches raw FoldX by RMSE, so FoldX carries
+   information about order and direction more than about exact size, and the differing fits are why rule 2's rejection stands.
+3. **The moderate band says very little.** On both sets a FoldX "moderate" reading is close to an even split of the measured bands.
+4. **Accuracy depends on the protein set, so no single number describes FoldX.** Ssym is dominated by well-studied proteins
+   (259 of 342 rows are lysozymes), which probably overlap what FoldX was parameterized on; this was not checked. S669 was
+   built to be non-redundant, so its 2 kcal/mol stays the honest figure for a protein FoldX has not seen.
+5. **Buried sites have larger errors in both sets.** This replicates, but it was not a fixed rule and is not shown in the app.
+6. **The instrument is sound.** Pancotti et al. 2022 report FoldX on S669 direct variants at r 0.22, RMSE 2.30, MAE 1.56; ours is
+   r 0.33, RMSE 1.97, MAE 1.40. Shuffled labels give r 0.00. The difference in the published direction may come from FoldX version
+   and protocol; a row-by-row match was not done.
+7. **The error is mostly FoldX, not the lab.** 34 variants measured more than once in FireProt give a pooled SD of 0.43 kcal/mol
+   (a weak estimate, since that file is mostly de-duplicated). Montanucci et al. 2019 put the correlation ceiling near 0.7 to 0.8.
+
+**Limits.** Both sets use experimental structures, so none of this describes AlphaFold models. Only 13 S669 chains and 1 Ssym chain
+are above 233 residues. Neither set tests the app's headline verdict, which combines six engines.
+
+### 9.5 AlphaFold models, the headline verdict and engine bugs (2026-11-05)
+
+Rules were fixed before these runs, in the same way as section 9.4. Reproduce with `scripts/foldx-alphafold-dataset.py`,
+`scripts/foldx-repair-benchmark.ts` and `scripts/verdict-benchmark.ts`.
+
+**AlphaFold models.** 335 S669 and Ssym variants on 84 proteins (sizes 45 to 1,465 residues; 37 proteins above 233), at most 8
+variants per protein.
+
+| Check | Result | Outcome |
+| :--- | :--- | :--- |
+| Model against experimental structure, same variants, RMSE (90%) | 2.02 against 2.03, difference −0.128 to +0.110 | Just outside ±0.1, so not shown equivalent. The size of the error is about the same |
+| Local minus whole-chain, above 233 residues (90%) | −0.032 to +0.031 | **Equivalent.** This closes the large-chain gap left by section 9.4 |
+| Local minus whole-chain, 233 or fewer (90%) | −0.166 to −0.012 | Local slightly better here, the opposite of S669 and Ssym. No mode is better by over 0.1 on all sets, so the rule stays |
+| No repair minus whole-chain (90%) | −0.117 to −0.027 | Repair is again not shown to improve accuracy on models |
+| Error by pLDDT at the site | 333 of 335 sites have pLDDT of 70 or more | Cannot say anything about low-confidence sites |
+
+The structure matters more than the repair: for the same variant, FoldX on the model and on the experimental structure differ by a
+median of 0.51 kcal/mol, and land in a different band 33% of the time.
+
+**Burial.** The rule needed buried minus exposed RMSE above 0.3, with the interval above zero, on all three sets. S669 +0.79 (0.43 to
+1.09), models +0.56 (0.12 to 1.00), Ssym +0.75 (−0.22 to 1.18). Ssym fails, so the app shows no burial line. Buried sites also have
+larger measured changes, so this does not by itself mean FoldX is less reliable there.
+
+**Engine bugs found by comparing with what the authors publish.**
+
+| Engine | Bug | Before | After |
+| :--- | :--- | ---: | ---: |
+| ThermoMPNN | `lightattn: False`; the checkpoint's attention layer was dropped without an error | r with lab 0.19 (S669), 0.11 (Ssym) | 0.44, 0.73. Matches the authors' 2OCJ predictions to 0.0005 |
+| VESM | Hid the residue before scoring; the authors score the unmasked sequence | Spearman with lab 0.23 (28 proteins) | 0.42, a gain of 0.19 (95%: 0.12 to 0.26), better on 23 of 28. Re-run on true wild-type sequences; the first run used one variant's sequence as the base |
+| ESM-2 | None found: masked is very slightly better than unmasked (difference −0.017, 95%: −0.033 to −0.003) | | Unchanged |
+| SaProt | Loads all weights. Scoring not compared, because it needs structure tokens | | Unchanged |
+| StabilityOracle | Inputs differ from upstream, and the output is not converted: published value = −output/2 | r with lab 0.12 (S669), 0.17 (Ssym), against published 0.49, 0.69 | 0.39, 0.64. Not an exact match, section 9.6 |
+
+StabilityOracle's checkpoint reproduces its published predictions exactly (r 1.00000) from upstream's own embeddings, so the model is sound
+and the problem is its inputs. A recipe with hydrogens and a charge table learned from p53 reaches r 0.56 with published values on S669, and
+r 0.28 with lab values. The charges are still not identified.
+
+**Headline verdict over 3 of 6 engines** (FoldX, ThermoMPNN, StabilityOracle, with ThermoMPNN fixed and StabilityOracle not; DynaMut2 and DDMut
+are remote services not meant for bulk use, and RaSP is keyed by accession):
+
+| Set | Variants | Calls made | Verdict band match | Always "no destabilization", all variants | ThermoMPNN alone | FoldX alone |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| S669 | 666 | 67.9% | 53.3% | 41.0% | 54.5% | 47.7% |
+| Ssym | 341 | 64.8% | 78.7% | 43.4% | 67.4% | 63.0% |
+| AlphaFold models | 335 | 63.0% | 59.2% | 43.6% | 54.6% | 52.2% |
+
+Against always "no destabilization" on the same called variants, the verdict's gain (95%) is −2.6 to +16.7 points on S669, +8.6 to +34.9 on Ssym
+and −1.3 to +20.2 on models. So it is not shown useful on all sets. No single engine beats it by 5 points on all sets, and dropping FoldX or its
+moderate readings does not gain 5 points on all sets, so its rules stay as they are. Section 9.6 repeats this with StabilityOracle fixed.
+
+### 9.6 The verdict with every engine fixed (2026-11-05)
+
+StabilityOracle now follows its authors (`doc/STABILITY_ORACLE_INPUTS_RESEARCH.md`): r with their predictions 0.85 on Ssym, 0.81 on S669 and 0.88 on proteins never used in this work, not an exact match. NMR files now keep the first model only in every structure-based engine. Same rules as section 9.5, fixed in advance, and the same three engines. Variants are those all three engines scored (StabilityOracle refuses 5PTI A and 3DV0 I).
+
+These templates hold one chain, as FoldX was run on them, so this does not measure StabilityOracle's partner-chain rule. On a multi-chain file the engine's own results improve (research doc), but the verdict there is untested. The app's own templates hold one chain, as here.
+
+| Set | Variants | Calls made (9.5) | Verdict band match (9.5) | Gain over always "no destabilization" on the same variants, points | 95% | 90% |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| S669 | 638 | 72.4% (67.9%) | 58.4% (53.3%) | +9.3 | −0.2 to +18.2 | +1.3 to +16.8 |
+| Ssym | 337 | 67.7% (64.8%) | 77.2% (78.7%) | +21.5 | +5.7 to +32.0 | +8.1 to +30.1 |
+| AlphaFold models | 335 | 68.4% (63.0%) | 62.4% (59.2%) | +12.2 | +4.8 to +20.0 | +6.0 to +18.7 |
+
+| Rule | Measured | Outcome |
+| :--- | :--- | :--- |
+| V1: gain interval above zero on S669 and Ssym. The rule named no level; the script computed 95% from the start, so 95% is what it reads | Ssym passes. S669 misses by 0.2 points at 95% and passes at 90% | **Borderline.** Not met at the level fixed in advance, and closer than before (−2.6). The gain is likely real on S669 but not firmly shown. Nothing in the app depends on this rule |
+| V2: use one engine instead, if it gains 5 or more points on both | ThermoMPNN alone: +11.8 and +23.4, against the verdict's +9.3 and +21.5, so 2.5 and 1.9 better | **Not met.** The verdict stays |
+| V3: drop FoldX, if it gains 5 or more points on both and costs at most 10 points of calls | Band match +4.7 and −0.3; costs 16.0 and 20.2 points of calls | **Not met.** FoldX stays |
+| V3: drop FoldX's moderate readings, same test | Band match +2.6 and +2.5; costs 6.6 and 6.3 points of calls | **Not met.** They stay |
+
+The engines alone, r with lab values on S669, Ssym, models: FoldX 0.33, 0.65, 0.40; ThermoMPNN 0.42, 0.71, 0.44; StabilityOracle 0.38, 0.66, 0.37. By band match, StabilityOracle alone is the weakest (45.8%, 48.7%, 46.3%) and barely beats always "no destabilization", since its values are less spread out than published.
+
+What readers can take from a verdict, as measured bands (low / moderate / high):
+
+| Verdict says | S669 | Ssym | AlphaFold models |
+| :--- | :--- | :--- | :--- |
+| No destabilization | 58 / 24 / 18 (n 350) | 77 / 19 / 4 (n 157) | 62 / 21 / 16 (n 170) |
+| Moderate | 30 / 33 / 37 (n 46) | 26 / 52 / 22 (n 23) | 23 / 41 / 36 (n 22) |
+| High | 15 / 6 / 79 (n 66) | 0 / 10 / 90 (n 48) | 11 / 14 / 76 (n 37) |
+
+So a "high" verdict is usually right, a "moderate" verdict says little, and "no destabilization" still hides a measured high change in 4 to 18% of cases. These shares are not shown in the app: they are from three engines, not the six the app can use. DynaMut2, DDMut and RaSP are still not tested.

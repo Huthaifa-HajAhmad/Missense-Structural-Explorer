@@ -388,6 +388,10 @@ function report(): void {
     const allSizes = summary.all as any;
     const small = summary.atMost233 as any;
     const two = (v: number) => Math.round(v * 100) / 100;
+    // "Always say no destabilization" is what the band has to beat, so it is shown beside the band's score.
+    const neutralShare = (rows: Complete[]) => two(mean(rows.map(r => (band(r.measured) === 0 ? 1 : 0))) * 100);
+    // A regression slope cannot say this: it is low whenever the correlation is low. The averages can.
+    const large = complete.filter(r => r.ddg.full >= 3);
     const body = {
       dataset: path.basename(DATASET),
       // The local repair's own figures, on the chains large enough to use it.
@@ -405,7 +409,14 @@ function report(): void {
       localBandAgreement: two(above.perMode.local.bandAgreement * 100),
       overallRmse: two(allSizes.perMode.full.rmse),
       overallVariants: allSizes.variants,
-      overallBandAgreement: two(allSizes.perMode.full.bandAgreement * 100)
+      overallBandAgreement: two(allSizes.perMode.full.bandAgreement * 100),
+      overallNeutralShare: neutralShare(complete),
+      smallChainNeutralShare: neutralShare(complete.filter(r => r.residues <= 233)),
+      localNeutralShare: neutralShare(complete.filter(r => r.residues > 233)),
+      smallChainWithinError: two(mean(complete.filter(r => r.residues <= 233).map(r => (Math.abs(r.ddg.full - r.measured) <= small.perMode.full.rmse ? 1 : 0))) * 100),
+      localWithinError: two(mean(complete.filter(r => r.residues > 233).map(r => (Math.abs(r.ddg.local - r.measured) <= above.perMode.local.rmse ? 1 : 0))) * 100),
+      largeValueFoldx: two(mean(large.map(r => r.ddg.full))),
+      largeValueMeasured: two(mean(large.map(r => r.measured)))
     };
     fs.writeFileSync(
       path.resolve("src/shared/foldxRepairBenchmark.generated.ts"),

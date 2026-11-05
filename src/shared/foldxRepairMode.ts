@@ -70,17 +70,21 @@ export const FIX_SHELL_OFFSET_NOTE =
   "Do not compare it with a whole-chain FoldX value as the same measurement.";
 
 /**
- * The marks are this app's, not FoldX's, and the benchmark says how far a FoldX value can be from the
- * measurement it is standing in for. That error is bigger than anything the repair-mode difference
- * contributes, so it belongs beside the number rather than only in the method note: a reader who takes
- * "+0.6 is moderately destabilising" as a finding is trusting a caliper that is roughly four times
- * coarser than the interval it draws. Numbers come from the generated benchmark file.
+ * The marks are this app's, not FoldX's, and the benchmark says how far a FoldX value can be from the lab
+ * measurement. That error is bigger than the gap between the repair modes, so it belongs beside the number.
+ * All numbers come from the generated benchmark file. Measured facts only: FoldX's spread of values is about
+ * right overall (a low regression slope mostly reflects its weak correlation), but its large values overstate.
  */
-export const FOLDX_MEASURED_ERROR_SENTENCE =
-  `On ${b.overallVariants} variants with a measured stability change it was off by about ${b.overallRmse.toFixed(1)} kcal/mol, and its band matched the measurement ${Math.round(b.overallBandAgreement)}% of the time.`;
+const HOW_TO_READ =
+  `Large values tend to overstate the change: FoldX values of +3 or more averaged about +${b.largeValueFoldx.toFixed(1)}, while the lab values averaged about +${b.largeValueMeasured.toFixed(1)}. ` +
+  "Read the band as a rough guide. Use FoldX for the direction of the change, not its exact size.";
 
-export const FOLDX_BAND_CAVEAT =
-  `FoldX publishes no threshold: the 0.5 and 1.5 kcal/mol marks are this app's. ${FOLDX_MEASURED_ERROR_SENTENCE} Read the band as a rough guide, not a caliper.`;
+const testResult = (variants: number, rmse: number, agreement: number, neutral: number) =>
+  `In a test on ${variants} variants with lab measurements, FoldX was off by about ${rmse.toFixed(1)} kcal/mol. ` +
+  `Its band matched the lab result ${Math.round(agreement)}% of the time; always answering "no destabilization" matched ${Math.round(neutral)}%.`;
+
+/** The whole test, for the method note. */
+export const FOLDX_HOW_TO_READ = `${testResult(b.overallVariants, b.overallRmse, b.overallBandAgreement, b.overallNeutralShare)} ${HOW_TO_READ}`;
 
 /**
  * The same statement with the figures for the repair the value on screen actually got. The chip's
@@ -89,11 +93,10 @@ export const FOLDX_BAND_CAVEAT =
  */
 export function foldxBandCaveat(localRepair: boolean): string {
   const { rmse, variants } = foldxMeasuredError(localRepair);
-  const agreement = localRepair ? b.localBandAgreement : b.smallChainBandAgreement;
   return (
-    `FoldX publishes no threshold: the 0.5 and 1.5 kcal/mol marks are this app's. ` +
-    `On ${variants} variants with a measured stability change it was off by about ${rmse.toFixed(1)} kcal/mol, ` +
-    `and its band matched the measurement ${Math.round(agreement)}% of the time. Read the band as a rough guide, not a caliper.`
+    "The 0.5 and 1.5 kcal/mol marks are this app's; FoldX publishes none. " +
+    `${testResult(variants, rmse, localRepair ? b.localBandAgreement : b.smallChainBandAgreement, localRepair ? b.localNeutralShare : b.smallChainNeutralShare)} ` +
+    HOW_TO_READ
   );
 }
 
@@ -102,8 +105,8 @@ export function foldxBandCaveat(localRepair: boolean): string {
  * repair on a large template is not the whole-chain repair on a small one, and quoting one number for
  * both would misstate whichever regime the reader is in.
  */
-export function foldxMeasuredError(localRepair: boolean): { rmse: number; variants: number } {
+export function foldxMeasuredError(localRepair: boolean): { rmse: number; variants: number; withinShare: number } {
   return localRepair
-    ? { rmse: b.typicalError, variants: b.variants }
-    : { rmse: b.smallChainRmse, variants: b.smallChainVariants };
+    ? { rmse: b.typicalError, variants: b.variants, withinShare: b.localWithinError }
+    : { rmse: b.smallChainRmse, variants: b.smallChainVariants, withinShare: b.smallChainWithinError };
 }

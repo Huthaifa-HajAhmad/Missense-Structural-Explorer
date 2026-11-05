@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -685,6 +685,15 @@ wheels = [
 ]
 
 [[package]]
+name = "mmcif-pdbx"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/01/6bee9fe8eb6ba1f5f8cc26f57cd27de2aadd549d6e8202f1dc9183822438/mmcif_pdbx-2.1.0.tar.gz", hash = "sha256:456b2f548d18306b82db6578cdc4f18c45be16960950db8ca7064d3ee66ebfc8", size = 18864, upload-time = "2026-04-26T15:53:32.744Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/26/0bd767ced9e87a189041fe8469d7e9167f04025cbdceda4eb9ba63e1a8e2/mmcif_pdbx-2.1.0-py3-none-any.whl", hash = "sha256:b52cc4063f57fa5f982c693a3dc394aaf7104054d68d7a2b4d26920950ea01a7", size = 19972, upload-time = "2026-04-26T15:53:31.513Z" },
+]
+
+[[package]]
 name = "model-server"
 version = "1.0.0"
 source = { virtual = "." }
@@ -697,6 +706,7 @@ dependencies = [
     { name = "mini3di" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pdb2pqr" },
     { name = "pydantic" },
     { name = "scipy" },
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine != 'x86_64' and sys_platform == 'darwin'" },
@@ -715,6 +725,7 @@ requires-dist = [
     { name = "mini3di" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pdb2pqr", specifier = ">=3.8.0" },
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "scipy", specifier = ">=1.11.0" },
     { name = "torch", specifier = ">=2.4.0", index = "https://download.pytorch.org/whl/cpu" },
@@ -854,6 +865,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pdb2pqr"
+version = "3.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mmcif-pdbx" },
+    { name = "numpy" },
+    { name = "propka" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/d8/3f813c0dfb629f978f18a5d344e121b5fec54b8df69b51139f427f610598/pdb2pqr-3.8.0.tar.gz", hash = "sha256:e9f5a3029137353730050522c7c57d0cea0f712b1181ff7544bd96303d9aac36", size = 14052581, upload-time = "2026-10-24T21:04:57.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/c0/462260c296af8bd0355777c5b75eaa9634db6bae2b95ab75d0d38cd70bac/pdb2pqr-3.8.0-py3-none-any.whl", hash = "sha256:e4bb6a51bd40faaf3a9c012c2a5057cb4e0afbb927c7e6706852172d115a253e", size = 210514, upload-time = "2026-10-24T21:04:55.531Z" },
+]
+
+[[package]]
 name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -892,6 +919,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7d/ea/39b988c938f75cb75d7045b5c69f8bfed47ee2152c8837fb403de29d6fb8/prompt_toolkit-3.0.53.tar.gz", hash = "sha256:9ec8a0ad96d5c56148b3f914aa79c1564c3fde5d2e6b876e7bc327e353cf8fa6", size = 435492, upload-time = "2026-07-26T20:56:14.758Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/6f/84908cad2d6aa5144abcf7b42709fe4fdb459bc640ec7ac5786e7693dabc/prompt_toolkit-3.0.53-py3-none-any.whl", hash = "sha256:01c0891d7f9237d5e339f7d3e42cdae80b7534abb1c7c0e3352efba6231492f2", size = 392288, upload-time = "2026-07-26T20:56:12.512Z" },
+]
+
+[[package]]
+name = "propka"
+version = "3.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/6e/b409bfd37fbbcbaf41e485d2c6117027394cee12b7d6128b4e01b29c4843/propka-3.5.1.tar.gz", hash = "sha256:d8083b58d8c4c553ff8704c706190fe37ff82253adcd6e53b31d8ad7d6d52257", size = 111363, upload-time = "2024-01-02T02:35:18.012Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/0e/5f70ba04fd85495afb0808654a09abfbede4414dd33e3b711c9023e2a993/propka-3.5.1-py3-none-any.whl", hash = "sha256:2df2d81adc9205113a0e6f9d96b06b46e29716bc3a71223075dd396e0eefdfc3", size = 104123, upload-time = "2024-01-02T02:35:16.174Z" },
 ]
 
 [[package]]

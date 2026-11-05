@@ -15,7 +15,8 @@ dependencies = [
   "biopython>=1.83",
   "biotite>=1.7.1",
   "esm @ git+https://github.com/Biohub/esm.git@main",
-  "mini3di"
+  "mini3di",
+  "pdb2pqr>=3.8.0",
 ]
 
 [[tool.uv.index]]

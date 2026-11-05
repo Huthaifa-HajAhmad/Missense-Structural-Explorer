@@ -15,7 +15,7 @@ import {
   ENERGETICS_GROUP_LABEL,
   FOLDX_TEMPLATE_DIFFERENCE_KCAL,
 } from "../../shared/energeticsEvidence";
-import { FOLDX_MEASURED_ERROR_SENTENCE } from "../../shared/foldxRepairMode";
+import { FOLDX_HOW_TO_READ } from "../../shared/foldxRepairMode";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
 /**
@@ -346,7 +346,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         <p className="nrg-step__sub">
           FoldX publishes no threshold; {markText(1.5, unit)} and {markText(0.5, unit)} {unit} are this app&apos;s marks. The{" "}
           {markText(1, unit)} mark for the learned engines is local too. None is a clinical cut-point.{" "}
-          {FOLDX_MEASURED_ERROR_SENTENCE} Read the band as a rough guide, not a caliper.
+          {FOLDX_HOW_TO_READ}
         </p>
       </section>
 

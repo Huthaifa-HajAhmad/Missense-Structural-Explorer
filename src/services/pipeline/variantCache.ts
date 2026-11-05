@@ -72,7 +72,9 @@ import { analysisContextMatches, type AnalysisCacheContext } from "./analysisCon
 // v4.9 discards ESM-2 readings from the old local path, which scored the residue it could see (an
 //   unmasked pass) and carried no `scoringMethod`; the same provenance string now names a
 //   masked-marginal score, so a stored bundle would replay the defective one as if corrected.
-export const CACHE_VERSION = "v4.9";
+// v4.10 discards readings from before the ThermoMPNN, VESM and StabilityOracle fixes and the first-model rule for
+//   NMR files. Engine names did not change, so a stored bundle would show the old values as if they were corrected.
+export const CACHE_VERSION = "v4.10";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

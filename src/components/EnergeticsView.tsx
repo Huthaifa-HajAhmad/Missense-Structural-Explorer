@@ -9,6 +9,7 @@ import { ENGINE_STATE_LABELS, type EnergyUnit } from "../shared/engineStatus";
 import {
   AGREEMENT_CHIP,
   ENERGETICS_CAVEAT_TEXT,
+  foldxErrorInPlainWords,
   ENERGETICS_GROUP_LABEL,
   ENERGETICS_GROUP_NOTE,
   absenceText,
@@ -437,6 +438,7 @@ function ReadingRow({
         <span className="nrg-subject__note">{reading.description}</span>
         <CaveatChips caveats={detailCaveats} />
         {reading.note && <span className="nrg-subject__note nrg-subject__fact">{reading.note}</span>}
+        {foldxErrorInPlainWords(reading, unit) && <span className="nrg-subject__note nrg-subject__fact" data-testid="foldx-error-plain">{foldxErrorInPlainWords(reading, unit)}</span>}
       </th>
       <td className="nrg-num">
         {has ? (
@@ -664,7 +666,7 @@ const EnergeticsView = memo(function EnergeticsView({
           </p>
 
           {tab === 'records' && <EngineTally evidence={evidence} />}
-          {tab === 'comparison' && energeticsComparisonCautions(evidence).map(note => <p className="nrg-comparison-caution" key={note}>{note}</p>)}
+          {tab === 'comparison' && energeticsComparisonCautions(evidence, unit).map(note => <p className="nrg-comparison-caution" key={note}>{note}</p>)}
 
           <p className="nrg-principle">
             <Scale className="w-3.5 h-3.5" aria-hidden="true" />

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runStabilityOracleAnalysis, runStabilityOracleAnalysisDetailed } from "./stabilityoracle.ts";
+import { SIDECAR_BUDGET_HEADER } from "../infra/sidecar-budget.ts";
 
 describe("StabilityOracle Service Integration Tests", () => {
   beforeEach(() => {
@@ -41,6 +42,15 @@ describe("StabilityOracle Service Integration Tests", () => {
     expect(result!.isStabilizing).toBe(false);
     expect(result!.contactsAnalyzed).toBe(12);
     expect(result!.provenance).toBe("StabilityOracle (Graph-Transformer Local)");
+  });
+
+  it("tells the model server how long it will wait, and says so plainly when the server was too busy to start", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ status: "busy", message: "late", retryable: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const outcome = await runStabilityOracleAnalysisDetailed("GENE", "p.Arg527His", "P00000", "", "ATOM");
+    expect(fetchMock.mock.calls[0][1].headers[SIDECAR_BUDGET_HEADER]).toBe("60000");
+    expect(outcome).toMatchObject({ kind: "error" });
+    expect((outcome as { message: string }).message).toContain("still busy");
   });
 
   it("should correctly parse three-letter variant notation (e.g. p.Arg527His)", async () => {

@@ -69,6 +69,9 @@ def parse_pdb_chains_for_thermompnn(
         for line in f:
             line = line.decode("utf-8", "ignore").rstrip()
 
+            if line[:6] == "ENDMDL":
+                break  # An NMR file holds many models. Only the first is the structure.
+
             if line[:6] == "HETATM" and line[17:20] == "MSE":
                 line = "ATOM  " + line[6:17] + "MET" + line[20:]
 
@@ -284,7 +287,10 @@ def get_official_model():
             'num_final_layers': 2,
             'freeze_weights': True,
             'load_pretrained': True,
-            'lightattn': False,
+            # The published model has this attention layer: upstream's config.yaml and custom_inference.py set it,
+            # and its checkpoint holds its weights. Without it the model runs with a layer missing and gives
+            # near-constant values (SD 0.19 kcal/mol on S669).
+            'lightattn': True,
             'lr_schedule': True,
         },
         'platform': {
@@ -304,22 +310,24 @@ def get_official_model():
             clean_k = k.replace("model.", "") if k.startswith("model.") else k
             clean_state[clean_k] = v
 
+        # Every tensor must match, both ways. A partial match here once dropped a whole layer without any error.
         model_dict = model.state_dict()
         matched = sum(
             1 for k in clean_state.keys()
             if k in model_dict and model_dict[k].shape == clean_state[k].shape
         )
-        match_ratio = matched / max(1, len(model_dict))
-
-        if match_ratio < 0.85:
+        if matched != len(model_dict) or matched != len(clean_state):
+            unused = sorted(set(clean_state) - set(model_dict))[:3]
+            absent = sorted(set(model_dict) - set(clean_state))[:3]
             _model_load_error = (
-                f"Official checkpoint incompatible: only {matched}/{len(model_dict)} tensors matched "
-                f"({match_ratio * 100:.1f}%). Required >= 85% tensor match."
+                f"Official checkpoint does not match the model: {matched} tensors matched of "
+                f"{len(model_dict)} in the model and {len(clean_state)} in the checkpoint "
+                f"(not in the model: {unused}; not in the checkpoint: {absent})."
             )
             print(f"[ThermoMPNN Guard] {_model_load_error}")
             return None
 
-        model.load_state_dict(clean_state, strict=False)
+        model.load_state_dict(clean_state, strict=True)
         model.eval()
         for param in model.parameters():
             param.requires_grad = False

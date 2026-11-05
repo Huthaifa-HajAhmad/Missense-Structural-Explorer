@@ -51,7 +51,7 @@ import {
   type RemoteStatus,
 } from "./engineStatus.ts";
 import type { StructureProvenance } from "./contracts.ts";
-import { FIX_SHELL_MODE, FIX_SHELL_OFFSET_NOTE, REPAIR_MODE_LABEL, isFoldxRepairMode, type FoldxRepairMode } from "./foldxRepairMode.ts";
+import { FIX_SHELL_MODE, FIX_SHELL_OFFSET_NOTE, REPAIR_MODE_LABEL, foldxMeasuredError, isFoldxRepairMode, type FoldxRepairMode } from "./foldxRepairMode.ts";
 import { RASP_SOURCE_LABEL, type RaspCoverage, type RaspSource } from "./raspIndex.ts";
 
 // ---------------------------------------------------------------------------
@@ -967,6 +967,21 @@ export function energeticsAgreementText(energetics: Record<string, any> | null |
   const s = energeticsSummary(ev, unit);
   const median = ev.agreement.nCounted > 1 ? ` Median ${signedDdg(ev.agreement.median, unit)}.` : "";
   return `${s.lead}${median} ${s.rest.join(" ")}`.trim();
+}
+
+/**
+ * What FoldX's error means for THIS value, in plain words and in the unit on screen. A bare "±2.0" says
+ * little; "this could really be anywhere from -1.4 to +2.6" is what a reader can act on.
+ */
+export function foldxErrorInPlainWords(reading: EnergeticsReading, unit: EnergyUnit = "kcal/mol"): string | null {
+  if (reading.key !== "foldx" || reading.ddg === null || reading.caveats.includes("protvar-stand-in")) return null;
+  const { rmse, withinShare } = foldxMeasuredError(reading.caveats.includes("local-repair"));
+  const size = signedDdg(rmse, unit).replace(/^\+/, "");
+  return (
+    `How far off this can be: in a test against lab measurements, FoldX was typically off by about ${size}. ` +
+    `So ${signedDdg(reading.ddg, unit)} could really be anywhere from about ${signedDdg(reading.ddg - rmse, unit)} to ${signedDdg(reading.ddg + rmse, unit)}; ` +
+    `${Math.round(withinShare)}% of lab values fell within a range this wide. Use it for the direction of the change, not the exact size.`
+  );
 }
 
 /** Reason copy for an engine without a value, with the one fact a curator needs about RaSP. */

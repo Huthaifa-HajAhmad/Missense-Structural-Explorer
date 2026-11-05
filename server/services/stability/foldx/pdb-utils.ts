@@ -86,6 +86,12 @@ export function cleanPdbForFoldX(pdbContent: string): string {
   const cleaned: string[] = [];
 
   for (const line of lines) {
+    // An NMR file holds many models of one chain. Read as one structure, they stack on top of each other
+    // (1N88: 45,936 atoms instead of 1,584), so only the first model is a template.
+    if (line.startsWith("ENDMDL")) {
+      cleaned.push(line);
+      break;
+    }
     if (line.startsWith("ATOM")) {
       // 1. Alternate location indicator check (column 17, 0-indexed 16)
       const altLoc = line.length > 16 ? line[16] : " ";
@@ -113,7 +119,7 @@ export function cleanPdbForFoldX(pdbContent: string): string {
       }
 
       cleaned.push(lineFormatted);
-    } else if (line.startsWith("TER") || line.startsWith("ENDMDL") || line.startsWith("END")) {
+    } else if (line.startsWith("TER") || line.startsWith("END")) {
       cleaned.push(line);
     }
   }

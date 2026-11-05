@@ -18,7 +18,11 @@ import sys
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
+import tempfile
+import types
 import unittest
+from unittest.mock import Mock, mock_open, patch
+from fastapi import HTTPException
 import torch
 import numpy as np
 from model_server import crop_sequence_around_mutation, compute_scientific_metrics, clear_model_cache
@@ -191,36 +195,184 @@ class TestModelServerHelpers(unittest.TestCase):
             self.assertEqual(e.status_code, 503)
 
     def test_stabilityoracle_featurization(self):
-        from tools.model_server_app.routers.stabilityoracle import featurize_pdb_for_stability_oracle
+        from tools.model_server_app.routers import stabilityoracle as SO
 
-        # Build a multi-chain PDB with HETATM water and varying B-factor / pLDDT columns
-        pdb_high_bfactor = (
-            "HETATM    1  O   HOH A  10       0.000   0.000   0.000  1.00 99.00           O\n"
-            "ATOM      2  N   GLY A  10      50.000  50.000  50.000  1.00 95.00           N\n"
-            "ATOM      3  CA  GLY A  10      51.000  50.000  50.000  1.00 95.00           C\n"
-            "ATOM      4  N   ARG B  10       0.000   0.000   0.000  1.00 95.00           N\n"
-            "ATOM      5  CA  ARG B  10       1.000   0.000   0.000  1.00 95.00           C\n"
-            "ATOM      6  C   ARG B  10       2.000   0.000   0.000  1.00 95.00           C\n"
-            "ATOM      7  O   ARG B  10       2.500   1.000   0.000  1.00 95.00           O\n"
-            "ATOM      8  CA  LEU B  11       3.500   0.000   0.000  1.00 95.00           C\n"
-            "ATOM      9  CB  LEU B  11       4.000   1.200   0.000  1.00 95.00           C\n"
-        )
-        pdb_low_bfactor = pdb_high_bfactor.replace("95.00", "10.00")
+        def atom(serial, name, res_name, chain, res_seq, x, bfactor="95.00"):
+            element = name[0]
+            return f"ATOM  {serial:5d}  {name:<3} {res_name} {chain}{res_seq:4d}    {x:8.3f}{0:8.3f}{0:8.3f}  1.00 {bfactor}           {element}"
 
-        # 1. Chain selection + HETATM exclusion + B-factor/pLDDT invariance
-        coords_hi, types_hi, pp_hi, ca_hi, mask_hi, aa_hi, contacts_hi = featurize_pdb_for_stability_oracle(
-            pdb_high_bfactor, position=10, wt="R", mut="H", chain="B"
-        )
-        coords_lo, types_lo, pp_lo, ca_lo, mask_lo, aa_lo, contacts_lo = featurize_pdb_for_stability_oracle(
-            pdb_low_bfactor, position=10, wt="R", mut="H", chain="B"
-        )
-        self.assertTrue(torch.allclose(ca_hi, torch.tensor([[1.0, 0.0, 0.0]])))
-        self.assertTrue(torch.allclose(pp_hi, pp_lo))
-        self.assertEqual(contacts_hi, 2)  # Only LEU B 11 CA & CB within 10A (HOH A 10 excluded, GLY A 10 far away)
+        def pdb(bfactor):
+            return "\n".join([
+                "HETATM    1  O   HOH A  10       0.000   0.000   0.000  1.00 99.00           O",
+                atom(2, "CA", "GLY", "A", 10, 50.0, bfactor),
+                atom(3, "CA", "ARG", "B", 10, 1.0, bfactor),
+                atom(4, "CB", "ARG", "B", 10, 2.0, bfactor),
+                atom(5, "CA", "LEU", "B", 11, 3.5, bfactor),
+                atom(6, "CB", "LEU", "B", 11, 4.0, bfactor),
+                atom(7, "CA", "SER", "B", 40, 30.0, bfactor),
+                "ENDMDL",
+                atom(8, "CA", "ARG", "B", 10, 9.0, bfactor),
+            ])
 
-        # 2. Wild-type mismatch on selected chain must raise ValueError
+        seen = {}
+
+        def fake_prepare(chain_text):
+            seen["text"] = chain_text
+            names = ["CA", "CB", "CA", "HA", "CB", "CA"]
+            return {
+                "xyz": np.array([[1.0, 0, 0], [2.0, 0, 0], [3.5, 0, 0], [3.6, 0, 0], [4.0, 0, 0], [30.0, 0, 0]]),
+                "names": names,
+                "res_seqs": np.array([10, 10, 11, 11, 11, 40]),
+                "chains": np.array(["B"] * 6),
+                "elements": ["C", "C", "C", "H", "C", "C"],
+                "charge": np.array([0.25, 0.1, 0.25, 0.09, 0.07, 0.25]),
+                "exposure": np.array([5.0, 6.0, 7.0, 0.0, 8.0, 9.0]),
+            }
+
+        SO._prepared_chains.clear()
+        with patch.object(SO, "_prepare_chain", fake_prepare):
+            coords, types, pp, ca, mask, aa, contacts = SO.featurize_pdb_for_stability_oracle(pdb("95.00"), position=10, wt="R", mut="H", chain="B")
+            _, _, pp_low, _, _, _, _ = SO.featurize_pdb_for_stability_oracle(pdb("10.00"), position=10, wt="R", mut="H", chain="B")
+
+        # First model, without water, a far-away chain or a second copy from a later model.
+        self.assertNotIn("HOH", seen["text"])
+        self.assertNotIn(" A  10", seen["text"])
+        self.assertNotIn("   9.000", seen["text"])
+        self.assertTrue(torch.allclose(ca, torch.tensor([[1.0, 0.0, 0.0]])))
+        # Only residue 11's atoms: the variant residue is removed and residue 40 is beyond 10 A.
+        self.assertEqual(int(mask.sum().item()), 3)
+        self.assertEqual(contacts, 2)
+        self.assertTrue(torch.allclose(coords[0, 0], torch.tensor([3.5, 0.0, 0.0])))
+        self.assertEqual(types[0, 1].item(), 0)  # the hydrogen
+        self.assertAlmostEqual(pp[0, 1, 0].item(), 0.09, places=5)
+        self.assertEqual(pp[0, 1, 1].item(), 0.0)  # hydrogens carry no exposure
+        # The B-factor column holds pLDDT on AlphaFold models and must not reach the inputs.
+        self.assertTrue(torch.allclose(pp, pp_low))
+
+        # Wild-type mismatch on the selected chain is refused before any work is done.
         with self.assertRaisesRegex(ValueError, "Wild-type residue mismatch"):
-            featurize_pdb_for_stability_oracle(pdb_high_bfactor, position=10, wt="R", mut="H", chain="A")
+            SO.featurize_pdb_for_stability_oracle(pdb("95.00"), position=10, wt="R", mut="H", chain="A")
+
+    def test_stabilityoracle_environment_includes_a_partner_chain_touching_the_site(self):
+        from tools.model_server_app.routers import stabilityoracle as SO
+
+        def atom(serial, name, res_name, chain, res_seq, x):
+            return f"ATOM  {serial:5d}  {name:<3} {res_name} {chain}{res_seq:4d}    {x:8.3f}{0:8.3f}{0:8.3f}  1.00 95.00           {name[0]}"
+
+        pdb = "\n".join([
+            atom(1, "CA", "ARG", "B", 10, 1.0),
+            atom(2, "CA", "LEU", "A", 10, 4.0),  # Touches the site and has the same number as the variant residue.
+            atom(3, "CA", "SER", "C", 10, 40.0),  # Far from the site.
+        ])
+        seen = {}
+
+        def fake_prepare(text):
+            seen["text"] = text
+            return {
+                "xyz": np.array([[1.0, 0, 0], [4.0, 0, 0]]), "names": ["CA", "CA"], "res_seqs": np.array([10, 10]),
+                "chains": np.array(["B", "A"]), "elements": ["C", "C"], "charge": np.array([0.2, 0.3]), "exposure": np.array([1.0, 2.0]),
+            }
+
+        SO._prepared_chains.clear()
+        with patch.object(SO, "_prepare_chain", fake_prepare):
+            coords, _, _, ca, mask, _, contacts = SO.featurize_pdb_for_stability_oracle(pdb, position=10, wt="R", mut="H", chain="B")
+        self.assertIn("LEU A", seen["text"])
+        self.assertNotIn("SER C", seen["text"])
+        self.assertTrue(torch.allclose(ca, torch.tensor([[1.0, 0.0, 0.0]])))
+        # Only the variant residue is removed, not the partner's residue with the same number.
+        self.assertEqual(contacts, 1)
+        self.assertTrue(torch.allclose(coords[0, 0], torch.tensor([4.0, 0.0, 0.0])))
+
+    def test_stabilityoracle_says_why_when_hydrogens_cannot_be_added(self):
+        from tools.model_server_app.routers import stabilityoracle as SO
+
+        pdb = "ATOM      1  CA  ARG B  10       1.000   0.000   0.000  1.00 95.00           C\n"
+        run = Mock(return_value=types.SimpleNamespace(returncode=1))
+        SO._prepared_chains.clear()
+        with patch.object(SO.subprocess, "run", run):
+            for _ in range(2):
+                with self.assertRaisesRegex(ValueError, "PDB2PQR could not add hydrogens"):
+                    SO.featurize_pdb_for_stability_oracle(pdb, position=10, wt="R", mut="H", chain="B")
+        # The same chain fails the same way, so the second variant does not pay for another attempt.
+        self.assertEqual(run.call_count, 1)
+
+    def test_stabilityoracle_out_of_time_is_a_busy_answer_and_is_not_kept(self):
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded
+        from tools.model_server_app.routers import stabilityoracle as SO
+
+        pdb = "ATOM      1  CA  ARG B  10       1.000   0.000   0.000  1.00 95.00           C\n"
+        request = SO.StabilityOracleRequest(sequence="", position=10, wt="R", mut="H", wtPdb=pdb, chain="B")
+        run = Mock(side_effect=SO.subprocess.TimeoutExpired("pdb2pqr", 1))
+        SO._prepared_chains.clear()
+        with patch.object(SO, "get_stability_oracle_model"), patch.object(SO.subprocess, "run", run):
+            for _ in range(2):
+                with self.assertRaises(GateDeadlineExceeded):
+                    SO.predict_stabilityoracle_sync(request)
+        self.assertEqual(run.call_count, 2)
+
+    def test_stabilityoracle_passes_wait_at_the_shared_cpu_gate(self):
+        from tools.model_server_app import models
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded, request_deadline
+        from tools.model_server_app.routers import stabilityoracle as SO
+
+        pdb = "ATOM      1  CA  ARG B  10       1.000   0.000   0.000  1.00 95.00           C\n"
+        request = SO.StabilityOracleRequest(sequence="", position=10, wt="R", mut="H", wtPdb=pdb, chain="B")
+        run = Mock()
+        token = request_deadline.set(0.0)  # The caller has already gone.
+        SO._prepared_chains.clear()
+        with patch.object(SO, "get_stability_oracle_model"), patch.object(SO.subprocess, "run", run):
+            with self.assertRaises(GateDeadlineExceeded):
+                SO.predict_stabilityoracle_sync(request)
+        request_deadline.reset(token)
+        run.assert_not_called()
+
+    def test_stabilityoracle_refuses_missing_or_damaged_tables_and_only_it_stops(self):
+        from tools.model_server_app.routers import stabilityoracle as SO
+
+        request = SO.StabilityOracleRequest(sequence="", position=10, wt="R", mut="H", wtPdb="END\n", chain="B")
+        for opened in (Mock(side_effect=FileNotFoundError("stability_oracle_inputs.json")), mock_open(read_data='{"heavyCharge": {}}')):
+            SO._input_tables.cache_clear()
+            with patch.object(SO, "get_stability_oracle_model"), patch("builtins.open", opened):
+                with self.assertRaises(HTTPException) as caught:
+                    SO.predict_stabilityoracle_sync(request)
+            self.assertEqual(caught.exception.status_code, 503)
+        SO._input_tables.cache_clear()
+        self.assertTrue(SO._input_tables()["heavyCharge"])
+
+    def test_stabilityoracle_says_when_pdb2pqr_is_not_installed(self):
+        from tools.model_server_app.routers import stabilityoracle as SO
+
+        request = SO.StabilityOracleRequest(sequence="", position=10, wt="R", mut="H", wtPdb="END\n", chain="B")
+        with patch.object(SO, "get_stability_oracle_model"), patch.object(SO.importlib.util, "find_spec", return_value=None):
+            with self.assertRaises(HTTPException) as caught:
+                SO.predict_stabilityoracle_sync(request)
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("PDB2PQR is not installed", caught.exception.detail)
+
+    def test_vesm_and_esm3_keep_a_busy_refusal_as_a_busy_refusal(self):
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded
+        from tools.model_server_app.routers import esm3, vesm
+
+        refused = Mock(side_effect=GateDeadlineExceeded("late"))
+        with patch.object(vesm, "_ensure_vesm_loaded"), patch.object(vesm._local_vesm_logits_cache, "get_or_compute", refused):
+            with self.assertRaises(GateDeadlineExceeded):
+                vesm._predict_vesm_local(types.SimpleNamespace(includeEmbeddings=False), "MK", 1, "M", "K", 0)
+        with patch.object(esm3, "_local_vesm_fallback", refused):
+            with self.assertRaises(GateDeadlineExceeded):
+                esm3.predict_esm3_sync(esm3.Esm3Request(sequence="MK", position=1, wt="M", mut="K"))
+
+    def test_thermompnn_reads_only_the_first_model(self):
+        from tools.model_server_app.routers.thermompnn import parse_pdb_chains_for_thermompnn
+
+        def atom(res_seq):
+            return f"ATOM      1  CA  ALA A{res_seq:4d}       1.000   0.000   0.000  1.00 95.00           C\n"
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "nmr.pdb")
+            with open(path, "w") as fh:
+                fh.write("MODEL 1\n" + atom(1) + "ENDMDL\nMODEL 2\n" + atom(1) + atom(9) + "ENDMDL\n")
+            chains, _ = parse_pdb_chains_for_thermompnn(path, atoms=["CA"])
+        self.assertEqual(chains["A"]["max_resn"], 0)  # Zero-based. Residue 9 exists only in the second model.
 
     def test_saprot_fill_mask_bpe_parsing(self):
         from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
@@ -515,6 +667,36 @@ class TestSaProtSequenceConstruction(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("510 residues into 3 tokens", message)
         self.assertIn("lower-case", message)
+
+
+class TestRefusedPassAnswersBusy(unittest.TestCase):
+    """
+    A pass the CPU gate turned away must reach the caller as `503 busy`.
+
+    It used to be an unhandled exception: FastAPI answered a bare `500`, and the Node clients map an
+    unrecognised status to "offline" — so a model server that had just replied was reported to the
+    reader as absent, and a retryable busy state was presented as a broken installation.
+    """
+
+    def test_a_refused_pass_answers_503_with_a_readable_body(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from model_server_app.engine_resilience import GateDeadlineExceeded, register_refusal_handler
+
+        app = FastAPI()
+        register_refusal_handler(app)
+
+        @app.post("/pass")
+        def _pass():
+            raise GateDeadlineExceeded("The caller's deadline passed while this pass was queued.")
+
+        response = TestClient(app, raise_server_exceptions=False).post("/pass")
+
+        self.assertEqual(response.status_code, 503)
+        body = response.json()
+        self.assertEqual(body["status"], "busy")
+        self.assertTrue(body["retryable"])
+        self.assertIn("queued", body["message"])
 
 
 if __name__ == "__main__":

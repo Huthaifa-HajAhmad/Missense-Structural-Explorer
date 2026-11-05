@@ -313,7 +313,7 @@ describe("buildPerturbationEvidence — GATA4 p.Ser159Cys (VESM stands in after 
     expect(esm2.caveats).toContain("fallback-model");
     expect(esm2.serviceNote).toBe("Hugging Face has no inference credits left on the saved token");
     expect(esm2.diagnostics.map(d => d.tier)).toEqual(["Remote engine", "Local engine"]);
-    expect(esm2.scoringMethod).toBe("masked-marginal");
+    expect(esm2.scoringMethod).toBe("wild-type-marginal");
   });
 });
 

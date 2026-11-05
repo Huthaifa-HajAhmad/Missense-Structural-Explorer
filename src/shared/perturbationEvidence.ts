@@ -186,7 +186,7 @@ export interface LmReading {
   remoteFailure: { provider: string; code: RemoteFailureCode } | null;
   /** That refusal in one plain clause ("Hugging Face has no inference credits left on the saved token"). */
   serviceNote: string | null;
-  /** How the site was scored ("masked-marginal"); null on results from before it was recorded. */
+  /** How the site was scored ("masked-marginal", "wild-type-marginal"); null on results from before it was recorded. */
   scoringMethod: string | null;
   /** Counted by the engine's PP3/BP4 rule (read from predictorEvidence). */
   votes: boolean;

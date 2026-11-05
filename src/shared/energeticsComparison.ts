@@ -1,5 +1,5 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
-import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, foldxErrorInPlainWords, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
 import { FIX_SHELL_OFFSET_NOTE } from './foldxRepairMode';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
@@ -18,8 +18,10 @@ export function energeticsComparisonHeadline(evidence: EnergeticsEvidence): stri
   if (count < MIN_ENGINES_FOR_CONSENSUS) return `${count} usable estimates`;
   return AGREEMENT_CHIP[evidence.agreement.direction].label;
 }
-export function energeticsComparisonCautions(evidence: EnergeticsEvidence): string[] {
+export function energeticsComparisonCautions(evidence: EnergeticsEvidence, unit: EnergyUnit = 'kcal/mol'): string[] {
   const notes: string[] = [];
+  const foldxError = evidence.readings.map(r => foldxErrorInPlainWords(r, unit)).find(Boolean);
+  if (foldxError) notes.push(foldxError);
   if (evidence.lowPlddt !== null) notes.push(`Low confidence in the AlphaFold template here (pLDDT ${evidence.lowPlddt.toFixed(1)}); inspect the structure basis.`);
   const unrepaired = evidence.readings.filter(r => r.caveats.includes('unrepaired-template'));
   if (unrepaired.length) {

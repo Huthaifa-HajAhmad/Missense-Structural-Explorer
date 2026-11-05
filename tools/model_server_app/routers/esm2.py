@@ -333,7 +333,7 @@ def predict_esm2_3b_sync(req: Esm2Request, deadline: float | None = None):
     vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
     vesm_res["provenance"] = "VESM-150M (Local Fallback)"
     vesm_res["checkpoint"] = "ntranoslab/vesm VESM_150M"
-    vesm_res["scoringMethod"] = SCORING_METHOD
+    # VESM reports its own method (wild-type-marginal): this result is VESM's, not ESM-2's.
     # The card serves another model's numbers here, so it carries both reasons: the remote engine that
     # did not answer and the reason genuine ESM-2 could not run on this host.
     vesm_res["remoteEngineNote"] = remote_engine_note

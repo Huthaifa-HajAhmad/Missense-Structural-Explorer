@@ -1,4 +1,8 @@
 import { CONFIG } from "../../config.ts";
+import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
+
+/** How long the caller waits for one prediction. The model server is told, so it does not start work nobody will read. */
+const STABILITY_ORACLE_BUDGET_MS = 60000;
 
 export interface StabilityOracleEvalResult {
   ddG: number;
@@ -107,10 +111,11 @@ export async function runStabilityOracleAnalysisDetailed(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret
+        "X-Sidecar-Secret": sidecarSecret,
+        [SIDECAR_BUDGET_HEADER]: String(STABILITY_ORACLE_BUDGET_MS)
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(60000)
+      signal: AbortSignal.timeout(STABILITY_ORACLE_BUDGET_MS)
     });
 
     if (sidecarRes.ok) {
@@ -141,7 +146,7 @@ export async function runStabilityOracleAnalysisDetailed(
         kind: "error",
         message: typeof detail === "string" && detail
           ? `StabilityOracle rejected this query: ${detail}`
-          : `StabilityOracle sidecar returned HTTP ${sidecarRes.status}`
+          : sidecarFailure("StabilityOracle", sidecarRes.status).error
       };
     }
   } catch (err: any) {

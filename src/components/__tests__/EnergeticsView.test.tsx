@@ -212,6 +212,16 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent("DynaMut2 is still running, so this reading may change.");
   });
 
+  it("explains FoldX's error in plain words, with this value's own range, visibly rather than on hover", () => {
+    renderView(settled);
+    const text = screen.getByTestId("foldx-error-plain").textContent ?? "";
+    expect(text).toMatch(/typically off by about 1\.86 kcal\/mol/);
+    // +2.00 with the measured error of 1.86 either side.
+    expect(text).toMatch(/\+2\.00 kcal\/mol could really be anywhere from about \+0\.14 kcal\/mol to \+3\.86 kcal\/mol/);
+    expect(text).toMatch(/\d+% of lab values fell within a range this wide/);
+    expect(text).toMatch(/direction of the change, not the exact size/);
+  });
+
   it("shows no provisional marker for a settled run", () => {
     renderView(settled);
     expect(screen.queryByTestId("energetics-provisional")).toBeNull();
