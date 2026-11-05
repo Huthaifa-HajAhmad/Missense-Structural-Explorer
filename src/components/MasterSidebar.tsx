@@ -4,7 +4,7 @@ import { useGeneContextLoading } from "../hooks/useGeneContextLoading";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
-import { NAV_ICONS, SUB_NAV_ICONS, type NavIcon, type StructureModelId } from "./ui/navIcons";
+import { NAV_ICONS, type NavIcon, type StructureModelId } from "./ui/navIcons";
 import { BrandMark } from "./ui/BrandMark";
 import { SidebarToggleIcon } from "./ui/SidebarToggleIcon";
 import { AnalysisResult } from "../types";
@@ -219,13 +219,11 @@ function StepIcon({ status }: { status: WorkflowStatusType }) {
 /** One sub-navigation row, shared by the Evidence tabs and the structure models. */
 function SubNavItem({
   label,
-  Icon,
   isActive,
   isStreaming = false,
   onClick,
 }: {
   label: string;
-  Icon?: NavIcon;
   isActive: boolean;
   isStreaming?: boolean;
   onClick: () => void;
@@ -238,7 +236,6 @@ function SubNavItem({
       data-active={isActive}
       aria-current={isActive ? "page" : undefined}
     >
-      {Icon && <Icon className="ms-sub-icon" />}
       <span className="ms-sub-label">{label}</span>
       {isStreaming && (
         <span className="ms-step ml-auto" data-status="progress" role="img" aria-label="Loading" title="Loading in background" />
@@ -644,7 +641,7 @@ function MasterSidebar({
                     : <span className="ms-zone-label" aria-hidden="true">{zone.zoneLabel}</span>
                 )}
 
-                {/* A labelled group hangs its rows off one guide line; the unlabelled query zone has none. */}
+                {/* A labelled group hangs its rows off one drawn tree; the unlabelled query zone has none. */}
                 <div className="ms-zone-items" data-tree={zone.zoneLabel ? "true" : undefined}>
                 {zone.items.map((item) => {
                   const { id } = item;
@@ -686,7 +683,6 @@ function MasterSidebar({
                             <SubNavItem
                               key={sub.id}
                               label={sub.label}
-                              Icon={SUB_NAV_ICONS[sub.id]}
                               isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
                               isStreaming={isEvidenceTabLoading(sub.id, isBiophysicalLoading, analysisResult, geneContextLoading)}
                               onClick={() => {
@@ -704,7 +700,6 @@ function MasterSidebar({
                             <SubNavItem
                               key={sub.id}
                               label={sub.label}
-                              Icon={SUB_NAV_ICONS[sub.id]}
                               isActive={activeView === sub.id}
                               onClick={() => navigate(sub.id)}
                             />

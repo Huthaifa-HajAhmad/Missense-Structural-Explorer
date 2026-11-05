@@ -215,18 +215,24 @@
 .qe__tool:active, .qe__example:active, .qe-fields__summary:active, .workbench-ai-summary:active { background: var(--cs-bg-subtle); }
 
 @media (min-width: 64rem) {
-  .workbench-deck { grid-template-rows: min-content minmax(min-content, 1fr); min-block-size: max(40rem, calc(100dvh - 14rem)); }
+  /* The deck ends where the monitor's own content ends, not at the window's floor: a floor made the
+     recents tray stretch into ~170px of blank card under its last row. Height now comes from the
+     taller column, and the tray fills to that shared bottom line. */
+  .workbench-deck { grid-template-rows: min-content minmax(min-content, 1fr); min-block-size: 0; }
   .workbench-recents { align-self: stretch; }
-  /* Keep the monitor usable even when Recents has only one entry. */
+  /* The monitor spans both rows, so its own content sets the deck's height. */
   .workbench-rail { grid-row-end: span 2; align-self: stretch; position: relative; }
-  .workbench-rail-body { position: absolute; inset: 0; }
+  /* ...up to the window, and no further: the Services tab's ten rows need more than a laptop has,
+     and a content-only height pushed the page down by a scrollbar's width, which then narrowed the
+     rail and wrapped the rows again. Past the window the list scrolls, as it did before. */
+  .workbench-rail-body { position: static; flex: 1 1 auto; max-block-size: max(40rem, calc(100dvh - 14rem)); }
 }
 @container (width < 54rem) {
   .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; min-block-size: 0; }
   .workbench-deck > :is(.workbench-query, .workbench-recents, .workbench-rail) { grid-column: 1; grid-row: auto; }
   /* Stacked, the monitor flows naturally with the page. */
   .workbench-rail.cs-panel { block-size: auto; min-block-size: 0; }
-  .workbench-rail-body { position: static; }
+  .workbench-rail-body { position: static; max-block-size: none; }
   .workbench-pipeline-stages { overflow-y: visible; }
   .workbench-rail .telemetry-scroll { overflow-y: visible; }
 }
