@@ -10,7 +10,12 @@ import JSZip from "jszip";
 // StabilityOracle is a sidecar call; the agent path runs it beside the computer's FoldX like the server does.
 vi.mock("../services/biophysics.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/biophysics.ts")>();
-  return { ...actual, runStabilityOracleAnalysis: vi.fn(async () => ({ ddG: 0.7 })) };
+  return {
+    ...actual,
+    runStabilityOracleAnalysis: vi.fn(async () => ({ ddG: 0.7 })),
+    // The queue job calls this one (it tells "no sidecar" from "sidecar said no").
+    runStabilityOracleAnalysisDetailed: vi.fn(async () => ({ kind: "value", result: { ddG: 0.7 } })),
+  };
 });
 
 import { apiRouter } from "../routes.ts";
@@ -18,6 +23,8 @@ import { requestLogger, validateContentType } from "../middleware.ts";
 import { closeAccountsDb, createUser, updateUser } from "../auth/store.ts";
 import { hashPassword } from "../auth/password.ts";
 import { BiophysicalJobQueue } from "../services/infra/biophysical-queue.ts";
+import { buildFoldxCacheKey } from "../services/infra/foldx-job-registry.ts";
+import { getMutantFromCacheForBackfill } from "../services/stability/foldx/cache.ts";
 import { AGENT_PROTOCOL_VERSION, type AgentHostReport } from "../../src/shared/agentProtocol.ts";
 
 /**
@@ -349,6 +356,29 @@ describe("the job protocol", () => {
     // The poll route says where it ran: the owner sees their own id, nobody else does.
     const polled = await call("GET", `/foldx-job/${id}`, { cookie: owner.cookie });
     expect(polled.body.result.computeProvenance).toMatchObject({ computedOn: "agent", ownerId: owner.id });
+  });
+
+  it("keeps the companion engines' values with the cached FoldX entry, as a server run does", async () => {
+    const queue = await busyServer();
+    const owner = await person("owner@lab.org");
+    const id = await queue.pushJob("foldx", { wtPdb: WT_PDB, mutation: "VA2E", uniprotId: null, options: {}, remoteJobs: {} }, { ownerId: owner.id, residues: 4 });
+    const { token } = await pair(owner);
+    await claim(token);
+    // The cache only keeps a result that names the repair its key expects (a 4-residue template: the full one).
+    const res = await call("POST", `/agent/jobs/${id}/result`, {
+      agent: token,
+      body: {
+        result: { status: "success", pdb: pdbOf(["ALA", "GLU", "GLY", "LEU"]), ddG: 1.8, foldedResidueIndex: 2, resolvedChain: "A", energetics: { foldxMean: 1.8, repairMode: "full" } },
+        toolVersion: "5.1",
+      },
+    });
+    expect(res.body).toEqual({ accepted: true });
+    // The reader got StabilityOracle's value (mocked above). The next reader of the same variant is served
+    // from the cache, so the value has to be in the cache entry too, or they would wait for it again.
+    const stored = await getMutantFromCacheForBackfill(buildFoldxCacheKey(WT_PDB, "VA2E", { toolVersion: undefined }));
+    expect(stored?.energetics?.foldxMean).toBe(1.8);
+    expect(stored?.energetics?.stabilityoracle).toBe(0.7);
+    expect(stored?.energetics?.stabilityoracleStatus).toBe("done");
   });
 });
 
