@@ -14,7 +14,16 @@ import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
 import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
 import { readProteinLength } from "../shared/foldingLimits";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
-import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../shared/structure3dEvidence";
+import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type Structure3dEvidence, type ViewMode } from "../shared/structure3dEvidence";
+
+/** Resolves the dual-swatch colours for the superposed variant site from the evidence colour plan. */
+export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: number; secondary: number } {
+  return {
+    primary: colour.primary.theme === "uniform" ? colour.primary.color : PAIR_COLOURS.template,
+    secondary: colour.secondary?.theme === "uniform" ? colour.secondary.color : PAIR_COLOURS.variant,
+  };
+}
+
 
 export interface MolstarViewerProps {
   active?: boolean;
@@ -212,16 +221,85 @@ export default function MolstarViewer({
   const siteResidue = variantPosition ? coordinateIndex.get(variantPosition) : undefined;
   const siteName = variantPosition ? nameAt(variantPosition) : null;
   const plddtAtSite = model.canvas.primary?.origin === "afdb" && siteResidue?.caBFactor != null ? siteResidue.caBFactor : null;
-  const selectedShown = selection.state === "available" && selection.position && selection.position !== variantPosition ? selection.position : null;
+  const selectedShown = model.site.canAddressVariantSite && selection.state === "available" && selection.position && selection.position !== variantPosition ? selection.position : null;
+  const isSuperposed = model.viewMode === "superimposed" && Boolean(comparePdbData && model.colour.secondary) && structure.drawnPair;
+  const pairLeadNoun = model.family === "alphafold" ? "Template" : "Wild-type";
+  const pairSwatches = resolveSuperpositionSwatches(model.colour);
+  const handleFocusSite = () => {
+    if (!model.site.canAddressVariantSite || !variantPosition) return;
+    if (selectedResidue !== variantPosition) onReturnToVariant?.();
+    structure.focusResidue(variantPosition, "residue");
+  };
   // Read from what the hook was asked to draw, in the order the eye meets it: the variant, the selection,
   // the companions, the pocket. The colour legend below keys the cartoon itself.
   const guideItems: CanvasGuideItem[] = [
-    ...(siteName && model.site.canAddressVariantSite ? [{ key: "site", color: Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849, shape: "sticks" as const,
-      text: `Variant residue ${siteName}`, sub: plddtAtSite !== null ? `pLDDT ${plddtAtSite.toFixed(0)} at this residue (AlphaFold DB)` : undefined }] : []),
-    ...(selectedShown ? [{ key: "selected", color: null, shape: "sticks" as const, text: `Selected residue ${nameAt(selectedShown)}`, sub: "Element colours" }] : []),
-    ...(focusShown ? [{ key: "companions", color: COMPANION_CARBON, shape: "sticks" as const, text: focusShown.label, sub: `${focusShown.companions.length} residue${focusShown.companions.length === 1 ? "" : "s"}, drawn on this model by number` }] : []),
-    ...(showPocket && pocketIndices.length ? [{ key: "pocket", color: POCKET_COLOUR, shape: "surface" as const, text: "Predicted pocket lining (P2Rank)", sub: `${pocketIndices.length} residues` }] : []),
-    ...(siteCloseUp ? [{ key: "contacts", color: null, shape: "dashes" as const, text: "Close-up: residues within 5 Å and their contacts" }] : []),
+    ...(siteName && model.site.canAddressVariantSite ? [{
+      key: "site",
+      color: isSuperposed ? pairSwatches.primary : (Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849),
+      secondaryColor: isSuperposed ? pairSwatches.secondary : null,
+      shape: isSuperposed ? ("pair" as const) : ("sticks" as const),
+      text: `Variant residue ${siteName}`,
+      badge: model.site.substitution ?? undefined,
+      sub: isSuperposed
+        ? `${pairLeadNoun} + variant sticks · ${plddtAtSite !== null ? `pLDDT ${plddtAtSite.toFixed(0)} (AlphaFold DB)` : "superposed"}`
+        : plddtAtSite !== null
+          ? `pLDDT ${plddtAtSite.toFixed(0)} at this residue (AlphaFold DB)`
+          : model.site.confidence.kind !== "none"
+            ? model.site.confidence.text
+            : undefined,
+      onClick: handleFocusSite,
+      actionLabel: `Frame variant residue ${siteName}`,
+    }] : []),
+    ...(selectedShown ? [{
+      key: "selected",
+      color: null,
+      shape: "sticks" as const,
+      text: `Selected residue ${nameAt(selectedShown)}`,
+      badge: selection.measurement ? selection.measurement.value : `pos ${selectedShown}`,
+      sub: selection.measurement ? `${selection.measurement.label} · element colours` : "Element colours",
+      onClick: () => structure.focusResidue(selectedShown, "residue"),
+      actionLabel: `Frame selected residue ${nameAt(selectedShown)}`,
+      onClear: onReturnToVariant ? () => onReturnToVariant() : undefined,
+      clearLabel: "Return to variant site",
+    }] : []),
+    ...(focusShown ? [{
+      key: "companions",
+      color: COMPANION_CARBON,
+      shape: "sticks" as const,
+      text: focusShown.label,
+      badge: `${focusShown.companions.length} aa`,
+      sub: `${focusShown.companions.length} residue${focusShown.companions.length === 1 ? "" : "s"}, drawn on this model by number`,
+      onClick: () => structure.focusResidues(focusShown.companions, 6),
+      actionLabel: `Frame ${focusShown.label}`,
+      onClear: () => actions.setSelectedResidueIndex(selection.position),
+      clearLabel: "Clear companion highlight",
+    }] : []),
+    ...(showPocket && pocketIndices.length ? [{
+      key: "pocket",
+      color: POCKET_COLOUR,
+      shape: "surface" as const,
+      text: "Predicted pocket lining (P2Rank)",
+      badge: `${pocketIndices.length} aa`,
+      sub: `${pocketIndices.length} residues`,
+      onClick: () => {
+        setPocketOpen(true);
+        structure.focusResidues(pocketIndices, 5);
+      },
+      actionLabel: "Frame predicted pocket lining",
+      onClear: () => setShowPocket(false),
+      clearLabel: "Hide pocket on structure",
+    }] : []),
+    ...(siteCloseUp ? [{
+      key: "contacts",
+      color: null,
+      shape: "dashes" as const,
+      text: "Close-up: residues within 5 Å and their contacts",
+      badge: "5 Å",
+      onClick: variantPosition ? () => structure.focusResidue(variantPosition, "neighbourhood") : undefined,
+      actionLabel: "Frame 5 Å neighbourhood",
+      onClear: () => setSiteCloseUp(false),
+      clearLabel: "Exit site close-up",
+    }] : []),
   ];
   const hasVariant = Boolean(uniprotId || primaryPdbData || customPdbUrl);
   const pocketTriggerRef = useRef<HTMLButtonElement>(null);
@@ -238,14 +316,12 @@ export default function MolstarViewer({
           plddtFilter={plddtFilter}
           onPlddtFilterChange={setPlddtFilter}
           onAlignmentScopeChange={onAlignmentScopeChange}
-          onFocusSite={() => {
-            if (!model.site.canAddressVariantSite || !variantPosition) return;
-            if (selectedResidue !== variantPosition) onReturnToVariant?.();
-            structure.focusResidue(variantPosition);
-          }}
+          onFocusSite={handleFocusSite}
           siteCloseUp={siteCloseUp}
           onToggleSiteCloseUp={() => setSiteCloseUp(prev => !prev)}
-          onFocusSelection={selection.state === "available" && selection.position ? () => structure.focusResidue(selection.position!) : undefined}
+          onFocusSelection={model.site.canAddressVariantSite && selection.state === "available" && selection.position ? () => structure.focusResidue(selection.position!, "residue") : undefined}
+          onResetCamera={structure.resetCamera}
+          canResetCamera={Boolean(model.canvas.primary && !plugin.loading && !plugin.loadError)}
           pocketOpen={pocketOpen}
           pocketTriggerRef={pocketTriggerRef}
           onTogglePocket={() => {
@@ -279,7 +355,7 @@ export default function MolstarViewer({
           </div>
         )}
 
-        <div className="s3d-stage">
+        <div className="s3d-stage" data-pocket-open={pocketOpen ? "true" : undefined}>
           <div ref={plugin.containerRef} className="s3d-canvas" id={VIEWER_CONTAINER_ID} />
           {/* One left column, so the canvas guide and the colour key stack instead of overlapping on a short stage. */}
           <div className="s3d-overlay-col">

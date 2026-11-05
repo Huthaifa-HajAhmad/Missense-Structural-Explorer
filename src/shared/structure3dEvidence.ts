@@ -377,7 +377,7 @@ export interface Structure3dEvidence {
   colour: ColourPlan;
   legend: Legend | null;
   plddtFilter: { available: boolean; reason: string | null; scale: 1 | 100 | null };
-  alignment: { scopeToggle: boolean; scope: AlignmentScope; fitLabel: string };
+  alignment: { scopeToggle: boolean; scope: AlignmentScope; measuredScope: AlignmentScope; fitLabel: string };
   comparison: Comparison;
   readings: Reading[];
   site: SiteContext;
@@ -1007,7 +1007,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   // toggle while a new fit runs (and is whole-chain when a local fit had too few pairs).
   const measuredScope: AlignmentScope = isAf ? "global" : metrics?.alignmentScope ?? scope;
   const fitWords = (s: AlignmentScope) => (s === "global" ? "whole chain" : `±${LOCAL_ALIGNMENT_FIT_WINDOW} residues around ${position ?? "the site"}`);
-  const fitLabel = fitWords(scope);
+  const fitLabel = fitWords(measuredScope);
   let comparison: Comparison;
   if (isAf) {
     const canvasWildTypeIsNotTemplate = !!foldxTemplate && !templateIsCanvasWildType;
@@ -1534,6 +1534,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     alignment: {
       scopeToggle: !isAf && effectiveMode === "superimposed",
       scope,
+      measuredScope,
       fitLabel,
     },
     comparison,

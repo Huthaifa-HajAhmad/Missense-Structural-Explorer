@@ -2,6 +2,7 @@ import type { StructureSelection } from "../../shared/structureSelection";
 import React, { useState } from "react";
 import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
+import { landscapeKey } from "../../shared/landscapeEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { describeDeNovoCapacityNotice, readProteinLength, resolveDeNovoFoldingCapacity } from "../../shared/foldingLimits";
 import { alphafoldDbCoverage } from "../../shared/alphafoldAvailability";
@@ -37,10 +38,19 @@ function IdentityRow({ role, identity }: { role: string; identity: CoordinateIde
 }
 
 function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; isWildType: boolean }) {
+  const checkLabel =
+    site.check.state === "match"
+      ? "Matches"
+      : site.check.state === "mismatch"
+        ? "Different residue"
+        : site.check.state === "absent"
+          ? "Not modelled"
+          : "Not checked";
   return (
     <section className="s3d-rsec" aria-labelledby="s3d-rail-site">
       <h3 className="eyebrow" id="s3d-rail-site">
         <span><Crosshair className="w-3.5 h-3.5" aria-hidden="true" />{isWildType ? "Variant site" : "Wild-type reference site"}</span>
+        {site.substitution && <span className="s3d-rsec__meta s3d-mono">{site.substitution}</span>}
       </h3>
       {!isWildType && <p className="s3d-section-intro">These site readings come from the wild-type coordinate source, not the FoldX or de novo variant model.</p>}
       <dl className="s3d-kv" data-testid="structure-site">
@@ -48,7 +58,7 @@ function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; 
         <div className="s3d-kv__row">
           <dt>In the structure</dt>
           <dd>
-            {site.check.state === "match" ? "Matches" : site.check.state === "mismatch" ? "Different residue" : site.check.state === "absent" ? "Not modelled" : "Not checked"}
+            <span className="s3d-status-pill" data-state={site.check.state}>{checkLabel}</span>
             <span className="s3d-kv__note">{site.check.text}</span>
           </dd>
         </div>
@@ -67,6 +77,7 @@ function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; 
     </section>
   );
 }
+
 
 function ComparisonSection({ model }: { model: Structure3dEvidence }) {
   const { comparison, readings } = model;
@@ -142,9 +153,15 @@ export interface StructureInspectorProps {
   selection?: StructureSelection;
   family: ModelFamily;
   setCustomPdbUrl?: (url: string | null) => void;
+  onReturnToVariant?: () => void;
 }
 
-export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, setCustomPdbUrl, selection }) => {
+export const StructureInspector: React.FC<StructureInspectorProps> = ({
+  family,
+  setCustomPdbUrl,
+  selection,
+  onReturnToVariant,
+}) => {
   const model = useStructure3dEvidence(family);
   const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
   const hasResult = useVariantAnalysisStore(s => Boolean(s.analysisState?.result));
@@ -167,16 +184,80 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, 
   const capacity =
     capacityNotice && (family === "esmfold" ? !canvas.primary : capacityNotice.tone === "warning") ? capacityNotice : null;
 
+  const isAtVariantPosition = Boolean(selection?.position && site.position && selection.position === site.position);
+  const isAtVariantSite = Boolean(
+    site.canAddressVariantSite &&
+      selection?.state === "available" &&
+      isAtVariantPosition &&
+      selection?.isQueriedSite !== false,
+  );
+  const returnText =
+    site.canAddressVariantSite && selection?.state === "available" && site.substitution
+      ? `Return to ${site.substitution}`
+      : `Return to position ${site.position}`;
+
+  const handleReturn = () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setHoveredResidueIndex(null);
+    if (onReturnToVariant) {
+      onReturnToVariant();
+      return;
+    }
+    if (!site.position) return;
+    const meta = store.analysisState?.result?.metadata;
+    store.setLandscapeSelection({
+      key: landscapeKey(store.gene, store.variant, store.uniprotId),
+      kind: "substitution",
+      pos: site.position,
+      alt: meta?.mutant || undefined,
+    });
+    store.setSelectedGenomicVariant(null);
+    store.setSelectedResidueIndex(site.position);
+  };
+
   return (
     <div className="s3d-rail" data-testid="structure-rail" data-mode={model.viewMode}>
-      {selection && <section className="s3d-selection" aria-label={selection.preview ? "Residue preview" : "Selected residue"} data-state={selection.state}>
-        <h3>{!selection.position ? 'No residue selected' : `${selection.preview ? 'Previewing residue' : 'Selected residue'} · ${selection.position}`}</h3>
-        <p className="s3d-selection__summary">{selection.summary}</p>
-        {selection.measurement && <dl className="s3d-kv"><div className="s3d-kv__row"><dt>{selection.measurement.label}</dt><dd>{selection.measurement.value}</dd></div></dl>}
-        {selection.source && <p className="s3d-selection__source">Coordinates: {selection.source}</p>}
-        {selection.measurement && <p className="s3d-selection__source">{selection.measurement.note}</p>}
-        <p className="s3d-selection__source">Variant-site measurements below remain tied to the queried substitution.</p>
-      </section>}
+      {selection && (
+        <section
+          className="s3d-selection"
+          aria-label={selection.preview ? "Residue preview" : "Selected residue"}
+          data-state={selection.state}
+          data-is-site={isAtVariantSite ? "true" : undefined}
+        >
+          <div className="s3d-selection__head">
+            <h3>{!selection.position ? "No residue selected" : `${selection.preview ? "Previewing residue" : "Selected residue"} · ${selection.position}`}</h3>
+            {selection.position && site.position && (
+              isAtVariantSite ? (
+                <span className="s3d-selection__badge">Queried site</span>
+              ) : !isAtVariantPosition ? (
+                <button
+                  type="button"
+                  className="s3d-selection__return"
+                  onClick={handleReturn}
+                  title="Select the queried site"
+                >
+                  {returnText}
+                </button>
+              ) : null
+            )}
+          </div>
+          <p className="s3d-selection__summary">{selection.summary}</p>
+          {selection.measurement && (
+            <dl className="s3d-kv">
+              <div className="s3d-kv__row">
+                <dt>{selection.measurement.label}</dt>
+                <dd className="s3d-mono">{selection.measurement.value}</dd>
+              </div>
+            </dl>
+          )}
+          <div className="s3d-selection__foot">
+            {selection.source && <p className="s3d-selection__source">Coordinates: {selection.source}</p>}
+            {selection.measurement && <p className="s3d-selection__source">{selection.measurement.note}</p>}
+            {!isAtVariantSite && <p className="s3d-selection__source s3d-selection__source--muted">Variant-site measurements below remain tied to the queried substitution.</p>}
+          </div>
+        </section>
+      )}
+
       <section className="s3d-rsec s3d-rsec--canvas" aria-labelledby="s3d-rail-canvas">
         <h3 className="eyebrow" id="s3d-rail-canvas">
           <span><Layers className="w-3.5 h-3.5" aria-hidden="true" />On the canvas</span>

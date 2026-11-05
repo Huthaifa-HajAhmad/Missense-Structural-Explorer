@@ -359,6 +359,7 @@ export function AppViews({
   const handleReturnToVariant = useCallback(() => {
     if (!variantPosition) return;
     const store = useVariantAnalysisStore.getState();
+    store.setHoveredResidueIndex(null);
     store.setLandscapeSelection({ key: landscapeKey(gene, variant, uniprotId), kind: "substitution", pos: variantPosition, alt: landscapeTarget?.mut || undefined });
     store.setSelectedGenomicVariant(null);
     setSelectedResidueIndex(variantPosition);
@@ -748,6 +749,7 @@ export function AppViews({
               pocketError={pocketError}
               onRetryPocket={handleRetryPocket}
               onRetryNarrative={handleRetryNarrative}
+              onReturnToVariant={handleReturnToVariant}
             />
           )}
         </WorkspaceLayout>
