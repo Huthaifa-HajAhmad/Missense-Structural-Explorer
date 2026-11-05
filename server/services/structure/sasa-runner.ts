@@ -3,6 +3,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { toolsVenvPython, wasKilledByTimeout } from "../infra/tools-python.ts";
+import { memo } from "../infra/memo.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +49,14 @@ type ToolOutput = { ok: true; parsed: Record<string, unknown> } | { ok: false; m
  * 1. Direct execution via the tools virtualenv Python (fastest in production Linux / Docker containers).
  * 2. Automatic fallback to `uv run --no-project` if the virtualenv interpreter is missing, crashes,
  *    or encounters platform DLL mismatches.
+ *
+ * A TIMEOUT of the first tier is not one of those cases. On the production VM the direct run was cut
+ * off at its 15 s limit while the two CPUs were busy; the fallback then ran the same script again
+ * through `uv`, which also had to download and build its packages, and it was cut off at 15 s too.
+ * The structure got no accessibility value either way, and the burial reading (the slowest source of
+ * the core run) took 30 s instead of 15. A script that is too slow here is not made faster by a
+ * slower launcher, so a timeout is reported as a timeout and the fallback is skipped.
+ *
  * Both modes (one residue, or every residue) share it, so they cannot drift in how they start or fail.
  */
 async function runSasaTool(pdbText: string, chain: string, target: string, options?: SasaRunnerOptions): Promise<ToolOutput> {
@@ -74,17 +84,17 @@ async function runSasaTool(pdbText: string, chain: string, target: string, optio
   };
 
   try {
-    const venvPython = process.platform === "win32"
-      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
-      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+    const venvPython = options?.forceUvFallback ? null : toolsVenvPython();
 
-    const useVenv = !options?.forceUvFallback && fs.existsSync(venvPython);
-
-    if (useVenv) {
+    if (venvPython) {
       try {
         const { stdout } = await execAsync(venvPython, [pythonScript, pdbPath, chain, target], { timeout });
         return read(stdout);
       } catch (venvErr) {
+        if (wasKilledByTimeout(venvErr)) {
+          console.warn(`[SASA-Runner] The accessibility script did not finish in ${Math.round(timeout / 1000)}s (the host is busy); not retrying through uv.`);
+          return { ok: false, message: `The accessibility script did not finish within ${Math.round(timeout / 1000)} s because the server was busy.` };
+        }
         console.warn("[SASA-Runner] Direct venv execution failed, falling back to uv run --no-project:", (venvErr as Error).message);
       }
     }
@@ -113,6 +123,36 @@ async function runSasaTool(pdbText: string, chain: string, target: string, optio
 
 /** The accessibility of one residue, with its burial word and secondary structure. */
 export async function executeSasaEval(
+  pdbText: string,
+  chain: string,
+  position: number,
+  options?: SasaRunnerOptions
+): Promise<SasaEvalResult> {
+  /**
+   * An injected executor is a test seam, not a run: a memo would answer one test with another's mock.
+   * Everything else — the real tool — is memoized on its inputs.
+   */
+  if (options?.executor) return computeSasaEval(pdbText, chain, position, options);
+
+  /**
+   * ONE Python run per (structure, chain, residue), shared by everyone who asks at the same time.
+   *
+   * The same question is asked two or three times per analysis, by different services and at the same
+   * moment: the core run's burial reading (`pocket/disruption.ts`), the ESM3 structural evaluation
+   * (`esm3_forge.ts`), and — when the first of those found no accessibility value — the orchestrator's
+   * burial refresh. Each used to spawn the script again: the interpreter start plus the biopython and
+   * biotite imports, then Shrake-Rupley over the WHOLE structure, which is the expensive part and is
+   * the same work whether one residue or all of them is asked for. On the production VM's two CPUs
+   * that is 15 s a run, and running them concurrently is what made each of them time out.
+   *
+   * The answer is identical because the tool is a pure function of these three values. A failure is
+   * not remembered (see `infra/memo.ts`), so a busy host can still be retried.
+   */
+  const key = { pdb: crypto.createHash("sha256").update(pdbText).digest("hex"), chain, position };
+  return memo("sasa:one", key, () => computeSasaEval(pdbText, chain, position, options), result => result.status === "success");
+}
+
+async function computeSasaEval(
   pdbText: string,
   chain: string,
   position: number,

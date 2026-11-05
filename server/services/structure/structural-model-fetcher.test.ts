@@ -195,4 +195,67 @@ describe("fetchStructuralModelData", () => {
     const offsets = ["esm3", "esmc", "esm2Eval", "saprot"].map(key => result.structuralTimingOffsets![key]);
     expect(offsets.every(offset => typeof offset === "number")).toBe(true);
   });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * EACH MODEL IS ANNOUNCED THE MOMENT IT SETTLES
+   * ─────────────────────────────────────────────────────────────────────────────
+   * The route answered once, when the slowest of four models had settled or run out of time, so a
+   * model that finished at 20 s waited for one that needed 120 s — and was lost with it when the
+   * caller's own timer fired first. `onModel` is what lets a reader keep the fast one.
+   */
+  it("announces a fast model while a slow one is still running", async () => {
+    const { runEsm2Analysis } = await import("../external-api/esm2.ts");
+    let releaseSlow!: (value: unknown) => void;
+    vi.mocked(runEsm2Analysis as any).mockImplementationOnce(() => new Promise(resolve => { releaseSlow = resolve; }));
+
+    const announced: string[] = [];
+    const run = fetchStructuralModelData(baseContext, null, null, 5_000, undefined, frame => announced.push(frame.key));
+
+    await vi.waitFor(() => expect(announced.sort()).toEqual(["esm3", "esmc", "saprot"]));
+    expect(announced, "the slow model has not been announced yet").not.toContain("esm2Eval");
+
+    releaseSlow({ score: -3.8 });
+    const result = await run;
+    expect(announced).toContain("esm2Eval");
+    expect(result.esm2Eval).toMatchObject({ score: -3.8 });
+  });
+
+  it("announces each model with the value, status and duration the final result carries", async () => {
+    const frames: any[] = [];
+    const result = await fetchStructuralModelData(baseContext, null, null, 5_000, undefined, frame => frames.push(frame));
+
+    expect(frames.map(frame => frame.type)).toEqual(["model", "model", "model", "model"]);
+    const byKey = Object.fromEntries(frames.map(frame => [frame.key, frame]));
+    expect(byKey.esm3.evaluation).toBe(result.esm3Eval);
+    expect(byKey.esmc.evaluation).toBe(result.esmcEval);
+    expect(byKey.esm2Eval.evaluation).toBe(result.esm2Eval);
+    expect(byKey.saprot.evaluation).toBe(result.saprotEval);
+    for (const key of ["esm3", "esmc", "esm2Eval", "saprot"]) {
+      expect(byKey[key].status).toBe(result.serviceStatus![key]);
+      expect(byKey[key].durationMs).toBe(result.structuralTimings![key]);
+    }
+  });
+
+  it("announces a model that ran out of its budget as a timeout, with its error object", async () => {
+    const { runEsm2Analysis } = await import("../external-api/esm2.ts");
+    vi.mocked(runEsm2Analysis as any).mockImplementationOnce(() => new Promise(() => {}));
+
+    vi.useFakeTimers();
+    const frames: any[] = [];
+    const run = fetchStructuralModelData(baseContext, null, null, 50, undefined, frame => frames.push(frame));
+    await vi.advanceTimersByTimeAsync(60);
+    await run;
+
+    const slow = frames.find(frame => frame.key === "esm2Eval");
+    expect(slow.status).toBe("timeout");
+    expect(slow.evaluation).toMatchObject({ status: "timeout" });
+  });
+
+  it("returns the same result whether or not anyone is listening", async () => {
+    const quiet = await fetchStructuralModelData(baseContext, null, null, 5_000);
+    const heard = await fetchStructuralModelData(baseContext, null, null, 5_000, undefined, () => {});
+    expect(heard.serviceStatus).toEqual(quiet.serviceStatus);
+    expect(heard.esm3Eval).toEqual(quiet.esm3Eval);
+  });
 });

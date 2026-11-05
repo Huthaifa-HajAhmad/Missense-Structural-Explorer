@@ -17,6 +17,7 @@ import {
   StructureProvenance
 } from "../shared/contracts";
 import type { PdbHomolog } from "../types";
+import { CLIENT_SEQUENCE_LOOKUP_BUDGET_MS, CLIENT_HOMOLOG_LOOKUP_BUDGET_MS } from "../shared/structureLookupBudgets";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 import { CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS } from "../shared/timeouts";
 import { STRUCTURE_REF_HEADER, isStructureRef } from "../shared/structureRefs";
@@ -241,7 +242,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
 
     async getSequence(uniprotId: string, signal?: AbortSignal): Promise<string> {
       const res = await fetchWithAuth(`/api/v1/sequence/${encodeURIComponent(uniprotId)}`, {
-        timeout: 10000,
+        timeout: CLIENT_SEQUENCE_LOOKUP_BUDGET_MS,
         signal
       });
       if (!res.ok) {
@@ -298,7 +299,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
     async getHomologs(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<PdbHomolog[]> {
       const query = pos != null ? `?pos=${encodeURIComponent(pos)}` : "";
       const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(uniprotId)}${query}`, {
-        timeout: 20000,
+        timeout: CLIENT_HOMOLOG_LOOKUP_BUDGET_MS,
         signal
       });
       if (!res.ok) {

@@ -232,5 +232,99 @@ describe("biophysicalService", () => {
       expect(state.result.esm3Eval).toEqual({ score: 0.91 });
       expect(state.result.saprotEval).toEqual({ score: 0.94 });
     });
+
+    /**
+     * ─────────────────────────────────────────────────────────────────────────────
+     * A FINISHED MODEL IS NEVER LOST TO A SLOWER ONE
+     * ─────────────────────────────────────────────────────────────────────────────
+     * On the production VM ESM-2 finished 0.4 s inside the server's limit and the browser still showed
+     * all four models as timed out: one failure marked every model, finished or not.
+     */
+    const structuralParams = { gene: "GATA4", variant: "p.Ser159Cys", uniprotId: "P43694" };
+    const modelFrame = (key: string, evaluation: unknown, status = "ok") => ({ type: "model", key, evaluation, status, durationMs: 5 });
+    const trackedState = (result: any) => {
+      let state: any = { result };
+      const setAnalysisState = vi.fn((updater: any) => { state = typeof updater === "function" ? updater(state) : updater; });
+      return { setAnalysisState, current: () => state };
+    };
+
+    it("shows each model as it arrives, before the request has finished", async () => {
+      let emit!: (frame: any) => void;
+      let finish!: (value: any) => void;
+      const apiClient = {
+        getStructuralAssessments: vi.fn((_params: any, _signal: any, onModel: any) => {
+          emit = onModel;
+          return new Promise(resolve => { finish = resolve; });
+        })
+      };
+      const { setAnalysisState, current } = trackedState({ analysis: "Base analysis" });
+
+      const run = fetchProgressiveStructuralAssessments(structuralParams, apiClient, new AbortController().signal, setAnalysisState, 1, () => 1);
+      emit(modelFrame("esm2Eval", { llr: -3.1 }));
+
+      expect(current().result.esm2Eval, "on screen while the other models are still running").toEqual({ llr: -3.1 });
+      expect(current().result.serviceStatus.esm2Eval).toBe("ok");
+      expect(current().result.esm3Eval, "a model that has not arrived is not invented").toBeUndefined();
+
+      finish({ esm3Eval: { score: 1 }, esmcEval: { score: 2 }, esm2Eval: { llr: -3.1 }, saprotEval: { score: 4 }, ruleBasedInsights: {} });
+      await run;
+      expect(current().result.esm3Eval).toEqual({ score: 1 });
+      expect(current().result.esm2Eval).toEqual({ llr: -3.1 });
+    });
+
+    it("marks only the models that never arrived when the request later times out", async () => {
+      const apiClient = {
+        getStructuralAssessments: vi.fn(async (_params: any, _signal: any, onModel: any) => {
+          onModel(modelFrame("esm2Eval", { llr: -3.1 }));
+          throw Object.assign(new Error("Request timed out after 90000ms"), { name: "TimeoutError" });
+        })
+      };
+      const { setAnalysisState, current } = trackedState({ analysis: "Base analysis" });
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await fetchProgressiveStructuralAssessments(structuralParams, apiClient, new AbortController().signal, setAnalysisState, 1, () => 1);
+      consoleError.mockRestore();
+
+      const result = current().result;
+      expect(result.esm2Eval, "the finished model is a real result, not a timeout").toEqual({ llr: -3.1 });
+      expect(result.serviceStatus).toMatchObject({ esm2Eval: "ok", esm3: "timeout", esmc: "timeout", saprot: "timeout" });
+      for (const field of ["esm3Eval", "esmcEval", "saprotEval"]) {
+        expect(result[field]).toMatchObject({ status: "timeout" });
+      }
+      expect(result.metadata.pipelineStages.structural, "some models arrived").toBe("degraded");
+    });
+
+    it("still marks all four when nothing arrived before the failure", async () => {
+      const apiClient = {
+        getStructuralAssessments: vi.fn(async () => { throw new Error("Failed to get structural assessments"); })
+      };
+      const { setAnalysisState, current } = trackedState({ analysis: "Base analysis" });
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await fetchProgressiveStructuralAssessments(structuralParams, apiClient, new AbortController().signal, setAnalysisState, 1, () => 1);
+      consoleError.mockRestore();
+
+      const result = current().result;
+      for (const field of ["esm3Eval", "esmcEval", "esm2Eval", "saprotEval"]) {
+        expect(result[field]).toMatchObject({ status: "error" });
+      }
+      expect(result.metadata.pipelineStages.structural).toBe("error");
+    });
+
+    it("ignores a model that arrives after the request was superseded", async () => {
+      let emit!: (frame: any) => void;
+      const apiClient = {
+        getStructuralAssessments: vi.fn((_params: any, _signal: any, onModel: any) => {
+          emit = onModel;
+          return new Promise(() => {});
+        })
+      };
+      const { setAnalysisState, current } = trackedState({ analysis: "Base analysis" });
+
+      fetchProgressiveStructuralAssessments(structuralParams, apiClient, new AbortController().signal, setAnalysisState, 1, () => 2);
+      emit(modelFrame("esm3", { score: 1 }));
+
+      expect(current().result.esm3Eval).toBeUndefined();
+    });
   });
 });

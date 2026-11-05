@@ -39,6 +39,7 @@ export interface EsmcEvalResult {
 import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
+import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
 import { parseShiftWindow } from "./lmShiftWindow.ts";
 
 export type ModelEvalError = {
@@ -77,12 +78,16 @@ export async function runEsm2Analysis(
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/esm2_3b`;
   // With a token the sidecar uses Hugging Face inference, so the call is governed and counted as such (WP-I4).
   const token = resolveCredential("huggingface", hfToken).token;
+  // One knob for the whole structural stage: the same number the route races this model against, so
+  // the call and the race can never be edited apart (see `server/tests/structural-timeout-budget.test.ts`).
+  const budgetMs = CONFIG.timeouts.structuralModelsMs;
   try {
     const sidecarRes = await governedForCredential("huggingface", token, () => fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret
+        "X-Sidecar-Secret": sidecarSecret,
+        [SIDECAR_BUDGET_HEADER]: String(budgetMs)
       },
       body: JSON.stringify({
         sequence: sequence,
@@ -92,8 +97,8 @@ export async function runEsm2Analysis(
         hfToken: token,
         modelName: modelName
       }),
-      signal: AbortSignal.timeout(120000) // CPU inference + model load can take 1-2 min
-    }), { deadlineAt: Date.now() + 120000 });
+      signal: AbortSignal.timeout(budgetMs) // CPU inference + model load can take 1-2 min
+    }), { deadlineAt: Date.now() + budgetMs });
 
     if (sidecarRes.ok) {
       const data = await sidecarRes.json() as any;
@@ -138,7 +143,7 @@ export async function runEsm2Analysis(
       }
       return { error: `ESM-2 sidecar returned unexpected response format`, status: "error" };
     }
-    return { error: `ESM-2 sidecar returned HTTP ${sidecarRes.status}`, status: [401, 403].includes(sidecarRes.status) ? "unauthorized" : "offline" };
+    return sidecarFailure("ESM-2", sidecarRes.status);
   } catch (err: any) {
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";

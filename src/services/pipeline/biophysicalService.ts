@@ -4,6 +4,7 @@ import { TraceContext } from "./types";
 import { getCachedVariant, setCachedVariant, type CachedVariantBundle } from "./variantCache";
 import { mergeResultPatch } from "./resultMerge";
 import { deepModelEvidenceFor } from "../../shared/deepModelEvidence";
+import { STRUCTURAL_MODEL_FIELDS, STRUCTURAL_MODEL_KEYS, type StructuralModelKey } from "../../shared/structuralStream";
 
 export interface BiophysicalAnalysisParams {
   gene: string;
@@ -355,8 +356,22 @@ export function fetchProgressiveStructuralAssessments(
       offsetMs: Math.max(0, Math.round(structuralStart - traceContext.traceStart)), durationMs, status, ...(error ? { error } : {})
     });
   };
+  /**
+   * The models the server has already delivered. Each is merged into the state the moment it arrives,
+   * so a fast model is on screen while a slow one is still running — and if the request later fails or
+   * times out, only the models that NEVER arrived are marked failed. (The old code marked all four,
+   * so a timer firing one second after ESM-2 finished showed ESM-2 as timed out.)
+   */
+  const arrived = new Set<StructuralModelKey>();
   return apiClient
-    .getStructuralAssessments(params, signal)
+    .getStructuralAssessments(params, signal, (frame: { key: StructuralModelKey; evaluation: unknown; status: string }) => {
+      if (getActiveRequestId() !== requestId || signal.aborted) return;
+      arrived.add(frame.key);
+      setAnalysisState((prev: any) => mergeResultPatch(prev, {
+        [STRUCTURAL_MODEL_FIELDS[frame.key]]: frame.evaluation,
+        serviceStatus: { [frame.key]: frame.status }
+      }, undefined, "structural"));
+    })
     .then((structRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
       if (!structRes || typeof structRes !== "object") throw new Error("Structural evaluation returned no result");
@@ -450,14 +465,13 @@ export function fetchProgressiveStructuralAssessments(
 
       addStructuralSpan("failed", errMessage);
       console.error("[BiophysicalService Error] Progressive structural assessments fetch failed:", structErr);
+      // Only the models that never arrived failed; the ones already merged above are real results.
+      const unfinished = STRUCTURAL_MODEL_KEYS.filter(key => !arrived.has(key));
+      const failure = { error: errMessage, status: isTimeout ? "timeout" : "error" };
       setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
-        const failureStatus: Record<string, string> = {
-          esm3: isTimeout ? "timeout" : "error",
-          esmc: isTimeout ? "timeout" : "error",
-          esm2Eval: isTimeout ? "timeout" : "error",
-          saprot: isTimeout ? "timeout" : "error"
-        };
+        const failureStatus = Object.fromEntries(unfinished.map(key => [key, failure.status]));
+        const failedEvaluations = Object.fromEntries(unfinished.map(key => [STRUCTURAL_MODEL_FIELDS[key], failure]));
         const mergedServiceStatus = {
           ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
           ...failureStatus
@@ -466,15 +480,12 @@ export function fetchProgressiveStructuralAssessments(
           ...prev,
           result: {
             ...prev.result,
-            esm3Eval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
-            esmcEval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
-            esm2Eval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
-            saprotEval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
+            ...failedEvaluations,
             serviceStatus: mergedServiceStatus,
             metadata: {
               ...(prev.result.metadata || {}),
               serviceStatus: mergedServiceStatus,
-              pipelineStages: { ...prev.result.metadata?.pipelineStages, structural: "error" }
+              pipelineStages: { ...prev.result.metadata?.pipelineStages, structural: arrived.size > 0 ? "degraded" : "error" }
             }
           }
         };

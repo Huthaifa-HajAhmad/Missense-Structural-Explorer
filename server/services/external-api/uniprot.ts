@@ -1,4 +1,5 @@
 import { LRUCache } from "lru-cache";
+import { SEQUENCE_LOOKUP_BUDGET_MS } from "../../../src/shared/structureLookupBudgets.ts";
 import { uniprotCache, uniprotFeaturesCache, getCachedOrFetch, defaultCacheRegistry } from "../infra/cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import {
@@ -740,7 +741,13 @@ export async function fetchUniprotSequence(uniprotId: string, options?: UniprotC
     isUsable: (seq) => typeof seq === "string" && seq.length > 0,
     fetcher: async () => {
       const url = `https://rest.uniprot.org/uniprotkb/${key}.fasta`;
-      const response = await fetchWithRetry(url, { timeout: 15000 });
+      const budgetSignal = AbortSignal.timeout(SEQUENCE_LOOKUP_BUDGET_MS);
+      const response = await fetchWithRetry(url, {
+        timeout: 15000,
+        deadlineAt: Date.now() + SEQUENCE_LOOKUP_BUDGET_MS,
+        signal: options?.signal ? AbortSignal.any([options.signal, budgetSignal]) : budgetSignal,
+        ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
+      });
       if (!response.ok) {
         throw new Error(`Failed to fetch UniProt sequence for ${key} (status ${response.status})`);
       }

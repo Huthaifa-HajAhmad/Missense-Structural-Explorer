@@ -2,10 +2,25 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   fetchUniprotEntryReferenceData,
   fetchUniprotFeatures,
+  fetchUniprotSequence,
   isUniprotEntryName,
   resolveUniprotEntryNameToAccession,
 } from "./uniprot.ts";
 import { clearAllCaches } from "../infra/cache.ts";
+import { LRUCache } from "lru-cache";
+
+it("cancels sequence retrieval when its caller stops waiting", async () => {
+  const controller = new AbortController();
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+    controller.abort();
+    init?.signal?.throwIfAborted();
+    return new Response(">Q9H8M5\nMPEPTIDE");
+  });
+  await expect(fetchUniprotSequence("Q9H8M5", {
+    l1Cache: new LRUCache({ max: 1 }), bypassSqlite: true, signal: controller.signal,
+  })).rejects.toThrow();
+  fetch.mockRestore();
+});
 
 describe("UniProt Features Service", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 vi.mock("../structure/structure-fetcher.ts", () => ({ fetchAlphafoldPdb: vi.fn(async () => null) }));
 vi.mock("../structure/pocket/disruption.ts", () => ({ predictStructuralDisruption: vi.fn(async () => ({ level: "low", plddt: 90, reason: "Measured", rsa: 0.6, burialStatus: "surface" })) }));
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { runCoreAnalysis, isStaleCachedPayload, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
+import { runCoreAnalysis, isStaleCachedPayload, streamCoreAnalysis, runStructuralAnalysis, streamStructuralAnalysis } from "./analysis-orchestrator.ts";
 import { payloadIdentityRecordOf } from "./core-identity.ts";
 import { LOCUS_POLICY_VERSION } from "../../../src/shared/locusResolution.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
@@ -143,6 +143,110 @@ describe("Analysis Orchestrator Unit Tests", () => {
     vi.mocked(predictStructuralDisruption).mockResolvedValueOnce({ level: "unknown", reason: "No accessibility", plddt: 90 } as never);
     const result = await runStructuralAnalysis(baseContext, null, null);
     expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * THE BURIAL REFRESH HAS ITS OWN DEADLINE
+   * ─────────────────────────────────────────────────────────────────────────────
+   * After the four models settle, the retry downloads the AlphaFold structure and measures
+   * accessibility. That step had no deadline at all, so a slow structure host held the answer long after
+   * every model was done.
+   */
+  it("keeps the earlier burial reading when the refresh outlives its own deadline", async () => {
+    const { CONFIG } = await import("../../config.ts");
+    const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
+    vi.mocked(fetchAlphafoldPdb).mockImplementationOnce(() => new Promise(() => {}));
+    const timeouts = CONFIG.timeouts as { structuralTailMs: number };
+    const original = timeouts.structuralTailMs;
+    timeouts.structuralTailMs = 30;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const startedAt = Date.now();
+      const result = await runStructuralAnalysis(baseContext, null, null);
+      expect(Date.now() - startedAt, "the answer must not wait for a download that never ends").toBeLessThan(2_000);
+      expect(result.esm3Eval).toEqual({ score: -4.5 });
+      expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
+      expect(result.disruptionPredictor).not.toHaveProperty("structureLabel");
+      expect(warn.mock.calls.flat().join(" ")).toContain("did not finish");
+    } finally {
+      timeouts.structuralTailMs = original;
+      warn.mockRestore();
+    }
+  });
+
+  it("skips the burial refresh altogether when the reader has already left", async () => {
+    const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
+    const left = new AbortController();
+    left.abort();
+    const result = await runStructuralAnalysis(baseContext, null, null, { signal: left.signal });
+    expect(fetchAlphafoldPdb).not.toHaveBeenCalled();
+    // The models' results are still returned (and persisted): only the optional extra is skipped.
+    expect(result.esm3Eval).toEqual({ score: -4.5 });
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * THE STRUCTURAL STREAM — each model as it settles, a heartbeat while waiting, the result last
+   * ─────────────────────────────────────────────────────────────────────────────
+   */
+  const structuralFetchResult = {
+    esm3Eval: { score: -4.5 }, esmcEval: { score: -2.1 }, esm2Eval: { score: -3.8 }, saprotEval: { score: -1.9 },
+    serviceStatus: { esm3: "ok", esmc: "ok", esm2Eval: "ok", saprot: "ok" },
+    structuralTimings: { esm3: 11, esmc: 12, esm2Eval: 13, saprot: 14 },
+    structuralTimingOffsets: { esm3: 20, esmc: 21, esm2Eval: 22, saprot: 24 }
+  };
+
+  it("streams each model the moment it settles and ends on ONE final frame equal to the buffered result", async () => {
+    const { fetchStructuralModelData } = await import("../structure/structural-model-fetcher.ts");
+    vi.mocked(fetchStructuralModelData).mockImplementationOnce((async (_c: any, _b: any, _h: any, _t: any, _p: any, onModel: any) => {
+      onModel?.({ type: "model", key: "esm3", evaluation: { score: -4.5 }, status: "ok", durationMs: 11 });
+      onModel?.({ type: "model", key: "saprot", evaluation: { score: -1.9 }, status: "ok", durationMs: 14 });
+      return structuralFetchResult;
+    }) as any);
+
+    const frames: any[] = [];
+    const result = await streamStructuralAnalysis(baseContext, null, null, frame => frames.push(frame));
+
+    expect(frames.slice(0, 2).map(frame => frame.key)).toEqual(["esm3", "saprot"]);
+    const finals = frames.filter(frame => frame.type === "final");
+    expect(finals, "exactly one final frame").toHaveLength(1);
+    expect(frames[frames.length - 1], "and it comes last").toBe(finals[0]);
+    expect(finals[0].data).toBe(result);
+    expect(result).toMatchObject({ esm3Eval: { score: -4.5 }, saprotEval: { score: -1.9 }, structuralTimings: { esm3: 11 } });
+  });
+
+  it("writes a heartbeat while the models are still running, and clears its timer afterwards", async () => {
+    const { fetchStructuralModelData } = await import("../structure/structural-model-fetcher.ts");
+    let finish!: () => void;
+    vi.mocked(fetchStructuralModelData).mockImplementationOnce(
+      (() => new Promise(resolve => { finish = () => resolve(structuralFetchResult); })) as any
+    );
+
+    vi.useFakeTimers();
+    try {
+      const frames: any[] = [];
+      const run = streamStructuralAnalysis(baseContext, null, null, frame => frames.push(frame));
+      await vi.advanceTimersByTimeAsync(STREAM_HEARTBEAT_MS * 2 + 10);
+      expect(frames.filter(frame => frame.type === "heartbeat").length).toBeGreaterThanOrEqual(2);
+      expect(frames.some(frame => frame.type === "final"), "nothing is final while a model is running").toBe(false);
+
+      finish();
+      await vi.advanceTimersByTimeAsync(0);
+      await run;
+      expect(frames[frames.length - 1].type).toBe("final");
+      expect(vi.getTimerCount(), "the heartbeat must not outlive the request").toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does nothing for a reader that has already left", async () => {
+    const left = new AbortController();
+    left.abort();
+    const frames: any[] = [];
+    expect(await streamStructuralAnalysis(baseContext, null, null, frame => frames.push(frame), left.signal)).toBeNull();
+    expect(frames).toEqual([]);
   });
 
   it("should run synchronous core analysis and persist result to cache", async () => {

@@ -122,6 +122,22 @@ export const STREAM_HEARTBEAT_MS = 5_000; // 5 s
 export const CLIENT_STREAM_IDLE_BUDGET_MS = 30_000; // 30 s
 
 /**
+ * How long `POST /api/v1/analyze-variant/structural` may stay silent before the client gives up.
+ *
+ * This is NOT a total cap, and that is the point. The route used to answer once, as one JSON body,
+ * with a fixed 125 s client limit. The server's own limit for the four deep models is 120 s, and the
+ * client's clock also started a few seconds before the server's (request queueing and validation), so
+ * a run that used its whole server allowance lost EVERY model's result — including models that had
+ * already finished — to a timer. Measured on the production VM: ESM-2 finished 0.4 s inside the server
+ * limit and the browser still showed four timeouts.
+ *
+ * The route now streams one frame per model plus a heartbeat every {@link STREAM_HEARTBEAT_MS}, and
+ * this bound only covers the wait for the response headers and a stalled transport. A slow model can
+ * no longer cost the reader a fast one.
+ */
+export const CLIENT_STRUCTURAL_REQUEST_BUDGET_MS = 90_000; // 90 s
+
+/**
  * Whole-call budget for `POST /api/v1/esmfold` — de novo folding, from the client's side.
  *
  * WHY THIS EXISTS, AND WHY IT IS THIS LARGE

@@ -289,6 +289,89 @@ describe("Variant Analysis Route Handlers", () => {
       expect(responseBody.esm3Eval.score).toBe(0.9);
       expect(responseBody.ruleBasedInsights.classification).toBe("Pathogenic");
     });
+
+    /**
+     * ─────────────────────────────────────────────────────────────────────────────
+     * STREAMING IS OPT-IN, AND THE BUFFERED BODY IS UNCHANGED FOR EVERYONE ELSE
+     * ─────────────────────────────────────────────────────────────────────────────
+     */
+    const structuralHandler = () => {
+      const route: any = apiRouter.stack.find(
+        (layer: any) => layer.route && layer.route.path === "/analyze-variant/structural"
+      );
+      return route.route.stack[route.route.stack.length - 1].handle;
+    };
+
+    const streamingResponse = () => {
+      const written: string[] = [];
+      const headers: Record<string, string> = {};
+      let ended = false;
+      const res: any = {
+        writableEnded: false,
+        setHeader(name: string, value: string) { headers[name] = value; },
+        flushHeaders() {},
+        write(chunk: string) { written.push(chunk); return true; },
+        end() { ended = true; res.writableEnded = true; },
+        json() { throw new Error("the streaming path must not answer with one JSON body"); },
+        status() { return this; }
+      };
+      return { res, written, headers, wasEnded: () => ended };
+    };
+
+    it("streams NDJSON frames, one per line, when the caller asks for them", async () => {
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR");
+      const buffered = vi.spyOn(orchestrator, "runStructuralAnalysis");
+      vi.spyOn(orchestrator, "streamStructuralAnalysis").mockImplementation(async (_ctx, _b, _h, onFrame) => {
+        onFrame({ type: "heartbeat" });
+        onFrame({ type: "model", key: "esm3", evaluation: { score: 0.9 }, status: "ok", durationMs: 12 });
+        const result = { esm3Eval: { score: 0.9 } } as any;
+        onFrame({ type: "final", data: result });
+        return result;
+      });
+
+      const { res, written, headers, wasEnded } = streamingResponse();
+      const req: any = { body: { gene: "PAH", variant: "p.Met1Val" }, headers: { accept: "application/x-ndjson" }, on: vi.fn() };
+      await structuralHandler()(req, res, () => {});
+
+      expect(headers["Content-Type"]).toContain("application/x-ndjson");
+      expect(wasEnded(), "the stream must be closed so the reader stops waiting").toBe(true);
+      expect(buffered, "the buffered path must not also run").not.toHaveBeenCalled();
+      for (const chunk of written) expect(chunk.endsWith("\n")).toBe(true);
+      const frames = written.map(chunk => JSON.parse(chunk));
+      expect(frames.map(frame => frame.type)).toEqual(["heartbeat", "model", "final"]);
+      expect(frames[2].data.esm3Eval.score).toBe(0.9);
+    });
+
+    it("answers a run-level failure with an error frame and closes the stream", async () => {
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR");
+      vi.spyOn(orchestrator, "streamStructuralAnalysis").mockRejectedValue(new Error("database unavailable"));
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const { res, written, wasEnded } = streamingResponse();
+      const req: any = { body: { gene: "PAH", variant: "p.Met1Val" }, headers: { accept: "application/x-ndjson" }, on: vi.fn() };
+      await structuralHandler()(req, res, () => {});
+
+      expect(JSON.parse(written[written.length - 1])).toEqual({ type: "error", error: "database unavailable" });
+      expect(wasEnded()).toBe(true);
+      consoleError.mockRestore();
+    });
+
+    it("stays buffered for a caller that does not ask for NDJSON", async () => {
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR");
+      const streamed = vi.spyOn(orchestrator, "streamStructuralAnalysis");
+      vi.spyOn(orchestrator, "runStructuralAnalysis").mockResolvedValue({ esm3Eval: { score: 0.5 } } as any);
+
+      let body: any = null;
+      const res: any = { status() { return this; }, json(value: any) { body = value; return this; } };
+      const req: any = { body: { gene: "PAH", variant: "p.Met1Val" }, headers: { accept: "application/json" } };
+      await structuralHandler()(req, res, () => {});
+
+      expect(body.esm3Eval.score).toBe(0.5);
+      expect(streamed).not.toHaveBeenCalled();
+    });
   });
 
   describe("POST /analyze-variant/stream", () => {

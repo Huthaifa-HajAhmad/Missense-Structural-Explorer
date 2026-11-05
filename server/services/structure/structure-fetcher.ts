@@ -1,4 +1,5 @@
 import { validateUniProt } from "../../utils.ts";
+import { HOMOLOG_DISCOVERY_BUDGET_MS } from "../../../src/shared/structureLookupBudgets.ts";
 import { fetchWithRetry } from "../infra/http-client.ts";
 import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "../infra/cache.ts";
 import { fetchUniprotSequence } from "../external-api/uniprot.ts";
@@ -593,7 +594,7 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
     }
 
     // Bound total RCSB candidate discovery to at most 18 seconds
-    const timeoutSignal = AbortSignal.timeout(18000);
+    const timeoutSignal = AbortSignal.timeout(HOMOLOG_DISCOVERY_BUDGET_MS);
 
     try {
       const searchRes = await fetchWithRetry(

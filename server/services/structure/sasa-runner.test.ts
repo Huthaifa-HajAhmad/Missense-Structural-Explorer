@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { executeSasaAll, executeSasaEval } from "./sasa-runner.ts";
+import { toolsVenvPython } from "../infra/tools-python.ts";
 
 const mockCysPdb = `
 ATOM      1  N   CYS A 182      11.104  13.207  10.000  1.00 90.00           N
@@ -70,6 +71,24 @@ describe("SASA Runner (Two-Tier Resilient Biophysical Execution)", () => {
       expect(result.burialStatus).toBe("core");
       expect(result.rsa).toBe(0.0898);
     }
+  });
+
+  /**
+   * On the production VM the first run was cut off at its 15 s limit while both CPUs were busy; the
+   * fallback then ran the SAME script again through `uv` (downloading and building packages first) and
+   * was cut off at 15 s too. Two timeouts, 30 s of the core run's critical path, and no value either way.
+   */
+  it.runIf(toolsVenvPython() !== null)("does not retry through uv when the first run was stopped for taking too long", async () => {
+    const executor = vi.fn().mockRejectedValue(Object.assign(new Error("Command failed: sasa_eval.py"), { killed: true, signal: "SIGTERM" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await executeSasaEval(mockCysPdb, "A", 182, { executor, timeoutMs: 15000 });
+    warn.mockRestore();
+
+    expect(executor, "a timeout is not a launcher problem: the second launcher is slower still").toHaveBeenCalledTimes(1);
+    expect(executor.mock.calls[0][0]).not.toBe("uv");
+    expect(result.status).toBe("error");
+    if (result.status === "error") expect(result.message).toContain("did not finish within 15 s");
   });
 
   it("returns clean structured error when the target residue is missing", async () => {
@@ -150,5 +169,48 @@ describe("executeSasaAll (every residue of a chain, one run)", () => {
       expect(all.residues.find((r) => r.resId === 5)?.rsa).toBe(one.rsa);
       expect(all.residues.length).toBe(154);
     }
+  }, 60_000);
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ONE RUN PER (structure, chain, residue)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The same accessibility question is asked two or three times per analysis, by different services and
+ * at the same moment: the core burial reading, the ESM3 structural evaluation, and the orchestrator's
+ * burial refresh. Each question paid for a Python start, the biopython/biotite imports and a
+ * Shrake-Rupley pass over the WHOLE structure — and the runs competed for the same two CPUs, which is
+ * what pushed them over their 15 s limit in the first place.
+ */
+describe("executeSasaEval — one run per question", () => {
+  it("never memoises an injected executor, which is a test seam rather than a run", async () => {
+    const first = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ status: "success", resName: "CYS", resId: 182, sasa: 1, maxSasa: 167, rsa: 0.006, burialStatus: "core", sse: "c" })
+    });
+    const second = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ status: "success", resName: "CYS", resId: 182, sasa: 2, maxSasa: 167, rsa: 0.012, burialStatus: "core", sse: "h" })
+    });
+
+    await executeSasaEval(mockCysPdb, "A", 182, { executor: first });
+    const result = await executeSasaEval(mockCysPdb, "A", 182, { executor: second });
+
+    expect(second, "one test's mock must never answer another test's question").toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("success");
+    if (result.status === "success") expect(result.rsa).toBe(0.012);
+  });
+
+  it.runIf(toolsVenvPython() !== null)("answers a second caller of the same residue without running the tool again", async () => {
+    // A structure untouched by any other test, so this measures a real first run and then a memo hit.
+    const pdb = `${mockCysPdb}\nREMARK   one-run-per-question probe`;
+
+    const first = await executeSasaEval(pdb, "A", 182);
+    expect(first.status).toBe("success");
+
+    const started = Date.now();
+    const second = await executeSasaEval(pdb, "A", 182);
+    const elapsed = Date.now() - started;
+
+    expect(second).toEqual(first);
+    expect(elapsed, "a remembered answer is a lookup, not a Python start").toBeLessThan(250);
   }, 60_000);
 });

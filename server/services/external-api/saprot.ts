@@ -40,6 +40,7 @@ import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { querySaProt } from "./japanfold-client.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
+import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -104,13 +105,16 @@ export async function runSaprotAnalysis(
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/saprot`;
   const token = resolveCredential("huggingface", hfToken).token;
   const preferRemote = saprotEngine === "remote-hf" || (Boolean(token) && saprotEngine !== "saprot-35m");
+  // The same number the route races this model against (see `esm2.ts`).
+  const budgetMs = CONFIG.timeouts.structuralModelsMs;
   // Only a remote run reaches Hugging Face; a local SaProt run spends no one's allowance (WP-I4).
   try {
     const sidecarRes = await governedForCredential("huggingface", preferRemote ? token : null, () => fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret
+        "X-Sidecar-Secret": sidecarSecret,
+        [SIDECAR_BUDGET_HEADER]: String(budgetMs)
       },
       body: JSON.stringify({
         sequence: sequence,
@@ -124,8 +128,8 @@ export async function runSaprotAnalysis(
         preferRemote,
         engine: saprotEngine || null
       }),
-      signal: AbortSignal.timeout(120000) // CPU inference + model load can take 1-2 min
-    }), { deadlineAt: Date.now() + 120000, noteRefusal: saprotEngine !== "saprot-35m" });
+      signal: AbortSignal.timeout(budgetMs) // CPU inference + model load can take 1-2 min
+    }), { deadlineAt: Date.now() + budgetMs, noteRefusal: saprotEngine !== "saprot-35m" });
 
     if (sidecarRes.ok) {
       const data = await sidecarRes.json() as any;
@@ -180,7 +184,7 @@ export async function runSaprotAnalysis(
       return { error: `SaProt sidecar returned unexpected response format`, status: "error" };
     }
 
-    return { error: `SaProt sidecar returned HTTP ${sidecarRes.status}`, status: [401, 403].includes(sidecarRes.status) ? "unauthorized" : "offline" };
+    return sidecarFailure("SaProt", sidecarRes.status);
   } catch (err: any) {
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";

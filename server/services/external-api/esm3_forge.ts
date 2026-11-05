@@ -9,6 +9,7 @@ import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { executeSasaEval } from "../structure/sasa-runner.ts";
 import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
+import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
 
 export async function runSasaEval(
   pdbText: string,
@@ -141,7 +142,8 @@ export async function fetchEsm3StructureEval(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret
+        "X-Sidecar-Secret": sidecarSecret,
+        [SIDECAR_BUDGET_HEADER]: String(sidecarBudgetMs)
       },
       body: JSON.stringify({
         sequence,
@@ -172,8 +174,13 @@ export async function fetchEsm3StructureEval(
     } else {
       const txt = await sidecarRes.text();
       console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
-      esm3Error = `Sidecar API returned HTTP ${sidecarRes.status}: ${txt}`;
-      esm3Status = "error";
+      /**
+       * A refused pass (503) is the model server telling us it was too busy to start; that is a timeout,
+       * not a broken engine, and the reader is told to retry rather than to check their install.
+       */
+      const refusal = sidecarFailure("ESM3", sidecarRes.status);
+      esm3Error = `${refusal.error} (${txt.trim().slice(0, 200) || "no detail"})`;
+      esm3Status = refusal.status === "timeout" ? "timeout" : "error";
     }
   } catch (err: any) {
     // A timeout is retryable and must not read as a generic failure. `AbortSignal.timeout` rejects
