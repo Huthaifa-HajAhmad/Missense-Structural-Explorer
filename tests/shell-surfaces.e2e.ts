@@ -2,7 +2,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { skipTour } from './support.js';
 
-test('the query and monitor clear the viewport bottom with three recent analyses', { tags: ['shell'] }, async ({ app, browser, screen }) => {
+test('the query and monitor end on one line with three recent analyses', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.addInitScript(() => {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
@@ -20,9 +20,11 @@ test('the query and monitor clear the viewport bottom with three recent analyses
     const query = document.querySelector('.workbench-query')!.getBoundingClientRect();
     const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
     const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
+    // The deck is as tall as the monitor's content, not the window, so the bottom line is shared
+    // rather than floored; the monitor's own cap still keeps it inside the window.
     return query.top <= 210 && Math.abs(query.top - monitor.top) <= 1 &&
       Math.abs(recents.bottom - monitor.bottom) <= 1 && monitor.bottom <= innerHeight - 20;
-  }), 'panels start higher, align, and retain a bottom gutter').toBe(true);
+  }), 'panels start higher, share a bottom line, and retain a bottom gutter').toBe(true);
   await app.screenshot('query-panels-three-recents');
 });
 
@@ -129,26 +131,29 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
       const canvas = getComputedStyle(document.body).backgroundColor;
       const current = [...nav.querySelectorAll('[aria-current="page"]')];
       const active = nav.querySelector<HTMLElement>('.ms-sub-btn[data-active="true"]')!;
-      const marker = getComputedStyle(active, '::before');
       const label = nav.querySelector('.ms-zone-label')!;
-      const guide = getComputedStyle(nav.querySelector('.ms-sub-list')!);
+      const subLists = [...nav.querySelectorAll('.ms-sub-list')];
       const queryRow = nav.querySelector<HTMLElement>('.ms-nav-btn[data-view="search"]')!;
       const accessibleName = (el: Element) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim();
       return {
         quietDivider: rootStyle.borderInlineEndWidth === '1px' && rootStyle.boxShadow === 'none',
         noNativeBar: getComputedStyle(nav).scrollbarWidth === 'none',
-        // Library-agnostic: a row carries exactly one glyph, so a disclosure chevron from any
-        // icon set shows up as a second svg instead of a class name this selector would have
-        // had to guess.
-        noChevrons: [...nav.querySelectorAll('.ms-nav-btn, .ms-sub-btn')].every(b => b.querySelectorAll('svg').length === 1),
+        // Library-agnostic: a top-level row carries exactly one glyph, so a disclosure chevron from
+        // any icon set shows up as a second svg instead of a class name this selector would have had
+        // to guess. Sub-rows are text by design, so their rule is "no glyph at all".
+        noChevrons: [...nav.querySelectorAll('.ms-nav-btn')].every(b => b.querySelectorAll('svg').length === 1),
+        subRowsArePlainText: [...nav.querySelectorAll('.ms-sub-btn')].every(b => b.querySelectorAll('svg').length === 0 && b.getBoundingClientRect().height < 32),
         oneCurrent: current.length === 1 && current[0] === active,
         // The tinted pill alone marks the current page: no left bar.
         cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow === 'none',
-        pillNotMarker: marker.content === 'none' && getComputedStyle(active).borderRadius === '8px',
-        subRowsHaveIconsOnOneLine: [...nav.querySelectorAll('.ms-sub-btn')].every(b => b.querySelector('svg.ms-sub-icon') !== null && b.getBoundingClientRect().height < 32),
+        pillNotMarker: getComputedStyle(active).boxShadow === 'none' && getComputedStyle(active).borderRadius === '8px',
         distinctZoneLabel: getComputedStyle(label, '::before').content === 'none' && getComputedStyle(label).fontWeight === '600',
-        groupGuide: guide.borderLeftWidth === '1px',
-        oneGuideLinePerGroup: [...nav.querySelectorAll('.ms-sub-list')].every(list => getComputedStyle(list).borderLeftWidth === '1px'),
+        // One drawn tree per group, not a divider: the list draws no line, every child carries the
+        // branch that leaves the trunk, and the last child ends it (no trunk below it).
+        groupTree: subLists.length > 0 && subLists.every(list =>
+          getComputedStyle(list).borderLeftWidth === '0px' &&
+          [...list.querySelectorAll('.ms-sub-btn')].every(b => getComputedStyle(b, '::before').borderLeftWidth === '1px') &&
+          getComputedStyle(list.lastElementChild!, '::after').display === 'none'),
         activeLabelLegible: contrast(getComputedStyle(active).color, getComputedStyle(active).backgroundColor) >= 4.5,
         // The query page is a plain tree row, and the app chrome (rail + header) has exactly one
         // control called "Search": the header's palette trigger. Scoped to the chrome on purpose —
@@ -162,8 +167,8 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
       };
     });
     expect(result, `${theme} sidebar contract`).toEqual({
-      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, pillNotMarker: true,
-      subRowsHaveIconsOnOneLine: true, distinctZoneLabel: true, groupGuide: true, oneGuideLinePerGroup: true, activeLabelLegible: true,
+      quietDivider: true, noNativeBar: true, noChevrons: true, subRowsArePlainText: true, oneCurrent: true, cursor: true,
+      pillNotMarker: true, distinctZoneLabel: true, groupTree: true, activeLabelLegible: true,
       queryRowIsPlain: true, onlyTheHeaderBarIsSearch: true,
     });
     await app.screenshot(`sidebar-tree-${theme}`);

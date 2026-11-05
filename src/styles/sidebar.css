@@ -346,18 +346,45 @@
   color: var(--cs-text-danger-on-soft, var(--cs-text-danger));
 }
 
-/* Nested pages sit indented under their parent, in smaller type. The zone's guide line is the
-   only line in the tree — a second one per group made the hierarchy read as boxes in boxes. The
-   groups are always listed, so the indent never changes with the view. */
+/* Nested pages sit indented under their parent, in smaller type, on a drawn tree: the trunk turns
+   into every child (└) and stops at the last one, so each row reads as a page of the row above
+   rather than as a line standing beside a list. The branch is drawn per row — a single border on
+   the list can only run past the last child. The groups are always listed, so the indent never
+   changes with the view. */
 .ms-sub-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
   margin-inline: 20px 0;
   margin-block: 3px 8px;
-  padding-inline-start: 10px;
+  /* 11px, not a 1px border + 10px padding: the trunk lives on the rows, not on the list. */
+  padding-inline-start: 11px;
   padding-block: 0;
+}
+/* The trunk down to the next child; the last child ends the tree. */
+.ms-sub-btn::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: -11px;
+  inset-block-start: 50%;
+  inline-size: 1px;
+  block-size: calc(50% + 1px);
+  background: var(--cs-border-subtle);
+  pointer-events: none;
+}
+.ms-sub-btn:last-child::after { display: none; }
+/* The branch: a stub that leaves the trunk and turns into the label, with the app's radius language. */
+.ms-sub-btn::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -11px;
+  inset-block-start: 0;
+  inline-size: 12px;
+  block-size: 50%;
   border-inline-start: 1px solid var(--cs-border-subtle);
+  border-block-end: 1px solid var(--cs-border-subtle);
+  border-end-start-radius: 7px;
+  pointer-events: none;
 }
 .ms-sub-btn {
   position: relative;
@@ -366,7 +393,9 @@
   gap: 8px;
   width: 100%;
   min-block-size: 30px;
-  padding: 0 8px;
+  /* 9px + the tree's 20px margin and 11px padding lands the label on the same x as a top-level
+     row's label (12 + 18 + 10), so the whole rail reads as one text column. */
+  padding: 0 8px 0 9px;
   border-radius: 8px;
   text-align: left;
   cursor: pointer;
@@ -385,18 +414,9 @@
   color: var(--cs-text-primary);
   background: var(--ms-pill-fill);
 }
-/* Same icon-then-label anatomy as a top-level row, one size down. */
-.ms-sub-icon {
-  flex-shrink: 0;
-  inline-size: 1rem;
-  block-size: 1rem;
-  color: var(--cs-text-muted);
-  transition: color 120ms ease;
-}
-.ms-sub-btn:hover .ms-sub-icon,
-.ms-sub-btn[data-active="true"] .ms-sub-icon {
-  color: var(--cs-text-primary);
-}
+/* Sub-rows are text: the drawn tree, the indent and the smaller type carry the hierarchy. A glyph
+   per child would be a second label for a word already on screen, and it pushed every child label
+   off the top-level rows' text column. The live spinner is a state, so it stays. */
 .ms-sub-label {
   font-size: 13px;
   line-height: 1.3;

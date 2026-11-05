@@ -39,9 +39,12 @@ export const NAV_ICONS = {
 export type StructureModelId = "structure_alphafold" | "structure_esmfold";
 
 /**
- * Nested pages, keyed by the page id the sidebar renders. A `Record` over the union of ids, not an
- * index signature: a tab added without a glyph is then a compile error instead of a row that renders
- * a blank 15px column (which is what the e2e had to catch before).
+ * Nested pages, keyed by the page id they are opened by. A `Record` over the union of ids, not an
+ * index signature: a tab added without a glyph is then a compile error instead of a blank slot in
+ * the command palette or the view inspector.
+ *
+ * The rail's own sub-rows are text (see sidebar.css), so this map feeds the palette and the view
+ * header, not the sidebar's tree.
  *
  * Note `structure` here is the Evidence tab "Residue shifts & pockets", not the 3D structure view —
  * the sidebar's own `NAV_ICONS.structure` is the cube.
