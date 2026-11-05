@@ -30,7 +30,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:smoke": "vitest run server/tests/smoke.test.ts",
-    "test:deployment": "python -m unittest discover -s deploy -p test_rollout.py",
+    "test:deployment": "python -m unittest discover -s deploy -p \"test_*.py\"",
     "test:evidence-context-import": "python -m unittest discover -s scripts/evidence_context -p test_dgtex.py",
     "test:sidecar": "uv run --project tools --no-sync python -m unittest tools.test_engine_resilience tools.test_esm2_scoring tools.test_model_server tools.test_published_reference",
     "test:canary": "vitest run server/tests/canary.test.ts",
