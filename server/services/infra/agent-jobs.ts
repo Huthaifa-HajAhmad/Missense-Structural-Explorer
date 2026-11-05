@@ -182,12 +182,13 @@ export async function acceptAgentResult(
   }
   const foldxResult = { ...validation.result, computeProvenance: provenance };
   const d = job.data ?? {};
+  const cacheKey = buildFoldxCacheKey(d.wtPdb, d.mutation, { ...(d.options ?? {}), toolVersion: keyVersion("foldx", toolVersion) });
   try {
-    writeMutantToCache(buildFoldxCacheKey(d.wtPdb, d.mutation, { ...(d.options ?? {}), toolVersion: keyVersion("foldx", toolVersion) }), foldxResult);
+    writeMutantToCache(cacheKey, foldxResult);
   } catch (err: any) {
     console.warn(`[agent] Could not cache ${jobId}'s result:`, err?.message ?? err);
   }
-  const final = await finishFoldxQueueJob(jobId, d, foldxResult, startFoldxCompanions(jobId, d));
+  const final = await finishFoldxQueueJob(jobId, d, foldxResult, startFoldxCompanions(jobId, d), cacheKey);
   if (final && typeof final === "object") final.computeProvenance = provenance;
   return queue.completeAgentJob(jobId, agent.agentId, final, host)
     ? { status: 200, accepted: true }
