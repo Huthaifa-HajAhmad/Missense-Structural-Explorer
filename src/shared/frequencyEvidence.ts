@@ -424,7 +424,7 @@ export function formatCount(value: number | null | undefined): string {
  */
 export interface PopulationReading {
   /** The cohort reporting the most copies, or `null` when none reported interpretable counts. */
-  mostCopies: { label: string; counts: string; af: number | null } | null;
+  mostCopies: { label: string; counts: string; af: number | null; ac: number | null; an: number | null } | null;
   /** True when `mostCopies` is the very reading the rule classified on. */
   governs: boolean;
   /** The frequency the rule classified on, or `null` when it had nothing to classify. */
@@ -508,7 +508,7 @@ export function populationReading(evidence: FrequencyEvidence): PopulationReadin
   );
   const counts = top === null ? null : formatAlleleCounts(top);
   const mostCopies = top !== null && counts !== null
-    ? { label: top.label, counts, af: top.af }
+    ? { label: top.label, counts, af: top.af, ac: top.ac, an: top.an }
     : null;
   return {
     mostCopies,
