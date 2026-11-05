@@ -17,14 +17,14 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { cleanPdbForFoldX } from "../server/services/stability/foldx/pdb-utils.ts";
-import { buildEnergeticsEvidence } from "../src/shared/energeticsEvidence.ts";
+import { buildEnergeticsEvidence, type AgreementDirection } from "../src/shared/energeticsEvidence.ts";
 
 const BASE = process.env.SIDECAR_URL ?? "http://127.0.0.1:8011";
 const SECRET = process.env.SIDECAR_SECRET ?? "";
 const CONCURRENCY = parseInt(process.env.BENCH_CONCURRENCY ?? "3", 10);
 
-interface FoldxRow { id: string; pdb: string; chain: string; mutation: string; residues: number; measured: number; ddg: Record<string, number | null> }
-interface EngineRow { id: string; thermompnn: number | null; stabilityoracle: number | null; thermompnnError?: string; stabilityoracleError?: string }
+export interface FoldxRow { id: string; pdb: string; chain: string; mutation: string; residues: number; measured: number; ddg: Record<string, number | null> }
+export interface EngineRow { id: string; thermompnn: number | null; stabilityoracle: number | null; thermompnnError?: string; stabilityoracleError?: string }
 
 const readJsonl = <T>(file: string): T[] =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l) as T) : [];
@@ -86,15 +86,16 @@ async function collect(dir: string): Promise<void> {
 }
 
 // ── Report ───────────────────────────────────────────────────────────────────────────────────────────
-const band = (v: number) => (v >= 1.5 ? 2 : v >= 0.5 ? 1 : 0);
-const DIRECTION_BAND: Record<string, number | null> = {
+export const band = (v: number) => (v >= 1.5 ? 2 : v >= 0.5 ? 1 : 0);
+/** Typed on the app's own direction names, so a new direction there fails the type check here until it is given a band. */
+export const DIRECTION_BAND: Record<AgreementDirection, number | null> = {
   destabilizing: 2, "mostly-destabilizing": 2, moderate: 1, "mostly-moderate": 1, "not-destabilizing": 0, "mostly-not-destabilizing": 0, split: null, none: null
 };
 
-interface Row { key: string; measured: number; foldx: number; thermompnn: number; stabilityoracle: number; verdict: number | null; noFoldx: number | null; noFoldxModerate: number | null; bands: Record<string, number> }
+export interface Row { key: string; measured: number; foldx: number; thermompnn: number; stabilityoracle: number; verdict: number | null; noFoldx: number | null; noFoldxModerate: number | null; bands: Record<string, number> }
 
 /** The app's own marks decide each engine's band, read back from the evidence model rather than copied here. */
-function buildRow(f: FoldxRow, e: EngineRow): Row | null {
+export function buildRow(f: FoldxRow, e: EngineRow): Row | null {
   if (e.thermompnn === null || e.stabilityoracle === null) return null;
   const foldx = f.residues <= 233 ? (f.ddg.full as number) : (f.ddg.local as number);
   const evidence = (energetics: Record<string, unknown>) =>
@@ -134,7 +135,7 @@ export function resampled<T extends { key: string }>(rows: T[], stat: (s: T[]) =
 }
 
 const called = (rows: Row[], get: (r: Row) => number | null) => rows.filter(r => get(r) !== null);
-const agreement = (rows: Row[], get: (r: Row) => number | null) => {
+export const agreement = (rows: Row[], get: (r: Row) => number | null) => {
   const c = called(rows, get);
   return c.length ? c.filter(r => get(r) === band(r.measured)).length / c.length : NaN;
 };

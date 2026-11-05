@@ -1,12 +1,12 @@
 # StabilityOracle: rebuilding the model's inputs from a PDB file
 
-**Status (2026-11-05):** shipped, but not an exact match. The checkpoint is sound. It reproduces the authors' published predictions exactly (r 1.00000) from the authors' own stored inputs. The authors did not publish the code that builds those inputs, so we rebuilt it from what the stored inputs show. The target was r ≥ 0.95 with their predictions. We reached r 0.81 to 0.88.
+**Status (2026-11-05):** shipped, but not an exact match. The checkpoint is sound. Fed the authors' own stored inputs, it reproduces their published predictions (r 1.00000, largest difference 0.00002) on 42 p53 variants, 134 myoglobin entries and 342 Ssym variants (`scripts/stabilityoracle-published-reproduction.py`). The authors did not publish the code that builds those inputs, so we rebuilt it from what the stored inputs show. The target was r ≥ 0.95 with their predictions. We reached r 0.79 to 0.88, and 0.79 to 0.87 on a single chain, which is what the app sends today.
 
 Terms: **r** is the Pearson correlation. **Bootstrap** re-samples whole chains, so nearby variants do not count as independent. **Hydrogens** are usually missing from PDB files and must be added before the model can read a chain.
 
 ## What was wrong
 
-The old code was barely related to the published model. Run directly from the old source, it gave r 0.27 (Ssym) and 0.23 (S669) with published predictions, and 0.17 and 0.12 with lab values. Its bad inputs and its missing sign change happened to cancel in direction: fixing only the sign would have made the values point the wrong way. It had these problems:
+The old code was barely related to the published model. Run directly from the old source, it gave r 0.27 (Ssym) and 0.23 (S669) with published predictions, and 0.17 and 0.12 with lab values. These are for the raw value the old code returned. Converting it the way the app now does (−output / 2) flips their sign. Its bad inputs and its missing sign change happened to cancel in direction: fixing only the sign would have made the values point the wrong way. It had these problems:
 
 | Input or output | Old code | Now |
 | :--- | :--- | :--- |
@@ -32,17 +32,25 @@ The charge table was recovered by inverting the authors' stored inputs (Zenodo r
 
 ## Results of the shipped code
 
-Re-measure with `scripts/stabilityoracle-published-eval.py` and `scripts/stabilityoracle-independent-check.py`.
+Re-measure with `scripts/stabilityoracle-published-reproduction.py` (the model alone), `scripts/stabilityoracle-published-eval.py` and `scripts/stabilityoracle-independent-check.py` (the whole pipeline; both take `--one-chain`). **The app sends one chain, so the "one chain" rows are the numbers a reader gets today.** The "whole file" rows send every chain in the PDB file, so a partner chain touching the site joins the environment. That applies only to a multi-chain file a client supplies.
 
-| Set | Scored | r with published (95%) | Mean difference from published | r with lab: before, now, published model |
-| :--- | ---: | ---: | ---: | ---: |
-| Ssym (development) | 337 of 342 | 0.851 (0.793 to 0.883) | 0.272 kcal/mol | 0.17, 0.642, 0.693 |
-| S669 (development) | 637 of 666 | 0.813 (0.749 to 0.854) | 0.309 kcal/mol | 0.12, 0.393, 0.491 |
-| **Independent:** T2837 and FireProtDB, 94 chains, none in S669, Ssym, p53 or myoglobin, at most 5 variants per chain | 333 of 357 | 0.877 (0.841 to 0.905) | 0.318 kcal/mol | not run, 0.426 (0.276 to 0.573), 0.462 (0.324 to 0.601) |
+| Set | Sent | Scored | r with published (95%) | Mean difference from published | r with lab: before, now, published model |
+| :--- | :--- | ---: | ---: | ---: | ---: |
+| Ssym (development) | one chain, and whole file (the same) | 337 of 342 | 0.851 (0.793 to 0.883) | 0.272 kcal/mol | 0.17, 0.642, 0.693 |
+| S669 (development) | **one chain** | 637 of 666 | 0.786 (0.714 to 0.832) | 0.322 kcal/mol | 0.12, 0.380, 0.491 |
+| S669 (development) | whole file | 637 of 666 | 0.813 (0.749 to 0.854) | 0.309 kcal/mol | 0.12, 0.393, 0.491 |
+| **Independent:** T2837 and FireProtDB, 92 chains, no variant on a protein in S669, Ssym, p53 or myoglobin, at most 5 variants per chain | **one chain** | 297 of 321 | 0.867 (0.829 to 0.895) | 0.350 kcal/mol | not run, 0.512 (0.334 to 0.659), 0.552 (0.401 to 0.692) |
+| Independent, same variants | whole file | 297 of 321 | 0.884 (0.854 to 0.907) | 0.336 kcal/mol | not run, 0.520 (0.347 to 0.667), 0.552 (0.401 to 0.692) |
 
-The independent result sets the recipe's accuracy: it did not fall on proteins it never saw, so it was not fitted to S669 and Ssym. These sets include many of the kinds of protein the model was tested on, and all are experimental structures with lab values.
+**What "independent" means here.** A variant is dropped when its protein has the same UniProt entry (from PDBe) as any protein in S669, Ssym, p53 or myoglobin: 727 variants were dropped, leaving 321 on 92 chains, of which 297 on 86 chains could be scored (18 variants on chains PDB2PQR cannot add hydrogens to, 6 variants whose published numbering did not match the file). Related proteins with a different UniProt entry, such as other lysozymes or globins, are still in. The charge table is by residue and atom, not by protein, so the effect is probably small, but it was not measured. The result did not fall on proteins it was not built or compared on, so the recipe was not fitted to S669 and Ssym. These sets include many of the kinds of protein the model was tested on, and all are experimental structures with lab values.
 
-**Partner chains** were tested under a rule fixed before the run: adopt if, on S669, r with published rises by 0.02 or more with the chain-resampled 95% interval above zero, r with lab does not fall, and Ssym does not fall by more than 0.01. All chains in the file gave 0.786 to 0.812 (paired 95%: +0.001 to +0.071), lab 0.380 to 0.394, and Ssym unchanged, so it passed. To stay affordable on large complexes, the shipped version adds only chains touching the site. Re-measured with that version: S669 0.813, Ssym 0.851, and on the independent set 0.861 to 0.877 and lab 0.388 to 0.426. AlphaFold models hold one chain and do not change.
+The first version of this check dropped only PDB entries, not proteins. It let p53 (1SAK, 1TUP), apomyoglobin (1BVC) and lysozyme (1AM7, 1EL1) through under other entries, so it was entry-independent, not protein-independent. Its numbers (`--entries-only`): 333 of 357 scored, r with published 0.877 (0.841 to 0.905), r with lab 0.426 (0.276 to 0.573), published model 0.462. On the protein-disjoint set both correlations are higher (a different, smaller set of variants), so the overlap does not explain the result.
+
+The rows behind each run (our value, published value and lab value for every scored variant) are written with `--rows`. They are kept locally in `logs/foldx_bench/` and not committed, because the lab values come from third-party sets whose licence has not been checked.
+
+**Why the same engine has different numbers in different tables.** (1) Lab values here are the authors' file (`ddg`) over the variants StabilityOracle could score. The verdict tables in `doc/FOLDX_LOCAL_SHELL_BENCH_2026-11-02.md` use the FoldX benchmark's measured value over the variants all three engines scored, so the variant lists differ and so do the lab correlations (Ssym 0.64 here, 0.66 there). (2) The one-chain and whole-file rows differ as described above.
+
+**Partner chains** were tested under a rule fixed before the run: adopt if, on S669, r with published rises by 0.02 or more with the chain-resampled 95% interval above zero, r with lab does not fall, and Ssym does not fall by more than 0.01. All chains in the file moved S669 from 0.786 to 0.812 (paired 95%: +0.001 to +0.071) and lab from 0.380 to 0.394, and Ssym did not change, so it passed. To stay affordable on large complexes, the shipped version adds only chains touching the site (the "whole file" rows above: S669 0.813, Ssym 0.851, independent 0.884, against 0.786, 0.851 and 0.867 on one chain). AlphaFold models hold one chain and do not change.
 
 The app's own templates hold one chain today: AlphaFold models are monomers and `extractChainFromPdb` cuts PDB entries to one chain. So this rule reaches readers only through a multi-chain file a client supplies. Sending partner chains from the fetcher would be a separate change, and it would also change FoldX's input.
 
@@ -56,7 +64,7 @@ The app's own templates hold one chain today: AlphaFold models are monomers and 
 | :--- | :--- |
 | Energy minimization (AMBER14 in OpenMM; vacuum or implicit solvent) to match the authors' atom positions | No setting moves atoms closer. Longer runs move them further away |
 | Charges from AMBER14, AMBER99SB, CHARMM36, Gasteiger, MMFF94 | None reproduces them. Best r 0.93, and sizes are off by 1.3 to 3.5 times |
-| ChargeFW2, all 22 methods, computed for the whole p53 chain | None reproduces them, although the authors' loader reads a field named `_atom_site.fw2_charge`. Best r with recovered heavy-atom charges 0.935, against 0.984 for our table on other proteins. Even after a linear rescale the best error is 0.16 e. Recovered charges barely vary by environment (median spread between quartiles 0.019 e for heavy atoms, 0.03 e for hydrogens, on p53), so a table loses little. Per-structure ChargeFW2 was not run through the model end to end: it fails this per-atom test first |
+| ChargeFW2, all 22 methods, computed for the whole p53 chain | None reproduces them, although the authors' loader reads a field named `_atom_site.fw2_charge`. Best r with the recovered heavy-atom charges 0.935 (the p53 chain). There is no like-for-like number for our shipped table: the 0.984 once quoted here was measured on Ssym atoms with an earlier table that included S669 and Ssym charges, so it cannot be set against 0.935. Even after a linear rescale the best error is 0.16 e. Recovered charges barely vary by environment (median spread between quartiles 0.019 e for heavy atoms, 0.03 e for hydrogens, on p53), so a table loses little. Per-structure ChargeFW2 was not run through the model end to end: it fails this per-atom test first |
 | Exposure from the nearby atoms only | Worse by about r 0.10 on both sets |
 | Exposure with all chains in the file | No change |
 | OpenMM hydrogens in place of PDB2PQR | No real difference, and slower |

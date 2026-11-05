@@ -30,7 +30,8 @@ describe("sidecar budget header", () => {
       ["server", "services", "external-api", "esmc.ts"],
       ["server", "services", "external-api", "esm3_forge.ts"],
       ["server", "services", "structure", "structural-diff", "evaluator.ts"],
-      ["server", "services", "stability", "stabilityoracle.ts"]
+      ["server", "services", "stability", "stabilityoracle.ts"],
+      ["server", "services", "stability", "energy-models.ts"] // the local ThermoMPNN call
     ];
     for (const parts of callers) {
       const source = stripCommentsForScan(read(...parts));

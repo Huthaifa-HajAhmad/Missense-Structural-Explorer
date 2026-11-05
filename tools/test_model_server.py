@@ -361,6 +361,23 @@ class TestModelServerHelpers(unittest.TestCase):
             with self.assertRaises(GateDeadlineExceeded):
                 esm3.predict_esm3_sync(esm3.Esm3Request(sequence="MK", position=1, wt="M", mut="K"))
 
+    def test_thermompnn_passes_wait_at_the_shared_cpu_gate(self):
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded, request_deadline
+        from tools.model_server_app.routers import thermompnn as T
+
+        atoms = [("N", 11.104, 13.205, -9.943), ("CA", 11.5, 14.5, -10.5), ("C", 12.0, 14.0, -11.0), ("O", 12.5, 13.0, -11.5)]
+        pdb = "".join(
+            f"ATOM  {number:5d}  {name:<3s} ARG A 408    {x:8.3f}{y:8.3f}{z:8.3f}  1.00 80.00           {name[0]}\n"
+            for number, (name, x, y, z) in enumerate(atoms, 1)
+        )
+        model = Mock()
+        token = request_deadline.set(0.0)  # The caller has already gone.
+        with patch.object(T, "get_official_model", return_value=model):
+            with self.assertRaises(GateDeadlineExceeded):
+                T.predict_thermompnn_sync(T.ThermoMpnnRequest(pdb_content=pdb, mutation="RA408W"))
+        request_deadline.reset(token)
+        model.assert_not_called()
+
     def test_thermompnn_reads_only_the_first_model(self):
         from tools.model_server_app.routers.thermompnn import parse_pdb_chains_for_thermompnn
 

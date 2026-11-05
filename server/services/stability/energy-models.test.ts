@@ -486,4 +486,20 @@ describe("ThermoMPNN status contract", () => {
     expect(result.jobId).toBeNull();
     expect(result.error).toContain("warming up");
   });
+
+  it("tells the model server how long it waits, and reports a busy answer as busy, not as warming up", async () => {
+    process.env.THERMOMPNN_PROVIDER = "local";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ status: "busy", message: "The model server was too busy to start this pass." }),
+      { status: 503 }
+    ) as any);
+
+    const result = await submitThermoMpnnJob(PDB, "AA1V");
+    const headers = new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
+    expect(headers.get("X-Budget-Ms")).toBe("15000");
+    expect(result.status).toBe("unavailable");
+    expect(result.jobId).toBeNull();
+    expect(result.error).toContain("busy");
+    expect(result.error).not.toContain("warming up");
+  });
 });
