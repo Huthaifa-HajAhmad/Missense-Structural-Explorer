@@ -34,6 +34,8 @@ jobs:
     permissions:
       contents: read
       statuses: write
+      # Reads the model server workflow's result for the commit (see the check below).
+      actions: read
     # Pinned to match ci.yml: `ubuntu-latest` migrates to 26.04 over 2026-10-19..11-19, and a production
     # deploy should not be the first thing to meet a new image. Move both together (see ci.yml).
     runs-on: ubuntu-24.04
@@ -106,6 +108,16 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ env.DEPLOY_SHA }}
+
+      # The model server's Python tests run in their own workflow (`sidecar.yml`), only when a file the model server uses changes.
+      # "Continuous Integration" does not include them, so a green run above does not say they passed. This stops the deploy
+      # when they failed for this commit. It does nothing when they did not run, because then nothing they cover changed.
+      # Manual runs skip it on purpose: putting an older commit back must not depend on how its tests ended then.
+      - name: Stop if the model server tests failed for this commit
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 deploy/model_server_gate.py
 
       # THE RUNNER NEVER WAITS FOR A BUSY LOCK, AND NEVER WATCHES THE BUILD.
       #
