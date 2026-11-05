@@ -50,7 +50,9 @@ const clinvarSummaryResponseSchema = z.object({
       allele_freq_set: z.array(z.object({
         source: z.string().optional(),
         value: z.any().optional()
-      })).optional()
+      })).optional(),
+      /** An id ClinVar does not hold: esummary answers 200 with `{"uid", "error": "…"}`. */
+      error: z.string().optional()
     }).optional()
   ).optional()
 });
@@ -93,47 +95,63 @@ export async function fetchClinVarData(
         hasOtherPathogenicVariantSameAA: false
       };
   
+  /**
+   * A bare ClinVar Variation ID needs no search: esearch's only job for `2582078[Variation ID]`
+   * is to confirm the number the caller already typed, and esearch is the E-utilities endpoint
+   * whose index degrades under load (measured 2026-11-05: it 500'd two requests in three while
+   * esummary for the SAME id answered — so an ID lookup died before esummary was ever asked).
+   * esummary by id returns the identical record, so the direct branch asks it first, and the
+   * payload the tabs read is unchanged.
+   */
+  const isDirectIdSearch = /^(?:VCV)?\d+$/i.test(cleanVar);
   let term = "";
-  if (/^(?:VCV)?\d+$/i.test(cleanVar)) {
-    // If it's a ClinVar Variation ID (e.g. VCV000123456 or 123456), search directly by Variation ID
+  let idList: string[];
+  if (isDirectIdSearch) {
+    // VCV000123456 or 123456 → its numeric id. Leading zeros are not part of the id E-utilities
+    // summaries key on, so they are stripped here, not at the summary step.
     const varId = cleanVar.replace(/^VCV/i, "").replace(/^0+/, "");
-    term = `${varId}[Variation ID]`;
+    idList = [varId];
   } else {
     term = `${normGene}[gene] AND (${variant}[variant name] OR ${cleanVar}[variant name])`;
+
+    const apiKey0 = process.env.NCBI_API_KEY;
+    const apiKeyParam0 = apiKey0 ? `&api_key=${encodeURIComponent(apiKey0)}` : "";
+    const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(term)}&retmode=json${apiKeyParam0}`;
+
+    const searchRes = await fetchWithRetry(searchUrl, {
+      headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
+      timeout: 15000,
+      // NCBI's error page is its own "try the query again" — fast because the fault is in its routing,
+      // not because it is refusing this client (see FetchWithRetryOptions.fastFailureIsTransient).
+      fastFailureIsTransient: true
+    });
+    if (!searchRes.ok) {
+      throw new Error(`ClinVar search failed (status: ${searchRes.status})`);
+    }
+
+    const searchJson = await searchRes.json();
+    const searchData = clinvarSearchResponseSchema.parse(searchJson);
+    idList = searchData.esearchresult?.idlist || [];
+    if (idList.length === 0) {
+      (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
+      return defaultRes;
+    }
   }
-  
+
   const apiKey = process.env.NCBI_API_KEY;
   const apiKeyParam = apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : "";
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(term)}&retmode=json${apiKeyParam}`;
-  
-  const searchRes = await fetchWithRetry(searchUrl, {
-    headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
-    timeout: 15000
-  });
-  if (!searchRes.ok) {
-    throw new Error(`ClinVar search failed (status: ${searchRes.status})`);
-  }
-  
-  const searchJson = await searchRes.json();
-  const searchData = clinvarSearchResponseSchema.parse(searchJson);
-  const idList = searchData.esearchresult?.idlist || [];
-  if (idList.length === 0) {
-    (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
-    return defaultRes;
-  }
-  
   const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=clinvar&id=${idList.join(",")}&retmode=json${apiKeyParam}`;
   const summaryRes = await fetchWithRetry(summaryUrl, {
     headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
-    timeout: 15000
+    timeout: 15000,
+    fastFailureIsTransient: true
   });
   if (!summaryRes.ok) {
     throw new Error(`ClinVar summary failed (status: ${summaryRes.status})`);
   }
-  
+
   const summaryJson = await summaryRes.json();
   const summaryData = clinvarSummaryResponseSchema.parse(summaryJson);
-  const isDirectIdSearch = /^(?:VCV)?\d+$/i.test(cleanVar);
   const resultObj = summaryData.result || {};
   const queryNorm = (() => {
     const clean = variant.replace(/^p\./i, "").trim().toLowerCase();
@@ -158,6 +176,13 @@ export async function fetchClinVarData(
   for (const id of idList) {
     const entry = resultObj[id];
     if (!entry) continue;
+    /**
+     * A summary carries its refusals as a 200 with an `error` body: *"cannot get document summary"*
+     * for an id ClinVar does not hold. That is the direct-ID branch's "no such variation", and the
+     * empty `matchingEntries` below turns it into the same "Not found" a failed esearch would —
+     * never a record with a `uid` but no classification, which a screen could read as evidence.
+     */
+    if (entry.error) continue;
     
     const title = (entry.title || "").toLowerCase();
     let isMatch = isDirectIdSearch;

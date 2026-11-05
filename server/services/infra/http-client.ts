@@ -246,6 +246,21 @@ export interface FetchWithRetryOptions extends RequestInit {
    */
   cappedByCaller?: boolean;
   /**
+   * True when this provider's own error page IS the instruction to try again, and is served fast.
+   *
+   * The fast-refusal rule below exists because Ensembl and VariantValidator answer a refused client
+   * in ~90ms — a policy verdict worth not repeating. NCBI E-utilities is the opposite case: its 500
+   * page says "this could be a transient problem, please try the query again", and it is emitted by
+   * a front-end node that failed to reach the index in 0.2-0.8s, while the SAME query answers 200 in
+   * 1-2s on the next call. Measured 2026-11-05 (GATA4 p.Ser159Cys): 5 of 10 esearch calls returned
+   * that page in under a second and the identical query succeeded when reissued — so declining the
+   * retry turned a degraded-provider blip into "ClinVar is down" on the Evidence tab.
+   *
+   * Only a 5xx is exempted. A 429 — or a 503 carrying `Retry-After` — stays a rate-limit answer and
+   * is still left to the team pause: retrying someone's rate limit IS the burst it punishes.
+   */
+  fastFailureIsTransient?: boolean;
+  /**
    * Absolute instant (epoch ms) by which the caller needs an answer.
    *
    * The fetch loop uses it to avoid starting an attempt or a retry that cannot finish in time, and to
@@ -413,8 +428,14 @@ async function fetchWithRetryInner(
            * `retries x rungs x client retries` requests. So a 429/5xx that arrives faster than
            * {@link FAST_REFUSAL_MS} is reported as-is, and only a slow failure (which is what load
            * looks like) is retried.
+           *
+           * The exception is a provider that documents its 5xx as transient (see
+           * {@link FetchWithRetryOptions.fastFailureIsTransient}): NCBI's error page is fast because
+           * the fault is in its own routing, not because it is turning us away.
            */
-          const fastRefusal = lastAttemptMs < FAST_REFUSAL_MS;
+          const fastRefusal =
+            lastAttemptMs < FAST_REFUSAL_MS &&
+            !(options.fastFailureIsTransient === true && res.status >= 500 && !rateLimited);
           const retryAfterFits =
             hasRetryAfter && (!options.deadlineAt || Date.now() + backoff < options.deadlineAt);
 

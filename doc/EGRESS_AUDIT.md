@@ -46,6 +46,7 @@ Counts (server TypeScript, tests excluded):
 - Per-host `Semaphore(5)` (`:133-139`). It is acquired before the retry loop and released after it (`:223`, `:387`), so a call holds its slot through every backoff sleep.
 - Per-host `CircuitBreaker(5, 60000)` (`:108`, `:105-112`). The gate is `if (!probe && !breaker.canExecute())` (`:228`). `probe: true` skips both the gate and the accounting (`:183-192`, `:344`, `:365`, `:375`).
 - A 429 or 5xx is retried with jittered backoff, unless it is a fast refusal under 1 s and `Retry-After` does not fit (`:282-333`). A `Retry-After` value is clamped to 50 ms to 10 s (`:24`, `:32`, `:305`).
+- The fast-refusal rule has one documented exception, `fastFailureIsTransient`: a provider whose own fast 5xx is a *transient fault* rather than a policy verdict. NCBI E-utilities' 500 page is the case it exists for (its front-end nodes emit it in 0.2-0.8 s when they cannot reach the index, and the same query answers 200 in 1-2 s on a retry). Only a 5xx is exempted; a 429, or a 503 carrying `Retry-After`, is still a rate-limit answer left to the team pause. Set at `clinvar.ts` (esearch, esummary) and `identifier-intake.ts` (ClinVar esummary).
 - After the loop, `if (!probe) breaker.recordFailure();` runs for any call that did not return a response (`:375`). A 429 or 5xx that ends the call therefore counts as one breaker failure.
 - The `cappedByCaller` exemption applies only to a timeout the caller imposed (`:362-365`).
 - Default `User-Agent` is set on every call (`:51-52`, `:276`).

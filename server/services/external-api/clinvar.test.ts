@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchClinVarData } from "./clinvar.ts";
 import { clearAllCaches } from "../infra/cache.ts";
+import { setBackoffScaleForTests } from "../infra/http-client.ts";
 import { VCV_CNNM2_E357K } from "./clinvar-vcv.fixture.ts";
 
 /** ClinVar's full variant record is a third request; most tests here do not exercise it. */
@@ -69,6 +70,66 @@ describe("fetchClinVarData", () => {
     fetchSpy.mockRestore();
   });
 
+  it("re-asks NCBI when its own fast 500 page says the fault is transient", async () => {
+    /**
+     * The reported failure: "[Service] ClinVar Clinical Interpretation (NCBI E-Utilities): error"
+     * for GATA4 p.Ser159Cys. NCBI answered esearch with its 500 HTML page ("this could be a
+     * transient problem, please try the query again") in a few hundred milliseconds; the generic
+     * fast-refusal rule read that as a policy verdict and gave up after one attempt, although the
+     * very next call succeeded.
+     */
+    setBackoffScaleForTests(0);
+    const fetchSpy = vi.spyOn(global, "fetch");
+    try {
+      fetchSpy.mockResolvedValueOnce({ ok: false, status: 500, headers: { get: () => null } } as any);
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ esearchresult: { idlist: ["12345"] } })
+      } as any);
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            uids: ["12345"],
+            "12345": {
+              title: "NM_000277.3(PAH):c.1224C>T (p.Arg408Trp)",
+              germline_classification: {
+                description: "Pathogenic",
+                review_status: "practice guideline"
+              }
+            }
+          }
+        })
+      } as any);
+      noVariantRecord(fetchSpy);
+
+      const res = await fetchClinVarData("PAH", "p.Arg408Trp");
+
+      expect(String(fetchSpy.mock.calls[0][0])).toContain("esearch.fcgi");
+      expect(String(fetchSpy.mock.calls[1][0])).toContain("esearch.fcgi");
+      expect(res.classification).toBe("Pathogenic");
+      expect(res.uid).toBe("12345");
+    } finally {
+      setBackoffScaleForTests(1);
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("still reports an error when every attempt meets that page", async () => {
+    setBackoffScaleForTests(0);
+    const fetchSpy = vi.spyOn(global, "fetch");
+    try {
+      // An honest failure, not a "not found": a ClinVar outage is not a measured absence.
+      fetchSpy.mockResolvedValue({ ok: false, status: 500, headers: { get: () => null } } as any);
+
+      await expect(fetchClinVarData("GATA4", "p.Ser159Cys")).rejects.toThrow(/after 3 attempts \(last status 500\)/);
+      expect(fetchSpy.mock.calls.length).toBe(3);
+    } finally {
+      setBackoffScaleForTests(1);
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("should not match and return default response if title doesn't match clean variant", async () => {
     const mockSearchResponse = {
       esearchresult: {
@@ -106,12 +167,6 @@ describe("fetchClinVarData", () => {
   });
 
   it("should support direct search by Variation ID or VCV ID", async () => {
-    const mockSearchResponse = {
-      esearchresult: {
-        idlist: ["98765"]
-      }
-    };
-
     const mockSummaryResponse = {
       result: {
         uids: ["98765"],
@@ -131,10 +186,6 @@ describe("fetchClinVarData", () => {
     const fetchSpy = vi.spyOn(global, "fetch");
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockSearchResponse
-    } as any);
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
       json: async () => mockSummaryResponse
     } as any);
 
@@ -144,13 +195,74 @@ describe("fetchClinVarData", () => {
     expect(res.classification).toBe("Pathogenic");
     expect(res.uid).toBe("98765");
 
-    // Verify search term is structured for Variation ID
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining("term=98765%5BVariation%20ID%5D"),
-      expect.any(Object)
-    );
+    /**
+     * A number the caller already holds is not a search: the id goes straight to esummary, which
+     * is the endpoint that stays healthy when esearch's index degrades. So the FIRST and only
+     * record lookup is the summary call, and esearch is never consulted.
+     */
+    expect(String(fetchSpy.mock.calls[0][0])).toContain("/esummary.fcgi?db=clinvar&id=98765");
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("esearch.fcgi"))).toBe(false);
 
     fetchSpy.mockRestore();
+  });
+
+  it("answers a zero-padded ID at its unpadded summary key", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        result: {
+          uids: ["2582078"],
+          "2582078": {
+            title: "NM_001308093.3(GATA4):c.476C>G (p.Ser159Cys)",
+            germline_classification: {
+              description: "Uncertain significance",
+              review_status: "criteria provided, multiple submitters, no conflicts"
+            }
+          }
+        }
+      })
+    } as any);
+    noVariantRecord(fetchSpy);
+
+    // VCV0002582078 → key the summary does not exist under unpadded values.
+    const res = await fetchClinVarData("GATA4", "VCV0002582078");
+
+    expect(String(fetchSpy.mock.calls[0][0])).toContain("id=2582078");
+    expect(res.uid).toBe("2582078");
+    expect(res.classification).toBe("Uncertain significance");
+
+    fetchSpy.mockRestore();
+  });
+
+  it("reads a nonexistent Variation ID as an absence, not a record", async () => {
+    /**
+     * esummary refuses an unknown id as a 200 with an `error` body — measured live:
+     * `{"uid":"999999999","error":"cannot get document summary"}`. Passing that through as the
+     * entry would mint a `uid`-bearing record whose classification is "Unknown"; it must be the
+     * same "Not found" an empty esearch idlist produces, and equally short-lived.
+     */
+    setBackoffScaleForTests(0);
+    const fetchSpy = vi.spyOn(global, "fetch");
+    try {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            uids: ["999999999"],
+            "999999999": { uid: "999999999", error: "cannot get document summary" }
+          }
+        })
+      } as any);
+
+      const res = await fetchClinVarData("PAH", "999999999");
+
+      expect(res.uid).toBeNull();
+      expect(res.classification).toBe("Not found in ClinVar");
+    } finally {
+      setBackoffScaleForTests(1);
+      fetchSpy.mockRestore();
+    }
   });
   describe("PS1 support (another record with the same amino-acid change)", () => {
     const entry = (cdna: string, description: string) => ({
