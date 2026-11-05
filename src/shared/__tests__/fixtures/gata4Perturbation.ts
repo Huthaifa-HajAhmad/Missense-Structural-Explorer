@@ -28,7 +28,7 @@ export const GATA4_RESULT: any = {
     localShiftMap: Array.from({ length: 21 }, (_, i) => ({ position: 149 + i, residue: "SGTAPLDEKQRNH"[i % 13], shift: Number((7.9 / (1 + Math.abs(i - 10) * 0.7)).toFixed(3)) })),
     provenance: "VESM-150M (Local Fallback)",
     checkpoint: "ntranoslab/vesm VESM_150M",
-    scoringMethod: "masked-marginal",
+    scoringMethod: "wild-type-marginal",
     remoteEngineNote: "HTTP 402 - inference credits exhausted for the configured token",
     remoteFailure: { provider: "huggingface", code: "billing" },
     fallbackReason: "esm2_t33_650M_UR50D: OSError: weights unavailable"

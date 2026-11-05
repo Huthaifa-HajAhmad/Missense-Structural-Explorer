@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FOLDX_FULL_REPAIR_MAX_RESIDUES } from "../../../../src/shared/computeRouting.ts";
 import { backgroundRepairBudgetMs, buildModelBudgetMs, clampToJobRemaining, emulatedRepairResidueLimit, predictedRepairMs, repairFitsBudget } from "./budget.ts";
 import { CONFIG } from "../../../config.ts";
 
@@ -105,6 +106,9 @@ describe("repair gate under emulation", () => {
 
   it("bounds the structure a repaired job can carry", () => {
     expect(emulatedRepairResidueLimit(T)).toBe(233);
+    // The size that decides which repair a result gets is this number, fixed for every machine. If a repair
+    // timeout or a per-residue cost is retuned, the constant and the result's identity must move together.
+    expect(emulatedRepairResidueLimit()).toBe(FOLDX_FULL_REPAIR_MAX_RESIDUES);
   });
 });
 

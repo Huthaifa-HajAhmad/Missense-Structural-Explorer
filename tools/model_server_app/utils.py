@@ -63,6 +63,8 @@ def encode_pdb_to_3di(
     residues = {}
     ordered_keys = []
     for line in pdb_content.splitlines():
+        if line.startswith("ENDMDL"):
+            break  # An NMR file holds many models. Only the first is the structure.
         if line.startswith("ATOM  ") or line.startswith("HETATM"):
             try:
                 atom_name = line[12:16].strip()

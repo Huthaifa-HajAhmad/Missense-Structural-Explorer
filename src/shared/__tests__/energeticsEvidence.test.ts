@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { LOCAL_REPAIR_BENCHMARK } from "../foldxRepairBenchmark.generated";
 import { computeStabilityConsensus } from "../thresholds";
 import {
   AGREEMENT_CHIP,
+  ENERGETICS_CAVEAT_TEXT,
   LARGE_STRUCTURE_REPAIR_NOTE,
   buildEnergeticsEvidence,
   energeticsAgreementText,
@@ -462,5 +464,105 @@ describe("FoldX on two templates", () => {
       expect(stored.enginesCounted).toBe(screen.nCounted);
       expect(stored.enginesCounted).toBe(4);
     });
+  });
+});
+
+describe("a run that is still collecting engines is shown as a snapshot", () => {
+  // The review's third screenshot: three engines reported, DynaMut2 still running, and the screen said
+  // "Mostly moderately destabilizing" as if it were final.
+  const partial = (extra: Record<string, unknown> = {}, over: Record<string, unknown> = {}) =>
+    buildEnergeticsEvidence({
+      foldingStatus: "success",
+      foldingEnergetics: { foldx: 0.58, foldxMean: 0.58, ddmut: -0.08, thermompnn: 0.7, ...extra },
+      dynamut2Status: "pending",
+      ...over,
+    });
+
+  it("marks the agreement provisional while a counting engine runs and at least one has reported", () => {
+    const ev = partial();
+    expect(ev.running.map(r => r.name)).toContain("DynaMut2");
+    expect(ev.agreement.nCounted).toBeGreaterThan(0);
+    expect(ev.agreement.provisional).toBe(true);
+  });
+
+  it("says which engines are still running, so the reader knows what may change", () => {
+    const s = energeticsSummary(partial());
+    expect(s.tone).toBe("warning");
+    expect(s.rest.join(" ")).toMatch(/DynaMut2 is still running, so this reading may change\./);
+  });
+
+  it("is final once every engine has settled", () => {
+    const ev = partial({ dynamut2: 0.37 }, { dynamut2Status: "done" });
+    expect(ev.running).toHaveLength(0);
+    expect(ev.agreement.provisional).toBe(false);
+    expect(energeticsSummary(ev).rest.join(" ")).not.toContain("still running");
+  });
+
+  it("is not provisional when nothing has reported yet: there is no reading to qualify", () => {
+    const ev = buildEnergeticsEvidence({ foldingEnergetics: {}, dynamut2Status: "pending", isFolding: true });
+    expect(ev.agreement.nCounted).toBe(0);
+    expect(ev.agreement.provisional).toBe(false);
+  });
+
+  it("is not held back by ProtVar, a reference lookup that never votes", () => {
+    const ev = partial({ dynamut2: 0.37, protvar: null, protvarStatus: "pending" }, { dynamut2Status: "done" });
+    expect(ev.agreement.provisional).toBe(false);
+  });
+});
+
+describe("which repair the FoldX value rests on", () => {
+  const FIX = "fix-shell:r15-seq14:v1";
+  const base = { foldx: 0.16, foldxMean: 0.16, foldxSd: 0.03, dynamut2: 0.3, ddmut: 0, thermompnn: 0.1, structureProvenance: { source: "alphafold", chainId: "A", foldxRuns: 5 } };
+  const run = (extra: Record<string, unknown>) =>
+    buildEnergeticsEvidence({ foldingStatus: "success", foldingEnergetics: { ...base, ...extra } });
+  const foldx = (ev: ReturnType<typeof run>) => ev.readings.find(r => r.key === "foldx")!;
+
+  it("discloses a local repair on the value, with how much could move", () => {
+    const ev = run({ repairMode: FIX, repairModeIntended: FIX, repairShell: { movableResidues: 29, totalResidues: 442, sphereResidues: 11, radiusA: 15, sequenceBuffer: 14, sequenceBufferApplied: true } });
+    expect(ev.structure?.repair).toBe("Repaired locally");
+    expect(ev.structure?.repairMode).toBe(FIX);
+    expect(foldx(ev).caveats).toContain("local-repair");
+    expect(foldx(ev).note).toContain("repaired locally: 29 of 442 residues could move");
+    expect(ENERGETICS_CAVEAT_TEXT["local-repair"].detail).toMatch(/variants with a measured stability change/);
+    expect(ENERGETICS_CAVEAT_TEXT["local-repair"].detail).toContain(`up to ${LOCAL_REPAIR_BENCHMARK.maxGap.toFixed(2)}`);
+  });
+
+  it("says nothing about a local repair for a whole-chain one", () => {
+    const ev = run({ repairMode: "full", repairModeIntended: "full" });
+    expect(ev.structure?.repair).toBe("Repaired");
+    expect(foldx(ev).caveats).not.toContain("local-repair");
+  });
+
+  it("keeps the older results working: no mode recorded reads exactly as before", () => {
+    const ev = run({});
+    expect(ev.structure?.repair).toBe("Repaired");
+    expect(ev.structure?.repairMode).toBeNull();
+    expect(foldx(ev).caveats).not.toContain("local-repair");
+  });
+
+  it("a result that got no repair is not called a local one, even if a local one was intended", () => {
+    const ev = run({ repairMode: "none", repairModeIntended: FIX, foldxRepairSkipped: true, foldxRepairSkippedReason: "repair-exceeds-budget" });
+    expect(ev.structure?.repairState).toBe("unrepaired");
+    expect(foldx(ev).caveats).toContain("unrepaired-template");
+    expect(foldx(ev).caveats).not.toContain("local-repair");
+  });
+
+  it("records the repair, the conditions and the template extent among the sources", () => {
+    const ev = run({
+      repairMode: FIX,
+      conditions: { pH: 7.4, temperature: 298.15, ionicStrength: 0.15 },
+      templateExtent: { residueCount: 442, chainId: "A", firstResidue: 1, lastResidue: 442 },
+    });
+    const sources = Object.fromEntries(ev.sources);
+    expect(sources["FoldX repair"]).toBe("Region around the variant repaired");
+    expect(sources["FoldX conditions"]).toBe("pH 7.4 · 298.15 K · 0.15 M");
+    expect(sources["Template residues"]).toBe("442 (chain A: 1 to 442)");
+  });
+
+  it("does not compare a local repair with ProtVar's whole-chain FoldX as if it were the same procedure", () => {
+    const ev = run({ repairMode: FIX, protvar: 1.4, protvarStatus: "done", protvarModel: "AF-P43694-F1" });
+    expect(ev.foldxTemplateCheck?.detail).toMatch(/repaired only the region around the variant/);
+    const whole = run({ repairMode: "full", protvar: 1.4, protvarStatus: "done", protvarModel: "AF-P43694-F1" });
+    expect(whole.foldxTemplateCheck?.detail).not.toMatch(/repaired only the region/);
   });
 });

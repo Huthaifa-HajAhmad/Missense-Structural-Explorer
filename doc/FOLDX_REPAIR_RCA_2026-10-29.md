@@ -47,3 +47,10 @@ Deployment isolation: the independent patch uses browser namespace `v4.6-foldx-r
 Final shared-workspace full-suite rerun (`vitest run --maxWorkers=4`, no simultaneous build): 5934 passed, 0 failed, 5 skipped. None of the six out-of-scope failures from the overloaded run reproduced. The deterministic FoldX phase test passed. The isolated cache namespace's 17 cache/retry tests also passed.
 
 Final isolated release checks: client rebuild passed with the dedicated `v4.6-foldx-repair-v1` namespace. The server/worker/tool build had already passed with the same production source. The FoldX-only release is retained as a separate local commit on `fix/foldx-repair-review-20261029`; the shared branch and its index are not switched or staged, and nothing is pushed or deployed.
+
+## Follow-Up Remediation Plan (`> 400` Residue Foreground Repair & Reproducibility)
+
+See [`doc/ENERGETICS_REPRODUCIBILITY_AND_FOLDX_REPAIR_PLAN.md`](file:///C:/Users/HSA19/antigravity/Missense-Structural-Explorer/doc/ENERGETICS_REPRODUCIBILITY_AND_FOLDX_REPAIR_PLAN.md) for the follow-up remediation plan covering:
+1. Elimination of the Run 1 (unrepaired) $\rightarrow$ Run 2 (background-repaired) $\Delta\Delta G$ flip on templates `> 400` residues (`> 233` on Box64) using FoldX 5.1's native `--mutate-residues-file` targeted $15\text{ \AA}$ contact-shell foreground `RepairPDB` plus distant disordered-tail/incomplete-sidechain pruning.
+2. Fixes for the `StabilityOracle` FoldX-cache-hit drop (`No result`), Shrake–Rupley SASA calculation, provisional consensus verdict guards during partial runs, and Inspector/Comparison status-copy defects.
+

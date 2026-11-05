@@ -23,7 +23,7 @@ export interface EsmcEvalResult {
   provenance?: string;
   /** Hub id of the checkpoint that produced the numbers ("facebook/esm2_t30_150M_UR50D"). */
   checkpoint?: string;
-  /** "masked-marginal" on every current path; absent on results from before it was recorded. */
+  /** "masked-marginal", or "wild-type-marginal" when VESM stands in; absent on results from before it was recorded. */
   scoringMethod?: string;
   /** Why the shift trace is absent while the score is present (skipped to stay within the time budget). */
   embeddingNote?: string;

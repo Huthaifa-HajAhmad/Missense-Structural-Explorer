@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parseFoldxDifFile } from "./parser.ts";
 import { getFoldxExecutionTarget } from "./detector.ts";
 import { cleanPdbForFoldX, countIncompleteResidues, detectBFactorProvenance } from "./pdb-utils.ts";
-import { getFoldxCacheKey } from "./cache.ts";
+import { getFoldxCacheKey, repairModeOfCacheKey } from "./cache.ts";
 
 describe("FoldX Modular Engine Tests", () => {
   describe("parser.ts: parseFoldxDifFile", () => {
@@ -109,6 +109,13 @@ describe("FoldX Modular Engine Tests", () => {
       expect(countIncompleteResidues(pdb)).toBe(2);
     });
 
+    it("keeps only the first model of an NMR file, so copies of the chain are not stacked on each other", () => {
+      const nmr = ["MODEL 1", atom(1, "CA", "ALA", 9), "ENDMDL", "MODEL 2", atom(1, "CA", "ALA", 9), "ENDMDL", "END"].join("\n");
+      const cleaned = cleanPdbForFoldX(nmr);
+      expect(cleaned.match(/^ATOM/gm)).toHaveLength(1);
+      expect(cleaned).toContain("ENDMDL");
+    });
+
     it("does not count a C-terminal OXT as a defect", () => {
       const pdb = ["N", "CA", "C", "O", "CB", "OXT"].map((n, i) => atom(i + 1, n, "ALA", 9)).join("\n");
       expect(countIncompleteResidues(pdb)).toBe(0);
@@ -117,10 +124,19 @@ describe("FoldX Modular Engine Tests", () => {
 
   describe("cache.ts: getFoldxCacheKey", () => {
     it("generates deterministic cache keys", () => {
-      const key1 = getFoldxCacheKey("hash123", "RA215W", { pH: 7.0, temperature: 298, seed: 42 });
-      const key2 = getFoldxCacheKey("hash123", "RA215W", { pH: 7.0, temperature: 298, seed: 42 });
+      const key1 = getFoldxCacheKey("hash123", "RA215W", { pH: 7.0, temperature: 298, seed: 42, repairMode: "full" });
+      const key2 = getFoldxCacheKey("hash123", "RA215W", { pH: 7.0, temperature: 298, seed: 42, repairMode: "full" });
       expect(key1).toBe(key2);
-      expect(key1).toContain("hash123_RA215W_pH:7_temp:298_ion:0.05_seed:42");
+      expect(key1).toContain("hash123_RA215W_pH:7_temp:298_ion:0.05_seed:42_repair:full");
+    });
+
+    it("keeps the two repairs apart: the same variant under each is two different results", () => {
+      const full = getFoldxCacheKey("h", "RA215W", { repairMode: "full" });
+      const local = getFoldxCacheKey("h", "RA215W", { repairMode: "fix-shell:r15-seq14:v1" });
+      expect(full).not.toBe(local);
+      expect(repairModeOfCacheKey(full)).toBe("full");
+      expect(repairModeOfCacheKey(local)).toBe("fix-shell:r15-seq14:v1");
+      expect(repairModeOfCacheKey("a_key_without_one")).toBeNull();
     });
   });
 });

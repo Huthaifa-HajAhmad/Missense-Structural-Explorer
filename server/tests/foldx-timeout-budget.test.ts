@@ -37,11 +37,11 @@ const { timeouts } = CONFIG;
  * Worst-case wall-clock cost of one FoldX job, per PATH, all stages serialised.
  *
  * The BuildModel cap is sized to the structure (`foldx/budget.ts`), so the worst case is no longer
- * the sum of every stage's ceiling. Under emulation RepairPDB is attempted only when it is predicted to
- * finish inside its own cap (`repairFitsBudget`), which bounds the structure a repaired job can carry
- * to `emulatedRepairResidueLimit` residues; a job either repairs and then models that structure, or
- * skips repair and models a large one. Both paths can still pay the retry (it follows any RepairPDB
- * failure, including the pre-flight one). Each path is computed under emulation, the slower host.
+ * the sum of every stage's ceiling. A whole-chain RepairPDB is attempted only when it is predicted to
+ * finish inside its own cap (`repairFitsBudget`), which bounds the structure it carries to
+ * `emulatedRepairResidueLimit` residues. Above that the repair is local and short, then BuildModel's cap is
+ * clamped to what the job has left (the last two tests). Each path can still pay the retry (it follows any
+ * RepairPDB failure, including the pre-flight one). Each path is computed under emulation, the slower host.
  */
 const REPAIRED_PATH_MS =
   timeouts.foldxSemaphoreWaitMs +
@@ -73,6 +73,15 @@ describe("FoldX timeout budgets nest", () => {
     const worstFallback = buildModelBudgetMs({ residueCount: 400, numberOfRuns: 5, emulated: true, incompleteResidues: 400 });
     expect(worstFallback).toBe(timeouts.foldxBuildModelMaxMs);
     expect(afterRepairMs + clampToJobRemaining(worstFallback, jobCapMs - afterRepairMs)).toBeLessThanOrEqual(jobCapMs);
+  });
+
+  it("fits a local repair on the largest structure, then a BuildModel clamped to the time left, inside the job", () => {
+    // Above 233 residues the repair is local (a few seconds to a few minutes, never longer than the whole-chain
+    // cap), and BuildModel gets what the job has left rather than its own ceiling.
+    const jobCapMs = timeouts.foldxSec * SEC;
+    const afterRepairMs = timeouts.foldxSemaphoreWaitMs + timeouts.foldxRepairMs;
+    const largest = buildModelBudgetMs({ residueCount: Number.MAX_SAFE_INTEGER, numberOfRuns: 5, emulated: true });
+    expect(afterRepairMs + clampToJobRemaining(largest, jobCapMs - afterRepairMs)).toBeLessThanOrEqual(jobCapMs);
   });
 
   it("holds the retry's time back so a failed repair, a BuildModel and the retry all fit the job and its lease", () => {

@@ -27,11 +27,16 @@
 // ── Shared constants ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Structures above this size skip RepairPDB (a cost guard). The FoldX runner and the timeout-budget
- * test read it through `server/services/stability/foldx/budget.ts`, which re-exports this value, so
- * the engine's `repair` flag and the runner's behaviour cannot disagree.
+ * The largest template that gets a FULL-chain RepairPDB. Above it the repair is the local
+ * `fix-shell` estimator (`foldxRepairMode.ts`).
+ *
+ * It is one number for every machine, on purpose: it is the size at which a full repair still fits the
+ * repair time cap (`foldxRepairMs`, 420 s) on the slowest supported host, the ARM server running FoldX
+ * under Box64 at 1.8 s per residue: floor(420 000 / 1 800) = 233. `budget.test.ts` checks that this
+ * constant and those two config values still agree. If the mode followed the host instead, the same
+ * variant would get a different ΔΔG on a laptop and on the server.
  */
-export const FOLDX_REPAIR_MAX_RESIDUES = 400;
+export const FOLDX_FULL_REPAIR_MAX_RESIDUES = 233;
 
 /** Fitted curves are used only once a host class has at least this many completed samples. */
 export const COST_MODEL_MIN_SAMPLES_DEFAULT = 8;
@@ -183,10 +188,13 @@ export interface RoutingPolicy {
 // ── Small pure helpers ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Whether FoldX will run RepairPDB, exactly as `foldx/runner.ts` decides it: small enough for foreground repair. Predicted and experimental models follow the same rule.
+ * Whether FoldX will run a RepairPDB for a template of this size. Always: up to
+ * `FOLDX_FULL_REPAIR_MAX_RESIDUES` it repairs the whole chain, above it the region around the variant
+ * (`foldxRepairMode.ts`). It used to stop at 400 residues and run BuildModel on the raw structure, which
+ * gave a different answer from the repaired one that a later background repair then produced.
  */
-export function foldxRepairApplies(residues: number): boolean {
-  return residues <= FOLDX_REPAIR_MAX_RESIDUES;
+export function foldxRepairApplies(_residues: number): boolean {
+  return true;
 }
 
 const GIB = 1024 ** 3;
@@ -303,12 +311,34 @@ function emulatedRepairMs(r: number): number {
   return nativeFoldxRepairPriorMs(r) * Math.max(1, penalty);
 }
 
+/**
+ * The local (`fix-shell`) repair, native. Measured 2026-11-02 on x64: 1 to 13 s for GATA4 (442 residues,
+ * 29 to 45 movable) and 11 to 50 s for CNNM2 (875 residues, 47 to 75 movable); median about 15 s. Its cost
+ * follows the number of movable residues, not the chain length, so one number serves every size above
+ * `FOLDX_FULL_REPAIR_MAX_RESIDUES`. Emulation scales it like BuildModel.
+ */
+const NATIVE_LOCAL_REPAIR_PRIOR_MS = 15_000;
+/**
+ * Box64 against native, upper end of what was measured (3.2x to 5.6x, `foldx/budget.ts`). The BuildModel
+ * curves above are not used for this ratio: at 1,085 residues they imply 17x, which is a property of how
+ * those two curves were fitted, not a measurement of the local repair.
+ */
+const EMULATED_LOCAL_REPAIR_PENALTY = 5.6;
+
+function localRepairMs(emulated: boolean): number {
+  return emulated ? NATIVE_LOCAL_REPAIR_PRIOR_MS * EMULATED_LOCAL_REPAIR_PENALTY : NATIVE_LOCAL_REPAIR_PRIOR_MS;
+}
+
 /** Prior p50 for a FoldX job (RepairPDB when it applies, then BuildModel). */
 export function foldxPriorP50Ms(job: Pick<JobFeatures, "residues" | "numberOfRuns" | "repair">, emulated: boolean): number {
   const r = Math.max(1, job.residues);
   const runs = Math.max(1, job.numberOfRuns);
   const buildModel = emulated ? emulatedBuildModelTotalMs(r, runs) : nativeBuildModelTotalMs(r, runs);
-  const repair = job.repair ? (emulated ? emulatedRepairMs(r) : nativeFoldxRepairPriorMs(r)) : 0;
+  const fullRepair = r <= FOLDX_FULL_REPAIR_MAX_RESIDUES;
+  const repair = !job.repair ? 0
+    : !fullRepair ? localRepairMs(emulated)
+    : emulated ? emulatedRepairMs(r)
+    : nativeFoldxRepairPriorMs(r);
   return Math.round(buildModel + repair);
 }
 

@@ -25,6 +25,21 @@ function PinnedFoldxFixture({ showCountedOnly = false }: { showCountedOnly?: boo
   return <><EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={selected} onSelect={setSelected} options={options} onOptions={setOptions} /><output aria-label="Pinned method">{selected ?? 'None'}</output></>;
 }
 
+describe('missing methods in the comparison', () => {
+  it('names why a method has no point once: its reason, not its state followed by a reason that repeats it', async () => {
+    const evidence = buildEnergeticsEvidence({
+      foldingStatus: 'success',
+      foldingEnergetics: { foldx: 2, foldxMean: 2, dynamut2: 0.5, ddmut: 0, stabilityoracleStatus: 'unavailable' },
+      thermompnnStatus: 'unavailable',
+    });
+    render(<EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={null} onSelect={() => {}} options={{ sort: 'method', countedOnly: false, showMarks: false }} onOptions={() => {}} />);
+    await screen.findByText('No point plotted');
+    const chip = screen.getByRole('button', { name: /ThermoMPNN/ });
+    expect(chip).toHaveTextContent('Not available in this deployment — the local model service is not running.');
+    expect(chip.textContent).not.toMatch(/Not available here — Not available/);
+  });
+});
+
 describe('TanStack stability comparison', () => {
   it('labels every returned estimate before interaction, including true zero, without extra selection targets', async () => {
     render(<Fixture />);

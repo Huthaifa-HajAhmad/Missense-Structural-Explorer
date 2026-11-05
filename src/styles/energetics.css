@@ -157,6 +157,8 @@
   background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .nrg-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
+.nrg-verdict-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.nrg-verdict-pending { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 
 .nrg-hero__figure {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
@@ -382,6 +384,13 @@
 .nrg-table thead th.nrg-num { font-family: var(--cs-font-sans); }
 .nrg-unit {
   display: block; margin-top: -2px; line-height: 1.4;
+  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: 400;
+  color: var(--cs-text-muted);
+}
+/* The benchmark error for the repair this value got. Beside the number because it is the scale the
+   number is meaningful at; the 0.5 / 1.5 marks are far finer than this. */
+.nrg-num__error {
+  display: block; margin-top: 1px; line-height: 1.4; cursor: help;
   font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: 400;
   color: var(--cs-text-muted);
 }

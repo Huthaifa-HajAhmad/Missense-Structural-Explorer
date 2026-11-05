@@ -47,13 +47,21 @@ describe("FoldX job registry", () => {
       const expected = getFoldxCacheKey(
         crypto.createHash("sha256").update(cleanPdbForFoldX(PDB)).digest("hex"),
         MUTATION,
-        { pH: 7.0, temperature: 298, ionicStrength: 0.05, seed: 12345 }
+        { pH: 7.0, temperature: 298, ionicStrength: 0.05, seed: 12345, repairMode: "full" }
       );
       expect(key).toBe(expected);
       // The SHAPE is the guard: hash, then the mutation code (which carries the chain), then the
       // force-field conditions. A `prewarm:` prefix or a gene symbol in here would be a second key.
-      expect(key).toMatch(/^[0-9a-f]{64}_SA489C_pH:7_temp:298_ion:0\.05_seed:12345_version:v4$/);
+      expect(key).toMatch(/^[0-9a-f]{64}_SA489C_pH:7_temp:298_ion:0\.05_seed:12345_repair:full_version:v5$/);
       expect(key).not.toContain("prewarm");
+    });
+
+    it("names the repair from the template's size alone: whole chain up to 233 residues, local above", () => {
+      const sized = (n: number) => Array.from({ length: n }, (_, i) =>
+        `ATOM  ${String(i + 1).padStart(5)}  CA  ALA A${String(i + 1).padStart(4)}    ${(i % 90).toFixed(3).padStart(8)}   1.000   1.000  1.00 50.00           C`).join("\n");
+      expect(buildFoldxCacheKey(sized(233), MUTATION)).toContain("_repair:full_");
+      expect(buildFoldxCacheKey(sized(234), MUTATION)).toContain("_repair:fix-shell:r15-seq14:v1_");
+      expect(buildFoldxCacheKey(sized(233), MUTATION)).not.toBe(buildFoldxCacheKey(sized(234), MUTATION));
     });
 
     it("separates runs that differ in chain, substitution or conditions", () => {

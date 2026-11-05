@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import contextvars
 import copy
 import hashlib
 import heapq
+import math
 import re
 import threading
 import time
@@ -142,10 +144,24 @@ def raise_if_sdk_error(value: Any) -> Any:
 
 
 class RemoteFailureMemory:
-    """Remembers deterministic remote failures for a short time, per (engine, host, credential)."""
+    """
+    Remembers remote failures that a retry would only repeat, per (engine, host, credential).
 
-    def __init__(self, ttl_seconds: float = 600.0, clock: Callable[[], float] = time.monotonic):
+    Two kinds are remembered, for different lengths of time:
+    * deterministic refusals (401, 402, 403, 451) for `ttl_seconds`: the same call fails the same way;
+    * a remote tier that ran out of its time budget for `timeout_ttl_seconds` (shorter, because a slow
+      provider recovers). Without this, every request paid the full remote budget (25 s for ESM-2)
+      before the local model even started, and on a 120 s request that is a fifth of the whole budget.
+    """
+
+    def __init__(
+        self,
+        ttl_seconds: float = 600.0,
+        clock: Callable[[], float] = time.monotonic,
+        timeout_ttl_seconds: float = 300.0,
+    ):
         self._ttl = ttl_seconds
+        self._timeout_ttl = timeout_ttl_seconds
         self._clock = clock
         self._lock = threading.Lock()
         self._entries: dict[tuple[str, str, str], tuple[float, str]] = {}
@@ -171,14 +187,20 @@ class RemoteFailureMemory:
             return reason
 
     def record(self, engine: str, host: str, token: str | None, exc: BaseException) -> str:
-        """Records only deterministic failures. Returns the readable reason either way."""
+        """Records deterministic refusals and spent time budgets. Returns the readable reason either way."""
         reason = describe_remote_error(exc, token=token)
         if extract_status(exc) in PERMANENT_STATUSES:
-            with self._lock:
-                if len(self._entries) >= 256:
-                    now = self._clock()
-                    self._entries = {k: v for k, v in self._entries.items() if v[0] > now}
-                self._entries[self._key(engine, host, token)] = (self._clock() + self._ttl, reason)
+            ttl = self._ttl
+        elif classify_remote_failure(exc) == "timeout":
+            # By meaning, not by type: the remote SDK reports a timeout as `HTTP 500: ... timed out`, not as a TimeoutError.
+            ttl = self._timeout_ttl
+        else:
+            return reason
+        with self._lock:
+            if len(self._entries) >= 256:
+                now = self._clock()
+                self._entries = {k: v for k, v in self._entries.items() if v[0] > now}
+            self._entries[self._key(engine, host, token)] = (self._clock() + ttl, reason)
         return reason
 
     def clear(self) -> None:
@@ -225,7 +247,10 @@ class SingleFlightCache:
                 else:
                     owner = False
             if not owner:
-                waiter.wait()
+                # A follower waits no longer than its own caller will. Without this limit it could outlive the request.
+                limit = request_deadline.get()
+                if not waiter.wait(timeout=None if limit is None else max(0.0, limit - time.monotonic())):
+                    raise GateDeadlineExceeded("The caller's deadline passed while waiting for the same work to finish.")
                 continue  # re-check: the owner may have failed, in which case this caller computes
             try:
                 result = compute()
@@ -244,10 +269,89 @@ class SingleFlightCache:
             self._done.clear()
 
 
+# When the caller stops waiting, as a monotonic-clock time. Set per request by `BudgetHeaderMiddleware`
+# from the `X-Budget-Ms` header, and copied into worker threads by `asyncio.to_thread`.
+request_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar("request_deadline", default=None)
+
+# Must match `SIDECAR_BUDGET_HEADER` in server/services/infra/sidecar-budget.ts (a test compares them).
+BUDGET_HEADER = "X-Budget-Ms"
+_MAX_BUDGET_S = 600.0
+
+
+class GateDeadlineExceeded(TimeoutError):
+    """The caller's deadline passed before this pass could start. The caller is gone, so the pass is skipped."""
+
+
+def register_refusal_handler(app: Any) -> None:
+    """
+    Answers a CPU-gate refusal with `503` and a readable body instead of a bare `500`.
+
+    Without this, `GateDeadlineExceeded` reached FastAPI as an unhandled exception: the caller got a
+    generic `500`, and every client of the model server maps an unrecognised status to "offline" — so a
+    server that had just ANSWERED was reported to the reader as absent. A refusal is a busy signal: the
+    pass was never started because the caller's own deadline had passed. `503` plus `status: busy` says
+    exactly that, and the Node side reads it as a retryable timeout
+    (`server/services/infra/sidecar-budget.ts` `sidecarFailure`).
+
+    Starlette is imported inside the function on purpose: this module stays free of framework imports
+    so it can be unit-tested anywhere (see the module docstring).
+    """
+
+    from starlette.responses import JSONResponse
+
+    @app.exception_handler(GateDeadlineExceeded)
+    async def _refused_pass(_request: Any, exc: GateDeadlineExceeded) -> Any:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "busy",
+                "message": str(exc) or "The model server was too busy to start this pass.",
+                "retryable": True,
+            },
+        )
+
+
+class BudgetHeaderMiddleware:
+    """
+    Reads how long the caller will wait (`X-Budget-Ms`, milliseconds from now) into `request_deadline`.
+
+    A pure ASGI middleware, so the value is set in the same context the endpoint runs in. A missing,
+    malformed or non-positive header sets nothing: such a request simply has no deadline, as before.
+    """
+
+    def __init__(self, app: Any, clock: Callable[[], float] = time.monotonic):
+        self.app = app
+        self._clock = clock
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        token = None
+        if scope["type"] == "http":
+            wanted = BUDGET_HEADER.lower().encode()
+            for name, value in scope.get("headers", []):
+                if name.lower() != wanted:
+                    continue
+                try:
+                    budget_ms = float(value)
+                except ValueError:
+                    break
+                if math.isfinite(budget_ms) and budget_ms > 0:
+                    token = request_deadline.set(self._clock() + min(budget_ms / 1000.0, _MAX_BUDGET_S))
+                break
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            if token is not None:
+                request_deadline.reset(token)
+
+
 class PriorityCpuGate:
     """
     Serializes CPU-bound forward passes so OpenMP threads do not oversubscribe cores,
     waking priority=0 (fast masked LLR triage) callers ahead of priority=1 (embedding / structure) callers.
+
+    A pass is refused (`GateDeadlineExceeded`) when its caller's deadline has passed, whether that is
+    discovered on arrival or while queued. A running pass cannot be stopped, but a queued one that nobody
+    is waiting for no longer takes its turn ahead of live requests.
     """
 
     def __init__(self) -> None:
@@ -257,17 +361,27 @@ class PriorityCpuGate:
         self._seq = 0
 
     @contextlib.contextmanager
-    def acquire(self, priority: int = 1):
+    def acquire(self, priority: int = 1, deadline: float | None = None):
+        limit = deadline if deadline is not None else request_deadline.get()
+        entry: tuple[int, int, threading.Event] | None = None
         with self._cond:
+            if limit is not None and time.monotonic() >= limit:
+                raise GateDeadlineExceeded("The caller's deadline passed before this pass could start.")
             if not self._busy and not self._waiters:
                 self._busy = True
-                ev = None
             else:
                 self._seq += 1
-                ev = threading.Event()
-                heapq.heappush(self._waiters, (priority, self._seq, ev))
-        if ev is not None:
-            ev.wait()
+                entry = (priority, self._seq, threading.Event())
+                heapq.heappush(self._waiters, entry)
+        if entry is not None:
+            wait_s = None if limit is None else max(0.0, limit - time.monotonic())
+            if not entry[2].wait(timeout=wait_s):
+                with self._cond:
+                    # Woken at the last moment (the event is set under this same lock): this caller owns the gate.
+                    if not entry[2].is_set():
+                        self._waiters.remove(entry)
+                        heapq.heapify(self._waiters)
+                        raise GateDeadlineExceeded("The caller's deadline passed while this pass was queued.")
         try:
             yield
         finally:

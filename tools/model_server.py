@@ -19,6 +19,7 @@ import uvicorn
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from tools.model_server_app import models, utils
+from tools.model_server_app.engine_resilience import BudgetHeaderMiddleware, register_refusal_handler
 from tools.model_server_app.routers import vesm, esm3, esm2, saprot, esmfold, stabilityoracle, thermompnn
 
 # Re-export helper functions for backward compatibility (e.g. unit tests)
@@ -62,6 +63,12 @@ async def verify_secret_header(request: Request, call_next):
 
     response = await call_next(request)
     return response
+
+# How long the caller will wait (X-Budget-Ms) becomes this request's deadline; the CPU gate then
+# refuses to start a pass for a caller that has already given up.
+app.add_middleware(BudgetHeaderMiddleware)
+# A pass the gate turned away is a busy answer (503), not an internal error.
+register_refusal_handler(app)
 
 from pydantic import BaseModel
 

@@ -27,6 +27,8 @@ import {
   runStabilityOracleAnalysisDetailed,
 } from "../biophysics.ts";
 import { requestBackgroundRepair } from "./foldx/background-repair.ts";
+import { backfillMutantCacheCompanions } from "./foldx/cache.ts";
+import { buildFoldxCacheKey } from "../infra/foldx-job-registry.ts";
 import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../external-api/protvar.ts";
 
 export interface QueueMutation {
@@ -222,7 +224,14 @@ export function foldxFailureResult(err: { message?: string; foldxRepair?: { fail
  * Everything after the FoldX core: publish its value the moment it exists (the poll route shows it while
  * a companion is still finishing), wait for the companions, and return the enriched, immutable result.
  */
-export async function finishFoldxQueueJob(jobId: string | undefined, data: any, foldxResult: any, companions: Promise<void>): Promise<any> {
+export async function finishFoldxQueueJob(
+  jobId: string | undefined,
+  data: any,
+  foldxResult: any,
+  companions: Promise<void>,
+  /** The cache entry FoldX's value was stored under, when it was stored: the companions' values are kept with it. */
+  cacheKey?: string
+): Promise<any> {
   const queue = BiophysicalJobQueue.getInstance();
   const hasFoldxScore = typeof foldxResult?.energetics?.foldxMean === "number" || typeof foldxResult?.ddG === "number";
   const foldxStatus = hasFoldxScore ? "success" : foldxResult?.status === "unavailable" ? "unavailable" : "failed";
@@ -246,7 +255,14 @@ export async function finishFoldxQueueJob(jobId: string | undefined, data: any, 
   const latestJob = jobId ? await queue.getJobData(jobId) : null;
   const remoteJobs = latestJob?.remoteJobs || data.remoteJobs || {};
   const structureProvenance = latestJob?.structureProvenance || data.structureProvenance || {};
-  return enrichBiophysicalResult(foldxResult, remoteJobs, structureProvenance, parseQueueMutation(data.mutation).position);
+  const enriched = enrichBiophysicalResult(foldxResult, remoteJobs, structureProvenance, parseQueueMutation(data.mutation).position);
+  if (cacheKey) {
+    // A cache that cannot be written must not fail a finished job: the reader already has the result.
+    await backfillMutantCacheCompanions(cacheKey, enriched).catch((err: any) => {
+      console.warn("[Queue Worker] Could not keep the companion engines' values with the FoldX entry:", err?.message ?? err);
+    });
+  }
+  return enriched;
 }
 
 /** The server's own FoldX queue job: companions and FoldX side by side, then the finish. */
@@ -295,5 +311,7 @@ export async function runFoldxQueueJobOnServer(data: any, signal: AbortSignal | 
       delete foldxResult.energetics.foldxRepairRefresh;
     }
   }
-  return finishFoldxQueueJob(jobId, data, foldxResult, companions);
+  // A job without a template or a mutation has no cache entry to keep the companions' values with.
+  const cacheKey = data.wtPdb && data.mutation ? buildFoldxCacheKey(data.wtPdb, data.mutation, data.options) : undefined;
+  return finishFoldxQueueJob(jobId, data, foldxResult, companions, cacheKey);
 }

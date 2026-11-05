@@ -2,7 +2,10 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { execFile } from "child_process";
-import { buildModelBudgetMs, clampToJobRemaining, FOLDX_REPAIR_MAX_RESIDUES, repairFitsBudget } from "./budget.ts";
+import { buildModelBudgetMs, clampToJobRemaining, repairFitsBudget } from "./budget.ts";
+import { countResidues } from "./estimate.ts";
+import { planFixShell } from "./repair-shell.ts";
+import { FIX_SHELL_MODE, foldxIntendedRepairMode, type FoldxRepairMode } from "../../../../src/shared/foldxRepairMode.ts";
 import {
   canRetryFoldxAfterRepair,
   classifyFoldxFailure,
@@ -33,7 +36,10 @@ import {
   getRepairCacheKey,
   getRepairedStructureFromCache,
   writeRepairedStructureToCache,
-  invalidateRepairedStructure
+  invalidateRepairedStructure,
+  noteRepairFailure,
+  repairRecentlyFailed,
+  clearRepairFailure
 } from "./cache.ts";
 import {
   getFoldxExecutionTarget,
@@ -168,7 +174,10 @@ export async function generateMutantPdb(
 
   const normalizedPdb = cleanPdbForFoldX(wtPdb);
   const pdbHash = crypto.createHash("sha256").update(normalizedPdb).digest("hex");
-  const cacheKey = getFoldxCacheKey(pdbHash, validatedMutation, options);
+  const cacheKey = getFoldxCacheKey(pdbHash, validatedMutation, {
+    ...options,
+    repairMode: foldxIntendedRepairMode(countResidues(normalizedPdb))
+  });
   
   const cached = await getMutantFromCache(cacheKey);
   if (cached) {
@@ -380,14 +389,21 @@ async function runRepairPdb(input: {
   signal?: AbortSignal;
   /** Background work: lowest CPU priority (see lowPriorityTarget). */
   lowPriority?: boolean;
+  /**
+   * The residues to keep where they are (`repair-shell.ts`), as the content of `fix.txt`. Present for the
+   * local repair; absent for a whole-chain repair.
+   */
+  fixResiduesFile?: string | null;
 }): Promise<RepairRun> {
-  const { foldxBin, extraArgs, jobDir, budgetMs, signal, lowPriority } = input;
-  console.log(`[Biophysical Modeling] Running FoldX RepairPDB: ${foldxBin}...`);
+  const { foldxBin, extraArgs, jobDir, budgetMs, signal, lowPriority, fixResiduesFile } = input;
+  console.log(`[Biophysical Modeling] Running FoldX RepairPDB${fixResiduesFile ? " (local, --fix-residues-file)" : ""}: ${foldxBin}...`);
   const startedAt = Date.now();
   try {
+    if (fixResiduesFile) await fs.promises.writeFile(path.join(jobDir, "fix.txt"), fixResiduesFile, "utf8");
     const repairRes = await execFileAsync(foldxBin, [
       "--command=RepairPDB",
       "--pdb=wt.pdb",
+      ...(fixResiduesFile ? ["--fix-residues-file=fix.txt"] : []),
       ...extraArgs
     ], {
       timeout: budgetMs,
@@ -446,6 +462,19 @@ async function runRepairPdb(input: {
     console.error(`[RepairPDB ${isTimeout ? "Timeout" : "Failure"} Context]:`, JSON.stringify(diagnostic));
     return { diagnostic };
   }
+}
+
+/**
+ * Process-lifetime count of results served without the repair their cache key names (`repairMode: "none"`).
+ *
+ * That path is deliberately not cacheable, so it is the one state a deployment can sit in without any
+ * stored evidence of it. The count and its log line are the instrument the review asked for: if this
+ * stays at zero in the field, the mode-by-cost rule is not worth its complexity.
+ */
+let repairNoneRuns = 0;
+
+export function repairNoneCount(): number {
+  return repairNoneRuns;
 }
 
 export async function generateMutantPdbInternal(
@@ -527,15 +556,26 @@ export async function generateMutantPdbInternal(
    * un-repaired template is a weaker claim, and the reason it was not repaired is either a
    * deliberate cost guard (large structure) or a deliberate pLDDT guard (AlphaFold model).
    */
-  let foldxRepairSkippedReason: "large-structure" | "repair-exceeds-budget" | "cached-repair-rejected" | undefined;
+  let foldxRepairSkippedReason: "repair-exceeds-budget" | "cached-repair-rejected" | undefined;
   let foldxRepairCached = false;
   /** What RepairPDB did, for the failure record (see FoldxRunContext.repair). Unset until it is decided. */
   let repairDiagnostic: FoldxRepairDiagnostic | undefined;
   const residueCount = pdbResidues.length;
-  // pLDDT describes confidence, not whether side chains have been repaired for FoldX.
-  // Keep the foreground size guard; larger templates may reuse a budgeted background repair.
-  const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES;
-  const repairCacheKey = getRepairCacheKey(pdbHash, options);
+  /**
+   * Which repair this run is meant to get, from the template's size alone (`foldxIntendedRepairMode`) so
+   * that every machine, and the cache key, agree. Up to 233 residues the whole chain is repaired; above
+   * that only the region around the variant is (`repair-shell.ts`). It never depends on the host, on what
+   * happens to be cached, or on how busy the server is.
+   */
+  const modeResidueCount = countResidues(cleanedWt);
+  const repairModeIntended = foldxIntendedRepairMode(modeResidueCount);
+  const localRepair = repairModeIntended === FIX_SHELL_MODE;
+  const repairScope = { chain: resolvedChain, resSeq: pos, insCode: targetRes.insCode || "" };
+  const shellPlan = localRepair ? planFixShell(cleanedWt, repairScope) : null;
+  if (localRepair && !shellPlan) {
+    throw new Error(`Target residue ${pos} on chain ${resolvedChain} has no atoms left after the structure was cleaned for FoldX.`);
+  }
+  const repairCacheKey = getRepairCacheKey(pdbHash, options, localRepair ? repairScope : undefined);
   const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
   /**
    * Sized to this structure, host AND template (see budget.ts): a flat 180 s killed a run that needed
@@ -551,7 +591,7 @@ export async function generateMutantPdbInternal(
     if (!hasStandardResidues && pdbResidues.length > 0) {
       console.warn("[Biophysical Modeling] PDB has ATOM lines but no standard amino acid residues detected — RepairPDB will likely fail.");
       foldxRepairFailed = true;
-    } else if (hasTerminations && shouldRepair) {
+    } else if (hasTerminations) {
       console.log(`[Biophysical Modeling] PDB contains heteroatoms (${hasTerminations}), RepairPDB will attempt cleanup.`);
     }
 
@@ -572,10 +612,13 @@ export async function generateMutantPdbInternal(
         await fs.promises.writeFile(fullWtPath, cachedRepair.pdb, "utf8");
         foldxRepairCached = true;
         repairDiagnostic = { outcome: "reused" };
-      } else if (!shouldRepair || !repairFitsBudget({ residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated })) {
-        // Not attempted here: it would run to its cap and be killed (see repairFitsBudget). If the background
-        // repair of this structure is nearly done, wait for it; otherwise BuildModel completes the side chains
-        // itself, and the reason is disclosed like the other skips.
+      } else if (!localRepair && !repairFitsBudget({ residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated })) {
+        // A whole-chain repair that would run to its cap and be killed (see repairFitsBudget) is not started.
+        // It happens on a slow host with a crystal structure that has many truncated side chains. If the
+        // background repair of this structure is nearly done, wait for it; otherwise BuildModel completes the
+        // side chains itself and the reason is disclosed. That result did not get the repair its key names,
+        // so it is shown but not cached (`writeMutantToCache`); the background repair fills the repair
+        // cache, and the next request then gets the whole-chain result the key promises.
         const joined = await joinInflightRepair(repairCacheKey, {
           residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated, jobStartedAt, signal, onPhase
         });
@@ -585,21 +628,30 @@ export async function generateMutantPdbInternal(
           repairDiagnostic = { outcome: "reused", elapsedMs: joined.waitedMs };
         } else {
           foldxRepairSkipped = true;
-          foldxRepairSkippedReason = shouldRepair ? "repair-exceeds-budget" : "large-structure";
+          foldxRepairSkippedReason = "repair-exceeds-budget";
           // A wait for the background repair that ran out is recorded: it shortened BuildModel's share of the job.
           repairDiagnostic = { outcome: "skipped", skipReason: foldxRepairSkippedReason, ...(joined ? { elapsedMs: joined.waitedMs } : {}) };
           console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${residueCount} residues (${countIncompleteResidues(cleanedWt)} incomplete): ${foldxRepairSkippedReason}; background repair may run within its own budget.`);
         }
+      } else if (repairRecentlyFailed(repairCacheKey)) {
+        // The last attempt at exactly this repair failed. Repeating it costs the whole cap and returns
+        // the same answer; serve the unrepaired template (disclosed, never cached under this key) and
+        // let the backoff expire. A success elsewhere clears it (see the branch below).
+        foldxRepairFailed = true;
+        repairDiagnostic = { outcome: "failed", elapsedMs: 0 };
+        console.log(`[Biophysical Modeling] Skipping RepairPDB: this repair failed within the last 10 minutes; not retrying yet.`);
       } else {
         // 1. Run FoldX RepairPDB first to resolve starting steric clashes and stabilize energy delta
         await onPhase?.("repairing");
-        const repair = await runRepairPdb({ foldxBin, extraArgs, jobDir, budgetMs: CONFIG.timeouts.foldxRepairMs, signal });   // counted against the queue's whole-job cap
+        const repair = await runRepairPdb({ foldxBin, extraArgs, jobDir, budgetMs: CONFIG.timeouts.foldxRepairMs, signal, fixResiduesFile: shellPlan?.fixResiduesFile });   // counted against the queue's whole-job cap
         repairDiagnostic = repair.diagnostic;
         if (repair.repairedPdb) {
           await writeRepairedStructureToCache(repairCacheKey, repair.repairedPdb);
           await fs.promises.writeFile(fullWtPath, repair.repairedPdb, "utf8");
+          clearRepairFailure(repairCacheKey);
         } else {
           foldxRepairFailed = true;
+          noteRepairFailure(repairCacheKey);
         }
       }
     }
@@ -825,6 +877,18 @@ export async function generateMutantPdbInternal(
 
     await onPhase?.("finalizing");
 
+    /**
+     * The repair the template ACTUALLY got. It is the intended one unless the repair failed or was skipped
+     * (a timeout, or a whole-chain repair that does not fit a slow host); then BuildModel ran on the
+     * unrepaired structure. A result whose actual mode is not the intended one is shown but never cached.
+     */
+    const repairModeActual: FoldxRepairMode = foldxRepairFailed || foldxRepairSkipped ? "none" : repairModeIntended;
+    if (repairModeActual === "none") {
+      repairNoneRuns += 1;
+      console.log(`[FoldX] No repair on this run (${repairNoneRuns} in this process). The result is shown but is not cached under the "${repairModeIntended}" key.`);
+    }
+    const chainResidueNumbers = pdbResidues.filter(r => r.chain === resolvedChain).map(r => r.resSeq);
+
     const energetics = {
       ...(parsedResult ? {
         foldxMean: parsedResult.ddG,
@@ -845,6 +909,23 @@ export async function generateMutantPdbInternal(
       // Disclosed, not hidden: reuse changes nothing about the coordinates, but a reader auditing
       // "was this template minimised for this run?" deserves the true answer.
       ...(foldxRepairCached ? { foldxRepairCached: true } : {}),
+      repairMode: repairModeActual,
+      repairModeIntended,
+      // How much was allowed to move, when only the region around the variant was repaired.
+      ...(repairModeActual === FIX_SHELL_MODE && shellPlan ? { repairShell: shellPlan.summary } : {}),
+      // The force-field conditions and the template this value rests on. FoldX's own defaults apply when
+      // an option is not set, and they are the same defaults the cache key uses.
+      conditions: {
+        pH: options?.pH ?? 7.0,
+        temperature: options?.temperature ?? 298,
+        ionicStrength: options?.ionicStrength ?? 0.05
+      },
+      templateExtent: {
+        residueCount: modeResidueCount,
+        chainId: resolvedChain,
+        firstResidue: Math.min(...chainResidueNumbers),
+        lastResidue: Math.max(...chainResidueNumbers)
+      },
       bFactorMetadata,
       rasp: null,
       raspReason: undefined,

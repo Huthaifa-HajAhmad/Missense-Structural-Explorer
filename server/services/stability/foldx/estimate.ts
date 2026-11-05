@@ -7,6 +7,7 @@
  * under Box64 emulation. Model origin is used for provenance, not repair eligibility.
  */
 import { foldxPriorP50Ms, foldxRepairApplies } from "../../../../src/shared/computeRouting.ts";
+import { foldxIntendedRepairMode } from "../../../../src/shared/foldxRepairMode.ts";
 import { cleanPdbForFoldX, countIncompleteResidues } from "./pdb-utils.ts";
 import { repairFitsBudget } from "./budget.ts";
 import { getFoldxExecutionTarget } from "./detector.ts";
@@ -31,9 +32,11 @@ export function foldxQueueCostEstimateMs(wtPdb: string, numberOfRuns = 5): numbe
     const residues = countResidues(wtPdb);
     if (residues === 0) return null;
     const emulated = foldxRunsEmulated();
-    // The runner does not start a RepairPDB that cannot finish in its cap, so the estimate must not charge for one.
+    // A whole-chain repair that cannot finish in its cap is not started, so the estimate must not charge
+    // for one. The local repair above `FOLDX_FULL_REPAIR_MAX_RESIDUES` is always started.
     const repair = foldxRepairApplies(residues) &&
-      repairFitsBudget({ residueCount: residues, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(wtPdb)), emulated });
+      (foldxIntendedRepairMode(residues) !== "full" ||
+        repairFitsBudget({ residueCount: residues, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(wtPdb)), emulated }));
     return foldxPriorP50Ms({ residues, numberOfRuns, repair }, emulated);
   } catch {
     return null;

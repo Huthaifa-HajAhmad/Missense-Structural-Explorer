@@ -1,0 +1,69 @@
+name: Model server
+
+# The model server's tests, including the ones that compare models with what their authors publish. Those exist because a
+# model can load, answer and pass every other test while it is broken: ThermoMPNN once ran without a whole layer.
+#
+# This is separate from `ci.yml` on purpose. That workflow is Node-only and runs on every change. This one needs Python, torch
+# and three checkpoints, so it runs only when the model server changes. `npm run verify` runs the same script locally.
+on:
+  pull_request:
+    paths: &model-server-paths
+      - "tools/model_server.py"
+      - "tools/model_server_app/**"
+      - "tools/test_*.py"
+      - "tools/pyproject.toml"
+      - "tools/uv.lock"
+      - ".github/workflows/sidecar.yml"
+  push:
+    branches: [main]
+    paths: *model-server-paths
+
+permissions:
+  contents: read
+
+jobs:
+  model-server:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: tools/uv.lock
+
+      - name: Install the model server's locked dependencies
+        run: uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
+
+      # Checkpoints are not in git (`*.pt` is ignored). The authors' published files, checked against known hashes.
+      - name: Cache the checkpoints
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/thermompnn/models/thermoMPNN_default.pt
+            tools/thermompnn/vanilla_model_weights/v_48_020.pt
+            tools/model_server_app/checkpoints/stability_oracle_cdna117k.pt
+          key: model-checkpoints-af449118-c9cb4a67-65159226
+
+      - name: Download and check the checkpoints
+        run: |
+          set -eu
+          get() {
+            [ -f "$2" ] || { mkdir -p "$(dirname "$2")"; curl -fsSL --retry 3 -o "$2" "$1"; }
+            echo "$3  $2" | sha256sum -c -
+          }
+          get https://github.com/Kuhlman-Lab/ThermoMPNN/raw/370f76ec62bd929f7425e311d8df04a0d094990f/models/thermoMPNN_default.pt \
+            tools/thermompnn/models/thermoMPNN_default.pt af449118ccfb4e34971d802321907ed82a8a035ae80f055bf8fc56009a4a838a
+          get https://github.com/Kuhlman-Lab/ThermoMPNN/raw/370f76ec62bd929f7425e311d8df04a0d094990f/vanilla_model_weights/v_48_020.pt \
+            tools/thermompnn/vanilla_model_weights/v_48_020.pt c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd
+          get https://github.com/danny305/StabilityOracle/raw/d4c1f61a12101aa85a470efc7e119278662ed392/models/stability_oracle_cdna117k.pt \
+            tools/model_server_app/checkpoints/stability_oracle_cdna117k.pt 65159226eb25b5fc4631c6aeb0c34244fe8288cf44fa843cc509433e9e8e36c5
+
+      # REQUIRE_MODEL_WEIGHTS turns a skip into a failure: a check that did not run must not read as a pass.
+      - name: Run the model server tests
+        env:
+          REQUIRE_MODEL_WEIGHTS: "1"
+        run: npm run test:sidecar

@@ -134,7 +134,7 @@ function ModelSupport({ evidence, onAction }: {
       <h3>{lm.family} <StatusChip a={lm.availability} /></h3>
       <p>{lm.description} <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.name}`} iconOnly /></p>
       {lm.servedBy && <p>Served by {lm.servedBy}</p>}
-      <p>Scoring: {lm.scoringMethod === 'masked-marginal' ? 'the residue is hidden, then the model scores all 20 amino acids there' : lm.scoringMethod ?? 'not recorded by this engine'}.</p>
+      <p>Scoring: {lm.scoringMethod === 'masked-marginal' ? 'the residue is hidden, then the model scores all 20 amino acids there' : lm.scoringMethod === 'wild-type-marginal' ? 'the model reads the normal sequence with the residue present, then scores all 20 amino acids there' : lm.scoringMethod ?? 'not recorded by this engine'}.</p>
       {lm.serviceNote && <p>
         {lm.serviceNote}.{' '}
         {(lm.remoteFailure?.code === 'billing' || lm.remoteFailure?.code === 'auth') && (

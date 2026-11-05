@@ -15,6 +15,8 @@ import crypto from "crypto";
  */
 const foldxLog: string[] = [];
 let rejectCachedInput: "none" | "execution" | "missing-output" | "timeout" | "abort" = "none";
+/** RepairPDB runs and writes no `wt_Repair.pdb`, the way a run that dies does. */
+let repairWritesNothing = false;
 vi.mock("child_process", () => ({
   execFile: (
     _file: string,
@@ -26,9 +28,11 @@ vi.mock("child_process", () => ({
     const pdbArg = (args.find(a => a.startsWith("--pdb=")) || "").split("=")[1] || "wt.pdb";
     const cwd = options?.cwd || process.cwd();
     const repairPath = path.join(cwd, "wt_Repair.pdb");
-    foldxLog.push(`${command} pdb=${pdbArg} repairPresent=${fs.existsSync(repairPath)}`);
+    const fixFile = args.find(a => a.startsWith("--fix-residues-file="));
+    foldxLog.push(`${command} pdb=${pdbArg} repairPresent=${fs.existsSync(repairPath)}${fixFile ? ` fix=${fs.readFileSync(path.join(cwd, fixFile.split("=")[1]), "utf8")}` : ""}`);
 
     if (command === "RepairPDB") {
+      if (repairWritesNothing) { callback(null, "RepairPDB done, no file", ""); return; }
       fs.writeFileSync(repairPath, fs.readFileSync(path.join(cwd, pdbArg), "utf8") + "\nREMARK  99 REPAIRED\n");
     } else if (command === "BuildModel") {
       const input = fs.readFileSync(path.join(cwd, pdbArg), "utf8");
@@ -57,6 +61,7 @@ vi.mock("child_process", () => ({
 
 const { generateMutantPdb } = await import("./runner.ts");
 const {
+  clearRepairFailure,
   getRepairCacheKey,
   getRepairedStructureFromCache,
   writeRepairedStructureToCache,
@@ -65,6 +70,7 @@ const {
   getFoldxCacheKey,
 } = await import("./cache.ts");
 const { cleanPdbForFoldX } = await import("./pdb-utils.ts");
+const { FIX_SHELL_MODE } = await import("../../../../src/shared/foldxRepairMode.ts");
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -211,6 +217,7 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
 
     foldxLog.length = 0;
     rejectCachedInput = "none";
+    repairWritesNothing = false;
     repairedStructureCache.clear();
     mutantCache.clear();
   });
@@ -267,7 +274,17 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     expect(repairKey).not.toContain(MUTATION);
 
     // The mutant cache key, by contrast, does vary by mutation.
-    expect(getFoldxCacheKey(pdbHash, MUTATION, { seed: 12345 })).not.toBe(getFoldxCacheKey(pdbHash, "AA5F", { seed: 12345 }));
+    expect(getFoldxCacheKey(pdbHash, MUTATION, { seed: 12345, repairMode: "full" })).not.toBe(getFoldxCacheKey(pdbHash, "AA5F", { seed: 12345, repairMode: "full" }));
+
+    // What the value rests on travels with it.
+    expect(result.energetics).toMatchObject({
+      repairMode: "full",
+      repairModeIntended: "full",
+      conditions: { pH: 7, temperature: 298, ionicStrength: 0.05 },
+      templateExtent: { residueCount: 4, chainId: "A", firstResidue: 3, lastResidue: 6 }
+    });
+    expect(result.energetics.repairShell).toBeUndefined();
+    expect(foldxLog.some(line => line.includes(" fix="))).toBe(false);
 
     const invocations = foldxLog;
     expect(invocations.filter(l => l.startsWith("RepairPDB"))).toHaveLength(1);
@@ -294,18 +311,105 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     expect(result.wtReferencePdb).toContain(" 87.39");
   });
 
-  it("rebuilds the same large-template mutant when background repair becomes available", async () => {
-    const atom = makeWildTypePdb("large").split("\n").find(line => line.startsWith("ATOM"))!;
-    const pdb = "REMARK   1 ALPHAFOLD MODEL\n" + Array.from({ length: 442 }, (_, i) =>
-      atom.slice(0, 22) + String(i + 1).padStart(4) + atom.slice(26)).join("\n");
-    const first = await runFoldx(pdb, []);
-    expect(first.energetics.foldxRepairSkippedReason).toBe("large-structure");
-    await writeRepairedStructureToCache(first.energetics.foldxRepairCacheKey, cleanPdbForFoldX(pdb) + "\nREMARK  99 REPAIRED\n");
-    const second = await runFoldx(pdb, []);
-    expect(second.energetics.foldxRepairSkipped).toBe(false);
-    expect(second.energetics.foldxRepairCached).toBe(true);
-    expect(second.wtReferencePdb).toContain("REPAIRED");
-    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(2);
+  describe("a template above 233 residues", () => {
+    /** Residue i sits 5 Å along x, so the 15 Å sphere around residue 5 holds only residues 2 to 8. */
+    function makeLargePdb(residues: number): string {
+      const atom = makeWildTypePdb("large").split("\n").find(line => line.startsWith("ATOM"))!;
+      return "REMARK   1 ALPHAFOLD MODEL\n" + Array.from({ length: residues }, (_, i) =>
+        atom.slice(0, 22) + String(i + 1).padStart(4) + atom.slice(26, 30) + (i * 5).toFixed(3).padStart(8) + atom.slice(38)).join("\n");
+    }
+
+    it("is repaired locally, in the foreground, and says so", async () => {
+      const pdb = makeLargePdb(442);
+      const phases: string[] = [];
+      const result = await runFoldx(pdb, phases);
+
+      expect(phases).toEqual(["repairing", "modelling", "finalizing"]);
+      expect(result.energetics).toMatchObject({
+        repairMode: FIX_SHELL_MODE,
+        repairModeIntended: FIX_SHELL_MODE,
+        foldxRepairSkipped: false,
+        foldxRepairFailed: false,
+        // 7 residues in the sphere is under 25, so the 14 residues each side along the sequence may move too: 1 to 19.
+        repairShell: { sphereResidues: 7, movableResidues: 19, totalResidues: 442, sequenceBufferApplied: true }
+      });
+      const repairLine = foldxLog.find(line => line.startsWith("RepairPDB"))!;
+      const fixed = repairLine.split(" fix=")[1].replace(/;$/, "").split(",");
+      // Everything that may NOT move is listed: the 423 residues outside 1 to 19.
+      expect(fixed).toHaveLength(423);
+      expect(fixed).not.toContain("AA5");
+      expect(fixed[0]).toBe("AA20");
+    });
+
+    it("keeps the local repair per position: a second substitution there reuses it, another position repairs again", async () => {
+      const pdb = makeLargePdb(442);
+      await runFoldx(pdb, []);
+      const phases: string[] = [];
+      const sameSite = await runFoldx(pdb, phases, "AA5F");
+      expect(phases).toEqual(["modelling", "finalizing"]);
+      expect(sameSite.energetics).toMatchObject({ repairMode: FIX_SHELL_MODE, foldxRepairCached: true });
+      expect(foldxLog.filter(line => line.startsWith("RepairPDB"))).toHaveLength(1);
+
+      await runFoldx(pdb, [], "AA6F");
+      expect(foldxLog.filter(line => line.startsWith("RepairPDB"))).toHaveLength(2);
+
+      // The local repair is not the structure-wide one, so it can never be mistaken for it.
+      const pdbHash = crypto.createHash("sha256").update(cleanPdbForFoldX(pdb)).digest("hex");
+      expect(await getRepairedStructureFromCache(getRepairCacheKey(pdbHash, { seed: 12345 }))).toBeNull();
+      const site = { chain: "A", resSeq: 5, insCode: "" };
+      expect((await getRepairedStructureFromCache(getRepairCacheKey(pdbHash, { seed: 12345 }, site)))?.pdb).toContain("REPAIRED");
+    });
+
+    it("does not repeat a local repair that just failed, and repairs again once the backoff is over", async () => {
+      const pdb = makeLargePdb(442);
+      const countOf = (command: string) => foldxLog.filter(line => line.startsWith(command)).length;
+
+      repairWritesNothing = true;
+      const failed = await runFoldx(pdb, []);
+      expect(failed.energetics).toMatchObject({ repairMode: "none", repairModeIntended: FIX_SHELL_MODE, foldxRepairFailed: true });
+      expect(countOf("RepairPDB")).toBe(1);
+
+      // The next request skips the repair and says so, instead of paying the whole time cap again.
+      const phases: string[] = [];
+      const skipped = await runFoldx(pdb, phases);
+      expect(skipped.energetics).toMatchObject({ repairMode: "none", foldxRepairFailed: true });
+      expect(phases).toEqual(["modelling", "finalizing"]);
+      expect(countOf("RepairPDB")).toBe(1);
+      expect(countOf("BuildModel")).toBe(2); // neither fallback was cached
+
+      // Another residue on the same structure is a different repair, so it still gets its attempt.
+      await runFoldx(pdb, [], "AA6F");
+      expect(countOf("RepairPDB")).toBe(2);
+
+      // Once the backoff is over the repair runs again, succeeds, and that result is the one kept.
+      repairWritesNothing = false;
+      const pdbHash = crypto.createHash("sha256").update(cleanPdbForFoldX(pdb)).digest("hex");
+      clearRepairFailure(getRepairCacheKey(pdbHash, { seed: 12345 }, { chain: "A", resSeq: 5, insCode: "" }));
+      const healed = await runFoldx(pdb, []);
+      expect(healed.energetics).toMatchObject({ repairMode: FIX_SHELL_MODE, foldxRepairFailed: false });
+      expect(countOf("RepairPDB")).toBe(3);
+      const buildsSoFar = countOf("BuildModel");
+      await runFoldx(pdb, []);
+      expect(countOf("BuildModel")).toBe(buildsSoFar);
+    });
+
+    it("is cached under its own key, so the same variant is not computed twice", async () => {
+      const pdb = makeLargePdb(442);
+      await runFoldx(pdb, []);
+      const again = await runFoldx(pdb, []);
+      expect(again.energetics.repairMode).toBe(FIX_SHELL_MODE);
+      expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(1);
+    });
+
+    it("gives the same region on every run: the repair does not depend on cache warmth", async () => {
+      const first = await runFoldx(makeLargePdb(442), []);
+      repairedStructureCache.clear();
+      mutantCache.clear();
+      fs.rmSync(path.join(foldxHome, "foldx_cache"), { recursive: true, force: true });
+      const second = await runFoldx(makeLargePdb(442), []);
+      expect(second.energetics.repairShell).toEqual(first.energetics.repairShell);
+      expect(second.energetics.rawDdGs).toEqual(first.energetics.rawDdGs);
+    });
   });
 
   it.each(["execution", "missing-output"] as const)("invalidates a rejected cached repair and retries cleanly once (%s)", async failure => {
@@ -314,13 +418,22 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     await writeRepairedStructureToCache(key, cleanPdbForFoldX(pdb) + "\nREMARK REJECTED\n");
     rejectCachedInput = failure;
     const result = await runFoldx(pdb, []);
-    expect(result.energetics).toMatchObject({ foldxRepairSkipped: true, foldxRepairSkippedReason: "cached-repair-rejected", foldxRepairFailed: false });
+    expect(result.energetics).toMatchObject({
+      foldxRepairSkipped: true, foldxRepairSkippedReason: "cached-repair-rejected", foldxRepairFailed: false,
+      // It ran on the unrepaired template, and says so.
+      repairMode: "none", repairModeIntended: "full"
+    });
     expect(result.energetics.foldxRepairCached).toBeUndefined();
     expect(result.energetics.rawDdGs).toHaveLength(3); // no appended partial results from attempt 1
     expect(await getRepairedStructureFromCache(key)).toBeNull();
     expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(2);
-    await runFoldx(pdb, []);
-    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(2); // disclosed fallback is reusable
+
+    // The fallback is shown but NOT kept: its key promises a whole-chain repair, so asking again repairs
+    // the template properly and caches that, instead of serving the unrepaired value for a day.
+    const again = await runFoldx(pdb, []);
+    expect(again.energetics).toMatchObject({ repairMode: "full", foldxRepairSkipped: false, foldxRepairFailed: false });
+    expect(foldxLog.filter(line => line.startsWith("RepairPDB"))).toHaveLength(1);
+    expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(3);
   });
 
   it.each(["timeout", "abort"] as const)("does not blindly retry a cached-model %s", async failure => {

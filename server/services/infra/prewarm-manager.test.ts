@@ -259,8 +259,8 @@ describe("PrewarmManager", () => {
     it("mirrors FoldX's own defaults, so the warmed key cannot drift from the request's", () => {
       // The mirror is the only copy in this module; if `cache.ts` changes its implicit defaults this
       // fails instead of quietly warming an entry no interactive submit will ever look up.
-      const implicit = getFoldxCacheKey("pdbhash", "VA600E");
-      const explicit = getFoldxCacheKey("pdbhash", "VA600E", DEFAULT_FOLDX_CONDITIONS);
+      const implicit = getFoldxCacheKey("pdbhash", "VA600E", { repairMode: "full" });
+      const explicit = getFoldxCacheKey("pdbhash", "VA600E", { ...DEFAULT_FOLDX_CONDITIONS, repairMode: "full" });
       expect(implicit).toBe(explicit);
     });
   });

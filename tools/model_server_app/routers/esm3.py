@@ -15,7 +15,7 @@ from tools.model_server_app.routers.vesm import (
     REMOTE_REQUEST_TIMEOUT_S,
     REMOTE_MAX_RETRY_ATTEMPTS,
 )
-from tools.model_server_app.engine_resilience import raise_if_sdk_error, run_with_deadline, with_remote_failure
+from tools.model_server_app.engine_resilience import GateDeadlineExceeded, raise_if_sdk_error, run_with_deadline, with_remote_failure
 
 # How long the remote ESM-3 tier may take before the request moves on to the local fallback. The Node
 # layer allows the whole sidecar call 40 s (<=500 residues) or 100 s (longer); the remote tier must
@@ -105,6 +105,8 @@ def predict_esm3_sync(req: Esm3Request):
 
     try:
         return _local_vesm_fallback(sequence, pos, wt, mut, "VESM-150M (Local Fallback - ESM-3 remote failed)", note)
+    except GateDeadlineExceeded:
+        raise
     except Exception as local_err:
         raise HTTPException(status_code=500, detail=f"ESM-3 failed and local fallback failed: {local_err}")
 

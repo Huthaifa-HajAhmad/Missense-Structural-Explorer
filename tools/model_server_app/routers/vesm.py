@@ -10,6 +10,7 @@ from tools.model_server_app.utils import (
 )
 from tools.model_server_app import models
 from tools.model_server_app.engine_resilience import (
+    GateDeadlineExceeded,
     RemoteFailureMemory,
     SingleFlightCache,
     describe_remote_error,
@@ -21,18 +22,21 @@ from tools.model_server_app.engine_resilience import (
 import hashlib
 import os
 
-# Shared across the VESM, ESM-2 and ESM-3 routers so a deterministic remote failure (401/403/451) is
-# paid for once, not on every analysis, and so concurrent engines that fall back to the same local
-# VESM-150M pass compute it once.
-remote_failures = RemoteFailureMemory(ttl_seconds=float(os.environ.get("REMOTE_FAILURE_TTL_S", "600")))
+# Shared across the VESM, ESM-2 and ESM-3 routers so a deterministic remote failure (401/403/451) or a
+# remote tier that ran out of its time budget is paid for once, not on every analysis, and so concurrent
+# engines that fall back to the same local VESM-150M pass compute it once.
+remote_failures = RemoteFailureMemory(
+    ttl_seconds=float(os.environ.get("REMOTE_FAILURE_TTL_S", "600")),
+    timeout_ttl_seconds=float(os.environ.get("REMOTE_TIMEOUT_TTL_S", "300")),
+)
 _local_vesm_results = SingleFlightCache(max_entries=16)
-_local_vesm_masked_cache = SingleFlightCache(max_entries=32)
+_local_vesm_logits_cache = SingleFlightCache(max_entries=32)
 _local_vesm_wt_emb_cache = SingleFlightCache(max_entries=8)
 
 
 def clear_vesm_caches() -> None:
     _local_vesm_results.clear()
-    _local_vesm_masked_cache.clear()
+    _local_vesm_logits_cache.clear()
     _local_vesm_wt_emb_cache.clear()
 
 BIOHUB_HOST = "https://biohub.ai"
@@ -156,21 +160,20 @@ def _ensure_vesm_loaded():
             raise HTTPException(status_code=500, detail=f"VESM model is not loaded: {e}")
 
 
-def _compute_masked_site_logits(sequence: str, pos: int):
+def _compute_sequence_logits(sequence: str):
+    """
+    Logits for the wild-type sequence as given, for every residue.
+
+    This is how VESM's authors score a variant (their model card: run the sequence, then the log ratio of the
+    mutant and wild-type residues at that position). Hiding the residue first is not the published method, and
+    it does much worse: mean per-protein Spearman with measured stability 0.23 against 0.42 on 28 proteins
+    (2026-11-05; better unmasked on 23 of 28). ESM-2 is very slightly better masked and keeps masked scoring.
+    Index 0 is <cls>, so residue `pos` (1-based) is at index `pos`.
+    """
     _ensure_vesm_loaded()
-    seq_chars = list(sequence)
-    seq_chars[pos - 1] = models.vesm_tokenizer.mask_token
-    masked_seq = "".join(seq_chars)
-
-    inputs = models.vesm_tokenizer(masked_seq, return_tensors="pt")
+    inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
     with models.cpu_gate.acquire(priority=0), torch.no_grad():
-        outputs = models.vesm_model(**inputs)
-        logits = outputs.logits
-
-    mask_token_id = models.vesm_tokenizer.mask_token_id
-    mask_indices = (inputs["input_ids"][0] == mask_token_id).nonzero(as_tuple=True)[0]
-    token_idx = mask_indices[0].item()
-    return logits[0, token_idx : token_idx + 1].detach().clone()
+        return models.vesm_model(**inputs).logits[0].detach().clone()
 
 
 def _compute_wt_hidden_states(sequence: str):
@@ -187,17 +190,17 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str
         seq_hash = hashlib.sha256(sequence.encode()).hexdigest()
 
     try:
-        # 1. Masked site logits (shared across includeEmbeddings=False and True, and across all
-        # alternate alleles at the same site). Runs at priority=0 so Evidence triage finishes first.
-        site_logits = _local_vesm_masked_cache.get_or_compute(
-            (seq_hash, pos, start_offset),
-            lambda: _compute_masked_site_logits(sequence, pos),
+        # 1. Logits for the whole sequence, shared by every variant on it. Runs at priority=0 so Evidence
+        # triage finishes first.
+        sequence_logits = _local_vesm_logits_cache.get_or_compute(
+            (seq_hash, start_offset),
+            lambda: _compute_sequence_logits(sequence),
         )
 
         vocab_map = {aa: models.vesm_tokenizer.convert_tokens_to_ids(aa) for aa in AA_LIST}
 
         wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
-            site_logits, 0, wt, mut, vocab_map
+            sequence_logits, pos, wt, mut, vocab_map
         )
 
         embedding_shift = None
@@ -259,11 +262,11 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str
             "cosineProfile": to_full_coordinates(cosine_profile, start_offset),
             "provenance": "VESM-150M (Local)",
             "checkpoint": "ntranoslab/vesm VESM_150M",
-            "scoringMethod": "masked-marginal",
+            "scoringMethod": "wild-type-marginal",
             "verdict": "raw score"
         }
-    except HTTPException:
-        raise
+    except (HTTPException, GateDeadlineExceeded):
+        raise  # A busy refusal must stay a 503: the reader is told the server was busy, not that it is offline.
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

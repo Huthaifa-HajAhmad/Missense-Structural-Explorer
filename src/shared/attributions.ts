@@ -665,7 +665,7 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "StabilityOracle",
     provider: "Diaz et al. (Nature Communications)",
     kind: "model",
-    role: "Structure-based graph-transformer ΔΔG estimate, run as a local service and counted beside the other engines in the Energetics agreement.",
+    role: "Structure-based graph-transformer ΔΔG estimate, run as a local service and counted beside the other engines in the Energetics agreement. The authors did not publish how they built the model's inputs, so ours are a close reconstruction: values follow their published predictions (correlation about 0.8) but do not match them exactly. Hydrogens are added with PDB2PQR (Jurrus et al., Protein Science 2018).",
     url: "https://doi.org/10.1038/s41467-024-49780-2",
     release: null,
     citation:
