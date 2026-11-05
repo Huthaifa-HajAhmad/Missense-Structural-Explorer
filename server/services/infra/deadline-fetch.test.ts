@@ -59,6 +59,38 @@ describe("fetchWithRetry — caller deadline", () => {
     expect(fetchSpy.mock.calls.length).toBe(2);
   });
 
+  /**
+   * NCBI E-utilities is the counter-example the fast-refusal rule had to be told about. Its 500 page
+   * says "this could be a transient problem, please try the query again" and arrives from a
+   * front-end node in a few hundred milliseconds, while the same query answers 200 in 1-2 s on the
+   * next call (measured 2026-11-05: 5 of 10 esearch calls). Treating that as a policy refusal left
+   * ClinVar reported as "error" on runs where a single retry resolved the record.
+   */
+  it("retries a FAST 5xx from a provider that documents it as transient", async () => {
+    fetchSpy = alwaysFiveHundred(10);
+
+    await fetchWithRetry("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {
+      timeout: 5000,
+      fastFailureIsTransient: true,
+    }, 3, 5).catch(() => {});
+
+    expect(fetchSpy.mock.calls.length).toBe(3);
+  });
+
+  it("keeps a fast 429 a policy answer even for such a provider", async () => {
+    // A rate limit is still a rate limit: retrying it is the burst the team pause exists to stop.
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async () => {
+      return { ok: false, status: 429, headers: { get: () => null }, text: async () => "slow down" } as any;
+    });
+
+    await fetchWithRetry("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {
+      timeout: 5000,
+      fastFailureIsTransient: true,
+    }, 3, 5).catch(() => {});
+
+    expect(fetchSpy.mock.calls.length).toBe(1);
+  });
+
   it("retries a fast 429 when it advertises a cooldown that fits the caller's deadline", async () => {
     fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async () => {
       return {

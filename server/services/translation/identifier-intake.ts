@@ -70,12 +70,17 @@ const transcriptCache = new LRUCache<string, string | false>({ max: 2_000, ttl: 
 
 const INTAKE_FETCH_TIMEOUT_MS = 12_000;
 
-async function fetchJson(url: string, signal?: AbortSignal): Promise<any | null> {
+async function fetchJson(
+  url: string,
+  signal?: AbortSignal,
+  /** See `FetchWithRetryOptions.fastFailureIsTransient`: NCBI's own fast 5xx IS a "try again". */
+  fastFailureIsTransient = false
+): Promise<any | null> {
   let response: Response;
   try {
     response = await fetchWithRetry(
       url,
-      { headers: { Accept: "application/json" }, timeout: INTAKE_FETCH_TIMEOUT_MS, signal },
+      { headers: { Accept: "application/json" }, timeout: INTAKE_FETCH_TIMEOUT_MS, signal, fastFailureIsTransient },
       2
     );
   } catch (err: any) {
@@ -161,7 +166,8 @@ export async function resolveClinVarVcvToCoordinates(
   const apiKey = process.env.NCBI_API_KEY ? `&api_key=${encodeURIComponent(process.env.NCBI_API_KEY)}` : "";
   const payload = await fetchJson(
     `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=clinvar&id=${numericId}&retmode=json${apiKey}`,
-    signal
+    signal,
+    true
   );
   const record = payload?.result?.[numericId];
   if (!record || record.error) return { coordinates: [], nonSnv: false };
