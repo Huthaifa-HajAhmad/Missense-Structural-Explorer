@@ -290,12 +290,19 @@ describe("3D toolbar and legend", () => {
     expect(container.textContent).toContain("B-factor, relative");
   });
 
-  it("keys the colouring and states the band provenance", () => {
-    const { container } = render(<StructureLegend legend={buildStructure3dEvidence(input()).legend} />);
+  it("keys the colouring, states the band provenance, and collapses into a mini colour bar", () => {
+    const model = buildStructure3dEvidence(input());
+    const { container } = render(<StructureLegend legend={model.legend} />);
     const legend = container.querySelector("[data-testid='structure-legend']")!;
     expect(legend.getAttribute("data-provenance")).toBe("published");
     expect(legend.textContent).toContain("Very high");
     expect(legend.textContent).toContain("AlphaFold DB bands");
+
+    const toggle = within(legend as HTMLElement).getByRole("button", { name: "Hide colour key" });
+    expect(toggle.getAttribute("aria-controls")).toBe("s3d-legend-body");
+    fireEvent.click(toggle);
+    expect(legend.getAttribute("data-collapsed")).toBe("true");
+    expect(legend.querySelectorAll(".s3d-legend__mini-seg")).toHaveLength(model.legend!.entries.length);
   });
 
   it("keeps the Close-up toggle and omits the redundant side-chain diagram in both model families", () => {
@@ -321,4 +328,160 @@ describe("3D toolbar and legend", () => {
       }
     }
   });
+
+  it("exposes a Reset view camera control and surfaces active pLDDT filter and measured local fit badges on Display", () => {
+    const onResetCamera = vi.fn();
+    const wt = toolbar(buildStructure3dEvidence(input()), {
+      plddtFilter: "70",
+      onResetCamera,
+    });
+    const resetBtn = wt.container.querySelector<HTMLButtonElement>("[data-testid='structure-reset-view']")!;
+    expect(resetBtn).toBeTruthy();
+    expect(resetBtn.disabled).toBe(false);
+    fireEvent.click(resetBtn);
+    expect(onResetCamera).toHaveBeenCalledTimes(1);
+
+    const wtPills = Array.from(wt.container.querySelectorAll(".s3d-btn__pill")).map(el => el.textContent);
+    expect(wtPills).toEqual(["≥ 70"]);
+    wt.unmount();
+
+    const disabledReset = toolbar(buildStructure3dEvidence(input()), {
+      canResetCamera: false,
+      onResetCamera,
+    });
+    expect(disabledReset.container.querySelector<HTMLButtonElement>("[data-testid='structure-reset-view']")!.disabled).toBe(true);
+    disabledReset.unmount();
+
+    const base = input();
+    const deNovoSuperimposed = buildStructure3dEvidence(
+      input({
+        family: "esmfold",
+        viewMode: "superimposed",
+        alignmentScope: "local",
+        deNovo: {
+          ...base.deNovo,
+          wildTypeLoaded: true,
+          variantLoaded: true,
+          aligned: true,
+          scan: scanBFactors(AF),
+          site: readResidueAt(AF, 116),
+        },
+      }),
+    );
+    const sup = toolbar(deNovoSuperimposed, { plddtFilter: "none" });
+    const supPills = Array.from(sup.container.querySelectorAll(".s3d-btn__pill")).map(el => el.textContent);
+    expect(supPills).toEqual(["±15 fit"]);
+    sup.unmount();
+
+    // When local alignment falls back to global (measuredScope: "global"), ±15 fit is not certified on the pill
+    const fallbackGlobal = {
+      ...deNovoSuperimposed,
+      alignment: {
+        ...deNovoSuperimposed.alignment,
+        scope: "local" as const,
+        measuredScope: "global" as const,
+      },
+    };
+    const fallbackBar = toolbar(fallbackGlobal, { plddtFilter: "none" });
+    expect(fallbackBar.container.querySelectorAll(".s3d-btn__pill")).toHaveLength(0);
+    fallbackBar.unmount();
+  });
+
+  it("distinguishes the queried variant site from off-site or unverified selections in the inspector card", () => {
+    seed({
+      ...ESM_COORDINATES,
+      selectedResidueIndex: 200,
+      hoveredResidueIndex: 150,
+    });
+    const atSite = render(
+      <StructureInspector
+        family="alphafold"
+        setCustomPdbUrl={() => {}}
+        selection={{
+          position: 116,
+          preview: false,
+          state: "available",
+          isQueriedSite: true,
+          residue: null,
+          summary: "Asp116 in chain A · Variant site",
+          source: "AlphaFold DB · AF-Q13564-F1 v6",
+          measurement: { label: "pLDDT", value: "96.2", note: "Very high (≥ 90)" },
+        }}
+      />,
+    );
+    expect(atSite.container.querySelector(".s3d-selection__badge")?.textContent).toBe("Queried site");
+    expect(atSite.container.textContent).not.toContain("Variant-site measurements below remain tied to the queried substitution.");
+    atSite.unmount();
+
+    // Unmapped selection at the variant position must not claim "Queried site" and must keep the caveat note
+    const unmappedAtSite = render(
+      <StructureInspector
+        family="alphafold"
+        setCustomPdbUrl={() => {}}
+        selection={{
+          position: 116,
+          preview: false,
+          state: "unmapped",
+          isQueriedSite: false,
+          residue: null,
+          summary: "Selection retained, but this structure’s numbering is not verified against UniProt.",
+          source: "PDB 1YOV",
+          measurement: null,
+        }}
+      />,
+    );
+    expect(unmappedAtSite.container.querySelector(".s3d-selection__badge")).toBeNull();
+    expect(unmappedAtSite.container.querySelector(".s3d-selection__return")).toBeNull();
+    expect(unmappedAtSite.container.textContent).toContain("Variant-site measurements below remain tied to the queried substitution.");
+    unmappedAtSite.unmount();
+
+    // Unmapped selection away from the site labels the action "Return to position 116" without a substitution
+    const unmappedAway = render(
+      <StructureInspector
+        family="alphafold"
+        setCustomPdbUrl={() => {}}
+        selection={{
+          position: 200,
+          preview: false,
+          state: "unmapped",
+          isQueriedSite: false,
+          residue: null,
+          summary: "Selection retained, but this structure’s numbering is not verified against UniProt.",
+          source: "PDB 1YOV",
+          measurement: null,
+        }}
+      />,
+    );
+    expect(unmappedAway.getByRole("button", { name: "Return to position 116" })).toBeTruthy();
+    unmappedAway.unmount();
+
+    const awayFromSite = render(
+      <StructureInspector
+        family="alphafold"
+        setCustomPdbUrl={() => {}}
+        selection={{
+          position: 200,
+          preview: false,
+          state: "available",
+          isQueriedSite: false,
+          residue: null,
+          summary: "Leu200 in chain A · 14.2 Å from the variant site",
+          source: "AlphaFold DB · AF-Q13564-F1 v6",
+          measurement: { label: "pLDDT", value: "88.0", note: "Confident (70–90)" },
+        }}
+      />,
+    );
+    const returnBtn = awayFromSite.getByRole("button", { name: /Return to Asp116Gly/i });
+    expect(returnBtn).toBeTruthy();
+    expect(awayFromSite.container.textContent).toContain("Variant-site measurements below remain tied to the queried substitution.");
+    fireEvent.click(returnBtn);
+    const state = useVariantAnalysisStore.getState();
+    expect(state.selectedResidueIndex).toBe(116);
+    expect(state.hoveredResidueIndex).toBeNull();
+    expect(state.landscapeSelection?.kind).toBe("substitution");
+    expect(state.landscapeSelection?.pos).toBe(116);
+    awayFromSite.unmount();
+  });
 });
+
+

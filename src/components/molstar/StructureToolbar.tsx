@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
   Camera, ChevronDown, ClipboardCopy, Crosshair, Download, Focus, HelpCircle,
-  Maximize2, Minimize2, ScanSearch, SlidersHorizontal,
+  Maximize2, Minimize2, RotateCcw, ScanSearch, SlidersHorizontal,
 } from "lucide-react";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
 import type { PlddtFilter } from "./useMolstarStructure";
@@ -20,6 +20,8 @@ export interface StructureToolbarProps {
   siteCloseUp?: boolean;
   onToggleSiteCloseUp?: () => void;
   onFocusSelection?: () => void;
+  onResetCamera?: () => void;
+  canResetCamera?: boolean;
   pocketOpen: boolean;
   pocketTriggerRef?: React.RefObject<HTMLButtonElement | null>;
   onTogglePocket: () => void;
@@ -46,6 +48,13 @@ export function StructureToolbar(props: StructureToolbarProps) {
   const primary = model.canvas.primary;
   const site = model.site;
   const representation = model.representations.find(r => r.id === model.representation);
+  const activeFilterBadge = model.plddtFilter.available && props.plddtFilter !== "none" ? `≥ ${props.plddtFilter}` : null;
+  const appliedScope = model.alignment.measuredScope ?? model.alignment.scope;
+  const activeScopeBadge =
+    model.alignment.scopeToggle && model.alignment.scope === "local" && appliedScope === "local"
+      ? `±${LOCAL_ALIGNMENT_FIT_WINDOW} fit`
+      : null;
+  const canResetCamera = props.canResetCamera ?? Boolean(primary);
 
   useEffect(() => {
     if (!displayOpen) return;
@@ -87,9 +96,9 @@ export function StructureToolbar(props: StructureToolbarProps) {
             <span className="s3d-ident__dot" aria-hidden="true" />
             <span className="s3d-ident__name">{model.canvas.chip.label}</span>
           </span>
-          {primary && <span className="s3d-ident__kind">{primary.kind}</span>}
+          {primary && <span className="s3d-ident__kind" title={primary.kind}>{primary.kind}</span>}
         </div>
-        <div className="s3d-bar__top-actions">
+        <div className="s3d-bar__camera">
           {site.substitution && (
             site.canAddressVariantSite ? (
               <>
@@ -121,6 +130,21 @@ export function StructureToolbar(props: StructureToolbarProps) {
               Selected {props.selectedResidue}<Crosshair aria-hidden="true" />
             </button>
           )}
+          {props.onResetCamera && (
+            <button
+              type="button"
+              className="s3d-btn s3d-btn--quiet"
+              onClick={props.onResetCamera}
+              disabled={!canResetCamera}
+              title={canResetCamera ? "Reset camera to frame the full structure" : "No structure on the canvas to frame"}
+              aria-label="Reset camera view"
+              data-testid="structure-reset-view"
+            >
+              <RotateCcw aria-hidden="true" /><span className="s3d-btn__text">Reset view</span>
+            </button>
+          )}
+        </div>
+        <div className="s3d-bar__top-actions">
           <button type="button" className="s3d-btn s3d-btn--quiet" onClick={props.onOpenGuide} title="How to read this view" aria-label="Guide: how to read this view">
             <HelpCircle aria-hidden="true" /><span className="s3d-btn__text">Guide</span>
           </button>
@@ -160,8 +184,11 @@ export function StructureToolbar(props: StructureToolbarProps) {
             <SlidersHorizontal aria-hidden="true" />
             <span>Display</span>
             <span className="s3d-btn__value">{representation?.label ?? "Options"}</span>
+            {activeFilterBadge && <span className="s3d-btn__pill">{activeFilterBadge}</span>}
+            {activeScopeBadge && <span className="s3d-btn__pill">{activeScopeBadge}</span>}
             <ChevronDown aria-hidden="true" />
           </button>
+
           {displayOpen && (
             <div className="s3d-display" id={displayId} role="region" aria-label="Structure display options">
               <label className="s3d-display__field">

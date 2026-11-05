@@ -224,6 +224,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const polymer2Ref = useRef<any>(null);
   const highlightRefs = useRef<string[]>([]);
   const isLoadingRef = useRef(false);
+  const pendingCameraResetRef = useRef(false);
   const drawnSourceRef = useRef<{
     primaryPdbData: string | null;
     customPdbUrl: string | null;
@@ -232,6 +233,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     allowFetch: boolean;
   } | null>(null);
   const [readyVersion, setReadyVersion] = useState(0);
+  const [drawnPair, setDrawnPair] = useState(false);
 
   // Callbacks change identity every render; the load effect reads them through refs.
   const onPdbTextLoadedRef = useRef(onPdbTextLoaded);
@@ -276,6 +278,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         await plugin.clear();
         if (!active) return;
         announceDrawn(null);
+        setDrawnPair(false);
         structureRef.current = null;
         structure2Ref.current = null;
         polymerRef.current = null;
@@ -413,13 +416,20 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         try {
           plugin.canvas3d?.camera && (plugin.canvas3d.camera.forceFull = true);
           plugin.canvas3d?.camera?.setState({ clipFar: false });
-          if (cameraSnapshot) plugin.canvas3d?.camera?.setState(cameraSnapshot, 0);
+          if (pendingCameraResetRef.current) {
+            pendingCameraResetRef.current = false;
+            plugin.managers.camera?.reset(undefined, cameraDuration);
+          } else if (cameraSnapshot) {
+            plugin.canvas3d?.camera?.setState(cameraSnapshot, 0);
+          }
         } catch { /* camera props are best-effort */ }
 
         if (active) {
           drawnSourceRef.current = { primaryPdbData, customPdbUrl, comparePdbData, uniprotId, allowFetch };
           isLoadingRef.current = false;
-          announceDrawn(structure2Ref.current ? 2 : 1);
+          const hasSecond = Boolean(structure2Ref.current && stillInTree(plugin, structure2Ref.current.ref));
+          setDrawnPair(hasSecond);
+          announceDrawn(hasSecond ? 2 : 1);
           setLoading(false);
           setReadyVersion(v => v + 1);
         }
@@ -704,19 +714,52 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, labelAllCompanions, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
 
-  /** Frames one residue without changing any selection. */
-  const focusResidue = (index: number) => {
+  /** Frames one residue (or its 5 Å neighbourhood) without changing any selection. */
+  const focusResidue = (index: number, scope: "residue" | "neighbourhood" = "residue") => {
     if (!canAddressVariantSite) return;
     const plugin = pluginRef.current;
     const struct = structureRef.current;
     if (!plugin || !struct) return;
     try {
-      const loci = StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(index), struct.obj.data));
-      plugin.managers.camera.focusLoci(loci, { durationMs: 700, extraRadius: 8 });
+      const expr = scope === "neighbourhood"
+        ? MS.struct.modifier.includeSurroundings({ 0: residueExpression(index), radius: 5, "as-whole-residues": true })
+        : residueExpression(index);
+      const loci = StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(expr, struct.obj.data));
+      plugin.managers.camera.focusLoci(loci, { durationMs: cameraDuration, extraRadius: scope === "neighbourhood" ? 3 : 6 });
     } catch (e) {
       console.warn("[3D] Could not focus residue", index, e);
     }
   };
 
-  return { structureRef, structure2Ref, focusResidue };
+  /** Frames a set of residues (e.g. companion cluster or pocket lining) without rebuilding components. */
+  const focusResidues = (indices: readonly number[], extraRadius = 6) => {
+    if (indices.length === 0) return;
+    const plugin = pluginRef.current;
+    const struct = structureRef.current;
+    if (!plugin || !struct) return;
+    try {
+      const loci = StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residuesExpression(indices), struct.obj.data));
+      plugin.managers.camera.focusLoci(loci, { durationMs: cameraDuration, extraRadius });
+    } catch (e) {
+      console.warn("[3D] Could not focus residue set", e);
+    }
+  };
+
+  /** Resets the 3D camera to frame the full structure without changing selection or display state. */
+  const resetCamera = () => {
+    const plugin = pluginRef.current;
+    if (!plugin) return;
+    pendingCameraResetRef.current = true;
+    queueMicrotask(() => {
+      if (!isLoadingRef.current) pendingCameraResetRef.current = false;
+    });
+    try {
+      plugin.managers.camera?.reset(undefined, cameraDuration);
+    } catch (e) {
+      console.warn("[3D] Could not reset camera", e);
+    }
+  };
+
+  return { structureRef, structure2Ref, drawnPair, focusResidue, focusResidues, resetCamera };
 }
+

@@ -78,6 +78,8 @@ export interface ViewInspectorProps {
   onRetryPocket?: () => void | Promise<void>;
   /** Re-runs AI narrative synthesis for the current variant. */
   onRetryNarrative?: () => void | Promise<void>;
+  /** Returns selection to the queried substitution across both 3D and Landscape stores. */
+  onReturnToVariant?: () => void;
 }
 
 const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string }> = {
@@ -178,7 +180,8 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   isPocketLoading = false,
   pocketError = null,
   onRetryPocket,
-  onRetryNarrative
+  onRetryNarrative,
+  onReturnToVariant,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("cs-inspector-collapsed") === "true";
@@ -512,6 +515,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             selection={structureSelection}
             family={activeView === "structure_esmfold" ? "esmfold" : "alphafold"}
             setCustomPdbUrl={setCustomPdbUrl}
+            onReturnToVariant={onReturnToVariant}
           />
         )}
 

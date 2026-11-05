@@ -32,6 +32,8 @@ export interface StructureSelection {
   preview?: boolean;
   position: number | null;
   state: 'empty' | 'unmapped' | 'missing' | 'available';
+  /** True only when this selection is at the queried variant site on a structure with verified UniProt numbering. */
+  isQueriedSite?: boolean;
   summary: string;
   residue: ResidueAt | null;
   measurement: { label: string; value: string; note: string } | null;
@@ -40,7 +42,7 @@ export interface StructureSelection {
 
 /** Selected-residue facts always come from the primary canvas, never the queried variant's metrics. */
 export function buildStructureSelection(model: Structure3dEvidence, residues: ReadonlyMap<number, ResidueAt>, position: number | null): StructureSelection {
-  const base = { position, residue: null, measurement: null, source: model.canvas.primary?.name ?? null };
+  const base = { position, isQueriedSite: false, residue: null, measurement: null, source: model.canvas.primary?.name ?? null };
   if (!position) return { ...base, state: 'empty', summary: 'Select a residue in Landscape or on the structure.' };
   if (!numberingTrusted(model)) {
     // A protein past AlphaFold DB's ceiling has no full-length predicted model to switch to, so
@@ -59,5 +61,6 @@ export function buildStructureSelection(model: Structure3dEvidence, residues: Re
     ? { label: `${copied}pLDDT${channel.inherited ? ' (copied)' : ''}`, value: (b * 100 / channel.scale).toFixed(1), note: channel.note }
     : channel.kind === 'temperature-factor'
       ? { label: `${copied}B-factor${channel.inherited ? ' (copied)' : ''}`, value: `${b.toFixed(1)} Å²`, note: channel.note } : null;
-  return { ...base, state: 'available', residue, measurement, summary: `${residue.resName} ${position} · chain ${residue.chain || '(unnamed)'}` };
+  const isQueriedSite = model.site.canAddressVariantSite && model.site.position !== null && position === model.site.position;
+  return { ...base, state: 'available', isQueriedSite, residue, measurement, summary: `${residue.resName} ${position} · chain ${residue.chain || '(unnamed)'}` };
 }

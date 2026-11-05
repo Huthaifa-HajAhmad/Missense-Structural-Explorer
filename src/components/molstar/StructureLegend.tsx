@@ -19,33 +19,54 @@ export function StructureLegend({ legend }: { legend: Legend | null }) {
   const [open, setOpen] = useState(true);
   if (!legend) return null;
   return (
-    <section className="s3d-legend" data-provenance={legend.provenance} aria-label={`Colour key: ${legend.title}`} data-testid="structure-legend">
+    <section
+      className="s3d-legend"
+      data-provenance={legend.provenance}
+      data-collapsed={!open ? "true" : undefined}
+      aria-label={`Colour key: ${legend.title}`}
+      data-testid="structure-legend"
+    >
       <div className="s3d-legend__head">
-        <h3 className="s3d-legend__title">{legend.title}</h3>
+        <div className="s3d-legend__head-lead">
+          {!open && (
+            <span className="s3d-legend__mini-bar" aria-hidden="true">
+              {legend.entries.map(entry => (
+                <span
+                  key={`${entry.label}-${entry.color}`}
+                  className="s3d-legend__mini-seg"
+                  style={{ "--s3d-swatch": hex(entry.color) } as React.CSSProperties}
+                />
+              ))}
+            </span>
+          )}
+          <h3 className="s3d-legend__title">{legend.title}</h3>
+        </div>
         <button
           type="button"
           className="s3d-legend__toggle"
           onClick={() => setOpen(o => !o)}
           aria-expanded={open}
+          aria-controls="s3d-legend-body"
           aria-label={open ? "Hide colour key" : "Show colour key"}
         >
-          {open ? <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />}
+          {open ? <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />}
         </button>
       </div>
       {open && (
-        <>
+        <div id="s3d-legend-body" role="region" aria-label={`Colour key bands: ${legend.title}`}>
           <ul className="s3d-legend__list">
             {legend.entries.map(entry => (
               <li key={`${entry.label}-${entry.color}`} className="s3d-legend__item">
                 <span className="s3d-legend__swatch" style={{ "--s3d-swatch": hex(entry.color) } as React.CSSProperties} aria-hidden="true" />
-                <span>{entry.label}</span>
+                <span className="s3d-legend__label">{entry.label}</span>
                 {entry.range && <span className="s3d-legend__range">{entry.range}</span>}
               </li>
             ))}
           </ul>
           <p className="s3d-legend__source">{legend.provenanceNote}</p>
-        </>
+        </div>
       )}
     </section>
   );
 }
+
