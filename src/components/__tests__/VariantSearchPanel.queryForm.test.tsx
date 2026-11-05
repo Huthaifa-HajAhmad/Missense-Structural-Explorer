@@ -17,13 +17,15 @@ import { SettingsProvider } from "../../context/SettingsContext";
 type PanelProps = Partial<React.ComponentProps<typeof VariantSearchPanel>>;
 
 function renderPanel(props: PanelProps = {}) {
-  return render(
+  const view = render(
     <SettingsProvider>
       <VariantSearchPanel
         {...props}
       />
     </SettingsProvider>
   );
+  fireEvent.click(screen.getByText("Protein reference"));
+  return view;
 }
 
 const routeStatus = () => document.getElementById("coordinate-route-status") as HTMLElement;
@@ -368,11 +370,10 @@ describe("UniProt state takes the label-row slot (UI-5)", () => {
   it("states the accession's state in the label row and keeps the field always editable", () => {
     act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
     renderPanel();
-    fireEvent.click(screen.getByText("Edit parsed fields"));
 
     const input = document.getElementById("input-uniprot-acc") as HTMLInputElement;
     // The accession sits in the one fields grid, on the gene's row.
-    expect(input.closest("#workspace-accepted-inputs")).not.toBeNull();
+    expect(input.closest(".qe-uniprot")).not.toBeNull();
     // No reveal step: the input is there on first paint, empty or filled.
     expect(input).toBeVisible();
 
@@ -438,10 +439,10 @@ describe("workspace deck: the recent card is a row of its own, not the form's co
 describe("form layout: one grid, no reserved band, no separate coordinate column (UI-10)", () => {
   const band = () => document.getElementById("workspace-accepted-inputs") as HTMLElement;
 
-  it("holds all four fields in one group, without a reserved helper band", () => {
+  it("groups gene and notation without a separate coordinate field", () => {
     act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly" }));
     renderPanel();
-    for (const id of ["input-gene-symbol", "input-uniprot-acc", "input-variant-notation", "input-genomic-coords"]) {
+    for (const id of ["input-gene-symbol", "input-variant-notation"]) {
       expect(band()).toContainElement(document.getElementById(id));
     }
     expect(band()).not.toHaveAttribute("data-help-lines");
@@ -486,12 +487,12 @@ describe("benchmark cards run, like Recent analyses (UI-7)", () => {
 });
 
 describe("query footer", () => {
-  it("omits redundant keyboard guidance while retaining key setup", () => {
+  it("omits the query footer and its key setup link", () => {
     renderPanel();
     expect(screen.queryByText("runs from a query field")).not.toBeInTheDocument();
     expect(screen.queryByText("Enter", { selector: "kbd" })).not.toBeInTheDocument();
-    // The keyless note still follows it.
-    expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^add a key$/i })).not.toBeInTheDocument();
+    expect(document.querySelector(".workbench-query-footer")).toBeNull();
   });
 });
 
@@ -565,7 +566,7 @@ describe("Parsed fields speak the composer's grammar", () => {
     renderPanel();
 
     // Every editable field wears the one field box; no caller-supplied fill is mixed in.
-    for (const input of [geneInput(), genomicInput()]) {
+    for (const input of [geneInput(), screen.getByPlaceholderText("e.g. p.Gly380Arg")]) {
       expect(input.classList.contains("qe-input")).toBe(true);
       expect(input.className).not.toContain("surface-2");
     }
@@ -585,7 +586,7 @@ describe("Parsed fields speak the composer's grammar", () => {
     expect(select.closest(".qe-select")).not.toBeNull();
     expect(select).toHaveAccessibleName("Genome build this coordinate is expressed in");
     // Beside the label it describes, the way the notation field carries its build: not a row of its own.
-    const labelRow = screen.getByText("Genomic coordinates").closest(".qe-field-label") as HTMLElement;
+    const labelRow = screen.getByText("Variant", { exact: true }).closest(".qe__head") as HTMLElement;
     expect(labelRow).toContainElement(select);
   });
 });

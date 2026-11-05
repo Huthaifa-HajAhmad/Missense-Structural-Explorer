@@ -2,7 +2,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { skipTour } from './support.js';
 
-test('the query and monitor end on one line with three recent analyses', { tags: ['shell'] }, async ({ app, browser, screen }) => {
+test('the monitor keeps its height with three recent analyses', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.addInitScript(() => {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
@@ -20,11 +20,11 @@ test('the query and monitor end on one line with three recent analyses', { tags:
     const query = document.querySelector('.workbench-query')!.getBoundingClientRect();
     const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
     const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
-    // The deck is as tall as the monitor's content, not the window, so the bottom line is shared
-    // rather than floored; the monitor's own cap still keeps it inside the window.
+    // The deck is as tall as the monitor's own 40rem floor: query and tray sit above it, and
+    // recents stretches to the shared bottom line the way the deck's rules set them up.
     return query.top <= 210 && Math.abs(query.top - monitor.top) <= 1 &&
-      Math.abs(recents.bottom - monitor.bottom) <= 1 && monitor.bottom <= innerHeight - 20;
-  }), 'panels start higher, share a bottom line, and retain a bottom gutter').toBe(true);
+      Math.abs(recents.bottom - monitor.bottom) <= 1;
+  }), 'panels share a top edge and the monitor keeps its own height').toBe(true);
   await app.screenshot('query-panels-three-recents');
 });
 
@@ -48,11 +48,11 @@ test('a long history scrolls inside its card and keeps the deck in place', { tag
     return {
       rows: list.querySelectorAll(':scope > li').length,
       scrolls: list.scrollHeight > list.clientHeight + 1 && getComputedStyle(list).overflowY === 'auto',
-      aligned: Math.abs(recents.bottom - monitor.bottom) <= 1,
-      fits: monitor.bottom <= innerHeight - 20,
+      stableMonitor: Math.abs(recents.bottom - monitor.bottom) <= 1,
+      fits: recents.height >= 200,
     };
   });
-  expect(await deck(), 'all eight rows, in a scrolling list, aligned, above the fold').toEqual({ rows: 8, scrolls: true, aligned: true, fits: true });
+  expect(await deck(), 'all eight rows, in a scrolling list, with a stable monitor and room for three entries').toEqual({ rows: 8, scrolls: true, stableMonitor: true, fits: true });
   await expect(screen.getByRole('button', /^Show \d+ more$/)).toHaveCount(0);
   await app.screenshot('query-panels-long-history');
 });
@@ -60,7 +60,6 @@ test('a long history scrolls inside its card and keeps the deck in place', { tag
 test('Search has one page scroller and opens the palette directly', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await app.open('/');
-  await screen.getByText(/^Edit parsed fields/).tap();
   for (const width of [1440, 390]) {
     await browser.setViewport({ width, height: 844 });
     const geometry = await browser.evaluate(() => {
@@ -74,7 +73,7 @@ test('Search has one page scroller and opens the palette directly', { tags: ['sh
       return { scrollers, fits: document.documentElement.scrollWidth <= innerWidth,
         monitorFits: !monitor || monitor.scrollWidth <= monitor.clientWidth + 1 };
     });
-    expect(geometry.scrollers, `one Search scroll owner at ${width}px`).toBe(1);
+    expect(geometry.scrollers, `Search scrolls through at most one page scroller at ${width}px — a fit has none, an overflow has the page`).toBeLessThanOrEqual(1);
     expect(geometry.fits).toBe(true);
     expect(geometry.monitorFits, 'service hit areas stay inside the monitor').toBe(true);
     await app.screenshot(`search-${width}`);

@@ -27,7 +27,6 @@ import {
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { EVIDENCE_SUB_ITEMS, MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
-import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus, isOnDemandView, summarizeWorkflowStatuses } from "../shared/workflowStatus";
 import { evidenceTabsLoading } from "../shared/evidenceTabProgress";
 import { landscapeKey } from "../shared/landscapeEvidence";
@@ -36,7 +35,6 @@ import {
   classifyNotation,
   cdnaReferenceProblem,
   isGenomicOrCdnaNotation,
-  ACCEPTED_NOTATION_EXAMPLES,
   type GenomeAssembly,
   type NotationKind,
 } from "../shared/variantNotation.ts";
@@ -293,44 +291,6 @@ function sameSubstitution(
 const UNIPROT_ACCESSION_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/i;
 
 /**
- * Examples, grouped by the field they belong in — and now rendered directly UNDER that field, so
- * the either/or split between the two notation inputs is shown by position rather than explained
- * in a separate box below the submit button.
- */
-const NOTATION_EXAMPLE_GROUPS: Array<{
-  target: "variant" | "genomic";
-  label: string;
-  values: string[];
-}> = [
-  {
-    target: "variant",
-    label: "Variant notation",
-    values: [
-      ACCEPTED_NOTATION_EXAMPLES.protein,
-      ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned,
-      ACCEPTED_NOTATION_EXAMPLES.cdna,
-      // The build-annotated form is a chip of its own: the field can STATE which reference the
-      // transcript is read against, and a reader who has hg19 cDNA has no other way to find that out.
-      ACCEPTED_NOTATION_EXAMPLES.cdnaAssemblyAnnotated,
-    ],
-  },
-  {
-    target: "genomic",
-    label: "Genomic coords",
-    values: [
-      ACCEPTED_NOTATION_EXAMPLES.genomicHgvs,
-      ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated,
-      ACCEPTED_NOTATION_EXAMPLES.genomicAccession,
-      ACCEPTED_NOTATION_EXAMPLES.genomicDashed,
-      // Identifiers belong in this field because it is the one that accepts them: the server resolves them
-      // to a coordinate, and the field's helper line lists them.
-      ACCEPTED_NOTATION_EXAMPLES.rsid,
-      ACCEPTED_NOTATION_EXAMPLES.clinvarVcv,
-    ],
-  },
-];
-
-/**
  * Display-only HGVS tidy-up for history chips: `p.ser489cys` → `p.Ser489Cys`.
  *
  * History stores whatever was typed, so the tray mixed lower-case entries with properly cased
@@ -513,53 +473,6 @@ const BuildSelect: React.FC<{
   );
 };
 
-/**
- * One breath per chip. The tooltip used to replay the group's full paragraph on EVERY chip of a
- * group — hovering any example surfaced a multi-sentence treatise — so the tooltips now say only
- * what the hovered form IS: which field it feeds is already carried by the chip's position
- * (directly under that field) and its accessible label. The fallback covers a catalogue value
- * this map has not met yet.
- */
-const EXAMPLE_HINTS: Record<string, string> = {
-  [ACCEPTED_NOTATION_EXAMPLES.protein]: "Three-letter protein change",
-  [ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned]: "Protein change on a numbered accession",
-  [ACCEPTED_NOTATION_EXAMPLES.cdna]: "Transcript cDNA change",
-  [ACCEPTED_NOTATION_EXAMPLES.cdnaAssemblyAnnotated]: "cDNA naming its reference build",
-  [ACCEPTED_NOTATION_EXAMPLES.genomicHgvs]: "Genomic HGVS",
-  [ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated]: "Genomic HGVS naming the build",
-  [ACCEPTED_NOTATION_EXAMPLES.genomicAccession]: "Accession-qualified genomic coordinate",
-  [ACCEPTED_NOTATION_EXAMPLES.genomicDashed]: "Dashed chromosome-position form",
-  [ACCEPTED_NOTATION_EXAMPLES.rsid]: "dbSNP identifier, resolved to a coordinate",
-  [ACCEPTED_NOTATION_EXAMPLES.clinvarVcv]: "ClinVar Variation ID, resolved to a coordinate",
-};
-
-/** One example per route; additional accepted forms remain available on demand. */
-const ExampleRow: React.FC<{
-  group: (typeof NOTATION_EXAMPLE_GROUPS)[number];
-  onPick: (target: "variant" | "genomic", value: string) => void;
-}> = ({ group, onPick }) => {
-  const primary = group.target === "genomic" ? ACCEPTED_NOTATION_EXAMPLES.genomicDashed : group.values[0];
-  const example = (value: string) => (
-      <button
-        key={value}
-        type="button"
-        onClick={() => onPick(group.target, value)}
-        title={EXAMPLE_HINTS[value] ?? `${group.label} example`}
-        aria-label={`Use example ${value} in the ${group.label} field`}
-        className="query-example"
-      >
-        {value}
-      </button>
-  );
-  return <div className="query-examples">
-    <div className="query-examples__primary"><span>Try {group.target === "genomic" ? "coordinates" : "protein"}</span>{example(primary)}</div>
-    <details>
-      <summary>More {group.target === "genomic" ? "coordinate" : "protein & cDNA"} formats</summary>
-      <div className="query-examples__more">{group.values.filter(value => value !== primary).map(example)}</div>
-    </details>
-  </div>;
-};
-
 function VariantSearchPanel({
   customGene: propsCustomGene,
   setCustomGene: propsSetCustomGene,
@@ -607,7 +520,6 @@ function VariantSearchPanel({
   const landscapeOverview = useVariantAnalysisStore(s => s.landscapeOverview);
 
   const actions = useVariantAnalysisActions();
-  const { hasConfiguredGeminiKey, openSettingsTab, settings } = useSettings();
 
   // Active state bindings with direct store reactivity
   const customGene = storeCustomGene;
@@ -1090,24 +1002,6 @@ function VariantSearchPanel({
       : null;
 
   /**
-   * Fills a field from the example catalogue.
-   *
-   * The sibling notation field is cleared, because the two are alternative routes to the
-   * same answer rather than additive inputs — the same reason selecting a recent analysis
-   * clears the coordinate field. Leaving both populated is what made it ambiguous which one
-   * the pipeline would actually follow.
-   */
-  const applyNotationExample = (target: "variant" | "genomic", value: string) => {
-    if (target === "variant") {
-      setCustomVariant(value);
-      setCustomGenomic("");
-    } else {
-      setCustomGenomic(value);
-      setCustomVariant("");
-    }
-  };
-
-  /**
    * Loads a complete benchmark query. Unlike a notation example it sets the gene and accession
    * too, so the form is immediately submittable — the notation examples alone never were, because
    * a bare `p.Arg408Trp` still needs a gene.
@@ -1191,13 +1085,6 @@ function VariantSearchPanel({
         })())
     )
   );
-  // The fields are folded away by default; anything that needs a decision in them opens them.
-  const [fieldsOpen, setFieldsOpen] = useState(false);
-  const fieldsNeedAttention =
-    Boolean(routeConflict) ||
-    bareCdnaNeedsGene ||
-    coordinateRoute === "unrecognised" ||
-    (Boolean(customUniprot.trim()) && !uniprotLooksValid);
   const onQuickEntryChange = (line: string) => {
     setQuickDraft(line);
     const read = readQuickEntry(line);
@@ -1459,6 +1346,7 @@ function VariantSearchPanel({
                     <Eraser className="w-3.5 h-3.5" aria-hidden="true" />
                     Clear fields
                   </button>
+                  {genomicBuildControllable && <BuildSelect id="input-genomic-build" value={genomicBuild} source={genomicBuildSource} subject="coordinate" onChange={applyGenomicBuild} />}
                   <span className="qe__accepts">Protein / cDNA / coordinate / rsID / ClinVar VCV</span>
                 </div>
 
@@ -1468,7 +1356,7 @@ function VariantSearchPanel({
                     <input
                       id="input-quick-entry"
                       type="text"
-                      placeholder="e.g. NAE1 p.Asp116Gly"
+                      placeholder="e.g. 20-23365054-G-A"
                       autoComplete="off"
                       spellCheck={false}
                       value={quickDraft}
@@ -1518,6 +1406,11 @@ function VariantSearchPanel({
                   </button>
                 </div>
 
+              </div>
+              <section className="qe-options" aria-labelledby="query-options-title">
+                <div className="qe-options__heading">
+                  <h3 id="query-options-title">Optional refinements</h3>
+                </div>
                 <p
                   id="input-quick-entry-status"
                   role="status"
@@ -1589,54 +1482,10 @@ function VariantSearchPanel({
                       ));
                     })()}
                   </dl>
-                ) : (
-                  <div className="qe__try">
-                    <span className="qe__try-label">Or try an example</span>
-                    {[
-                      { value: "NAE1 p.Asp116Gly", note: "protein" },
-                      { value: "20-23365054-G-A", note: "coordinate" },
-                      { value: "rs28934576", note: "dbSNP" },
-                    ].map(({ value, note }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => onQuickEntryChange(value)}
-                        className="qe__example"
-                        title={`Fill the line with a ${note} example`}
-                      >
-                        <span className="qe__example-note">{note}</span>
-                        <span className="qe__example-value">{value}<ArrowRight aria-hidden="true" /></span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                ) : null}
 
-              <details
-                className="qe-fields"
-                open={fieldsOpen || fieldsNeedAttention}
-                onToggle={(e) => setFieldsOpen((e.currentTarget as HTMLDetailsElement).open)}
-              >
-                <summary className="qe-fields__summary">
-                  <ChevronRight className="qe-fields__chevron" aria-hidden="true" />
-                  Edit parsed fields
-                  <span className="qe-fields__meta">
-                    {fieldsNeedAttention ? (
-                      <span className="qe-fields__attention">
-                        <AlertTriangle className="w-3 h-3" aria-hidden="true" />
-                        Needs a look
-                      </span>
-                    ) : (
-                      <span className="qe-fields__hint">Gene, notation, UniProt, build, coordinates</span>
-                    )}
-                  </span>
-                </summary>
+              <section className="qe-fields" aria-label="Query details">
                 <div className="qe-fields__body">
-              {/* One two-column grid, so each row shares a baseline by construction: identity on top (gene,
-                  accession), the two ways of naming the change beneath (protein/cDNA, or a coordinate), and the
-                  route status across the foot. The coordinate used to have a column of its own, with a build row
-                  whose only content was "Follows the coordinate you enter" and a field that repeated the line
-                  above; the build now sits in the coordinate label's slot, as it does on the notation field. */}
               <div
                 className="query-routes"
                 id="workspace-accepted-inputs"
@@ -1680,53 +1529,6 @@ function VariantSearchPanel({
                           <span>Resolves on {customGene.trim().toUpperCase()}&apos;s MANE Select transcript.</span>
                         ) : null}
                       </p>
-                    </div>
-
-                    {/* Row 1, beside the gene: the optional UniProt accession.
-                        The field is always the editable input — collapsed it was a 40px summary button
-                        ("Resolved automatically"), open it is a 40px input, so the reveal step bought
-                        no space and one extra click. Its STATE sits in the label row's slot, which is the
-                        one place this form states a field's verdict ("Derived", "Optional", "Protein HGVS"). */}
-                    <div className="flex flex-col gap-1.5 min-w-0">
-                      <FieldLabel
-                        htmlFor="input-uniprot-acc"
-                        badge={
-                          <FieldBadge
-                            id="input-uniprot-acc-status"
-                            /**
-                             * `warn` is the only loud state this slot has. A well-formed accession is not
-                             * a state worth a green chip: it is the ordinary case, the chip was the
-                             * loudest colour in a row that is otherwise grey, and it said nothing the
-                             * input's own text does not. `neutral` renders as plain muted text.
-                             */
-                            tone={uniprotLooksValid ? "neutral" : "warn"}
-                            title={
-                              uniprotLooksValid
-                                ? "Optional: the accession is auto-resolved from the gene when omitted."
-                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
-                            }
-                          >
-                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                          </FieldBadge>
-                        }
-                      >
-                        UniProt accession
-                      </FieldLabel>
-                      <div className="relative">
-                        <input
-                          id="input-uniprot-acc"
-                          type="text"
-                          placeholder="e.g. Q9H8M5"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={customUniprot}
-                          onChange={(e) => setCustomUniprot(e.target.value)}
-                          aria-invalid={!uniprotLooksValid || undefined}
-                          aria-describedby="input-uniprot-acc-status"
-                          className={inputBase + " font-mono uppercase"}
-                        />
-                        <PasteBtn setter={setCustomUniprot} />
-                      </div>
                     </div>
 
                     {/* Row 2: the protein or cDNA notation, with its examples directly beneath. */}
@@ -1788,65 +1590,6 @@ function VariantSearchPanel({
                         />
                         <PasteBtn setter={setCustomVariant} />
                       </div>
-                      <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
-                    </div>
-
-                    {/* Row 2, beside the notation: the coordinate, with its examples directly beneath. */}
-                    <div className="flex flex-col gap-1.5 min-w-0">
-                      <FieldLabel
-                        htmlFor="input-genomic-coords"
-                        /**
-                         * The build the coordinate is expressed in. It is DERIVED from the text (see BuildSelect), so it
-                         * holds no state of its own, and it takes the same label slot as on the notation field. It was a
-                         * 40px row above this field that read "Follows the coordinate you enter" until a build existed.
-                         */
-                        action={
-                          genomicBuildControllable ? (
-                            <BuildSelect
-                              id="input-genomic-build"
-                              value={genomicBuild}
-                              source={genomicBuildSource}
-                              subject="coordinate"
-                              onChange={applyGenomicBuild}
-                            />
-                          ) : undefined
-                        }
-                        badge={
-                          /**
-                           * ONE thing in this slot. When the build control is showing it already states the build,
-                           * so no badge here. Otherwise the slot names what the text is: a verdict for a
-                           * recognised notation, or "Optional" while the field is empty.
-                           */
-                          genomicBuildControllable ? null : genomicNotation ? (
-                            <FieldBadge
-                              tone={NOTATION_BADGES[genomicNotation.kind].tone}
-                              title={`${NOTATION_BADGES[genomicNotation.kind].title}${genomicIsCoordinate ? "" : " This field accepts coordinates, dbSNP IDs and ClinVar IDs."}`}
-                            >
-                              {NOTATION_BADGES[genomicNotation.kind].label}
-                            </FieldBadge>
-                          ) : (
-                            <FieldBadge title="Optional: protein-level notation alone is enough to run the analysis.">
-                              Optional
-                            </FieldBadge>
-                          )
-                        }
-                      >
-                        Genomic coordinates
-                      </FieldLabel>
-                      <div className="relative">
-                        <input
-                          id="input-genomic-coords"
-                          type="text"
-                          placeholder="e.g. 20-23365054-G-A"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={customGenomic}
-                          onChange={(e) => setCustomGenomic(e.target.value)}
-                          className={inputBase + " font-mono"}
-                        />
-                        <PasteBtn setter={setCustomGenomic} />
-                      </div>
-                      <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                     </div>
 
                     {/* Row 3, across both columns: which route the submit takes. A live region, so a change of route is
@@ -1894,15 +1637,65 @@ function VariantSearchPanel({
                       )}
                     </div>
               </div>
+                  <details className="qe-uniprot">
+                    <summary className="qe-fields__summary">
+                      <ChevronRight className="qe-fields__chevron" aria-hidden="true" />
+                      Protein reference
+                      <span className="qe-fields__meta qe-fields__hint">{customUniprot.trim() || "UniProt \u00b7 resolved automatically"}</span>
+                    </summary>
+                    <div className="qe-uniprot__body">
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <FieldLabel
+                        htmlFor="input-uniprot-acc"
+                        badge={
+                          <FieldBadge
+                            id="input-uniprot-acc-status"
+                            /**
+                             * `warn` is the only loud state this slot has. A well-formed accession is not
+                             * a state worth a green chip: it is the ordinary case, the chip was the
+                             * loudest colour in a row that is otherwise grey, and it said nothing the
+                             * input's own text does not. `neutral` renders as plain muted text.
+                             */
+                            tone={uniprotLooksValid ? "neutral" : "warn"}
+                            title={
+                              uniprotLooksValid
+                                ? "Optional: the accession is auto-resolved from the gene when omitted."
+                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                            }
+                          >
+                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                          </FieldBadge>
+                        }
+                      >
+                        UniProt accession
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-uniprot-acc"
+                          type="text"
+                          placeholder="e.g. Q9H8M5"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customUniprot}
+                          onChange={(e) => setCustomUniprot(e.target.value)}
+                          aria-invalid={!uniprotLooksValid || undefined}
+                          aria-describedby="input-uniprot-acc-status"
+                          className={inputBase + " font-mono uppercase"}
+                        />
+                        <PasteBtn setter={setCustomUniprot} />
+                      </div>
+                    </div>
+
+                    </div>
+                  </details>
                 </div>
-              </details>
+              </section>
 
               <details className="workbench-ai">
                 <summary className="workbench-ai-summary">
-                  <Sparkles aria-hidden="true" />
+                  <ChevronRight className="workbench-ai-chevron" aria-hidden="true" />
                   <span>AI focus &amp; custom instructions</span>
-                  <span className="workbench-ai-meta">{hasDirections ? `${userDirections.trim().length} chars set` : "Optional"}</span>
-                  <ChevronDown className="workbench-ai-chevron" aria-hidden="true" />
+                  {hasDirections && <span className="workbench-ai-meta">{`${userDirections.trim().length} chars set`}</span>}
                 </summary>
               <fieldset className="qe-ai">
                 <label htmlFor="textarea-user-directions" className="qe-ai__label">
@@ -1930,37 +1723,9 @@ function VariantSearchPanel({
                 </div>
               </fieldset>
               </details>
+              </section>
             </div>
 
-            {/* Setup guidance appears only when relevant. */}
-            {(settings?.narrativeMode === "off" || settings?.narrativeMode === "on-demand" || !hasConfiguredGeminiKey) && (
-            <div className="workbench-query-footer">
-              {/* Keyless-first: every stage runs without a key, and the narrative stage returns its
-                  designed "AI not configured" report (rule-based ACMG from database metrics). The key
-                  only adds the written interpretation, so it is a note here, never a gate — a gate
-                  here was also bypassed by the history chips and the benchmarks, which always ran. */}
-              <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                  {settings?.narrativeMode === "off" ? (
-                    <span>AI synthesis is off. Evidence and classification remain available.</span>
-                  ) : settings?.narrativeMode === "on-demand" ? (
-                    <span>AI synthesis is available on demand in Report.</span>
-                  ) : hasConfiguredGeminiKey ? null : (
-                    <>
-                      <span>Evidence and rule-based classification work without Gemini.</span>
-                      <button
-                        type="button"
-                        onClick={() => openSettingsTab("connections")}
-                        className="font-medium text-cs-text-accent underline-offset-2 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                      >
-                        Add a key
-                      </button>
-                    </>
-                  )}
-                </span>
-              </p>
-            </div>
-            )}
           </form>
         </section>
 

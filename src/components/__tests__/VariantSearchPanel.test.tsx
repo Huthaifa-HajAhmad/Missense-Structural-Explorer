@@ -9,12 +9,14 @@ import { SettingsProvider } from "../../context/SettingsContext";
 import { ACCEPTED_NOTATION_EXAMPLES, classifyNotation } from "../../shared/variantNotation";
 
 function renderPanel() {
-  return render(
+  const view = render(
     <SettingsProvider>
       <VariantSearchPanel
       />
     </SettingsProvider>
   );
+  fireEvent.click(screen.getByText("Protein reference"));
+  return view;
 }
 
 describe("VariantSearchPanel numbering choice", () => {
@@ -586,21 +588,8 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   });
 
   describe("accepted-inputs catalogue", () => {
-    it("reveals additional formats and applies an accessioned notation without losing its reference", () => {
-      renderPanel();
-      fireEvent.click(screen.getByText("Edit parsed fields"));
-      const exampleName = `Use example ${ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned} in the Variant notation field`;
-      expect(screen.getByRole("button", { name: exampleName })).not.toBeVisible();
-      fireEvent.click(screen.getByText("More protein & cDNA formats"));
-      expect(screen.getByRole("button", { name: exampleName })).toBeVisible();
-      fireEvent.click(screen.getByRole("button", { name: exampleName }));
-      expect(useVariantAnalysisStore.getState().customVariant).toBe(ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned);
-      expect(useVariantAnalysisStore.getState().customGenomic).toBe("");
-    });
-
     it("keeps the accession editable in place, with its state in the label row", () => {
       renderPanel();
-      fireEvent.click(screen.getByText("Edit parsed fields"));
       const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
       // No reveal step: there is no collapsed summary to open, so the input is there on first paint.
       expect(reference).toBeVisible();
@@ -617,7 +606,6 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     it("keeps a populated protein reference visible when returning to the form", () => {
       act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
       renderPanel();
-      fireEvent.click(screen.getByText("Edit parsed fields"));
       expect(screen.getByPlaceholderText("e.g. Q9H8M5")).toBeVisible();
       expect(screen.getByPlaceholderText("e.g. Q9H8M5")).toHaveValue("Q9H8M5");
       const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
@@ -627,20 +615,14 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(reference).toHaveFocus();
     });
 
-    it("sources every example from the shared catalogue, and every one parses", () => {
-      renderPanel();
-
-      // Asserted against the SOURCE, not against literals: hardcoding the six strings pinned
-      // today's values while leaving the actual claim — that the panel cannot advertise a grammar
-      // `classifyNotation` rejects — completely unasserted. The ClinVar Variation ID the previous
-      // hand-written copy listed is absent because the analysis route has no branch for it.
-      const rendered = new Set(
-        Array.from(document.querySelectorAll("button[aria-label^='Use example ']")).map(
-          (el) => (el.textContent || "").trim()
-        )
-      );
+    it("every accepted example in the shared catalogue parses", () => {
+      /**
+       * The example chips under the notation field are gone, so this test no longer has a rendered
+       * surface to collect. What it still pins — that `ACCEPTED_NOTATION_EXAMPLES` cannot advertise a
+       * grammar `classifyNotation` rejects — is a property of the shared catalogue, not of the render.
+       */
       const catalogue = Object.values(ACCEPTED_NOTATION_EXAMPLES);
-      expect(rendered).toEqual(new Set(catalogue));
+      expect(catalogue.length).toBeGreaterThan(0);
       for (const example of catalogue) {
         expect(classifyNotation(example).kind, `catalogue entry ${example} must parse`).not.toBe("unknown");
       }
@@ -654,9 +636,9 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
         fireEvent.change(variantInput, { target: { value: "p.Gly380Arg" } });
       });
 
-      const genomicExample = screen.getByRole("button", { name: /Use example 20-23365054-G-A in the Genomic coords field/i });
+      const mainInput = screen.getByPlaceholderText("e.g. 20-23365054-G-A");
       await act(async () => {
-        fireEvent.click(genomicExample);
+        fireEvent.change(mainInput, { target: { value: "20-23365054-G-A" } });
       });
 
       const genomicInput = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
@@ -664,18 +646,6 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       // The two notation fields are alternative routes, not additive inputs.
       expect(variantInput.value).toBe("");
       expect(useVariantAnalysisStore.getState().customVariant).toBe("");
-    });
-
-    it("fills a protein example into the variant field", async () => {
-      renderPanel();
-
-      const proteinExample = screen.getByRole("button", { name: /Use example p.Arg408Trp in the Variant notation field/i });
-      await act(async () => {
-        fireEvent.click(proteinExample);
-      });
-
-      expect((screen.getByPlaceholderText("e.g. p.Gly380Arg") as HTMLInputElement).value).toBe("p.Arg408Trp");
-      expect(useVariantAnalysisStore.getState().customVariant).toBe("p.Arg408Trp");
     });
   });
 
@@ -778,13 +748,13 @@ describe("VariantSearchPanel keyless-first", () => {
     sessionStorage.clear();
   });
 
-  it("keeps Analyse available without a Gemini key and says what the key adds", () => {
+  it("keeps Analyse available without a Gemini key and omits footer guidance", () => {
     renderPanel();
     const analyse = screen.getByRole("button", { name: /^analyse variant$/i });
     expect(analyse).toHaveAttribute("type", "submit");
     expect(screen.queryByText(/add api key to analyse/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/rule-based classification work without Gemini/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/rule-based classification work without Gemini/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^add a key$/i })).not.toBeInTheDocument();
   });
 });
 
