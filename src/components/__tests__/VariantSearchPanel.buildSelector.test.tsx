@@ -26,7 +26,7 @@ function renderPanel() {
 
 /** Types into the Genomic coordinates field, the way a reader would. */
 function typeCoordinate(value: string) {
-  const input = screen.getByLabelText(/genomic coordinates/i) as HTMLInputElement;
+  const input = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
   act(() => {
     fireEvent.change(input, { target: { value } });
   });
@@ -52,11 +52,12 @@ describe("VariantSearchPanel — genome build selector", () => {
     });
   });
 
-  it("is absent while the coordinate field is empty, as the badge was", () => {
+  it("is absent while the coordinate field is empty, with nothing claiming a build", () => {
     renderPanel();
     expect(buildSelect()).toBeNull();
-    // The slot still states the field is optional (the panel marks several fields that way).
-    expect(screen.getAllByText("Optional").length).toBeGreaterThan(0);
+    // No "Optional" placeholder in the slot either: optionality is the refinements box's own title,
+    // and an empty badge slot says exactly what an empty field says — nothing yet.
+    expect(screen.queryByText("Optional")).not.toBeInTheDocument();
   });
 
   it("appears for a coordinate and derives its value from the notation, not from state", () => {
@@ -80,7 +81,7 @@ describe("VariantSearchPanel — genome build selector", () => {
     });
 
     // The field now STATES the build — visible, quotable, and what the server reads.
-    const input = screen.getByLabelText(/genomic coordinates/i) as HTMLInputElement;
+    const input = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
     expect(input.value).toBe("Chr1(GRCh37):g.1256452C>A");
     // …and the control follows the text, so the two can never disagree.
     expect(buildSelect()!.value).toBe("GRCh37");
@@ -108,7 +109,7 @@ describe("VariantSearchPanel — genome build selector", () => {
     });
 
     // An accession cannot be relabelled, so the rewrite must change the contig spelling too.
-    const input = screen.getByLabelText(/genomic coordinates/i) as HTMLInputElement;
+    const input = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
     expect(input.value).toBe("Chr1(GRCh38):g.1256452C>A");
   });
 
@@ -122,7 +123,7 @@ describe("VariantSearchPanel — genome build selector", () => {
 
     // The server normalizes dashed input itself; doing it here means the build is visible in the
     // string that will actually be sent.
-    expect((screen.getByLabelText(/genomic coordinates/i) as HTMLInputElement).value).toBe(
+    expect((screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement).value).toBe(
       "Chr20(GRCh37):g.23365054G>A"
     );
   });

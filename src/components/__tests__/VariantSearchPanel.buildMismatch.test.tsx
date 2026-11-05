@@ -57,8 +57,12 @@ function seedRefusal(result: any) {
   });
 }
 
-const coordinateInput = () =>
-  screen.getByLabelText(/genomic coordinates/i) as HTMLInputElement;
+/**
+ * Coordinates live in the one-line composer now: the composer IS the coordinate field, so the
+ * retry's "the field holds it" claims are asserted through the composer's value.
+ */
+const composerInput = () =>
+  screen.getByLabelText(/^Variant$/) as HTMLInputElement;
 
 describe("VariantSearchPanel — reference-mismatch retry", () => {
   beforeEach(() => {
@@ -135,7 +139,7 @@ describe("VariantSearchPanel — reference-mismatch retry", () => {
     });
 
     // The field holds the annotated spelling: visible, quotable, and what the server will read.
-    expect(coordinateInput().value).toBe("Chr1(GRCh37):g.1256452C>A");
+    expect(composerInput().value).toBe("Chr1(GRCh37):g.1256452C>A");
     // …and the run was started, rather than the field being quietly changed.
     expect(submit).toHaveBeenCalledTimes(1);
     // The build control follows the text, so there is nothing to keep in sync.
@@ -153,7 +157,7 @@ describe("VariantSearchPanel — reference-mismatch retry", () => {
       // A VALID edit one base over: an invalid string would also hide the prompt under a parse-based
       // staleness check, which would prove "some change hides it" rather than "this is a different
       // coordinate from the one that was refused" — the property that actually matters.
-      fireEvent.change(coordinateInput(), { target: { value: "chr1:g.1256453C>A" } });
+      fireEvent.change(composerInput(), { target: { value: "chr1:g.1256453C>A" } });
     });
 
     expect(screen.queryByTestId("build-mismatch-prompt")).toBeNull();
@@ -224,8 +228,9 @@ describe("VariantSearchPanel — reference-mismatch retry", () => {
     expect((screen.getByLabelText(/protein or cdna notation/i) as HTMLInputElement).value).toBe(
       "NM_004333.6(GRCh37):c.1799T>A"
     );
-    // The coordinate field stays empty: the alternatives never both hold content.
-    expect(coordinateInput().value).toBe("");
+    // The line is exactly what the fields hold — `BRAF` plus the notation, no stranded coordinate:
+    // the alternative routes never both hold content.
+    expect(composerInput().value).toBe("BRAF NM_004333.6(GRCh37):c.1799T>A");
     expect(submit).toHaveBeenCalledTimes(1);
   });
 });

@@ -20,7 +20,6 @@ describe('variant search form', { tags: ['search'] }, () => {
   });
 
   test('typing enables Clear and Clear empties the fields', async ({ screen }) => {
-    await screen.getByText(/^Edit parsed fields/).tap();
     const gene = screen.getByRole('textbox', 'Gene symbol');
     await expect(screen.getByRole('button', 'Clear query fields')).toBeDisabled();
     await gene.fill('PAH');
@@ -29,17 +28,8 @@ describe('variant search form', { tags: ['search'] }, () => {
     await expect(gene).toHaveValue('');
   });
 
-  test('a notation example fills the protein field', async ({ screen }) => {
-    await screen.getByText(/^Edit parsed fields/).tap();
-    await screen
-      .getByRole('button', 'Use example p.Arg408Trp in the Variant notation field')
-      .tap();
-    await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Arg408Trp');
-  });
-
   test('the quick entry line fills the parsed fields', async ({ screen }) => {
     await screen.getByRole('textbox', /^Variant/).fill('NAE1 p.Asp116Gly');
-    await screen.getByText(/^Edit parsed fields/).tap();
     await expect(screen.getByRole('textbox', 'Gene symbol')).toHaveValue('NAE1');
     await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Asp116Gly');
   });
@@ -112,11 +102,24 @@ describe('variant search form', { tags: ['search'] }, () => {
       const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
       const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
       const query = document.querySelector('.workbench-query')!.getBoundingClientRect();
-      return { height: monitor.height, aligned: Math.abs(monitor.bottom - recents.bottom) < 2, gap: recents.top - query.bottom };
+      return {
+        height: monitor.height,
+        aligned: Math.abs(monitor.bottom - recents.bottom) < 2,
+        gap: recents.top - query.bottom,
+        queryHeight: query.height,
+        recentsHeight: recents.height,
+        bodyHeight: document.querySelector(".workbench-query-body")!.getBoundingClientRect().height,
+        fieldsOpen: Boolean(document.querySelector(".qe-fields #input-gene-symbol")),
+      };
     });
     expect(layout.height >= 640, 'monitor keeps its full desktop height');
-    expect(layout.aligned, 'Recents follows the monitor bottom edge');
+
+    expect(layout.aligned, 'both columns share a bottom edge');
     expect(layout.gap <= 20, 'Recents starts directly below the query form');
+    expect(layout.fieldsOpen, 'parsed fields are available immediately');
+    expect(layout.recentsHeight >= 200, 'history reserves room for three entries');
+    expect(layout.queryHeight - layout.bodyHeight < 150, 'the form has no stretched empty band');
+    expect(layout.queryHeight > layout.recentsHeight, 'the primary query card is taller than the history tray');
     await app.screenshot('single-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
     expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow on mobile');

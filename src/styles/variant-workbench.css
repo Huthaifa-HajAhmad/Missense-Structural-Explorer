@@ -27,8 +27,6 @@
 .workbench-index { font-family: var(--cs-font-mono); font-size: 10px; color: var(--cs-text-accent); font-variant-numeric: tabular-nums; }
 .workbench-section-heading h2, .workbench-rail-heading h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
 .workbench-query-body { display: flex; flex-direction: column; gap: .875rem; min-inline-size: 0; padding: 1.25rem var(--workbench-pad) 1rem; }
-.workbench-query-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; padding: .5rem var(--workbench-pad); border-block-start: 1px solid var(--cs-border-subtle); }
-.workbench-query-footer > p { flex: 1 1 20rem; }
 .workbench-recents { gap: .5rem; padding: 0; border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); background: var(--cs-surface); box-shadow: var(--cs-workbench-shadow); overflow: clip; }
 .workbench-recents-heading { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; padding: .125rem var(--workbench-pad); border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-recents-heading > button { min-block-size: 2.75rem; }
@@ -167,7 +165,7 @@
 .qe__kind[data-tone="clay"] { background: var(--cs-accent-clay); }
 .qe__kind[data-tone="warn"] { background: var(--cs-text-warning); }
 
-/* The folded fields: the composer's field box at form size. White on white with the composer's
+/* The parsed fields: the composer's field box at form size. White on white with the composer's
    hairline, mono value text, and the composer's focus treatment (outline, not a ring). */
 .qe-field-label { display: flex; align-items: center; justify-content: space-between; gap: .5rem; block-size: 1.25rem; font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
 .qe-input { inline-size: 100%; block-size: 2.5rem; padding-inline: .75rem 2.5rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input); background: var(--cs-surface); color: var(--cs-text-primary); font-size: 13px; user-select: text; outline: 2px solid transparent; outline-offset: 2px; }
@@ -192,17 +190,23 @@
 .qe-select--chip .qe-select__control { block-size: 2rem; margin-block: -.375rem; padding-inline: .75rem 1rem; font-family: inherit; font-size: 11px; color: var(--cs-text-secondary); }
 .qe-select--chip .qe-select__caret { inset-inline-end: 0; inline-size: .75rem; block-size: .75rem; }
 
-/* Optional controls sit on ruled rows. Opening either reveals its own editing surface. */
-/* No rule above the fields disclosure: the examples (or the ticket's own bottom edge) already close the composer, and
-   the AI row below carries the one rule that separates the optional rows from it. */
+/* Optional controls: the parsed fields sit open in the refinements box, and the two collapsed rows
+   (Protein reference, AI focus) follow on the box's own 12px rhythm. Opening one reveals its own
+   editing surface. */
 .qe-fields__summary, .workbench-ai-summary { display: flex; align-items: center; gap: .5rem; min-block-size: 2.75rem; list-style: none; cursor: pointer; user-select: none; font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
 .qe-fields__summary::-webkit-details-marker, .workbench-ai-summary::-webkit-details-marker { display: none; }
 .qe-fields__chevron { inline-size: .875rem; block-size: .875rem; flex: none; color: var(--cs-text-muted); }
-.qe-fields[open] .qe-fields__chevron { transform: rotate(90deg); }
+.qe-fields[open] > summary .qe-fields__chevron { transform: rotate(90deg); }
 .qe-fields__meta { margin-inline-start: auto; min-inline-size: 0; }
 .qe-fields__hint { display: block; font-size: 11px; font-weight: 400; color: var(--cs-text-muted); text-align: end; }
 .qe-fields__attention { display: inline-flex; align-items: center; gap: .25rem; padding: .125rem .375rem; border-radius: var(--cs-radius-badge); background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); font-size: 11px; }
-.qe-fields__body { display: flex; flex-direction: column; gap: 1rem; padding-block: 1rem; }
+.qe-fields__body { display: flex; flex-direction: column; gap: 1rem; padding-block: .5rem 1rem; }
+.qe-fields__body .query-routes { grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 1rem 1.5rem; }
+.qe-uniprot { border-block-start: 1px solid var(--cs-border-subtle); }
+.qe-uniprot[open] .qe-fields__chevron { transform: rotate(90deg); }
+.qe-uniprot__body { max-inline-size: 24rem; padding-block: .5rem .75rem; }
+.qe-fields__body .query-routes__status:empty { display: none; }
+.qe-fields__summary { color: var(--cs-text-primary); }
 .workbench-ai { border-block-start: 1px solid var(--cs-border-subtle); margin-block-start: -.75rem; }
 .workbench-ai-summary > svg { inline-size: 14px; block-size: 14px; flex: none; stroke-width: 1.5; color: var(--cs-text-muted); }
 .workbench-ai-meta { margin-inline-start: auto; font-size: 11px; font-weight: 400; color: var(--cs-text-muted); }
@@ -215,20 +219,27 @@
 .qe__tool:active, .qe__example:active, .qe-fields__summary:active, .workbench-ai-summary:active { background: var(--cs-bg-subtle); }
 
 @media (min-width: 64rem) {
-  /* The deck ends where the monitor's own content ends, not at the window's floor: a floor made the
-     recents tray stretch into ~170px of blank card under its last row. Height now comes from the
-     taller column, and the tray fills to that shared bottom line. */
-  .workbench-deck { grid-template-rows: min-content minmax(min-content, 1fr); min-block-size: 0; }
-  .workbench-recents { align-self: stretch; }
-  /* The monitor spans both rows, so its own content sets the deck's height. */
-  .workbench-rail { grid-row-end: span 2; align-self: stretch; position: relative; }
-  /* ...up to the window, and no further: the Services tab's ten rows need more than a laptop has,
-     and a content-only height pushed the page down by a scrollbar's width, which then narrowed the
-     rail and wrapped the rows again. Past the window the list scrolls, as it did before. */
-  .workbench-rail-body { position: static; flex: 1 1 auto; max-block-size: max(40rem, calc(100dvh - 14rem)); }
+  /* The deck ends where the monitor ends, and the QUERY carries the flexible surplus: the recents
+     tray stretches as before, but its floor (13rem) and the monitor's own minimum (40rem) keep a
+     one-entry history from either swallowing the spare height or outgrowing the form above it. */
+  .workbench-deck { grid-template-rows: max-content minmax(13rem, 1fr); }
+  .workbench-query { align-self: start; min-block-size: 0; }
+  .workbench-query > form { min-block-size: 0; overflow-y: auto; }
+  .workbench-query-body { gap: 1rem; padding-block: 1rem; }
+  .workbench-query .qe { gap: .5rem; }
+  .workbench-query .qe-fields__summary { min-block-size: 1.75rem; }
+  .workbench-query .workbench-ai-summary { min-block-size: 2.25rem; }
+  .workbench-query .qe-fields__body { gap: .375rem; padding-block: .25rem 0; }
+  .workbench-recents { align-self: stretch; min-block-size: 0; }
+  .workbench-recents-heading { flex: none; }
+  .workbench-recent-list { flex: 1; min-block-size: 0; max-block-size: 12.5rem; }
+  .workbench-recents-empty { flex: none; }
+  .workbench-benchmarks { min-block-size: 0; overflow-y: auto; }
+  .workbench-rail { grid-row-end: span 2; align-self: stretch; min-block-size: 40rem; }
+  .workbench-rail-body { position: static; flex: 1; }
 }
 @container (width < 54rem) {
-  .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; min-block-size: 0; }
+  .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; block-size: auto; min-block-size: 0; }
   .workbench-deck > :is(.workbench-query, .workbench-recents, .workbench-rail) { grid-column: 1; grid-row: auto; }
   /* Stacked, the monitor flows naturally with the page. */
   .workbench-rail.cs-panel { block-size: auto; min-block-size: 0; }
@@ -239,6 +250,7 @@
 @container (width < 30rem) {
   .workbench-heading { gap: .5rem; }
   .qe-fields__hint { display: none; }
+  .qe-fields__body .query-routes { grid-template-columns: minmax(0, 1fr); }
   .qe__example { flex-basis: 100%; flex-direction: row; align-items: center; min-block-size: 2.75rem; }
   .qe__example-note { flex: 0 0 4rem; }
   .qe__example-value { flex: 1; }
@@ -246,6 +258,23 @@
   .workbench-recent-identity { grid-template-columns: minmax(0, 1fr); }
   .workbench-recent { gap: .625rem; }
 }
+ .qe-options { --option-ink: var(--cs-text-primary); display: flex; flex-direction: column; gap: .75rem; padding: 1rem; border-radius: 12px; background: color-mix(in oklch, var(--cs-accent-clay) 4%, var(--cs-surface)); color: var(--option-ink); }
+.qe-options__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; color: var(--option-ink); }
+.qe-options__heading h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.qe-options__heading > span { font-size: 11px; color: var(--cs-text-secondary); }
+.workbench-query .qe-options .qe-fields__body { gap: .75rem; padding: 0; }
+.workbench-query .qe-options .query-routes { gap: .75rem 1rem; }
+.qe-options .qe-field-label, .qe-options .qe-fields__summary, .qe-options .workbench-ai-summary { color: var(--option-ink); font-size: 12px; font-weight: 500; }
+.qe-options .qe-fields__hint, .qe-options .workbench-ai-meta { color: var(--cs-text-secondary); font-size: 11px; }
+/* The collapsed rows are this box's own fields, so they read without rules: the wash groups the
+   refinements, the box's own 12px rhythm spaces them, and a rounded hover marks the toggle. */
+.workbench-query .qe-options .qe-fields__summary, .workbench-query .qe-options .workbench-ai-summary { min-block-size: 2.5rem; gap: .5rem; padding-inline: .5rem; margin-inline: -.5rem; border-radius: 8px; }
+.qe-options .qe-uniprot, .qe-options .workbench-ai { margin: 0; border-block-start: 0; }
+.qe-options .qe-uniprot__body, .qe-options .qe-ai { padding-block: .5rem 0; }
+.qe-options .qe-fields__chevron, .qe-options .workbench-ai-chevron { inline-size: .875rem; block-size: .875rem; color: var(--cs-text-secondary); stroke-width: 1.5; }
+.qe-options .workbench-ai[open] .workbench-ai-chevron { transform: rotate(90deg); }
+.qe-options .qe__ticket { background: var(--cs-surface); }
+
 @media (hover: hover) and (pointer: fine) {
   .workbench-pipeline-notice-dismiss:hover { color: var(--cs-text-primary); background: var(--cs-surface-2); }
   .workbench-recent:hover { background: var(--cs-surface-2); }
@@ -261,6 +290,7 @@
   .qe__submit:hover:not(:disabled) { filter: brightness(1.07); }
   .qe__example:hover { background: color-mix(in oklch, var(--cs-accent-clay) 9%, var(--cs-surface)); color: var(--cs-text-accent); }
   .qe-fields__summary:hover, .workbench-ai-summary:hover { color: var(--cs-text-primary); }
+  .qe-options .qe-fields__summary:hover, .qe-options .workbench-ai-summary:hover { background: var(--cs-surface-2); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .workbench-recent, .workbench-monitor-tab { transition: background-color 150ms, border-color 150ms, color 150ms; }
