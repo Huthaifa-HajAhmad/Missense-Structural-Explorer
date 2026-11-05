@@ -38,6 +38,7 @@ import {
 import { CONFIG } from "../../config.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 import { governedFetch } from "../infra/http-client.ts";
+import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
 import { credentialForCall, noteRefusal, resolveCredential } from "../infra/credentials.ts";
 import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
 import type { GovernedCredential } from "../infra/egress-governor.ts";
@@ -532,6 +533,8 @@ export async function runRaspLocal(
 // ThermoMPNN (Tamarind Bio Remote Predictor)
 // ---------------------------------------------------------------------------
 
+/** How long a local ThermoMPNN call waits for the model server. It is also sent as the budget the server may use. */
+const THERMOMPNN_SIDECAR_TIMEOUT_MS = 15_000;
 export const thermompnnCache = new LRUCache<string, { prediction: number | null; jobId?: string; status: "pending" | "running" | "done" | "error" }>({ max: 200 });
 defaultCacheRegistry.registerCache("thermompnnCache", thermompnnCache, { ttlDesc: "none" });
 
@@ -597,14 +600,16 @@ export async function submitThermoMpnnJob(
     try {
       const sidecarSecret = process.env.SIDECAR_SECRET || "";
       const fetchSignal = signal
-        ? anySignal([signal, AbortSignal.timeout(15000)])
-        : AbortSignal.timeout(15000);
+        ? anySignal([signal, AbortSignal.timeout(THERMOMPNN_SIDECAR_TIMEOUT_MS)])
+        : AbortSignal.timeout(THERMOMPNN_SIDECAR_TIMEOUT_MS);
 
       const localRes = await governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/thermompnn`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Sidecar-Secret": sidecarSecret
+          "X-Sidecar-Secret": sidecarSecret,
+          // How long we wait, so the model server does not start a pass nobody is waiting for.
+          [SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_TIMEOUT_MS)
         },
         body: JSON.stringify({
           pdb_content: pdbContent,
@@ -624,6 +629,10 @@ export async function submitThermoMpnnJob(
         const errJson = await localRes.json().catch(() => ({}));
         const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
         console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
+        if ((errJson as any)?.status === "busy") {
+          // Not warming up: the model server answered and was busy with earlier work. Retrying later can work.
+          return { jobId: null, prediction: null, status: "unavailable", error: sidecarFailure("ThermoMPNN", localRes.status).error };
+        }
         if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
           /**
            * Warming is a deployment phase, not a job: no pollable id may exist for it.

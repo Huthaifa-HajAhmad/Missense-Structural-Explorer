@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from tools.model_server_app import models
 
 logger = logging.getLogger(__name__)
 
@@ -445,7 +446,9 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
             pdb='query_struct'
         )
 
-        with torch.no_grad():
+        # One forward pass at a time on this CPU, and a pass the caller has already given up on is not started
+        # (the refusal is a busy answer, not a failure: see `GateDeadlineExceeded`).
+        with models.cpu_gate.acquire(priority=1), torch.no_grad():
             out, _ = model([parsed_pdb_dict], [mutation_obj])
 
         if not out or out[0] is None or "ddG" not in out[0]:

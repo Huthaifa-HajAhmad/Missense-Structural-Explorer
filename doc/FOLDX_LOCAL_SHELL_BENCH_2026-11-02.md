@@ -386,10 +386,12 @@ Measured band when FoldX shows each band (low / moderate / high, percent):
 
 **What this settles**
 
-1. **The repair question is closed.** Local repair came out slightly worse than whole-chain repair at 233 residues or fewer
+1. **On experimental structures, the repair rule stands.** Local repair came out slightly worse than whole-chain repair at 233 residues or fewer
    on both sets (+0.04 on each, intervals excluding zero), but inside the margin. That is a reason to keep whole-chain repair
    where it is affordable, and no reason to change anything. Above 233 there is too little data: S669's interval just crosses
-   the margin (+0.101), and Ssym has one such chain.
+   the margin (+0.101), and Ssym has one such chain. Section 9.5 repeats this on AlphaFold models, which the app serves most:
+   above 233 residues the two are equivalent, but at 233 or fewer local repair is slightly better there (−0.166 to −0.012), the
+   opposite direction. No mode is better by over 0.1 on every set, so the rule stays. It is not shown to be the best choice on models.
 2. **Large FoldX values overstate the change; the overall spread is about right.** FoldX's spread of values is 1.07 and 1.28
    times the measured spread, so it is not simply "too large". The low slope (0.31, 0.50) mostly reflects the weak correlation:
    slope is correlation times the ratio of spreads. A first version of this note read the slope as "2 to 3 times too large",
@@ -441,10 +443,11 @@ larger measured changes, so this does not by itself mean FoldX is less reliable 
 | VESM | Hid the residue before scoring; the authors score the unmasked sequence | Spearman with lab 0.23 (28 proteins) | 0.42, a gain of 0.19 (95%: 0.12 to 0.26), better on 23 of 28. Re-run on true wild-type sequences; the first run used one variant's sequence as the base |
 | ESM-2 | None found: masked is very slightly better than unmasked (difference −0.017, 95%: −0.033 to −0.003) | | Unchanged |
 | SaProt | Loads all weights. Scoring not compared, because it needs structure tokens | | Unchanged |
-| StabilityOracle | Inputs differ from upstream, and the output is not converted: published value = −output/2 | r with lab 0.12 (S669), 0.17 (Ssym), against published 0.49, 0.69 | 0.39, 0.64. Not an exact match, section 9.6 |
+| StabilityOracle | Inputs differ from upstream, and the output is not converted: published value = −output/2 | r with lab 0.12 (S669), 0.17 (Ssym), against published 0.49, 0.69 | 0.38, 0.64 (one chain; 0.39 on S669 with the whole file). Not an exact match, section 9.6 |
 
-StabilityOracle's checkpoint reproduces its published predictions exactly (r 1.00000) from upstream's own embeddings, so the model is sound
-and the problem is its inputs. A recipe with hydrogens and a charge table learned from p53 reaches r 0.56 with published values on S669, and
+StabilityOracle's checkpoint reproduces its published predictions (r 1.00000, largest difference 0.00002) from upstream's own stored inputs on all
+three sets we tried: 42 p53 variants, 134 myoglobin entries and 342 Ssym variants (`scripts/stabilityoracle-published-reproduction.py`). So the model is
+sound and the problem is its inputs. A recipe with hydrogens and a charge table learned from p53 reaches r 0.56 with published values on S669, and
 r 0.28 with lab values. The charges are still not identified.
 
 **Headline verdict over 3 of 6 engines** (FoldX, ThermoMPNN, StabilityOracle, with ThermoMPNN fixed and StabilityOracle not; DynaMut2 and DDMut
@@ -462,7 +465,7 @@ moderate readings does not gain 5 points on all sets, so its rules stay as they 
 
 ### 9.6 The verdict with every engine fixed (2026-11-05)
 
-StabilityOracle now follows its authors (`doc/STABILITY_ORACLE_INPUTS_RESEARCH.md`): r with their predictions 0.85 on Ssym, 0.81 on S669 and 0.88 on proteins never used in this work, not an exact match. NMR files now keep the first model only in every structure-based engine. Same rules as section 9.5, fixed in advance, and the same three engines. Variants are those all three engines scored (StabilityOracle refuses 5PTI A and 3DV0 I).
+StabilityOracle now follows its authors (`doc/STABILITY_ORACLE_INPUTS_RESEARCH.md`): r with their predictions 0.85 on Ssym, 0.79 on S669 and 0.87 on proteins that share no UniProt entry with the sets used to build or compare recipes (one chain, as the app sends it; 0.81 and 0.88 when a client sends the whole file), not an exact match. NMR files now keep the first model only in every structure-based engine. Same rules as section 9.5, fixed in advance, and the same three engines. Variants are those all three engines scored (StabilityOracle refuses 5PTI A and 3DV0 I).
 
 These templates hold one chain, as FoldX was run on them, so this does not measure StabilityOracle's partner-chain rule. On a multi-chain file the engine's own results improve (research doc), but the verdict there is untested. The app's own templates hold one chain, as here.
 
@@ -493,7 +496,7 @@ So a "high" verdict is usually right, a "moderate" verdict says little, and "no 
 
 ### 9.7 Partner chains in the FoldX template (2026-11-05)
 
-The app cuts a PDB entry down to one chain before FoldX sees it, so a residue at a chain interface loses its neighbours. Would FoldX be closer to the lab if the chains touching the site stayed? The rule was fixed before any run (header of `scripts/foldx-partner-chain-benchmark.ts`): send partner chains only if, on S669 interface variants, the RMSE falls by 0.10 kcal/mol or more with the chain-resampled 95% interval below zero, the band match does not fall, and the independent set (T2837 and FireProtDB, no entry shared with S669, Ssym, p53 or myoglobin) moves the same way. Each template uses the repair the app would choose for its size. An interface variant has a partner-chain atom within 10 Å of its alpha carbon.
+The app cuts a PDB entry down to one chain before FoldX sees it, so a residue at a chain interface loses its neighbours. Would FoldX be closer to the lab if the chains touching the site stayed? The rule was fixed before any run (header of `scripts/foldx-partner-chain-benchmark.ts`): send partner chains only if, on S669 interface variants, the RMSE falls by 0.10 kcal/mol or more with the chain-resampled 95% interval below zero, the band match does not fall, and the independent set (T2837 and FireProtDB, no PDB entry shared with S669, Ssym, p53 or myoglobin) moves the same way. "Independent" here means no shared PDB entry. The same protein can appear under another entry (lysozymes, for example), so this set is not protein-independent. Each template uses the repair the app would choose for its size. An interface variant has a partner-chain atom within 10 Å of its alpha carbon.
 
 | Set | Variants | RMSE, one chain | RMSE, with partners | Difference (95%) | Band match |
 | :--- | ---: | ---: | ---: | :--- | :--- |

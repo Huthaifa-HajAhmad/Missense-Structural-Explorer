@@ -241,7 +241,7 @@ def featurize_pdb_for_stability_oracle(
 
     The authors' pipeline is not published as code, so this follows what their published inputs show: the chain and any partner
     touching the site, hydrogens present, atoms within 10 A of the variant's alpha carbon without the variant residue, and a charge and a solvent exposure
-    per atom. Against their published predictions this reaches r 0.88 on proteins never used in this work, not an exact match: their charge method is not identified. See doc/STABILITY_ORACLE_INPUTS_RESEARCH.md.
+    per atom. Against their published predictions this reaches r 0.88 on proteins that share no UniProt entry with the sets used to build or compare recipes, not an exact match: their charge method is not identified. See doc/STABILITY_ORACLE_INPUTS_RESEARCH.md.
     """
     wt3 = AA_1TO3.get(wt.upper(), wt.upper())
     mut3 = AA_1TO3.get(mut.upper(), mut.upper())
