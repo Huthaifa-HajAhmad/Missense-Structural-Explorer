@@ -1,8 +1,16 @@
 import { CONFIG } from "../../config.ts";
 import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
 
-/** How long the caller waits for one prediction. The model server is told, so it does not start work nobody will read. */
+/** How long a caller that holds up a reader waits for one prediction. The model server is told, so it does not start work nobody will read. */
 const STABILITY_ORACLE_BUDGET_MS = 60000;
+
+/**
+ * How long a background job waits. Nobody is held up by it (FoldX runs for minutes beside it), and the
+ * model server needs time: adding hydrogens to a large chain took 21 s on an idle server, and the call
+ * also queues behind the ESM-2 passes of the same analysis. This matches the server's own 180 s limit
+ * for that step.
+ */
+export const STABILITY_ORACLE_BACKGROUND_BUDGET_MS = 180000;
 
 export interface StabilityOracleEvalResult {
   ddG: number;
@@ -57,7 +65,8 @@ export async function runStabilityOracleAnalysisDetailed(
   uniprotId: string,
   sequence: string,
   wtPdb?: string | null,
-  chain?: string | null
+  chain?: string | null,
+  budgetMs: number = STABILITY_ORACLE_BUDGET_MS
 ): Promise<StabilityOracleOutcome> {
   const cleanVariant = variant.replace(/^p\./i, "").trim();
   const foldxMatch = cleanVariant.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
@@ -112,10 +121,10 @@ export async function runStabilityOracleAnalysisDetailed(
       headers: {
         "Content-Type": "application/json",
         "X-Sidecar-Secret": sidecarSecret,
-        [SIDECAR_BUDGET_HEADER]: String(STABILITY_ORACLE_BUDGET_MS)
+        [SIDECAR_BUDGET_HEADER]: String(budgetMs)
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(STABILITY_ORACLE_BUDGET_MS)
+      signal: AbortSignal.timeout(budgetMs)
     });
 
     if (sidecarRes.ok) {
@@ -150,9 +159,15 @@ export async function runStabilityOracleAnalysisDetailed(
       };
     }
   } catch (err: any) {
+    if (err?.name === "TimeoutError") {
+      // No answer in time does not mean the engine is missing here, and the code cannot see why it was slow.
+      console.warn(`[StabilityOracle Warning] No answer within ${budgetMs / 1000} s.`);
+      return {
+        kind: "error",
+        message: `StabilityOracle did not answer within ${budgetMs / 1000} s. The model service may be busy. Please run the analysis again.`
+      };
+    }
     console.warn("[StabilityOracle Warning] Sidecar connection not available. In accordance with No-Heuristics Policy, no synthetic fallbacks are used:", err.message);
     return { kind: "unavailable", reason: err?.message ?? "StabilityOracle sidecar is not reachable" };
   }
-
-  return { kind: "unavailable", reason: "StabilityOracle sidecar is not reachable" };
 }

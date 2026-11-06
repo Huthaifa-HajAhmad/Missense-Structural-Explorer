@@ -101,6 +101,9 @@ describe("EnergeticsInspector — the rule trace", () => {
     expect(foldx).toHaveTextContent("≥ +1.5");
     expect(foldx).toHaveTextContent("+2.62");
     expect(foldx).toHaveTextContent("Past mark");
+    // "Below" alone left the reader asking below what; the engines under their mark say so.
+    expect(marks).toHaveTextContent("Below mark");
+    expect(marks.textContent).not.toMatch(/Below(?! mark)/);
     expect(marks).toHaveTextContent("Method");
     expect(foldx.getAttribute("data-active")).toBe("true");
     expect(marks.closest("section")).toHaveTextContent("FoldX publishes no threshold");

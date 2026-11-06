@@ -331,7 +331,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
               const status =
                 r.ddg === null
                   ? r.outcome.state === "running" ? ENGINE_STATE_LABELS.running : "No value"
-                  : !r.counted ? "Not counted" : past ? "Past mark" : "Below";
+                  : !r.counted ? "Not counted" : past ? "Past mark" : "Below mark";
               return (
                 <tr key={r.key} className="nrg-cut" data-active={past || undefined} data-muted={r.ddg === null || !r.counted || undefined}>
                   <th scope="row" className="nrg-cut__name">{r.name}</th>

@@ -32,9 +32,8 @@
 
 /* Exploration workspace: the comparison is the primary figure, details follow a pinned method. */
 .energetics-workspace .nrg-screen { max-width: none; gap: 20px; padding: 24px; }
-.nrg-query { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 0; font-size: 13px; }
+.nrg-query { margin: 8px 0 0; font-size: 13px; color: var(--cs-text-muted); }
 .nrg-query strong { color: var(--cs-text-primary); }
-.nrg-query span { color: var(--cs-text-muted); }
 .nrg-navigation { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
 .nrg-navigation .workspace-tabs { flex: 1; min-width: 240px; }
 .nrg-retry { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
@@ -43,9 +42,6 @@
 .nrg-retry__note { margin: 0; font-size: 13px; color: var(--cs-text-muted); }
 .nrg-retry__button:focus-visible, .nrg-inspect-button:focus-visible, .nrg-selected-method:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .nrg-hero[data-compact="true"] .nrg-summary { padding-top: 14px; }
-.nrg-template-check { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); font-size: 13px; color: var(--cs-text-secondary); }
-.nrg-template-check strong { color: var(--cs-text-primary); font-weight: 600; }
-.nrg-template-check[data-state="differs"], .nrg-template-check[data-state="opposite"] { border-inline-start: 2px solid var(--cs-text-warning); }
 .nrg-comparison-caution { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); font-size: 13px; }
 @media (hover: hover) and (pointer: fine) {
   .nrg-method-button:hover { color: var(--cs-text-accent); }
@@ -67,9 +63,12 @@
 .nrg-missing-methods button { display: flex; flex-direction: column; text-align: left; gap: 2px; border: 1px solid var(--cs-border); border-radius: 10px; padding: 8px 12px; color: var(--cs-text-primary); background: var(--cs-surface); min-height: 44px; }
 .nrg-missing-methods small { color: var(--cs-text-secondary); }
 .nrg-missing-methods button[aria-pressed="true"] { border-color: var(--cs-accent-clay); background: var(--cs-surface-2); }
-.nrg-chart-help { padding: 14px 22px; border-top: 1px solid var(--cs-border-subtle); }
-.nrg-chart-help summary { display: list-item; list-style-position: inside; }
-.nrg-chart-help summary, .nrg-lineage > summary { cursor: pointer; min-height: 32px; color: var(--cs-text-primary); font-weight: 600; }
+.nrg-chart-help { padding: 8px 20px; border-top: 1px solid var(--cs-border-subtle); }
+/* A flex row centres the label and its arrow in the 32px target; a list-item summary leaves the text at the top. */
+.nrg-chart-help summary, .nrg-lineage > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; min-height: 32px; color: var(--cs-text-primary); font-weight: 600; }
+.nrg-chart-help summary::-webkit-details-marker, .nrg-lineage > summary::-webkit-details-marker { display: none; }
+.nrg-chart-help summary::before, .nrg-lineage > summary::before { content: ""; flex: none; width: 7px; height: 8px; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.nrg-chart-help[open] > summary::before, .nrg-lineage[open] > summary::before { width: 8px; height: 7px; clip-path: polygon(0 0, 100% 0, 50% 100%); }
 .nrg-chart-help p { margin: 10px 0; font-size: 13px; line-height: 1.65; }
 .nrg-method-button { border: 0; background: none; color: var(--cs-text-primary); font-weight: 600; padding: 0; text-align: left; min-height: 32px; }
 .nrg-table tr[data-selected="true"] { background: var(--cs-surface-2); }
@@ -120,7 +119,7 @@
 .nrg-hero[data-compact="true"] .nrg-summary { padding: 0; border: 0; align-items: start; }
 .nrg-hero[data-compact="true"] .nrg-summary__dot,
 .nrg-hero[data-compact="true"] .nrg-summary__icon { display: none; }
-.nrg-hero[data-compact="true"] .nrg-summary strong { display: block; max-inline-size: 80ch; font-size: 14px; font-weight: 500; line-height: 1.5; text-wrap: pretty; }
+.nrg-hero[data-compact="true"] .nrg-summary strong { display: block; font-size: 14px; font-weight: 500; line-height: 1.5; }
 .nrg-summary__coverage { display: block; margin-block-start: 7px; font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
 .nrg-hero[data-compact="true"] .nrg-principle { grid-column: 1 / -1; padding: 0; border: 0; background: transparent; }
 .nrg-hero[data-compact="true"] .nrg-comparison-caution { grid-column: 1 / -1; margin-block: 0; padding: 10px 12px; border: 0; border-inline-start: 2px solid var(--cs-text-warning); }
@@ -130,7 +129,6 @@
 .nrg-comparison-figure .nrg-chart-controls { inline-size: auto; padding-block-start: 0; gap: 8px 16px; }
 .nrg-comparison-figure .nrg-axis-guide { padding-block-start: 8px; }
 .nrg-comparison-figure .nrg-chart-readout { min-block-size: 44px; padding: 10px 20px; }
-.nrg-comparison-figure .nrg-chart-help { padding: 8px 20px; }
 .nrg-comparison-figure .viz-frame__foot { padding: 10px 20px; }
 .nrg-comparison-figure :is(button, select, summary):active { background: var(--cs-surface-2); }
 .nrg-comparison-figure svg text { font-variant-numeric: tabular-nums; }
@@ -526,7 +524,7 @@
 .nrg-cut__name { font-weight: 400; color: var(--cs-text-secondary); }
 .nrg-cut__rule { font-family: var(--cs-font-mono); color: var(--cs-text-muted); }
 .nrg-cut__here { color: var(--cs-text-primary); }
-.nrg-cut__status { padding-left: 10px; white-space: nowrap; color: var(--cs-text-muted); }
+.nrg-cuts .nrg-cut__status { padding-left: 14px; white-space: nowrap; color: var(--cs-text-muted); }
 .nrg-cut[data-muted] .nrg-cut__here { color: var(--cs-text-muted); }
 .nrg-cut[data-active] .nrg-cut__name,
 .nrg-cut[data-active] .nrg-cut__here,
