@@ -185,8 +185,8 @@
 .qe__ticket { display: flex; flex-wrap: wrap; margin: .25rem 0; border-block: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); overflow: hidden; }
 .qe__cell { display: flex; flex-direction: column; gap: .375rem; flex: 1 1 auto; min-inline-size: 0; padding: .75rem; }
 .qe__cell { box-shadow: -1px 0 0 var(--cs-border-subtle), 0 -1px 0 var(--cs-border-subtle); }
-.qe__cell dt { display: flex; align-items: center; gap: .375rem; font-size: 10px; color: var(--cs-text-muted); }
-.qe__cell dd { margin: 0; font-family: var(--cs-font-mono); font-size: 12px; font-weight: 500; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+.qe__cell dt { display: flex; align-items: center; gap: .375rem; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--cs-text-secondary); }
+.qe__cell dd { margin: 0; font-family: var(--cs-font-mono); font-size: 13px; font-weight: 500; color: var(--cs-text-primary); overflow-wrap: anywhere; }
 .qe__cell dd[data-empty] { color: var(--cs-text-muted); font-weight: 400; }
 .qe__kind { inline-size: .375rem; block-size: .375rem; border-radius: 50%; background: var(--cs-text-muted); flex: none; }
 .qe__kind[data-tone="ok"] { background: var(--cs-text-success); }
@@ -250,8 +250,20 @@
   /* The deck ends where the monitor ends, and the QUERY carries the flexible surplus: the recents
      tray stretches as before, but its floor (13rem) and the monitor's own height keep a one-entry
      history from either swallowing the spare height or outgrowing the form above it. */
-  .workbench-deck { grid-template-rows: max-content minmax(13rem, 1fr); }
-  .workbench-query { align-self: start; min-block-size: 0; }
+  /* The deck's height is the monitor's measured content — see the measure effect in the panel (`--workbench-deck-h`).
+     One row holds both columns: the monitor stretches to it, and the left column — a flex stack of the query card and
+     the recents — fills what remains. The query card keeps its own height and only shrinks under pressure (its form
+     scrolls inside), so opening the refinements grows into the monitor's measured share instead of dropping the
+     recents card lower and stretching the monitor past the fold. Unset (before the measure, JS-less), this falls
+     back to what the content needs: an indefinite grid that behaves exactly as the pre-measure layout did. */
+  .workbench-deck { grid-template-rows: minmax(0, 1fr); block-size: var(--workbench-deck-h, max-content); }
+  .workbench-columns { display: flex; flex-direction: column; gap: 1rem; min-block-size: 0; align-self: stretch; }
+  /* The card keeps its own height; only pressure from the measured budget shrinks it. */
+  /* The recents card takes what is left and scrolls: 13rem stands in for the cards' shared floor, and
+     its list yields before the benchmarks do — each scrolls within the card. */
+  .workbench-recents { flex: 1 1 auto; min-block-size: 13rem; display: flex; flex-direction: column; }
+  .workbench-recents-heading { flex: none; }
+  .workbench-recent-list { flex: 0 1 auto; min-block-size: 0; max-block-size: 12.5rem; }
   .workbench-query > form { min-block-size: 0; overflow-y: auto; }
   .workbench-query-body { gap: 1rem; padding-block: 1rem; }
   .workbench-query .qe { gap: .5rem; }
@@ -259,9 +271,6 @@
   .workbench-query .qe__try-label { flex-basis: auto; }
   .workbench-query .qe__example { flex-direction: row; align-items: center; min-block-size: 2rem; padding: .375rem .5rem; }
   .workbench-query .qe__example-note { display: none; }
-  .workbench-recents { align-self: stretch; min-block-size: 0; }
-  .workbench-recents-heading { flex: none; }
-  .workbench-recent-list { flex: none; min-block-size: 0; max-block-size: 12.5rem; }
   .workbench-benchmarks { min-block-size: 0; overflow-y: auto; }
   /* The monitor's height is a property of the design, not of whichever tab is open — but it cannot
      be a constant, because the ten service rows' height depends on the platform's font metrics.
@@ -269,7 +278,7 @@
      tabpanels are laid on ONE grid cell: the hidden one stays in the layout flow (visibility, not
      display), so the cell — and through `flex-basis: auto` the deck's rows — always sizes to the
      taller of the two panels, whichever it is, instead of clipping it below the fold. */
-  .workbench-rail { grid-row-end: span 2; align-self: stretch; min-block-size: 48.5rem; }
+  .workbench-rail { align-self: stretch; min-block-size: 48.5rem; }
   /* `1 1 auto`, not `1`: the body's basis is its content, so the rail's intrinsic height carries the
      services panel even when the deck's rows are otherwise too short for it. The body owns three
      children (heading, switch, panels) in reading order; the last row is the two panels' shared
@@ -284,11 +293,11 @@
   .workbench-rail [role="tabpanel"][data-inactive] { visibility: hidden; }
 }
 @container (width < 54rem) {
+  /* Stacked, the wrapper dissolves (display: contents) so the cards read as the deck's own children
+     in DOM order: query, recents, monitor. The monitor flows naturally with the page. */
   .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; block-size: auto; min-block-size: 0; }
+  .workbench-columns { display: contents; }
   .workbench-deck > :is(.workbench-query, .workbench-recents, .workbench-rail) { grid-column: 1; grid-row: auto; }
-  /* Stacked, the monitor flows naturally with the page: the tabs swap again (the inactive panel is
-     out of the flow here, where there is no shared cell to co-size), and the panels keep their
-     height. */
   .workbench-rail.cs-panel { block-size: auto; min-block-size: 0; }
   .workbench-rail-body { position: static; max-block-size: none; display: flex; flex-direction: column; }
   .workbench-rail [role="tabpanel"] { grid-area: auto; }

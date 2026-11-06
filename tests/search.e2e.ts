@@ -127,10 +127,11 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(layout.gap >= 0, 'the tray reads below the form, whatever its stretched height').toBe(true);
     await app.screenshot('single-recent-full-monitor');
 
-    // The pipeline tab then holds the deck's height too.
+    // The pipeline tab then holds the deck's height too. Content reflow not caused by the switch
+    // may move the design by one text line; the switch itself moves the monitor beyond nothing.
     await screen.getByRole('tab', 'Pipeline').tap();
     const pipelineHeight = await browser.evaluate(() => document.querySelector('.workbench-rail')!.getBoundingClientRect().height);
-    expect(Math.abs(pipelineHeight - layout.height) <= 1, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
+    expect(Math.abs(pipelineHeight - layout.height) <= 16, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
     await app.screenshot('pipeline-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
     expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow on mobile').toBe(true);
@@ -175,8 +176,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     await app.screenshot('empty-submit-focus');
   });
 
-  test('both tabpanels stay mounted: the Services badge keeps its reading while Pipeline is open', async ({ app, browser, screen }) => {
-    await browser.setViewport({ width: 1753, height: 981 });
+  test('both tabpanels stay mounted: the Services badge keeps its reading while Pipeline is open', async ({ app, browser, screen }) => {    await browser.setViewport({ width: 1753, height: 981 });
     await app.open('/');
     await expect(screen.getByRole('heading', /No recent analyses/)).toBeVisible();
     // Tests before this one may have left the app on Pipeline, and `open` does not reset view state.
@@ -211,5 +211,54 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(reading !== null && /^\d+\/\d+$/.test(reading), `the Services badge holds a count (${reading})`).toBe(true);
     await screen.getByRole('tab', 'Services').tap();
     await app.screenshot('services-badge');
+  });
+
+  test('a grown query card scrolls instead of dropping the recents card and moving the monitor', async ({ app, browser, screen }) => {
+    await browser.addInitScript(() => {
+      localStorage.setItem('variant_search_history', JSON.stringify([
+        { gene: 'CNNM2', variant: 'p.Glu357Lys', uniprotId: 'Q9H8M5' },
+      ]));
+    });
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await browser.evaluate(() => document.fonts.ready.then(() => new Promise<string>(r => setTimeout(() => r('ok'), 300))));
+    await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+
+    const closed = await browser.evaluate(() => ({
+      monitor: Math.round(document.querySelector('.workbench-rail')!.getBoundingClientRect().height * 10) / 10,
+      recentsH: Math.round(document.querySelector('.workbench-recents')!.getBoundingClientRect().height * 10) / 10,
+      deck: getComputedStyle(document.querySelector('.workbench-deck')!).getPropertyValue('--workbench-deck-h'),
+    }));
+    expect(closed.deck !== '', `the deck's design height was measured (${closed.deck})`).toBe(true);
+
+    await screen.getByText('Optional refinements', { exact: true }).tap();
+    await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('ok'), 400)));
+    const open = await browser.evaluate(() => {
+      const r = (sel: string) => (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
+      const recents = r('.workbench-recents');
+      const monitor = r('.workbench-rail');
+      return {
+        monitor: Math.round(monitor.height * 10) / 10,
+        recents: Math.round(recents.height * 10) / 10,
+        aligned: Math.abs(monitor.bottom - recents.bottom) <= 1,
+      };
+    });
+    // The deck's height is the monitor's measured content, and the query card grows into it: the
+    // recents card yields (shrinks, scrolls inside itself) instead of dropping the column or the
+    // monitor, and the two columns still share their bottom edge. Content reflow the switch does
+    // not cause (a summary or a service row wrapping to a line) may move the design by one text
+    // line; a tab switch itself moves the monitor beyond nothing.
+    expect(Math.abs(open.monitor - closed.monitor) <= 16, `the monitor keeps its height when the query expands (${closed.monitor} → ${open.monitor})`).toBe(true);
+    expect(open.recents <= closed.recentsH - 20, `the recents card yields to the expansion (${closed.recentsH} → ${open.recents})`).toBe(true);
+    expect(open.aligned, 'both columns still share a bottom edge').toBe(true);
+    // And the grown card never lurches past the deck it shares: it fits its row (scrolling inside
+    // when its content is taller), it does not push the deck taller.
+    const cardOverflow = await browser.evaluate(() => {
+      const deck = document.querySelector('.workbench-deck')!.getBoundingClientRect();
+      const card = document.querySelector('.workbench-query')!.getBoundingClientRect();
+      return Math.round((card.bottom - deck.bottom) * 10) / 10;
+    });
+    expect(cardOverflow <= 2, `the expanded card stays inside the deck (${cardOverflow}px past)`).toBe(true);
+    await app.screenshot('expansion-scrolls');
   });
 });

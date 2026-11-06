@@ -412,18 +412,23 @@ describe("UniProt state takes the label-row slot (UI-5)", () => {
  * Row 1 is now shared, so the two stretch together.
  */
 describe("workspace deck: the recent card is a row of its own, not the form's column (UI-9)", () => {
-  it("puts the form and the rail on one grid row and the recent card on the next", () => {
+  it("puts the form's column and the rail on one grid row", () => {
     renderPanel();
     const form = document.getElementById("variant-input-card") as HTMLElement;
     const rail = document.getElementById("workspace-stage-rail") as HTMLElement;
     const recent = document.querySelector('[data-tour="recent-benchmarks"]') as HTMLElement;
 
     expect(recent).not.toBeNull();
-    // Siblings in the grid, so row 1's height is the tallest of form/rail and nothing depends on
-    // the recent card being present.
+    // The query card and the recents share one column — whose own height is what the deck
+    // stretches — and the monitor sits beside that column in the same row, so the deck's height
+    // does not depend on the recent card being present.
     expect(recent.parentElement).toBe(form.parentElement);
-    expect(rail.parentElement).toBe(form.parentElement);
-    expect(recent.className).toContain("lg:row-start-2");
+    const column = form.parentElement as HTMLElement;
+    expect(column.classList).toContain("workbench-columns");
+    expect(column.className).toContain("lg:col-span-8");
+    expect(column.className).toContain("lg:row-start-1");
+    expect(rail.parentElement).toBe(column.parentElement);
+    expect(rail.className).toContain("lg:col-span-4");
     expect(rail.className).toContain("lg:row-start-1");
     // Stretched to the row, not pinned to its own floor: the near-miss corner.
     expect(rail.className).not.toContain("lg:self-start");
