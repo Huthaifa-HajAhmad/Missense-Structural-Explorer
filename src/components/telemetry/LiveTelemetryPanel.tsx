@@ -12,8 +12,17 @@ import { PROVIDER_STATE_LABELS, type ProviderState } from "../../shared/provider
 import { getAuthLapse, subscribeAuthLapse } from "../../api/authSession";
 import "../../styles/telemetry.css";
 
+/** The one-line health reading the panel's own header shows, for a parent that wants it elsewhere (a tab badge). */
+export interface ServiceSummary {
+  online: number;
+  total: number;
+  tone: "checking" | "danger" | "warn" | "ok";
+}
+
 interface LiveTelemetryPanelProps {
   onConfigureClick?: (tab: "connections" | "api") => void;
+  /** Called whenever the reading changes, so a parent never recomputes health from the raw diagnostics. */
+  onSummary?: (summary: ServiceSummary) => void;
   className?: string;
 }
 
@@ -152,6 +161,7 @@ const NOT_REPORTED_EXPLAIN: ServiceExplanation = {
 
 export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   onConfigureClick,
+  onSummary,
   className = ""
 }) => {
   const { diagnostics, capabilities, loading, refresh } = useDiagnostics();
@@ -1018,6 +1028,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     : coveredCount > 0 || unknownServices.length > 0 || onlineCount < totalCount
     ? "warn"
     : "ok";
+  useEffect(() => {
+    onSummary?.({ online: onlineCount, total: totalCount, tone: summaryTone });
+  }, [onSummary, onlineCount, totalCount, summaryTone]);
   const summaryLabel = isChecking
     ? "Checking services…"
     : summaryTone === "ok"

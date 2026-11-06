@@ -22,7 +22,7 @@ test('warms gene and species evidence before core results or tab visits', { tags
     };
   });
   await app.open('/');
-  await expect(screen.getByRole('heading', 'Analyse a variant')).toBeVisible();
+  await expect(screen.getByRole('heading', 'Analyse a missense')).toBeVisible();
   const beforeCore = await browser.evaluate(async () => {
     const path = '/src/stores/useVariantAnalysisStore.ts';
     const { useVariantAnalysisStore: store } = await import(path);

@@ -29,6 +29,6 @@ describe('sidebar navigation', { tags: ['navigation'] }, () => {
   test('returns to Variant query from another view', async ({ screen }) => {
     await screen.getByRole('button', /^About/).tap();
     await screen.getByRole('button', /^Variant query/).first().tap();
-    await expect(screen.getByRole('heading', 'Analyse a variant')).toBeVisible();
+    await expect(screen.getByRole('heading', 'Analyse a missense')).toBeVisible();
   });
 });

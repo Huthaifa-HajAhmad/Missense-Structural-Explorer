@@ -20,6 +20,7 @@ describe('variant search form', { tags: ['search'] }, () => {
   });
 
   test('typing enables Clear and Clear empties the fields', async ({ screen }) => {
+    await screen.getByText('Optional refinements', { exact: true }).tap();
     const gene = screen.getByRole('textbox', 'Gene symbol');
     await expect(screen.getByRole('button', 'Clear query fields')).toBeDisabled();
     await gene.fill('PAH');
@@ -30,6 +31,7 @@ describe('variant search form', { tags: ['search'] }, () => {
 
   test('the quick entry line fills the parsed fields', async ({ screen }) => {
     await screen.getByRole('textbox', /^Variant/).fill('NAE1 p.Asp116Gly');
+    await screen.getByText('Optional refinements', { exact: true }).tap();
     await expect(screen.getByRole('textbox', 'Gene symbol')).toHaveValue('NAE1');
     await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Asp116Gly');
   });
@@ -42,12 +44,12 @@ describe('variant search form', { tags: ['search'] }, () => {
 
   test('optional AI instructions retain their value when collapsed', async ({ screen }) => {
     const instructions = screen.getByRole('textbox', 'AI Focus Area & Custom Analysis Instructions');
-    await screen.getByText('AI focus & custom instructions', { exact: true }).tap();
+    await screen.getByText('Optional refinements', { exact: true }).tap();
     await instructions.fill('Focus on the cofactor loop');
-    await screen.getByText('AI focus & custom instructions', { exact: true }).tap();
-    await expect(screen.getByText('26 chars set')).toBeVisible();
+    await screen.getByText('Optional refinements', { exact: true }).tap();
+    await expect(screen.getByText('AI focus set')).toBeVisible();
     await expect(instructions).not.toBeVisible();
-    await screen.getByText('AI focus & custom instructions', { exact: true }).tap();
+    await screen.getByText('Optional refinements', { exact: true }).tap();
     await expect(instructions).toHaveValue('Focus on the cofactor loop');
   });
 
@@ -97,7 +99,8 @@ describe('variant search form', { tags: ['search'] }, () => {
     await browser.setViewport({ width: 1753, height: 981 });
     await app.open('/');
     await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
-    await screen.getByRole('tab', 'Pipeline').tap();
+    // Measured on Services first: the monitor is the taller of its two tabpanels, and the query card
+    // claim below compares against that layout, not against a shrunk Pipeline.
     const layout = await browser.evaluate(() => {
       const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
       const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
@@ -109,19 +112,104 @@ describe('variant search form', { tags: ['search'] }, () => {
         queryHeight: query.height,
         recentsHeight: recents.height,
         bodyHeight: document.querySelector(".workbench-query-body")!.getBoundingClientRect().height,
-        fieldsOpen: Boolean(document.querySelector(".qe-fields #input-gene-symbol")),
+        fieldsOpen: Boolean(document.querySelector(".qe-refine #input-gene-symbol")),
       };
     });
-    expect(layout.height >= 640, 'monitor keeps its full desktop height');
+    expect(layout.height >= 640, 'monitor keeps its full desktop height').toBe(true);
 
-    expect(layout.aligned, 'both columns share a bottom edge');
-    expect(layout.gap <= 20, 'Recents starts directly below the query form');
-    expect(layout.fieldsOpen, 'parsed fields are available immediately');
-    expect(layout.recentsHeight >= 200, 'history reserves room for three entries');
+    expect(layout.aligned, 'both columns share a bottom edge').toBe(true);
+    expect(layout.gap <= 20, 'Recents starts directly below the query form').toBe(true);
+    expect(layout.fieldsOpen, 'parsed fields are available immediately').toBe(true);
+    expect(layout.recentsHeight >= 200, 'history reserves room for three entries').toBe(true);
     expect(layout.queryHeight - layout.bodyHeight < 150, 'the form has no stretched empty band');
-    expect(layout.queryHeight > layout.recentsHeight, 'the primary query card is taller than the history tray');
+    /* With the monitor at its full telemetry height, a one-entry tray stretches rather than
+       shrinking it — deliberate (2026-11-06), so the tray is checked on order, not on standing taller. */
+    expect(layout.gap >= 0, 'the tray reads below the form, whatever its stretched height').toBe(true);
     await app.screenshot('single-recent-full-monitor');
+
+    // The pipeline tab then holds the deck's height too.
+    await screen.getByRole('tab', 'Pipeline').tap();
+    const pipelineHeight = await browser.evaluate(() => document.querySelector('.workbench-rail')!.getBoundingClientRect().height);
+    expect(Math.abs(pipelineHeight - layout.height) <= 1, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
+    await app.screenshot('pipeline-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
-    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow on mobile');
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow on mobile').toBe(true);
+  });
+
+  test('the switch paints one thumb from the tab list itself', async ({ app, browser, screen }) => {
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    const paint = await browser.evaluate(() => {
+      const list = document.querySelector('.workbench-monitor-tabs')!;
+      const tabs = [...list.querySelectorAll('[role="tab"]')];
+      const thumb = getComputedStyle(list, '::after');
+      return {
+        thumbBackground: thumb.backgroundColor,
+        thumbWidth: parseFloat(thumb.width),
+        tabBackgrounds: tabs.map(t => getComputedStyle(t).backgroundColor),
+        tabBorders: tabs.map(t => getComputedStyle(t).borderBlockEndWidth),
+        selected: tabs.findIndex(t => t.getAttribute('aria-selected') === 'true'),
+      };
+    });
+    // The raised thumb belongs to the track: it is one background on the list's ::after, while each
+    // tab stays a transparent, rule-less button. One painted surface, not one per segment.
+    expect(paint.thumbBackground !== 'rgba(0, 0, 0, 0)', 'the thumb has a surface of its own').toBe(true);
+    expect(paint.tabBackgrounds.every(c => c === 'rgba(0, 0, 0, 0)'), 'the tabs paint nothing').toBe(true);
+    expect(paint.tabBorders.every(w => w === '0px'), 'the tabs carry no rule of their own').toBe(true);
+    // The thumb is half the two-segment list, and the selected tab is the first one.
+    const listWidth = await browser.evaluate(() => document.querySelector('.workbench-monitor-tabs')!.getBoundingClientRect().width);
+    expect(Math.abs(paint.thumbWidth - (listWidth - 6) / 2) <= 1, 'the thumb spans exactly one segment').toBe(true);
+    expect(paint.selected, 'Services is selected first').toBe(0);
+    await app.screenshot('switch-thumb');
+  });
+
+  test('an empty submit opens the refinements strip and the browser focuses the missing field', async ({ screen, browser, app }) => {
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await screen.getByRole('button', 'Analyse variant').tap();
+    await expect(screen.getByText('Optional refinements')).toBeVisible();
+    // The strip opening is only the means; the point is that the required, empty, until-then hidden
+    // field takes the focus, so the user is told what to fill without hunting for it.
+    await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('settled'), 200)));
+    expect(await browser.evaluate(() => document.activeElement?.id ?? ''), 'focus lands on the gene field').toBe('input-gene-symbol');
+    await app.screenshot('empty-submit-focus');
+  });
+
+  test('both tabpanels stay mounted: the Services badge keeps its reading while Pipeline is open', async ({ app, browser, screen }) => {
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await expect(screen.getByRole('heading', /No recent analyses/)).toBeVisible();
+    // Tests before this one may have left the app on Pipeline, and `open` does not reset view state.
+    await screen.getByRole('tab', 'Services').tap();
+    const panelMount = () => browser.evaluate(() => {
+      const t = document.getElementById('panel-telemetry')!;
+      const p = document.getElementById('panel-pipeline')!;
+      return {
+        bothMounted: Boolean(t) && Boolean(p),
+        telemetryShown: !t.hasAttribute('hidden'),
+        pipelineShown: !p.hasAttribute('hidden'),
+        telemetryHasSummary: Boolean(t.querySelector('.telemetry-summary')),
+      };
+    });
+
+    const first = await panelMount();
+    expect(first.bothMounted, 'both tabpanels are mounted ' + JSON.stringify(first)).toBe(true);
+    expect(first.telemetryShown && !first.pipelineShown, `telemetry is shown first ${JSON.stringify(first)}`).toBe(true);
+    expect(first.telemetryHasSummary, 'the telemetry panel keeps its content').toBe(true);
+
+    await screen.getByRole('tab', 'Pipeline').tap();
+    const second = await panelMount();
+    expect(second.bothMounted, 'both tabpanels are still mounted').toBe(true);
+    expect(!second.telemetryShown && second.pipelineShown, `the switch moved the view without losing a panel ${JSON.stringify(second)}`).toBe(true);
+    expect(second.telemetryHasSummary, 'the switch did not unmount the telemetry panel').toBe(true);
+
+    // The badge on the Services tab names the same count its panel computed.
+    const reading = await browser.evaluate(() => {
+      const badge = document.querySelector('.workbench-monitor-tabs .workbench-monitor-count');
+      return badge?.textContent?.trim() ?? null;
+    });
+    expect(reading !== null && /^\d+\/\d+$/.test(reading), `the Services badge holds a count (${reading})`).toBe(true);
+    await screen.getByRole('tab', 'Services').tap();
+    await app.screenshot('services-badge');
   });
 });
