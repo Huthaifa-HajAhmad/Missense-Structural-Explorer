@@ -464,8 +464,13 @@ class RedisInFlightPrewarms {
     return sqlitePrewarms.has(key);
   }
 
+  /**
+   * A claim made in SQLite while a Redis command failed still counts once Redis answers again: it keeps
+   * others out, and its owner's release removes it from both stores.
+   */
   async add(key: string, token?: string): Promise<boolean> {
     if (redisClient) {
+      if (sqlitePrewarms.has(key)) return false;
       try {
         const res = await redisClient.set(`prewarm:${key}`, token ?? "1", "EX", this.TTL, "NX");
         return res === "OK";
@@ -489,7 +494,8 @@ class RedisInFlightPrewarms {
           `prewarm:${key}`,
           token
         );
-        return Number(res) > 0;
+        const releasedFallback = sqlitePrewarms.delete(key, token);
+        return Number(res) > 0 || releasedFallback;
       } catch (err: any) {
         console.error("[Redis] Error deleting prewarm lock:", err.message);
       }

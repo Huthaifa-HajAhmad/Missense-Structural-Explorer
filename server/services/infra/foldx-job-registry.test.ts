@@ -233,6 +233,38 @@ describe("FoldX job registry", () => {
     });
   });
 
+  describe("callers who may not join the job that is starting", () => {
+    it("start one job of their own between them, not one each", async () => {
+      // Person A's job is placed on A's own computer. B may not be given its result, and B's request
+      // arrives twice (two tabs, or a retry) while A's job is still being created.
+      const known = new Set<string>();
+      let created = 0;
+      const queue: FoldxQueueLike = {
+        getJobStatus: vi.fn(async (id: string) => (known.has(id) ? { status: "queued" as const } : null)),
+        getJobData: vi.fn(async () => ({})),
+      };
+      const enqueueAs = (name: string) => async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        const id = `${name}-${++created}`;
+        known.add(id);
+        return id;
+      };
+      const enqueueA = vi.fn(enqueueAs("a"));
+      const enqueueB = vi.fn(enqueueAs("b"));
+      const notOnA = (jobId: string) => !jobId.startsWith("a-");
+
+      const results = await Promise.all([
+        submitOrJoinFoldxJob({ cacheKey: "KEY", queue, enqueue: enqueueA }),
+        submitOrJoinFoldxJob({ cacheKey: "KEY", queue, enqueue: enqueueB, mayJoin: notOnA }),
+        submitOrJoinFoldxJob({ cacheKey: "KEY", queue, enqueue: enqueueB, mayJoin: notOnA }),
+      ]);
+
+      expect(enqueueA).toHaveBeenCalledTimes(1);
+      expect(enqueueB, "B's two requests share one job of their own").toHaveBeenCalledTimes(1);
+      expect(results[1].queueJobId).toBe(results[2].queueJobId);
+    });
+  });
+
   describe("owner-checked release", () => {
     it("removes the entry only for the job that owns it", () => {
       registerActiveFoldxJob("KEY", "job-a");

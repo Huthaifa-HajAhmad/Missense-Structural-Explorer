@@ -173,11 +173,9 @@ export class JobRegistry {
       }
       const registeredAfterLeader = await this.readRegistered(cacheKey, queue, mayJoin);
       if (registeredAfterLeader) return registeredAfterLeader;
-      if (mayJoin && !mayJoin(leader.queueJobId)) {
-        const queueJobId = await enqueue();
-        this.register(cacheKey, queueJobId);
-        return { queueJobId, joined: false, status: null, startedAt: null, phase: null, jobData: null };
-      }
+      // The leader's job is not this caller's to join. Go through the single-flight again, so the callers
+      // in this position share one job of their own instead of each starting one.
+      if (mayJoin && !mayJoin(leader.queueJobId)) return this.submitOrJoin(params);
       // Settled between registration and this read: its record still decides ownership (`prewarm`).
       const jobData = await queue.getJobData(leader.queueJobId);
       return { ...leader, joined: true, jobData };
