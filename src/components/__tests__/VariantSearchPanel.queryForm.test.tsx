@@ -24,7 +24,7 @@ function renderPanel(props: PanelProps = {}) {
       />
     </SettingsProvider>
   );
-  fireEvent.click(screen.getByText("Protein reference"));
+  fireEvent.click(screen.getByText("Optional refinements"));
   return view;
 }
 
@@ -196,14 +196,13 @@ describe("the quick-entry line does not carry an accession to another gene", () 
 });
 
 describe("the three cards read in order", () => {
-  it("numbers the left column 01 and 02 and the monitor 03, as the stacked layout also reads", () => {
+  it("names the cards without section numbers: the page order already says the order", () => {
     renderPanel();
-    const index = (name: RegExp | string) =>
-      screen.getByRole("heading", { name }).parentElement?.querySelector(".workbench-index")?.textContent;
-
-    expect(index("Variant query")).toBe("01");
-    expect(index("No recent analyses")).toBe("02");
-    expect(index("Analysis monitor")).toBe("03");
+    for (const name of ["Variant query", "No recent analyses", "Analysis monitor"]) {
+      const heading = screen.getByRole("heading", { name });
+      expect(heading.parentElement?.querySelector(".workbench-index")).toBeNull();
+    }
+    expect(screen.getByRole("heading", { level: 1, name: "Analyse a missense" })).toBeInTheDocument();
   });
 });
 
@@ -372,8 +371,8 @@ describe("UniProt state takes the label-row slot (UI-5)", () => {
     renderPanel();
 
     const input = document.getElementById("input-uniprot-acc") as HTMLInputElement;
-    // The accession sits in the one fields grid, on the gene's row.
-    expect(input.closest(".qe-uniprot")).not.toBeNull();
+    // The accession sits in the one fields grid, beside the gene and the notation.
+    expect(input.closest(".query-routes")).not.toBeNull();
     // No reveal step: the input is there on first paint, empty or filled.
     expect(input).toBeVisible();
 
@@ -588,5 +587,37 @@ describe("Parsed fields speak the composer's grammar", () => {
     // Beside the label it describes, the way the notation field carries its build: not a row of its own.
     const labelRow = screen.getByText("Variant", { exact: true }).closest(".qe__head") as HTMLElement;
     expect(labelRow).toContainElement(select);
+  });
+});
+
+describe("Optional refinements strip: closed by default, but never hides a problem", () => {
+  const renderClosed = () =>
+    render(
+      <SettingsProvider>
+        <VariantSearchPanel />
+      </SettingsProvider>
+    );
+  const strip = () => document.querySelector("details.qe-refine") as HTMLDetailsElement;
+
+  it("starts closed and says what is inside", () => {
+    renderClosed();
+    expect(strip().open).toBe(false);
+    expect(screen.getByText("Gene · Notation · UniProt · AI focus")).toBeInTheDocument();
+  });
+
+  it("names the missing gene on the closed strip when a bare cDNA needs one", () => {
+    act(() => useVariantAnalysisStore.setState({ customVariant: "c.1799T>A" }));
+    renderClosed();
+    expect(strip().open).toBe(false);
+    expect(screen.getByText("Gene symbol needed")).toBeInTheDocument();
+  });
+
+  it("opens when the browser rejects a required field inside it, so the field can take focus", () => {
+    act(() => useVariantAnalysisStore.setState({ customVariant: "p.Gly380Arg" }));
+    renderClosed();
+    expect(strip().open).toBe(false);
+    // The gene is required for a bare protein change and is empty.
+    (document.querySelector("#variant-input-card form") as HTMLFormElement).requestSubmit();
+    expect(strip().open).toBe(true);
   });
 });

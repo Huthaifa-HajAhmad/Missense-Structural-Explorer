@@ -312,3 +312,27 @@ describe("LiveTelemetryPanel — what a state may claim", () => {
     }
   });
 });
+
+describe("LiveTelemetryPanel — reporting its health reading", () => {
+  beforeEach(() => {
+    h.state.current = null;
+    h.refresh.mockClear();
+    sessionStorage.removeItem("missenseTransientCredentials");
+  });
+
+  it("hands the parent the same count its own header shows", () => {
+    h.state.current = allReady();
+    const onSummary = vi.fn();
+    render(
+      <SettingsProvider>
+        <LiveTelemetryPanel onSummary={onSummary} />
+      </SettingsProvider>
+    );
+
+    const last = onSummary.mock.calls.at(-1)![0];
+    const rows = document.querySelectorAll("[data-service-id]").length;
+    expect(last.total).toBe(rows);
+    expect(last.online).toBeLessThanOrEqual(last.total);
+    expect(last.tone).toMatch(/^(ok|warn|danger)$/);
+  });
+});

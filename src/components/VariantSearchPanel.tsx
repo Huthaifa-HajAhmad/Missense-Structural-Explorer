@@ -23,6 +23,9 @@ import {
   X,
   Eraser,
   ExternalLink,
+  Server,
+  ListChecks,
+  Info,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { EVIDENCE_SUB_ITEMS, MasterView } from "./MasterSidebar";
@@ -45,7 +48,7 @@ import { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../shared/b
 import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import BuildMismatchPrompt from "./BuildMismatchPrompt";
 import type { BuildHint, NumberingChoice } from "../shared/contracts";
-import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
+import LiveTelemetryPanel, { type ServiceSummary } from "./telemetry/LiveTelemetryPanel";
 
 /* Variant query workbench: serif heading, a primary query composer, and a separate status rail.
    Theme tokens carry colour; optional editors expand without stretching the empty form. */
@@ -309,28 +312,31 @@ export function formatVariantForDisplay(variant: string): string {
  * never drift apart in padding, radius or motion. Segments split the track equally, so the
  * control never overflows the rail at the narrowest two-column width.
  *
- * An underline marks the active view; focus remains distinct from selection.
+ * A raised thumb slides under the active view (drawn once by the tab list, so it can travel between the two
+ * segments); focus remains distinct from selection.
  */
 const RailTab: React.FC<{
   id: RailTabId;
   active: boolean;
   label: string;
+  icon: React.ReactNode;
   badge?: React.ReactNode;
   tabIndex: number;
   onSelect: () => void;
-}> = ({ id, active, label, badge, tabIndex, onSelect }) => (
+}> = ({ id, active, label, icon, badge, tabIndex, onSelect }) => (
   <button
     type="button"
     role="tab"
     id={`tab-${id}`}
     aria-selected={active}
-    // Only the active tab references a panel, because only the active panel is mounted: the
-    // inactive tab's `aria-controls` was a dangling IDREF (axe: aria-valid-attr-value, serious).
-    aria-controls={active ? `panel-${id}` : undefined}
+    // Both panels stay mounted (one is hidden), so the reference is never dangling and axe's
+    // aria-valid-attr-value stays satisfied on the inactive tab too.
+    aria-controls={`panel-${id}`}
     tabIndex={tabIndex}
     onClick={onSelect}
     className="workbench-monitor-tab"
   >
+    {icon}
     <span className="truncate">{label}</span>
     {badge}
   </button>
@@ -952,6 +958,7 @@ function VariantSearchPanel({
   );
   const uniprotLooksValid = !customUniprot.trim() || UNIPROT_ACCESSION_PATTERN.test(customUniprot.trim());
   const hasDirections = userDirections.trim().length > 0;
+  const refineRef = useRef<HTMLDetailsElement>(null);
 
   /**
    * Which route the submit takes, for the strip under the coordinate field. The coordinate field wins whenever
@@ -1002,6 +1009,21 @@ function VariantSearchPanel({
       : null;
 
   /**
+   * What the closed "Optional refinements" strip must still say: the strip hides fields that can block or
+   * change a run, so a problem in one of them is named on the strip, and AI focus text (which no other
+   * surface shows) is named there too. One flag at a time, the most pressing first.
+   */
+  const refineFlag: { tone: "warn" | "set"; label: string } | null = bareCdnaNeedsGene
+    ? { tone: "warn", label: "Gene symbol needed" }
+    : routeConflict
+      ? { tone: "warn", label: "Coordinate and notation disagree" }
+      : !uniprotLooksValid
+        ? { tone: "warn", label: "Check UniProt accession" }
+        : hasDirections
+          ? { tone: "set", label: "AI focus set" }
+          : null;
+
+  /**
    * Loads a complete benchmark query. Unlike a notation example it sets the gene and accession
    * too, so the form is immediately submittable — the notation examples alone never were, because
    * a bare `p.Arg408Trp` still needs a gene.
@@ -1050,6 +1072,8 @@ function VariantSearchPanel({
       ro?.disconnect();
     };
   }, [history.length]);
+  /** The monitor's own health reading, shown on the Services tab so it is visible while Pipeline is open. */
+  const [serviceSummary, setServiceSummary] = useState<ServiceSummary | null>(null);
   const [quickDraft, setQuickDraft] = useState("");
   useEffect(() => {
     setQuickDraft(draft =>
@@ -1119,12 +1143,47 @@ function VariantSearchPanel({
      analysisState.error.toLowerCase().includes("start-loss"))
   );
 
+  /* One line per benchmark, set like a Recent analyses row: who, which change, what it teaches, then the run.
+     The row is a control of its own so it can carry a second, form-only action without nesting buttons. */
+  const benchmarkGrid = (
+    <div className="workbench-benchmarks">
+      {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
+        <div key={preset.gene + preset.variant} className="workbench-benchmark">
+          <button
+            type="button"
+            onClick={() => runBenchmark(preset)}
+            aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
+            title={preset.description}
+          >
+            <span className="workbench-benchmark-identity">
+              <span className="workbench-benchmark-gene">{preset.gene}</span>
+              <span className="workbench-benchmark-variant">{preset.variant}</span>
+            </span>
+            <span className="workbench-benchmark-tag">{preset.tag}</span>
+            <span className="workbench-benchmark-run">
+              Run benchmark
+              <ArrowRight aria-hidden="true" />
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPreset(preset)}
+            aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
+            className="workbench-benchmark-fill"
+          >
+            Fill form only
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="variant-workbench cs-fade-in" id="variant-search-workspace">
       {/* ── Page header ─────────────────────────────────────────────────────────────────────── */}
       <header className="workbench-heading">
         <div className="min-w-0">
-          <h1 className="workbench-title">Analyse a variant<span aria-hidden="true">.</span></h1>
+          <h1 className="workbench-title">Analyse a missense<span aria-hidden="true">.</span></h1>
           <p className="workbench-lede">
             Follow a single amino-acid change through evidence, structure and stability.
           </p>
@@ -1149,11 +1208,18 @@ function VariantSearchPanel({
           aria-labelledby="variant-form-title"
         >
           <div className="workbench-section-heading">
-            <span className="workbench-index" aria-hidden="true">01</span>
             <h2 id="variant-form-title">Variant query</h2>
           </div>
 
-          <form onSubmit={onFormSubmit} className="flex flex-col flex-1">
+          {/* A required field inside the closed strip cannot take the browser's focus, which silently blocks
+              the submit. Opening the strip first lets the browser focus and name the empty field. */}
+          <form
+            onSubmit={onFormSubmit}
+            onInvalidCapture={() => {
+              if (refineRef.current) refineRef.current.open = true;
+            }}
+            className="flex flex-col flex-1"
+          >
             <div className="workbench-query-body">
               {result?.numberingChoices &&
               /**
@@ -1407,91 +1473,104 @@ function VariantSearchPanel({
                 </div>
 
               </div>
-              <section className="qe-options" aria-labelledby="query-options-title">
-                <div className="qe-options__heading">
-                  <h3 id="query-options-title">Optional refinements</h3>
-                </div>
-                <p
-                  id="input-quick-entry-status"
-                  role="status"
-                  aria-live="polite"
-                  className={!quickDraft.trim() || quickReading.recognised ? "qe__status qe__status--assistive" : "qe__status"}
-                  data-tone={!quickDraft.trim() ? "idle" : quickReading.recognised ? "ok" : "pending"}
-                >
-                  {quickDraft.trim() ? (
-                    quickReading.recognised ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <span className="qe__status-dot" aria-hidden="true" />
-                    )
-                  ) : null}
-                  <span>{quickStatus}</span>
-                </p>
-
-                {loadedMatchesQuery && onViewChange ? (
-                  <p className="qe__loaded" data-testid="quick-entry-loaded">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                    <span className="qe__loaded-text">
-                      <strong>{gene} {formatVariantForDisplay(variant)}</strong> is loaded in the workspace.
-                    </span>
-                    <button type="button" className="qe__loaded-open" onClick={() => onViewChange("evidence")}>
-                      Open evidence <ArrowRight className="w-3 h-3" aria-hidden="true" />
-                    </button>
-                  </p>
-                ) : null}
-
-                {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
-                    ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
-                {quickDraft.trim() ? (
-                  <dl className="qe__ticket" data-testid="quick-entry-preview">
-                    {(() => {
-                      const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
-                      const cells: Array<{ label: string; value: string; resolved?: string | null; auto?: boolean; tone?: FieldBadgeTone; hint?: string }> = [
-                        { label: "Gene", value: customGene.trim().toUpperCase(), auto: notationResolvesItself && !customGene.trim() },
-                        {
-                          label: "Change",
-                          value: changeNotation,
-                          resolved: resolvedChange,
-                          tone: activeKind ? NOTATION_BADGES[activeKind].tone : undefined,
-                          hint: activeKind ? NOTATION_BADGES[activeKind].title : undefined,
-                        },
-                        { label: "UniProt", value: customUniprot.trim().toUpperCase(), auto: !customUniprot.trim() },
-                        {
-                          label: "Build",
-                          value: genomicBuildControllable ? genomicBuild : variantBuildControllable ? variantBuild : "",
-                          auto: !genomicBuildControllable && !variantBuildControllable,
-                        },
-                      ];
-                      return cells.map(cell => (
-                        <div key={cell.label} className="qe__cell" title={cell.hint}>
-                          <dt>
-                            {cell.tone ? <span className="qe__kind" data-tone={cell.tone} aria-hidden="true" /> : null}
-                            {cell.label}
-                          </dt>
-                          <dd data-empty={!cell.value || undefined}>
-                            {cell.value || (cell.auto ? "auto" : "—")}
-                            {cell.resolved ? (
-                              <span className="qe__resolved" data-testid="quick-entry-resolved">
-                                <ArrowRight aria-hidden="true" />
-                                <span className="sr-only">resolved to </span>
-                                {formatVariantForDisplay(cell.resolved)}
-                              </span>
-                            ) : null}
-                          </dd>
-                        </div>
-                      ));
-                    })()}
-                  </dl>
-                ) : null}
-
-              <section className="qe-fields" aria-label="Query details">
-                <div className="qe-fields__body">
-              <div
-                className="query-routes"
-                id="workspace-accepted-inputs"
-                role="group"
-                aria-label="Parsed query fields"
+              <p
+                id="input-quick-entry-status"
+                role="status"
+                aria-live="polite"
+                className={!quickDraft.trim() || quickReading.recognised ? "qe__status qe__status--assistive" : "qe__status"}
+                data-tone={!quickDraft.trim() ? "idle" : quickReading.recognised ? "ok" : "pending"}
               >
+                {quickDraft.trim() ? (
+                  quickReading.recognised ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <span className="qe__status-dot" aria-hidden="true" />
+                  )
+                ) : null}
+                <span>{quickStatus}</span>
+              </p>
+
+              {loadedMatchesQuery && onViewChange ? (
+                <p className="qe__loaded" data-testid="quick-entry-loaded">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span className="qe__loaded-text">
+                    <strong>{gene} {formatVariantForDisplay(variant)}</strong> is loaded in the workspace.
+                  </span>
+                  <button type="button" className="qe__loaded-open" onClick={() => onViewChange("evidence")}>
+                    Open evidence <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                  </button>
+                </p>
+              ) : null}
+
+              {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
+                  ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
+              {quickDraft.trim() ? (
+                <dl className="qe__ticket" data-testid="quick-entry-preview">
+                  {(() => {
+                    const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
+                    const cells: Array<{ label: string; value: string; resolved?: string | null; auto?: boolean; tone?: FieldBadgeTone; hint?: string }> = [
+                      { label: "Gene", value: customGene.trim().toUpperCase(), auto: notationResolvesItself && !customGene.trim() },
+                      {
+                        label: "Change",
+                        value: changeNotation,
+                        resolved: resolvedChange,
+                        tone: activeKind ? NOTATION_BADGES[activeKind].tone : undefined,
+                        hint: activeKind ? NOTATION_BADGES[activeKind].title : undefined,
+                      },
+                      { label: "UniProt", value: customUniprot.trim().toUpperCase(), auto: !customUniprot.trim() },
+                      {
+                        label: "Build",
+                        value: genomicBuildControllable ? genomicBuild : variantBuildControllable ? variantBuild : "",
+                        auto: !genomicBuildControllable && !variantBuildControllable,
+                      },
+                    ];
+                    return cells.map(cell => (
+                      <div key={cell.label} className="qe__cell" title={cell.hint}>
+                        <dt>
+                          {cell.tone ? <span className="qe__kind" data-tone={cell.tone} aria-hidden="true" /> : null}
+                          {cell.label}
+                        </dt>
+                        <dd data-empty={!cell.value || undefined}>
+                          {cell.value || (cell.auto ? "auto" : "—")}
+                          {cell.resolved ? (
+                            <span className="qe__resolved" data-testid="quick-entry-resolved">
+                              <ArrowRight aria-hidden="true" />
+                              <span className="sr-only">resolved to </span>
+                              {formatVariantForDisplay(cell.resolved)}
+                            </span>
+                          ) : null}
+                        </dd>
+                      </div>
+                    ));
+                  })()}
+                </dl>
+              ) : null}
+            </div>
+
+            {/* Optional refinements: one quiet foot strip. The composer line above fills these fields,
+                so they stay closed until someone wants to override one. A required field that is empty
+                opens the strip on submit (onInvalidCapture), so the browser can focus it. */}
+            <details className="qe-refine" ref={refineRef}>
+              <summary className="qe-refine__summary">
+                <ChevronRight className="qe-refine__chevron" aria-hidden="true" />
+                <span className="qe-refine__title">Optional refinements</span>
+                <span className="qe-refine__meta">
+                  {refineFlag ? (
+                    <span className="qe-refine__flag" data-tone={refineFlag.tone}>
+                      {refineFlag.label}
+                    </span>
+                  ) : null}
+                  <span className="qe-refine__scope" aria-hidden="true">Gene · Notation · UniProt · AI focus</span>
+                  <span className="sr-only">Contains gene symbol, notation, UniProt accession and AI focus</span>
+                </span>
+              </summary>
+              <div className="qe-refine__body">
+                <section className="qe-refine__group" aria-labelledby="query-details-title">
+                  <h3 id="query-details-title" className="qe-refine__heading">
+                    Query details
+                    <span>Filled from the line above; edit any of them.</span>
+                  </h3>
+                  <div className="query-routes" id="workspace-accepted-inputs" role="group" aria-label="Parsed query fields">
                     {/* Row 1: the gene. */}
                     <div className="flex flex-col gap-1.5 min-w-0">
                       <FieldLabel
@@ -1592,6 +1671,48 @@ function VariantSearchPanel({
                       </div>
                     </div>
 
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <FieldLabel
+                        htmlFor="input-uniprot-acc"
+                        badge={
+                          <FieldBadge
+                            id="input-uniprot-acc-status"
+                            /**
+                             * `warn` is the only loud state this slot has. A well-formed accession is not
+                             * a state worth a green chip: it is the ordinary case, the chip was the
+                             * loudest colour in a row that is otherwise grey, and it said nothing the
+                             * input's own text does not. `neutral` renders as plain muted text.
+                             */
+                            tone={uniprotLooksValid ? "neutral" : "warn"}
+                            title={
+                              uniprotLooksValid
+                                ? "Optional: the accession is auto-resolved from the gene when omitted."
+                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                            }
+                          >
+                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                          </FieldBadge>
+                        }
+                      >
+                        UniProt accession
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-uniprot-acc"
+                          type="text"
+                          placeholder="e.g. Q9H8M5"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customUniprot}
+                          onChange={(e) => setCustomUniprot(e.target.value)}
+                          aria-invalid={!uniprotLooksValid || undefined}
+                          aria-describedby="input-uniprot-acc-status"
+                          className={inputBase + " font-mono uppercase"}
+                        />
+                        <PasteBtn setter={setCustomUniprot} />
+                      </div>
+                    </div>
+
                     {/* Row 3, across both columns: which route the submit takes. A live region, so a change of route is
                         announced. "Both filled" splits in two: a KNOWN disagreement wears amber and offers the way out,
                         while agreement (or an unknown coordinate) gets the same quiet line an empty field
@@ -1636,95 +1757,42 @@ function VariantSearchPanel({
                         null
                       )}
                     </div>
+                  </div>
+                </section>
+
+                <section className="qe-refine__group" aria-labelledby="ai-focus-title">
+                  <h3 id="ai-focus-title" className="qe-refine__heading">
+                    AI focus &amp; custom instructions
+                    <span>What should the interpretation focus on?</span>
+                  </h3>
+                <fieldset className="qe-ai">
+                  <label htmlFor="textarea-user-directions" className="qe-ai__label sr-only">
+                    What should the interpretation focus on?
+                  </label>
+                  <textarea
+                    id="textarea-user-directions"
+                    aria-label="AI Focus Area & Custom Analysis Instructions"
+                    aria-describedby="user-directions-privacy"
+                    placeholder="e.g. Focus on disruption of the cofactor-binding loop, or weigh ACMG PM2/PS3."
+                    value={userDirections}
+                    onChange={(e) => {
+                      const text = e.target.value.slice(0, 2000);
+                      setUserDirections(text);
+                    }}
+                    maxLength={2000}
+                    className="qe-ai__textarea"
+                  />
+                  <div className="flex justify-between items-start gap-3 text-[11px] text-cs-text-muted">
+                    <span id="user-directions-privacy" className="flex items-start gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--cs-text-warning)]" />
+                      Do not include patient identifiers (names, MRNs, dates of birth).
+                    </span>
+                    <span className="tabular-nums shrink-0">{userDirections.length}/2000</span>
+                  </div>
+                </fieldset>
+                </section>
               </div>
-                  <details className="qe-uniprot">
-                    <summary className="qe-fields__summary">
-                      <ChevronRight className="qe-fields__chevron" aria-hidden="true" />
-                      Protein reference
-                      <span className="qe-fields__meta qe-fields__hint">{customUniprot.trim() || "UniProt \u00b7 resolved automatically"}</span>
-                    </summary>
-                    <div className="qe-uniprot__body">
-                    <div className="flex flex-col gap-1.5 min-w-0">
-                      <FieldLabel
-                        htmlFor="input-uniprot-acc"
-                        badge={
-                          <FieldBadge
-                            id="input-uniprot-acc-status"
-                            /**
-                             * `warn` is the only loud state this slot has. A well-formed accession is not
-                             * a state worth a green chip: it is the ordinary case, the chip was the
-                             * loudest colour in a row that is otherwise grey, and it said nothing the
-                             * input's own text does not. `neutral` renders as plain muted text.
-                             */
-                            tone={uniprotLooksValid ? "neutral" : "warn"}
-                            title={
-                              uniprotLooksValid
-                                ? "Optional: the accession is auto-resolved from the gene when omitted."
-                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
-                            }
-                          >
-                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                          </FieldBadge>
-                        }
-                      >
-                        UniProt accession
-                      </FieldLabel>
-                      <div className="relative">
-                        <input
-                          id="input-uniprot-acc"
-                          type="text"
-                          placeholder="e.g. Q9H8M5"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={customUniprot}
-                          onChange={(e) => setCustomUniprot(e.target.value)}
-                          aria-invalid={!uniprotLooksValid || undefined}
-                          aria-describedby="input-uniprot-acc-status"
-                          className={inputBase + " font-mono uppercase"}
-                        />
-                        <PasteBtn setter={setCustomUniprot} />
-                      </div>
-                    </div>
-
-                    </div>
-                  </details>
-                </div>
-              </section>
-
-              <details className="workbench-ai">
-                <summary className="workbench-ai-summary">
-                  <ChevronRight className="workbench-ai-chevron" aria-hidden="true" />
-                  <span>AI focus &amp; custom instructions</span>
-                  {hasDirections && <span className="workbench-ai-meta">{`${userDirections.trim().length} chars set`}</span>}
-                </summary>
-              <fieldset className="qe-ai">
-                <label htmlFor="textarea-user-directions" className="qe-ai__label">
-                  What should the interpretation focus on?
-                </label>
-                <textarea
-                  id="textarea-user-directions"
-                  aria-label="AI Focus Area & Custom Analysis Instructions"
-                  aria-describedby="user-directions-privacy"
-                  placeholder="e.g. Focus on disruption of the cofactor-binding loop, or weigh ACMG PM2/PS3."
-                  value={userDirections}
-                  onChange={(e) => {
-                    const text = e.target.value.slice(0, 2000);
-                    setUserDirections(text);
-                  }}
-                  maxLength={2000}
-                  className="qe-ai__textarea"
-                />
-                <div className="flex justify-between items-start gap-3 text-[11px] text-cs-text-muted">
-                  <span id="user-directions-privacy" className="flex items-start gap-1.5">
-                    <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--cs-text-warning)]" />
-                    Do not include patient identifiers (names, MRNs, dates of birth).
-                  </span>
-                  <span className="tabular-nums shrink-0">{userDirections.length}/2000</span>
-                </div>
-              </fieldset>
-              </details>
-              </section>
-            </div>
+            </details>
 
           </form>
         </section>
@@ -1738,7 +1806,6 @@ function VariantSearchPanel({
           {history.length > 0 ? (
             <>
               <div className="workbench-recents-heading">
-                <span className="workbench-index" aria-hidden="true">02</span>
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">
                   Recent analyses <span className="workbench-recents-count">{history.length}</span>
                 </h2>
@@ -1784,71 +1851,37 @@ function VariantSearchPanel({
                   );
                 })}
               </ol>
+              {/* Benchmarks stay below the history: they are the way into a known result, and they fill the
+                  height the taller monitor sets, instead of leaving the tray empty under one recent run. */}
+              <div className="workbench-benchmarks-head">
+                <h3 id="benchmark-title">Benchmark controls</h3>
+                <span>Known variants to try</span>
+              </div>
+              {benchmarkGrid}
             </>
           ) : (
             <>
-              <div className="workbench-recents-empty">
-                <div>
-                  <div className="workbench-recents-heading">
-                    <span className="workbench-index" aria-hidden="true">02</span>
-                    <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
-                    {/* Same slot as "Clear history" once the tray is populated: the card's own secondary
-                        action, right-aligned, instead of a button between the sentence and the benchmarks. */}
-                    {onOpenOnboarding && (
-                      <button
-                        type="button"
-                        onClick={onOpenOnboarding}
-                        className="workbench-tour-link"
-                        title="Walk through one analysis, from query to report"
-                      >
-                        <Compass className="w-3.5 h-3.5" aria-hidden="true" />
-                        Take the tour
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[12px] text-cs-text-muted mt-0.5">
-                    Variants you analyse in this session will appear here. To start, load a benchmark control:
-                  </p>
-                </div>
+              <div className="workbench-recents-heading">
+                <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
               </div>
-              {/* Each card runs the benchmark, the same as a Recent analyses chip. The card is a control of its own
-                  so it can carry a second, form-only action without nesting interactive elements. */}
-              <div className="workbench-benchmarks">
-                {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
-                  <div
-                    key={preset.gene + preset.variant}
-                    className="workbench-benchmark"
+              {/* A short notice, not a sentence under the header: it says where analyses will appear and
+                  offers the tour once, beside the thing it explains. */}
+              <div className="workbench-notice">
+                <Info aria-hidden="true" />
+                <p>Variants you analyse in this session will appear here. To start, run a benchmark control below.</p>
+                {onOpenOnboarding && (
+                  <button
+                    type="button"
+                    onClick={onOpenOnboarding}
+                    className="workbench-tour-link"
+                    title="Walk through one analysis, from query to report"
                   >
-                    <button
-                      type="button"
-                      onClick={() => runBenchmark(preset)}
-                      aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
-                      title={preset.description}
-                      className="text-left flex flex-col gap-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                    >
-                      <span className="flex items-baseline gap-2">
-                        <span className="text-[12.5px] font-semibold text-cs-text-primary">{preset.gene}</span>
-                        <span className="font-mono text-[11.5px] text-cs-text-secondary">{preset.variant}</span>
-                      </span>
-                      <span className="text-[11px] text-cs-text-muted">{preset.tag}</span>
-                      <span className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-medium text-cs-text-accent">
-                        Run benchmark
-                        <ArrowRight className="w-3 h-3" aria-hidden="true" />
-                      </span>
-                    </button>
-                    <div className="px-3 pb-1.5">
-                      <button
-                        type="button"
-                        onClick={() => applyPreset(preset)}
-                        aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
-                        className="inline-flex items-center h-7 px-1.5 -ml-1.5 rounded-[var(--cs-radius-badge)] text-[11.5px] text-cs-text-muted hover:text-cs-text-primary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                      >
-                        Fill form only
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                    <Compass aria-hidden="true" />
+                    Take the tour
+                  </button>
+                )}
               </div>
+              {benchmarkGrid}
             </>
           )}
         </section>
@@ -1862,7 +1895,6 @@ function VariantSearchPanel({
         >
           <div className="workbench-rail-body">
             <div className="workbench-rail-heading">
-              <span className="workbench-index" aria-hidden="true">03</span>
               <h2>Analysis monitor</h2>
               <Activity aria-hidden="true" />
             </div>
@@ -1879,6 +1911,14 @@ function VariantSearchPanel({
                 tabIndex={activeRightTab === "telemetry" ? 0 : -1}
                 onSelect={() => selectRailTab("telemetry")}
                 label="Services"
+                icon={<Server aria-hidden="true" />}
+                badge={
+                  serviceSummary && serviceSummary.tone !== "checking" ? (
+                    <span className="workbench-monitor-count" data-tone={serviceSummary.tone} aria-hidden="true">
+                      {serviceSummary.online}/{serviceSummary.total}
+                    </span>
+                  ) : null
+                }
               />
               <RailTab
                 id="pipeline"
@@ -1886,9 +1926,13 @@ function VariantSearchPanel({
                 tabIndex={activeRightTab === "pipeline" ? 0 : -1}
                 onSelect={() => selectRailTab("pipeline")}
                 label="Pipeline"
+                icon={<ListChecks aria-hidden="true" />}
                 badge={
                   isPipelineActive ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay animate-pulse shrink-0" aria-label="running" />
+                    <span className="workbench-monitor-count" data-tone="run" aria-hidden="true">
+                      {settledCount}/{coreSummary.total}
+                      <span className="sr-only">analysis running</span>
+                    </span>
                   ) : hasCoreError ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-text-danger)] shrink-0" aria-label="analysis failed" />
                   ) : result && summary.hasProblems ? (
@@ -1900,12 +1944,31 @@ function VariantSearchPanel({
               />
             </div>
 
-            {activeRightTab === "telemetry" ? (
-              <div key="telemetry" id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex-1 min-h-0 flex flex-col cs-tab-transition">
-                <LiveTelemetryPanel className="flex-1 min-h-0" />
-              </div>
-            ) : (
-              <div key="pipeline" id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 min-h-0 flex flex-col gap-3 cs-tab-transition">
+            {/* Both tabpanels stay mounted; the inactive one is `hidden`. The rail then always holds the
+                taller of the two, so a switch cannot move the deck, and the telemetry panel keeps its
+                health reading (the Services badge) fresh while Pipeline is open. */}
+            <div
+              id="panel-telemetry"
+              role="tabpanel"
+              aria-labelledby="tab-telemetry"
+              /* `inert`, not `hidden`: the inactive panel must stay in the layout so the rail's
+                 height can be a property of the design (the shared grid area below sizes to the
+                 taller panel on either tab), while taking it out of the accessibility tree and
+                 the focus order exactly as `hidden` would. Mobile swaps instead (CSS). */
+              inert={activeRightTab !== "telemetry"}
+              data-inactive={activeRightTab !== "telemetry" || undefined}
+              className="flex-1 min-h-0 flex flex-col cs-tab-transition"
+            >
+              <LiveTelemetryPanel className="flex-1 min-h-0" onSummary={setServiceSummary} />
+            </div>
+            <div
+              id="panel-pipeline"
+              role="tabpanel"
+              aria-labelledby="tab-pipeline"
+              inert={activeRightTab !== "pipeline"}
+              data-inactive={activeRightTab !== "pipeline" || undefined}
+              className="flex-1 min-h-0 flex flex-col gap-3 cs-tab-transition"
+            >
                 {/* Status line + progress. The count is derived from the list, never a literal. */}
                 <div className="workbench-pipeline-summary">
                   <div className="workbench-pipeline-status">
@@ -2083,8 +2146,7 @@ function VariantSearchPanel({
                 {result && !isPipelineActive && onViewChange && (
                   <p className="text-[11px] text-cs-text-muted shrink-0">Select a stage to open it.</p>
                 )}
-              </div>
-            )}
+            </div>
           </div>
         </aside>
       </div>

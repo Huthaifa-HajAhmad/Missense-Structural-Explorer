@@ -27,16 +27,19 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     await app.open('/');
   });
 
-  test('gene and notation share a row and the coordinate field is absent', async ({ screen, app, browser }) => {
+  test('the refinements are one closed foot strip; open, gene, notation and UniProt share a row', async ({ screen, app, browser }) => {
+    await expect(screen.getByText('Optional refinements')).toBeVisible();
+    await expect(screen.getByRole('textbox', 'Gene symbol')).not.toBeVisible();
+    expect(await browser.evaluate(() => { const form = document.querySelector('.workbench-query > form')!; return form.scrollHeight <= form.clientHeight + 1; }), 'the default form fits without internal scrolling').toBe(true);
+    expect(await browser.evaluate(() => { const card = document.querySelector('.workbench-query')!.getBoundingClientRect(); const strip = document.querySelector('.qe-refine')!.getBoundingClientRect(); return !document.querySelector('.qe-options') && Math.abs(card.bottom - strip.bottom) <= 2; }), 'the strip is the card foot, flush with its bottom edge').toBe(true);
+
+    await screen.getByText('Optional refinements').tap();
     const gene = await box(screen.getByRole('textbox', 'Gene symbol'), 'gene');
     const notation = await box(screen.getByRole('textbox', /^Protein or cDNA notation/), 'notation');
-    expect(Math.abs(gene.y - notation.y) <= 1, 'the common fields share one row');
+    const uniprot = await box(screen.getByRole('textbox', /^UniProt accession/), 'uniprot');
+    expect(Math.abs(gene.y - notation.y) <= 1 && Math.abs(gene.y - uniprot.y) <= 1, 'the three fields share one row').toBe(true);
     await expect(screen.getByRole('textbox', /^Genomic coordinates/)).toHaveCount(0);
-    await expect(screen.getByRole('textbox', /^UniProt accession/)).not.toBeVisible();
-    expect(await browser.evaluate(() => { const form = document.querySelector('.workbench-query > form')!; return form.scrollHeight <= form.clientHeight + 1; }), 'the default form fits without internal scrolling').toBe(true);
-    await expect(screen.getByRole('heading', 'Optional refinements')).toBeVisible();
-    expect(await browser.evaluate(() => { const options = document.querySelector('.qe-options')!; return ['.qe-fields', '.qe-uniprot', '.workbench-ai'].every(selector => Boolean(options.querySelector(selector))) && getComputedStyle(options).backgroundColor !== getComputedStyle(document.querySelector('.workbench-query')!).backgroundColor; }), 'optional controls share one tinted box').toBe(true);
-    expect(await browser.evaluate(() => { const card = document.querySelector('.workbench-query')!.getBoundingClientRect(); const options = document.querySelector('.qe-options')!.getBoundingClientRect(); return !document.querySelector('.workbench-query-footer') && Math.abs(card.bottom - options.bottom - 17) <= 2; }), 'the optional box ends with a consistent bottom inset and no footer').toBe(true);
+    await expect(screen.getByRole('textbox', 'AI Focus Area & Custom Analysis Instructions')).toBeVisible();
     await app.screenshot('optional-query-box');
   });
 
@@ -53,9 +56,17 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
 
     expect(Math.abs(form.y - rail.y) <= 1, 'query and monitor headings share a starting line');
     expect(await browser.evaluate(() => { const list = document.querySelector('.telemetry-scroll')!; const rows = list.querySelectorAll('.telemetry-service'); return rows.length === 10 && list.scrollHeight <= list.clientHeight + 1; }), 'all ten service rows fit without being hidden below FoldX').toBe(true);
-    await browser.locator('.qe-uniprot > summary').tap();
-    const railClosed = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, fields closed');
-    expect(Math.abs(railClosed.height - rail.height) <= 1, 'collapsing fields does not resize the monitor');
+    await screen.getByText('Optional refinements').tap();
+    // The strip's fields animate (field-sizing on the textarea); wait out the transition so the
+    // measured height is the settled one a reader sees, not a frame mid-change.
+    await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('settled'), 400)));
+    const railOpen = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, refinements open');
+    // The query card is content-sized, so an opened strip may grow the deck (the query carries the
+    // surplus) — but the monitor never loses height; the load-bearing promise is the tab switch.
+    expect(railOpen.height >= rail.height - 1, 'opening the refinements never shrinks the monitor').toBe(true);
+    await screen.getByRole('tab', 'Pipeline').tap();
+    const railPipeline = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, pipeline open');
+    expect(Math.abs(railPipeline.height - railOpen.height) <= 1, `switching tabs changes the monitor not at all (${railOpen.height.toFixed(1)} vs ${railPipeline.height.toFixed(1)})`).toBe(true);
 
     // The recent card is its own row, not the form column's tail.
     expect(recent.y > form.y + form.height, 'Recent analyses should start below the form card');
@@ -78,9 +89,9 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
   });
 
   test('the UniProt state sits in the label-row slot, above the field it describes', async ({ screen, app }) => {
-    await screen.getByText(/^Protein reference/).tap();
+    await screen.getByText('Optional refinements').tap();
     const input = screen.getByRole('textbox', /^UniProt accession/);
-    // No reveal step beyond the parsed-fields disclosure: the input is a plain field once it is open.
+    // No reveal step beyond the refinements strip: the input is a plain field once it is open.
     await expect(input).toBeVisible();
     await input.fill('Q9H8M5');
 
@@ -103,6 +114,7 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
 
   test('both routes filled and agreeing states the route without an alarm', async ({ app, screen }) => {
     await screen.getByRole('textbox', /^Variant/).fill('16-66823281-T-C');
+    await screen.getByText('Optional refinements').tap();
     await screen.getByRole('textbox', /^Protein or cDNA notation/).fill('p.Asp116Gly');
 
     await expect(
@@ -127,28 +139,20 @@ describe('first-run tray design', { tags: ['search'] }, () => {
     await app.open('/');
   });
 
-  test('the tour action sits in the tray header, above the sentence and the benchmarks', async ({ app, browser }) => {
+  test('the tour action sits in the tray notice, below the header and above the benchmarks', async ({ app, browser, screen }) => {
     const heading = await box(browser.locator('.workbench-recents-heading'), 'tray header');
-    const tour = await box(browser.locator('.workbench-tour-link'), 'tour action');
-    const sentence = await box(browser.locator('.workbench-recents-empty > div > p'), 'tray sentence');
+    const notice = await box(browser.locator('.workbench-notice'), 'tray notice');
+    const tour = await box(browser.locator('.workbench-notice .workbench-tour-link'), 'tour action');
+    const firstRow = await box(browser.locator('.workbench-benchmark').first(), 'first benchmark');
 
-    // In the header band: the slot "Clear history" takes once the tray is populated.
-    expect(
-      tour.y >= heading.y - 1 && tour.y + tour.height <= heading.y + heading.height + 1,
-      `tour action spans ${tour.y.toFixed(1)}-${(tour.y + tour.height).toFixed(1)}px, outside the ${heading.y.toFixed(1)}-${(heading.y + heading.height).toFixed(1)}px header band`
-    );
-    // Right-aligned in it, not floating in the reading column.
-    expect(
-      heading.x + heading.width - (tour.x + tour.width) <= 32,
-      `tour action ends ${(heading.x + heading.width - (tour.x + tour.width)).toFixed(1)}px from the header's right edge`
-    );
-    // And above the sentence, so "load a benchmark control" is the last thing read before the list.
-    expect(
-      tour.y + tour.height <= sentence.y + 1,
-      `tour action ends at ${(tour.y + tour.height).toFixed(1)}px, inside the sentence at ${sentence.y.toFixed(1)}px`
-    );
+    await expect(screen.getByRole('heading', 'No recent analyses')).toBeVisible();
+    expect(await browser.locator('.workbench-recents-heading .workbench-tour-link').count(), 'the header carries no tour action').toBe(0);
+    expect(notice.y >= heading.y + heading.height - 1, 'the notice starts below the header band').toBe(true);
+    expect(tour.x >= notice.x && tour.x + tour.width <= notice.x + notice.width + 1 && tour.y >= notice.y - 1 && tour.y + tour.height <= notice.y + notice.height + 1, 'the tour action sits inside the notice').toBe(true);
+    expect(notice.y + notice.height <= firstRow.y + 1, 'the notice ends above the first benchmark').toBe(true);
+    expect(firstRow.height >= 56, `benchmark rows are ${firstRow.height.toFixed(1)}px tall (at least 56)`).toBe(true);
 
-    await app.screenshot('05-tray-header');
+    await app.screenshot('05-tray-notice');
   });
 
   test('the highlighted benchmark is one rounded surface, clear of its own text', async ({ app, browser, screen }) => {

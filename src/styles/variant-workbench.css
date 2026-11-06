@@ -52,9 +52,13 @@
 .workbench-history-clear:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .workbench-history-clear:active { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
 /* The first-run tray's own header action, in the slot "Clear history" takes once the tray is populated. */
-.workbench-tour-link { display: inline-flex; align-items: center; gap: .375rem; padding-inline: .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-secondary); font-size: 11px; font-weight: 500; cursor: pointer; transition: color 150ms ease-out, background-color 150ms ease-out; }
-.workbench-tour-link > svg { inline-size: 14px; block-size: 14px; }
-.workbench-tour-link:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+/* The empty tray's notice: where analyses will appear, and the tour, in one small card on the header wash. */
+.workbench-notice { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1rem var(--workbench-pad) .25rem; padding: .75rem 1rem; border-radius: 8px; background: var(--cs-workbench-header-surface); }
+.workbench-notice > svg { inline-size: 16px; block-size: 16px; flex: none; color: var(--cs-text-muted); stroke-width: 1.5; }
+.workbench-notice > p { flex: 1 1 16rem; min-inline-size: 0; margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
+.workbench-tour-link { display: inline-flex; align-items: center; gap: .375rem; flex: none; min-block-size: 2rem; padding-inline: .75rem; border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-surface); color: var(--cs-text-primary); font-size: 12px; font-weight: 500; cursor: pointer; transition: border-color 150ms ease-out, color 150ms ease-out; }
+.workbench-tour-link > svg { inline-size: 14px; block-size: 14px; color: var(--cs-text-accent); stroke-width: 1.5; }
+.workbench-tour-link:hover { border-color: var(--cs-accent-clay); color: var(--cs-text-accent); }
 .workbench-tour-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .workbench-tour-link:active { background: var(--cs-surface-2); }
 /* The list rules are the only row lines: a boxed current row would sit against its neighbour's rule as a double line. */
@@ -69,28 +73,52 @@
 .workbench-recent-current { color: var(--cs-text-muted); font-size: 10px; }
 .workbench-recent:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .workbench-recent:active { background: var(--cs-bg-subtle); }
-.workbench-benchmarks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: .5rem 1.25rem; padding: 0 var(--workbench-pad) 1rem; }
-.workbench-recents-empty > div > p { padding: .75rem var(--workbench-pad) 0; }
-.workbench-benchmark { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .375rem; border-block-end: 1px solid var(--cs-border-subtle); padding-block: .5rem; }
-/* The run action is a surface of its own: it bleeds into the tray's padding by exactly the padding it
-   puts back, so the gene stays on the card's content grid while the highlighted state has an edge of its
-   own. Rounded on all four corners — a top-only radius read as a band cut off above "Fill form only". */
-.workbench-benchmark > button { margin-inline-start: -.75rem; padding: .5rem .75rem; border-radius: 8px; transition: background-color 150ms ease-out; }
-.workbench-benchmark > button:hover { background: var(--cs-surface-2); }
-.workbench-benchmark > button:active { background: var(--cs-bg-subtle); }
-.workbench-benchmark > div { padding: 0; }
-.workbench-benchmark > button > span:last-child { font-size: 11px; }
-.workbench-benchmark > div button { padding-inline: .5rem; margin-inline: 0; }
+.workbench-benchmarks-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .125rem .75rem; margin-block-start: .25rem; padding: .75rem var(--workbench-pad) 0; border-block-start: 1px solid var(--cs-border-subtle); }
+.workbench-benchmarks-head h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--cs-text-primary); }
+.workbench-benchmarks-head > span { font-size: 11px; color: var(--cs-text-muted); }
+.workbench-benchmarks { display: flex; flex-direction: column; padding: 0 var(--workbench-pad) .75rem; }
+/* One line per benchmark, on the grid the Recent analyses rows use: gene, change, tag, then the run. The run action is
+   a surface of its own: it bleeds into the tray's padding by exactly the padding it puts back, so the gene stays on the
+   card's content grid while the highlighted state has an edge of its own, rounded on all four corners. */
+.workbench-benchmark { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .375rem; border-block-end: 1px solid var(--cs-border-subtle); padding-block: .375rem; }
+.workbench-benchmark:last-child { border-block-end: 0; }
+.workbench-benchmark > button:first-child { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(7rem, auto) minmax(0, 1fr) auto; align-items: baseline; column-gap: 1rem; min-block-size: 3.5rem; margin-inline-start: -.75rem; padding: .5rem .75rem; border: 0; border-radius: 8px; background: transparent; color: var(--cs-text-primary); text-align: start; cursor: pointer; transition: background-color 150ms ease-out; }
+.workbench-benchmark > button:first-child:hover { background: var(--cs-surface-2); }
+.workbench-benchmark > button:first-child:active { background: var(--cs-bg-subtle); }
+.workbench-benchmark > button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.workbench-benchmark-identity { display: contents; }
+.workbench-benchmark-gene { font-size: 13px; font-weight: 600; }
+.workbench-benchmark-variant { font-family: var(--cs-font-mono); font-size: 12px; color: var(--cs-text-secondary); overflow-wrap: anywhere; }
+.workbench-benchmark-tag { min-inline-size: 0; font-size: 11px; color: var(--cs-text-muted); }
+.workbench-benchmark-run { display: inline-flex; align-items: center; gap: .375rem; font-size: 11px; color: var(--cs-text-accent); }
+.workbench-benchmark-run > svg { inline-size: 13px; block-size: 13px; }
+.workbench-benchmark-fill { min-block-size: 1.75rem; padding-inline: .5rem; border: 0; border-radius: var(--cs-radius-badge); background: transparent; color: var(--cs-text-muted); font-size: 11px; cursor: pointer; }
+.workbench-benchmark-fill:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
 .workbench-rail.cs-panel { background: var(--cs-panel-body); border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); box-shadow: var(--cs-workbench-shadow); min-inline-size: 0; overflow: clip; }
 .workbench-rail-body { display: flex; flex-direction: column; min-block-size: 0; }
 .workbench-rail-heading { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; flex: none; padding: .875rem 1.25rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-rail [role="tabpanel"] { padding: 1rem 1.25rem; }
 .workbench-rail-heading > svg { inline-size: 16px; block-size: 16px; margin-inline-start: auto; color: var(--cs-text-muted); stroke-width: 1.5; }
-.workbench-monitor-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; margin-inline: 1.25rem; border-block-end: 1px solid var(--cs-border-subtle); }
-.workbench-monitor-tab { display: flex; align-items: center; justify-content: center; gap: .5rem; min-block-size: 2.75rem; padding-inline: .75rem; border: 0; border-block-end: 2px solid transparent; background: transparent; color: var(--cs-text-muted); font-size: 12px; font-weight: 500; cursor: pointer; }
-.workbench-monitor-tab[aria-selected="true"] { border-block-end-color: var(--cs-accent-clay); color: var(--cs-text-primary); }
-.workbench-monitor-tab:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -3px; }
-.workbench-monitor-tab:active { background: var(--cs-bg-subtle); }
+/* The monitor's view switch: a segmented control. One raised thumb, drawn by the track rather than by each tab, slides
+   to the selected segment, so a switch reads as movement and not as a repaint. Selection is ink plus the thumb; the
+   label weight never changes, so the labels do not shift. */
+.workbench-monitor-tabs { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; margin: 1rem 1.25rem 0; padding: 3px; border-radius: 10px; background: var(--cs-surface-2); }
+.workbench-monitor-tabs::after { content: ""; position: absolute; z-index: 0; inset-block: 3px; inset-inline-start: 3px; inline-size: calc((100% - 6px) / 2); border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-surface); box-shadow: 0 1px 2px color-mix(in oklch, var(--cs-text-primary) 10%, transparent); pointer-events: none; }
+.workbench-monitor-tabs:has(> [role="tab"]:last-of-type[aria-selected="true"])::after { transform: translateX(100%); }
+/* Under `dir="rtl"` the second segment is to the left, and a transform is a physical offset, so the
+   slide is restated. The selector also stands on exactly two segments: a third tab needs a segment
+   index, not a boolean. */
+.workbench-monitor-tabs:dir(rtl):has(> [role="tab"]:last-of-type[aria-selected="true"])::after { transform: translateX(-100%); }
+.workbench-monitor-tab { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: .5rem; min-block-size: 2.25rem; padding-inline: .75rem; border: 0; border-radius: 8px; background: transparent; color: var(--cs-text-muted); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.workbench-monitor-tab > svg { inline-size: 15px; block-size: 15px; flex: none; stroke-width: 1.5; }
+.workbench-monitor-tab[aria-selected="true"] { color: var(--cs-text-primary); }
+.workbench-monitor-tab[aria-selected="true"] > svg { color: var(--cs-accent-clay); }
+.workbench-monitor-tab:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.workbench-monitor-count { flex: none; font-family: var(--cs-font-mono); font-size: 10.5px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--cs-text-muted); }
+.workbench-monitor-count[data-tone="ok"] { color: var(--cs-text-success); }
+.workbench-monitor-count[data-tone="warn"] { color: var(--cs-text-warning-on-soft); }
+.workbench-monitor-count[data-tone="danger"] { color: var(--cs-text-danger-on-soft); }
+.workbench-monitor-count[data-tone="run"] { color: var(--cs-text-accent); }
 .workbench-pipeline-summary { display: flex; flex-direction: column; gap: .75rem; flex: none; padding: .875rem; border-radius: 8px; background: var(--cs-workbench-header-surface); }
 .workbench-pipeline-notice { display: flex; align-items: start; gap: .5rem; }
 .workbench-pipeline-notice > svg { margin-block-start: .125rem; }
@@ -190,96 +218,102 @@
 .qe-select--chip .qe-select__control { block-size: 2rem; margin-block: -.375rem; padding-inline: .75rem 1rem; font-family: inherit; font-size: 11px; color: var(--cs-text-secondary); }
 .qe-select--chip .qe-select__caret { inset-inline-end: 0; inline-size: .75rem; block-size: .75rem; }
 
-/* Optional controls: the parsed fields sit open in the refinements box, and the two collapsed rows
-   (Protein reference, AI focus) follow on the box's own 12px rhythm. Opening one reveals its own
-   editing surface. */
-.qe-fields__summary, .workbench-ai-summary { display: flex; align-items: center; gap: .5rem; min-block-size: 2.75rem; list-style: none; cursor: pointer; user-select: none; font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
-.qe-fields__summary::-webkit-details-marker, .workbench-ai-summary::-webkit-details-marker { display: none; }
-.qe-fields__chevron { inline-size: .875rem; block-size: .875rem; flex: none; color: var(--cs-text-muted); }
-.qe-fields[open] > summary .qe-fields__chevron { transform: rotate(90deg); }
-.qe-fields__meta { margin-inline-start: auto; min-inline-size: 0; }
-.qe-fields__hint { display: block; font-size: 11px; font-weight: 400; color: var(--cs-text-muted); text-align: end; }
-.qe-fields__attention { display: inline-flex; align-items: center; gap: .25rem; padding: .125rem .375rem; border-radius: var(--cs-radius-badge); background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); font-size: 11px; }
-.qe-fields__body { display: flex; flex-direction: column; gap: 1rem; padding-block: .5rem 1rem; }
-.qe-fields__body .query-routes { grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 1rem 1.5rem; }
-.qe-uniprot { border-block-start: 1px solid var(--cs-border-subtle); }
-.qe-uniprot[open] .qe-fields__chevron { transform: rotate(90deg); }
-.qe-uniprot__body { max-inline-size: 24rem; padding-block: .5rem .75rem; }
-.qe-fields__body .query-routes__status:empty { display: none; }
-.qe-fields__summary { color: var(--cs-text-primary); }
-.workbench-ai { border-block-start: 1px solid var(--cs-border-subtle); margin-block-start: -.75rem; }
-.workbench-ai-summary > svg { inline-size: 14px; block-size: 14px; flex: none; stroke-width: 1.5; color: var(--cs-text-muted); }
-.workbench-ai-meta { margin-inline-start: auto; font-size: 11px; font-weight: 400; color: var(--cs-text-muted); }
-.workbench-ai[open] .workbench-ai-chevron { transform: rotate(180deg); }
-.qe-ai { display: flex; flex-direction: column; gap: .625rem; min-inline-size: 0; margin: 0; padding-block: .5rem 1rem; border: 0; }
+/* Optional refinements: one foot strip for the card, in the same wash as its head. Closed it is a single
+   quiet row (a title, what is inside, and a flag when something in there needs a look); open it reveals a
+   white body with two titled groups. The composer line fills these fields, so the strip is for overrides. */
+.qe-refine { border-block-start: 1px solid var(--cs-border-subtle); }
+.qe-refine__summary { display: flex; align-items: center; gap: .625rem; min-block-size: 2.75rem; padding: .5rem var(--workbench-pad); list-style: none; cursor: pointer; user-select: none; background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); font-size: 12px; font-weight: 600; }
+.qe-refine__summary::-webkit-details-marker { display: none; }
+.qe-refine[open] > .qe-refine__summary { border-block-end: 1px solid var(--cs-border-subtle); }
+.qe-refine__chevron { inline-size: .875rem; block-size: .875rem; flex: none; color: var(--cs-text-muted); stroke-width: 1.5; }
+.qe-refine[open] > .qe-refine__summary .qe-refine__chevron { transform: rotate(90deg); }
+.qe-refine__meta { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; flex: 1; min-inline-size: 0; font-size: 11px; font-weight: 400; color: var(--cs-text-muted); }
+.qe-refine__scope { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qe-refine__flag { display: inline-flex; align-items: center; gap: .375rem; flex: none; font-weight: 500; color: var(--cs-text-accent); }
+.qe-refine__flag::before { content: ""; inline-size: .375rem; block-size: .375rem; border-radius: 50%; background: currentColor; }
+.qe-refine__flag[data-tone="warn"] { color: var(--cs-text-warning-on-soft); }
+.qe-refine__body { display: flex; flex-direction: column; gap: 1.25rem; padding: 1.25rem var(--workbench-pad); background: var(--cs-surface); }
+.qe-refine__group { display: flex; flex-direction: column; gap: .75rem; min-inline-size: 0; }
+.qe-refine__group + .qe-refine__group { padding-block-start: 1.25rem; border-block-start: 1px solid var(--cs-border-subtle); }
+.qe-refine__heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .125rem .75rem; margin: 0; font-size: 12px; font-weight: 600; color: var(--cs-text-primary); }
+.qe-refine__heading > span { font-size: 11px; font-weight: 400; color: var(--cs-text-muted); }
+.qe-refine .query-routes { grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .75rem 1rem; }
+.qe-refine .query-routes__status:empty { display: none; }
+.qe-ai { display: flex; flex-direction: column; gap: .5rem; min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .qe-ai__label { font-size: 12px; color: var(--cs-text-secondary); }
 .qe-ai__textarea { inline-size: 100%; field-sizing: content; min-block-size: 5rem; max-block-size: 13rem; resize: vertical; padding: .75rem; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-accent-wash); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; user-select: text; }
 .qe-ai__textarea::placeholder { color: var(--cs-text-muted); }
-.variant-workbench :is(.qe__input, .qe__tool, .qe__submit, .qe__example, .qe-fields__summary, .workbench-ai-summary, .qe-ai__textarea):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.qe__tool:active, .qe__example:active, .qe-fields__summary:active, .workbench-ai-summary:active { background: var(--cs-bg-subtle); }
+.variant-workbench :is(.qe__input, .qe__tool, .qe__submit, .qe__example, .qe-refine__summary, .qe-ai__textarea):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.qe__tool:active, .qe__example:active, .qe-refine__summary:active { background: var(--cs-bg-subtle); }
 
 @media (min-width: 64rem) {
   /* The deck ends where the monitor ends, and the QUERY carries the flexible surplus: the recents
-     tray stretches as before, but its floor (13rem) and the monitor's own minimum (40rem) keep a
-     one-entry history from either swallowing the spare height or outgrowing the form above it. */
+     tray stretches as before, but its floor (13rem) and the monitor's own height keep a one-entry
+     history from either swallowing the spare height or outgrowing the form above it. */
   .workbench-deck { grid-template-rows: max-content minmax(13rem, 1fr); }
   .workbench-query { align-self: start; min-block-size: 0; }
   .workbench-query > form { min-block-size: 0; overflow-y: auto; }
   .workbench-query-body { gap: 1rem; padding-block: 1rem; }
   .workbench-query .qe { gap: .5rem; }
-  .workbench-query .qe-fields__summary { min-block-size: 1.75rem; }
-  .workbench-query .workbench-ai-summary { min-block-size: 2.25rem; }
-  .workbench-query .qe-fields__body { gap: .375rem; padding-block: .25rem 0; }
+  .workbench-query .qe__try { align-items: center; }
+  .workbench-query .qe__try-label { flex-basis: auto; }
+  .workbench-query .qe__example { flex-direction: row; align-items: center; min-block-size: 2rem; padding: .375rem .5rem; }
+  .workbench-query .qe__example-note { display: none; }
   .workbench-recents { align-self: stretch; min-block-size: 0; }
   .workbench-recents-heading { flex: none; }
-  .workbench-recent-list { flex: 1; min-block-size: 0; max-block-size: 12.5rem; }
-  .workbench-recents-empty { flex: none; }
+  .workbench-recent-list { flex: none; min-block-size: 0; max-block-size: 12.5rem; }
   .workbench-benchmarks { min-block-size: 0; overflow-y: auto; }
-  .workbench-rail { grid-row-end: span 2; align-self: stretch; min-block-size: 40rem; }
-  .workbench-rail-body { position: static; flex: 1; }
+  /* The monitor's height is a property of the design, not of whichever tab is open — but it cannot
+     be a constant, because the ten service rows' height depends on the platform's font metrics.
+     So the rail stays a stretching item (min-height floor, never a fixed height), and the two
+     tabpanels are laid on ONE grid cell: the hidden one stays in the layout flow (visibility, not
+     display), so the cell — and through `flex-basis: auto` the deck's rows — always sizes to the
+     taller of the two panels, whichever it is, instead of clipping it below the fold. */
+  .workbench-rail { grid-row-end: span 2; align-self: stretch; min-block-size: 48.5rem; }
+  /* `1 1 auto`, not `1`: the body's basis is its content, so the rail's intrinsic height carries the
+     services panel even when the deck's rows are otherwise too short for it. The body owns three
+     children (heading, switch, panels) in reading order; the last row is the two panels' shared
+     cell and takes whatever height the rail has beyond what the heading and switch need. */
+  .workbench-rail-body { position: static; flex: 1 1 auto; display: grid; grid-template-rows: auto auto minmax(auto, 1fr); grid-template-areas: "heading" "tabs" "panels"; }
+  .workbench-rail-heading { grid-area: heading; }
+  .workbench-monitor-tabs { grid-area: tabs; }
+  .workbench-rail [role="tabpanel"] { grid-area: panels; }
+  /* The inactive panel is `inert`: out of the accessibility tree and the focus order, but still in
+     the layout, so the shared row below keeps the taller panel's metrics on either tab — which is
+     what makes the monitor's height a property of the design rather than of the platform. */
+  .workbench-rail [role="tabpanel"][data-inactive] { visibility: hidden; }
 }
 @container (width < 54rem) {
   .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; block-size: auto; min-block-size: 0; }
   .workbench-deck > :is(.workbench-query, .workbench-recents, .workbench-rail) { grid-column: 1; grid-row: auto; }
-  /* Stacked, the monitor flows naturally with the page. */
+  /* Stacked, the monitor flows naturally with the page: the tabs swap again (the inactive panel is
+     out of the flow here, where there is no shared cell to co-size), and the panels keep their
+     height. */
   .workbench-rail.cs-panel { block-size: auto; min-block-size: 0; }
-  .workbench-rail-body { position: static; max-block-size: none; }
+  .workbench-rail-body { position: static; max-block-size: none; display: flex; flex-direction: column; }
+  .workbench-rail [role="tabpanel"] { grid-area: auto; }
+  .workbench-rail [role="tabpanel"][data-inactive] { display: none; visibility: visible; }
   .workbench-pipeline-stages { overflow-y: visible; }
   .workbench-rail .telemetry-scroll { overflow-y: visible; }
 }
 @container (width < 30rem) {
   .workbench-heading { gap: .5rem; }
-  .qe-fields__hint { display: none; }
-  .qe-fields__body .query-routes { grid-template-columns: minmax(0, 1fr); }
+  .qe-refine__scope { display: none; }
+  .qe-refine__heading > span { flex-basis: 100%; }
   .qe__example { flex-basis: 100%; flex-direction: row; align-items: center; min-block-size: 2.75rem; }
   .qe__example-note { flex: 0 0 4rem; }
   .qe__example-value { flex: 1; }
-  .workbench-ai-summary { flex-wrap: wrap; }
   .workbench-recent-identity { grid-template-columns: minmax(0, 1fr); }
+  .workbench-benchmark > button:first-child { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: .125rem; }
+  .workbench-benchmark-tag { grid-row: 2; grid-column: 1 / 3; }
   .workbench-recent { gap: .625rem; }
 }
- .qe-options { --option-ink: var(--cs-text-primary); display: flex; flex-direction: column; gap: .75rem; padding: 1rem; border-radius: 12px; background: color-mix(in oklch, var(--cs-accent-clay) 4%, var(--cs-surface)); color: var(--option-ink); }
-.qe-options__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; color: var(--option-ink); }
-.qe-options__heading h3 { margin: 0; font-size: 12px; font-weight: 600; }
-.qe-options__heading > span { font-size: 11px; color: var(--cs-text-secondary); }
-.workbench-query .qe-options .qe-fields__body { gap: .75rem; padding: 0; }
-.workbench-query .qe-options .query-routes { gap: .75rem 1rem; }
-.qe-options .qe-field-label, .qe-options .qe-fields__summary, .qe-options .workbench-ai-summary { color: var(--option-ink); font-size: 12px; font-weight: 500; }
-.qe-options .qe-fields__hint, .qe-options .workbench-ai-meta { color: var(--cs-text-secondary); font-size: 11px; }
-/* The collapsed rows are this box's own fields, so they read without rules: the wash groups the
-   refinements, the box's own 12px rhythm spaces them, and a rounded hover marks the toggle. */
-.workbench-query .qe-options .qe-fields__summary, .workbench-query .qe-options .workbench-ai-summary { min-block-size: 2.5rem; gap: .5rem; padding-inline: .5rem; margin-inline: -.5rem; border-radius: 8px; }
-.qe-options .qe-uniprot, .qe-options .workbench-ai { margin: 0; border-block-start: 0; }
-.qe-options .qe-uniprot__body, .qe-options .qe-ai { padding-block: .5rem 0; }
-.qe-options .qe-fields__chevron, .qe-options .workbench-ai-chevron { inline-size: .875rem; block-size: .875rem; color: var(--cs-text-secondary); stroke-width: 1.5; }
-.qe-options .workbench-ai[open] .workbench-ai-chevron { transform: rotate(90deg); }
-.qe-options .qe__ticket { background: var(--cs-surface); }
 
 @media (hover: hover) and (pointer: fine) {
   .workbench-pipeline-notice-dismiss:hover { color: var(--cs-text-primary); background: var(--cs-surface-2); }
   .workbench-recent:hover { background: var(--cs-surface-2); }
   .workbench-history-clear:hover { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
-  .workbench-monitor-tab:hover { color: var(--cs-text-primary); background: var(--cs-workbench-header-surface); }
+  .workbench-monitor-tab:not([aria-selected="true"]):hover { color: var(--cs-text-primary); }
   .qe__bar:hover { border-color: color-mix(in oklch, var(--cs-text-muted) 55%, var(--cs-border)); }
   .qe__loaded-open:hover { background: var(--cs-bg-subtle); }
   .qe__clear:hover:not(:disabled) { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
@@ -289,12 +323,14 @@
   .qe-select--chip:hover .qe-select__control { color: var(--cs-text-primary); }
   .qe__submit:hover:not(:disabled) { filter: brightness(1.07); }
   .qe__example:hover { background: color-mix(in oklch, var(--cs-accent-clay) 9%, var(--cs-surface)); color: var(--cs-text-accent); }
-  .qe-fields__summary:hover, .workbench-ai-summary:hover { color: var(--cs-text-primary); }
-  .qe-options .qe-fields__summary:hover, .qe-options .workbench-ai-summary:hover { background: var(--cs-surface-2); }
+  .qe-refine__summary:hover { background: color-mix(in oklch, var(--cs-accent-clay) 9%, var(--cs-surface)); }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .workbench-recent, .workbench-monitor-tab { transition: background-color 150ms, border-color 150ms, color 150ms; }
+  .workbench-monitor-tabs::after { transition: transform 280ms cubic-bezier(.16, 1, .3, 1); }
+  .workbench-recent { transition: background-color 150ms, border-color 150ms, color 150ms; }
+  /* The tab changes only its ink now: no background or border to fade. */
+  .workbench-monitor-tab { transition: color 150ms; }
   .qe__submit, .qe__example, .qe__tool { transition: background-color 150ms, color 150ms, filter 150ms, transform 150ms cubic-bezier(.2, 0, 0, 1); }
   .qe__submit:active:not(:disabled), .qe__example:active, .qe__tool:active { transform: scale(.96); }
-  .qe-fields__chevron, .workbench-ai-chevron { transition: transform 150ms cubic-bezier(.2, 0, 0, 1); }
+  .qe-refine__chevron { transition: transform 150ms cubic-bezier(.2, 0, 0, 1); }
 }

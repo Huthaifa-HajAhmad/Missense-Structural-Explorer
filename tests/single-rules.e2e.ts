@@ -7,33 +7,26 @@ import { skipTour } from './support.js';
  * Measured as rendered borders, because the defect was a pair of 1px rules a few pixels apart.
  */
 
-test('the fields disclosure adds no rule of its own, with or without a ticket above it', { tags: ['search'] }, async ({ app, browser, screen }) => {
+test('the ticket and the strip never stack their rules a few pixels apart', { tags: ['search'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1753, height: 981 });
   await app.open('/');
   // The sheet reads borders on render; wait for the workbench to be past its loading gate first,
-  // or the evaluate runs on the loading screen where `.qe-fields` does not exist yet.
+  // or the evaluate runs on the loading screen where `.qe-refine` does not exist yet.
   await expect(screen.getByRole('textbox', /^Variant/)).toBeVisible();
-  const fieldsTop = () => browser.evaluate(() => getComputedStyle(document.querySelector('.qe-fields')!).borderTopWidth);
-  expect(await fieldsTop(), 'under the example chips there is no rule above the disclosure').toBe('0px');
+  const stripTop = () => browser.evaluate(() => getComputedStyle(document.querySelector('.qe-refine')!).borderTopWidth);
+  expect(await stripTop(), 'the strip carries its own top rule').toBe('1px');
   await app.screenshot('single-rule-examples');
 
   await screen.getByRole('textbox', /^Variant/).fill('NAE1 p.Asp116Gly');
-  await expect(screen.getByRole('textbox', 'Gene symbol')).toBeVisible();
-  const rules = await browser.evaluate(() => {
-    const ticket = document.querySelector('.qe__ticket')!;
-    const fields = document.querySelector('.qe-fields')!;
-    return {
-      ticketBottom: getComputedStyle(ticket).borderBottomWidth,
-      fieldsTop: getComputedStyle(fields).borderTopWidth,
-      adjacent: ticket.parentElement === fields.parentElement,
-    };
+  await expect(screen.getByText('Optional refinements')).toBeVisible();
+  const gap = await browser.evaluate(() => {
+    const ticket = document.querySelector('.qe__ticket')!.getBoundingClientRect();
+    const strip = document.querySelector('.qe-refine')!.getBoundingClientRect();
+    return strip.top - ticket.bottom;
   });
-  expect(rules.adjacent, 'the disclosure follows the ticket').toBe(true);
-  expect(
-    [rules.ticketBottom, rules.fieldsTop].filter(width => width !== '0px').length,
-    `ticket bottom ${rules.ticketBottom}, disclosure top ${rules.fieldsTop}`,
-  ).toBe(1);
+  // The ticket's own bottom rule and the strip's top rule are separate lines, never stacked a few pixels apart.
+  expect(gap >= 8, `ticket bottom to strip top is ${gap}px`).toBe(true);
   await app.screenshot('single-rule-ticket');
 });
 
@@ -43,7 +36,7 @@ test('a recognised line is not read back twice: the ticket shows it, the status 
   await app.open('/');
   const line = screen.getByRole('textbox', /^Variant/);
   await line.fill('NAE1 p.Asp116Gly');
-  await expect(screen.getByRole('textbox', 'Gene symbol')).toBeVisible();
+  await expect(screen.getByText('Optional refinements')).toBeVisible();
   const read = () => browser.evaluate(() => {
     const status = document.getElementById('input-quick-entry-status')!;
     const box = status.getBoundingClientRect();

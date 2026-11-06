@@ -2624,7 +2624,7 @@ export interface MultimerData {
   failure?: MultimerModelFailure | null;
   /** Provider job still running (status "running"): ask again and the server resumes it. */
   jobId?: string | null;
-  /** Present when the caller asked for it: the job to fold this complex in the reader’s browser. */
+  /** Present when the caller asked for it: the job to fold this complex in the reader's browser. */
   handoff?: MultimerHandoff;
 }
 

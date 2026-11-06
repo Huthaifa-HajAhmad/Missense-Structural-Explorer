@@ -44,7 +44,7 @@ it('keeps the 3D canvas unmounted when visiting an empty workspace and returning
   expect(ui.getByRole('heading', { name: 'No analysis loaded' })).toBeInTheDocument();
   expect(ui.queryByTestId('canvas-instance')).toBeNull();
   await act(async () => fireEvent.click(ui.getByRole('button', { name: 'Analyse a variant' })));
-  expect(ui.getByRole('heading', { name: 'Analyse a variant' })).toBeInTheDocument();
+  expect(ui.getByRole('heading', { name: 'Analyse a missense' })).toBeInTheDocument();
   expect(ui.queryByTestId('canvas-instance')).toBeNull();
 });
 

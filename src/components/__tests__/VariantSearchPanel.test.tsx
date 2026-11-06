@@ -15,7 +15,7 @@ function renderPanel() {
       />
     </SettingsProvider>
   );
-  fireEvent.click(screen.getByText("Protein reference"));
+  fireEvent.click(screen.getByText("Optional refinements"));
   return view;
 }
 
@@ -305,7 +305,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   it("applies cs-tab-transition animation to tab panels", async () => {
     renderPanel();
 
-    const telemetryPanel = screen.getByRole("tabpanel");
+    const telemetryPanel = document.getElementById("panel-telemetry")!;
     expect(telemetryPanel.className).toContain("cs-tab-transition");
 
     const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
@@ -313,7 +313,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       fireEvent.click(pipelineTab);
     });
 
-    const pipelinePanel = screen.getByRole("tabpanel");
+    const pipelinePanel = document.getElementById("panel-pipeline")!;
     expect(pipelinePanel.className).toContain("cs-tab-transition");
   });
 
@@ -404,7 +404,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     expect(screen.getByText("Service status")).toBeInTheDocument();
   });
 
-  it("keeps the active tab's aria-controls resolvable and never points at an unmounted panel", async () => {
+  it("keeps every tab's aria-controls resolvable: both panels stay mounted, the inactive one is hidden", async () => {
     renderPanel();
 
     const active = screen.getByRole("tab", { name: /Services/i });
@@ -412,9 +412,14 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
     expect(active.getAttribute("aria-controls")).toBe("panel-telemetry");
     expect(document.getElementById("panel-telemetry")).not.toBeNull();
-    // A dangling IDREF is an axe "serious" violation, so the inactive tab must not reference a
-    // panel that is not mounted.
-    expect(inactive.getAttribute("aria-controls")).toBeNull();
+    // A dangling IDREF is an axe "serious" violation, so a tab never references a panel that is
+    // not mounted — and with both panels mounted, neither reference can dangle.
+    expect(inactive.getAttribute("aria-controls")).toBe("panel-pipeline");
+    expect(document.getElementById("panel-pipeline")).not.toBeNull();
+    // The inactive panel is out of the accessibility tree (inert, not hidden — it stays in the
+    // layout so either tab's content co-sizes the monitor), so its content cannot be read.
+    expect(document.getElementById("panel-pipeline")!.hasAttribute("inert")).toBe(true);
+    expect(document.getElementById("panel-telemetry")!.hasAttribute("inert")).toBe(false);
   });
 
   it("shows AlphaGenome Atlas as Connected when a key is configured in client settings", async () => {
@@ -526,26 +531,27 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(screen.getByText(valid ? "Format OK" : "Check format")).toBeInTheDocument();
     });
 
-    it("reveals optional AI focus with its privacy note and live counter", async () => {
+    it("keeps AI focus with its privacy note and live counter inside the refinements strip", async () => {
       renderPanel();
 
+      // renderPanel opens the strip, so the textarea is reachable the way a reader reaches it.
       const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions") as HTMLTextAreaElement;
-      const disclosure = textarea.closest("details")!;
-      expect(disclosure.open).toBe(false);
-      expect(textarea).not.toBeVisible();
-      fireEvent.click(disclosure.querySelector("summary")!);
+      const strip = textarea.closest("details")!;
+      expect(strip.open).toBe(true);
       expect(textarea).toBeVisible();
       expect(screen.getByText(/Do not include patient identifiers/)).toBeInTheDocument();
       expect(screen.getByText("0/2000")).toBeInTheDocument();
+      expect(screen.queryByText("AI focus set")).not.toBeInTheDocument();
 
       await act(async () => {
         fireEvent.change(textarea, { target: { value: "Focus on the cofactor loop" } });
       });
 
       expect(screen.getByText("26/2000")).toBeInTheDocument();
-      fireEvent.click(disclosure.querySelector("summary")!);
+      fireEvent.click(strip.querySelector("summary")!);
       expect(textarea).not.toBeVisible();
-      expect(screen.getByText("26 chars set")).toBeVisible();
+      // AI focus text shows nowhere else, so the closed strip names it.
+      expect(screen.getByText("AI focus set")).toBeVisible();
     });
 
     it("does not claim a genome build for text that is not a coordinate", async () => {
@@ -701,12 +707,13 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(state.customGenomic).toBe("");
     });
 
-    it("is replaced by the recent-analyses tray once there is history", async () => {
+    it("stays under the recent-analyses list once there is history", async () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
       renderPanel();
-      expect(screen.queryByRole("button", { name: /Run benchmark/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: /Recent analyses/ })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /Run benchmark/ })).toHaveLength(ONBOARDING_BENCHMARK_PRESETS.length);
     });
   });
 
