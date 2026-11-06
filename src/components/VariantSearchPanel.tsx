@@ -1951,7 +1951,12 @@ function VariantSearchPanel({
               id="panel-telemetry"
               role="tabpanel"
               aria-labelledby="tab-telemetry"
-              hidden={activeRightTab !== "telemetry"}
+              /* `inert`, not `hidden`: the inactive panel must stay in the layout so the rail's
+                 height can be a property of the design (the shared grid area below sizes to the
+                 taller panel on either tab), while taking it out of the accessibility tree and
+                 the focus order exactly as `hidden` would. Mobile swaps instead (CSS). */
+              inert={activeRightTab !== "telemetry"}
+              data-inactive={activeRightTab !== "telemetry" || undefined}
               className="flex-1 min-h-0 flex flex-col cs-tab-transition"
             >
               <LiveTelemetryPanel className="flex-1 min-h-0" onSummary={setServiceSummary} />
@@ -1960,7 +1965,8 @@ function VariantSearchPanel({
               id="panel-pipeline"
               role="tabpanel"
               aria-labelledby="tab-pipeline"
-              hidden={activeRightTab !== "pipeline"}
+              inert={activeRightTab !== "pipeline"}
+              data-inactive={activeRightTab !== "pipeline" || undefined}
               className="flex-1 min-h-0 flex flex-col gap-3 cs-tab-transition"
             >
                 {/* Status line + progress. The count is derived from the list, never a literal. */}

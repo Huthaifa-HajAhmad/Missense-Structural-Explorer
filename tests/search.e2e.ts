@@ -186,8 +186,8 @@ describe('variant search form', { tags: ['search'] }, () => {
       const p = document.getElementById('panel-pipeline')!;
       return {
         bothMounted: Boolean(t) && Boolean(p),
-        telemetryShown: !t.hasAttribute('hidden'),
-        pipelineShown: !p.hasAttribute('hidden'),
+        telemetryShown: !t.hasAttribute('inert'),
+        pipelineShown: !p.hasAttribute('inert'),
         telemetryHasSummary: Boolean(t.querySelector('.telemetry-summary')),
       };
     });

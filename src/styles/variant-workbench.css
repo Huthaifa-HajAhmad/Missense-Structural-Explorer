@@ -98,9 +98,6 @@
 .workbench-rail-body { display: flex; flex-direction: column; min-block-size: 0; }
 .workbench-rail-heading { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; flex: none; padding: .875rem 1.25rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-rail [role="tabpanel"] { padding: 1rem 1.25rem; }
-  /* The inactive tabpanel is `hidden`, but a Tailwind `flex` utility otherwise out-states the
-     attribute: a class rule beats the UA's `[hidden]` display, so the hiding is restated here. */
-  .workbench-rail [role="tabpanel"][hidden] { display: none; }
 .workbench-rail-heading > svg { inline-size: 16px; block-size: 16px; margin-inline-start: auto; color: var(--cs-text-muted); stroke-width: 1.5; }
 /* The monitor's view switch: a segmented control. One raised thumb, drawn by the track rather than by each tab, slides
    to the selected segment, so a switch reads as movement and not as a repaint. Selection is ink plus the thumb; the
@@ -266,18 +263,36 @@
   .workbench-recents-heading { flex: none; }
   .workbench-recent-list { flex: none; min-block-size: 0; max-block-size: 12.5rem; }
   .workbench-benchmarks { min-block-size: 0; overflow-y: auto; }
-  /* The monitor's height is a property of the design, not of whichever tab is open: the rail carries
-     a definite height set to the tallest of the two panels (Services, with all ten service rows), so
-     a switch never moves the deck. A minimum cannot do that — it only equalises the shorter panel. */
-  .workbench-rail { grid-row-end: span 2; align-self: stretch; block-size: 49.5rem; }
-  .workbench-rail-body { position: static; flex: 1; }
+  /* The monitor's height is a property of the design, not of whichever tab is open — but it cannot
+     be a constant, because the ten service rows' height depends on the platform's font metrics.
+     So the rail stays a stretching item (min-height floor, never a fixed height), and the two
+     tabpanels are laid on ONE grid cell: the hidden one stays in the layout flow (visibility, not
+     display), so the cell — and through `flex-basis: auto` the deck's rows — always sizes to the
+     taller of the two panels, whichever it is, instead of clipping it below the fold. */
+  .workbench-rail { grid-row-end: span 2; align-self: stretch; min-block-size: 48.5rem; }
+  /* `1 1 auto`, not `1`: the body's basis is its content, so the rail's intrinsic height carries the
+     services panel even when the deck's rows are otherwise too short for it. The body owns three
+     children (heading, switch, panels) in reading order; the last row is the two panels' shared
+     cell and takes whatever height the rail has beyond what the heading and switch need. */
+  .workbench-rail-body { position: static; flex: 1 1 auto; display: grid; grid-template-rows: auto auto minmax(auto, 1fr); grid-template-areas: "heading" "tabs" "panels"; }
+  .workbench-rail-heading { grid-area: heading; }
+  .workbench-monitor-tabs { grid-area: tabs; }
+  .workbench-rail [role="tabpanel"] { grid-area: panels; }
+  /* The inactive panel is `inert`: out of the accessibility tree and the focus order, but still in
+     the layout, so the shared row below keeps the taller panel's metrics on either tab — which is
+     what makes the monitor's height a property of the design rather than of the platform. */
+  .workbench-rail [role="tabpanel"][data-inactive] { visibility: hidden; }
 }
 @container (width < 54rem) {
   .workbench-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; block-size: auto; min-block-size: 0; }
   .workbench-deck > :is(.workbench-query, .workbench-recents, .workbench-rail) { grid-column: 1; grid-row: auto; }
-  /* Stacked, the monitor flows naturally with the page. */
+  /* Stacked, the monitor flows naturally with the page: the tabs swap again (the inactive panel is
+     out of the flow here, where there is no shared cell to co-size), and the panels keep their
+     height. */
   .workbench-rail.cs-panel { block-size: auto; min-block-size: 0; }
-  .workbench-rail-body { position: static; max-block-size: none; }
+  .workbench-rail-body { position: static; max-block-size: none; display: flex; flex-direction: column; }
+  .workbench-rail [role="tabpanel"] { grid-area: auto; }
+  .workbench-rail [role="tabpanel"][data-inactive] { display: none; visibility: visible; }
   .workbench-pipeline-stages { overflow-y: visible; }
   .workbench-rail .telemetry-scroll { overflow-y: visible; }
 }

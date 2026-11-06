@@ -305,7 +305,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   it("applies cs-tab-transition animation to tab panels", async () => {
     renderPanel();
 
-    const telemetryPanel = screen.getByRole("tabpanel");
+    const telemetryPanel = document.getElementById("panel-telemetry")!;
     expect(telemetryPanel.className).toContain("cs-tab-transition");
 
     const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
@@ -313,7 +313,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       fireEvent.click(pipelineTab);
     });
 
-    const pipelinePanel = screen.getByRole("tabpanel");
+    const pipelinePanel = document.getElementById("panel-pipeline")!;
     expect(pipelinePanel.className).toContain("cs-tab-transition");
   });
 
@@ -416,8 +416,10 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     // not mounted — and with both panels mounted, neither reference can dangle.
     expect(inactive.getAttribute("aria-controls")).toBe("panel-pipeline");
     expect(document.getElementById("panel-pipeline")).not.toBeNull();
-    // The inactive panel is out of the accessibility tree, so its content cannot be read.
-    expect(document.getElementById("panel-pipeline")!.hasAttribute("hidden")).toBe(true);
+    // The inactive panel is out of the accessibility tree (inert, not hidden — it stays in the
+    // layout so either tab's content co-sizes the monitor), so its content cannot be read.
+    expect(document.getElementById("panel-pipeline")!.hasAttribute("inert")).toBe(true);
+    expect(document.getElementById("panel-telemetry")!.hasAttribute("inert")).toBe(false);
   });
 
   it("shows AlphaGenome Atlas as Connected when a key is configured in client settings", async () => {

@@ -57,13 +57,16 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     expect(Math.abs(form.y - rail.y) <= 1, 'query and monitor headings share a starting line');
     expect(await browser.evaluate(() => { const list = document.querySelector('.telemetry-scroll')!; const rows = list.querySelectorAll('.telemetry-service'); return rows.length === 10 && list.scrollHeight <= list.clientHeight + 1; }), 'all ten service rows fit without being hidden below FoldX').toBe(true);
     await screen.getByText('Optional refinements').tap();
+    // The strip's fields animate (field-sizing on the textarea); wait out the transition so the
+    // measured height is the settled one a reader sees, not a frame mid-change.
+    await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('settled'), 400)));
     const railOpen = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, refinements open');
     // The query card is content-sized, so an opened strip may grow the deck (the query carries the
     // surplus) — but the monitor never loses height; the load-bearing promise is the tab switch.
     expect(railOpen.height >= rail.height - 1, 'opening the refinements never shrinks the monitor').toBe(true);
     await screen.getByRole('tab', 'Pipeline').tap();
     const railPipeline = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, pipeline open');
-    expect(Math.abs(railPipeline.height - rail.height) <= 1, 'switching tabs changes the monitor not at all').toBe(true);
+    expect(Math.abs(railPipeline.height - railOpen.height) <= 1, `switching tabs changes the monitor not at all (${railOpen.height.toFixed(1)} vs ${railPipeline.height.toFixed(1)})`).toBe(true);
 
     // The recent card is its own row, not the form column's tail.
     expect(recent.y > form.y + form.height, 'Recent analyses should start below the form card');
