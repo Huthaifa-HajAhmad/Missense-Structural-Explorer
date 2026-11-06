@@ -19,6 +19,7 @@ vi.mock("../services/biophysics.ts", async (importOriginal) => {
 });
 
 import { apiRouter } from "../routes.ts";
+import { MAX_AGENTS_PER_PERSON } from "./agent.ts";
 import { requestLogger, validateContentType } from "../middleware.ts";
 import { closeAccountsDb, createUser, updateUser } from "../auth/store.ts";
 import { hashPassword } from "../auth/password.ts";
@@ -190,6 +191,45 @@ describe("pairing", () => {
     expect((await call("POST", "/agent/register", { agent: ok.body.token, body: { report: report() } })).status).toBe(200);
   });
 
+  it("a code refused for too many computers is not used up: it works once a computer is disconnected", async () => {
+    const owner = await person("owner@lab.org");
+    const paired: { agentId: string }[] = [];
+    for (let i = 0; i < MAX_AGENTS_PER_PERSON; i++) paired.push(await pair(owner, `Desk ${i}`));
+
+    const code = await call("POST", "/agent/pair", { cookie: owner.cookie });
+    const refused = await call("POST", "/agent/pair/redeem", { body: { code: code.body.code, name: "One too many" } });
+    expect(refused.status).toBe(409);
+
+    expect((await call("DELETE", `/me/agents/${paired[0].agentId}`, { cookie: owner.cookie })).status).toBe(204);
+    const retried = await call("POST", "/agent/pair/redeem", { body: { code: code.body.code, name: "One too many" } });
+    expect(retried.status).toBe(201);
+  });
+
+  it("disconnecting a computer from the app gives its running job back to the server at once", async () => {
+    const queue = await busyServer();
+    const owner = await person("owner@lab.org");
+    const id = await queue.pushJob("p2rank", { pdbText: WT_PDB, mutIndex: 2 }, { ownerId: owner.id });
+    const { token, agentId } = await pair(owner);
+    expect((await claim(token)).body.job.id).toBe(id);
+    expect((await queue.getJobStatus(id))?.status).toBe("running");
+
+    expect((await call("DELETE", `/me/agents/${agentId}`, { cookie: owner.cookie })).status).toBe(204);
+    expect((await queue.getJobStatus(id))?.status).toBe("queued");
+  });
+
+  it("a long poll that is waiting when the computer is disconnected takes no job", async () => {
+    const queue = await busyServer();
+    const owner = await person("owner@lab.org");
+    const { token, agentId } = await pair(owner);
+    const waiting = claim(token, {}, 3);
+    await new Promise((r) => setTimeout(r, 200));
+    expect((await call("DELETE", `/me/agents/${agentId}`, { cookie: owner.cookie })).status).toBe(204);
+    const id = await queue.pushJob("p2rank", { pdbText: WT_PDB, mutIndex: 2 }, { ownerId: owner.id });
+
+    expect((await waiting).status).toBe(401);
+    expect((await queue.getJobStatus(id))?.status).toBe("queued");
+  });
+
   it("disconnecting from the app, or disabling the account, stops the token at once", async () => {
     const owner = await person("owner@lab.org");
     await busyServer();
@@ -231,8 +271,11 @@ describe("the job protocol", () => {
     expect(status?.status).toBe("completed");
     expect(status?.result.computeProvenance).toMatchObject({ computedOn: "agent", validated: true, shared: true, ownerId: owner.id, toolVersion: "2.6-alpha" });
 
-    // A late duplicate is discarded.
-    expect((await call("POST", `/agent/jobs/${mine}/result`, { agent: token, body: { result: POCKET, toolVersion: "2.6-alpha" } })).status).toBe(409);
+    // The same computer delivering again (its first reply was lost) is told "accepted", and nothing is applied twice.
+    const again = await call("POST", `/agent/jobs/${mine}/result`, { agent: token, body: { result: { ...POCKET, pocketScore: 1 }, toolVersion: "2.6-alpha" } });
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual({ accepted: true });
+    expect((await queue.getJobStatus(mine))?.result.pocketScore).toBe(POCKET.pocketScore);
   });
 
   it("two computers racing for one job: exactly one wins", async () => {

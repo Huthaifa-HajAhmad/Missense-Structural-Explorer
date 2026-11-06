@@ -258,6 +258,40 @@ describe("foldxService", () => {
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
   });
 
+  it("restarts its clocks when a job goes back to the queue, instead of timing out a second run", async () => {
+    // A paired computer ran the job for 15 minutes and gave it back; the server queued it, then ran it
+    // for another 10 minutes. Neither run is over its own budget, so the reader must get the result.
+    let clock = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const minute = 60_000;
+    const polls: [number, any][] = [
+      [0, { status: "running", phase: "repairing" }],
+      [15 * minute, { status: "running", phase: "modelling" }],
+      [1 * minute, { status: "queued", phase: null }],
+      [1 * minute, { status: "running", phase: "repairing" }],
+      [10 * minute, { status: "running", phase: "modelling" }],
+      [1 * minute, { status: "completed", result: { status: "completed", pdb: "ATOM MUT ...", ddG: 0.9 } }],
+    ];
+    let i = 0;
+    const fetchWithAuth: any = vi.fn(async (url: string) => {
+      if (url === "/api/v1/generate-mutant") return { ok: true, json: async () => ({ status: "queued", foldxJobId: "job-back" }) };
+      const [advance, payload] = polls[Math.min(i++, polls.length - 1)];
+      clock += advance;
+      return { ok: true, json: async () => payload };
+    });
+    const sink: any = makeSink();
+    try {
+      await executeFoldxPipeline({
+        uniprotId: "P00439", variant: "p.Arg408Trp", residueIndex: 408, fetchWithAuth, sink,
+        signal: new AbortController().signal, requestId: 1, getActiveRequestId: () => 1,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(sink.setFoldingError.mock.calls.filter(([message]: [string | null]) => message)).toEqual([]);
+    expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
+  });
+
   it("propagates remote job IDs immediately even when background FoldX simulation fails", async () => {
     const mockFetchWithAuth = vi.fn().mockImplementation(async (url: string) => {
       if (url === "/api/v1/generate-mutant") {

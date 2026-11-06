@@ -15,6 +15,7 @@ import os from "os";
 import path from "path";
 import { AGENT_PROTOCOL_VERSION, type AgentHostReport } from "../../src/shared/agentProtocol.ts";
 import { AgentHttpError, apiBase, ServerClient, type ClaimedJob } from "./client.ts";
+import { deliverWithRetry } from "./deliver.ts";
 import { runJob } from "./runner.ts";
 import { agentHome, loadState, saveState, type AgentState } from "./state.ts";
 import { ToolsManager } from "./tools.ts";
@@ -262,22 +263,22 @@ export class AgentWorker {
           void beat();
         },
       });
-      clearInterval(timer);
+      // Heartbeats go on while the outcome is delivered, so a retried delivery still finds the job ours.
       if (leaseLost) {
         this.log("The job was cancelled or handed back; stopped it.");
         return;
       }
       const toolVersion = (job.type === "foldx" ? this.tools.status.foldx.version : this.tools.status.p2rank.version) ?? "unknown";
       if (outcome.kind === "result") {
-        const answer = await client.result(job.id, { result: outcome.result, wallMs: outcome.wallMs, peakRssBytes: outcome.peakRssBytes, toolVersion });
+        const answer = await deliverWithRetry(() => client.result(job.id, { result: outcome.result, wallMs: outcome.wallMs, peakRssBytes: outcome.peakRssBytes, toolVersion }), { stillOurs: () => !leaseLost });
         this.log(answer.accepted ? `Finished the job in ${Math.round(outcome.wallMs / 1000)} s.` : `The workspace did not accept the result (${(answer.reasons ?? []).join("; ")}); the server will run it.`);
       } else {
-        await client.fail(job.id, { errorClass: outcome.errorClass, message: outcome.message, wallMs: outcome.wallMs, peakRssBytes: outcome.peakRssBytes, toolVersion });
+        await deliverWithRetry(() => client.fail(job.id, { errorClass: outcome.errorClass, message: outcome.message, wallMs: outcome.wallMs, peakRssBytes: outcome.peakRssBytes, toolVersion }), { stillOurs: () => !leaseLost });
         this.log(outcome.errorClass === "aborted" ? "Stopped the job; the server will run it." : `The job could not run here (${outcome.errorClass}); the server will run it.`);
         if (outcome.errorClass === "tool_missing" || outcome.errorClass === "tool_failed") void this.tools.refresh();
       }
     } catch (err: any) {
-      // The result could not be delivered: the lease runs out and the server takes the job. Nothing lost.
+      // The outcome could not be delivered even after retries: the lease runs out and the server takes the job.
       this.log(`Could not deliver the job's outcome (${err?.message ?? err}); the server will run it.`);
     } finally {
       clearInterval(timer);

@@ -74,9 +74,12 @@ export function startFoldxCompanions(jobId: string | undefined, data: any): Prom
   const run = runCompanions(jobId, data);
   if (jobId) {
     companionsInFlight.set(jobId, run);
-    void run.finally(() => {
+    // `then` with both handlers, not `finally`: a `finally` promise fails again with `run`'s error, and
+    // nothing would be listening to it.
+    const forget = () => {
       if (companionsInFlight.get(jobId) === run) companionsInFlight.delete(jobId);
-    });
+    };
+    void run.then(forget, forget);
   }
   return run;
 }

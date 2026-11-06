@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence } from "../resultMerge";
+import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, settleUnreportedStages } from "../resultMerge";
 import { createCompletedAnalysisState } from "../pipelineStateFactory";
 
 const base = { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" };
@@ -63,5 +63,27 @@ describe("stage-owned result merging", () => {
   it("reuses declared completed evidence without requiring optional prose", () => {
     expect(hasReusableCoreEvidence({ analysis: "", metadata: { pipelineStages: { core: "complete" } } })).toBe(true);
     expect(hasReusableCoreEvidence({ analysis: "", numberingChoices: [{}], metadata: { pipelineStages: { core: "complete" } } })).toBe(false);
+  });
+});
+
+describe("settling stages a finished run left at running", () => {
+  it("calls a stage complete only when its evidence arrived, and error when it never reported", () => {
+    const result = {
+      landscapeData: [{ position: 1 }],
+      multimerData: null,
+      metadata: { pipelineStages: { core: "complete", coordinates: "running", landscape: "running", multimer: "running", ppi: "running", narrative: "running" } },
+    };
+    expect(settleUnreportedStages(result)).toEqual({
+      core: "complete",
+      coordinates: "running",
+      landscape: "complete",
+      multimer: "error",
+      ppi: "error",
+      narrative: "complete",
+    });
+  });
+
+  it("returns null when nothing was left running", () => {
+    expect(settleUnreportedStages({ metadata: { pipelineStages: { core: "complete", coordinates: "running" } } })).toBeNull();
   });
 });
