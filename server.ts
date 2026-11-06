@@ -16,7 +16,7 @@ import { warmServerTools } from "./server/services/infra/host-probe.ts";
 import { warmAtlasGrpcChannel } from "./server/services/external-api/alphagenome-client.ts";
 import { startSidecarSupervisor } from "./server/sidecar-supervisor.ts";
 import { createExpressApp } from "./server/express-config.ts";
-import { registerGracefulShutdown } from "./server/graceful-shutdown.ts";
+import { keepRunningOnUnhandledRejection, registerGracefulShutdown } from "./server/graceful-shutdown.ts";
 import { activeBackgroundTasks } from "./server/routes.ts";
 import { CONFIG } from "./server/config.ts";
 import { initialDeploymentPaused } from "./server/deployment-role.ts";
@@ -163,4 +163,5 @@ async function startServer(): Promise<void> {
   ]);
 }
 
+keepRunningOnUnhandledRejection();
 startServer();
