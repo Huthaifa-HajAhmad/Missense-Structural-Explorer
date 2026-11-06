@@ -20,6 +20,7 @@
 import { createHash } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
+import { memo } from "../infra/memo.ts";
 import { fetchGeneMissenseRows, fetchLandscapeContext, missenseResidue } from "../prediction/landscape-context.ts";
 import { classifyClinvar } from "../../../src/shared/clinvarClassification.ts";
 import { loadCspecPm1 } from "./cspec.ts";
@@ -35,19 +36,11 @@ import type { HotspotContext } from "../../../src/shared/hotspotEvidence.ts";
 /** AlphaFold DB's published "confident" pLDDT band; the benchmark's structure rule. */
 const PLDDT_CONFIDENT = 70;
 const cache = new LRUCache<string, Promise<HotspotContext>>({ max: 100, ttl: 24 * 60 * 60 * 1000 });
-/** Pure functions of their inputs, so a memo cannot serve a stale answer; a failure is never remembered. */
-const computed = new LRUCache<string, Promise<unknown>>({ max: 50, ttl: 24 * 60 * 60 * 1000 });
-function memoized<T>(kind: string, input: unknown, run: () => Promise<T>, keep: (value: T) => boolean = (v) => v !== null && v !== undefined): Promise<T> {
-  const key = `${kind}:${createHash("sha1").update(JSON.stringify(input)).digest("hex")}`;
-  const hit = computed.get(key) as Promise<T> | undefined;
-  if (hit) return hit;
-  const value = run();
-  computed.set(key, value);
-  // Only an answer is remembered. A tool that could not start resolves to an error value, not a rejection, so
-  // `keep` says which resolved values are answers.
-  value.then((v) => { if (!keep(v)) computed.delete(key); }, () => computed.delete(key));
-  return value;
-}
+/**
+ * The two expensive computations below are memoized on their inputs (`infra/memo.ts`), so a CSpec outage does
+ * not make every request redo them. A failure is never remembered.
+ */
+const memoized = memo;
 
 const AA3 = (three: string) => AMINO_ACID_3_TO_1[three.toUpperCase()] ?? null;
 const refOf = (hgvsp: unknown) => (typeof hgvsp === "string" ? AA3(hgvsp.slice(2, 5)) : null);
