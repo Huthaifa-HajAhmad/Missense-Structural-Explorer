@@ -1,5 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import {
   Trash2,
   ChevronDown,
@@ -1074,6 +1074,76 @@ function VariantSearchPanel({
   }, [history.length]);
   /** The monitor's own health reading, shown on the Services tab so it is visible while Pipeline is open. */
   const [serviceSummary, setServiceSummary] = useState<ServiceSummary | null>(null);
+  const deckRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLElement>(null);
+  /**
+   * The deck's height is the monitor's own content, measured, not whatever the query card happens to
+   * need: the rail's natural height is read with stretching off and written to a CSS variable, so the
+   * grid rows share a fixed budget. When the refinements open (or a run's notice grows the card), the
+   * row for the form has already taken its share, so the form scrolls internally instead of dropping
+   * the recents card lower and stretching the monitor past the fold.
+   */
+  useLayoutEffect(() => {
+    const deck = deckRef.current;
+    const rail = railRef.current;
+    if (!deck || !rail) return;
+    /** The rail's natural height with stretching off, both panels laid out, so the measure cannot
+     * depend on which tab is open. Restores everything within the synchronous read. */
+    const readNatural = () => {
+      rail.style.alignSelf = "start";
+      rail.style.blockSize = "auto";
+      const held = [...rail.querySelectorAll<HTMLElement>("[data-inactive]")];
+      for (const el of held) {
+        el.style.visibility = "visible";
+        el.style.pointerEvents = "none";
+      }
+      const height = Math.ceil(rail.getBoundingClientRect().height);
+      rail.style.removeProperty("align-self");
+      rail.style.removeProperty("block-size");
+      for (const el of held) {
+        el.style.removeProperty("visibility");
+        el.style.removeProperty("pointer-events");
+      }
+      return height;
+    };
+    const consider = () => {
+      // Only the two-column desktop deck is height-capped; the stacked one flows with the page.
+      const columns = getComputedStyle(deck).gridTemplateColumns.trim().split(" ").length;
+      if (columns < 2) {
+        deck.style.removeProperty("--workbench-deck-h");
+        return;
+      }
+      const current = parseFloat(deck.style.getPropertyValue("--workbench-deck-h")) || 0;
+      const natural = readNatural();
+      if (!current) {
+        deck.style.setProperty("--workbench-deck-h", `${natural}px`);
+        return;
+      }
+      // The design height is a floor, not a follower of content: a run's banners or a summary line
+      // growing content GROWS it (confirmed on the next frame, since a layout in flight reports
+      // transient heights), but it never shrinks mid-session — a 10px content dip must not move
+      // the user's monitor.
+      if (natural - current > 1) {
+        requestAnimationFrame(() => {
+          const confirmed = readNatural();
+          if (confirmed - current > 1) {
+            deck.style.setProperty("--workbench-deck-h", `${confirmed}px`);
+          }
+        });
+      }
+    };
+    consider();
+    // The monitor's content (service rows, summary line, fonts) is what re-consider the height.
+    const body = rail.querySelector<HTMLElement>(".workbench-rail-body") ?? undefined;
+    const ro = body && typeof ResizeObserver !== "undefined" ? new ResizeObserver(consider) : null;
+    if (ro && body) ro.observe(body);
+    window.addEventListener("resize", consider);
+    document.fonts?.ready?.then(() => { consider(); });
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", consider);
+    };
+  }, [serviceSummary]);
   const [quickDraft, setQuickDraft] = useState("");
   useEffect(() => {
     setQuickDraft(draft =>
@@ -1200,9 +1270,13 @@ function VariantSearchPanel({
 
       {/* The monitor spans both desktop rows; the form and recents keep their natural height.
           On narrow containers, DOM order remains query, recents, monitor. */}
-      <div className="workbench-deck grid grid-cols-1 lg:grid-cols-12">
-        <section
-          className="workbench-query cs-panel flex flex-col min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1"
+      {/* The monitor spans the shared, measured height; the left column stacks the query card and the
+          recents, and only the recents flexes. On narrow containers, DOM order remains query, recents,
+          monitor — the wrapper dissolves in CSS there. */}
+      <div ref={deckRef} className="workbench-deck grid grid-cols-1 lg:grid-cols-12">
+        <div className="workbench-columns min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1">
+       <section
+          className="workbench-query cs-panel flex flex-col min-w-0"
           data-tour="variant-input"
           id="variant-input-card"
           aria-labelledby="variant-form-title"
@@ -1800,7 +1874,7 @@ function VariantSearchPanel({
         {/* Recent runs and first-run benchmarks share the ruled workbench tray. */}
         <section
           aria-labelledby="recent-title"
-          className="workbench-recents flex flex-col gap-3 min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-2"
+          className="workbench-recents flex flex-col gap-3 min-w-0"
           data-tour="recent-benchmarks"
         >
           {history.length > 0 ? (
@@ -1885,9 +1959,11 @@ function VariantSearchPanel({
             </>
           )}
         </section>
+        </div>
 
         {/* The monitor spans the query and recents; tab content scrolls within that shared height. */}
         <aside
+          ref={railRef}
           className="workbench-rail cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 flex flex-col"
           data-tour="workflow-rail"
           id="workspace-stage-rail"
