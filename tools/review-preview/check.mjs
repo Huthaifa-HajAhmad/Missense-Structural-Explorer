@@ -202,25 +202,24 @@ try {
  // Keep unrelated Query checks available; synthesis reviews can select their owned surface.
  if (process.env.REVIEW_PREVIEW_SCOPE !== 'synthesis') {
  await page.getByLabel('Workspace', { exact: true }).selectOption('search');
- // The accession field has no reveal step beyond its own row: the parsed fields sit open in the
- // "Optional refinements" box, and only the accession keeps a disclosure ("Protein reference"),
- // whose summary row's right slot carries the state exactly where Set/Hide used to be.
- check('Query parsed fields wait for no disclosure', await page.locator('#input-variant-notation').isVisible() && await page.locator('#input-gene-symbol').isVisible());
- await page.locator('.qe-uniprot > summary').click();
+ // The parsed fields — gene, notation and accession alike — live in one contract, the
+ // "Optional refinements" foot strip: closed it is one quiet row naming what is inside, open it
+ // reveals the three fields on one shared grid row, with no second disclosure anywhere.
+ await page.getByText('Optional refinements', { exact: true }).click();
+ check('Query parsed fields open with the one foot strip', await page.locator('#input-variant-notation').isVisible() && await page.locator('#input-gene-symbol').isVisible());
  const accession = page.locator('#input-uniprot-acc');
- check('Query accession field opens from its own disclosure', await accession.isVisible());
+ check('Query accession opens in the same strip, no second disclosure', await accession.isVisible());
  await accession.focus();
  check('Query accession is keyboard reachable', await accession.evaluate(e => e === document.activeElement));
  await accession.fill('Q9H8M5');
- // The fields are one grid, so the two always-open rows share a baseline where they share a row: the
- // gene (row 1, left) and the notation (row 1, right) sit level with each other and at one height.
- // The accession lives under the notation, inside the Protein reference body it opens with.
+ // The fields are one grid row on desktop: gene, notation and accession share their top edge and
+ // their height, so the strip reads as one field family, not three. On a narrow card the grid
+ // wraps, and the check passes without the geometry.
  const geneBox = await page.locator('#input-gene-symbol').boundingBox();
  const notationBox = await page.locator('#input-variant-notation').boundingBox();
- const wide = (await page.viewportSize()).width >= 1024;
- check('Query gene and notation fields share a baseline', geneBox !== null && notationBox !== null && (!wide || (Math.abs(geneBox.y - notationBox.y) < 1 && Math.abs(geneBox.height - notationBox.height) < 1)));
  const accessionBox = await accession.boundingBox();
- check('Query accession sits below the notation field it refines', accessionBox !== null && notationBox !== null && accessionBox.y > notationBox.y + notationBox.height - 1);
+ const wide = (await page.viewportSize()).width >= 1024;
+ check('Query gene, notation and accession share one baseline', geneBox !== null && notationBox !== null && accessionBox !== null && (!wide || (Math.abs(geneBox.y - notationBox.y) < 1 && Math.abs(geneBox.y - accessionBox.y) < 1 && Math.abs(geneBox.height - notationBox.height) < 1)));
  // The state reads from the label row, above the control — and above its own input's top edge.
  const state = page.locator('#input-uniprot-acc-status');
  const stateBox = await state.boundingBox();
