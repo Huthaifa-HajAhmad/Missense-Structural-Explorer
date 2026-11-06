@@ -1,5 +1,6 @@
 source,kind,direct_tests
-server/agent/client.ts,server,
+server/agent/client.ts,server,server/agent/deliver.test.ts
+server/agent/deliver.ts,server,server/agent/deliver.test.ts
 server/agent/main.ts,server,
 server/agent/runner.ts,server,
 server/agent/setup-page.ts,server,server/agent/agent.test.ts
@@ -20,7 +21,7 @@ server/config.ts,server,server/routes/health.test.ts;server/routes/state-prewarm
 server/deployment-control.ts,server,server/deployment-control.test.ts
 server/deployment-role.ts,server,server/deployment-role.test.ts
 server/express-config.ts,server,server/routes/credentials.http.test.ts;server/services/infra/review-fixes.test.ts
-server/graceful-shutdown.ts,server,
+server/graceful-shutdown.ts,server,server/graceful-shutdown.test.ts
 server/middleware.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/credentials.http.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/routes/variant/spliceai.http.test.ts;server/tests/integration.test.ts;server/utils.test.ts
 server/routes.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/credentials.http.test.ts;server/routes/evidence-context.http.test.ts;server/routes/foldx-sharing.test.ts;server/routes/health-fallback.test.ts;server/routes/health.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/session.test.ts;server/routes/shared-cache.test.ts;server/routes/structure.multimer-import.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/literature.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/spliceai.http.test.ts;server/routes/variant/spliceai.test.ts;server/routes/variant/translation.test.ts;server/services/structure/folding-engines.test.ts;server/tests/integration.test.ts
 server/routes/admin.ts,server,
@@ -38,7 +39,7 @@ server/routes/health.ts,server,server/routes/health-fallback.test.ts;server/rout
 server/routes/index.ts,server,
 server/routes/session.ts,server,
 server/routes/shared.ts,server,server/routes/__tests__/narrativeResponseProvenance.test.ts;server/routes/biophysics.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
-server/routes/state.ts,server,server/routes/public-endpoints.test.ts;server/routes/state-prewarm-registry.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/spliceai.http.test.ts;server/services/infra/prewarm-manager.test.ts
+server/routes/state.ts,server,server/routes/public-endpoints.test.ts;server/routes/state-prewarm-redis-fallback.test.ts;server/routes/state-prewarm-registry.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/spliceai.http.test.ts;server/services/infra/prewarm-manager.test.ts
 server/routes/structure.ts,server,
 server/routes/variant.ts,server,
 server/routes/variant/alphagenome.ts,server,
@@ -144,7 +145,7 @@ server/services/infra/agent-results.ts,server,server/services/infra/agent-result
 server/services/infra/analysis-db-core.ts,server,server/services/infra/analysis-db.test.ts;server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/analysis-db-pool.ts,server,
 server/services/infra/analysis-db.ts,server,server/services/infra/analysis-db.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/infra/cache.test.ts;server/services/infra/stale-on-rate-limit.test.ts;server/services/prediction/splice_resolver.test.ts;server/services/structure/entry-for-variant.test.ts;server/services/structure/structure-fetcher.test.ts;server/services/structure/structure-resolver.test.ts
-server/services/infra/biophysical-queue.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/live-routing.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/services/infra/admission.test.ts;server/services/infra/biophysical-handover.test.ts;server/services/infra/biophysical-queue.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/queue-fairness.test.ts;server/services/infra/review-fixes.test.ts
+server/services/infra/biophysical-queue.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/live-routing.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/services/infra/admission.test.ts;server/services/infra/biophysical-handover.test.ts;server/services/infra/biophysical-queue.handover.invariants.test.ts;server/services/infra/biophysical-queue.invariants.test.ts;server/services/infra/biophysical-queue.redis-retention.test.ts;server/services/infra/biophysical-queue.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/queue-fairness.test.ts;server/services/infra/review-fixes.test.ts
 server/services/infra/cache-keys.ts,server,server/services/infra/cache-hygiene.test.ts;server/services/infra/credentials.test.ts;server/services/prediction/predictors/vep-orchestrator.test.ts
 server/services/infra/cache-registry.ts,server,server/services/external-api/alphagenome-bridge.test.ts;server/services/infra/cache-registry.test.ts;server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/cache-scope.ts,server,server/routes/variant/analysis.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/stale-on-rate-limit.test.ts;server/services/orchestration/core-singleflight.test.ts;server/services/prediction/landscape.test.ts;server/services/structure/structure-resolver.test.ts
@@ -168,6 +169,7 @@ server/services/infra/openapi.ts,server,
 server/services/infra/prewarm-manager.ts,server,server/routes/biophysics-prewarm-join.test.ts;server/services/infra/prewarm-manager.test.ts
 server/services/infra/process-sampler.ts,server,server/services/infra/admission.test.ts;server/services/infra/process-sampler.test.ts
 server/services/infra/provider-pause.ts,server,server/routes/biophysics.test.ts;server/routes/capabilities-egress.test.ts;server/services/infra/credentials.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/provider-pause.test.ts;server/services/infra/stale-on-rate-limit.test.ts
+server/services/infra/queue-invariants.fixture.ts,server,server/services/infra/biophysical-queue.handover.invariants.test.ts;server/services/infra/biophysical-queue.invariants.test.ts
 server/services/infra/queue-owners.ts,server,server/services/infra/egress-review-fixes.test.ts
 server/services/infra/shared-flight.ts,server,server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/sidecar-budget.ts,server,server/services/stability/stabilityoracle.test.ts;server/tests/sidecar-budget.test.ts
@@ -303,7 +305,7 @@ server/spa-shell-cache.ts,server,server/spa-shell-cache.test.ts
 server/utils.ts,barrel,server/routes/session.test.ts;server/services/prediction/acmg.test.ts;server/utils.test.ts
 server/utils/audit-logger.ts,server,
 server/utils/client-disconnect.ts,server,server/utils/client-disconnect.test.ts
-server/utils/concurrency.ts,server,
+server/utils/concurrency.ts,server,server/utils/circuit-breaker.test.ts
 server/utils/crypto-session.ts,server,
 server/utils/janitor.ts,server,
 server/utils/mutation.ts,server,server/services/structure/folding-engines.test.ts
