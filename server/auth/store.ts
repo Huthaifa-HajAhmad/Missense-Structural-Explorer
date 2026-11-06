@@ -475,14 +475,20 @@ export function replacePairingCode(input: { codeHash: string; userId: string; ex
   });
 }
 
-/** Single use: the owner's id only for the one caller that consumed a live code. */
-export function consumePairingCode(codeHash: string, now: number): string | null {
+/** Whose live, unused code this is, without using it up. Lets a caller check its conditions first. */
+export function pairingCodeOwner(codeHash: string, now: number): string | null {
   const row = accountsDb()
     .prepare("SELECT user_id FROM agent_pairing_codes WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?")
     .get(codeHash, now) as { user_id: string } | undefined;
-  if (!row) return null;
+  return row?.user_id ?? null;
+}
+
+/** Single use: the owner's id only for the one caller that consumed a live code. */
+export function consumePairingCode(codeHash: string, now: number): string | null {
+  const userId = pairingCodeOwner(codeHash, now);
+  if (!userId) return null;
   const r = accountsDb().prepare("UPDATE agent_pairing_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL").run(now, codeHash);
-  return Number(r.changes) === 1 ? row.user_id : null;
+  return Number(r.changes) === 1 ? userId : null;
 }
 
 /** Codes are short-lived; drop the dead ones so the table cannot grow. */

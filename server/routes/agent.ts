@@ -41,6 +41,7 @@ import { noStore, requireUser } from "../auth/middleware.ts";
 import { lockedFor, recordFailure } from "../auth/throttle.ts";
 import {
   consumePairingCode,
+  pairingCodeOwner,
   deleteExpiredPairingCodes,
   getAgent,
   getUserById,
@@ -297,6 +298,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms).unref?.());
 }
 
+/**
+ * Whatever a disconnected computer was running goes back to the server now, not after the lease runs out.
+ * Not from a paused standby, which never changes the shared queue: the serving process's lease reaper does it there.
+ */
+function handBackJobsOf(agentId: string): void {
+  const queue = queueOrNull();
+  const sqlite = queue && !queue.getDeploymentState().paused ? queue.agentQueue() : null;
+  if (sqlite) sqlite.reapAgentLeases(Date.now(), agentId);
+}
+
 export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): void {
   apiRouter.use("/agent", noStore);
   apiRouter.use("/agent", (req: Request, res: Response, next: NextFunction) =>
@@ -327,15 +338,19 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     const parsed = z.object({ code: z.string().max(20), name: z.string().trim().min(1).max(60) }).safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "BAD_REQUEST", "Send the six-character code and a name for this computer.");
     const code = normalisePairingCode(parsed.data.code);
-    const userId = code ? consumePairingCode(pairingCodeHash(code), now) : null;
+    const codeHash = code ? pairingCodeHash(code) : null;
+    const userId = codeHash ? pairingCodeOwner(codeHash, now) : null;
     const owner = userId ? getUserById(userId) : null;
-    if (!userId || !owner || owner.status !== "active") {
+    const invalid = () => {
       recordFailure(keys, now);
       return sendError(res, 401, "PAIRING_CODE_INVALID", "That code is not valid. Codes work once, for 10 minutes: press Connect my computer in the app for a new one.");
-    }
+    };
+    if (!codeHash || !userId || !owner || owner.status !== "active") return invalid();
+    // Checked before the code is used up, so a refusal here leaves the code working once a computer is disconnected.
     if (listAgentsFor(userId).length >= MAX_AGENTS_PER_PERSON) {
       return sendError(res, 409, "TOO_MANY_COMPUTERS", `You already have ${MAX_AGENTS_PER_PERSON} computers connected. Disconnect one in Settings → Account first.`);
     }
+    if (!consumePairingCode(codeHash, now)) return invalid();
     const agentId = crypto.randomUUID();
     const token = newToken();
     insertAgentToken({ id: agentId, userId, tokenHash: hashToken(token), name: parsed.data.name, now });
@@ -353,6 +368,7 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id) || !revokeAgent(req.params.id, Date.now(), userId)) {
       return sendError(res, 404, "NOT_FOUND", "No such computer, or it was already disconnected.");
     }
+    handBackJobsOf(req.params.id);
     void AuditLogger.log("agent.revoked", { userId, agentId: req.params.id, by: "owner" });
     res.status(204).end();
   });
@@ -415,6 +431,10 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     const types = jobTypesFor(report);
     const named = { ...agent, name: getAgent(agent.agentId)?.name ?? null };
     for (;;) {
+      // Disconnected (or its owner disabled) while this long poll waited: the token is no longer valid.
+      if (getAgent(agent.agentId)?.revoked_at != null) {
+        return gone ? undefined : sendError(res, 401, "AGENT_REVOKED", "This computer was disconnected from the workspace.");
+      }
       const queue = queueOrNull();
       if (!queue || queue.getDeploymentState().paused) {
         if (!res.headersSent && !gone) agentQueue(res); // answers 503 with the reason
@@ -509,11 +529,7 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
   apiRouter.delete("/agent/self", (req, res) => {
     const agent = agentPrincipal(req);
     revokeAgent(agent.agentId, Date.now());
-    // Whatever it was running goes back to the server now, not after the lease runs out. Not from a paused
-    // standby, which never changes the shared queue: the serving process's lease reaper does it there.
-    const queue = queueOrNull();
-    const sqlite = queue && !queue.getDeploymentState().paused ? queue.agentQueue() : null;
-    if (sqlite) sqlite.reapAgentLeases(Date.now(), agent.agentId);
+    handBackJobsOf(agent.agentId);
     void AuditLogger.log("agent.revoked", { userId: agent.userId, agentId: agent.agentId, by: "agent" });
     res.status(204).end();
   });
