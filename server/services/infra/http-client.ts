@@ -135,7 +135,7 @@ function getHostBreaker(hostname: string): CircuitBreaker {
 export function isHostAvailable(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;
-    return getHostBreaker(hostname).canExecute();
+    return getHostBreaker(hostname).isAvailable();
   } catch {
     // An unparseable URL is not our problem to judge here; let the request itself decide.
     return true;
