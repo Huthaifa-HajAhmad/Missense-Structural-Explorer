@@ -15,7 +15,7 @@ import {
   fetchProgressivePpi
 } from "./biophysicalService";
 import { generateClinicalNarrative } from "./narrativeService";
-import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, type StageOutcome } from "./resultMerge";
+import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, settleUnreportedStages, type StageOutcome } from "./resultMerge";
 import { createAnalysisCacheContext, narrativeModeOf } from "./analysisContext";
 import { narrativeFreshness } from "../../shared/narrativeEvidence";
 import {
@@ -648,19 +648,12 @@ export async function executeFullAnalysisWorkflow({
           analysisSink.setIsBiophysicalLoading(false);
           setAnalysisState((prev: any) => {
             if (!prev?.result) return prev;
-            const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
-            let modified = false;
-            for (const [k, v] of Object.entries(stages)) {
-              if (v === "running" && k !== "coordinates") {
-                stages[k] = "complete";
-                modified = true;
-              }
-            }
-            const nextResult = modified
+            const stages = settleUnreportedStages(prev.result);
+            const nextResult = stages
               ? { ...prev.result, metadata: { ...prev.result.metadata, pipelineStages: stages } }
               : prev.result;
             setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: nextResult });
-            return modified ? { ...prev, result: nextResult } : prev;
+            return stages ? { ...prev, result: nextResult } : prev;
           });
         }
         return activeSignal.aborted || getActiveRequestId() !== requestId ? "aborted" : "completed";
@@ -900,19 +893,12 @@ export async function executeFullAnalysisWorkflow({
             analysisSink.setIsBiophysicalLoading(false);
             setAnalysisState((prev: any) => {
               if (!prev?.result) return prev;
-              const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
-              let modified = false;
-              for (const [k, v] of Object.entries(stages)) {
-                if (v === "running" && k !== "coordinates") {
-                  stages[k] = "complete";
-                  modified = true;
-                }
-              }
-              const nextResult = modified
+              const stages = settleUnreportedStages(prev.result);
+              const nextResult = stages
                 ? { ...prev.result, metadata: { ...prev.result.metadata, pipelineStages: stages } }
                 : prev.result;
               setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: nextResult });
-              return modified ? { ...prev, result: nextResult } : prev;
+              return stages ? { ...prev, result: nextResult } : prev;
             });
           }
         } else {

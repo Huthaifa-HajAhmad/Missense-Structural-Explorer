@@ -17,6 +17,25 @@ const enrichmentOwners: Record<string, PipelineStage> = {
   saprotEval: "structural"
 };
 
+/**
+ * The stages a finished run left at "running", settled. A stage whose evidence arrived is `complete`; one
+ * whose evidence never arrived did not report, so it is `error` (the screen offers a retry, and a cached
+ * result re-runs it) rather than a `complete` with nothing behind it. A stage with no evidence field of its
+ * own (narrative, literature) is `complete`, because its own writer settles it. `coordinates` is left alone.
+ * Returns null when nothing was running.
+ */
+export function settleUnreportedStages(result: any): PipelineStages | null {
+  const stages: Record<string, StageOutcome> = { ...(result?.metadata?.pipelineStages ?? {}) };
+  let changed = false;
+  for (const [stage, outcome] of Object.entries(stages)) {
+    if (outcome !== "running" || stage === "coordinates") continue;
+    const fields = Object.keys(enrichmentOwners).filter(field => enrichmentOwners[field] === stage);
+    stages[stage] = fields.length === 0 || fields.some(field => result?.[field] != null) ? "complete" : "error";
+    changed = true;
+  }
+  return changed ? stages : null;
+}
+
 /** Declared running/failed/refused core is never made reusable by optional prose. */
 export function hasReusableCoreEvidence(result: any): boolean {
   if (!result || result.numberingChoices?.length || result.buildHint) return false;
