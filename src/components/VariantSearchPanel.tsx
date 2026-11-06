@@ -1091,23 +1091,37 @@ function VariantSearchPanel({
     let settleFrame = 0;
     let resizeFrame = 0;
     let disposed = false;
-    /** The rail's natural height with stretching off, both panels laid out, so the measure cannot
-     * depend on which tab is open. Restores everything within the synchronous read. */
+    /**
+     * The rail's natural height — its own content with both tabpanels laid out — measured out of the
+     * live layout: a clone at the same inline size, appended hidden for the synchronous read. The
+     * live rail cannot answer this question, because its shared row has already been sized and its
+     * intrinsic sizing follows the active tab (measured: 797 on Services, 787 on Pipeline at the
+     * same content), and an in-place dance does not re-max it.
+     */
     const readNatural = () => {
-      rail.style.alignSelf = "start";
-      rail.style.blockSize = "auto";
-      const held = [...rail.querySelectorAll<HTMLElement>("[data-inactive]")];
-      for (const el of held) {
-        el.style.visibility = "visible";
-        el.style.pointerEvents = "none";
+      const width = Math.round(rail.getBoundingClientRect().width);
+      const clone = rail.cloneNode(true) as HTMLElement;
+      // Ids and the inactive markers are meaningless in the detached copy, and duplicate ids must
+      // not exist even for one synchronous read.
+      for (const el of [clone, ...clone.querySelectorAll<HTMLElement>("[id], [data-inactive]")]) {
+        el.removeAttribute("id");
+        el.removeAttribute("data-inactive");
+        el.removeAttribute("inert");
       }
-      const height = Math.ceil(rail.getBoundingClientRect().height);
-      rail.style.removeProperty("align-self");
-      rail.style.removeProperty("block-size");
-      for (const el of held) {
-        el.style.removeProperty("visibility");
-        el.style.removeProperty("pointer-events");
-      }
+      Object.assign(clone.style, {
+        position: "absolute",
+        insetBlockStart: "0px",
+        insetInlineStart: "0px",
+        blockSize: "auto",
+        inlineSize: `${width}px`,
+        visibility: "hidden",
+        pointerEvents: "none",
+        zIndex: "-1",
+        margin: "0px",
+      });
+      document.body.appendChild(clone);
+      const height = Math.ceil(clone.getBoundingClientRect().height);
+      clone.remove();
       return height;
     };
     /**

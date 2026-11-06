@@ -233,12 +233,20 @@ try {
   return { basis: cs.flexBasis, shrink: cs.flexShrink, minHeight: cs.minBlockSize };
  });
  check('Query card yields to the measured deck', cardFlex.basis === 'auto' && cardFlex.shrink === '1' && cardFlex.minHeight === '0px');
- // The monitor's measured design height belongs to the deck, not to the selected tab.
- const deckHeightVar = () => page.evaluate(() => document.querySelector('.workbench-deck')?.style.getPropertyValue('--workbench-deck-h') ?? '');
- const heightOnServices = await deckHeightVar();
+ // The monitor is the measured design height, on whichever tab is open — its rail must render that
+ // height, not the visible panel's own content (the defect: a per-tab content height).
+ const railAndDesign = () => page.evaluate(() => {
+  const deck = document.querySelector('.workbench-deck');
+  const rail = document.querySelector('.workbench-rail');
+  return { design: parseFloat(deck?.style.getPropertyValue('--workbench-deck-h') ?? ''), rail: rail ? rail.getBoundingClientRect().height : 0 };
+ });
+ const onServices = await railAndDesign();
  await page.getByRole('tab', { name: 'Pipeline' }).click();
- const heightOnPipeline = await deckHeightVar();
- check('Monitor design height is measured and survives the tab switch', /^\d+px$/.test(heightOnServices) && heightOnServices === heightOnPipeline);
+ const onPipeline = await railAndDesign();
+ check('Monitor design height is measured and the rail renders it on either tab',
+  Number.isFinite(onServices.design) && Number.isFinite(onPipeline.design) &&
+  Math.abs(onServices.design - onServices.rail) <= 1 && Math.abs(onPipeline.design - onPipeline.rail) <= 1 &&
+  onPipeline.design >= onServices.design - 1);
  await page.getByRole('tab', { name: 'Services' }).click();
  await page.screenshot({ path: `${output}/query-desktop.png` });
  await page.setViewportSize({ width: 390, height: 1100 });

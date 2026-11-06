@@ -132,9 +132,15 @@ describe('variant search form', { tags: ['search'] }, () => {
     // may move the design by one text line; the switch itself moves the monitor beyond nothing.
     await screen.getByRole('tab', 'Pipeline').tap();
     const pipelineHeight = await browser.evaluate(() => document.querySelector('.workbench-rail')!.getBoundingClientRect().height);
-    // The measured design height is the exact contract, and it belongs to the deck, not the tab.
+    // The measured design height is the deck's, and the monitor renders IT rather than the visible
+    // tab's own content: that is the contract the tab switch must never break. (The design itself
+    // may still grow while the test runs — a diagnostics poll can add a line to the summary — so
+    // the check is "rail follows the design", not "the design is frozen".)
     const pipelineVar = await browser.evaluate(() => (document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h'));
-    expect(pipelineVar, `the measured design height does not follow the tab (${layout.deckVar} vs ${pipelineVar})`).toBe(layout.deckVar);
+    const designPipeline = parseFloat(pipelineVar);
+    expect(Number.isFinite(designPipeline), `the deck carries a measured design height (${pipelineVar})`).toBe(true);
+    expect(designPipeline, `the design height never shrinks (${layout.deckVar} → ${pipelineVar})`).toBeGreaterThanOrEqual(parseFloat(layout.deckVar) - 1);
+    expect(Math.abs(pipelineHeight - designPipeline) <= 1, `the monitor renders the design height, not the tab's content (${pipelineHeight.toFixed(1)} vs ${designPipeline})`).toBe(true);
     expect(Math.abs(pipelineHeight - layout.height) <= 16, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
     await app.screenshot('pipeline-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
