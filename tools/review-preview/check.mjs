@@ -225,6 +225,21 @@ try {
  const stateBox = await state.boundingBox();
  check('Query accession state sits in the label row', stateBox !== null && accessionBox !== null && stateBox.y + stateBox.height <= accessionBox.y + 1);
  check('Query accession state names the format', (await state.innerText()).trim() === 'Format OK');
+ // The deck is capped at the monitor's measured height, so the query card must be able to yield to
+ // it: auto basis, shrinkable, and its automatic minimum cleared. Losing any one of the three lets
+ // a tall card push the recents out of the deck — the defect the cap exists to prevent.
+ const cardFlex = await page.evaluate(() => {
+  const cs = getComputedStyle(document.querySelector('.workbench-query'));
+  return { basis: cs.flexBasis, shrink: cs.flexShrink, minHeight: cs.minBlockSize };
+ });
+ check('Query card yields to the measured deck', cardFlex.basis === 'auto' && cardFlex.shrink === '1' && cardFlex.minHeight === '0px');
+ // The monitor's measured design height belongs to the deck, not to the selected tab.
+ const deckHeightVar = () => page.evaluate(() => document.querySelector('.workbench-deck')?.style.getPropertyValue('--workbench-deck-h') ?? '');
+ const heightOnServices = await deckHeightVar();
+ await page.getByRole('tab', { name: 'Pipeline' }).click();
+ const heightOnPipeline = await deckHeightVar();
+ check('Monitor design height is measured and survives the tab switch', /^\d+px$/.test(heightOnServices) && heightOnServices === heightOnPipeline);
+ await page.getByRole('tab', { name: 'Services' }).click();
  await page.screenshot({ path: `${output}/query-desktop.png` });
  await page.setViewportSize({ width: 390, height: 1100 });
  check('Query fits phone viewport', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));

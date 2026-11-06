@@ -258,7 +258,9 @@
      back to what the content needs: an indefinite grid that behaves exactly as the pre-measure layout did. */
   .workbench-deck { grid-template-rows: minmax(0, 1fr); block-size: var(--workbench-deck-h, max-content); }
   .workbench-columns { display: flex; flex-direction: column; gap: 1rem; min-block-size: 0; align-self: stretch; }
-  /* The card keeps its own height; only pressure from the measured budget shrinks it. */
+  /* The card keeps its own height, and only yields under pressure from the measured budget: its
+     automatic minimum is cleared so it can shrink, and its form (below) scrolls inside it. */
+  .workbench-query { flex: 0 1 auto; min-block-size: 0; }
   /* The recents card takes what is left and scrolls: 13rem stands in for the cards' shared floor, and
      its list yields before the benchmarks do — each scrolls within the card. */
   .workbench-recents { flex: 1 1 auto; min-block-size: 13rem; display: flex; flex-direction: column; }

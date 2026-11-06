@@ -113,6 +113,7 @@ describe('variant search form', { tags: ['search'] }, () => {
         recentsHeight: recents.height,
         bodyHeight: document.querySelector(".workbench-query-body")!.getBoundingClientRect().height,
         fieldsOpen: Boolean(document.querySelector(".qe-refine #input-gene-symbol")),
+        deckVar: (document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h'),
       };
     });
     expect(layout.height >= 640, 'monitor keeps its full desktop height').toBe(true);
@@ -131,6 +132,9 @@ describe('variant search form', { tags: ['search'] }, () => {
     // may move the design by one text line; the switch itself moves the monitor beyond nothing.
     await screen.getByRole('tab', 'Pipeline').tap();
     const pipelineHeight = await browser.evaluate(() => document.querySelector('.workbench-rail')!.getBoundingClientRect().height);
+    // The measured design height is the exact contract, and it belongs to the deck, not the tab.
+    const pipelineVar = await browser.evaluate(() => (document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h'));
+    expect(pipelineVar, `the measured design height does not follow the tab (${layout.deckVar} vs ${pipelineVar})`).toBe(layout.deckVar);
     expect(Math.abs(pipelineHeight - layout.height) <= 16, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
     await app.screenshot('pipeline-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
