@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SQLiteQueue } from "./biophysical-queue.ts";
+import { ENDED_ELSEWHERE_CHECK_MS, SQLiteQueue } from "./biophysical-queue.ts";
 
 describe("SQLite generation handover", () => {
   let directory: string;
@@ -43,6 +43,23 @@ describe("SQLite generation handover", () => {
     expect(newWorker).toHaveBeenCalledTimes(1);
     expect(oldWorker).toHaveBeenCalledTimes(1);
     expect((await old.getJob("waiting"))?.result).toBe("new");
+  });
+
+  it("stops a running calculation that was cancelled through the other process", async () => {
+    let aborted = false;
+    const old = make(directory, (_type, _data, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => { aborted = true; reject(new Error("stopped")); });
+    }));
+    await old.addJob("running", "foldx", {});
+    await vi.advanceTimersByTimeAsync(50);
+    const standby = make(directory, async () => "must-not-run", true);
+    old.pauseProcessing(); // draining: the reader's cancel now reaches the new process
+
+    expect(standby.cancelFor("running", "ADMIN", true)).toMatchObject({ ok: true, aborted: true });
+    await vi.advanceTimersByTimeAsync(ENDED_ELSEWHERE_CHECK_MS + 100);
+
+    expect(aborted).toBe(true);
+    expect(old.activeCount).toBe(0); // the drain can finish, and the deploy can go on
   });
 
   it("resumes queued work from a rolled-back standby without a local enqueue", async () => {
