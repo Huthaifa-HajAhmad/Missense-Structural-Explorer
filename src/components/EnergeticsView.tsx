@@ -594,7 +594,7 @@ const EnergeticsView = memo(function EnergeticsView({
           {tab === 'records' && <p className="screen-tab-description">
             How might this substitution change protein stability?
           </p>}
-          <p className="nrg-query"><strong>{result.metadata?.gene} {result.metadata?.variant}</strong><span>Predicted change in folding stability</span></p>
+          <p className="nrg-query">Predicted effect of <strong>{result.metadata?.gene} {result.metadata?.variant}</strong> on folding stability</p>
         </header>
         <div className="nrg-navigation">
           <WorkspaceTabs id="energetics" label="Energetics views" tabs={ENERGY_TABS} value={tab} onChange={setTab} />

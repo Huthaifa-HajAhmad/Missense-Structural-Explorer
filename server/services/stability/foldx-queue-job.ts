@@ -26,6 +26,7 @@ import {
   runRaspLocal,
   runStabilityOracleAnalysisDetailed,
 } from "../biophysics.ts";
+import { STABILITY_ORACLE_BACKGROUND_BUDGET_MS } from "./stabilityoracle.ts";
 import { requestBackgroundRepair } from "./foldx/background-repair.ts";
 import { backfillMutantCacheCompanions } from "./foldx/cache.ts";
 import { buildFoldxCacheKey } from "../infra/foldx-job-registry.ts";
@@ -176,6 +177,7 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
         "",
         data.wtPdb,
         chain,
+        STABILITY_ORACLE_BACKGROUND_BUDGET_MS,
       );
       const hasScore = outcome.kind === "value" && Number.isFinite(outcome.result.ddG);
       await publishRemoteJobs(jobId, {

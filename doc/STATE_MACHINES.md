@@ -179,7 +179,11 @@ A job that goes back to the queue loses its phase (`clearPhase`). **Read**.
 **6b. Companion engines** (RaSP, ProtVar, StabilityOracle; `foldx-queue-job.ts`): each goes absent →
 `pending` → `done`, `error` or `unavailable`. On a second run RaSP and ProtVar skip themselves when `done`
 or `unavailable`, StabilityOracle when `done`. `startFoldxCompanions` is single-flight per job, and
-`mutateJobData` runs the writes for one job one after another. **Read**.
+`mutateJobData` runs the writes for one job one after another. StabilityOracle waits up to 180 s here
+(`STABILITY_ORACLE_BACKGROUND_BUDGET_MS`); a wait that runs out ends as `error`, not `unavailable`, because
+the model service may be there but busy. The job finishes only after the companions do
+(`finishFoldxQueueJob`), so a FoldX failure can report its final status up to 180 s late; the FoldX value
+itself is published early, so this is a wait and not a hang. **Read**.
 
 ## 7. Pre-warm claim
 

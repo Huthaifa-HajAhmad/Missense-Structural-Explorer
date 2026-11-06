@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runStabilityOracleAnalysis, runStabilityOracleAnalysisDetailed } from "./stabilityoracle.ts";
+import { runStabilityOracleAnalysis, runStabilityOracleAnalysisDetailed, STABILITY_ORACLE_BACKGROUND_BUDGET_MS } from "./stabilityoracle.ts";
 import { SIDECAR_BUDGET_HEADER } from "../infra/sidecar-budget.ts";
 
 describe("StabilityOracle Service Integration Tests", () => {
@@ -122,6 +122,27 @@ describe("StabilityOracle Service Integration Tests", () => {
     // The legacy wrapper keeps its contract: any non-value outcome collapses to null.
     const legacy = await runStabilityOracleAnalysis("LMNA", "p.Arg527Gly", "P02545", "MAEQ...", "PDB TEXT", "A");
     expect(legacy).toBeNull();
+  });
+
+  it("detailed: a wait that ran out is an error that says so, not an engine this deployment lacks", async () => {
+    // What `AbortSignal.timeout` raises when the model service is still busy after the wait.
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runStabilityOracleAnalysisDetailed("CNNM2", "p.Glu357Lys", "Q9H8M5", "", "PDB TEXT", "A");
+    if (outcome.kind !== "error") throw new Error(`expected kind "error", got ${outcome.kind}`);
+    expect(outcome.message).toContain("did not answer within 60 s");
+    expect(outcome.message).toContain("may be busy");
+    expect(outcome.message).toContain("run the analysis again");
+  });
+
+  it("detailed: the caller can ask for a longer wait, and the model server is told the same number", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "success", ddG: 0.4 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runStabilityOracleAnalysisDetailed("CNNM2", "p.Glu357Lys", "Q9H8M5", "", "PDB TEXT", "A", STABILITY_ORACLE_BACKGROUND_BUDGET_MS);
+    expect(fetchMock.mock.calls[0][1].headers[SIDECAR_BUDGET_HEADER]).toBe(String(STABILITY_ORACLE_BACKGROUND_BUDGET_MS));
+    expect(STABILITY_ORACLE_BACKGROUND_BUDGET_MS).toBeGreaterThan(60000);
   });
 
   it("detailed: an unreachable sidecar is unavailable — the engine is not running here", async () => {

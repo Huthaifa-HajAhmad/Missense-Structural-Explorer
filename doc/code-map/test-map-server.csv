@@ -254,7 +254,7 @@ server/services/stability/foldx/readiness.ts,server,server/routes/health.test.ts
 server/services/stability/foldx/repair-shell.ts,server,server/services/stability/foldx/repair-shell.test.ts
 server/services/stability/foldx/runner.ts,server,server/services/stability/foldx/runner-background-repair.test.ts;server/services/stability/foldx/runner-repair-cache.test.ts
 server/services/stability/index.ts,barrel,
-server/services/stability/stabilityoracle.ts,server,server/services/stability/stabilityoracle.test.ts
+server/services/stability/stabilityoracle.ts,server,server/services/stability/foldx-queue-job.test.ts;server/services/stability/stabilityoracle.test.ts
 server/services/stabilityoracle.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/foldx-sharing.test.ts
 server/services/string.ts,barrel,
 server/services/structural-diff.ts,barrel,
