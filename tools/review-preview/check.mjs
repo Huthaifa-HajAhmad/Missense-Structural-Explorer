@@ -225,14 +225,15 @@ try {
  const stateBox = await state.boundingBox();
  check('Query accession state sits in the label row', stateBox !== null && accessionBox !== null && stateBox.y + stateBox.height <= accessionBox.y + 1);
  check('Query accession state names the format', (await state.innerText()).trim() === 'Format OK');
- // The deck is capped at the monitor's measured height, so the query card must be able to yield to
- // it: auto basis, shrinkable, and its automatic minimum cleared. Losing any one of the three lets
- // a tall card push the recents out of the deck — the defect the cap exists to prevent.
+ // The query card is the one that pushes: it keeps its own height (no shrink) and shows all of its fields, so its
+ // form must not be a scroller. If it could shrink or scroll, a tall card would be cut off instead of moving the
+ // recents card down.
  const cardFlex = await page.evaluate(() => {
   const cs = getComputedStyle(document.querySelector('.workbench-query'));
-  return { basis: cs.flexBasis, shrink: cs.flexShrink, minHeight: cs.minBlockSize };
+  const form = getComputedStyle(document.querySelector('.workbench-query > form'));
+  return { shrink: cs.flexShrink, formOverflow: form.overflowY };
  });
- check('Query card yields to the measured deck', cardFlex.basis === 'auto' && cardFlex.shrink === '1' && cardFlex.minHeight === '0px');
+ check('Query card keeps its height and never scrolls', cardFlex.shrink === '0' && cardFlex.formOverflow === 'visible');
  // The monitor is the measured design height, on whichever tab is open — its rail must render that
  // height, not the visible panel's own content (the defect: a per-tab content height).
  const railAndDesign = () => page.evaluate(() => {
