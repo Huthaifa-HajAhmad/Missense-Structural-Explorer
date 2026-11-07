@@ -1,11 +1,13 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import {
-  Camera, ChevronDown, ClipboardCopy, Crosshair, Download, Focus, HelpCircle,
+  ChevronDown, Crosshair, Focus, HelpCircle,
   Maximize2, Minimize2, RotateCcw, ScanSearch, SlidersHorizontal,
 } from "lucide-react";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
 import type { PlddtFilter } from "./useMolstarStructure";
 import { LOCAL_ALIGNMENT_FIT_WINDOW } from "../../shared/thresholds";
+import { StructureImageMenu } from "./StructureImageMenu";
+import { useDismiss } from "./useDismiss";
 
 export interface StructureToolbarProps {
   model: Structure3dEvidence;
@@ -25,12 +27,9 @@ export interface StructureToolbarProps {
   pocketOpen: boolean;
   pocketTriggerRef?: React.RefObject<HTMLButtonElement | null>;
   onTogglePocket: () => void;
-  captureOpen: boolean;
-  setCaptureOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
-  captureMenuRef: React.RefObject<HTMLDivElement | null>;
-  onDownload: () => void;
-  onCopy: () => void;
-  copyState: "idle" | "copied" | "failed";
+  onDownloadImage: () => Promise<void>;
+  /** Resolves true when the image reached the clipboard. */
+  onCopyImage: () => Promise<boolean>;
   onOpenGuide: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
@@ -43,7 +42,6 @@ export function StructureToolbar(props: StructureToolbarProps) {
   const displayId = useId();
   const displayRef = useRef<HTMLDivElement>(null);
   const displayTriggerRef = useRef<HTMLButtonElement>(null);
-  const captureTriggerRef = useRef<HTMLButtonElement>(null);
   const segRef = useRef<HTMLDivElement>(null);
   const primary = model.canvas.primary;
   const site = model.site;
@@ -56,24 +54,7 @@ export function StructureToolbar(props: StructureToolbarProps) {
       : null;
   const canResetCamera = props.canResetCamera ?? Boolean(primary);
 
-  useEffect(() => {
-    if (!displayOpen) return;
-    const onDown = (event: MouseEvent) => {
-      if (!displayRef.current?.contains(event.target as Node)) setDisplayOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setDisplayOpen(false);
-        displayTriggerRef.current?.focus();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [displayOpen]);
+  useDismiss(displayOpen, setDisplayOpen, displayRef, displayTriggerRef);
 
   const onSegKey = (event: React.KeyboardEvent) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
@@ -237,36 +218,7 @@ export function StructureToolbar(props: StructureToolbarProps) {
           >
             <ScanSearch aria-hidden="true" /><span>Pocket</span>
           </button>
-          <div className="s3d-menu-wrap" ref={props.captureMenuRef}>
-            <button
-              ref={captureTriggerRef} type="button" className="s3d-btn"
-              aria-expanded={props.captureOpen} aria-label="Save or copy an image of the view"
-              onClick={() => props.setCaptureOpen(open => !open)}
-            >
-              <Camera aria-hidden="true" />
-              <span>{props.copyState === "copied" ? "Copied" : props.copyState === "failed" ? "Copy failed" : "Image"}</span>
-              <ChevronDown aria-hidden="true" />
-            </button>
-            {props.captureOpen && (
-              <div
-                className="s3d-menu" role="group" aria-label="Image actions"
-                onKeyDown={event => {
-                  if (event.key === "Escape") {
-                    props.setCaptureOpen(false);
-                    captureTriggerRef.current?.focus();
-                  }
-                }}
-              >
-                <button type="button" className="s3d-menu__item" onClick={props.onDownload}>
-                  <Download aria-hidden="true" />Download PNG
-                </button>
-                <button type="button" className="s3d-menu__item" onClick={props.onCopy}>
-                  <ClipboardCopy aria-hidden="true" />Copy to clipboard
-                </button>
-                <p className="s3d-menu__note">The filename records the structure and colouring.</p>
-              </div>
-            )}
-          </div>
+          <StructureImageMenu onDownload={props.onDownloadImage} onCopy={props.onCopyImage} />
         </div>
       </div>
     </div>

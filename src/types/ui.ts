@@ -7,6 +7,21 @@ export type {
   AnalysisResult
 } from "../shared/contracts.ts";
 
+/** Every top-level workspace the sidebar can open. */
+export type MasterView =
+  | "search"
+  | "evidence"
+  | "structure"
+  | "structure_alphafold"
+  | "structure_esmfold"
+  | "energetics"
+  | "landscape"
+  | "insights"
+  | "report"
+  | "literature"
+  | "console"
+  | "about";
+
 export interface VariantPreset {
   gene: string;
   variant: string;

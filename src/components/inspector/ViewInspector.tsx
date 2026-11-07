@@ -55,7 +55,7 @@ export interface ViewInspectorProps {
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
   thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | null;
   thermompnnError?: string | null;
-  disruptionPredictor?: { plddt?: number } | null;
+  disruptionPredictor?: { plddt?: number | null } | null;
   literatureSearchQuery?: string;
   onLiteratureSearch?: (query: string) => void;
   /** The Literature view's evidence model (filters applied): the rail traces and exports from it. */

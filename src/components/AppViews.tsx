@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { MasterView } from "./MasterSidebar";
 import VariantSearchPanel from "./VariantSearchPanel";
 import EvidenceDashboardCard from "./EvidenceDashboardCard";
@@ -15,19 +15,17 @@ import { WorkspaceTabs } from "./ui/WorkspaceTabs";
 import { AnalysisEmptyState, emptyWorkspace } from "./ui/AnalysisEmptyState";
 import { isEvidenceTabId } from "../shared/evidenceTabs";
 import type { EnergyEngineId } from '../shared/engineStatus';
-import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
+import { useStructureWorkspace } from "../lib/useStructureWorkspace";
 import type { ResidueFocus } from "../shared/residueFocus";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
 import LiteratureView from "./LiteratureView";
 import type { LiteratureEvidence } from "../shared/literatureEvidence";
-import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
 import { useNarrativeResynthesis } from "../hooks/useNarrativeResynthesis";
 import { lazyWithRetry } from "../lib/utils";
-import { useStructure3dEvidence } from "../lib/useStructure3dEvidence";
 import { useReportDraftPersistence } from "./report/useReportDocument";
 
 const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "MolstarViewer");
@@ -35,7 +33,6 @@ const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "Molsta
 interface AppViewsProps {
   masterView: MasterView;
   setMasterView: (view: MasterView) => void;
-  state?: any;
   actions?: any;
   pushErrorEntry: (entry: any) => void;
   setIsSettingsOpen: (open: boolean) => void;
@@ -60,7 +57,6 @@ interface AppViewsProps {
 export function AppViews({
   masterView,
   setMasterView,
-  state,
   actions,
   pushErrorEntry,
   setIsSettingsOpen,
@@ -81,103 +77,55 @@ export function AppViews({
   handleCopyReport: propsHandleCopyReport,
   formatEnergyString: propsFormatEnergyString
 }: AppViewsProps) {
-  const { isDark: settingsDark, settings: contextSettings } = useSettings();
+  const { isDark, settings } = useSettings();
 
   // Fine-grained Zustand store subscriptions
-  const storeGene = useVariantAnalysisStore(s => s.gene);
-  const storeVariant = useVariantAnalysisStore(s => s.variant);
-  const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId);
-  const storeSelectedResidueIndex = useVariantAnalysisStore(s => s.selectedResidueIndex);
-  const storeFoldedResidueIndex = useVariantAnalysisStore(s => s.foldedResidueIndex);
-  const storeHoveredResidueIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
-  const storeViewMode = useVariantAnalysisStore(s => s.viewMode);
-  const storeHistory = useVariantAnalysisStore(s => s.history);
-  const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
-  const storeMutantPdb = useVariantAnalysisStore(s => s.mutantPdb);
-  const storeFoldingDdG = useVariantAnalysisStore(s => s.foldingDdG);
-  const storeFoldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
-  const storeFoldingEnergetics = useVariantAnalysisStore(s => s.foldingEnergetics);
-  const storeDynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status);
-  const storeDdmutStatus = useVariantAnalysisStore(s => s.ddmutStatus);
-  const storeThermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus);
-  const storeThermompnnError = useVariantAnalysisStore(s => s.thermompnnError);
-  const storeComputedPocket = useVariantAnalysisStore(s => s.computedPocket);
-  const storeIsPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
-  const storePocketError = useVariantAnalysisStore(s => s.pocketError);
-  const storeDisruptionPredictor = useVariantAnalysisStore(s => s.disruptionPredictor);
-  const storeIsFolding = useVariantAnalysisStore(s => s.isFolding);
+  const gene = useVariantAnalysisStore(s => s.gene);
+  const variant = useVariantAnalysisStore(s => s.variant);
+  const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
+  const selectedResidueIndex = useVariantAnalysisStore(s => s.selectedResidueIndex);
+  const foldedResidueIndex = useVariantAnalysisStore(s => s.foldedResidueIndex);
+  const hoveredResidueIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
+  const viewMode = useVariantAnalysisStore(s => s.viewMode);
+  const history = useVariantAnalysisStore(s => s.history);
+  const analysisState = useVariantAnalysisStore(s => s.analysisState);
+  const foldingDdG = useVariantAnalysisStore(s => s.foldingDdG);
+  const foldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
+  const foldingEnergetics = useVariantAnalysisStore(s => s.foldingEnergetics);
+  // The store types these three as plain strings; the components below read them as these states.
+  const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status) as "pending" | "unavailable" | "done" | null;
+  const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus) as "pending" | "unavailable" | "done" | null;
+  const thermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus) as "pending" | "unavailable" | "done" | "error" | null;
+  const thermompnnError = useVariantAnalysisStore(s => s.thermompnnError);
+  const computedPocket = useVariantAnalysisStore(s => s.computedPocket);
+  const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
+  const pocketError = useVariantAnalysisStore(s => s.pocketError);
+  const disruptionPredictor = useVariantAnalysisStore(s => s.disruptionPredictor);
+  const isFolding = useVariantAnalysisStore(s => s.isFolding);
   const storeFoldingProgress = useVariantAnalysisStore(s => s.foldingProgress);
-  const storeFoldingError = useVariantAnalysisStore(s => s.foldingError);
-  const storeStructuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
-  const storeComputedResiduesCache = useVariantAnalysisStore(s => s.computedResiduesCache);
-  const storeIsBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
-  const storeIsClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading);
-  const storeIsNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
-  const storeCopied = useVariantAnalysisStore(s => s.copied);
-  const storeLoadingStep = useVariantAnalysisStore(s => s.loadingStep);
-  const storeEsmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
-  const storeEsmFoldMutPdb = useVariantAnalysisStore(s => s.esmFoldMutPdb);
-  const storePdbText = useVariantAnalysisStore(s => s.pdbText);
-  const storeActive3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
-  const storeCustomPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
-  const customPdbEntry = useVariantAnalysisStore(s => s.customPdbEntry);
-  const storeFoldxReferencePdb = useVariantAnalysisStore(s => s.foldxReferencePdb);
-  const storeFoldxAlignedPdb = useVariantAnalysisStore(s => s.foldxAlignedPdb);
-  const storeEsmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
-  const storeFoldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
-  const storeEsmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
-  const storeHomologs = useVariantAnalysisStore(s => s.homologs);
-  const storeIsHomologsLoading = useVariantAnalysisStore(s => s.isHomologsLoading);
+  const foldingError = useVariantAnalysisStore(s => s.foldingError);
+  const structuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
+  const computedResiduesCache = useVariantAnalysisStore(s => s.computedResiduesCache);
+  const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
+  const isClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading);
+  const isNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
+  const copied = useVariantAnalysisStore(s => s.copied);
+  const loadingStep = useVariantAnalysisStore(s => s.loadingStep);
+  const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
+  const pdbText = useVariantAnalysisStore(s => s.pdbText);
+  const active3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
+  const customPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
+  const foldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
+  const esmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
+  const homologs = useVariantAnalysisStore(s => s.homologs);
+  const isHomologsLoading = useVariantAnalysisStore(s => s.isHomologsLoading);
 
-  // Fallbacks for backward compatibility if legacy state object was passed
-  const isDark = state?.isDark ?? settingsDark;
-  const settings = state?.settings ?? contextSettings;
-  const gene = state?.gene ?? storeGene;
-  const variant = state?.variant ?? storeVariant;
-  const uniprotId = state?.uniprotId ?? storeUniprotId;
   const energyQueryKey = JSON.stringify([gene, variant, uniprotId]);
   const [energySelection, setEnergySelection] = useState<{ query: string; engine: EnergyEngineId | null } | null>(null);
   const selectedEnergyEngine = energySelection?.query === energyQueryKey ? energySelection.engine : null;
   const selectEnergyEngine = useCallback((engine: EnergyEngineId | null) => setEnergySelection({ query: energyQueryKey, engine }), [energyQueryKey]);
-  const selectedResidueIndex = state?.selectedResidueIndex ?? storeSelectedResidueIndex;
   // The author's Report draft follows the variant, so papers pinned on the Literature tab are kept.
   useReportDraftPersistence(gene, uniprotId, variant);
-  const foldedResidueIndex = state?.foldedResidueIndex ?? storeFoldedResidueIndex;
-  const hoveredResidueIndex = state?.hoveredResidueIndex ?? storeHoveredResidueIndex;
-  const viewMode = state?.viewMode ?? storeViewMode;
-  const history = state?.history ?? storeHistory;
-  const analysisState = state?.analysisState ?? storeAnalysisState;
-  const mutantPdb = state?.mutantPdb ?? storeMutantPdb;
-  const foldingDdG = state?.foldingDdG ?? storeFoldingDdG;
-  const foldingStatus = state?.foldingStatus ?? storeFoldingStatus;
-  const foldingEnergetics = state?.foldingEnergetics ?? storeFoldingEnergetics;
-  const dynamut2Status = state?.dynamut2Status ?? storeDynamut2Status;
-  const ddmutStatus = state?.ddmutStatus ?? storeDdmutStatus;
-  const thermompnnStatus = state?.thermompnnStatus ?? storeThermompnnStatus;
-  const thermompnnError = state?.thermompnnError ?? storeThermompnnError;
-  const computedPocket = state?.computedPocket ?? storeComputedPocket;
-  const isPocketLoading = state?.isPocketLoading ?? storeIsPocketLoading;
-  const pocketError = state?.pocketError ?? storePocketError;
-  const disruptionPredictor = state?.disruptionPredictor ?? storeDisruptionPredictor;
-  const isFolding = state?.isFolding ?? storeIsFolding;
-  const foldingError = state?.foldingError ?? storeFoldingError;
-  const structuralDiff = state?.structuralDiff ?? storeStructuralDiff;
-  const computedResiduesCache = state?.computedResiduesCache ?? storeComputedResiduesCache;
-  const isBiophysicalLoading = state?.isBiophysicalLoading ?? storeIsBiophysicalLoading;
-  const isClinicalLoading = state?.isClinicalLoading ?? storeIsClinicalLoading;
-  const isNarrativeLoading = state?.isNarrativeLoading ?? storeIsNarrativeLoading;
-  const copied = state?.copied ?? storeCopied;
-  const loadingStep = state?.loadingStep ?? storeLoadingStep;
-  const esmFoldWtPdb = state?.esmFoldWtPdb ?? storeEsmFoldWtPdb;
-  const esmFoldMutPdb = state?.esmFoldMutPdb ?? storeEsmFoldMutPdb;
-  const pdbText = state?.pdbText ?? storePdbText;
-  const active3dModelTab = state?.active3dModelTab ?? storeActive3dModelTab;
-  const customPdbUrl = state?.customPdbUrl ?? storeCustomPdbUrl;
-  const esmFoldAlignedPdb = storeEsmFoldAlignedPdb ?? state?.esmFoldAlignedPdb;
-  const foldxMetrics = storeFoldxMetrics ?? state?.foldxMetrics;
-  const esmFoldMetrics = storeEsmFoldMetrics ?? state?.esmFoldMetrics;
-  const homologs = state?.homologs ?? storeHomologs;
-  const isHomologsLoading = state?.isHomologsLoading ?? storeIsHomologsLoading;
 
   const setSelectedResidueIndex = actions?.setSelectedResidueIndex ?? useVariantAnalysisStore.getState().setSelectedResidueIndex;
   const setViewMode = actions?.setViewMode ?? useVariantAnalysisStore.getState().setViewMode;
@@ -189,82 +137,11 @@ export function AppViews({
   const handleSearchSubmit = propsHandleSearchSubmit || actions?.handleSearchSubmit;
   const handleCopyReport = propsHandleCopyReport || actions?.handleCopyReport;
 
-  const { apiClient } = useApiClient();
-  const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
-
-  // Preserve the model family while hidden; navigating to Landscape must not reload the canvas.
-  const [lastStructureFamily, setLastStructureFamily] = useState<"alphafold" | "esmfold" | null>(null);
-  const activeFamily = masterView === "structure_esmfold" ? "esmfold" : "alphafold";
-  if (isStructureActive && lastStructureFamily !== activeFamily) setLastStructureFamily(activeFamily);
-  const isEsm = (lastStructureFamily ?? (contextSettings.defaultStructureModel === "esmfold" ? "esmfold" : "alphafold")) === "esmfold";
-
-  /**
-   * One 3D model for the canvas and the toolbar. It decides which modes exist and falls back when
-   * one is not available; the coordinates below follow `structureModel.viewMode`, not the stored
-   * mode, so the canvas can never draw a mode the model has ruled out.
-   */
-  const structureModel = useStructure3dEvidence(isEsm ? "esmfold" : "alphafold");
+  // The 3D workspace: which tab is shown and what its canvas and rail draw.
+  const structure = useStructureWorkspace(masterView);
+  const isStructureActive = structure.isActive;
+  const isEsm = structure.family === "esmfold";
   const variantPosition = analysisState.result?.metadata?.residueIndex ?? null;
-
-  useEffect(() => {
-    if (isStructureActive && structureModel.viewMode !== viewMode) setViewMode(structureModel.viewMode);
-  }, [isStructureActive, structureModel.viewMode, viewMode, setViewMode]);
-
-  /**
-   * The coordinates the canvas draws, per family and mode.
-   *
-   * Replaced a selection that superposed the RAW FoldX variant (`compareMutantPdb || mutantPdb`) on the
-   * AlphaFold model — two different templates in two different frames — and drew the ESMFold "mutant"
-   * view from the ALIGNED file, whose B column the aligner overwrites with Cα displacement (it was then
-   * coloured as pLDDT).
-   */
-  const canvasData = useMemo(() => {
-    const mode = structureModel.viewMode;
-    if (isEsm) {
-      if (mode === "mutant") return { primary: esmFoldMutPdb || null, compare: null };
-      if (mode === "superimposed") return { primary: esmFoldWtPdb || null, compare: esmFoldAlignedPdb || null };
-      return { primary: esmFoldWtPdb || null, compare: null };
-    }
-    if (mode === "mutant") return { primary: mutantPdb || null, compare: null };
-    if (mode === "superimposed") return { primary: storeFoldxReferencePdb, compare: storeFoldxAlignedPdb };
-    // A loaded entry is drawn once fetched for the URL now selected; until then the viewer fetches it.
-    if (customPdbUrl) return { primary: customPdbEntry && customPdbEntry.url === customPdbUrl ? customPdbEntry.text : null, compare: null };
-    return { primary: pdbText || null, compare: null };
-  }, [isEsm, structureModel.viewMode, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, mutantPdb, storeFoldxReferencePdb, storeFoldxAlignedPdb, customPdbUrl, customPdbEntry, pdbText]);
-
-  const structureResidues = useMemo(() => indexStructureResidues(canvasData.primary), [canvasData.primary]);
-  const structureSelection = useMemo(() => buildStructureSelection(structureModel, structureResidues, selectedResidueIndex), [structureModel, structureResidues, selectedResidueIndex]);
-  const structureInspectorSelection = useMemo(() => isStructureActive && hoveredResidueIndex
-    ? { ...buildStructureSelection(structureModel, structureResidues, hoveredResidueIndex), preview: true }
-    : structureSelection, [isStructureActive, hoveredResidueIndex, structureModel, structureResidues, structureSelection]);
-
-  const alignmentRequestIdRef = useRef(0);
-
-  /** ESMFold only: FoldX keeps the template backbone, so its pair has no fit scope to choose. */
-  const handleAlignmentScopeChange = useCallback(async (newScope: "local" | "global") => {
-    const store = useVariantAnalysisStore.getState();
-    if (!isEsm || newScope === store.esmAlignmentScope) return;
-    store.setEsmAlignmentScope(newScope);
-    const reqId = ++alignmentRequestIdRef.current;
-    if (!esmFoldWtPdb || !esmFoldMutPdb || !variantPosition) return;
-    try {
-      const alignData = await apiClient.structuralAlign({
-        pdb1: esmFoldWtPdb,
-        pdb2: esmFoldMutPdb,
-        targetIndex: variantPosition,
-        alignmentScope: newScope
-      });
-      if (reqId !== alignmentRequestIdRef.current) return;
-      if (alignData.alignedPdb) {
-        store.setEsmFoldAlignedPdb(alignData.alignedPdb);
-        store.setEsmFoldMetrics(alignData.metrics);
-      }
-    } catch (err) {
-      if (reqId === alignmentRequestIdRef.current) {
-        console.warn("[Alignment Scope Update Error]:", err);
-      }
-    }
-  }, [isEsm, esmFoldWtPdb, esmFoldMutPdb, variantPosition, apiClient]);
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
   // The Literature view's evidence model — passed to the inspector so its search trace and the
@@ -534,19 +411,12 @@ export function AppViews({
                       </div>
                     }>
                       <MolstarViewerLazy
-                        model={structureModel}
-                        coordinateIndex={structureResidues}
-                        selection={structureSelection}
+                        view={structure.view}
                         active={isStructureActive}
-                        primaryPdbData={canvasData.primary}
-                        comparePdbData={canvasData.compare}
-                        allowFetch={!isEsm && structureModel.viewMode === "wildtype" && !customPdbUrl}
-                        variantPosition={variantPosition}
-                        selectedResidue={selectedResidueIndex ?? null}
                         onResidueClick={handleResidueClickMemo}
                         onReturnToVariant={handleReturnToVariant}
                         onModeChange={setViewMode}
-                        onAlignmentScopeChange={handleAlignmentScopeChange}
+                        onAlignmentScopeChange={structure.changeAlignmentScope}
                         onSwitchToAlphaFold={() => setMasterView("structure_alphafold")}
                         onOpenPocketTab={() => {
                           setActiveEvidenceTab("structure");
@@ -706,7 +576,7 @@ export function AppViews({
             <ViewInspector
               selectedEnergyEngine={selectedEnergyEngine}
               activeView={masterView}
-              structureSelection={structureInspectorSelection}
+              structureSelection={structure.railSelection}
               onViewChange={setMasterView}
               analysisResult={analysisState.result}
               isFolding={isFolding}

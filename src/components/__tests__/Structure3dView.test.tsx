@@ -220,18 +220,43 @@ describe("3D toolbar and legend", () => {
         onFocusSite={noop}
         pocketOpen={false}
         onTogglePocket={noop}
-        captureOpen={false}
-        setCaptureOpen={vi.fn()}
-        captureMenuRef={React.createRef()}
-        onDownload={noop}
-        onCopy={noop}
-        copyState="idle"
+        onDownloadImage={async () => {}}
+        onCopyImage={async () => true}
         onOpenGuide={noop}
         isFullscreen={false}
         onToggleFullscreen={noop}
         {...extra}
       />
     );
+
+  it("the image menu owns its open state: copy reports the result, Escape and an outside click close it", async () => {
+    const onCopyImage = vi.fn(async () => false);
+    const onDownloadImage = vi.fn(async () => {});
+    const { getByRole, queryByRole } = toolbar(buildStructure3dEvidence(input()), { onCopyImage, onDownloadImage });
+    const trigger = getByRole("button", { name: "Save or copy an image of the view" });
+
+    fireEvent.click(trigger);
+    fireEvent.click(getByRole("button", { name: /Copy to clipboard/ }));
+    expect(onCopyImage).toHaveBeenCalledTimes(1);
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(await within(trigger).findByText("Copy failed")).toBeTruthy();
+
+    fireEvent.click(trigger);
+    fireEvent.click(getByRole("button", { name: /Download PNG/ }));
+    expect(onDownloadImage).toHaveBeenCalledTimes(1);
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(document.body);
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+  });
 
   it("disables the variant and superposition while FoldX runs, and says why", () => {
     const { container } = toolbar(buildStructure3dEvidence(input()));

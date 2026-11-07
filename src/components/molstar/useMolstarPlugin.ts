@@ -1,5 +1,5 @@
 import type { StructurePick } from "../../shared/structureSelection";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPluginUI } from "molstar/lib/mol-plugin-ui";
 import { DefaultPluginUISpec } from "molstar/lib/mol-plugin-ui/spec";
@@ -47,8 +47,6 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
   const [webglResetCounter, setWebglResetCounter] = useState<number>(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [captureMenuOpen, setCaptureMenuOpen] = useState<boolean>(false);
-  const captureMenuRef = useRef<HTMLDivElement>(null);
   const lastResetTimeRef = useRef<number>(0);
   const hoverRef = useRef(onResidueHover);
   hoverRef.current = onResidueHover;
@@ -286,23 +284,6 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     };
   }, [pluginCreated, isDark]);
 
-  // Close the capture menu on an outside click or Escape; it used to stay open until toggled.
-  useEffect(() => {
-    if (!captureMenuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (captureMenuRef.current && !captureMenuRef.current.contains(e.target as Node)) setCaptureMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setCaptureMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [captureMenuOpen]);
-
   const captureCanvasBlob = (): Promise<Blob | null> => {
     return new Promise((resolve) => {
       const canvas = containerRef.current?.querySelector('canvas');
@@ -312,8 +293,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
   };
 
   /** `fileStem` names the structure and colouring, so a saved image records what it shows. */
-  const handleDownloadCapture = async (fileStem: string) => {
-    setCaptureMenuOpen(false);
+  const downloadImage = async (fileStem: string) => {
     const fileName = `structure_${fileStem || "view"}.png`;
     const helper = pluginRef.current?.managers?.viewportScreenshot
       || pluginRef.current?.helpers?.viewportScreenshot
@@ -338,8 +318,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
   };
 
   /** Resolves true when the image reached the clipboard, so the caller can say whether it worked. */
-  const handleCopyCapture = async (): Promise<boolean> => {
-    setCaptureMenuOpen(false);
+  const copyImage = async (): Promise<boolean> => {
     try {
       const blob = await captureCanvasBlob();
       if (blob && navigator.clipboard?.write) {
@@ -360,9 +339,10 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     pluginCreated,
     loading, setLoading,
     loadError, setLoadError,
-    captureMenuOpen, setCaptureMenuOpen,
-    captureMenuRef,
-    handleDownloadCapture,
-    handleCopyCapture
+    downloadImage,
+    copyImage,
   };
 }
+
+/** What `useMolstarStructure` needs from the plugin: the instance, whether it exists yet, and the load status it reports. */
+export type MolstarPluginHandle = Pick<ReturnType<typeof useMolstarPlugin>, "pluginRef" | "pluginCreated" | "setLoading" | "setLoadError">;
