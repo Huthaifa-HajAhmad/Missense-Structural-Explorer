@@ -1078,33 +1078,67 @@ function VariantSearchPanel({
   const railRef = useRef<HTMLElement>(null);
   /**
    * The deck's height is the monitor's own content, measured, not whatever the query card happens to
-   * need: the rail's natural height is read with stretching off and written to a CSS variable, so the
-   * grid rows share a fixed budget. When the refinements open (or a run's notice grows the card), the
-   * row for the form has already taken its share, so the form scrolls internally instead of dropping
-   * the recents card lower and stretching the monitor past the fold.
+   * need: the rail's natural height is read with stretching off and written to a CSS variable that
+   * becomes the deck's one row. The left column fills that row — the query card keeps its own height
+   * and yields under pressure (its form scrolls inside), the recents takes the remainder and scrolls —
+   * so opening the refinements never drops the recents card lower and never stretches the monitor
+   * past the fold.
    */
   useLayoutEffect(() => {
     const deck = deckRef.current;
     const rail = railRef.current;
     if (!deck || !rail) return;
-    /** The rail's natural height with stretching off, both panels laid out, so the measure cannot
-     * depend on which tab is open. Restores everything within the synchronous read. */
+    let settleFrame = 0;
+    let resizeFrame = 0;
+    let disposed = false;
+    /**
+     * The rail's natural height — its own content with both tabpanels laid out — measured out of the
+     * live layout: a clone at the same inline size, appended hidden for the synchronous read. The
+     * live rail cannot answer this question, because its shared row has already been sized and its
+     * intrinsic sizing follows the active tab (measured: 797 on Services, 787 on Pipeline at the
+     * same content), and an in-place dance does not re-max it.
+     */
     const readNatural = () => {
-      rail.style.alignSelf = "start";
-      rail.style.blockSize = "auto";
-      const held = [...rail.querySelectorAll<HTMLElement>("[data-inactive]")];
-      for (const el of held) {
-        el.style.visibility = "visible";
-        el.style.pointerEvents = "none";
+      const width = Math.round(rail.getBoundingClientRect().width);
+      const clone = rail.cloneNode(true) as HTMLElement;
+      // Ids and the inactive markers are meaningless in the detached copy, and duplicate ids must
+      // not exist even for one synchronous read.
+      for (const el of [clone, ...clone.querySelectorAll<HTMLElement>("[id], [data-inactive]")]) {
+        el.removeAttribute("id");
+        el.removeAttribute("data-inactive");
+        el.removeAttribute("inert");
       }
-      const height = Math.ceil(rail.getBoundingClientRect().height);
-      rail.style.removeProperty("align-self");
-      rail.style.removeProperty("block-size");
-      for (const el of held) {
-        el.style.removeProperty("visibility");
-        el.style.removeProperty("pointer-events");
-      }
+      Object.assign(clone.style, {
+        position: "absolute",
+        insetBlockStart: "0px",
+        insetInlineStart: "0px",
+        blockSize: "auto",
+        inlineSize: `${width}px`,
+        visibility: "hidden",
+        pointerEvents: "none",
+        zIndex: "-1",
+        margin: "0px",
+      });
+      document.body.appendChild(clone);
+      const height = Math.ceil(clone.getBoundingClientRect().height);
+      clone.remove();
       return height;
+    };
+    /**
+     * Commit a measurement only after it survives one frame: a layout in flight (a tab switch, a
+     * diagnostics update, fonts settling) reports transient heights, and a frame is the smallest
+     * unit that shows the value has settled. `allowShrink` is for the first commit only — after
+     * that the height is a floor.
+     */
+    const commitWhenSettled = (current: number, allowShrink: boolean) => {
+      if (settleFrame) return;
+      settleFrame = requestAnimationFrame(() => {
+        settleFrame = 0;
+        if (disposed) return;
+        const settled = readNatural();
+        const moved = allowShrink ? Math.abs(settled - current) > 1 : settled - current > 1;
+        if (moved) deck.style.setProperty("--workbench-deck-h", `${settled}px`);
+      });
     };
     const consider = () => {
       // Only the two-column desktop deck is height-capped; the stacked one flows with the page.
@@ -1116,32 +1150,40 @@ function VariantSearchPanel({
       const current = parseFloat(deck.style.getPropertyValue("--workbench-deck-h")) || 0;
       const natural = readNatural();
       if (!current) {
+        // The first paint needs a value synchronously; nothing has been seen yet, so the frame
+        // confirmation below may correct it in either direction.
         deck.style.setProperty("--workbench-deck-h", `${natural}px`);
+        commitWhenSettled(natural, true);
         return;
       }
-      // The design height is a floor, not a follower of content: a run's banners or a summary line
-      // growing content GROWS it (confirmed on the next frame, since a layout in flight reports
-      // transient heights), but it never shrinks mid-session — a 10px content dip must not move
-      // the user's monitor.
-      if (natural - current > 1) {
-        requestAnimationFrame(() => {
-          const confirmed = readNatural();
-          if (confirmed - current > 1) {
-            deck.style.setProperty("--workbench-deck-h", `${confirmed}px`);
-          }
-        });
-      }
+      // The design height is a floor, not a follower of content: content growing (a run's banners,
+      // a summary line) raises it, but it never shrinks mid-session — a 10px content dip must not
+      // move the user's monitor.
+      if (natural - current > 1) commitWhenSettled(current, false);
     };
     consider();
-    // The monitor's content (service rows, summary line, fonts) is what re-consider the height.
+    /** A resize storm is one layout question: coalesce it into a frame. */
+    const onResize = () => {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        if (!disposed) consider();
+      });
+    };
+    // The monitor's content (service rows, summary line, fonts) is what re-considers the height.
     const body = rail.querySelector<HTMLElement>(".workbench-rail-body") ?? undefined;
     const ro = body && typeof ResizeObserver !== "undefined" ? new ResizeObserver(consider) : null;
     if (ro && body) ro.observe(body);
-    window.addEventListener("resize", consider);
-    document.fonts?.ready?.then(() => { consider(); });
+    window.addEventListener("resize", onResize);
+    document.fonts?.ready?.then(() => { if (!disposed) consider(); });
     return () => {
+      // A frame scheduled by this run must never write after it: `disposed` alone would leave the
+      // callback to fire against refs a later run has replaced, so both are cancelled outright.
+      disposed = true;
+      if (settleFrame) cancelAnimationFrame(settleFrame);
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
       ro?.disconnect();
-      window.removeEventListener("resize", consider);
+      window.removeEventListener("resize", onResize);
     };
   }, [serviceSummary]);
   const [quickDraft, setQuickDraft] = useState("");
@@ -1275,7 +1317,7 @@ function VariantSearchPanel({
           monitor — the wrapper dissolves in CSS there. */}
       <div ref={deckRef} className="workbench-deck grid grid-cols-1 lg:grid-cols-12">
         <div className="workbench-columns min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1">
-       <section
+        <section
           className="workbench-query cs-panel flex flex-col min-w-0"
           data-tour="variant-input"
           id="variant-input-card"
