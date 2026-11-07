@@ -183,7 +183,11 @@ or `unavailable`, StabilityOracle when `done`. `startFoldxCompanions` is single-
 (`STABILITY_ORACLE_BACKGROUND_BUDGET_MS`); a wait that runs out ends as `error`, not `unavailable`, because
 the model service may be there but busy. The job finishes only after the companions do
 (`finishFoldxQueueJob`), so a FoldX failure can report its final status up to 180 s late; the FoldX value
-itself is published early, so this is a wait and not a hang. **Read**.
+itself is published early, so this is a wait and not a hang. ThermoMPNN is not a companion: the route
+submits it (`submitThermoMpnnJob` in `energy-models.ts`) and waits up to 60 s for the local model service. A
+wait that runs out, or an answer of "busy", ends as `error`; only an unreachable service ends as `unavailable`.
+With a Tamarind key, a timeout or an unreachable service goes on to the cloud; "busy" and "warming up" do not.
+**Read**.
 
 ## 7. Pre-warm claim
 
