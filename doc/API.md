@@ -394,7 +394,8 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     "gene": "PAH"
   }
   ```
-* **Description**: Resolves HGNC gene symbols to canonical UniProt accessions using local mapping dictionaries.
+* **Response**: `{ "gene": "PAH", "uniprotId": "P00439" }`
+* **Description**: Resolves HGNC gene symbols to canonical UniProt accessions using local mapping dictionaries and the UniProt search. The server stops after 10 s and answers `504 TIMEOUT` (an unknown gene is `404 NOT_FOUND`).
 
 ### 11. AlphaFold PDB Proxy
 * **Route**: `GET /api/v1/alphafold-pdb/:uniprotId`

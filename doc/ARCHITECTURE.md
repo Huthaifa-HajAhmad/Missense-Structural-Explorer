@@ -127,7 +127,7 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 
 #### C. Gene Accessory resolver (`POST /api/v1/resolve-gene`)
 * Maps inputted gene symbols (e.g., PAH, FGFR3, GBA1, NAE1) to their canonical accession codes.
-* Interrogates EBI APIs to determine structure availability and coordinate schemas.
+* Answers from the UniProt search alone, within a 10 s server deadline (`GENE_RESOLVE_BUDGET_MS`); the browser waits 5 s longer. A lookup that runs out of time answers `504 TIMEOUT`, not `404`. It does not download any structure; the structure routes do that when a structure is needed.
 
 #### D. AlphaFold Structural Proxy (`GET /api/v1/alphafold-pdb/:uniprotId`)
 * Bypasses client-side issues with loading heavy bioinformatics files from varying host origins.

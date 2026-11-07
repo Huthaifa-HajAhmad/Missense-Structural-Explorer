@@ -44,7 +44,7 @@ server/routes/structure.ts,server,
 server/routes/variant.ts,server,
 server/routes/variant/alphagenome.ts,server,
 server/routes/variant/analysis.ts,server,
-server/routes/variant/gene.ts,server,
+server/routes/variant/gene.ts,server,server/routes/variant/gene.test.ts
 server/routes/variant/literature.ts,server,
 server/routes/variant/narrative.ts,server,
 server/routes/variant/spliceai.ts,server,

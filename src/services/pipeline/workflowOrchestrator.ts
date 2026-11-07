@@ -253,9 +253,12 @@ export async function executeFullAnalysisWorkflow({
         // A bare `c.` names no transcript; the gene lets the server pin it to that gene's canonical (MANE Select) transcript.
         targetGene
       );
+      // Translation can legitimately answer without an accession. Keep the one we were given, but only
+      // for the same gene: an accession from another gene would analyse the wrong protein.
+      const sameGene = transResult.gene.toUpperCase() === targetGene.toUpperCase();
+      targetUniprot = transResult.uniprotId || (sameGene ? targetUniprot : "");
       targetGene = transResult.gene;
       targetVariant = transResult.variant;
-      targetUniprot = transResult.uniprotId;
       transcriptMeta = transResult.transcriptMeta;
     }
 
