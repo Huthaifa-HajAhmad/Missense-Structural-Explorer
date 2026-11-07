@@ -70,7 +70,9 @@ export async function resolveGeneToUniprot(gene: string, options?: UniprotCacheO
         console.log(`[UniProt] Resolving gene symbol ${normGene} via search API...`);
         const res = await fetchWithRetry(searchUrl, {
           headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
-          timeout: 15000
+          timeout: 15000,
+          ...(options?.signal ? { signal: options.signal } : {}),
+          ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
         });
         if (!res.ok) {
           console.warn(`[UniProt] Gene lookup failed with status: ${res.status}`);
