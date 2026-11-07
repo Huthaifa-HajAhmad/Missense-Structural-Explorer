@@ -88,6 +88,15 @@ describe("Interfaces & PPI — SLC12A4 p.Gln867His (doc/INTERFACES_AUDIT.md)", (
     expect(rejected.model).toMatchObject({ retryable: false, canRequest: false });
   });
 
+  it("ends a requested model on the server's final answer: a monomer or an unmodelled assembly is not 'running'", () => {
+    const monomeric = slc({ modelRequested: true, assembly: { ...SLC12A4.assembly, status: "monomeric" } });
+    expect(monomeric.model.state).toBe("not-applicable");
+    const notModelled = slc({ modelRequested: true, assembly: { ...SLC12A4.assembly, status: "not-modelled" } });
+    expect(notModelled.model.state).toBe("not-modelled");
+    const notYetAnswered = slc({ modelRequested: true, assembly: { ...SLC12A4.assembly, status: "not-requested" } });
+    expect(notYetAnswered.model.state).toBe("running");
+  });
+
   it("says so when the model and the solved structures disagree", () => {
     const ev = slc({
       assembly: {

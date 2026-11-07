@@ -239,6 +239,20 @@ describe("admin controls", () => {
     expect((await call("POST", "/auth/login", { body: { email: "m@lab.org", password: "a brand new password" } })).status).toBe(200);
   });
 
+  it("a reset link is not used up by a disabled account, and works once the account is enabled again", async () => {
+    await seedUser("admin@lab.org", "admin");
+    const member = await seedUser("m@lab.org");
+    const admin = await signIn("admin@lab.org");
+    const link = await call("POST", `/admin/users/${member.id}/reset-link`, { cookie: admin, body: {} });
+    const token = link.body.resetUrl.split("#reset=")[1];
+
+    updateUser(member.id, { status: "disabled" });
+    expect((await call("POST", "/auth/reset", { body: { token, password: "a brand new password" } })).status).toBe(404);
+
+    updateUser(member.id, { status: "active" });
+    expect((await call("POST", "/auth/reset", { body: { token, password: "a brand new password" } })).status).toBe(200);
+  });
+
   it("an expired reset link is refused", async () => {
     await seedUser("admin@lab.org", "admin");
     const member = await seedUser("m@lab.org");

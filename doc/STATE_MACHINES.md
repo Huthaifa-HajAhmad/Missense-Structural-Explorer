@@ -34,6 +34,10 @@ Every fix has a test that failed before the fix and passes after it.
 | [9](#issue-9-callers-who-could-not-join-a-running-job-each-started-their-own) | A duplicate FoldX run (rare) | Single-flight registry (4) | Fixed |
 | [10](#issue-10-a-pre-warm-lock-taken-while-redis-failed-was-never-released) | A variant not pre-warmed for 47 min (rare) | Pre-warm claim (7) | Fixed |
 | [11](#issue-11-a-cancelled-computer-job-kept-its-lease) | Nothing visible; untidy final rows | Job queue row (1) | Fixed |
+| [12](#issue-12-an-unfinished-analysis-was-stored-as-complete) | An opened variant showed the "in progress" placeholder as a finished analysis | Client pipeline stages (15) | Fixed |
+| [13](#issue-13-a-disabled-accounts-reset-link-was-used-up) | A reset link that stopped working after an admin disabled and re-enabled the account | Password reset link (11) | Fixed |
+| [14](#issue-14-a-requested-assembly-model-stayed-running-after-the-server-answered) | "Boltz-2 is modelling…" shown for ever on a monomer | Interfaces model request (listed in 16) | Fixed |
+| [15](#issue-15-thermompnn-finishing-last-was-left-out-of-the-stability-verdict) | Stability verdict and engine count ignored ThermoMPNN | Remote engine pollers (15) | Fixed |
 
 Checked and left unchanged: [section 17](#17-checked-and-left-unchanged).
 
@@ -266,7 +270,7 @@ computers (`agent.test.ts`, `auth.test.ts`); the rest **Read**.
 | Session | valid → deleted (sign-out) / expired (14 days) / idle (24 h) / user disabled. |
 | Sign-in throttle | `fresh` → `counting` → `locked` (5 failures for an email, 20 for an address, 15 min) → `fresh`. A success clears the email counter only. |
 | Invite | `unused` → `used` / `expired` / `replaced` / withdrawn. Checked before it is used, in one transaction. |
-| Password reset link | `unused` → `used` / `expired` / `replaced`. |
+| Password reset link | `unused` → `used` / `expired` / `replaced`. Checked (owner active) in the same query that uses it (`consumePasswordReset`), so a disabled account leaves the link unused. |
 | Pairing code | `unused` → `used` / `expired` (10 min) / `replaced`. Checked (owner active, fewer than 10 computers) before it is used (`pairingCodeOwner`, then `consumePairingCode`). |
 | Computer token | `active` → `revoked` (by the owner, the computer, or the user being disabled). Revoking hands its running jobs back at once (`handBackJobsOf`), and a claim long poll already waiting answers 401 instead of taking a job. |
 
@@ -318,6 +322,9 @@ arrived is `degraded`. At the end of a run, `settleUnreportedStages` settles any
 (except `coordinates`): `complete` when its evidence arrived, `error` when it did not, and `complete` for a
 stage with no evidence field of its own (narrative, literature have their own writers). A cached result
 with a `running` or `error` stage is re-run when opened. Responses for an old request are ignored.
+A result is never stored or restored with a stage at `running`: `settleStagesForStorage` settles it the
+same way, except that `core` is `complete` only when the analysis text is a real answer (not the
+"in progress" placeholder), and `error` otherwise.
 
 The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own suites) follows remote
 engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min) → `done`,
@@ -421,6 +428,30 @@ not join the job that is starting".
 **Cause:** a claim fell back to SQLite during one failed Redis command; later Redis calls neither saw it
 nor released it. **Fix:** `add` respects a live SQLite claim and `delete` releases both stores.
 **Test:** `state-prewarm-redis-fallback.test.ts`.
+
+### Issue 12: An unfinished analysis was stored as complete
+
+**Cause:** the variant cache turned every `running` stage into `complete` when it stored or restored a
+result. A write made while core was still running (the Interfaces tab writes the result it shows) saved
+the placeholder with `core: complete`, and the next open served it as a finished analysis.
+**Fix:** `settleStagesForStorage` (used by `variantCache`) settles by evidence; core needs a real analysis text.
+**Test:** `variantCache.test.ts`, "stored stage outcomes".
+
+### Issue 13: A disabled account's reset link was used up
+
+**Cause:** `consumePasswordReset` marked the link used, then the route found the account disabled and refused.
+**Fix:** the query only matches links of active accounts. **Test:** `auth.test.ts`.
+
+### Issue 14: A requested assembly model stayed running after the server answered
+
+**Cause:** `buildInterfacesEvidence` showed `running` for a requested model unless the server said `failed`,
+so a `monomeric` or `not-modelled` answer (final) never showed. **Fix:** a request only shows `running` while
+the server has not answered (`not-requested` or no assembly). **Test:** `interfacesEvidence.test.ts`.
+
+### Issue 15: ThermoMPNN finishing last was left out of the stability verdict
+
+**Cause:** the DynaMut2 and DDMut pollers recompute the consensus when they finish; the ThermoMPNN poller did
+not. **Fix:** it uses the same `withStabilityConsensus`. **Test:** `useBiophysicalModeling.test.tsx`.
 
 ### Issue 11: A cancelled computer job kept its lease
 

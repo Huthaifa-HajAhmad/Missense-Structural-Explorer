@@ -260,7 +260,7 @@ export function registerAuthRoutes(apiRouter: Router, jsonParserRegular: any): v
     const passwordHash = await hashPassword(parsed.data.password);
     const userId = consumePasswordReset(hashToken(parsed.data.token), now);
     const user = userId ? getUserById(userId) : null;
-    if (!user || user.status !== "active") {
+    if (!user) {
       return sendError(res, 404, "RESET_INVALID", "This reset link has expired or was already used. Ask your workspace admin for a new one.");
     }
     setPasswordHash(user.id, passwordHash);
