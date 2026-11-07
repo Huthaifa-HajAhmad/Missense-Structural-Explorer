@@ -1,5 +1,5 @@
-import { linkedPickPosition, type StructureSelection } from "../shared/structureSelection";
-import type { ResidueAt } from "../shared/coordinateText";
+import { linkedPickPosition } from "../shared/structureSelection";
+import type { StructureCanvasView } from "../lib/useStructureWorkspace";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
@@ -14,7 +14,7 @@ import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
 import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
 import { readProteinLength } from "../shared/foldingLimits";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
-import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type Structure3dEvidence, type ViewMode } from "../shared/structure3dEvidence";
+import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
 
 /** Resolves the dual-swatch colours for the superposed variant site from the evidence colour plan. */
 export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: number; secondary: number } {
@@ -27,20 +27,8 @@ export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: num
 
 export interface MolstarViewerProps {
   active?: boolean;
-  /** Cα residues of the primary coordinates, keyed by UniProt position (see `indexStructureResidues`). */
-  coordinateIndex: ReadonlyMap<number, ResidueAt>;
-  /** The selected/previewed residue and its provenance; the canvas only highlights `state: "available"`. */
-  selection: StructureSelection;
-  /** The 3D evidence model (`useStructure3dEvidence`), built once by the caller. */
-  model: Structure3dEvidence;
-  /** Coordinates for the primary structure; null lets the viewer load `customPdbUrl` or fetch. */
-  primaryPdbData: string | null;
-  /** The superposed variant, when the model shows a superposition. */
-  comparePdbData: string | null;
-  /** Fetch the AlphaFold DB model when no coordinates were supplied (AlphaFold view only). */
-  allowFetch: boolean;
-  variantPosition: number | null;
-  selectedResidue: number | null;
+  /** What this tab draws (`useStructureWorkspace`). The canvas only highlights a selection with `state: "available"`. */
+  view: StructureCanvasView;
   onResidueClick: (index: number | null) => void;
   /** Selects the queried variant again; the site button calls it when another residue is selected. */
   onReturnToVariant?: () => void;
@@ -62,13 +50,8 @@ export interface MolstarViewerProps {
  * `compareVariant`) the component accepted and ignored.
  */
 export default function MolstarViewer({
-  active = true, coordinateIndex, selection,
-  model,
-  primaryPdbData,
-  comparePdbData,
-  allowFetch,
-  variantPosition,
-  selectedResidue,
+  active = true,
+  view,
   onResidueClick,
   onReturnToVariant,
   onModeChange,
@@ -79,6 +62,9 @@ export default function MolstarViewer({
   onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
+  const { model, coordinateIndex, selection, primary: primaryPdbData, compare: comparePdbData, allowFetch } = view;
+  const variantPosition = model.site.position;
+  const selectedResidue = selection.position;
   const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
@@ -110,7 +96,6 @@ export default function MolstarViewer({
   const [siteCloseUp, setSiteCloseUp] = useState(false);
   const [pocketOpen, setPocketOpen] = useState(false);
   const [showPocket, setShowPocket] = useState(false);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [reloadNonce, setReloadNonce] = useState(0);
   // The reader's choice for a large highlighted set; reset whenever the set changes.
   const [labelAllCompanions, setLabelAllCompanions] = useState(false);
@@ -124,12 +109,6 @@ export default function MolstarViewer({
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-
-  useEffect(() => {
-    if (copyState === "idle") return;
-    const t = window.setTimeout(() => setCopyState("idle"), 2400);
-    return () => window.clearTimeout(t);
-  }, [copyState]);
 
   const plugin = useMolstarPlugin({
     isDark,
@@ -162,8 +141,7 @@ export default function MolstarViewer({
   }, [canDrawPocketOnCanvas]);
 
   const structure = useMolstarStructure({
-    pluginRef: plugin.pluginRef,
-    pluginCreated: plugin.pluginCreated,
+    plugin,
     uniprotId,
     gene,
     primaryPdbData,
@@ -195,8 +173,6 @@ export default function MolstarViewer({
       useVariantAnalysisStore.getState().setPdbTextProvenance(provenance);
     },
     onEntryLoaded: entry => useVariantAnalysisStore.getState().setCustomPdbEntry(entry),
-    setLoading: plugin.setLoading,
-    setLoadError: plugin.setLoadError,
   });
 
   const toggleFullscreen = async () => {
@@ -329,12 +305,8 @@ export default function MolstarViewer({
             setPocketOpen(next);
             setShowPocket(next);
           }}
-          captureOpen={plugin.captureMenuOpen}
-          setCaptureOpen={plugin.setCaptureMenuOpen}
-          captureMenuRef={plugin.captureMenuRef}
-          onDownload={() => plugin.handleDownloadCapture(fileStem)}
-          onCopy={async () => setCopyState((await plugin.handleCopyCapture()) ? "copied" : "failed")}
-          copyState={copyState}
+          onDownloadImage={() => plugin.downloadImage(fileStem)}
+          onCopyImage={plugin.copyImage}
           onOpenGuide={() => actions.setIsHowToInspectOpen(true)}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}

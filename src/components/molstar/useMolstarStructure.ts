@@ -8,6 +8,7 @@ import { PAIR_COLOURS, pdbIdFromUrl, type ColourPlan, type LoadedEntry, type The
 import type { StructureProvenance } from "../../shared/contracts";
 import { STRUCTURE_REF_HEADER } from "../../shared/structureRefs";
 import { registerStructureRefForPdb } from "../../api/structureRefRegistry";
+import type { MolstarPluginHandle } from "./useMolstarPlugin";
 
 /**
  * Loads the coordinates `AppViews` hands the canvas and draws them with the colour plan the 3D
@@ -22,8 +23,7 @@ import { registerStructureRefForPdb } from "../../api/structureRefRegistry";
 export type PlddtFilter = "none" | "50" | "70";
 
 export interface UseMolstarStructureOptions {
-  pluginRef: React.MutableRefObject<any>;
-  pluginCreated: boolean;
+  plugin: MolstarPluginHandle;
   uniprotId?: string | null;
   gene?: string | null;
   /** Coordinates for the primary structure. Null: load `customPdbUrl`, else (AlphaFold view only) fetch. */
@@ -63,8 +63,6 @@ export interface UseMolstarStructureOptions {
   onPdbTextLoaded?: (pdbText: string, provenance: StructureProvenance) => void;
   /** A PDB entry from the experimental list was fetched, or cleared (null). */
   onEntryLoaded?: (entry: LoadedEntry | null) => void;
-  setLoading: (loading: boolean) => void;
-  setLoadError: (err: string | null) => void;
 }
 
 function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: number | null): { color: string; colorParams?: any; typeParams?: any } {
@@ -184,8 +182,7 @@ export function resolveHierarchyComponent(plugin: any, selector: { ref: string }
 
 export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const {
-    pluginRef,
-    pluginCreated,
+    plugin: { pluginRef, pluginCreated, setLoading, setLoadError },
     uniprotId,
     gene,
     primaryPdbData,
@@ -214,8 +211,6 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     fetchWithAuth,
     onPdbTextLoaded,
     onEntryLoaded,
-    setLoading,
-    setLoadError,
   } = opts;
 
   const structureRef = useRef<any>(null);

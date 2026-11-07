@@ -16,19 +16,8 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { isApplePlatform } from "../shared/platform";
 import { landscapeKey } from "../shared/landscapeEvidence";
 
-export type MasterView =
-  | "search"
-  | "evidence"
-  | "structure"
-  | "structure_alphafold"
-  | "structure_esmfold"
-  | "energetics"
-  | "landscape"
-  | "insights"
-  | "report"
-  | "literature"
-  | "console"
-  | "about";
+import type { MasterView } from "../types/ui";
+export type { MasterView };
 
 /**
  * Sidebar geometry, shared by the pointer drag, the keyboard resize path and App's

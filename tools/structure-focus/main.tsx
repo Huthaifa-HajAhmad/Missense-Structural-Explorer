@@ -128,8 +128,8 @@ function seed(): void {
 }
 
 /**
- * The four lines `AppViews` uses to feed the canvas, repeated rather than imported: they are a few `useMemo`s over
- * store selectors, and importing the whole workspace would mount nine other views and their data.
+ * Builds the canvas view by hand rather than with `useStructureWorkspace`: this page has no sign-in provider
+ * (the hook's alignment request needs one), and it draws fixed SOD1 coordinates whatever the store holds.
  */
 function Canvas() {
   const family = useVariantAnalysisStore(s => s.active3dModelTab === "esmfold2" ? "esmfold" : "alphafold");
@@ -141,18 +141,16 @@ function Canvas() {
     () => buildStructureSelection(model, residues, selectedResidueIndex),
     [model, residues, selectedResidueIndex],
   );
+  const compare = model.viewMode === "superimposed" ? VARIANT_PDB : null;
+  const view = useMemo(
+    () => ({ model, coordinateIndex: residues, selection, primary: pdbText, compare, allowFetch: false }),
+    [model, residues, selection, pdbText, compare],
+  );
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--cs-bg)" }}>
       <MolstarViewer
-        model={model}
-        coordinateIndex={residues}
-        selection={selection}
+        view={view}
         active
-        primaryPdbData={pdbText}
-        comparePdbData={model.viewMode === "superimposed" ? VARIANT_PDB : null}
-        allowFetch={false}
-        variantPosition={5}
-        selectedResidue={selectedResidueIndex ?? null}
         onResidueClick={() => {}}
         onModeChange={() => {}}
         heightClass="h-full"

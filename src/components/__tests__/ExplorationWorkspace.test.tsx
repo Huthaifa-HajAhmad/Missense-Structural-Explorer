@@ -12,11 +12,11 @@ import { SOD1_LANDSCAPE_CONTEXT } from '../../shared/__tests__/fixtures/sod1Land
 vi.mock('../../hooks/useProteinSequence', () => ({ useProteinSequence: () => ({ sequence: 'MAAAAVAAAA', isLoading: false, error: null }) }));
 vi.mock('../LiteratureView', () => ({ default: () => null }));
 vi.mock('../telemetry/LiveTelemetryPanel', () => ({ default: () => null }));
-vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; onReturnToVariant?: () => void; model: { family: string } }) => <div data-testid="canvas-instance">
+vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; onReturnToVariant?: () => void; view: { model: { family: string } } }) => <div data-testid="canvas-instance">
   <button onClick={() => props.onResidueClick(8)}>Pick structure residue 8</button>
   <button onClick={() => props.onResidueClick(5)}>Pick structure residue 5</button>
   <button onClick={() => props.onReturnToVariant?.()}>Return to variant</button>
-  <span>Canvas family: {props.model.family}</span>
+  <span>Canvas family: {props.view.model.family}</span>
 </div> }));
 afterEach(cleanup);
 
