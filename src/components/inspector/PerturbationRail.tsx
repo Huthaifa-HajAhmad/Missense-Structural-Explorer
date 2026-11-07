@@ -1,10 +1,11 @@
 import React, { useMemo } from "react";
 import { BookOpen, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
-import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import { THRESHOLDS } from "../../shared/thresholds/constants";
 import { ENTROPY_MARKS, EVEN_ODDS_LLR, RANK_BANDS } from "../../shared/modelCalibration";
-import { buildPerturbationEvidence, oddsText, type LmReading } from "../../shared/perturbationEvidence";
+import { oddsText, signed, type LmReading } from "../../shared/perturbationEvidence";
+import { directionLabel, selectLmReading } from "../../shared/perturbationSummary";
+import { usePerturbationEvidence, type PerturbationLegs } from "../evidence/perturbation/usePerturbationEvidence";
 import type { PerturbationModelId } from "../../shared/perturbationModels";
 import { perturbationReadings } from '../../shared/molecularWorkspace';
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
@@ -25,7 +26,8 @@ import { useEvidenceWorkspace } from '../evidence/EvidenceWorkspace';
  *     distance, with refinement off) and ESMC's shift as cosine (it is Euclidean);
  *   • showed embedding widths from the settings engine (SaProt 35M as 1280-dim).
  *
- * Built from the same `buildPerturbationEvidence` object as the column.
+ * Built from the same evidence object as the column (`usePerturbationEvidence`), and it picks the
+ * selected model with the column's rule (`selectLmReading`).
  *
  * 2026-10 (SLC12A4 p.Gln867His): step 3 read "within-model rank" and said "The models fall in
  * different bands" for three models that all rated the native residue higher; it now traces each
@@ -34,15 +36,14 @@ import { useEvidenceWorkspace } from '../evidence/EvidenceWorkspace';
  * listed with the others, and ΔLLR uses the tab's two decimals.
  */
 
-/** "Favours Gln · 384×" — the same words the tab's Reading column uses. */
+/** "Favours Gln · 384×" — the tab's direction words, with each model's own odds. */
 function directionText(l: LmReading, wt: string, mut: string): string {
-  switch (l.direction) {
-    case "favours-native": return `Favours ${wt} · ${l.odds !== null ? oddsText(l.odds) : "—"}`;
-    case "favours-variant": return `Favours ${mut} · ${l.odds !== null ? oddsText(1 / l.odds) : "—"}`;
-    case "even": return "Near even · within 2×";
-    case "flat": return "No preference · flat";
-    default: return "no ΔLLR";
-  }
+  const label = directionLabel(l, wt, mut);
+  if (label === null) return "no ΔLLR";
+  if (l.direction === "even") return `${label} · within 2×`;
+  if (l.direction === "flat") return `${label} · flat`;
+  const odds = l.odds === null ? "—" : oddsText(l.direction === "favours-variant" ? 1 / l.odds : l.odds);
+  return `${label} · ${odds}`;
 }
 
 type StepState = "done" | "warn" | "idle";
@@ -59,8 +60,6 @@ function Step({ n, label, state = "done", children }: { n: number; label: string
   );
 }
 
-const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
-
 const REFERENCES: Array<{ citation: string; doi: string }> = [
   { citation: "Meier J, et al. Language models enable zero-shot prediction of the effects of mutations on protein function. NeurIPS 2021.", doi: "10.1101/2021.07.09.450648" },
   { citation: "Lin Z, et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science 2023.", doi: "10.1126/science.ade2574" },
@@ -73,49 +72,17 @@ const REFERENCES: Array<{ citation: string; doi: string }> = [
 export function PerturbationRail({
   analysisResult,
   activePerturbationModel = "saprot",
-  saprotEngine = null,
-  foldingEnergetics,
-  structuralDiff,
-  metrics,
-  isFolding = false,
-  foldingStatus = null,
-  foldingError = null
-}: {
-  analysisResult: AnalysisResult | null;
-  activePerturbationModel?: PerturbationModelId;
-  saprotEngine?: string | null;
-  foldingEnergetics?: any;
-  structuralDiff?: any;
-  metrics?: any;
-  isFolding?: boolean;
-  foldingStatus?: "success" | "failed" | "unavailable" | null;
-  foldingError?: string | null;
-}) {
-  const r = analysisResult as any;
+  ...legs
+}: { analysisResult: AnalysisResult | null; activePerturbationModel?: PerturbationModelId } & PerturbationLegs) {
   const workspace = useEvidenceWorkspace('perturbation');
-  const evidence = useMemo(() => {
-    if (!r) return null;
-    const m = resolveResidueShiftModel({ wildType: r.metadata?.wildType, mutant: r.metadata?.mutant, variant: r.metadata?.variant });
-    return buildPerturbationEvidence({
-      result: r,
-      residues: { wtCode: m.wildTypeCode, mutCode: m.mutantCode, wtLabel: m.wildTypeLabel, mutLabel: m.mutantLabel },
-      foldingEnergetics,
-      structuralDiff,
-      metrics,
-      saprotEngine,
-      isFolding,
-      foldingStatus,
-      foldingError
-    });
-  }, [r, foldingEnergetics, structuralDiff, metrics, saprotEngine, isFolding, foldingStatus, foldingError]);
+  const evidence = usePerturbationEvidence(analysisResult, legs);
   const readings = useMemo(() => (evidence ? perturbationReadings(evidence) : []), [evidence]);
 
   if (!evidence) {
     return <p className="ptb-empty">The trace appears once a variant has been analysed.</p>;
   }
 
-  const selected =
-    evidence.lms.find(l => l.id === activePerturbationModel && l.availability.state === "computed") ?? evidence.scored[0] ?? null;
+  const selected = selectLmReading(evidence, activePerturbationModel);
   const { scored, lms, scale, direction, physical, engine } = evidence;
   const pinned = readings.find(r => r.key === workspace.selected);
   const pinOrigin = pinned?.key.startsWith("phys:") ? "Packing & geometry" : pinned?.key === "esm3" ? "Sequence embeddings" : "Model comparison";
@@ -125,7 +92,7 @@ export function PerturbationRail({
   const clashMark = THRESHOLDS.vdwClash.significantClash;
   const sources = lms.filter(l => l.servedBy).map(l => [l.family, l.servedBy!] as const);
   if (evidence.esm3?.servedBy) sources.push(["ESM3", evidence.esm3.servedBy] as const);
-  if (physical.available) sources.push(["Physical model", `FoldX BuildModel${physical.runs ? ` · ${physical.runs} runs` : ""}`] as const);
+  if (physical.state === "computed") sources.push(["Physical model", `FoldX BuildModel${physical.runs ? ` · ${physical.runs} runs` : ""}`] as const);
 
   return (
     <div className="ptb-rail" data-testid="perturbation-rail">
@@ -189,9 +156,9 @@ export function PerturbationRail({
                   `${direction.nEven ? `, ${direction.nEven} near even` : ""}${direction.nFlat ? `, ${direction.nFlat} flat (not read)` : ""}.`}
             </span>
           </Step>
-          <Step n={4} label="Physical model" state={physical.available ? "done" : "idle"}>
+          <Step n={4} label="Physical model" state={physical.state === "computed" ? "done" : "idle"}>
             <span>
-              {physical.available
+              {physical.state === "computed"
                 ? `FoldX${physical.rigidBackbone ? ", rigid backbone" : ""}${vdw?.value != null ? ` · VdW ${vdw.text} kcal/mol` : ""}`
                 : physical.reason}
             </span>

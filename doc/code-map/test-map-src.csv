@@ -106,8 +106,15 @@ src/components/evidence/interfaces/interfacesLive.ts,client,src/components/evide
 src/components/evidence/interfaces/useInterfacesData.ts,client,
 src/components/evidence/interfaces/viewUrlState.ts,client,
 src/components/evidence/perturbation/EmbeddingProfile.tsx,component,
+src/components/evidence/perturbation/Esm3Rows.tsx,component,
+src/components/evidence/perturbation/FindingCard.tsx,component,
+src/components/evidence/perturbation/ModelAvailability.tsx,component,
+src/components/evidence/perturbation/ReadingsTable.tsx,component,
 src/components/evidence/perturbation/ResidueDetail.tsx,component,
 src/components/evidence/perturbation/Rulers.tsx,component,
+src/components/evidence/perturbation/ViewIntro.tsx,component,
+src/components/evidence/perturbation/format.ts,client,
+src/components/evidence/perturbation/usePerturbationEvidence.ts,client,
 src/components/evidence/population/FrequencyScale.tsx,component,
 src/components/evidence/population/populationFormat.ts,client,src/components/evidence/__tests__/populationFormat.test.ts
 src/components/evidence/predictors/ScoreRuler.tsx,component,
@@ -373,8 +380,9 @@ src/shared/narrativeSynthesis.ts,client,server/routes/variant/narrativeCacheKey.
 src/shared/numbering.ts,client,src/shared/__tests__/numbering.test.ts
 src/shared/perBurden.ts,client,src/shared/__tests__/perBurden.test.ts;src/shared/__tests__/perBurdenParity.test.ts
 src/shared/perRegions.ts,client,server/services/evidence-context/perRegions.test.ts
-src/shared/perturbationEvidence.ts,client,src/shared/__tests__/molecularWorkspace.test.ts;src/shared/__tests__/perturbationEvidence.test.ts
+src/shared/perturbationEvidence.ts,client,src/shared/__tests__/molecularWorkspace.test.ts;src/shared/__tests__/perturbationEvidence.test.ts;src/shared/__tests__/perturbationSummary.test.ts
 src/shared/perturbationModels.ts,client,src/shared/__tests__/modelCalibration.test.ts
+src/shared/perturbationSummary.ts,client,src/shared/__tests__/perturbationSummary.test.ts
 src/shared/pext.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/evidenceContext.test.ts;src/stores/slices/evidenceContextSlice.test.ts
 src/shared/platform.ts,client,
