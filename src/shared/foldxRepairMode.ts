@@ -23,8 +23,8 @@
  * did not fit the time cap on a slow host). Such a result is shown, but it is never cached under the
  * key of the mode it was meant to have.
  */
-import { FOLDX_FULL_REPAIR_MAX_RESIDUES } from "./computeRouting";
-import { LOCAL_REPAIR_BENCHMARK } from "./foldxRepairBenchmark.generated";
+import { FOLDX_FULL_REPAIR_MAX_RESIDUES } from "./computeRouting.ts";
+import { LOCAL_REPAIR_BENCHMARK } from "./foldxRepairBenchmark.generated.ts";
 
 /** Bump the suffix when the shell rule changes: it is part of the result's identity. */
 export const FIX_SHELL_MODE = "fix-shell:r15-seq14:v1";
