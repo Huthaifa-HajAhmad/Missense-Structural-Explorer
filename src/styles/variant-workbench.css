@@ -274,18 +274,17 @@
   .workbench-query .qe__example { flex-direction: row; align-items: center; min-block-size: 2rem; padding: .375rem .5rem; }
   .workbench-query .qe__example-note { display: none; }
   .workbench-benchmarks { min-block-size: 0; overflow-y: auto; }
-  /* The monitor's height is a property of the design, not of whichever tab is open — but it cannot
-     be a constant, because the ten service rows' height depends on the platform's font metrics.
-     So the rail stays a stretching item (min-height floor, never a fixed height), and the two
-     tabpanels are laid on ONE grid cell: the hidden one stays in the layout flow (visibility, not
-     display), so the cell — and through `flex-basis: auto` the deck's rows — always sizes to the
-     taller of the two panels, whichever it is, instead of clipping it below the fold. */
-  .workbench-rail { align-self: stretch; min-block-size: 48.5rem; }
-  /* `1 1 auto`, not `1`: the body's basis is its content, so the rail's intrinsic height carries the
-     services panel even when the deck's rows are otherwise too short for it. The body owns three
-     children (heading, switch, panels) in reading order; the last row is the two panels' shared
-     cell and takes whatever height the rail has beyond what the heading and switch need. */
-  .workbench-rail-body { position: static; flex: 1 1 auto; display: grid; grid-template-rows: auto auto minmax(auto, 1fr); grid-template-areas: "heading" "tabs" "panels"; }
+  /* The monitor's height is a cap, not a floor: it is the Services list's own height (measured in the panel,
+     `--workbench-deck-h`), so the card ends where the list ends and has no empty band under it. It cannot be a
+     constant, because the service rows' height depends on the platform's font metrics. The two tabpanels share ONE
+     grid cell, so a tab switch moves nothing; a taller Pipeline tab scrolls inside that cell instead of making the
+     deck taller. */
+  .workbench-rail { align-self: stretch; }
+  /* `1 1 auto`: before the measure exists the body's basis is its content, so the rail still sizes to the services
+     list. The body owns three children (heading, switch, panels) in reading order; the last row is the two panels'
+     shared cell and takes whatever height the rail has beyond what the heading and switch need. `minmax(0, 1fr)`
+     lets that cell be shorter than the taller panel, which then scrolls. */
+  .workbench-rail-body { position: static; flex: 1 1 auto; display: grid; grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "heading" "tabs" "panels"; }
   .workbench-rail-heading { grid-area: heading; }
   .workbench-monitor-tabs { grid-area: tabs; }
   .workbench-rail [role="tabpanel"] { grid-area: panels; }
