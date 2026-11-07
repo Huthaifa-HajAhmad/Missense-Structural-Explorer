@@ -1,6 +1,6 @@
 ﻿import { describe, beforeEach, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { skipTour } from './support.js';
+import { monitorSettled, skipTour } from './support.js';
 
 /**
  * The search form's vertical rhythm and deck alignment (design review, six annotated marks).
@@ -50,6 +50,7 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
   });
 
   test('the monitor aligns with the query heading and Recent analyses follows the form', async ({ screen, app, browser }) => {
+    await monitorSettled(browser);
     const form = await box(screen.getByRole('region', 'Variant query'), 'form card');
     const rail = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail');
     const recent = await box(screen.getByRole('region', /recent analyses/i), 'recent analyses card');
@@ -66,9 +67,8 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     expect(railOpen.height >= rail.height - 1, 'opening the refinements never shrinks the monitor').toBe(true);
     await screen.getByRole('tab', 'Pipeline').tap();
     const railPipeline = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, pipeline open');
-    // Content reflow not caused by the switch may move the design by one text line; the switch
-    // itself moves the monitor beyond nothing.
-    expect(Math.abs(railPipeline.height - railOpen.height) <= 16, `switching tabs changes the monitor not at all (${railOpen.height.toFixed(1)} vs ${railPipeline.height.toFixed(1)})`).toBe(true);
+    // The health summary has settled, so the switch moves the monitor by nothing.
+    expect(Math.abs(railPipeline.height - railOpen.height) <= 1, `switching tabs changes the monitor not at all (${railOpen.height.toFixed(1)} vs ${railPipeline.height.toFixed(1)})`).toBe(true);
 
     // The recent card is its own row, not the form column's tail.
     expect(recent.y > form.y + form.height, 'Recent analyses should start below the form card');

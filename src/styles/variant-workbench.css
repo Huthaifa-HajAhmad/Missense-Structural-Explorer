@@ -289,8 +289,8 @@
   .workbench-monitor-tabs { grid-area: tabs; }
   .workbench-rail [role="tabpanel"] { grid-area: panels; }
   /* The inactive panel is `inert`: out of the accessibility tree and the focus order, but still in
-     the layout, so the shared row below keeps the taller panel's metrics on either tab — which is
-     what makes the monitor's height a property of the design rather than of the platform. */
+     the layout and in the shared cell, so a tab switch moves nothing. The cell is as tall as the Services
+     list; the Pipeline panel, when taller, scrolls inside it. */
   .workbench-rail [role="tabpanel"][data-inactive] { visibility: hidden; }
 }
 @container (width < 54rem) {

@@ -1,6 +1,6 @@
 import { describe, beforeEach, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { skipTour } from './support.js';
+import { monitorSettled, skipTour } from './support.js';
 
 describe('variant search form', { tags: ['search'] }, () => {
   beforeEach(async ({ app, browser }) => {
@@ -99,6 +99,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     await browser.setViewport({ width: 1753, height: 981 });
     await app.open('/');
     await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+    await monitorSettled(browser);
     // Measured on Services first: the monitor is the taller of its two tabpanels, and the query card
     // claim below compares against that layout, not against a shrunk Pipeline.
     const layout = await browser.evaluate(() => {
@@ -128,8 +129,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(layout.gap >= 0, 'the tray reads below the form, whatever its stretched height').toBe(true);
     await app.screenshot('single-recent-full-monitor');
 
-    // The pipeline tab then holds the deck's height too. Content reflow not caused by the switch
-    // may move the design by one text line; the switch itself moves the monitor beyond nothing.
+    // The pipeline tab then holds the deck's height too: the summary has settled, so the switch moves nothing.
     await screen.getByRole('tab', 'Pipeline').tap();
     const pipelineHeight = await browser.evaluate(() => document.querySelector('.workbench-rail')!.getBoundingClientRect().height);
     // The measured design height is the deck's, and the monitor renders IT rather than the visible
@@ -141,7 +141,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(Number.isFinite(designPipeline), `the deck carries a measured design height (${pipelineVar})`).toBe(true);
     expect(designPipeline, `the design height never shrinks (${layout.deckVar} → ${pipelineVar})`).toBeGreaterThanOrEqual(parseFloat(layout.deckVar) - 1);
     expect(Math.abs(pipelineHeight - designPipeline) <= 1, `the monitor renders the design height, not the tab's content (${pipelineHeight.toFixed(1)} vs ${designPipeline})`).toBe(true);
-    expect(Math.abs(pipelineHeight - layout.height) <= 16, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
+    expect(Math.abs(pipelineHeight - layout.height) <= 1, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
     await app.screenshot('pipeline-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
     expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow on mobile').toBe(true);
@@ -186,7 +186,8 @@ describe('variant search form', { tags: ['search'] }, () => {
     await app.screenshot('empty-submit-focus');
   });
 
-  test('both tabpanels stay mounted: the Services badge keeps its reading while Pipeline is open', async ({ app, browser, screen }) => {    await browser.setViewport({ width: 1753, height: 981 });
+  test('both tabpanels stay mounted: the Services badge keeps its reading while Pipeline is open', async ({ app, browser, screen }) => {
+    await browser.setViewport({ width: 1753, height: 981 });
     await app.open('/');
     await expect(screen.getByRole('heading', /No recent analyses/)).toBeVisible();
     // Tests before this one may have left the app on Pipeline, and `open` does not reset view state.
@@ -233,6 +234,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     await app.open('/');
     await browser.evaluate(() => document.fonts.ready.then(() => new Promise<string>(r => setTimeout(() => r('ok'), 300))));
     await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+    await monitorSettled(browser);
 
     const closed = await browser.evaluate(() => ({
       monitor: Math.round(document.querySelector('.workbench-rail')!.getBoundingClientRect().height * 10) / 10,
@@ -255,10 +257,9 @@ describe('variant search form', { tags: ['search'] }, () => {
     });
     // The deck's height is the monitor's measured content, and the query card grows into it: the
     // recents card yields (shrinks, scrolls inside itself) instead of dropping the column or the
-    // monitor, and the two columns still share their bottom edge. Content reflow the switch does
-    // not cause (a summary or a service row wrapping to a line) may move the design by one text
-    // line; a tab switch itself moves the monitor beyond nothing.
-    expect(Math.abs(open.monitor - closed.monitor) <= 16, `the monitor keeps its height when the query expands (${closed.monitor} → ${open.monitor})`).toBe(true);
+    // monitor, and the two columns still share their bottom edge. The health summary has settled
+    // before the first measurement, so the monitor does not move at all.
+    expect(Math.abs(open.monitor - closed.monitor) <= 1, `the monitor keeps its height when the query expands (${closed.monitor} → ${open.monitor})`).toBe(true);
     expect(open.recents <= closed.recentsH - 20, `the recents card yields to the expansion (${closed.recentsH} → ${open.recents})`).toBe(true);
     expect(open.aligned, 'both columns still share a bottom edge').toBe(true);
     // And the grown card never lurches past the deck it shares: it fits its row (scrolling inside

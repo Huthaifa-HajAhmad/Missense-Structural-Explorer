@@ -1,6 +1,6 @@
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { skipTour } from './support.js';
+import { monitorSettled, skipTour } from './support.js';
 
 /**
  * The deck (query card, recents, monitor) ends where the monitor's service list ends. A taller
@@ -10,21 +10,33 @@ describe('deck height cap', { tags: ['search'] }, () => {
   test('the deck ends at the service list and typing a variant does not move it', async ({ app, browser, screen }) => {
     await skipTour(browser);
     await browser.addInitScript(() => {
-      localStorage.setItem('variant_search_history', JSON.stringify([
-        { gene: 'CNNM2', variant: 'p.Glu357Lys', uniprotId: 'Q9H8M5' },
-      ]));
+      try {
+        localStorage.setItem('variant_search_history', JSON.stringify([
+          { gene: 'CNNM2', variant: 'p.Glu357Lys', uniprotId: 'Q9H8M5' },
+        ]));
+      } catch {
+        // about:blank and opaque origins deny storage and would end this script before the style below is added.
+      }
       // Compact service rows, as on a machine with tighter font metrics: the list is then shorter than
-      // any fixed minimum height the monitor could carry.
-      document.addEventListener('DOMContentLoaded', () => {
+      // any fixed minimum height the monitor could carry. Added as soon as <head> exists, so the app's
+      // first measurement already sees it (DOMContentLoaded comes after the app's own scripts have run).
+      const addStyle = () => {
+        if (!document.head) return false;
         const style = document.createElement('style');
         style.textContent = '.telemetry-service { min-block-size: 0 !important; padding-block: .25rem !important; }';
         document.head.appendChild(style);
-      });
+        return true;
+      };
+      if (!addStyle()) {
+        const watcher = new MutationObserver(() => { if (addStyle()) watcher.disconnect(); });
+        watcher.observe(document, { childList: true, subtree: true });
+      }
     });
     await browser.setViewport({ width: 1753, height: 981 });
     await app.open('/');
     await browser.evaluate(() => document.fonts.ready.then(() => new Promise<string>(r => setTimeout(() => r('ok'), 600))));
     await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+    await monitorSettled(browser);
 
     const measure = () => browser.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
