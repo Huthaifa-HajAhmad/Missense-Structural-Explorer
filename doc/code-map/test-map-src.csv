@@ -49,7 +49,11 @@ src/components/console/consoleUtils.ts,client,src/components/__tests__/consoleUt
 src/components/console/useCopy.ts,client,
 src/components/energetics/DdgRuler.tsx,component,src/components/__tests__/EnergeticsView.test.tsx
 src/components/energetics/EnergeticsComparison.tsx,component,src/components/energetics/EnergeticsComparison.test.tsx
+src/components/energetics/FindingFacts.tsx,component,
+src/components/energetics/ProgressPanel.tsx,component,
+src/components/energetics/ReadingsTable.tsx,component,
 src/components/energetics/RetryDynamut2.tsx,component,src/components/energetics/RetryDynamut2.test.tsx
+src/components/energetics/useEnergeticsEvidence.ts,client,
 src/components/evidence/AlphaGenomeGuide.tsx,component,
 src/components/evidence/AlphaGenomeTab.tsx,component,src/components/evidence/__tests__/AlphaGenomeTab.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx
 src/components/evidence/ClinicalTab.tsx,component,src/components/__tests__/ClinicalTab.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx
@@ -139,6 +143,8 @@ src/components/insights/InsightsScreen.tsx,component,src/components/__tests__/Re
 src/components/inspector/AlphaGenomeRail.tsx,component,src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/__tests__/AlphaGenomeRail.test.tsx
 src/components/inspector/ConstraintInspector.tsx,component,src/components/__tests__/VariantHeader.test.tsx;src/components/inspector/__tests__/ConstraintInspector.test.tsx
 src/components/inspector/EnergeticsInspector.tsx,component,src/components/inspector/EnergeticsInspector.test.tsx
+src/components/inspector/EnergeticsMethodInspector.tsx,component,
+src/components/inspector/EnergeticsRuleTrace.tsx,component,
 src/components/inspector/EvidenceContextRail.tsx,component,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx
 src/components/inspector/EvidenceInspector.tsx,component,src/components/inspector/__tests__/AlphaGenomeRail.test.tsx;src/components/inspector/__tests__/EvidenceInspector.populationFrequency.test.tsx;src/components/inspector/__tests__/EvidenceInspector.test.tsx;src/components/inspector/__tests__/EvidenceRailRouting.test.tsx
 src/components/inspector/EvidenceReadingInspector.tsx,component,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx
@@ -321,7 +327,7 @@ src/shared/dosageSensitivity.ts,client,src/shared/__tests__/dosageSensitivity.te
 src/shared/embeddingSource.ts,client,src/shared/__tests__/embeddingSource.test.ts
 src/shared/energeticsComparison.ts,client,src/shared/__tests__/energeticsComparison.test.ts
 src/shared/energeticsEvidence.ts,client,src/components/__tests__/EnergeticsView.test.tsx;src/components/__tests__/clinicalExportVerdict.test.ts;src/components/energetics/EnergeticsComparison.test.tsx;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts
-src/shared/engineStatus.ts,client,server/tests/consensus-single-source.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/consensusVerdict.guard.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/perturbationEvidence.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
+src/shared/engineStatus.ts,client,server/tests/consensus-single-source.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/consensusVerdict.guard.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/perturbationEvidence.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
 src/shared/evidenceAvailability.ts,client,src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts
 src/shared/evidenceComparison.ts,client,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/test/evidenceComparison.test.ts
 src/shared/evidenceContextIdentity.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/shared/__tests__/evidenceContextIdentity.test.ts

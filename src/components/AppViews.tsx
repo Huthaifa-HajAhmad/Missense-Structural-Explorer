@@ -484,14 +484,8 @@ export function AppViews({
                   key={energyQueryKey}
                   selectedEngine={selectedEnergyEngine}
                   onSelectEngine={selectEnergyEngine}
-                  isDark={isDark}
                   classCard="h-full flex flex-col border-0 rounded-none shadow-none"
-                  classCardHeader={classCardHeader}
-                  classCardTitle={classCardTitle}
-                  classBorderSec={classBorderSec}
-                  classTextBody={classTextBody}
-                  classTextMute={classTextMute}
-                  analysisState={analysisState}
+                  analysisResult={analysisState.result}
                   foldingDdG={foldingDdG}
                   foldingStatus={foldingStatus as "failed" | "success" | "unavailable" | null}
                   foldingEnergetics={foldingEnergetics}

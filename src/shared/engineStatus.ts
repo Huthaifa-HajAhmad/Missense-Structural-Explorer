@@ -261,12 +261,20 @@ export function formatDdg(
   unit: EnergyUnit = "kcal/mol",
   digits = 2
 ): string {
+  const value = formatDdgValue(canonicalDdg, unit, digits);
+  return value === "—" ? value : `${value} ${unit}`;
+}
+
+/** The same figure as `formatDdg`, without the unit, for a cell whose header or neighbour names it. */
+export function formatDdgValue(
+  canonicalDdg: number | null | undefined,
+  unit: EnergyUnit = "kcal/mol",
+  digits = 2
+): string {
   if (canonicalDdg === null || canonicalDdg === undefined || !Number.isFinite(canonicalDdg)) {
     return "—";
   }
-  return unit === "kJ/mol"
-    ? `${(canonicalDdg * KJ_PER_KCAL).toFixed(digits)} kJ/mol`
-    : `${canonicalDdg.toFixed(digits)} kcal/mol`;
+  return (unit === "kJ/mol" ? canonicalDdg * KJ_PER_KCAL : canonicalDdg).toFixed(digits);
 }
 
 /**
@@ -1027,10 +1035,9 @@ export interface CoverageSummary {
   /**
    * Engines with NO VALUE, with the reason — which is not the same as "engines that returned nothing".
    *
-   * A `skipped` engine (hidden while the run continues) has no value either and belongs here under both
-   * the old and the new predicate, so the narrower wording was untrue for that member. The distinction
-   * that carries weight is against `running`: an engine still calculating is pending, not missing, and
-   * the two buckets must stay disjoint or any surface branching on them contradicts its own spinner.
+   * An engine still calculating is pending, not missing, and the two buckets must stay disjoint or any
+   * surface branching on them contradicts its own spinner. That includes an engine the user has hidden
+   * (`skipped`): it is still running, so it is not listed here.
    */
   missing: readonly EngineOutcome[];
   /**
@@ -1045,11 +1052,19 @@ export interface CoverageSummary {
 /** Below this many engines, a weighted average is a single-tool estimate, not a consensus. */
 export const MIN_ENGINES_FOR_CONSENSUS = 3;
 
+/**
+ * Whether an engine is still calculating. A hidden engine is still calculating: hiding renames its
+ * row to "skipped" but must not change what is running, missing or provisional.
+ */
+export function isStillRunning(outcome: Pick<EngineOutcome, "state" | "hidden">): boolean {
+  return outcome.state === "running" || outcome.hidden;
+}
+
 export function summarizeCoverage(allOutcomes: readonly EngineOutcome[]): CoverageSummary {
   // Coverage describes the COUNTED engines; a reference-only row is neither intended nor missing.
   const outcomes = allOutcomes.filter(o => !o.engine.referenceOnly);
   const computed = outcomes.filter(o => o.contributesToConsensus).length;
-  const running = outcomes.filter(o => o.state === "running").map(o => o.id);
+  const running = outcomes.filter(isStillRunning).map(o => o.id);
   /**
    * "Returned nothing" means NO VALUE — not "not counted".
    *
@@ -1057,7 +1072,7 @@ export function summarizeCoverage(allOutcomes: readonly EngineOutcome[]): Covera
    * value that is displayed, with a badge saying why it is not counted, listed as missing. The field's
    * own docstring says "engines that returned nothing", and the two are not the same thing.
    */
-  const missing = outcomes.filter(o => o.canonicalDdg === null && o.state !== "running");
+  const missing = outcomes.filter(o => o.canonicalDdg === null && !isStillRunning(o));
   const notAvailableInDeployment = outcomes.filter(
     o => o.state === "not-installed" || o.state === "not-covered"
   ).length;

@@ -357,9 +357,10 @@ describe("engineStatus — coverage must be visible and honest", () => {
     expect(hidden.computed).toBe(visible.computed);
     expect(hidden.intended).toBe(visible.intended);
     expect(hidden.label).toBe(visible.label);
-    // Hiding only renames the still-running row; it does not remove it from the tally.
-    expect(hidden.running).toHaveLength(0);
+    // Hiding only renames the still-running row; the engine is still running and still not missing.
+    expect(hidden.running).toEqual(["ddmut"]);
     expect(visible.running).toEqual(["ddmut"]);
+    expect(hidden.missing.map(o => o.id)).toEqual(visible.missing.map(o => o.id));
   });
 
   it("counts engines that are unavailable by design", () => {
