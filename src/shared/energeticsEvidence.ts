@@ -36,6 +36,8 @@ import {
   classifyRawDdg,
   describeProvenance,
   formatDdg,
+  formatDdgValue,
+  isStillRunning,
   getEngine,
   KJ_PER_KCAL,
   summarizeCoverage,
@@ -379,9 +381,13 @@ function runRange(raw: unknown): string {
 
 /** Signed canonical ΔΔG, "+2.62" / "−0.36", for sentences. */
 export function signedDdg(v: number | null, unit: EnergyUnit = "kcal/mol"): string {
-  if (v === null) return "—";
-  const text = formatDdg(v, unit);
-  return v > 0 ? `+${text}` : text.replace(/^-/, "−");
+  return v === null ? "—" : `${signedDdgNumber(v, unit)} ${unit}`;
+}
+
+/** A signed ΔΔG without its unit, for a cell whose header or neighbour already names it: "+0.16", "−0.08". */
+export function signedDdgNumber(v: number | null, unit: EnergyUnit = "kcal/mol"): string {
+  const text = formatDdgValue(v, unit);
+  return v !== null && v > 0 ? `+${text}` : text.replace(/^-/, "−");
 }
 
 /**
@@ -642,7 +648,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     // A run still in progress is a snapshot; the reference-only rows (ProtVar) never hold a verdict back.
     provisional:
       counted.length > 0 &&
-      readings.some(r => r.outcome.state === "running" && !r.outcome.engine.referenceOnly),
+      readings.some(r => isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly),
   };
 
   const structure: EnergeticsStructure | null = prov
@@ -719,8 +725,8 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     agreement,
     // The run's state is about the engines that can count; a reference row keeps its own state in
     // the table but never holds the stage "running" or reports it "failed".
-    running: readings.filter(r => r.outcome.state === "running" && !r.outcome.engine.referenceOnly),
-    missing: readings.filter(r => r.ddg === null && r.outcome.state !== "running" && !r.outcome.engine.referenceOnly),
+    running: readings.filter(r => isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly),
+    missing: readings.filter(r => r.ddg === null && !isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly),
     structure,
     lowPlddt,
     isFolding,

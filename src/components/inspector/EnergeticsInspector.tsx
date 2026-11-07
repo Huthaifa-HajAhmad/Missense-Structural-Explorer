@@ -1,22 +1,15 @@
-import React, { useMemo } from "react";
-import { BookOpen, Database, ExternalLink, GitBranch, Layers, Ruler, SlidersHorizontal } from "lucide-react";
-import { AnalysisResult, EnergeticsData } from "../../types";
+import React from "react";
+import { BookOpen, Database, Ruler, SlidersHorizontal } from "lucide-react";
+import { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
-import { ENGINE_STATE_LABELS, raspCoverageSentence, getEngine, type EnergyUnit, type EnergyEngineId } from "../../shared/engineStatus";
+import { ENGINE_STATE_LABELS, raspCoverageSentence, type EnergyEngineId } from "../../shared/engineStatus";
 import type { RaspCoverage } from "../../shared/raspIndex";
-import {
-  AGREEMENT_CHIP,
-  absenceText,
-  buildEnergeticsEvidence,
-  listNames,
-  markText,
-  signedDdg,
-  ENERGETICS_CAVEAT_TEXT,
-  ENERGETICS_GROUP_LABEL,
-  FOLDX_TEMPLATE_DIFFERENCE_KCAL,
-} from "../../shared/energeticsEvidence";
+import { absenceText, markText, signedDdgNumber } from "../../shared/energeticsEvidence";
 import { FOLDX_HOW_TO_READ } from "../../shared/foldxRepairMode";
-import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import { useEnergeticsEvidence, type EnergeticsRun } from "../energetics/useEnergeticsEvidence";
+import { EnergeticsMethodInspector } from "./EnergeticsMethodInspector";
+import { EnergeticsRuleTrace } from "./EnergeticsRuleTrace";
+
 
 /**
  * EnergeticsInspector — the Evidence Lineage rail for the Energetics view.
@@ -36,34 +29,9 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
  * different counts or states.
  */
 
-interface EnergeticsInspectorProps {
+interface EnergeticsInspectorProps extends EnergeticsRun {
   selectedEngine?: EnergyEngineId | null;
   analysisResult: AnalysisResult | null;
-  foldingEnergetics?: EnergeticsData | null;
-  foldingStatus?: "failed" | "success" | "unavailable" | null;
-  foldingError?: string | null;
-  dynamut2Status?: "pending" | "unavailable" | "done" | null;
-  ddmutStatus?: "pending" | "unavailable" | "done" | null;
-  thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | null;
-  thermompnnError?: string | null;
-  disruptionPredictor?: { plddt?: number | null } | null;
-  isFolding?: boolean;
-  /** Single-value FoldX fallback, the same one the main column uses. */
-  foldingDdG?: number | null;
-}
-
-type StepState = "done" | "warn" | "idle";
-
-function Step({ n, label, state = "done", children }: { n: number; label: string; state?: StepState; children: React.ReactNode }) {
-  return (
-    <li className="nrg-step" data-state={state}>
-      <span className="nrg-step__n" aria-hidden="true">{n}</span>
-      <div className="nrg-step__body">
-        <span className="nrg-step__label">{label}</span>
-        <div className="nrg-step__value">{children}</div>
-      </div>
-    </li>
-  );
 }
 
 /** Method papers, verified against the journals (see doc/ENERGETICS_TAB_REVIEW.md). */
@@ -76,238 +44,19 @@ const REFERENCES: Array<{ citation: string; doi: string }> = [
   { citation: "Blaabjerg et al. RaSP. eLife 2023", doi: "10.7554/eLife.82593" },
 ];
 
-/** The structure a value rests on. ProtVar's FoldX always ran on ITS AlphaFold model, never on this run's template. */
-function structureBasisText(
-  key: EnergyEngineId,
-  group: string,
-  structure: ReturnType<typeof buildEnergeticsEvidence>["structure"],
-  evidence: ReturnType<typeof buildEnergeticsEvidence>
-): string {
-  if (key === "protvar" || (key === "foldx" && evidence.foldxStandIn)) {
-    const model = evidence.foldxStandIn?.model ?? evidence.foldxTemplateCheck?.protvarTemplate ?? null;
-    return `AlphaFold DB model${model ? ` ${model}` : ""}, precomputed by EBI ProtVar; not this run's template.`;
-  }
-  if (group === "lookup") return "Precomputed table; may use a different structure from this run.";
-  const id = structure?.pdbId ? ` · ${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ""}` : "";
-  return `${structure?.label ?? "Not reported"}${id}`;
-}
-
-export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
-  selectedEngine = null,
-  analysisResult,
-  foldingEnergetics,
-  foldingStatus,
-  foldingError,
-  dynamut2Status,
-  ddmutStatus,
-  thermompnnStatus,
-  thermompnnError,
-  disruptionPredictor,
-  isFolding = false,
-  foldingDdG = null,
-}) => {
-  const { settings, updateSetting } = useSettings();
-  const unit: EnergyUnit = settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol";
-
-  const evidence = useMemo(
-    () =>
-      buildEnergeticsEvidence({
-        foldingDdG,
-        foldingStatus,
-        foldingEnergetics: foldingEnergetics as Record<string, any> | null | undefined,
-        dynamut2Status,
-        ddmutStatus,
-        thermompnnStatus,
-        thermompnnError,
-        foldingError,
-        isFolding,
-        plddt: disruptionPredictor?.plddt ?? analysisResult?.disruptionPredictor?.plddt ?? null,
-        uniprotId: analysisResult?.metadata?.uniprotId ?? null,
-      }),
-    [
-      foldingDdG, foldingStatus, foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus,
-      thermompnnError, foldingError, isFolding, disruptionPredictor?.plddt, analysisResult?.disruptionPredictor?.plddt,
-      analysisResult?.metadata?.uniprotId,
-    ]
-  );
-
-  const { agreement, coverage, structure } = evidence;
-  const selected = evidence.readings.find(r => r.key === selectedEngine);
-  const raspCoverage = ((foldingEnergetics as any)?.raspCoverage as RaspCoverage | undefined) ?? null;
-  const withValue = evidence.readings.filter(r => r.ddg !== null);
-  const structureWarn = structure?.repairState === "unrepaired" || structure?.repairState === "failed" || evidence.lowPlddt !== null;
+export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ selectedEngine = null, analysisResult, ...run }) => {
+  const { updateSetting } = useSettings();
+  const { evidence, unit } = useEnergeticsEvidence(run, analysisResult);
+  const pinned = evidence.readings.some(r => r.key === selectedEngine);
+  const raspCoverage = ((run.foldingEnergetics as any)?.raspCoverage as RaspCoverage | undefined) ?? null;
 
   return (
     <div className="nrg-rail" data-testid="energetics-rail">
-      <section className="nrg-selected-method" id={INSPECTOR_SECTIONS.stabilityMethod} tabIndex={-1} aria-labelledby="nrg-selected-title">
-        <span className="sr-only" role="status" aria-atomic="true">
-          {selected ? `${selected.name} pinned${selected.ddg !== null ? ` · ${signedDdg(selected.ddg, unit)}` : ''}` : 'No method pinned yet'}
-        </span>
-        <span className="eyebrow">Method inspector</span>
-        <h2 id="nrg-selected-title">{selected?.name ?? 'Explore an estimate'}</h2>
-        {selected ? <>
-          <p>{selected.description}</p>
-          <div className="nrg-selected-value">{signedDdg(selected.ddg, unit)}</div>
-          <span className="ev-tier" data-tone={selected.callTone}>{selected.ddg === null ? selected.outcome.label : selected.callLabel}</span>
-          <p>{selected.ddg === null ? absenceText(selected) : selected.counted ? 'Included in the overall agreement reading.' : 'Shown for reference; excluded from the overall agreement reading.'}</p>
-          <dl>
-            <div><dt>Substitution</dt><dd>{analysisResult?.metadata?.gene} {analysisResult?.metadata?.variant}</dd></div>
-            <div><dt>Method family</dt><dd>{ENERGETICS_GROUP_LABEL[selected.group]}</dd></div>
-            <div><dt>Structure basis</dt><dd>{structureBasisText(selected.key, selected.group, structure, evidence)}</dd></div>
-            <div><dt>Sign convention</dt><dd>{getEngine(selected.key).nativeSign === 'negative-destabilizing' ? 'Provider sign reversed for comparison; positive here means less stable folding.' : 'Positive means less stable folding.'}</dd></div>
-            <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined, not a clinical cut-point.</dd></div>
-          </dl>
-          {selected.note && <p>{selected.note}</p>}
-          {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{ENERGETICS_CAVEAT_TEXT[c].detail}</p>)}
-        </> : <p>Select a point in Comparison or a method in Engine records to see its value, assumptions and limitations here.</p>}
-      </section>
-      {evidence.foldxTemplateCheck && (
-        <section className="nrg-rsec" aria-labelledby="nrg-rail-twofold" data-testid="foldx-template-check">
-          <h3 className="eyebrow" id="nrg-rail-twofold">
-            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
-            FoldX on two templates
-          </h3>
-          <table className="nrg-twofold">
-            <caption className="sr-only">Local FoldX against ProtVar's FoldX for this variant, in {unit}</caption>
-            <thead>
-              <tr>
-                <th scope="col">Template</th>
-                <th scope="col" className="nrg-twofold__num">ΔΔG</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <th scope="row">
-                  Local FoldX
-                  <span className="nrg-twofold__sub">{evidence.foldxTemplateCheck.localTemplate}{structure?.repairState === "unrepaired" ? " · not repaired" : ""}</span>
-                </th>
-                <td className="nrg-twofold__num">{signedDdg(evidence.foldxTemplateCheck.local, unit).replace(/ (kcal|kJ)\/mol$/, "")}</td>
-              </tr>
-              <tr>
-                <th scope="row">
-                  ProtVar FoldX
-                  <span className="nrg-twofold__sub">{evidence.foldxTemplateCheck.protvarTemplate} · precomputed</span>
-                </th>
-                <td className="nrg-twofold__num">{signedDdg(evidence.foldxTemplateCheck.protvar, unit).replace(/ (kcal|kJ)\/mol$/, "")}</td>
-              </tr>
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row">Difference (ProtVar − local)</th>
-                <td className="nrg-twofold__num">{signedDdg(evidence.foldxTemplateCheck.delta, unit).replace(/ (kcal|kJ)\/mol$/, "")}</td>
-              </tr>
-            </tfoot>
-          </table>
-          <p className="nrg-twofold-reading" data-tone={evidence.foldxTemplateCheck.tone}>
-            {evidence.foldxTemplateCheck.headline} {evidence.foldxTemplateCheck.detail}
-          </p>
-          <p className="nrg-step__sub">Cross-check only. One FoldX value is counted ({unit}); the {markText(FOLDX_TEMPLATE_DIFFERENCE_KCAL, unit, false)} gap mark is this app's, near FoldX's reported error.</p>
-        </section>
-      )}
-      <details className="nrg-lineage" open={!selected || undefined}>
+      <EnergeticsMethodInspector evidence={evidence} unit={unit} selectedEngine={selectedEngine} variant={analysisResult?.metadata} />
+      <details className="nrg-lineage" open={!pinned || undefined}>
         <summary>How the overall reading was reached</summary>
-      {/* ── 1. How the reading was reached ── */}
-      <section
-        className="nrg-rsec"
-        aria-labelledby="nrg-rail-trace"
-        id={INSPECTOR_SECTIONS.stabilityTelemetry}
-        tabIndex={-1}
-      >
-        <h3 className="eyebrow" id="nrg-rail-trace">
-          <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
-          Rule trace
-        </h3>
-        <ol className="nrg-steps" data-testid="energetics-rule-trace">
-          <Step n={1} label="Template structure" state={!structure ? "idle" : structureWarn ? "warn" : "done"}>
-            <span>
-              {structure
-                ? `${structure.label}${structure.pdbId ? ` · ${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ""}` : ""}${
-                    structure.resolution !== null ? ` · ${structure.resolution.toFixed(1)} Å` : ""
-                  }`
-                : isFolding
-                  ? "Resolving"
-                  : "Not reported"}
-            </span>
-            {structure?.repair && !evidence.foldxStandIn && <span className="nrg-step__sub">FoldX template: {structure.repair.toLowerCase()}</span>}
-            {/*
-              A mutating engine cannot start from a chain that already carries a substitution. When
-              the resolver refused one, name the entry, the residues (or the unverified state), and
-              what the run used instead — worded from the structure record, never hard-coded to
-              AlphaFold: a Tier-2 outage can leave a structural homolog as the template.
-            */}
-            {structure?.excludedExperimental && (
-              <span className="nrg-step__warn" data-testid="energetics-excluded-template">
-                {structure.excludedExperimental.pdbId}
-                {structure.excludedExperimental.chainId ? `:${structure.excludedExperimental.chainId}` : ""}{" "}
-                {structure.excludedExperimental.unverified
-                  ? "could not be checked against UniProt, so"
-                  : <>is not the wild type — {structure.excludedExperimental.differences.join(", ")} — so</>}{" "}
-                this run used{" "}
-                {structure.href ? (
-                  <a href={structure.href} target="_blank" rel="noopener noreferrer">
-                    {structure.source === "alphafold" ? "the AlphaFold model" : `the ${structure.label.toLowerCase()}`}
-                    <ExternalLink className="inline w-3 h-3 ml-0.5 -mt-0.5" aria-hidden="true" />
-                    <span className="sr-only"> (opens in a new tab)</span>
-                  </a>
-                ) : structure.source === "alphafold" ? (
-                  "the AlphaFold model"
-                ) : (
-                  `the ${structure.label.toLowerCase()}`
-                )}
-                .
-              </span>
-            )}
-            {structure && structure.sequenceDifferences.length > 0 && (
-              <span className="nrg-step__warn" data-testid="energetics-template-differences">
-                This experimental template differs from UniProt at {structure.sequenceDifferences.join(", ")}; read its
-                estimates against that background.
-              </span>
-            )}
-            {evidence.foldxStandIn && (
-              <span className="nrg-step__sub">FoldX value: ProtVar precomputed{evidence.foldxStandIn.model ? ` on ${evidence.foldxStandIn.model}` : ""}; no local value</span>
-            )}
-            {evidence.lowPlddt !== null && (
-              <span className="nrg-step__warn">AlphaFold pLDDT {evidence.lowPlddt.toFixed(1)} at this residue: structure-based estimates are unreliable here.</span>
-            )}
-          </Step>
-          <Step n={2} label="Engines returned a value" state={coverage.insufficient ? "warn" : "done"}>
-            <span>{coverage.label}</span>
-            {evidence.running.length > 0 && (
-              <span className="nrg-step__sub">Running: {listNames(evidence.running.map(r => r.name))}</span>
-            )}
-            {evidence.missing.length > 0 && (
-              <span className="nrg-step__sub">
-                No value: {evidence.missing.map(r => `${r.name} — ${absenceText(r).replace(/[.\s]+$/, "")}`).join("; ")}.
-              </span>
-            )}
-            {withValue.some(r => !r.counted) && (
-              <span className="nrg-step__sub">
-                Shown, not counted: {listNames(withValue.filter(r => !r.counted).map(r => r.name))}
-              </span>
-            )}
-          </Step>
-          <Step n={3} label="Each engine on its own mark" state={agreement.nCounted ? "done" : "idle"}>
-            <span>
-              {agreement.destabilizing.length} destabilizing · {agreement.moderate.length} moderate ·{" "}
-              {agreement.notDestabilizing.length} not destabilizing
-            </span>
-            <span className="nrg-step__sub">Local marks, listed below. No probability is computed.</span>
-          </Step>
-          <Step n={4} label="Summary" state={agreement.direction === "split" || agreement.direction.startsWith("mostly-") ? "warn" : agreement.nCounted ? "done" : "idle"}>
-            <span>
-              {AGREEMENT_CHIP[agreement.direction].label}
-              {agreement.nCounted > 1 ? ` · median ${signedDdg(agreement.median, unit)}` : ""}
-            </span>
-            {agreement.nCounted > 0 && coverage.insufficient && (
-              <span className="nrg-step__warn">Fewer than three engines returned a value; read this as individual estimates, not agreement.</span>
-            )}
-          </Step>
-          <Step n={5} label="Engine record">
-            <span>Not an ACMG input</span>
-            <span className="nrg-step__sub">No criterion in the rule engine reads ΔΔG.</span>
-          </Step>
-        </ol>
-      </section>
+      <EnergeticsRuleTrace evidence={evidence} unit={unit} />
+
 
       {/* ── 2. Each engine's mark beside this variant ── */}
       <section className="nrg-rsec" aria-labelledby="nrg-rail-cuts">
@@ -336,7 +85,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                 <tr key={r.key} className="nrg-cut" data-active={past || undefined} data-muted={r.ddg === null || !r.counted || undefined}>
                   <th scope="row" className="nrg-cut__name">{r.name}</th>
                   <td className="nrg-cuts__num nrg-cut__rule">≥ {markText(r.strongMark, unit)}</td>
-                  <td className="nrg-cuts__num nrg-cut__here">{r.ddg !== null ? signedDdg(r.ddg, unit).replace(/ (kcal|kJ)\/mol$/, "") : "–"}</td>
+                  <td className="nrg-cuts__num nrg-cut__here">{r.ddg !== null ? signedDdgNumber(r.ddg, unit) : "–"}</td>
                   <td className="nrg-cut__status">{status}</td>
                 </tr>
               );
