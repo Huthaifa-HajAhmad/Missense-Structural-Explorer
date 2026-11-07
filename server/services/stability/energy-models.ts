@@ -533,8 +533,12 @@ export async function runRaspLocal(
 // ThermoMPNN (Tamarind Bio Remote Predictor)
 // ---------------------------------------------------------------------------
 
-/** How long a local ThermoMPNN call waits for the model server. It is also sent as the budget the server may use. */
-const THERMOMPNN_SIDECAR_TIMEOUT_MS = 15_000;
+/**
+ * How long a local ThermoMPNN call waits for the model server. It is also sent as the budget the server may use.
+ * The prediction itself takes about 1 s; the wait is the queue behind the ESM-2 passes of the same analysis,
+ * and a running pass cannot be stopped. 15 s ran out during analyses.
+ */
+const THERMOMPNN_SIDECAR_TIMEOUT_MS = 60_000;
 export const thermompnnCache = new LRUCache<string, { prediction: number | null; jobId?: string; status: "pending" | "running" | "done" | "error" }>({ max: 200 });
 defaultCacheRegistry.registerCache("thermompnnCache", thermompnnCache, { ttlDesc: "none" });
 
@@ -630,8 +634,9 @@ export async function submitThermoMpnnJob(
         const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
         console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
         if ((errJson as any)?.status === "busy") {
-          // Not warming up: the model server answered and was busy with earlier work. Retrying later can work.
-          return { jobId: null, prediction: null, status: "unavailable", error: sidecarFailure("ThermoMPNN", localRes.status).error };
+          // Not warming up: the model server answered and was busy with earlier work. Retrying later can work,
+          // and the engine is there, so this is an error to retry, not an engine this deployment lacks.
+          return { jobId: null, prediction: null, status: "error", error: sidecarFailure("ThermoMPNN", localRes.status).error };
         }
         if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
           /**
@@ -652,6 +657,15 @@ export async function submitThermoMpnnJob(
       }
     } catch (localErr: any) {
       console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
+      if (!keyToUse && localErr?.name === "TimeoutError") {
+        // No answer in time does not mean the engine is missing here, and the code cannot see why it was slow.
+        return {
+          jobId: null,
+          prediction: null,
+          status: "error",
+          error: `ThermoMPNN did not answer within ${THERMOMPNN_SIDECAR_TIMEOUT_MS / 1000} s. The model service may be busy. Please run the analysis again.`
+        };
+      }
       if (!keyToUse) {
         noteRefusal("tamarind");
         return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN sidecar in standby: ${localErr.message}` };

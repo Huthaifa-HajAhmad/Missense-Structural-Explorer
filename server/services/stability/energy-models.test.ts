@@ -496,10 +496,33 @@ describe("ThermoMPNN status contract", () => {
 
     const result = await submitThermoMpnnJob(PDB, "AA1V");
     const headers = new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
-    expect(headers.get("X-Budget-Ms")).toBe("15000");
-    expect(result.status).toBe("unavailable");
+    expect(headers.get("X-Budget-Ms")).toBe("60000");
+    // The server is there, so this is not an engine the deployment lacks: it must not read as "not running".
+    expect(result.status).toBe("error");
     expect(result.jobId).toBeNull();
     expect(result.error).toContain("busy");
     expect(result.error).not.toContain("warming up");
+  });
+
+  it("reports a wait that ran out as an error that says so, not as a service that is not running", async () => {
+    process.env.THERMOMPNN_PROVIDER = "local";
+    delete process.env.TAMARIND_API_KEY; // No cloud fallback: this is the deployment that only has the local service.
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+
+    const result = await submitThermoMpnnJob(PDB, "AA1V");
+    expect(result.status).toBe("error");
+    expect(result.jobId).toBeNull();
+    expect(result.error).toContain("did not answer within 60 s");
+    expect(result.error).toContain("run the analysis again");
+  });
+
+  it("still reports an unreachable sidecar as unavailable", async () => {
+    process.env.THERMOMPNN_PROVIDER = "local";
+    delete process.env.TAMARIND_API_KEY;
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const result = await submitThermoMpnnJob(PDB, "AA1V");
+    expect(result.status).toBe("unavailable");
+    expect(result.error).toContain("ECONNREFUSED");
   });
 });
