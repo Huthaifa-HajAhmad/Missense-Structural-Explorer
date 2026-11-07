@@ -1076,6 +1076,8 @@ function VariantSearchPanel({
   const [serviceSummary, setServiceSummary] = useState<ServiceSummary | null>(null);
   const deckRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
+  /** True once the design height has been re-measured after the monitor finished loading (see the effect below). */
+  const designSettled = useRef(false);
   /**
    * The deck's height is the monitor's own content, measured, not whatever the query card happens to
    * need: the rail's natural height is read with stretching off and written to a CSS variable that
@@ -1091,12 +1093,17 @@ function VariantSearchPanel({
     let settleFrame = 0;
     let resizeFrame = 0;
     let disposed = false;
+    // Until the first health summary the monitor is still loading, and loading content can be taller than the
+    // settled list. The design may therefore shrink once, when the summary arrives; after that it is a floor.
+    const loaded = serviceSummary !== null && serviceSummary.tone !== "checking";
     /**
      * The rail's natural height with the Services list showing — the Pipeline panel is left out, so
      * a long run (banners, ten stages) scrolls inside the monitor and never makes the deck taller.
      * Measured out of the live layout: a clone at the same inline size, appended hidden for the
      * synchronous read. The live rail cannot answer this question, because its row has already been
-     * sized to the deck.
+     * sized to the deck. The clone sits beside the deck inside `.variant-workbench`, not on `document.body`:
+     * that element is the CSS container and declares `--workbench-pad` (in container units), so a clone
+     * outside it would lay out with those paddings lost and with container queries that cannot match.
      */
     const readNatural = () => {
       const width = Math.round(rail.getBoundingClientRect().width);
@@ -1120,7 +1127,7 @@ function VariantSearchPanel({
         zIndex: "-1",
         margin: "0px",
       });
-      document.body.appendChild(clone);
+      deck.parentElement!.appendChild(clone);
       const height = Math.ceil(clone.getBoundingClientRect().height);
       clone.remove();
       return height;
@@ -1139,6 +1146,7 @@ function VariantSearchPanel({
         const settled = readNatural();
         const moved = allowShrink ? Math.abs(settled - current) > 1 : settled - current > 1;
         if (moved) deck.style.setProperty("--workbench-deck-h", `${settled}px`);
+        if (allowShrink && loaded) designSettled.current = true;
       });
     };
     const consider = () => {
@@ -1157,6 +1165,11 @@ function VariantSearchPanel({
         commitWhenSettled(natural, true);
         return;
       }
+      // The loading state can be taller than the settled list: shrink once, when the monitor has loaded.
+      if (loaded && !designSettled.current) {
+        commitWhenSettled(current, true);
+        return;
+      }
       // The design height is a floor, not a follower of content: content growing (a run's banners,
       // a summary line) raises it, but it never shrinks mid-session — a 10px content dip must not
       // move the user's monitor.
@@ -1171,7 +1184,10 @@ function VariantSearchPanel({
         if (!disposed) consider();
       });
     };
-    // The monitor's content (service rows, summary line, fonts) is what re-considers the height.
+    // Once the deck has a height, the rail's body is as tall as that height, so this observer only sees a change
+    // in the body's WIDTH (a layout switch). Content growing inside it (a summary line, a service row wrapping)
+    // does not resize the body: that is what the `serviceSummary` dependency below re-measures. Dropping the
+    // dependency would freeze the design at its first value.
     const body = rail.querySelector<HTMLElement>(".workbench-rail-body") ?? undefined;
     const ro = body && typeof ResizeObserver !== "undefined" ? new ResizeObserver(consider) : null;
     if (ro && body) ro.observe(body);
@@ -2070,9 +2086,9 @@ function VariantSearchPanel({
               id="panel-telemetry"
               role="tabpanel"
               aria-labelledby="tab-telemetry"
-              /* `inert`, not `hidden`: the inactive panel must stay in the layout so the rail's
-                 height can be a property of the design (the shared grid area below sizes to the
-                 taller panel on either tab), while taking it out of the accessibility tree and
+              /* `inert`, not `hidden`: the inactive panel must stay in the layout so both panels keep their one
+                 shared grid cell (a tab switch moves nothing; the cell is as tall as the Services list and a
+                 longer Pipeline scrolls inside it), while taking it out of the accessibility tree and
                  the focus order exactly as `hidden` would. Mobile swaps instead (CSS). */
               inert={activeRightTab !== "telemetry"}
               data-inactive={activeRightTab !== "telemetry" || undefined}
