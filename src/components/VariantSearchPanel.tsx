@@ -1092,15 +1092,16 @@ function VariantSearchPanel({
     let resizeFrame = 0;
     let disposed = false;
     /**
-     * The rail's natural height — its own content with both tabpanels laid out — measured out of the
-     * live layout: a clone at the same inline size, appended hidden for the synchronous read. The
-     * live rail cannot answer this question, because its shared row has already been sized and its
-     * intrinsic sizing follows the active tab (measured: 797 on Services, 787 on Pipeline at the
-     * same content), and an in-place dance does not re-max it.
+     * The rail's natural height with the Services list showing — the Pipeline panel is left out, so
+     * a long run (banners, ten stages) scrolls inside the monitor and never makes the deck taller.
+     * Measured out of the live layout: a clone at the same inline size, appended hidden for the
+     * synchronous read. The live rail cannot answer this question, because its row has already been
+     * sized to the deck.
      */
     const readNatural = () => {
       const width = Math.round(rail.getBoundingClientRect().width);
       const clone = rail.cloneNode(true) as HTMLElement;
+      clone.querySelector<HTMLElement>("#panel-pipeline")?.style.setProperty("display", "none");
       // Ids and the inactive markers are meaningless in the detached copy, and duplicate ids must
       // not exist even for one synchronous read.
       for (const el of [clone, ...clone.querySelectorAll<HTMLElement>("[id], [data-inactive]")]) {
@@ -2062,9 +2063,9 @@ function VariantSearchPanel({
               />
             </div>
 
-            {/* Both tabpanels stay mounted; the inactive one is `hidden`. The rail then always holds the
-                taller of the two, so a switch cannot move the deck, and the telemetry panel keeps its
-                health reading (the Services badge) fresh while Pipeline is open. */}
+            {/* Both tabpanels stay mounted and share one grid cell, so a switch cannot move the deck, and the
+                telemetry panel keeps its health reading (the Services badge) fresh while Pipeline is open.
+                The cell is as tall as the Services list; a longer Pipeline scrolls inside it. */}
             <div
               id="panel-telemetry"
               role="tabpanel"
