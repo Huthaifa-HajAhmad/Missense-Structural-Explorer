@@ -379,9 +379,15 @@ export function replaceInvite(input: { tokenHash: string; email: string; role: R
   });
 }
 
-/** Single-use: returns the user id only for the caller that consumed a live link. */
+/**
+ * Single-use: returns the user id only for the caller that consumed a live link.
+ * A link for a disabled account is not live, and is left unused so it works again once the account is enabled.
+ */
 export function consumePasswordReset(tokenHash: string, now: number): string | null {
-  const row = accountsDb().prepare("SELECT user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?").get(tokenHash, now) as
+  const row = accountsDb().prepare(
+    `SELECT r.user_id FROM password_resets r JOIN users u ON u.id = r.user_id
+     WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ? AND u.status = 'active'`,
+  ).get(tokenHash, now) as
     | { user_id: string }
     | undefined;
   if (!row) return null;
