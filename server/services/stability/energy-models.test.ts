@@ -516,6 +516,32 @@ describe("ThermoMPNN status contract", () => {
     expect(result.error).toContain("run the analysis again");
   });
 
+  it("with a Tamarind key, a local wait that ran out falls back to the cloud instead of returning the timeout", async () => {
+    process.env.THERMOMPNN_PROVIDER = "local";
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new DOMException("The operation was aborted due to timeout", "TimeoutError"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ Score: 0.42 }), { status: 200 }) as any);
+
+    const result = await submitThermoMpnnJob(PDB, "AA2V");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[1][0])).toContain("tamarind.bio");
+    expect(result).toMatchObject({ status: "done", prediction: 0.42 });
+  });
+
+  it("with a Tamarind key, a local server that answers 'busy' is not retried in the cloud", async () => {
+    // The cloud is for a local service that gives no answer. A live server that says it is busy will answer soon.
+    process.env.THERMOMPNN_PROVIDER = "local";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ status: "busy", message: "The model server was too busy to start this pass." }),
+      { status: 503 }
+    ) as any);
+
+    const result = await submitThermoMpnnJob(PDB, "AA3V");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("busy");
+  });
+
   it("still reports an unreachable sidecar as unavailable", async () => {
     process.env.THERMOMPNN_PROVIDER = "local";
     delete process.env.TAMARIND_API_KEY;

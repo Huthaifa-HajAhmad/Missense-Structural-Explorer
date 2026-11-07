@@ -636,6 +636,8 @@ export async function submitThermoMpnnJob(
         if ((errJson as any)?.status === "busy") {
           // Not warming up: the model server answered and was busy with earlier work. Retrying later can work,
           // and the engine is there, so this is an error to retry, not an engine this deployment lacks.
+          // No cloud retry: that fallback is for a local service that gives no answer (a timeout, an unreachable
+          // server), and a server that says it is busy will answer soon.
           return { jobId: null, prediction: null, status: "error", error: sidecarFailure("ThermoMPNN", localRes.status).error };
         }
         if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
