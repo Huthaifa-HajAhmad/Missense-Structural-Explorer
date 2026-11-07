@@ -423,7 +423,7 @@ src/shared/splicingWorkspace.ts,client,src/test/splicingWorkspace.test.ts
 src/shared/stabilityConsensus.ts,client,
 src/shared/structuralStream.ts,client,
 src/shared/structure3dEvidence.ts,client,src/components/__tests__/Structure3dView.test.tsx;src/shared/__tests__/structure3dEvidence.test.ts
-src/shared/structureLookupBudgets.ts,client,src/api/structureApi.test.ts
+src/shared/structureLookupBudgets.ts,client,server/routes/variant/gene.test.ts;src/api/structureApi.test.ts
 src/shared/structureRefs.ts,client,server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/structure.test.ts;src/api/__tests__/structureRefTransport.test.ts
 src/shared/structureSelection.ts,client,src/shared/__tests__/structureSelection.test.ts
 src/shared/thresholds.ts,barrel,server/services/prediction/acmg.test.ts;server/services/prediction/predictors.test.ts;src/components/header/__tests__/constraintIntegrity.test.ts;src/components/inspector/__tests__/EvidenceInspector.populationFrequency.test.tsx;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
