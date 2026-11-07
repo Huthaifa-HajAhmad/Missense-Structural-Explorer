@@ -6,6 +6,7 @@ import { probabilityOverview, residueProbabilityComparison } from '../../../shar
 import { useEvidenceWorkspace, InspectReadingButton } from '../EvidenceWorkspace';
 import { ResearchGuideButton } from '../../knowledge/ResearchGuideButton';
 import EvidenceComparison from '../EvidenceComparison';
+import { ordinal } from './format';
 
 /**
  * Residue-level detail for ONE language model: its distribution over the 20 residues at the site
@@ -23,11 +24,6 @@ import EvidenceComparison from '../EvidenceComparison';
  * distribution takes the full width. "101% of native" became the model's own odds, and the rank's
  * small print names the native's rank instead of a band label that read as a preference.
  */
-
-const ordinal = (n: number) => {
-  const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
-  return `${n}${suffix}`;
-};
 
 const pctText = (p: number) => (p * 100 < 0.01 ? "<0.01%" : `${(p * 100).toFixed(2)}%`);
 

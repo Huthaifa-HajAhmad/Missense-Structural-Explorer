@@ -206,6 +206,16 @@ describe("buildPerturbationEvidence — SLC12A4 p.Gln867His", () => {
     const none = buildPerturbationEvidence({ result: SLC12A4_RESULT, residues: SLC12A4_RESIDUES });
     expect(none.physical.reason).toBe("No FoldX mutant model was built for this variant.");
   });
+
+  it("records the FoldX leg's state, so the table needs no folding flags of its own", () => {
+    const build = (over: Partial<Parameters<typeof buildPerturbationEvidence>[0]>) =>
+      buildPerturbationEvidence({ result: SLC12A4_RESULT, residues: SLC12A4_RESIDUES, ...over }).physical.state;
+    expect(build({ isFolding: true, foldingStatus: "failed" })).toBe("pending");
+    expect(build({ foldingStatus: "failed" })).toBe("failed");
+    expect(build({ foldingError: "RepairPDB exceeded its time budget." })).toBe("failed");
+    expect(build({})).toBe("absent");
+    expect(buildPerturbationEvidence({ result: NAE1_RESULT, residues: NAE1_RESIDUES, foldingEnergetics: NAE1_ENERGETICS }).physical.state).toBe("computed");
+  });
 });
 
 /**

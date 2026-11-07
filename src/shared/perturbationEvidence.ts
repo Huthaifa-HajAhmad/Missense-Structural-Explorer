@@ -90,8 +90,11 @@ export interface ReadingAvailability {
   /** From ENGINE_STATE_LABELS — never a hand-written status word. */
   label: string;
   reason: string | null;
-  action: "switch-saprot-35m" | "retry" | "settings" | null;
+  action: ModelAction | null;
 }
+
+/** What a reader can do about a missing reading: switch engine, re-run, or open connection settings. */
+export type ModelAction = "switch-saprot-35m" | "retry" | "settings";
 
 export type LmCaveat = "fallback-model" | "sequence-only" | "probability-floor" | "inferred-model" | "flat";
 
@@ -263,7 +266,8 @@ export interface PerturbationEvidence {
     band: RankBand | null;
   };
   physical: {
-    available: boolean;
+    /** The FoldX leg: still running, failed, never built, or built ("computed"). */
+    state: AvailabilityState;
     rigidBackbone: boolean;
     /** How the mutant model was built, in one line, when the caller recorded it. */
     method: string | null;
@@ -305,7 +309,8 @@ export interface PerturbationEvidenceInput {
 
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
+/** "+0.26", "−3.02": a signed number with a true minus sign. */
+export const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
 
 /** "384×", "1,075×", "1.4×" — odds the way a reader says them. */
 export function oddsText(odds: number): string {
@@ -559,7 +564,7 @@ function buildPhysical(
 
   if (!hasFe && !diff && !metrics) {
     return {
-      available: false,
+      state: isFolding ? "pending" : foldingStatus === "failed" || foldingError ? "failed" : "absent",
       rigidBackbone: false,
       method: null,
       inputConfidence,
@@ -700,7 +705,7 @@ function buildPhysical(
 
   const wtClashes = finite(diff?.clashes?.wtClashCount);
   const mutClashes = finite(diff?.clashes?.mutClashCount);
-  return { available: true, rigidBackbone: rigid, method, inputConfidence,
+  return { state: "computed", rigidBackbone: rigid, method, inputConfidence,
     clashCounts: wtClashes !== null && mutClashes !== null ? { wt: wtClashes, mut: mutClashes } : null,
     contactChange: lost !== null && gained !== null ? { lost, gained } : null,
     runs: runs ?? null, runsIdentical, readings, reason: null };

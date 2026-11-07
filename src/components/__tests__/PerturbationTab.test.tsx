@@ -195,6 +195,13 @@ describe("PerturbationRail", () => {
     expect(screen.getByTestId("perturbation-rule-trace").textContent).toContain("2 favour Gln, 0 favour His, 1 flat (not read).");
   });
 
+  it("details the first model with a reading, not a flat one, when the chosen model has no result", () => {
+    // SaProt is flat and listed first; ESM-2 returned nothing; ESMC favours Gln.
+    const result = { ...SLC12A4_RESULT, esm2Eval: undefined };
+    render(<PerturbationRail analysisResult={result} saprotEngine="remote-hf" activePerturbationModel="esm2" />);
+    expect(screen.getByText("Selected model · ESMC")).toBeTruthy();
+  });
+
   it("traces models → scale → rank → physics → engine, with the least-preferred band marked", () => {
     render(<PerturbationRail analysisResult={NAE1_RESULT} foldingEnergetics={NAE1_ENERGETICS} saprotEngine="remote-hf" />);
     const trace = screen.getByTestId("perturbation-rule-trace");
@@ -230,6 +237,19 @@ describe("PerturbationTab — packing and geometry", () => {
     expect(within(screen.getByTestId("ptb-phys-clash")).getByText("Plotted above")).toBeInTheDocument();
     expect(within(screen.getByTestId("ptb-phys-contacts")).getByText("Plotted above")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("No reading mark");
+  });
+});
+
+describe("PerturbationTab — packing and geometry without a FoldX model", () => {
+  it("leaves out the empty chart area", () => {
+    const { container } = render(
+      <EvidenceWorkspaceProvider result={SLC12A4_RESULT}>
+        <PerturbationTab {...({ analysisState: { result: SLC12A4_RESULT, isLoading: false }, foldingEnergetics: null, structuralDiff: null, metrics: null } as any)} />
+      </EvidenceWorkspaceProvider>
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Packing & geometry" }));
+    expect(screen.getByTestId("ptb-foldx-absent")).toBeInTheDocument();
+    expect(container.querySelector(".ptb-energy-plots")).toBeNull();
   });
 });
 
