@@ -329,6 +329,8 @@ after an attempt, unless FoldX cannot run here and no remote engine failed.
 | Multimer | `src/shared/contracts.ts` | `success`, `monomeric`, `not-modelled`, `failed`, `not-requested`, `running` |
 | Engine and provider state | `src/shared/engineStatus.ts`, `src/shared/providerStatus.ts` | five-state vocabulary |
 | Numbering | `server/services/translation/isoform-numbering.ts` | `canonical`, `remapped`, `unverified`, `unsupported` |
+| Canvas secondary structure | `src/stores/slices/biophysicalSlice.ts` (`canvasSecondaryState`), written by `src/components/molstar/useMolstarStructure.ts` | `idle`, `reading`, `ready`, `unavailable` |
+| Gene lookup deadline | `server/routes/variant/gene.ts`, `src/shared/structureLookupBudgets.ts` (`GENE_RESOLVE_BUDGET_MS`) | `answered`, `not-found`, `timed-out`; the shared cache fill is not cancelled by one caller's deadline |
 
 ---
 

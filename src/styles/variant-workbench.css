@@ -51,16 +51,13 @@
 .workbench-history-clear { display: inline-flex; align-items: center; gap: .375rem; padding-inline: .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 11px; cursor: pointer; }
 .workbench-history-clear:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .workbench-history-clear:active { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
-/* The first-run tray's own header action, in the slot "Clear history" takes once the tray is populated. */
-/* The empty tray's notice: where analyses will appear, and the tour, in one small card on the header wash. */
-.workbench-notice { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1rem var(--workbench-pad) .25rem; padding: .75rem 1rem; border-radius: 8px; background: var(--cs-workbench-header-surface); }
-.workbench-notice > svg { inline-size: 16px; block-size: 16px; flex: none; color: var(--cs-text-muted); stroke-width: 1.5; }
-.workbench-notice > p { flex: 1 1 16rem; min-inline-size: 0; margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
-.workbench-tour-link { display: inline-flex; align-items: center; gap: .375rem; flex: none; min-block-size: 2rem; padding-inline: .75rem; border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-surface); color: var(--cs-text-primary); font-size: 12px; font-weight: 500; cursor: pointer; transition: border-color 150ms ease-out, color 150ms ease-out; }
-.workbench-tour-link > svg { inline-size: 14px; block-size: 14px; color: var(--cs-text-accent); stroke-width: 1.5; }
-.workbench-tour-link:hover { border-color: var(--cs-accent-clay); color: var(--cs-text-accent); }
-.workbench-tour-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
-.workbench-tour-link:active { background: var(--cs-surface-2); }
+/* The empty tray's slot for the history: a dashed outline on the white body, one icon on the header wash, one line, one note.
+   It grows into whatever height the monitor gives the tray, so the benchmarks below it stay at the tray floor. */
+.workbench-recents-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .375rem; min-block-size: 6rem; margin: 1rem var(--workbench-pad) .25rem; padding: 1rem; border: 1px dashed var(--cs-border); border-radius: 8px; text-align: center; }
+.workbench-recents-empty-icon { display: inline-flex; align-items: center; justify-content: center; inline-size: 2.5rem; block-size: 2.5rem; margin-block-end: .25rem; border: 1px solid var(--cs-border-subtle); border-radius: 50%; background: var(--cs-workbench-header-surface); color: var(--cs-text-muted); }
+.workbench-recents-empty-icon > svg { inline-size: 18px; block-size: 18px; stroke-width: 1.5; }
+.workbench-recents-empty-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
+.workbench-recents-empty-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
 /* The list rules are the only row lines: a boxed current row would sit against its neighbour's rule as a double line. */
 .workbench-recent[aria-pressed="true"] { background: var(--cs-surface-2); box-shadow: inset 2px 0 0 var(--cs-accent-clay); }
 .workbench-recent-identity { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr); align-items: baseline; gap: .125rem 1rem; flex: 1; min-inline-size: 0; }
@@ -73,16 +70,20 @@
 .workbench-recent-current { color: var(--cs-text-muted); font-size: 10px; }
 .workbench-recent:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .workbench-recent:active { background: var(--cs-bg-subtle); }
-.workbench-benchmarks-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .125rem .75rem; margin-block-start: .25rem; padding: .75rem var(--workbench-pad) 0; border-block-start: 1px solid var(--cs-border-subtle); }
-.workbench-benchmarks-head h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--cs-text-primary); }
-.workbench-benchmarks-head > span { font-size: 11px; color: var(--cs-text-muted); }
+/* The benchmark list is a labelled group of its own inside the tray, set like the monitor's group labels: a small
+   capital label, with the one-line note at the far edge. The rule above it separates it from the history or its
+   placeholder, and the label sits a full step below that rule so the rows read as the group's content. */
+.workbench-benchmarks-section { display: flex; flex-direction: column; min-block-size: 0; margin-block-start: .5rem; border-block-start: 1px solid var(--cs-border-subtle); }
+.workbench-benchmarks-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .125rem .75rem; padding: 1rem var(--workbench-pad) .25rem; }
+.workbench-benchmarks-head h3 { margin: 0; color: var(--cs-text-secondary); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.workbench-benchmarks-head > p { margin: 0; font-size: 11px; color: var(--cs-text-muted); }
 .workbench-benchmarks { display: flex; flex-direction: column; padding: 0 var(--workbench-pad) .75rem; }
 /* One line per benchmark, on the grid the Recent analyses rows use: gene, change, tag, then the run. The run action is
    a surface of its own: it bleeds into the tray's padding by exactly the padding it puts back, so the gene stays on the
    card's content grid while the highlighted state has an edge of its own, rounded on all four corners. */
 .workbench-benchmark { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .375rem; border-block-end: 1px solid var(--cs-border-subtle); padding-block: .375rem; }
 .workbench-benchmark:last-child { border-block-end: 0; }
-.workbench-benchmark > button:first-child { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(7rem, auto) minmax(0, 1fr) auto; align-items: baseline; column-gap: 1rem; min-block-size: 3.5rem; margin-inline-start: -.75rem; padding: .5rem .75rem; border: 0; border-radius: 8px; background: transparent; color: var(--cs-text-primary); text-align: start; cursor: pointer; transition: background-color 150ms ease-out; }
+.workbench-benchmark > button:first-child { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(7rem, auto) minmax(0, 1fr) auto; align-items: center; column-gap: 1rem; min-block-size: 3.5rem; margin-inline-start: -.75rem; padding: .5rem .75rem; border: 0; border-radius: 8px; background: transparent; color: var(--cs-text-primary); text-align: start; cursor: pointer; transition: background-color 150ms ease-out; }
 .workbench-benchmark > button:first-child:hover { background: var(--cs-surface-2); }
 .workbench-benchmark > button:first-child:active { background: var(--cs-bg-subtle); }
 .workbench-benchmark > button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
@@ -263,7 +264,7 @@
   .workbench-query { flex: 0 1 auto; min-block-size: 0; }
   /* The recents card takes what is left and scrolls: 13rem stands in for the cards' shared floor, and
      its list yields before the benchmarks do — each scrolls within the card. */
-  .workbench-recents { flex: 1 1 auto; min-block-size: 13rem; display: flex; flex-direction: column; }
+  .workbench-recents { flex: 1 1 13rem; min-block-size: 13rem; display: flex; flex-direction: column; }
   .workbench-recents-heading { flex: none; }
   .workbench-recent-list { flex: 0 1 auto; min-block-size: 0; max-block-size: 12.5rem; }
   .workbench-query > form { min-block-size: 0; overflow-y: auto; }

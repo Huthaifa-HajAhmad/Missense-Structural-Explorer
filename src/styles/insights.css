@@ -111,18 +111,6 @@
 .ins-rail .eyebrow { text-transform: none; letter-spacing: normal; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); }
 .ins-rail .ins-mono { font-variant-numeric: tabular-nums; }
 
-/* `workspace.css:42` already draws this box for `.review-selection` in the inspector body; zeroing that
-   padding is what lets the head bleed. The shell is restated for contexts outside the workspace (tests,
-   preview tools) with the shared tokens. Splicing's inspection card carries the same shell — a shared
-   `.inspection-box` is the next step if a fourth tab needs one. */
-.exploration-workspace .inspector-body .ins-rail .review-selection.ins-selection { padding: 0; }
-.ins-rail .ins-selection { padding: 0; margin-block-end: 1.5rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-card); overflow: clip; background: var(--cs-workspace-card); }
-/* 45px = the clear button's 44px touch target + the head's 1px rule, so pinning or clearing a lane
-   never changes the box's height. The padding is gone because the min-height now sets the strip. */
-.ins-selection > .review-selection__head { min-block-size: 45px; padding-block: 0; padding-inline: 16px 10px; background: var(--cs-workbench-header-surface); border-block-end: 1px solid var(--cs-border-subtle); align-items: center; color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-semibold); }
-.ins-selection__body { padding: 16px; }
-.ins-selection__body > :first-child { margin-block-start: 0; }
-.ins-selection__body > :last-child { margin-block-end: 0; }
 .ins-export { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-block-size: 2.75rem; padding: .5rem .875rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-badge); background: var(--cs-surface); color: var(--cs-text-secondary); font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); cursor: pointer; }
 .ins-export:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .ins-export:active { background: var(--cs-accent-wash); color: var(--cs-text-primary); }

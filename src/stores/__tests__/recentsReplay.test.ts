@@ -79,4 +79,19 @@ describe("Recents replay", () => {
     store.handleSelectHistoryItem(useVariantAnalysisStore.getState().history[0], { executeAnalysis });
     expect(executeAnalysis).toHaveBeenCalledWith("NAE1", "p.Asp116Gly", "Q13564");
   });
+  it("keeps the known accession when a later save of the same result has none", () => {
+    const store = useVariantAnalysisStore.getState();
+    const item = { gene: "GATA4", variant: "p.Ser159Cys", query: "8-11708788-C-G" };
+    store.addToHistory({ ...item, uniprotId: "P43694" });
+    store.addToHistory({ ...item, uniprotId: "" });
+    expect(useVariantAnalysisStore.getState().history[0].uniprotId).toBe("P43694");
+  });
+
+  it("lets a new accession replace the old one", () => {
+    const store = useVariantAnalysisStore.getState();
+    const item = { gene: "GATA4", variant: "p.Ser159Cys" };
+    store.addToHistory({ ...item, uniprotId: "P43694" });
+    store.addToHistory({ ...item, uniprotId: "P43694-2" });
+    expect(useVariantAnalysisStore.getState().history[0].uniprotId).toBe("P43694-2");
+  });
 });

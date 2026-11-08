@@ -10,7 +10,6 @@
 .ptb-screen[data-comparison] .ptb-hero__body > :not(.ptb-hero__figure, .ptb-hero__finding) { grid-column: 1 / -1; }
 .ptb-screen[data-comparison] .ptb-hero__figure { flex-direction: column; align-items: start; }
 .ptb-screen[data-comparison] .ptb-figure { font-size: 25px; }
-.ptb-screen[data-comparison] .ptb-hero__body > .mol-finding-details > summary { padding-inline: 0; }
 .ptb-screen[data-comparison] .ptb-detail__head { padding-block: 12px; }
 .ptb-screen[data-comparison] .evw-figure-scope { padding-block: 12px; }
 .rsx-screen[data-comparison] .rsx-hero__body { padding: 16px 20px; }

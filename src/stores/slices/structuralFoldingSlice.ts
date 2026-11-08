@@ -1,6 +1,6 @@
 import { StateCreator } from "zustand";
 import { StructuralMetrics } from "../../types";
-import type { LoadedEntry } from "../../shared/structure3dEvidence";
+import type { LoadedEntry, RepresentationId } from "../../shared/structure3dEvidence";
 
 export interface StructuralFoldingState {
   esmFoldWtPdb: string | null;
@@ -18,7 +18,7 @@ export interface StructuralFoldingState {
   /** Kabsch fit scope for the de novo pair. FoldX's rigid-backbone pair has no scope to choose. */
   esmAlignmentScope: "local" | "global";
   /** The 3D colouring the reader picked; the evidence model falls back when it does not apply. */
-  structureRepresentation: "confidence" | "plain" | "pair" | "displacement" | "esm3";
+  structureRepresentation: RepresentationId;
   /**
    * The PDB entry the reader loaded from the experimental list, once the viewer has fetched it: the
    * canvas draws it from here, and the model reads its numbering and the residue at the variant's

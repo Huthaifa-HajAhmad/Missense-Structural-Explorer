@@ -57,6 +57,8 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
       gzf1Result({
         gnomadFrequency: null,
         serviceStatus: { gnomadFrequency: "timeout", clinvar: "ok" },
+        // The locus resolved, so gnomAD was asked and the outage is the provider's.
+        predictorData: { gnomadVariantId: "12-102845012-G-A", gnomadVariantAssembly: "GRCh38" },
       }),
     );
 

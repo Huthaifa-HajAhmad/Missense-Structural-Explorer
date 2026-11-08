@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import { BookOpen } from "lucide-react";
+import { fitContextOntoTemplate } from "../shared/structureContext";
 import { MasterView } from "./MasterSidebar";
 import VariantSearchPanel from "./VariantSearchPanel";
 import EvidenceDashboardCard from "./EvidenceDashboardCard";
@@ -16,6 +18,7 @@ import { AnalysisEmptyState, emptyWorkspace } from "./ui/AnalysisEmptyState";
 import { isEvidenceTabId } from "../shared/evidenceTabs";
 import type { EnergyEngineId } from '../shared/engineStatus';
 import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
+import { identifyAlphaFoldHeader, readCaTrace } from "../shared/coordinateText";
 import type { ResidueFocus } from "../shared/residueFocus";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import ViewInspector from "./inspector/ViewInspector";
@@ -232,11 +235,31 @@ export function AppViews({
     return { primary: pdbText || null, compare: null };
   }, [isEsm, structureModel.viewMode, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, mutantPdb, storeFoldxReferencePdb, storeFoldxAlignedPdb, customPdbUrl, customPdbEntry, pdbText]);
 
+  // A short experimental template draws only its own stretch. Around it the full-length AlphaFold model
+  // is drawn faintly, moved into the template's frame, so the variant is seen in the whole protein.
+  const pdbTextProvenance = useVariantAnalysisStore(s => s.pdbTextProvenance);
+  const contextFit = useMemo(() => {
+    const mode = structureModel.viewMode;
+    const textIsAlphaFold = pdbTextProvenance?.source === "alphafold" || (!pdbTextProvenance && !!identifyAlphaFoldHeader(pdbText));
+    if (isEsm || (mode !== "mutant" && mode !== "superimposed") || !pdbText || !textIsAlphaFold) return null;
+    const template = mode === "mutant" ? mutantPdb : storeFoldxReferencePdb;
+    return template ? fitContextOntoTemplate(pdbText, template) : null;
+  }, [isEsm, structureModel.viewMode, pdbText, pdbTextProvenance, mutantPdb, storeFoldxReferencePdb]);
+
   const structureResidues = useMemo(() => indexStructureResidues(canvasData.primary), [canvasData.primary]);
-  const structureSelection = useMemo(() => buildStructureSelection(structureModel, structureResidues, selectedResidueIndex), [structureModel, structureResidues, selectedResidueIndex]);
+  // What a residue is read against: the drawn model's secondary structure and Cα trace, and UniProt's features.
+  const canvasSecondary = useVariantAnalysisStore(s => s.canvasSecondary);
+  const uniprotFeatureList = analysisState.result?.uniprotFeatures?.features ?? null;
+  const canvasTrace = useMemo(() => readCaTrace(canvasData.primary), [canvasData.primary]);
+  const selectionContext = useMemo(
+    () => ({ secondary: canvasSecondary, features: uniprotFeatureList, trace: canvasTrace }),
+    [canvasSecondary, uniprotFeatureList, canvasTrace],
+  );
+  const structureSelection = useMemo(() => buildStructureSelection(structureModel, structureResidues, selectedResidueIndex, selectionContext), [structureModel, structureResidues, selectedResidueIndex, selectionContext]);
+  const structureSiteSelection = useMemo(() => buildStructureSelection(structureModel, structureResidues, variantPosition, selectionContext), [structureModel, structureResidues, variantPosition, selectionContext]);
   const structureInspectorSelection = useMemo(() => isStructureActive && hoveredResidueIndex
-    ? { ...buildStructureSelection(structureModel, structureResidues, hoveredResidueIndex), preview: true }
-    : structureSelection, [isStructureActive, hoveredResidueIndex, structureModel, structureResidues, structureSelection]);
+    ? { ...buildStructureSelection(structureModel, structureResidues, hoveredResidueIndex, selectionContext), preview: true }
+    : structureSelection, [isStructureActive, hoveredResidueIndex, structureModel, structureResidues, structureSelection, selectionContext]);
 
   const alignmentRequestIdRef = useRef(0);
 
@@ -430,7 +453,6 @@ export function AppViews({
                     clearHistory={clearHistory}
                     handleSelectHistoryItem={handleSelectHistoryItemMemo}
                     onViewChange={setMasterView}
-                    onOpenOnboarding={onOpenOnboarding}
                   />
                 </div>
               </div>
@@ -484,14 +506,8 @@ export function AppViews({
                   key={energyQueryKey}
                   selectedEngine={selectedEnergyEngine}
                   onSelectEngine={selectEnergyEngine}
-                  isDark={isDark}
                   classCard="h-full flex flex-col border-0 rounded-none shadow-none"
-                  classCardHeader={classCardHeader}
-                  classCardTitle={classCardTitle}
-                  classBorderSec={classBorderSec}
-                  classTextBody={classTextBody}
-                  classTextMute={classTextMute}
-                  analysisState={analysisState}
+                  analysisResult={analysisState.result}
                   foldingDdG={foldingDdG}
                   foldingStatus={foldingStatus as "failed" | "success" | "unavailable" | null}
                   foldingEnergetics={foldingEnergetics}
@@ -514,7 +530,12 @@ export function AppViews({
               style={{ display: isStructureActive ? "flex" : "none" }}
             >
               <header className="structure-workspace__header">
-                <div className="workspace-heading"><h2 className="screen-title" tabIndex={-1} data-workspace-focus="structure">3D structure</h2><p>Inspect the selected residue in its structural context.</p></div>
+                <div className="structure-workspace__title-row">
+                  <div className="workspace-heading"><h2 className="screen-title" tabIndex={-1} data-workspace-focus="structure">3D structure</h2><p>Inspect the selected residue in its structural context.</p></div>
+                  <button type="button" className="rgd-trigger" aria-label="Guide: how to read this view" onClick={() => useVariantAnalysisStore.getState().setIsHowToInspectOpen(true)}>
+                    <BookOpen size={16} aria-hidden="true" /><span>Guide</span>
+                  </button>
+                </div>
                 <WorkspaceTabs id="structure-family" label="Structure model" value={isEsm ? "esmfold" : "alphafold"}
                   tabs={[{ id: "alphafold", label: "AlphaFold & FoldX" }, { id: "esmfold", label: "ESMFold" }]}
                   onChange={family => setMasterView(family === "esmfold" ? "structure_esmfold" : "structure_alphafold")} />
@@ -537,9 +558,11 @@ export function AppViews({
                         model={structureModel}
                         coordinateIndex={structureResidues}
                         selection={structureSelection}
+                        siteSelection={structureSiteSelection}
                         active={isStructureActive}
                         primaryPdbData={canvasData.primary}
                         comparePdbData={canvasData.compare}
+                        contextFit={contextFit}
                         allowFetch={!isEsm && structureModel.viewMode === "wildtype" && !customPdbUrl}
                         variantPosition={variantPosition}
                         selectedResidue={selectedResidueIndex ?? null}
@@ -705,6 +728,7 @@ export function AppViews({
           {masterView !== "search" && masterView !== "console" && masterView !== "about" && (
             <ViewInspector
               selectedEnergyEngine={selectedEnergyEngine}
+              onClearEnergyEngine={() => selectEnergyEngine(null)}
               activeView={masterView}
               structureSelection={structureInspectorSelection}
               onViewChange={setMasterView}
@@ -750,6 +774,7 @@ export function AppViews({
               onRetryPocket={handleRetryPocket}
               onRetryNarrative={handleRetryNarrative}
               onReturnToVariant={handleReturnToVariant}
+              onSelectResidue={handleResidueClickMemo}
             />
           )}
         </WorkspaceLayout>

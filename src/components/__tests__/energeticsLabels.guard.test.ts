@@ -42,6 +42,11 @@ const GUARDED_SURFACES = [
   'src/components/evidence/DiseaseContextPicker.tsx',
   'src/components/inspector/EvidenceContextRail.tsx',
   "src/components/EnergeticsView.tsx",
+  // The pieces the Energetics view was split into; each renders engine state or the numbers beside it.
+  "src/components/energetics/FindingFacts.tsx",
+  "src/components/energetics/ProgressPanel.tsx",
+  "src/components/energetics/ReadingsTable.tsx",
+  "src/components/energetics/useEnergeticsEvidence.ts",
   "src/components/inspector/EnergeticsInspector.tsx",
   // The Energetics evidence model and its ruler, which every Energetics surface now renders from.
   "src/shared/energeticsEvidence.ts",
@@ -230,11 +235,12 @@ const DELEGATES: Record<
     file: 'src/components/evidence/perturbation/ReadingsTable.tsx',
     usage: ['<ReadingsTable'],
   },
-  // The model strip prints each model's `availability.label`, which perturbationEvidence takes from engineStatus.
+  // The model strip prints a missing model's state through the shared chip, which prints `availability.label`.
   'src/components/evidence/perturbation/FindingCard.tsx': {
-    token: '../../../shared/perturbationEvidence',
-    file: 'src/shared/perturbationEvidence.ts',
-    usage: ['perturbationFinding('],
+    token: './ModelAvailability',
+    file: 'src/components/evidence/perturbation/ModelAvailability.tsx',
+    usage: ['<StatusChip'],
+    chain: ['src/shared/perturbationEvidence.ts'],
   },
   // A status chip prints `availability.label`, which perturbationEvidence takes from engineStatus.
   'src/components/evidence/perturbation/ModelAvailability.tsx': {

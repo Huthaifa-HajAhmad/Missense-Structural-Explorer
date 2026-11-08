@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { formatDdg, formatDdgValue } from "../engineStatus";
 import { LOCAL_REPAIR_BENCHMARK } from "../foldxRepairBenchmark.generated";
 import { computeStabilityConsensus } from "../thresholds";
 import {
+  signedDdgNumber,
   AGREEMENT_CHIP,
   ENERGETICS_CAVEAT_TEXT,
   LARGE_STRUCTURE_REPAIR_NOTE,
@@ -564,5 +566,54 @@ describe("which repair the FoldX value rests on", () => {
     expect(ev.foldxTemplateCheck?.detail).toMatch(/repaired only the region around the variant/);
     const whole = run({ repairMode: "full", protvar: 1.4, protvarStatus: "done", protvarModel: "AF-P43694-F1" });
     expect(whole.foldxTemplateCheck?.detail).not.toMatch(/repaired only the region/);
+  });
+});
+
+describe("signedDdgNumber — a ΔΔG cell that already names its unit", () => {
+  it("keeps the sign and the converted value but drops the unit", () => {
+    expect(signedDdgNumber(0.16)).toBe("+0.16");
+    expect(signedDdgNumber(-0.08)).toBe("−0.08");
+    expect(signedDdgNumber(1, "kJ/mol")).toBe("+4.18");
+  });
+
+  it("shows a dash when there is no value", () => {
+    expect(signedDdgNumber(null)).toBe("—");
+  });
+});
+
+describe("hiding pending engines — presentation only", () => {
+  const run = {
+    foldingStatus: "success" as const,
+    foldingEnergetics: { foldx: 0.58, foldxMean: 0.58, ddmut: -0.08, thermompnn: 0.7 },
+    dynamut2Status: "pending" as const,
+  };
+
+  it("still reports the hidden engine as running, so the reading stays provisional", () => {
+    const shown = buildEnergeticsEvidence(run);
+    const hidden = buildEnergeticsEvidence({ ...run, hidePending: true });
+    expect(shown.agreement.provisional).toBe(true);
+    expect(hidden.agreement.provisional).toBe(true);
+    expect(hidden.running.map(r => r.key)).toEqual(shown.running.map(r => r.key));
+    expect(hidden.coverage.running).toEqual(shown.coverage.running);
+  });
+
+  it("does not move a hidden engine into the missing list", () => {
+    const shown = buildEnergeticsEvidence(run);
+    const hidden = buildEnergeticsEvidence({ ...run, hidePending: true });
+    expect(hidden.missing.map(r => r.key)).toEqual(shown.missing.map(r => r.key));
+    expect(hidden.coverage.missing.map(o => o.id)).toEqual(shown.coverage.missing.map(o => o.id));
+  });
+});
+
+describe("formatDdgValue — the figure without its unit", () => {
+  it("matches formatDdg minus the suffix, in both units", () => {
+    expect(formatDdgValue(1.234)).toBe("1.23");
+    expect(formatDdgValue(1, "kJ/mol")).toBe("4.18");
+    expect(`${formatDdgValue(1.234)} kcal/mol`).toBe(formatDdg(1.234));
+  });
+
+  it("shows a dash for a missing or non-finite value", () => {
+    expect(formatDdgValue(null)).toBe("—");
+    expect(formatDdgValue(Number.NaN)).toBe("—");
   });
 });

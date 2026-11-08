@@ -118,6 +118,57 @@ describe("workflowOrchestrator", () => {
     expect(sinks.analysis.setAnalysisState).not.toHaveBeenCalled();
   });
 
+  describe("accession after notation translation", () => {
+    const run = (translated: { gene: string; variant: string; uniprotId: string }) => {
+      const sinks = createMockSinks();
+      const apiClient = {
+        translateVariant: vi.fn().mockResolvedValue(translated),
+        resolveGene: vi.fn().mockResolvedValue({ gene: translated.gene, uniprotId: "Q99999" })
+      };
+      const done = executeFullAnalysisWorkflow({
+        targetGeneArg: "GATA4",
+        targetVariantArg: "8-11708788-C-G",
+        targetUniprotArg: "P43694",
+        options: {
+          fetchWithAuth: vi.fn(),
+          apiClient,
+          settings: { biophysicsConditions: {} },
+          userDirections: "",
+          sinks: sinks as any
+        },
+        activeSignal: new AbortController().signal,
+        requestId: 1,
+        getActiveRequestId: () => 1,
+        getTraceContext: () => ({ activeTraceId: "t1", traceStart: 0, addTraceSpan: vi.fn() }),
+        fetchHomologs: vi.fn(),
+        fetchPocketData: vi.fn(),
+        mutantFoldAbortRef: { current: null }
+      });
+      return { sinks, apiClient, done };
+    };
+
+    it("keeps the accession it was given when translation returns none for the same gene", async () => {
+      const { sinks, apiClient, done } = run({ gene: "GATA4", variant: "p.Ser159Cys", uniprotId: "" });
+      await done;
+      expect(apiClient.resolveGene).not.toHaveBeenCalled();
+      expect(sinks.search.setUniprotId).toHaveBeenCalledWith("P43694");
+    });
+
+    it("does not reuse the accession when translation names a different gene", async () => {
+      const { sinks, apiClient, done } = run({ gene: "OTHER1", variant: "p.Ser159Cys", uniprotId: "" });
+      await done;
+      expect(apiClient.resolveGene).toHaveBeenCalledWith("OTHER1", expect.anything());
+      expect(sinks.search.setUniprotId).toHaveBeenCalledWith("Q99999");
+    });
+
+    it("prefers the accession translation returns", async () => {
+      const { sinks, apiClient, done } = run({ gene: "GATA4", variant: "p.Ser159Cys", uniprotId: "P43694-2" });
+      await done;
+      expect(apiClient.resolveGene).not.toHaveBeenCalled();
+      expect(sinks.search.setUniprotId).toHaveBeenCalledWith("P43694-2");
+    });
+  });
+
   it("restores cached snapshot on cache hit without re-running biophysics pipeline", async () => {
     const sinks = createMockSinks();
     const cachedAnalysis = {

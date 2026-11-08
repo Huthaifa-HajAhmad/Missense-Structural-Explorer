@@ -57,6 +57,38 @@ test('a long history scrolls inside its card and keeps the deck in place', { tag
   await app.screenshot('query-panels-long-history');
 });
 
+test('a full history on a 1366x768 laptop keeps the form whole and the tray on the deck floor', { tags: ['shell'] }, async ({ app, browser, screen }) => {
+  await skipTour(browser);
+  await browser.addInitScript(() => {
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    const genes = ['NAE1', 'PAH', 'TP53', 'BRCA1', 'SOD1', 'CFTR', 'LMNA', 'MYH7'];
+    localStorage.setItem('variant_search_history', JSON.stringify(
+      genes.map(gene => ({ gene, variant: 'p.Arg100Trp', query: `${gene} p.Arg100Trp` })),
+    ));
+  });
+  await browser.setViewport({ width: 1366, height: 768 });
+  await app.open('/');
+  await expect(screen.getByRole('heading', 'Recent analyses 8')).toBeVisible();
+  await browser.evaluate(() => document.fonts.ready.then(() => true));
+  const layout = await browser.evaluate(() => {
+    const form = document.querySelector('.workbench-query > form')!;
+    const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
+    const monitor = document.querySelector('.workbench-rail')!.getBoundingClientRect();
+    const benchmarks = document.querySelector<HTMLElement>('.workbench-benchmarks')!;
+    return {
+      formWhole: form.scrollHeight <= form.clientHeight + 1,
+      floorShared: Math.abs(recents.bottom - monitor.bottom) <= 1,
+      recentsH: recents.height,
+      benchmarksReachable: getComputedStyle(benchmarks).overflowY === 'auto' || benchmarks.scrollHeight <= benchmarks.clientHeight + 1,
+    };
+  });
+  expect(layout.formWhole, 'the default form fits without internal scrolling').toBe(true);
+  expect(layout.floorShared, 'the tray ends on the monitor floor').toBe(true);
+  expect(layout.recentsH >= 208, `the tray keeps its 13rem floor (${layout.recentsH})`).toBe(true);
+  expect(layout.benchmarksReachable, 'the benchmarks scroll when they do not fit').toBe(true);
+  await app.screenshot('query-panels-full-history-laptop');
+});
+
 test('Search has one page scroller and opens the palette directly', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await app.open('/');

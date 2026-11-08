@@ -49,6 +49,7 @@ import { backboneCaveat, granthamClass, type GranthamClass } from "./residueCont
 import type { BFactorScan, ResidueAt } from "./coordinateText";
 import { describeDeNovoFoldTimeout, isFoldingTimeoutError } from "./foldingLimits";
 import { alphafoldDbCoverage, type AlphaFoldDbCoverage } from "./alphafoldAvailability";
+import { SECONDARY_COLOURS, SECONDARY_LABELS, SECONDARY_ORDER, type SecondarySource } from "./structureSecondary";
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Types
@@ -56,7 +57,7 @@ import { alphafoldDbCoverage, type AlphaFoldDbCoverage } from "./alphafoldAvaila
 
 export type ModelFamily = "alphafold" | "esmfold";
 export type ViewMode = "wildtype" | "mutant" | "superimposed";
-export type RepresentationId = "confidence" | "plain" | "pair" | "displacement" | "esm3";
+export type RepresentationId = "confidence" | "plain" | "pair" | "displacement" | "esm3" | "secondary";
 export type AlignmentScope = "local" | "global";
 
 export interface CoordinateProvenance {
@@ -233,10 +234,11 @@ export interface Structure3dInput {
   alignmentScope: AlignmentScope;
   metrics: StructuralMetricsLike | null;
   esm3: { scoreCount: number | null; error: string | null; provenance?: string | null } | null;
-  region: string | null;
   burial: { rsa: number | null; label: string | null; structure: string | null } | null;
   homologs: HomologLike[];
   homologsLoading: boolean;
+  /** How Mol* assigned the drawn model's secondary structure, once it has (see `structureSecondary.ts`). */
+  secondarySource?: SecondarySource | null;
 }
 
 export interface ModeOption {
@@ -260,6 +262,7 @@ export type ThemePlan =
   | { theme: "bfactor-quartile" }
   | { theme: "displacement" }
   | { theme: "esm3" }
+  | { theme: "secondary-structure" }
   | { theme: "uniform"; color: number; alpha: number };
 
 export interface ColourPlan {
@@ -325,7 +328,6 @@ export interface SiteContext {
   substitution: string | null;
   check: { state: "match" | "mismatch" | "absent" | "unknown"; text: string };
   confidence: { kind: "plddt" | "b-factor" | "none"; value: number | null; text: string; note: string };
-  region: string | null;
   burial: string | null;
   /** Pure chemical side-chain topology and Grantham comparison of the wild-type and variant residues. */
   sideChain: ResidueSideChainSummary | null;
@@ -429,6 +431,7 @@ const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   pair: "Wild type and variant",
   displacement: "Cα displacement",
   esm3: "Sequence embedding shift",
+  secondary: "Secondary structure",
 };
 
 /** Neutral reference and clay variant for the superposition pair. Clay is `--cs-accent-clay`. */
@@ -881,6 +884,12 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
                     : "Sequence embedding scores are projected only onto a numbered predicted wild-type model.",
           },
         ] : []),
+    {
+      id: "secondary",
+      label: REPRESENTATION_LABELS.secondary,
+      available: Boolean(primary),
+      reason: primary ? null : "No structure is drawn.",
+    },
   ];
 
   const preferred: RepresentationId =
@@ -981,6 +990,25 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         { label: `${d.minor}–${d.moderate}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[2] },
         { label: `≥ ${d.moderate}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[3] },
         { label: "No score", range: null, color: STRUCTURE_COLOUR_BANDS.none },
+      ],
+    };
+  } else if (representation === "secondary") {
+    colour = {
+      primary: { theme: "secondary-structure" },
+      secondary: secondary ? { theme: "uniform", color: PAIR_COLOURS.variant, alpha: 0.85 } : null,
+      secondaryCartoon: !rigid,
+    };
+    legend = {
+      title: "Secondary structure",
+      provenance: "published",
+      provenanceNote: input.secondarySource === "file"
+        ? "Depositors' HELIX/SHEET records · colours are this app's"
+        : input.secondarySource === "dssp"
+          ? "DSSP (Kabsch & Sander 1983), computed by Mol* on these coordinates · colours are this app's"
+          : "No secondary-structure assignment has been read from this model yet · colours are this app's",
+      entries: [
+        ...SECONDARY_ORDER.map(cls => ({ label: SECONDARY_LABELS[cls], range: null, color: SECONDARY_COLOURS[cls] })),
+        ...(secondary ? [{ label: rigid ? "Variant residue" : "Variant", range: null, color: PAIR_COLOURS.variant }] : []),
       ],
     };
   } else {
@@ -1241,7 +1269,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     substitution,
     check,
     confidence,
-    region: input.region,
     burial:
       input.burial && (input.burial.label || input.burial.rsa !== null)
         ? `${input.burial.label ?? "Accessibility measured"}${input.burial.rsa !== null ? ` · RSA ${Math.round(input.burial.rsa * 100)}%` : ""}${input.burial.structure ? ` · on ${input.burial.structure}` : ""}`

@@ -57,7 +57,7 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
   };
   return <VisualizationPanel title="Where do the predictors disagree?"
     description={`REVEL × AlphaMissense · residue ${mode}s · loaded residues only: ${covered || 'none'}`}
-    actions={<div className="viz-header-actions"><div className="viz-mode" role="group" aria-label="Residue summary">{(['mean', 'max'] as const).map(value => <button type="button" key={value} aria-pressed={mode === value} onClick={() => onMode?.(value)}>{value === 'mean' ? 'Mean' : 'Max'}</button>)}</div><button type="button" className="viz-action" onClick={exportCsv} disabled={!filtered.length}><Download size={14} /> Export CSV</button></div>}
+    actions={<div className="viz-header-actions"><div className="cs-seg-control" role="group" aria-label="Residue summary">{(['mean', 'max'] as const).map(value => <button type="button" key={value} className="cs-seg-btn" aria-pressed={mode === value} onClick={() => onMode?.(value)}>{value === 'mean' ? 'Mean' : 'Max'}</button>)}</div><button type="button" className="viz-action" onClick={exportCsv} disabled={!filtered.length}><Download size={14} /> Export CSV</button></div>}
     note="Each circle summarizes a residue’s scored substitutions. The diamond is the queried variant’s own scores. Bands on residue summaries provide context; they do not assign ACMG evidence.">
     <div className="viz-filters" role="group" aria-label="Filter predictor agreement">
       {GROUPS.map(group => <button key={group.id} type="button" aria-pressed={filter === group.id}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildStructureSelection, canLinkStructurePick, indexStructureResidues, linkedPickPosition } from '../structureSelection';
+import { buildStructureSelection, canLinkStructurePick, indexStructureResidues, linkedPickPosition, selectionCalloutFacts } from '../structureSelection';
+import { readCaTrace } from '../coordinateText';
 import type { Structure3dEvidence } from '../structure3dEvidence';
 
 const atom = (position: number, chain = 'A', code = ' ', b = ' 92.00') =>
@@ -92,5 +93,51 @@ describe('linked structure selection', () => {
     expect(buildStructureSelection(model('temperature-factor'), indexStructureResidues(atom(5)), 5).measurement).toMatchObject({ label: 'Cα B-factor', value: '92.0 Å²' });
     expect(buildStructureSelection(model(), indexStructureResidues(atom(5, 'A', ' ', '      ')), 5).measurement).toBeNull();
     expect(buildStructureSelection(model(), indexStructureResidues(atom(5, 'A', ' ', '  0.00')), 5).measurement?.value).toBe('0.0');
+  });
+});
+
+describe('selection read against the drawn model and UniProt', () => {
+  const ca = (position: number, res: string, x: number, b: string) =>
+    `ATOM      1  CA  ${res} A${String(position).padStart(4)}    ${x.toFixed(3).padStart(8)}   0.000   0.000  1.00${b}           C`;
+  const text = [ca(10, 'SER', 0, ' 43.30'), ca(20, 'ARG', 12, ' 95.00')].join('\n');
+  const residues = indexStructureResidues(text);
+  const atSite = { ...model(), site: { canAddressVariantSite: true, check: { state: 'match' }, position: 10 } } as unknown as Structure3dEvidence;
+  const context = {
+    trace: readCaTrace(text),
+    secondary: { source: 'dssp' as const, chain: 'A', residueCount: 30, segments: [{ cls: 'coil' as const, start: 1, end: 12 }, { cls: 'alpha-helix' as const, start: 13, end: 25 }] },
+    features: [
+      { type: 'Domain', description: 'Kinase', start: 15, end: 25 },
+      { type: 'Region', description: 'Disordered', start: 1, end: 12 },
+    ],
+  };
+
+  it('adds the element, the pLDDT band, the UniProt annotation and the Cα distance to the site', () => {
+    const sel = buildStructureSelection(atSite, residues, 20, context);
+    expect(sel.residueName).toBe('Arginine');
+    expect(sel.band?.label).toBe('Very high');
+    expect(sel.secondary).toMatchObject({ index: 8, length: 13 });
+    expect(sel.secondarySource).toBe('dssp');
+    expect(sel.regions?.map(r => r.label)).toEqual(['Kinase']);
+    expect(sel.siteDistance).toEqual({ angstrom: 12, separation: 10 });
+    expect(selectionCalloutFacts(sel)).toEqual([
+      { label: 'Fold', value: 'α-helix 13–25' },
+      { label: 'Confidence', value: '95.0', note: 'very high' },
+      { label: 'To site', value: '12.0 Å', note: 'Cα–Cα · 10 apart in sequence' },
+    ]);
+  });
+
+  it('gives the site no distance to itself, and bands a very low pLDDT', () => {
+    const sel = buildStructureSelection(atSite, residues, 10, context);
+    expect(sel.isQueriedSite).toBe(true);
+    expect(sel.siteDistance).toBeNull();
+    expect(sel.band?.label).toBe('Very low');
+    expect(sel.regions?.map(r => r.kind)).toEqual(['disordered']);
+  });
+
+  it('keeps UniProt annotations for a selection the model cannot draw, but no structural reading', () => {
+    const sel = buildStructureSelection(atSite, residues, 22, context);
+    expect(sel.state).toBe('missing');
+    expect(sel.regions?.map(r => r.label)).toEqual(['Kinase']);
+    expect(sel.secondary).toBeUndefined();
   });
 });

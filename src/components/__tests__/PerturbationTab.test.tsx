@@ -41,9 +41,9 @@ describe("PerturbationTab", () => {
     render(<EvidenceWorkspaceProvider result={result}>
       <PerturbationTab {...({ analysisState: { result, isLoading: false }, foldingEnergetics: NAE1_ENERGETICS, onRetryStructural: retry, onOpenSettings: settings } as any)} />
     </EvidenceWorkspaceProvider>);
-    const support = within(screen.getByRole('region', { name: 'Model provenance and recovery' }));
-    // A model with a recovery action opens the records by default, so the action is never hidden.
-    expect(screen.getByText('Model records and availability', { selector: 'summary' }).closest('details')).toHaveAttribute('open');
+    // A model with a recovery action shows it in plain view, never behind a disclosure.
+    const support = within(screen.getByRole('region', { name: 'Model notices' }));
+    expect(document.querySelector('details.mol-finding-details')).toBeNull();
     expect(support.getByText('Remote queue exhausted')).toBeInTheDocument();
     expect(support.getByText('Local checkpoint unavailable')).toBeInTheDocument();
     expect(screen.queryByTestId('ptb-lm-saprot')).not.toBeInTheDocument();
@@ -75,8 +75,14 @@ describe("PerturbationTab", () => {
     const hero = screen.getByTestId("perturbation-finding");
     expect(hero.textContent).toContain("3 of 3");
     expect(hero.textContent).toContain("models favour native Asp over Gly at residue 116");
-    expect(hero.textContent).toContain("SaProt, ESM-2 and ESMC favour native Asp over Gly");
-    expect(hero.textContent).toMatch(/ΔLLR is the same on a log scale/);
+    // A plain sentence for a newcomer, then one card per model with its own odds.
+    expect(hero.textContent).toContain("All 3 language models expect Asp at position 116 and find Gly less likely.");
+    expect(hero.textContent).toContain("It is not proof that the variant is harmful.");
+    expect(hero.textContent).toContain("Asp 1,087× as likely as Gly");
+    expect(hero.textContent).toContain("Each bar lists the 20 amino acids");
+    expect(hero.textContent).not.toMatch(/ΔLLR/);
+    // No disclosures hide the model records, coverage or engine record.
+    expect(hero.querySelector("details")).toBeNull();
     expect(document.body.textContent).not.toMatch(/\/ 100|Consensus verdict|Moderate disruption|Local perturbation score/i);
   });
 
