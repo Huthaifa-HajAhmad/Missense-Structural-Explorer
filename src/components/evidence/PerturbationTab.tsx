@@ -134,7 +134,7 @@ export function PerturbationTab({
       <EvidenceViewTabs tab="perturbation" comparisonLabel="Model comparison" />
       <EvidencePanel tab="perturbation">
         {showsFinding && (
-          <FindingCard evidence={evidence} selectedId={selectedId} onSelect={selectModel} onAction={onAction} onNavigateToView={onNavigateToView} />
+          <FindingCard evidence={evidence} selectedId={selectedId} onSelect={selectModel} onAction={onAction} />
         )}
         {(view === "records" || view === "embeddings") && <ViewIntro evidence={evidence} view={view} />}
         {view === "embeddings" && <EmbeddingProfile evidence={evidence} />}

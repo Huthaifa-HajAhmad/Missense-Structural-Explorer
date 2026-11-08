@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildPerturbationEvidence, type PerturbationEvidence } from "../perturbationEvidence";
-import { directionCount, directionLabel, selectLmReading } from "../perturbationSummary";
+import { directionCount, directionLabel, plainReading, selectLmReading } from "../perturbationSummary";
 import { GATA4_RESULT } from "./fixtures/gata4Perturbation";
 
 const GATA4 = buildPerturbationEvidence({
@@ -65,5 +65,39 @@ describe("directionLabel", () => {
     expect(directionLabel({ ...lm, direction: "even" }, "Ser", "Cys")).toBe("Near even");
     expect(directionLabel({ ...lm, direction: "flat" }, "Ser", "Cys")).toBe("No preference");
     expect(directionLabel({ ...lm, direction: null }, "Ser", "Cys")).toBeNull();
+  });
+});
+
+describe("plainReading — the finding in words a newcomer can read", () => {
+  it("names the amino acid the models expect and says what that does and does not show", () => {
+    const r = plainReading(GATA4);
+    expect(r.lead).toBe("All 3 language models expect Ser at position 159 and find Cys less likely.");
+    expect(r.meaning).toContain("It is not proof that the variant is harmful.");
+  });
+
+  it("counts only the models that show a preference when others are flat", () => {
+    expect(plainReading(withCounts({ nScored: 3, nFavourNative: 2, nFlat: 1 })).lead).toBe("2 of 3 language models expect Ser at position 159 and find Cys less likely.");
+  });
+
+  it("uses the singular for one model", () => {
+    expect(plainReading(withCounts({ nScored: 1, nFavourNative: 1 })).lead).toBe("The language model expects Ser at position 159 and finds Cys less likely.");
+  });
+
+  it("does not call a replacement harmless when the models prefer it", () => {
+    const r = plainReading(withCounts({ nScored: 2, nFavourVariant: 2 }));
+    expect(r.lead).toBe("Both language models find Cys at least as likely as the original Ser at position 159.");
+    expect(r.meaning).toContain("does not show the variant is harmless");
+  });
+
+  it("says the models disagree instead of naming a winner", () => {
+    const r = plainReading(withCounts({ nScored: 3, nFavourNative: 1, nFavourVariant: 1, nEven: 1 }));
+    expect(r.lead).toBe("The language models disagree at position 159: 1 expect Ser, 1 expect Cys, 1 see no clear difference.");
+    expect(r.meaning).toContain("no clear signal");
+  });
+
+  it("says there is no preference when every model is flat, and nothing before any model has scored", () => {
+    expect(plainReading(withCounts({ nScored: 2, nFlat: 2 })).lead).toContain("none of them shows a preference");
+    expect(plainReading(withCounts({})).lead).toBe("No language model has scored this substitution.");
+    expect(plainReading({ ...withCounts({}), pending: true }).lead).toBe("The language models are still running.");
   });
 });

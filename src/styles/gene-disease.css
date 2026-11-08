@@ -130,13 +130,7 @@
    matrix fit the viewport without a second scroll region. */
 
 
-/* Evidence type is navigation; representation is a local, labelled control. */
 .gd-reference, .gd-review-overview, .gd-validity-representation { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
-.gd-view-control { display: inline-flex; align-self: start; align-items: center; gap: 4px; padding: 3px; border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-bg); font-size: var(--cs-font-size-prose); }
-.gd-view-control button { min-block-size: 30px; font-weight: 500; padding-inline: 14px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--cs-text-secondary); cursor: pointer; }
-.gd-view-control button[aria-pressed="true"] { background: var(--cs-surface); border-color: var(--cs-accent-clay); color: var(--cs-text-primary); box-shadow: inset 0 -2px 0 var(--cs-accent-clay); }
-.gd-screen .gd-view-control button:active { background: var(--cs-bg-subtle); }
-.gd-view-control button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 /* A dosage source with no reading (none curated, still loading, or failed): one card, left-aligned, the
    message filling the card. The shared notice centred it and capped its lines at 72ch. */
 .gd-state { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px; }
@@ -156,7 +150,6 @@
 .gd-rail { gap: 20px; }
 .gd-rail .evw-inspection { margin-block: 0; }
 .gd-rail .evw-inspection h3, .gd-rail .gd-source-section > h3 { font-size: 16px; letter-spacing: normal; text-transform: none; color: var(--cs-text-primary); }
-.gd-rail .evw-inspection[data-empty] { padding-block-end: 16px; }
 .gd-rail .gd-source-section > h3 { margin-block-end: 8px; }
 .gd-rail .xp-prov { border-block-end: 1px solid var(--cs-border-subtle); }
 .gd-rail .xp-prov > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-block-size: 44px; padding-block: 10px; cursor: pointer; }
@@ -168,9 +161,6 @@
 .gd-rail > .ctx-details { border: 0; padding: 0; }
 .gd-rail > .ctx-details > summary { min-block-size: 44px; align-content: center; }
 .gd-screen :is(button, summary):active, .gd-rail :is(button, summary):active { background-color: var(--cs-surface-2); }
-@media (hover: hover) and (pointer: fine) {
-  .gd-view-control button:hover { color: var(--cs-text-primary); }
-}
 
 /* Scope, evidence navigation and findings are separate groups; record tools share one row. */
 .gd-screen > header { display: flex; flex-direction: column; gap: 8px; }
@@ -199,6 +189,3 @@
 .gd-screen .cx-assertion > span[aria-hidden] { font-size: 18px; line-height: 1; }
 .gd-screen[data-comparison] .cx-records { margin: 0; }
 
-@media (forced-colors: active) {
-  .gd-view-control button[aria-pressed="true"] { border-color: Highlight; color: Highlight; }
-}

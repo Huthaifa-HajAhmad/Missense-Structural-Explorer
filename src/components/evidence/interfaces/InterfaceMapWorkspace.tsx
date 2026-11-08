@@ -11,9 +11,9 @@ export function InterfaceMapWorkspace({ ev, lit, onLit, onOpen, numbering }: {
   if (!w.enabled) return <InterfaceTrack ev={ev} lit={lit} onLit={onLit} onOpen={onOpen} />;
   return <>
     <header className="mx-map-heading"><div><span className="mx-kicker">Protein reference · {ev.uniprotId ?? 'unresolved'}</span><h3>Interface atlas</h3></div>
-      <div className="mx-window" role="group" aria-label="Sequence window">
-        <button type="button" aria-pressed={w.window !== 'near'} onClick={() => w.setOptions({ window: 'whole' })}>Whole protein</button>
-        <button type="button" aria-pressed={w.window === 'near'} disabled={ev.position === null} onClick={() => w.setOptions({ window: 'near' })}>Around {ev.residueLabel}</button>
+      <div className="cs-seg-control" role="group" aria-label="Sequence window">
+        <button type="button" className="cs-seg-btn" aria-pressed={w.window !== 'near'} onClick={() => w.setOptions({ window: 'whole' })}>Whole protein</button>
+        <button type="button" className="cs-seg-btn" aria-pressed={w.window === 'near'} disabled={ev.position === null} onClick={() => w.setOptions({ window: 'near' })}>Around {ev.residueLabel}</button>
       </div>
     </header>
     <div className="mx-layers" role="group" aria-label="Interface map layers">{v.layers.map(l => <button key={l.id} type="button" aria-pressed={!w.hidden?.includes(l.id)} onClick={() => w.setOptions({ hidden: w.hidden?.includes(l.id) ? w.hidden.filter(id => id !== l.id) : [...(w.hidden ?? []), l.id] })}>{l.label}{" "}<span>{l.count}</span></button>)}</div>

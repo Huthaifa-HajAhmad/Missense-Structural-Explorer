@@ -214,7 +214,7 @@ test('Gene-disease presentation and search share a height and grow with text', {
     expect(groupBox !== null && Math.abs(groupBox.height - 38) <= 0.5).toBe(true);
   }
   await browser.evaluate(() => {
-    document.querySelectorAll<HTMLElement>('.cx-record-toolbar input[type="search"], .cx-record-toolbar .gd-view-control button').forEach(node => { node.style.fontSize = '24px'; });
+    document.querySelectorAll<HTMLElement>('.cx-record-toolbar input[type="search"], .cx-record-toolbar .cs-seg-control button').forEach(node => { node.style.fontSize = '24px'; });
     return null;
   });
   const grownMode = await mode.boundingBox();
