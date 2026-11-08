@@ -141,20 +141,50 @@ describe('first-run tray design', { tags: ['search'] }, () => {
     await app.open('/');
   });
 
-  test('the tour action sits in the tray notice, below the header and above the benchmarks', async ({ app, browser, screen }) => {
+  test('the empty tray holds a placeholder for the history, with the benchmarks pushed below it', async ({ app, browser, screen }) => {
     const heading = await box(browser.locator('.workbench-recents-heading'), 'tray header');
-    const notice = await box(browser.locator('.workbench-notice'), 'tray notice');
-    const tour = await box(browser.locator('.workbench-notice .workbench-tour-link'), 'tour action');
+    const empty = await box(browser.locator('.workbench-recents-empty'), 'history placeholder');
+    const benchmarksHead = await box(browser.locator('.workbench-benchmarks-head'), 'benchmark heading');
     const firstRow = await box(browser.locator('.workbench-benchmark').first(), 'first benchmark');
+    const lastRow = await box(browser.locator('.workbench-benchmark').last(), 'last benchmark');
+    const tray = await box(browser.locator('.workbench-recents'), 'tray');
 
     await expect(screen.getByRole('heading', 'No recent analyses')).toBeVisible();
-    expect(await browser.locator('.workbench-recents-heading .workbench-tour-link').count(), 'the header carries no tour action').toBe(0);
-    expect(notice.y >= heading.y + heading.height - 1, 'the notice starts below the header band').toBe(true);
-    expect(tour.x >= notice.x && tour.x + tour.width <= notice.x + notice.width + 1 && tour.y >= notice.y - 1 && tour.y + tour.height <= notice.y + notice.height + 1, 'the tour action sits inside the notice').toBe(true);
-    expect(notice.y + notice.height <= firstRow.y + 1, 'the notice ends above the first benchmark').toBe(true);
+    await expect(screen.getByText(/Analysed variants will appear here/)).toBeVisible();
+    expect(await browser.locator('.workbench-recents').getByRole('button', 'Take the tour').count(), 'the tray carries no tour action').toBe(0);
+    expect(empty.y >= heading.y + heading.height - 1, 'the placeholder starts below the header band').toBe(true);
+    expect(empty.y + empty.height <= benchmarksHead.y + 1, 'the placeholder ends above the benchmarks').toBe(true);
+    expect(benchmarksHead.y + benchmarksHead.height <= firstRow.y + 1, 'the benchmark heading sits above its rows').toBe(true);
+    expect(empty.height >= 96, `the placeholder is ${empty.height.toFixed(1)}px tall (at least 96)`).toBe(true);
+    expect(tray.y + tray.height - (lastRow.y + lastRow.height) < 48, 'the benchmarks reach the tray floor: no empty band under them').toBe(true);
+    await expect(screen.getByRole('region', 'Benchmark controls')).toBeVisible();
     expect(firstRow.height >= 56, `benchmark rows are ${firstRow.height.toFixed(1)}px tall (at least 56)`).toBe(true);
 
-    await app.screenshot('05-tray-notice');
+    await app.screenshot('05-tray-empty-state');
+  });
+
+  test('each benchmark row reads on one line: run label and form-only action share a centre', async ({ browser }) => {
+    const rows = await browser.evaluate(() => [...document.querySelectorAll('.workbench-benchmark')].map(row => {
+      const centre = (el: Element) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+      return {
+        gene: centre(row.querySelector('.workbench-benchmark-gene')!),
+        run: centre(row.querySelector('.workbench-benchmark-run')!),
+        fill: centre(row.querySelector('.workbench-benchmark-fill')!),
+      };
+    }));
+    expect(rows.length, 'four benchmarks are listed').toBe(4);
+    for (const r of rows) {
+      expect(Math.abs(r.run - r.fill) <= 2, `run label and form-only action share a centre (${r.run.toFixed(1)} vs ${r.fill.toFixed(1)})`).toBe(true);
+      expect(Math.abs(r.gene - r.run) <= 2, `the gene shares that centre (${r.gene.toFixed(1)} vs ${r.run.toFixed(1)})`).toBe(true);
+    }
+    const head = await browser.evaluate(() => {
+      const title = getComputedStyle(document.querySelector('.workbench-benchmarks-head h3')!);
+      const note = document.querySelector('.workbench-benchmarks-head > p')!.getBoundingClientRect();
+      const label = document.querySelector('.workbench-benchmarks-head h3')!.getBoundingClientRect();
+      return { transform: title.textTransform, size: parseFloat(title.fontSize), noteAfterLabel: note.left >= label.right };
+    });
+    expect(head.transform, 'the group label is set in capitals, like the monitor groups').toBe('uppercase');
+    expect(head.size < 12 && head.noteAfterLabel, 'the label is quieter than a card heading, with its note beside it').toBe(true);
   });
 
   test('the highlighted benchmark is one rounded surface, clear of its own text', async ({ app, browser, screen }) => {
