@@ -164,12 +164,40 @@ jobs:
             -f context=production/deploy -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             -f description="Rolling out; NOT live yet" >/dev/null
 
+      - name: Set up Go for the SSH bridge
+        # drone-ssh v1.8.2 declares `go 1.24.0`; pin the toolchain so a runner image change cannot make
+        # the build fail for a reason unrelated to the deploy.
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+
+      - name: Build drone-ssh for the SSH action
+        # appleboy/ssh-action downloads drone-ssh from GitHub release assets on every run that has not
+        # cached it. On 2026-11-08 those assets answered 504 for every version of drone-ssh, while other
+        # repos' assets and the Go module proxy were fine, so the deploy failed before it reached the VM.
+        # Build the pinned binary from the checksummed module proxy and serve it to the action as a
+        # local release URL (entrypoint.sh reads DRONE_SSH_RELEASE_URL), so no release asset is needed.
+        run: |
+          set -euo pipefail
+          version="1.8.2"
+          release_dir="${RUNNER_TEMP}/drone-ssh-release/v${version}"
+          install -d "$release_dir"
+          GOBIN="${RUNNER_TEMP}/drone-ssh-bin" go install -ldflags "-X main.Version=v${version}" "github.com/appleboy/drone-ssh@v${version}"
+          target="${release_dir}/drone-ssh-${version}-linux-amd64"
+          install -m 0755 "${RUNNER_TEMP}/drone-ssh-bin/drone-ssh" "$target"
+          "$target" --version
+
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          # A local file URL; the action appends /v<version>/drone-ssh-<version>-linux-amd64.
+          DRONE_SSH_RELEASE_URL: file://${{ runner.temp }}/drone-ssh-release
         with:
           host: ${{ secrets.OCI_SSH_HOST }}
           username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
           key: ${{ secrets.OCI_SSH_KEY }}
+          version: "1.8.2"
           # No longer a deploy timeout — only has to outlast the confirmation window plus dispatch.
           command_timeout: 10m
           envs: DEPLOY_SHA,DEPLOY_CONFIRM_SECONDS
