@@ -79,6 +79,18 @@ function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T,
 
 export function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
+  /**
+   * An expired CORE source is not a finished analysis.
+   *
+   * The FGFR3 p.Gly380Arg run (2026-11-08): Ensembl VEP's unbounded ladder never settled inside
+   * the 45 s core budget, so `predictorData`, `gnomadFrequency` and the LOCAL constraint expired
+   * together — and the payload was cached as finished, so every later visit re-read "the gnomAD
+   * frequency query timed out" while a re-run answered in seconds. A confirmed absence
+   * (`not_found`) is still a finished analysis; only the budget sentinel is sticky.
+   */
+  const statuses = payload.serviceStatus;
+  if (statuses && ["gnomadFrequency", "gnomadConstraint", "predictorData"]
+      .some(key => statuses[key] === "timeout")) return true;
   if (hasInterruptedPredictorReadings(payload)) return true;
   // The persisted outer key is gene + protein + weighting, not nucleotide identity. A supplied
   // allele must escape a prior definitive ambiguity (or a different ALT at the same position).

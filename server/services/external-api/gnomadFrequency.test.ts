@@ -64,4 +64,27 @@ describe("gnomAD variant frequency", () => {
     fetchWithRetry.mockResolvedValueOnce(json({ errors: [{ message: "Rate limited" }], data: { variant: null } }));
     await expect(fetchGnomadVariantFrequency("1-1-A-G")).rejects.toBeInstanceOf(GnomadUnavailableError);
   });
+
+  /**
+   * The caller's deadline travels with the request, and the caller's attempt cap is OUR scheduling,
+   * not the provider's health: a budget-induced timeout must not count against gnomAD's per-host
+   * circuit breaker (which would eject a healthy provider for the whole cooldown because OUR run
+   * was out of time). An unsupplied deadline behaves exactly as before.
+   */
+  it("honours the caller deadline and exempts its own budget expiry from the breaker", async () => {
+    const deadline = Date.now() + 4000;
+    fetchWithRetry.mockResolvedValueOnce(json(UROD));
+    await fetchGnomadVariantFrequency("1-45015346-G-A", { deadlineAt: deadline, cappedByCaller: true });
+    const [, options] = fetchWithRetry.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(options.deadlineAt).toBe(deadline);
+    expect(options.cappedByCaller).toBe(true);
+
+    // Without them the wire stays as it always was.
+    fetchWithRetry.mockClear();
+    fetchWithRetry.mockResolvedValueOnce(json(UROD));
+    await fetchGnomadVariantFrequency("1-45015346-G-A");
+    const [, plain] = fetchWithRetry.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(plain.deadlineAt).toBeUndefined();
+    expect(plain.cappedByCaller).toBeUndefined();
+  });
 });

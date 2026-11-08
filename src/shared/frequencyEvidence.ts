@@ -628,13 +628,19 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   }
 
   // 1/2. Withheld — an outage is not an absence, and a running query has decided nothing yet.
+  //      …but name the run, not the provider, when gnomAD was never asked: `predictorData` with no
+  //      genomic id means the locus never resolved, so the gnomAD query could not have been issued
+  //      (the FGFR3 run: VEP's ladder consumed the budget, gnomAD answered 3/3 within 300 ms).
+  const locusUnresolved = !input.locus?.predictorData?.gnomadVariantId;
   if (status === "timeout" || status === "error") {
     return {
       ...base,
       code: "withheld",
       af: null,
       sourceId: null,
-      statement: `Population-frequency evidence was withheld: the gnomAD query ${status === "timeout" ? "timed out" : "failed"}. No frequency criterion (PM2, BS1 or BA1) was applied.`,
+      statement: locusUnresolved
+        ? "Population-frequency evidence was withheld: the run's genomic locus could not be resolved, so gnomAD was not queried. No frequency criterion (PM2, BS1 or BA1) was applied."
+        : `Population-frequency evidence was withheld: the gnomAD query ${status === "timeout" ? "timed out" : "failed"}. No frequency criterion (PM2, BS1 or BA1) was applied.`,
     };
   }
   if (status === "pending") {
@@ -811,6 +817,7 @@ function gnomadAbsence(
   status: string | undefined,
   datasetLabel: string,
   buildRefusal: string | null,
+  locusUnresolved = false,
 ): EvidenceAvailability {
   if (buildRefusal || status === "unsupported-build") {
     return resolveEvidenceAvailability({
@@ -823,7 +830,12 @@ function gnomadAbsence(
   if (status === "timeout" || status === "error") {
     return resolveEvidenceAvailability({
       status: "unavailable",
-      message: `The gnomAD frequency query ${status === "timeout" ? "timed out" : "returned an error"}, so this dataset was not read.`,
+      // The same distinction the classifier draws one branch above: a run whose locus never
+      // resolved never issued a gnomAD query, so the row names the resolution failure instead of
+      // attributing a provider fault to a database it never reached.
+      message: locusUnresolved
+        ? "The run's genomic locus could not be resolved, so this dataset was not read."
+        : `The gnomAD frequency query ${status === "timeout" ? "timed out" : "returned an error"}, so this dataset was not read.`,
     });
   }
   if (status === "pending") {
@@ -1064,7 +1076,12 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
               message: fallback.sentence,
               inputRequired: fallback.recoveryAction === "provide-allele",
             })
-          : gnomadAbsence(gnomadStatus, label.toLowerCase(), buildRefusal),
+          : gnomadAbsence(
+              gnomadStatus,
+              label.toLowerCase(),
+              buildRefusal,
+              !input.locus?.predictorData?.gnomadVariantId,
+            ),
     };
   };
 

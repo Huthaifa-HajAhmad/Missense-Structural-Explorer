@@ -214,6 +214,37 @@ describe("frequencyEvidence — absence is classified, never worded", () => {
       expect(evidence.criterion.statement).not.toContain("— exceeds");
     }
   });
+
+  it("does not claim a provider the pipeline never asked: an unresolved locus is not a gnomAD fault", () => {
+    // The FGFR3 run: VEP's ladder never settled, so gnomAD's fetch never started and the budget
+    // expired both. `predictorData` carries the x-axis of the whole claim — with no locus there is
+    // no gnomAD query, and "the gnomAD query timed out" blames a provider that answered nothing.
+    const locusInput = input({
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "timeout" },
+      locus: { predictorData: null, coordinateLift: null },
+    });
+
+    const criterion = classifyAcmgFrequency(locusInput);
+    expect(criterion.code).toBe("withheld");
+    expect(criterion.statement).toMatch(/locus could not be resolved/i);
+    expect(criterion.statement).not.toMatch(/gnomAD query timed out/i);
+
+    const evidence = buildFrequencyEvidence(locusInput as never);
+    for (const row of evidence.observations.filter(o => o.id.startsWith("gnomad-"))) {
+      expect(row.availability.reason ?? "").toMatch(/locus could not be resolved/i);
+      expect(row.availability.reason ?? "").not.toMatch(/frequency query timed out/i);
+    }
+  });
+
+  it("keeps the gnomAD wording for a run whose locus resolved and whose gnomAD query timed out", () => {
+    const resolved = input({
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "timeout" },
+      locus: { predictorData: { gnomadVariantId: "12-102845012-G-A", gnomadVariantAssembly: "GRCh38" } as never, coordinateLift: null },
+    });
+    expect(classifyAcmgFrequency(resolved).statement).toMatch(/gnomAD query timed out/);
+  });
 });
 
 describe("frequencyEvidence — cut-points come from the shared constants", () => {
