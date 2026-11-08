@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
+import type { Vec3 } from "molstar/lib/mol-math/linear-algebra";
 import { Color } from "molstar/lib/mol-util/color";
 import { isValidPdbUrl } from "./molstarThemes";
 import { PAIR_COLOURS, pdbIdFromUrl, type ColourPlan, type LoadedEntry, type ThemePlan } from "../../shared/structure3dEvidence";
@@ -9,6 +10,8 @@ import type { StructureProvenance } from "../../shared/contracts";
 import { STRUCTURE_REF_HEADER } from "../../shared/structureRefs";
 import { registerStructureRefForPdb } from "../../api/structureRefRegistry";
 import type { MolstarPluginHandle } from "./useMolstarPlugin";
+import { SECONDARY_COLOURS, type ModelSecondary } from "../../shared/structureSecondary";
+import { readModelSecondary, residueAnchor } from "./readSecondaryStructure";
 
 /**
  * Loads the coordinates `AppViews` hands the canvas and draws them with the colour plan the 3D
@@ -42,6 +45,14 @@ export interface UseMolstarStructureOptions {
   variantPosition: number | null;
   /** The displayed coordinates use verified UniProt numbering at the variant site. */
   canAddressVariantSite: boolean;
+  /**
+   * How the drawn primary model numbers its residues. Callout anchors need residue numbers the app
+   * can address even when the variant site itself is absent from the entry (`check: "absent"`), where
+   * `canAddressVariantSite` is false.
+   */
+  residueNumbering?: "uniprot" | "entry" | "unknown";
+  /** The site's card already names it, so the canvas must not also draw its 3D text label. */
+  suppressVariantLabel?: boolean;
   /** A residue the reader clicked, when it is not the variant's. */
   selectedResidue: number | null;
   /** Residues drawn with the selection (see `ResidueFocus`); the selected residue is not repeated here. */
@@ -63,6 +74,8 @@ export interface UseMolstarStructureOptions {
   onPdbTextLoaded?: (pdbText: string, provenance: StructureProvenance) => void;
   /** A PDB entry from the experimental list was fetched, or cleared (null). */
   onEntryLoaded?: (entry: LoadedEntry | null) => void;
+  /** The drawn primary model's secondary structure once read; `null` at the start of every load. */
+  onSecondaryStructure?: (secondary: ModelSecondary | null, state: "reading" | "ready" | "unavailable" | "idle") => void;
 }
 
 function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: number | null): { color: string; colorParams?: any; typeParams?: any } {
@@ -76,6 +89,8 @@ function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: 
       return { color: "backbone-displacement", ...extraAlpha };
     case "esm3":
       return { color: "esm3-shift", colorParams: { perturbationScores: esm3Scores ?? [] }, ...extraAlpha };
+    case "secondary-structure":
+      return { color: "secondary-structure", colorParams: { colors: { name: "custom", params: SECONDARY_COLOUR_MAP } }, ...extraAlpha };
     case "uniform": {
       const alpha = typeof alphaOverride === "number" ? Math.min(plan.alpha, alphaOverride) : plan.alpha;
       return {
@@ -86,6 +101,21 @@ function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: 
     }
   }
 }
+
+/** Mol*'s colour-map keys, filled from `SECONDARY_COLOURS` so the legend swatch is the drawn colour. */
+const SECONDARY_COLOUR_MAP = {
+  alphaHelix: Color(SECONDARY_COLOURS["alpha-helix"]),
+  threeTenHelix: Color(SECONDARY_COLOURS["310-helix"]),
+  piHelix: Color(SECONDARY_COLOURS["pi-helix"]),
+  betaTurn: Color(SECONDARY_COLOURS.turn),
+  betaStrand: Color(SECONDARY_COLOURS.strand),
+  coil: Color(SECONDARY_COLOURS.coil),
+  bend: Color(SECONDARY_COLOURS.bend),
+  turn: Color(SECONDARY_COLOURS.turn),
+  dna: Color(0xae00fe),
+  rna: Color(0xfd0162),
+  carbohydrate: Color(0xa6a6fa),
+};
 
 function formatOf(text: string): "mmcif" | "pdb" {
   return text.startsWith("data_") || text.includes("_atom_site") ? "mmcif" : "pdb";
@@ -196,6 +226,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     esm3Scores,
     variantPosition,
     canAddressVariantSite,
+    residueNumbering = "unknown",
+    suppressVariantLabel = false,
     selectedResidue,
     companionResidues = NO_RESIDUES,
     showPolarContacts,
@@ -211,6 +243,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     fetchWithAuth,
     onPdbTextLoaded,
     onEntryLoaded,
+    onSecondaryStructure,
   } = opts;
 
   const structureRef = useRef<any>(null);
@@ -220,6 +253,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const highlightRefs = useRef<string[]>([]);
   const isLoadingRef = useRef(false);
   const pendingCameraResetRef = useRef(false);
+  /** The first finished load frames the structure once the canvas has its real size (cold-start cameras). */
+  const framedFirstLoadRef = useRef(false);
   const drawnSourceRef = useRef<{
     primaryPdbData: string | null;
     customPdbUrl: string | null;
@@ -235,6 +270,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   onPdbTextLoadedRef.current = onPdbTextLoaded;
   const onEntryLoadedRef = useRef(onEntryLoaded);
   onEntryLoadedRef.current = onEntryLoaded;
+  const onSecondaryRef = useRef(onSecondaryStructure);
+  onSecondaryRef.current = onSecondaryStructure;
 
   const colourKey = JSON.stringify(colour);
   // A length-only key left an existing ESM3 heatmap stale after a same-length rerun.
@@ -243,6 +280,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   // Alpha/visibility are representation properties, not colour-theme properties. Only these
   // changes require rebuilding visual components; palette and ESM3 score changes do not.
   const closeUpActive = Boolean(siteCloseUp && variantPosition && canAddressVariantSite);
+  /** Residue numbers can be addressed on the canvas: verified UniProt numbering, site absent or not. */
+  const residueNumbersTrusted = residueNumbering === "uniprot" || canAddressVariantSite;
   const ribbonAlphaOverride = closeUpActive ? 0.22 : null;
   const visualStructureKey = JSON.stringify({
     filterCut,
@@ -274,6 +313,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (!active) return;
         announceDrawn(null);
         setDrawnPair(false);
+        if (!visualOnly) onSecondaryRef.current?.(null, "reading");
         structureRef.current = null;
         structure2Ref.current = null;
         polymerRef.current = null;
@@ -416,6 +456,15 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
             plugin.managers.camera?.reset(undefined, cameraDuration);
           } else if (cameraSnapshot) {
             plugin.canvas3d?.camera?.setState(cameraSnapshot, 0);
+          } else if (!framedFirstLoadRef.current) {
+            // The first load can finish before the canvas has been laid out (a cold browser profile),
+            // and Mol* then frames the structure against a zero-sized viewport. Frame again once the
+            // current task — and with it layout — is done, so the whole structure is actually in view.
+            framedFirstLoadRef.current = true;
+            setTimeout(() => {
+              if (!active) return;
+              try { plugin.managers.camera?.reset(undefined, 0); } catch { /* camera is best-effort */ }
+            }, 0);
           }
         } catch { /* camera props are best-effort */ }
 
@@ -425,6 +474,15 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           const hasSecond = Boolean(structure2Ref.current && stillInTree(plugin, structure2Ref.current.ref));
           setDrawnPair(hasSecond);
           announceDrawn(hasSecond ? 2 : 1);
+          // Read after the cartoon is built: the cartoon attaches the same property, so this is the drawn assignment.
+          onSecondaryRef.current?.(null, "reading");
+          readModelSecondary(plugin, structure.obj.data).then(
+            secondary => { if (active) onSecondaryRef.current?.(secondary, secondary ? "ready" : "unavailable"); },
+            err => {
+              console.warn("[3D] Could not read the secondary structure:", err);
+              if (active) onSecondaryRef.current?.(null, "unavailable");
+            },
+          );
           setLoading(false);
           setReadyVersion(v => v + 1);
         }
@@ -435,6 +493,9 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         console.error("[3D] Structure load failed:", err);
         setLoadError(err?.message || "The structure could not be drawn.");
         setLoading(false);
+        // Nothing is drawn any more: the epoch must move so the canvas drops its callouts and anchors.
+        onSecondaryRef.current?.(null, "idle");
+        setReadyVersion(v => v + 1);
       }
     }
 
@@ -512,12 +573,16 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         const superposed = !!structure2 && stillInTree(plugin, structure2.ref);
         const effectiveContacts = showPolarContacts || closeUpActive;
         const effectiveLabels = show3DLabels || closeUpActive;
+        const siteLabels = effectiveLabels && !suppressVariantLabel;
 
         if (variantPosition && canAddressVariantSite) {
           const surroundings = MS.struct.modifier.includeSurroundings({ 0: residueExpression(variantPosition), radius: 5, "as-whole-residues": true });
           const site = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residueExpression(variantPosition), "variant-site", { label: `Variant site ${variantPosition}` });
           if (!active) return;
           if (site) {
+            // A load that started during the awaits above may have cleared the tree: this component's
+            // ref then points at a deleted node and addRepresentation would throw "Could not find node".
+            if (!stillInTree(plugin, site.ref)) return;
             refs.push(site.ref);
             await plugin.builders.structure.representation.addRepresentation(site, {
               type: "ball-and-stick",
@@ -530,7 +595,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
             if (neonHighContrast) {
               await plugin.builders.structure.representation.addRepresentation(site, { type: "spacefill", typeParams: { alpha: 0.35 }, color: "uniform", colorParams: { value: residueColorHex } });
             }
-            if (effectiveLabels) {
+            if (siteLabels) {
               await plugin.builders.structure.representation.addRepresentation(site, {
                 type: "label",
                 typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.4, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "bottom-left" },
@@ -582,7 +647,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
                 colorParams: { value: Color(PAIR_COLOURS.variant) },
                 typeParams: { sizeFactor: closeUpActive ? 0.36 : 0.3 },
               });
-              if (effectiveLabels) {
+              if (siteLabels) {
                 await plugin.builders.structure.representation.addRepresentation(site2, {
                   type: "label",
                   typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.4, offsetZ: 2.1, tether: true, tetherLength: 2.2, tetherBaseWidth: 0.35, attachment: "top-right" },
@@ -690,7 +755,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
       } catch (err: any) {
         const msg = err?.message || "";
-        if (/present in the tree|Cannot read properties of undefined/.test(msg)) {
+        if (/present in the tree|Could not find node|Cannot read properties of undefined/.test(msg)) {
           console.warn("[3D] Highlight cancelled by a structure change:", msg);
         } else {
           console.error("[3D] Highlight failed:", err);
@@ -707,11 +772,11 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       if (container) delete container.dataset.companionLabels;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, labelAllCompanions, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, suppressVariantLabel, labelAllCompanions, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
 
-  /** Frames one residue (or its 5 Å neighbourhood) without changing any selection. */
+  /** Frames a residue (or its 5 Å neighbourhood) without changing any selection. */
   const focusResidue = (index: number, scope: "residue" | "neighbourhood" = "residue") => {
-    if (!canAddressVariantSite) return;
+    if (!residueNumbersTrusted) return;
     const plugin = pluginRef.current;
     const struct = structureRef.current;
     if (!plugin || !struct) return;
@@ -755,6 +820,21 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     }
   };
 
-  return { structureRef, structure2Ref, drawnPair, focusResidue, focusResidues, resetCamera };
+  /**
+   * World position of a residue's Cα on the primary structure, or on the superposed variant.
+   * `undefined` means "not read" (no trusted numbering or no structure), `null` means the residue has
+   * no Cα in the drawn model — the callout says which, instead of calling both "out of view".
+   */
+  const anchorOf = (position: number, on: "primary" | "variant" = "primary", chain?: string | null): Vec3 | null | undefined => {
+    const struct = on === "variant" ? structure2Ref.current : structureRef.current;
+    if (!residueNumbersTrusted || !struct?.obj?.data) return undefined;
+    try {
+      return residueAnchor(struct.obj.data, position, chain);
+    } catch {
+      return undefined;
+    }
+  };
+
+  return { structureRef, structure2Ref, drawnPair, readyVersion, focusResidue, focusResidues, resetCamera, anchorOf };
 }
 

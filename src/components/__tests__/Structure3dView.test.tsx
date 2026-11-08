@@ -435,7 +435,7 @@ describe("3D toolbar and legend", () => {
       />,
     );
     expect(atSite.container.querySelector(".s3d-selection__badge")?.textContent).toBe("Queried site");
-    expect(atSite.container.textContent).not.toContain("Variant-site measurements below remain tied to the queried substitution.");
+    expect(atSite.container.textContent).not.toContain("Site readings below stay tied to the queried substitution.");
     atSite.unmount();
 
     // Unmapped selection at the variant position must not claim "Queried site" and must keep the caveat note
@@ -457,7 +457,7 @@ describe("3D toolbar and legend", () => {
     );
     expect(unmappedAtSite.container.querySelector(".s3d-selection__badge")).toBeNull();
     expect(unmappedAtSite.container.querySelector(".s3d-selection__return")).toBeNull();
-    expect(unmappedAtSite.container.textContent).toContain("Variant-site measurements below remain tied to the queried substitution.");
+    expect(unmappedAtSite.container.textContent).toContain("Site readings below stay tied to the queried substitution.");
     unmappedAtSite.unmount();
 
     // Unmapped selection away from the site labels the action "Return to position 116" without a substitution
@@ -498,7 +498,7 @@ describe("3D toolbar and legend", () => {
     );
     const returnBtn = awayFromSite.getByRole("button", { name: /Return to Asp116Gly/i });
     expect(returnBtn).toBeTruthy();
-    expect(awayFromSite.container.textContent).toContain("Variant-site measurements below remain tied to the queried substitution.");
+    expect(awayFromSite.container.textContent).toContain("Site readings below stay tied to the queried substitution.");
     fireEvent.click(returnBtn);
     const state = useVariantAnalysisStore.getState();
     expect(state.selectedResidueIndex).toBe(116);

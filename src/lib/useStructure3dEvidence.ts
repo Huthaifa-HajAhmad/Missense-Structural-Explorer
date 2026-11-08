@@ -4,6 +4,7 @@ import { PDB_SOURCE_RCSB } from "../shared/contracts";
 import { describeFoldxPhase } from "../shared/foldxPhase";
 import { identifyAlphaFoldHeader, readResidueAt, scanBFactors } from "../shared/coordinateText";
 import { readProteinLength } from "../shared/foldingLimits";
+import { regionsAt } from "../shared/residueRegions";
 import {
   buildStructure3dEvidence,
   type ModelFamily,
@@ -92,13 +93,12 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const deNovoScan = useMemo(() => scanBFactors(esmFoldWtPdb), [esmFoldWtPdb]);
   const deNovoSite = useMemo(() => readResidueAt(esmFoldWtPdb, position), [esmFoldWtPdb, position]);
 
+  // UniProt's feature names ("Domain", "Region"); the old filter tested "DOMAIN" and never matched.
   const region = useMemo(() => {
-    if (!position || !Array.isArray(features)) return null;
-    const hit = features.find(
-      (f: any) => position >= f.start && position <= f.end && ["DOMAIN", "REGION", "BINDING", "ACT_SITE"].includes(f.type)
-    );
-    return hit ? `${hit.description || hit.type} (${hit.start}–${hit.end})` : null;
+    const hits = regionsAt(features, position);
+    return hits.length ? hits.map(h => `${h.label} (${h.start}–${h.end})`).join(" · ") : null;
   }, [features, position]);
+  const secondarySource = useVariantAnalysisStore(s => s.canvasSecondary?.source ?? null);
 
   return useMemo(() => {
     const disruptionStructure =
@@ -180,6 +180,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
         : null,
       homologs: homologs as any,
       homologsLoading,
+      secondarySource,
     };
     return buildStructure3dEvidence(input);
   }, [
@@ -188,6 +189,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
     isFolding, foldingProgress, foldingStatus, foldingError, foldingDdG, foldingEnergetics, foldxReference,
     foldxAlignedPdb, foldxReferencePdb, referenceSite, isEsmFolding, esmFoldingError, esmFoldWtPdb, esmFoldMutPdb,
     esmFoldSingleStructure, esmFoldEngines, deNovoScan, esmFoldAlignedPdb, deNovoSite, foldxMetrics, esmFoldMetrics,
-    region, homologs, homologsLoading, position, proteinLength,
+    region, homologs, homologsLoading, position, proteinLength, secondarySource,
   ]);
 }

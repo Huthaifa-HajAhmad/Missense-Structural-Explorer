@@ -71,7 +71,9 @@ export async function resolveGeneToUniprot(gene: string, options?: UniprotCacheO
         const res = await fetchWithRetry(searchUrl, {
           headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
           timeout: 15000,
-          ...(options?.signal ? { signal: options.signal } : {}),
+          // Deliberately no caller `signal` here: this fill is shared by every concurrent caller of
+          // the same key (cache-registry dedupes per key), so one request's deadline must not cancel
+          // the lookup other callers are waiting on. The route races its own budget instead.
           ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
         });
         if (!res.ok) {

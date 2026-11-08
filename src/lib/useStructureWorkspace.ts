@@ -4,7 +4,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useStructure3dEvidence } from "./useStructure3dEvidence";
 import { buildStructureSelection, indexStructureResidues, type StructureSelection } from "../shared/structureSelection";
-import type { ResidueAt } from "../shared/coordinateText";
+import { readCaTrace, type ResidueAt } from "../shared/coordinateText";
 import type { AlignmentScope, LoadedEntry, ModelFamily, Structure3dEvidence, ViewMode } from "../shared/structure3dEvidence";
 import type { MasterView } from "../types/ui";
 
@@ -56,6 +56,8 @@ export interface StructureCanvasView extends CanvasCoordinates {
   coordinateIndex: ReadonlyMap<number, ResidueAt>;
   /** The selected residue as it stands on these coordinates. */
   selection: StructureSelection;
+  /** The queried variant site read the same way, for its callout on the canvas. */
+  siteSelection: StructureSelection;
 }
 
 /**
@@ -96,15 +98,21 @@ export function useStructureWorkspace(masterView: MasterView) {
   const selectedResidue = useVariantAnalysisStore(s => s.selectedResidueIndex);
   const hoveredResidue = useVariantAnalysisStore(s => s.hoveredResidueIndex);
   const coordinateIndex = useMemo(() => indexStructureResidues(primary), [primary]);
-  const selection = useMemo(() => buildStructureSelection(model, coordinateIndex, selectedResidue), [model, coordinateIndex, selectedResidue]);
+  // What a residue is read against: the drawn model's secondary structure and Cα trace, and UniProt's features.
+  const canvasSecondary = useVariantAnalysisStore(s => s.canvasSecondary);
+  const features = useVariantAnalysisStore(s => s.analysisState?.result?.uniprotFeatures?.features ?? null);
+  const trace = useMemo(() => readCaTrace(primary), [primary]);
+  const selectionContext = useMemo(() => ({ secondary: canvasSecondary, features, trace }), [canvasSecondary, features, trace]);
+  const selection = useMemo(() => buildStructureSelection(model, coordinateIndex, selectedResidue, selectionContext), [model, coordinateIndex, selectedResidue, selectionContext]);
+  const siteSelection = useMemo(() => buildStructureSelection(model, coordinateIndex, model.site.position, selectionContext), [model, coordinateIndex, selectionContext]);
   const view = useMemo<StructureCanvasView>(
-    () => ({ primary, compare, allowFetch, model, coordinateIndex, selection }),
-    [primary, compare, allowFetch, model, coordinateIndex, selection],
+    () => ({ primary, compare, allowFetch, model, coordinateIndex, selection, siteSelection }),
+    [primary, compare, allowFetch, model, coordinateIndex, selection, siteSelection],
   );
   // The rail previews the residue under the pointer while the 3D view is open.
   const railSelection = useMemo<StructureSelection>(() => isActive && hoveredResidue
-    ? { ...buildStructureSelection(model, coordinateIndex, hoveredResidue), preview: true }
-    : selection, [isActive, hoveredResidue, model, coordinateIndex, selection]);
+    ? { ...buildStructureSelection(model, coordinateIndex, hoveredResidue, selectionContext), preview: true }
+    : selection, [isActive, hoveredResidue, model, coordinateIndex, selection, selectionContext]);
 
   // ESMFold only: FoldX keeps the template backbone, so its pair has no fit scope to choose.
   // A newer request makes an older answer stale, so only the latest one is stored.

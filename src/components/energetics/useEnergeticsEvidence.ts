@@ -7,9 +7,14 @@ import { buildEnergeticsEvidence, type EnergeticsEvidence, type EnergeticsInputs
 /**
  * What the stability engines have reported for the current variant so far. The Energetics column and
  * its inspector rail take the same fields, so the two panes are built from the same run. The fields
- * come from `EnergeticsInputs`; the three that this hook fills in itself are left out.
+ * come from `EnergeticsInputs`; the four that this hook fills in itself are left out. Spelled as a
+ * `Pick`, not an `Omit`: every `EnergeticsInputs` field is optional, so an `Omit` would let a new
+ * input become a silently-never-supplied prop of both panes.
  */
-export type EnergeticsRun = Omit<EnergeticsInputs, "plddt" | "hidePending" | "uniprotId" | "foldingEnergetics"> & {
+export type EnergeticsRun = Pick<
+  EnergeticsInputs,
+  "foldingDdG" | "foldingStatus" | "foldingError" | "dynamut2Status" | "ddmutStatus" | "thermompnnStatus" | "thermompnnError" | "isFolding"
+> & {
   foldingEnergetics?: EnergeticsData | null;
   disruptionPredictor?: { plddt?: number | null } | null;
 };
