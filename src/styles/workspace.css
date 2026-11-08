@@ -85,3 +85,7 @@ aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(
 @media (hover: hover) and (pointer: fine) {
   .workspace-tabs[data-variant="secondary"] button:hover:not([aria-selected="true"]) { color: var(--cs-text-primary); border-block-end-color: transparent; }
 }
+/* The OS replaces the fill and shadow that mark the selected segment, so mark it with a system-colour border. */
+@media (forced-colors: active) {
+  .workspace-tabs[data-variant="secondary"] button[aria-selected="true"] { border: 1px solid Highlight; color: Highlight; }
+}

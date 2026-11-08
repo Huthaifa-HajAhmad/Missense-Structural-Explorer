@@ -103,7 +103,6 @@ function baseInput(overrides: Partial<Structure3dInput> = {}): Structure3dInput 
     alignmentScope: "global",
     metrics: null,
     esm3: null,
-    region: null,
     burial: null,
     homologs: [
       { pdbId: "1YOV", organism: "Homo sapiens", method: "X-RAY DIFFRACTION", resolution: 2.6, identity: 100, querySeqFrom: 1, querySeqTo: 534 },

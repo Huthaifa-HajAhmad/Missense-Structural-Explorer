@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource-variable/source-sans-3";
 import "@fontsource-variable/source-code-pro";
@@ -12,6 +12,7 @@ import type { StructureCanvasView } from "../../src/lib/useStructureWorkspace";
 import { indexStructureResidues, readCaTrace } from "../../src/shared/coordinateText";
 import { summariseSecondary } from "../../src/shared/structureSecondary";
 import { buildStructureSelection } from "../../src/shared/structureSelection";
+import { fitContextOntoTemplate } from "../../src/shared/structureContext";
 import type { ResidueFocus } from "../../src/shared/residueFocus";
 import SOD1_PDB from "./sod1-afdb.pdb?raw";
 
@@ -133,10 +134,30 @@ function seed(): void {
  * The four lines `AppViews` uses to feed the canvas, repeated rather than imported: they are a few `useMemo`s over
  * store selectors, and importing the whole workspace would mount nine other views and their data.
  */
+/** Residues 20–60 of the variant, in another frame: what a short experimental template looks like to the canvas. */
+const FRAGMENT_PDB = VARIANT_PDB.split("\n").filter(line => {
+  const seq = Number.parseInt(line.slice(22, 26), 10);
+  return line.startsWith("ATOM  ") && seq >= 20 && seq <= 60;
+}).map(line => {
+  const x = Number.parseFloat(line.slice(30, 38));
+  const y = Number.parseFloat(line.slice(38, 46));
+  const z = Number.parseFloat(line.slice(46, 54));
+  const f = (v: number) => v.toFixed(3).padStart(8);
+  return `${line.slice(0, 30)}${f(-y + 30)}${f(x - 12)}${f(z + 7)}${line.slice(54)}`;
+}).join("\n");
+
 function Canvas() {
   const family = useVariantAnalysisStore(s => s.active3dModelTab === "esmfold2" ? "esmfold" : "alphafold");
   const model = useStructure3dEvidence(family);
-  const pdbText = model.viewMode === "mutant" ? VARIANT_PDB : SOD1_PDB;
+  // Switched on by the check, after the ordinary mode cases: the variant then draws a short template with the full model around it.
+  const [fragmentTemplate, setFragmentTemplate] = useState(false);
+  useEffect(() => {
+    const on = () => setFragmentTemplate(true);
+    window.addEventListener("fragment-template", on);
+    return () => window.removeEventListener("fragment-template", on);
+  }, []);
+  const contextFit = useMemo(() => (fragmentTemplate ? fitContextOntoTemplate(SOD1_PDB, FRAGMENT_PDB) : null), [fragmentTemplate]);
+  const pdbText = model.viewMode === "mutant" ? (fragmentTemplate ? FRAGMENT_PDB : VARIANT_PDB) : SOD1_PDB;
   const selectedResidueIndex = useVariantAnalysisStore((s) => s.selectedResidueIndex);
   const residues = useMemo(() => indexStructureResidues(pdbText), [pdbText]);
   const secondary = useVariantAnalysisStore((s) => s.canvasSecondary);
@@ -155,7 +176,8 @@ function Canvas() {
     coordinateIndex: residues,
     selection,
     siteSelection,
-  }), [pdbText, model, residues, selection, siteSelection]);
+    contextFit,
+  }), [pdbText, model, residues, selection, siteSelection, contextFit]);
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--cs-bg)" }}>
       <MolstarViewer
@@ -257,6 +279,7 @@ async function run(): Promise<void> {
 
   // ── Secondary-structure colouring ──────────────────────────────────────────────────────────────────────────
   store.getState().setStructureRepresentation("secondary");
+  document.querySelector<HTMLButtonElement>('.s3d-legend[data-collapsed="true"] .s3d-legend__toggle')?.click();
   const keyed = await until("secondary legend", () => /Secondary structure/.test(document.querySelector(".s3d-legend")?.textContent ?? ""), 20_000);
   record("the cartoon can be coloured by secondary structure, keyed with its source", keyed && /DSSP \(Kabsch & Sander 1983\)/.test(document.querySelector(".s3d-legend")?.textContent ?? ""),
     document.querySelector(".s3d-legend")?.textContent?.slice(0, 160) ?? "no legend");
@@ -351,6 +374,12 @@ async function run(): Promise<void> {
       record(`${name} keeps the requested mode`, checked === modeLabel[viewMode], `${checked}`);
     }
   }
+  // A template that covers only residues 20–60: the full model must be drawn around it, fitted onto it.
+  store.setState({ active3dModelTab: "alphafold2", viewMode: "mutant" });
+  await until("variant drawn", () => drawnStructures() === "1", 60_000);
+  window.dispatchEvent(new Event("fragment-template"));
+  const contextDrawn = await until("context drawn", () => container()?.getAttribute("data-drawn-context") === "1", 60_000);
+  record("a short template is drawn with the full-length model faint around it", contextDrawn, `drawnContext=${container()?.getAttribute("data-drawn-context")}, guide: ${document.querySelector('[data-guide-item="context"]')?.textContent?.slice(0, 120) ?? "no row"}`);
   store.setState({ active3dModelTab: "alphafold2", viewMode: "wildtype" });
   await until("final draw", () => companionAtoms() > 0 && drawnStructures() === "1", 60_000);
 

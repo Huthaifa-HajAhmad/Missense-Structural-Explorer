@@ -393,6 +393,11 @@ async function runCoreFetch(
    * A quarter of the run's budget (8 s at the stock 45 s, and less on any tighter budget) covers
    * the VEP region query's measured p95 (~8 s) on a healthy run while still answering inside the
    * budget when the locus never does.
+   *
+   * A deliberate trade-off: a locus that answers after the grace is not applied. The gene-level record
+   * stands for that run, so the regional refinement (and PP2 built on it) is missing, where waiting out
+   * the whole budget would have kept it. The alternative holds the answer, and the core budget, hostage
+   * to a locus that may never resolve (the FGFR3 run).
    */
   const CONSTRAINT_REFINE_GRACE_MS = Math.max(500, Math.min(8000, Math.floor(coreTimeoutMs / 4)));
   const gnomadConstraintPromise = timeTask("gnomadConstraint", (async () => {

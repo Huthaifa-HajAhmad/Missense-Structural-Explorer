@@ -1044,6 +1044,14 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
     }
   });
 
+  it("serves a just-written timeout row for a short back-off, then runs the providers again", () => {
+    const statuses = { gnomadFrequency: "timeout", gnomadConstraint: "ok", predictorData: "ok" };
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    expect(isStaleCachedPayload(payload(statuses), ctx, ago(30_000))).toBe(false);
+    expect(isStaleCachedPayload(payload(statuses), ctx, ago(10 * 60_000))).toBe(true);
+    expect(isStaleCachedPayload(payload(statuses), ctx, "not a date")).toBe(true);
+  });
+
   it("keeps a payload whose core statuses are not faults", () => {
     expect(isStaleCachedPayload(payload({ clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }), ctx)).toBe(false);
     // A confirmed absence is a finished analysis; only the budget expiry is the sticky hazard.

@@ -37,9 +37,9 @@ describe("POST /resolve-gene", () => {
   it("gives the lookup a deadline that is shorter than the browser's wait, without cancelling its shared fill", async () => {
     resolveGeneToUniprot.mockResolvedValue("P43694");
     await post({ gene: "GATA4" });
-    const options = resolveGeneToUniprot.mock.calls[0][1];
-    expect(options.signal).toBeUndefined();
-    expect(options.cappedByCaller).toBe(true);
+    // No signal (the shared fill is not cancelled) and no `cappedByCaller`: the fill's 15 s timeout is a limit on
+    // UniProt, so a UniProt that hangs that long must count against the per-host breaker.
+    expect(resolveGeneToUniprot.mock.calls[0]).toEqual(["GATA4"]);
     expect(CLIENT_GENE_RESOLVE_BUDGET_MS).toBeGreaterThan(GENE_RESOLVE_BUDGET_MS);
   });
 

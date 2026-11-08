@@ -42,6 +42,11 @@ const GUARDED_SURFACES = [
   'src/components/evidence/DiseaseContextPicker.tsx',
   'src/components/inspector/EvidenceContextRail.tsx',
   "src/components/EnergeticsView.tsx",
+  // The pieces the Energetics view was split into; each renders engine state or the numbers beside it.
+  "src/components/energetics/FindingFacts.tsx",
+  "src/components/energetics/ProgressPanel.tsx",
+  "src/components/energetics/ReadingsTable.tsx",
+  "src/components/energetics/useEnergeticsEvidence.ts",
   "src/components/inspector/EnergeticsInspector.tsx",
   // The Energetics evidence model and its ruler, which every Energetics surface now renders from.
   "src/shared/energeticsEvidence.ts",

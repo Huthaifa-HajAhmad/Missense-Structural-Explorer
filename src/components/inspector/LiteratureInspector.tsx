@@ -299,7 +299,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   return (
     <div className="lit-rail" data-testid="literature-rail">
       <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected paper">
-        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />{selected ? 'Pinned source' : 'Explore a source'}</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
+        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />{selected ? 'Pinned source' : workspace.selected ? 'Selected source' : 'Explore a source'}</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
         <div className="review-selection__body">
         {selected ? <><h3>{selected.citation.title}</h3><p className="lit-mono">{selected.identifier.label} · {selected.citation.year ?? 'Year not reported'}</p>
           <p>{selected.citation.journal || 'Journal not reported'}</p>

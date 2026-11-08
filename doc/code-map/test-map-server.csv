@@ -280,7 +280,7 @@ server/services/structure/structural-diff.ts,barrel,server/services/structure/st
 server/services/structure/structural-diff/aligner.ts,server,
 server/services/structure/structural-diff/contacts.ts,server,
 server/services/structure/structural-diff/evaluator.ts,server,server/services/structure/structural-diff/evaluator.test.ts
-server/services/structure/structural-diff/geometry.ts,server,server/services/structure/structural-diff/geometry.test.ts
+server/services/structure/structural-diff/geometry.ts,barrel,server/services/structure/structural-diff/geometry.test.ts
 server/services/structure/structural-diff/index.ts,barrel,
 server/services/structure/structural-model-fetcher.ts,server,server/services/orchestration/analysis-orchestrator.test.ts;server/services/structure/structural-model-fetcher.test.ts
 server/services/structure/structure-fetcher.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/structure/entry-for-variant.test.ts;server/services/structure/structure-fetcher.test.ts;server/services/structure/structure-resolver.test.ts

@@ -29,7 +29,8 @@ describe("StructureFoldTrack", () => {
     expect(track.querySelectorAll(".s3d-track__mark")).toHaveLength(2);
     expect(track.textContent).toContain("Helix segments · 1 (20%)");
     expect(track.textContent).toContain("Strands · 1 (10%)");
-    expect(track.textContent).toContain("DSSP (Kabsch & Sander 1983), computed by Mol* on AF-P1-F1 v6.");
+    expect(track.getAttribute("title")).toContain("DSSP (Kabsch & Sander 1983), computed by Mol* on AF-P1-F1 v6.");
+    expect(track.textContent).not.toContain("Top row");
     expect(track.textContent).toContain("Variant site");
     expect(track.textContent).toContain("Selected");
   });

@@ -124,7 +124,7 @@ export function FindingCard({ evidence, selectedId, onSelect, onAction }: {
         <ModelNotices evidence={evidence} onAction={onAction} />
 
         <p className="ptb-hero__key" data-testid="perturbation-engine-record">
-          {evidence.engine.informational ? "Not counted in PP3/BP4" : `Counted: ${evidence.engine.counted.join(", ")}`}. No language model here has a
+          {evidence.engine.informational ? "Not counted in PP3/BP4. " : ""}No language model here has a
           published cut-point, so these readings are context for curation.
         </p>
         <div className="ptb-hero__guides">

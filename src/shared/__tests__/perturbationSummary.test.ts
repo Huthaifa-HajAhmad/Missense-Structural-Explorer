@@ -89,10 +89,22 @@ describe("plainReading — the finding in words a newcomer can read", () => {
     expect(r.meaning).toContain("does not show the variant is harmless");
   });
 
-  it("says the models disagree instead of naming a winner", () => {
+  it("says the models do not agree instead of naming a winner", () => {
     const r = plainReading(withCounts({ nScored: 3, nFavourNative: 1, nFavourVariant: 1, nEven: 1 }));
-    expect(r.lead).toBe("The language models disagree at position 159: 1 expect Ser, 1 expect Cys, 1 see no clear difference.");
+    expect(r.lead).toBe("The language models do not agree at position 159: 1 expects Ser, 1 expects Cys, 1 sees no clear difference.");
     expect(r.meaning).toContain("no clear signal");
+  });
+
+  it("does not call a near-even model a dissenter: two of three for native, one near even, is a majority", () => {
+    const ev = withCounts({ nScored: 3, nFavourNative: 2, nEven: 1 });
+    expect(directionCount(ev).figure).toBe("2 of 3");
+    expect(plainReading(ev).lead).toBe("2 of 3 language models expect Ser at position 159 and find Cys less likely.");
+  });
+
+  it("agrees with the hero figure when no direction has a majority", () => {
+    const ev = withCounts({ nScored: 3, nFavourNative: 1, nEven: 1, nFlat: 1 });
+    expect(directionCount(ev).figure).toBe("Split");
+    expect(plainReading(ev).lead).toBe("The language models do not agree at position 159: 1 expects Ser, 1 sees no clear difference; 1 shows no preference.");
   });
 
   it("says there is no preference when every model is flat, and nothing before any model has scored", () => {

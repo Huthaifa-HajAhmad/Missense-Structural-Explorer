@@ -827,6 +827,15 @@ function gnomadAbsence(
         "gnomAD r4 serves GRCh38 only; this coordinate's build is not one it accepts, so it was not queried.",
     });
   }
+  if ((status === "timeout" || status === "error") && locusUnresolved) {
+    // The same distinction the classifier draws one branch above: a run whose locus never resolved
+    // never issued a gnomAD query. The row names the resolution failure and is not a provider fault
+    // ("Provider error" would blame a database it never reached).
+    return resolveEvidenceAvailability({
+      status: "live",
+      message: "The run's genomic locus could not be resolved, so this dataset was not read.",
+    });
+  }
   if (status === "timeout" || status === "error") {
     return resolveEvidenceAvailability({
       status: "unavailable",
@@ -1218,6 +1227,8 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
 
   const contributing = observations.filter(o => o.availability.hasValue && o.af !== null);
   const runStates = observations.map(o => o.availability.state);
+  // An unresolved locus is not a provider fault, but another run may resolve it, so a retry is still offered.
+  const locusRetry = (gnomadStatus === "timeout" || gnomadStatus === "error") && !input.locus?.predictorData?.gnomadVariantId;
 
   return {
     criterion: classifyAcmgFrequency(input),
@@ -1230,10 +1241,10 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     contributing,
     gnomadHomozygotes: finite(gnomadFrequency?.nHomozygous),
     hasProviderFault: runStates.includes("upstream-error"),
-    retryable: runStates.includes("upstream-error") || Boolean(fallback?.retryable),
+    retryable: runStates.includes("upstream-error") || Boolean(fallback?.retryable) || locusRetry,
     recoveryAction: fallback?.recoveryAction === "provide-allele"
       ? "provide-allele"
-      : runStates.includes("upstream-error") || fallback?.retryable ? "retry" : null,
+      : runStates.includes("upstream-error") || fallback?.retryable || locusRetry ? "retry" : null,
     hasPendingSource: runStates.includes("pending"),
     homozygoteCriterion: {
       code: "BS2",

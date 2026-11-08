@@ -31,6 +31,8 @@ import { EnergeticsRuleTrace } from "./EnergeticsRuleTrace";
 
 interface EnergeticsInspectorProps extends EnergeticsRun {
   selectedEngine?: EnergyEngineId | null;
+  /** Releases the pinned method; the card shows its clear button only while one is pinned. */
+  onClearEngine?: () => void;
   analysisResult: AnalysisResult | null;
 }
 
@@ -44,17 +46,14 @@ const REFERENCES: Array<{ citation: string; doi: string }> = [
   { citation: "Blaabjerg et al. RaSP. eLife 2023", doi: "10.7554/eLife.82593" },
 ];
 
-export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ selectedEngine = null, analysisResult, ...run }) => {
+export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ selectedEngine = null, onClearEngine, analysisResult, ...run }) => {
   const { updateSetting } = useSettings();
   const { evidence, unit } = useEnergeticsEvidence(run, analysisResult);
-  const pinned = evidence.readings.some(r => r.key === selectedEngine);
   const raspCoverage = ((run.foldingEnergetics as any)?.raspCoverage as RaspCoverage | undefined) ?? null;
 
   return (
     <div className="nrg-rail" data-testid="energetics-rail">
-      <EnergeticsMethodInspector evidence={evidence} unit={unit} selectedEngine={selectedEngine} variant={analysisResult?.metadata} />
-      <details className="nrg-lineage" open={!pinned || undefined}>
-        <summary>How the overall reading was reached</summary>
+      <EnergeticsMethodInspector evidence={evidence} unit={unit} selectedEngine={selectedEngine} onClearEngine={onClearEngine} variant={analysisResult?.metadata} />
       <EnergeticsRuleTrace evidence={evidence} unit={unit} />
 
 
@@ -199,15 +198,14 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ select
         </ul>
       </section>
 
-      </details>
       {/* ── 6. Display ── */}
       <section className="nrg-rsec" aria-labelledby="nrg-rail-units">
         <h3 className="eyebrow" id="nrg-rail-units">Energy units</h3>
-        <div className="nrg-seg" role="group" aria-labelledby="nrg-rail-units">
-          <button type="button" aria-pressed={unit === "kcal/mol"} onClick={() => updateSetting("energyUnit", "kcal/mol")}>
+        <div className="cs-seg-control" role="group" aria-labelledby="nrg-rail-units">
+          <button type="button" className="cs-seg-btn" aria-pressed={unit === "kcal/mol"} onClick={() => updateSetting("energyUnit", "kcal/mol")}>
             kcal/mol
           </button>
-          <button type="button" aria-pressed={unit === "kJ/mol"} onClick={() => updateSetting("energyUnit", "kJ/mol")}>
+          <button type="button" className="cs-seg-btn" aria-pressed={unit === "kJ/mol"} onClick={() => updateSetting("energyUnit", "kJ/mol")}>
             kJ/mol
           </button>
         </div>

@@ -24,7 +24,7 @@ const root = path.resolve(here, "../..");
 const distIndex = path.join(here, "dist", "index.html");
 const shot = path.join(here, "structure-focus.png");
 /** Must match what main.tsx records: a shorter report means the run did not finish, not that it passed. */
-const EXPECTED_ASSERTIONS = 44;
+const EXPECTED_ASSERTIONS = 45;
 
 /**
  * The Chromium that Playwright downloaded for this repo, if any. Preferred over a system browser:

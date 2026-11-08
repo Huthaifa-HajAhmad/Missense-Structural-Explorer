@@ -129,8 +129,10 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
       const constraintDetail = constraintStatus === "timeout" && locusUnresolved
         ? locusDetail
         : "Gene constraint could not be loaded on this run; constraint evidence is incomplete.";
+      const locusCase = constraintFailed ? constraintStatus === "timeout" && locusUnresolved : locusUnresolved;
       runState = {
-        label: "gnomAD did not answer",
+        // The chip must not blame a database the run never reached.
+        label: locusCase ? "Genomic locus not resolved" : "gnomAD did not answer",
         detail: constraintFailed ? constraintDetail
           : locusUnresolved ? locusDetail
           : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",

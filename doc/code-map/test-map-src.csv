@@ -189,6 +189,7 @@ src/components/molstar/StructureLegend.tsx,component,src/components/__tests__/St
 src/components/molstar/StructurePocketPanel.tsx,component,
 src/components/molstar/StructureStatusOverlay.tsx,component,src/components/__tests__/Structure3dView.test.tsx
 src/components/molstar/StructureToolbar.tsx,component,src/components/__tests__/Structure3dView.test.tsx
+src/components/molstar/drawContextLayer.ts,client,
 src/components/molstar/molstarThemes.ts,client,
 src/components/molstar/readSecondaryStructure.ts,client,
 src/components/molstar/useDismiss.ts,client,
@@ -327,7 +328,7 @@ src/shared/constraintSource.ts,client,server/services/external-api/gnomad.test.t
 src/shared/contextRequest.ts,client,
 src/shared/contextWorkspace.ts,client,src/test/contextWorkspace.test.ts
 src/shared/contracts.ts,client,server/routes/variant/translation.test.ts;server/services/stability/foldx/repair-cache.test.ts;server/services/translation/intake-assembly.test.ts;src/components/__tests__/SpliceWindowControl.test.tsx;src/components/evidence/__tests__/describeStructureSource.test.ts;src/services/pipeline/__tests__/numberingChoices.test.ts;src/shared/__tests__/contracts.test.ts;src/shared/__tests__/deepModelEvidence.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusRecoveryPolicy.test.ts
-src/shared/coordinateText.ts,client,src/components/__tests__/Structure3dView.test.tsx;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/__tests__/structureSelection.test.ts
+src/shared/coordinateText.ts,client,src/components/__tests__/Structure3dView.test.tsx;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/__tests__/structureContext.test.ts;src/shared/__tests__/structureSelection.test.ts
 src/shared/credentials.ts,client,server/routes/credentials.http.test.ts;src/apiClient.test.ts;src/components/settings/__tests__/ConnectionsSection.test.tsx;src/components/settings/__tests__/TokenOwnership.test.tsx;src/hooks/__tests__/useCredentialUseNotice.test.ts
 src/shared/cspecPm1.ts,client,
 src/shared/curatedLiterature.ts,client,src/shared/__tests__/curatedLiterature.test.ts
@@ -361,6 +362,7 @@ src/shared/functionEvidence.ts,client,src/components/evidence/function/__tests__
 src/shared/functionEvidenceInput.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
 src/shared/functionalSites.ts,client,src/shared/__tests__/functionEvidenceSod1.test.ts;src/shared/__tests__/functionalSites.test.ts
 src/shared/geneDiseaseEvidence.ts,client,src/shared/__tests__/geneDiseaseEvidence.test.ts;src/test/contextWorkspace.test.ts
+src/shared/geometry3.ts,client,
 src/shared/gnomadGroups.ts,client,src/shared/__tests__/frequencyRule.test.ts
 src/shared/hotspotEvidence.ts,client,server/routes/evidence-context.http.test.ts;server/services/evidence-context/hotspots.test.ts;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/shared/__tests__/hotspotEvidence.test.ts
 src/shared/hotspotInput.ts,client,
@@ -432,6 +434,7 @@ src/shared/splicingWorkspace.ts,client,src/test/splicingWorkspace.test.ts
 src/shared/stabilityConsensus.ts,client,
 src/shared/structuralStream.ts,client,
 src/shared/structure3dEvidence.ts,client,src/components/__tests__/Structure3dView.test.tsx;src/shared/__tests__/structure3dEvidence.test.ts
+src/shared/structureContext.ts,client,src/shared/__tests__/structureContext.test.ts
 src/shared/structureLookupBudgets.ts,client,server/routes/variant/gene.test.ts;src/api/structureApi.test.ts
 src/shared/structureRefs.ts,client,server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/structure.test.ts;src/api/__tests__/structureRefTransport.test.ts
 src/shared/structureSecondary.ts,client,src/shared/__tests__/structureSecondary.test.ts

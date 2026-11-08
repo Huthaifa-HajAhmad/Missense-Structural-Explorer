@@ -97,14 +97,23 @@ export function plainReading(ev: PerturbationEvidence): PlainReading {
     mut: ev.residues.mutLabel || "the replacement",
     at: ev.residues.position !== null ? ` at position ${ev.residues.position}` : ""
   };
-  const read = native + variant + even;
-  if (read === 0) return unreadReading(ev, labels.at);
-  const agreed = [["native", native], ["variant", variant], ["even", even]] as const;
-  const unanimous = agreed.find(([, n]) => n === read)?.[0];
-  if (unanimous) return UNANIMOUS[unanimous](countWords(read, nScored), read > 1 ? "" : "s", labels);
-  const parts = [native > 0 && `${native} expect ${labels.wt}`, variant > 0 && `${variant} expect ${labels.mut}`, even > 0 && `${even} see no clear difference`].filter(Boolean);
+  if (native + variant + even === 0) return unreadReading(ev, labels.at);
+  // One direction, held by most of the scored models: the same rule as the hero figure. A model that is near
+  // even or flat abstains; it does not dissent, so it cannot turn a majority into a disagreement.
+  const sole = native > 0 && variant === 0 ? "native" : variant > 0 && native === 0 ? "variant" : native + variant === 0 ? "even" : null;
+  const holders = sole === "native" ? native : sole === "variant" ? variant : even;
+  if (sole && holders * 2 > nScored) {
+    return UNANIMOUS[sole](countWords(holders, nScored), holders === 1 && nScored === 1 ? "s" : "", labels);
+  }
+  if (native + variant === 0) return unreadReading(ev, labels.at);
+  const s = (n: number) => (n === 1 ? "s" : "");
+  const parts = [
+    native > 0 && `${native} expect${s(native)} ${labels.wt}`,
+    variant > 0 && `${variant} expect${s(variant)} ${labels.mut}`,
+    even > 0 && `${even} see${s(even)} no clear difference`
+  ].filter(Boolean);
   return {
-    lead: `The language models disagree${labels.at}: ${parts.join(", ")}${flat > 0 ? `; ${flat} show no preference` : ""}.`,
-    meaning: "When the models disagree, this reading gives no clear signal. Compare the models below before drawing any conclusion."
+    lead: `The language models do not agree${labels.at}: ${parts.join(", ")}${flat > 0 ? `; ${flat} show${s(flat)} no preference` : ""}.`,
+    meaning: "When the models do not agree, this reading gives no clear signal. Compare the models below before drawing any conclusion."
   };
 }

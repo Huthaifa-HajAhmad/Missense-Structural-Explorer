@@ -1,6 +1,6 @@
 import React, { useId, useRef, useState } from "react";
 import {
-  ChevronDown, Crosshair, Focus, HelpCircle,
+  ChevronDown, Crosshair, Focus,
   Maximize2, Minimize2, RotateCcw, ScanSearch, SlidersHorizontal,
 } from "lucide-react";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
@@ -30,7 +30,6 @@ export interface StructureToolbarProps {
   onDownloadImage: () => Promise<void>;
   /** Resolves true when the image reached the clipboard. */
   onCopyImage: () => Promise<boolean>;
-  onOpenGuide: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
 }
@@ -126,9 +125,6 @@ export function StructureToolbar(props: StructureToolbarProps) {
           )}
         </div>
         <div className="s3d-bar__top-actions">
-          <button type="button" className="s3d-btn s3d-btn--quiet" onClick={props.onOpenGuide} title="How to read this view" aria-label="Guide: how to read this view">
-            <HelpCircle aria-hidden="true" /><span className="s3d-btn__text">Guide</span>
-          </button>
           <button
             type="button" className="s3d-btn s3d-btn--icon s3d-btn--quiet"
             onClick={props.onToggleFullscreen}

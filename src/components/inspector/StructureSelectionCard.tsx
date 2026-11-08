@@ -80,6 +80,15 @@ export function StructureSelectionCard({ selection, site, onReturn }: Props) {
               </dd>
             </div>
           )}
+          {isAtVariantSite && site.burial && (
+            <div className="s3d-facts__row">
+              <dt>Accessibility</dt>
+              <dd>
+                <span className="s3d-facts__value">{site.burial}</span>
+                <span className="s3d-kv__note">From the analysis structure, not the canvas.</span>
+              </dd>
+            </div>
+          )}
           {selection.siteDistance && (
             <div className="s3d-facts__row">
               <dt>To the variant site</dt>
@@ -119,10 +128,6 @@ export function StructureSelectionCard({ selection, site, onReturn }: Props) {
           )}
         </dl>
       )}
-      <div className="s3d-selection__foot">
-        {selection.source && <p className="s3d-selection__source">Coordinates: {selection.source}</p>}
-        {!isAtVariantSite && selection.position && <p className="s3d-selection__source s3d-selection__source--muted">Site readings below stay tied to the queried substitution.</p>}
-      </div>
     </section>
   );
 }

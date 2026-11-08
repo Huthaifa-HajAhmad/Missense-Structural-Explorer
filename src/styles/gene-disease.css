@@ -167,6 +167,9 @@
 .gd-screen .gd-picker { padding: 12px 16px; gap: 8px 16px; background: var(--cs-workbench-header-surface); }
 .gd-screen .gd-picker__note { line-height: 1.6; }
 .gd-section-panel { display: flex; flex-direction: column; gap: 16px; min-inline-size: 0; }
+/* In Records the presentation control sits directly in the panel, not in a toolbar: it keeps its toolbar size and does not stretch. */
+.gd-section-panel > .cs-seg-control { box-sizing: border-box; align-self: start; align-items: center; min-block-size: 38px; }
+.gd-section-panel > .cs-seg-control .cs-seg-btn { box-sizing: border-box; min-block-size: 30px; padding-inline: 14px; font-size: var(--cs-font-size-prose); }
 .gd-screen .gd-section { gap: 16px; }
 .gd-section-heading { display: flex; flex-direction: column; gap: 6px; }
 .gd-section-heading h2 { font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--cs-text-primary); }

@@ -32,7 +32,9 @@ export function registerGeneRoutes(apiRouter: Router, jsonParserRegular: any): v
       }
 
       // The lookup's own fill must not be cancelled by this route's deadline: the same cached fill is
-      // shared with other requests. Race the promise against a timer instead.
+      // shared with other requests. Race the promise against a timer instead. The fill keeps its own 15 s
+      // timeout, which is a limit on UniProt and not on this caller, so it is not flagged `cappedByCaller`:
+      // a UniProt that hangs that long must count against the per-host breaker.
       let timedOut = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<null>(resolve => {
@@ -41,7 +43,7 @@ export function registerGeneRoutes(apiRouter: Router, jsonParserRegular: any): v
       let uniprotId: string | null;
       try {
         uniprotId = await Promise.race([
-          resolveGeneToUniprot(validatedGeneSymbol, { cappedByCaller: true }),
+          resolveGeneToUniprot(validatedGeneSymbol),
           deadline,
         ]);
       } finally {

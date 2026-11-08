@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronUp, Crosshair, X } from "lucide-react";
+import { BookOpen, Crosshair, Minus, Plus, X } from "lucide-react";
 
 /** 0xRRGGBB → "#rrggbb": a swatch must be the drawn WebGL colour, so it is data, not a theme token. */
 function hex(c: number): string {
@@ -123,7 +123,7 @@ export function StructureGuideCard({
           aria-controls="s3d-guide-body"
           aria-label={open ? "Hide canvas guide" : "Show canvas guide"}
         >
-          {open ? <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />}
+          {open ? <Minus className="w-3.5 h-3.5" aria-hidden="true" /> : <Plus className="w-3.5 h-3.5" aria-hidden="true" />}
         </button>
       </div>
       {open && (

@@ -14,6 +14,7 @@ import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
 import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
 import { StructureCallouts, type StructureCallout } from "./molstar/StructureCallouts";
 import { readProteinLength } from "../shared/foldingLimits";
+import { CONTEXT_COLOUR } from "./molstar/drawContextLayer";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
 import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
 
@@ -73,7 +74,7 @@ export default function MolstarViewer({
   onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
-  const { model, coordinateIndex, selection, siteSelection, primary: primaryPdbData, compare: comparePdbData, allowFetch } = view;
+  const { model, coordinateIndex, selection, siteSelection, primary: primaryPdbData, compare: comparePdbData, contextFit, allowFetch } = view;
   const variantPosition = model.site.position;
   const selectedResidue = selection.position;
   const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
@@ -175,6 +176,8 @@ export default function MolstarViewer({
     primaryPdbData,
     customPdbUrl: customPdbUrl || null,
     comparePdbData,
+    contextPdbData: contextFit?.pdb ?? null,
+    contextCovered: contextFit?.covered ?? null,
     allowFetch,
     reloadNonce,
     colour: model.colour,
@@ -286,6 +289,14 @@ export default function MolstarViewer({
       onClear: () => actions.setSelectedResidueIndex(selection.position),
       clearLabel: "Clear companion highlight",
     }] : []),
+    ...(contextFit && structure.contextDrawn ? [{
+      key: "context",
+      color: CONTEXT_COLOUR,
+      shape: "surface" as const,
+      text: "AlphaFold context (faint)",
+      badge: `${contextFit.contextResidues} aa`,
+      sub: `Template covers ${contextFit.covered.start}–${contextFit.covered.end}. Fitted on ${contextFit.matched} Cα, RMSD ${contextFit.rmsd.toFixed(1)} Å.`,
+    }] : []),
     ...(showPocket && pocketIndices.length ? [{
       key: "pocket",
       color: POCKET_COLOUR,
@@ -376,7 +387,6 @@ export default function MolstarViewer({
           }}
           onDownloadImage={() => plugin.downloadImage(fileStem)}
           onCopyImage={plugin.copyImage}
-          onOpenGuide={() => actions.setIsHowToInspectOpen(true)}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
         />

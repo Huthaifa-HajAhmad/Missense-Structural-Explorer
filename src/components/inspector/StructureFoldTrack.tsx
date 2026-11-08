@@ -15,7 +15,7 @@ const pct = (f: number) => `${Math.round(f * 100)}%`;
 
 interface Props {
   secondary: ModelSecondary | null;
-  /** Why the top row is not there, when `secondary` is null. Never "appears once drawn" for a read that failed. */
+  /** Why the secondary-structure row is not there, when `secondary` is null. Never "appears once drawn" for a read that failed. */
   secondaryNote?: string | null;
   regions: Array<{ kind: RegionKind; label: string; start: number; end: number }>;
   length: number;
@@ -68,7 +68,7 @@ export function StructureFoldTrack({ secondary, secondaryNote, regions, length, 
   ].filter(Boolean).join(" · ");
 
   return (
-    <div className="s3d-track" data-testid="structure-fold-track">
+    <div className="s3d-track" data-testid="structure-fold-track" title={secondary ? `${describeSecondarySource(secondary.source, structureName)} Percentages are of the ${secondary.residueCount} residues drawn.` : undefined}>
       <svg
         viewBox={`0 0 ${length} ${ROW.height}`}
         preserveAspectRatio="none"
@@ -109,11 +109,7 @@ export function StructureFoldTrack({ secondary, secondaryNote, regions, length, 
         {variantPosition !== null && <li><span className="s3d-track__tick" data-tone="site" aria-hidden="true" />Variant site</li>}
         {selectedPosition !== null && selectedPosition !== variantPosition && <li><span className="s3d-track__tick" data-tone="selected" aria-hidden="true" />Selected</li>}
       </ul>
-      <p className="s3d-kv__note">
-        {secondary
-          ? `Top row: ${describeSecondarySource(secondary.source, structureName)} Shares are of the ${secondary.residueCount} residues drawn. Bottom row: UniProt Domain features and its Linker and Disordered regions.`
-          : secondaryNote ?? "Top row appears once the model is drawn. Bottom row: UniProt Domain features and its Linker and Disordered regions."}
-      </p>
+      {!secondary && secondaryNote && <p className="s3d-kv__note">{secondaryNote}</p>}
     </div>
   );
 }

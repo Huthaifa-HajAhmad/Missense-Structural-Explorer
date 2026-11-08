@@ -12,6 +12,7 @@ import { registerStructureRefForPdb } from "../../api/structureRefRegistry";
 import type { MolstarPluginHandle } from "./useMolstarPlugin";
 import { SECONDARY_COLOURS, type ModelSecondary } from "../../shared/structureSecondary";
 import { readModelSecondary, residueAnchor } from "./readSecondaryStructure";
+import { drawContextLayer } from "./drawContextLayer";
 
 /**
  * Loads the coordinates `AppViews` hands the canvas and draws them with the colour plan the 3D
@@ -34,6 +35,10 @@ export interface UseMolstarStructureOptions {
   customPdbUrl: string | null;
   /** The superposed variant (its B column holds Cα displacement). */
   comparePdbData: string | null;
+  /** The full-length model, already in the primary's frame, drawn faintly around a short template. */
+  contextPdbData?: string | null;
+  /** Residue numbers the primary covers; the context leaves them out. */
+  contextCovered?: { start: number; end: number } | null;
   /** Fetch the AlphaFold DB model when no coordinates are supplied. False in the ESMFold view. */
   allowFetch: boolean;
   reloadNonce?: number;
@@ -179,15 +184,17 @@ function announceCompanions(count: number | null, atoms = 0) {
  * Tells the proof harness that a load finished and how many structures it drew (two for a superposition).
  * `drawnVersion` goes up on every finished load, so a check can tell a new draw from the previous one.
  */
-function announceDrawn(structures: number | null) {
+function announceDrawn(structures: number | null, contextDrawn = false) {
   if (typeof document === "undefined") return;
   const container = document.getElementById(VIEWER_CONTAINER_ID);
   if (!container) return;
   if (structures === null) {
     delete container.dataset.drawnStructures;
+    delete container.dataset.drawnContext;
     return;
   }
   container.dataset.drawnStructures = String(structures);
+  container.dataset.drawnContext = contextDrawn ? "1" : "0";
   container.dataset.drawnVersion = String(Number(container.dataset.drawnVersion ?? "0") + 1);
 }
 
@@ -218,6 +225,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     primaryPdbData,
     customPdbUrl,
     comparePdbData,
+    contextPdbData = null,
+    contextCovered = null,
     allowFetch,
     reloadNonce,
     colour,
@@ -259,11 +268,13 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     primaryPdbData: string | null;
     customPdbUrl: string | null;
     comparePdbData: string | null;
+    contextPdbData: string | null;
     uniprotId: string | null | undefined;
     allowFetch: boolean;
   } | null>(null);
   const [readyVersion, setReadyVersion] = useState(0);
   const [drawnPair, setDrawnPair] = useState(false);
+  const [contextDrawn, setContextDrawn] = useState(false);
 
   // Callbacks change identity every render; the load effect reads them through refs.
   const onPdbTextLoadedRef = useRef(onPdbTextLoaded);
@@ -301,7 +312,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       const drawn = drawnSourceRef.current;
       const visualOnly = !!structureRef.current && !!drawn &&
         drawn.primaryPdbData === primaryPdbData && drawn.customPdbUrl === customPdbUrl &&
-        drawn.comparePdbData === comparePdbData && drawn.uniprotId === uniprotId && drawn.allowFetch === allowFetch;
+        drawn.comparePdbData === comparePdbData && drawn.contextPdbData === contextPdbData && drawn.uniprotId === uniprotId && drawn.allowFetch === allowFetch;
       const cameraSnapshot = visualOnly ? plugin.canvas3d?.camera?.getSnapshot() : null;
       isLoadingRef.current = true;
       // A filter/opacity adjustment may briefly rebuild components, but it is not a new
@@ -313,6 +324,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (!active) return;
         announceDrawn(null);
         setDrawnPair(false);
+        setContextDrawn(false);
         if (!visualOnly) onSecondaryRef.current?.(null, "reading");
         structureRef.current = null;
         structure2Ref.current = null;
@@ -448,6 +460,17 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           }
         }
 
+        // The context is background. If it cannot be built, the structure the reader asked for is still drawn.
+        let contextBuilt = false;
+        if (contextPdbData && contextCovered) {
+          try {
+            contextBuilt = await drawContextLayer(plugin, contextPdbData, contextCovered, `${gene || "Protein"} · AlphaFold context`);
+          } catch (err) {
+            console.warn("[3D] The AlphaFold context could not be drawn:", err);
+          }
+          if (!active) return;
+        }
+
         try {
           plugin.canvas3d?.camera && (plugin.canvas3d.camera.forceFull = true);
           plugin.canvas3d?.camera?.setState({ clipFar: false });
@@ -469,11 +492,12 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         } catch { /* camera props are best-effort */ }
 
         if (active) {
-          drawnSourceRef.current = { primaryPdbData, customPdbUrl, comparePdbData, uniprotId, allowFetch };
+          drawnSourceRef.current = { primaryPdbData, customPdbUrl, comparePdbData, contextPdbData, uniprotId, allowFetch };
           isLoadingRef.current = false;
           const hasSecond = Boolean(structure2Ref.current && stillInTree(plugin, structure2Ref.current.ref));
           setDrawnPair(hasSecond);
-          announceDrawn(hasSecond ? 2 : 1);
+          setContextDrawn(contextBuilt);
+          announceDrawn(hasSecond ? 2 : 1, contextBuilt);
           // Read after the cartoon is built: the cartoon attaches the same property, so this is the drawn assignment.
           onSecondaryRef.current?.(null, "reading");
           readModelSecondary(plugin, structure.obj.data).then(
@@ -506,7 +530,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     };
     // Colour theme changes are handled below without reparsing coordinates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, allowFetch, visualStructureKey, reloadNonce]);
+  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, contextPdbData, allowFetch, visualStructureKey, reloadNonce]);
 
   useEffect(() => {
     if (!pluginCreated || !readyVersion || isLoadingRef.current) return;
@@ -835,6 +859,6 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     }
   };
 
-  return { structureRef, structure2Ref, drawnPair, readyVersion, focusResidue, focusResidues, resetCamera, anchorOf };
+  return { structureRef, structure2Ref, drawnPair, contextDrawn, readyVersion, focusResidue, focusResidues, resetCamera, anchorOf };
 }
 

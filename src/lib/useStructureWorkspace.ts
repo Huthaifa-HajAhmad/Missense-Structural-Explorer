@@ -4,7 +4,8 @@ import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useStructure3dEvidence } from "./useStructure3dEvidence";
 import { buildStructureSelection, indexStructureResidues, type StructureSelection } from "../shared/structureSelection";
-import { readCaTrace, type ResidueAt } from "../shared/coordinateText";
+import { identifyAlphaFoldHeader, readCaTrace, type ResidueAt } from "../shared/coordinateText";
+import { fitContextOntoTemplate, type ContextFit } from "../shared/structureContext";
 import type { AlignmentScope, LoadedEntry, ModelFamily, Structure3dEvidence, ViewMode } from "../shared/structure3dEvidence";
 import type { MasterView } from "../types/ui";
 
@@ -26,6 +27,23 @@ export interface CanvasCoordinates {
   primary: string | null;
   compare: string | null;
   allowFetch: boolean;
+}
+
+/**
+ * A short experimental template draws only its own stretch. Around it the full-length AlphaFold model is
+ * drawn faintly, moved into the template's frame, so the variant is seen in the whole protein. Null when
+ * there is nothing to add or the fit is not trustworthy (see `fitContextOntoTemplate`).
+ */
+export function contextAround(
+  family: ModelFamily,
+  mode: ViewMode,
+  s: Pick<CoordinateSources, "pdbText" | "mutantPdb" | "foldxReferencePdb">,
+  provenance: { source?: string } | null,
+): ContextFit | null {
+  if (family !== "alphafold" || (mode !== "mutant" && mode !== "superimposed") || !s.pdbText) return null;
+  const textIsAlphaFold = provenance?.source === "alphafold" || (!provenance && !!identifyAlphaFoldHeader(s.pdbText));
+  const template = mode === "mutant" ? s.mutantPdb : s.foldxReferencePdb;
+  return textIsAlphaFold && template ? fitContextOntoTemplate(s.pdbText, template) : null;
 }
 
 /**
@@ -58,6 +76,8 @@ export interface StructureCanvasView extends CanvasCoordinates {
   selection: StructureSelection;
   /** The queried variant site read the same way, for its callout on the canvas. */
   siteSelection: StructureSelection;
+  /** The full-length AlphaFold model fitted onto a short template, drawn faintly around it. */
+  contextFit: ContextFit | null;
 }
 
 /**
@@ -105,9 +125,15 @@ export function useStructureWorkspace(masterView: MasterView) {
   const selectionContext = useMemo(() => ({ secondary: canvasSecondary, features, trace }), [canvasSecondary, features, trace]);
   const selection = useMemo(() => buildStructureSelection(model, coordinateIndex, selectedResidue, selectionContext), [model, coordinateIndex, selectedResidue, selectionContext]);
   const siteSelection = useMemo(() => buildStructureSelection(model, coordinateIndex, model.site.position, selectionContext), [model, coordinateIndex, selectionContext]);
+  const pdbTextProvenance = useVariantAnalysisStore(s => s.pdbTextProvenance);
+  const contextFit = useMemo(
+    () => contextAround(family, model.viewMode, sources, pdbTextProvenance),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [family, model.viewMode, sources.pdbText, sources.mutantPdb, sources.foldxReferencePdb, pdbTextProvenance],
+  );
   const view = useMemo<StructureCanvasView>(
-    () => ({ primary, compare, allowFetch, model, coordinateIndex, selection, siteSelection }),
-    [primary, compare, allowFetch, model, coordinateIndex, selection, siteSelection],
+    () => ({ primary, compare, allowFetch, model, coordinateIndex, selection, siteSelection, contextFit }),
+    [primary, compare, allowFetch, model, coordinateIndex, selection, siteSelection, contextFit],
   );
   // The rail previews the residue under the pointer while the 3D view is open.
   const railSelection = useMemo<StructureSelection>(() => isActive && hoveredResidue

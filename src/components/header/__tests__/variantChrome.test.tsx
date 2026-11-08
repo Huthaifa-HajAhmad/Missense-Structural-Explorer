@@ -249,7 +249,7 @@ describe("run-state slot", () => {
       serviceStatus: { gnomadFrequency: "timeout" },
     } as unknown as AnalysisResult;
     const state = buildVariantHeaderModel(props(unresolved)).runState;
-    expect(state?.label).toBe("gnomAD did not answer");
+    expect(state?.label).toBe("Genomic locus not resolved");
     expect(state?.detail).toMatch(/locus could not be resolved/i);
     expect(state?.detail).not.toMatch(/gnomAD/s);
   });

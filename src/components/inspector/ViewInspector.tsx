@@ -30,6 +30,7 @@ import { focusConstraintChip } from "../header/constraintFocus";
 
 export interface ViewInspectorProps {
   selectedEnergyEngine?: EnergyEngineId | null;
+  onClearEnergyEngine?: () => void;
   structureSelection?: StructureSelection;
   activeView: MasterView;
   onViewChange: (view: MasterView) => void;
@@ -139,6 +140,7 @@ const REVEAL_RETRY_MS = 16;
 
 export const ViewInspector: React.FC<ViewInspectorProps> = ({
   selectedEnergyEngine = null,
+  onClearEnergyEngine,
   structureSelection,
   activeView,
   onViewChange,
@@ -548,6 +550,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         {activeView === "energetics" && (
           <EnergeticsInspector
             selectedEngine={selectedEnergyEngine}
+            onClearEngine={onClearEnergyEngine}
             analysisResult={analysisResult}
             foldingEnergetics={foldingEnergetics}
             foldingStatus={foldingStatus}

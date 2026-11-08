@@ -234,7 +234,6 @@ export interface Structure3dInput {
   alignmentScope: AlignmentScope;
   metrics: StructuralMetricsLike | null;
   esm3: { scoreCount: number | null; error: string | null; provenance?: string | null } | null;
-  region: string | null;
   burial: { rsa: number | null; label: string | null; structure: string | null } | null;
   homologs: HomologLike[];
   homologsLoading: boolean;
@@ -329,7 +328,6 @@ export interface SiteContext {
   substitution: string | null;
   check: { state: "match" | "mismatch" | "absent" | "unknown"; text: string };
   confidence: { kind: "plddt" | "b-factor" | "none"; value: number | null; text: string; note: string };
-  region: string | null;
   burial: string | null;
   /** Pure chemical side-chain topology and Grantham comparison of the wild-type and variant residues. */
   sideChain: ResidueSideChainSummary | null;
@@ -1007,7 +1005,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         ? "Depositors' HELIX/SHEET records · colours are this app's"
         : input.secondarySource === "dssp"
           ? "DSSP (Kabsch & Sander 1983), computed by Mol* on these coordinates · colours are this app's"
-          : "No secondary-structure assignment has been read from this model; every residue is drawn as coil",
+          : "No secondary-structure assignment has been read from this model yet · colours are this app's",
       entries: [
         ...SECONDARY_ORDER.map(cls => ({ label: SECONDARY_LABELS[cls], range: null, color: SECONDARY_COLOURS[cls] })),
         ...(secondary ? [{ label: rigid ? "Variant residue" : "Variant", range: null, color: PAIR_COLOURS.variant }] : []),
@@ -1271,7 +1269,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     substitution,
     check,
     confidence,
-    region: input.region,
     burial:
       input.burial && (input.burial.label || input.burial.rsa !== null)
         ? `${input.burial.label ?? "Accessibility measured"}${input.burial.rsa !== null ? ` · RSA ${Math.round(input.burial.rsa * 100)}%` : ""}${input.burial.structure ? ` · on ${input.burial.structure}` : ""}`

@@ -1,4 +1,5 @@
 import { Layers } from "lucide-react";
+import { PinHeader } from "./PinHeader";
 import { getEngine, type EnergyEngineId, type EnergyUnit } from "../../shared/engineStatus";
 import {
   absenceText,
@@ -33,11 +34,13 @@ export function EnergeticsMethodInspector({
   evidence,
   unit,
   selectedEngine,
+  onClearEngine,
   variant,
 }: {
   evidence: EnergeticsEvidence;
   unit: EnergyUnit;
   selectedEngine: EnergyEngineId | null;
+  onClearEngine?: () => void;
   /** The substitution being explained, shown in the "Substitution" row. */
   variant: { gene?: string; variant?: string } | undefined;
 }) {
@@ -46,11 +49,13 @@ export function EnergeticsMethodInspector({
   return (
     <>
       <section className="nrg-selected-method" id={INSPECTOR_SECTIONS.stabilityMethod} tabIndex={-1} aria-labelledby="nrg-selected-title">
+        <PinHeader eyebrow={selected ? 'Pinned reading' : 'Explore a reading'} onClear={selected ? onClearEngine : undefined} />
+        <div className="nrg-selected-method__body">
         <span className="sr-only" role="status" aria-atomic="true">
           {selected ? `${selected.name} pinned${selected.ddg !== null ? ` · ${signedDdg(selected.ddg, unit)}` : ''}` : 'No method pinned yet'}
         </span>
-        <span className="eyebrow">Method inspector</span>
-        <h2 id="nrg-selected-title">{selected?.name ?? 'Explore an estimate'}</h2>
+        {/* With nothing pinned, the strip above already says what this card is for; the heading stays for screen readers. */}
+        <h2 id="nrg-selected-title" className={selected ? undefined : 'sr-only'}>{selected?.name ?? 'Explore an estimate'}</h2>
         {selected ? <>
           <p>{selected.description}</p>
           <div className="nrg-selected-value">{signedDdg(selected.ddg, unit)}</div>
@@ -66,6 +71,7 @@ export function EnergeticsMethodInspector({
           {selected.note && <p>{selected.note}</p>}
           {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{ENERGETICS_CAVEAT_TEXT[c].detail}</p>)}
         </> : <p>Select a point in Comparison or a method in Engine records to see its value, assumptions and limitations here.</p>}
+        </div>
       </section>
       {evidence.foldxTemplateCheck && (
         <section className="nrg-rsec" aria-labelledby="nrg-rail-twofold" data-testid="foldx-template-check">
