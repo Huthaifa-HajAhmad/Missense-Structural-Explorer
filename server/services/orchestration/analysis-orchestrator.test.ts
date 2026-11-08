@@ -1012,3 +1012,41 @@ describe("isStaleCachedPayload — SpliceAI window", () => {
     expect(isStaleCachedPayload(payload("precomputed-dbnsfp", null), ctx(2000))).toBe(false);
   });
 });
+
+/**
+ * A run whose CORE sources expired under the budget is not a finished analysis.
+ *
+ * The FGFR3 p.Gly380Arg run (2026-11-08): Ensembl VEP's ladder never settled inside the 45 s
+ * core budget, so `predictorData`, `gnomadFrequency` and the LOCAL constraint all expired
+ * together — and nothing in the cache gate rejected the result it left behind. A future visit
+ * (a Recents click, a re-opened variant) could be served that run verbatim, reading "the gnomAD
+ * frequency query timed out" for months while a re-run would answer in seconds. The structural
+ * route's payload gate and the client bundle both refuse degraded states already; this is the
+ * analysis cache held to the same rule the code-map calls "the third cache in the chain".
+ */
+describe("isStaleCachedPayload — an expired core source is not a finished analysis", () => {
+  const payload = (statuses: Record<string, string>) => ({
+    predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
+    conservationData: null,
+    serviceStatus: statuses,
+  });
+  const ctx = { gene: "FGFR3", variant: "p.Gly380Arg", uniprotId: "P22607", originalNotation: "p.Gly380Arg", acmgWeighting: "standard", sequence: "MDVRGQVESL", pos: 380, residueIndex: "380", wildType: "Gly", mutant: "Arg", wt1Letter: "G", mut1Letter: "R" } as any;
+
+  it("rejects the exact shape the FGFR3 run left in the database", () => {
+    expect(isStaleCachedPayload(payload({ gnomadFrequency: "timeout", gnomadConstraint: "timeout", predictorData: "timeout" }), ctx)).toBe(true);
+  });
+
+  it("rejects a single expired core source even when the rest came back", () => {
+    for (const key of ["predictorData", "gnomadFrequency", "gnomadConstraint"]) {
+      const statuses: Record<string, string> = { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" };
+      statuses[key] = "timeout";
+      expect(isStaleCachedPayload(payload(statuses), ctx)).toBe(true);
+    }
+  });
+
+  it("keeps a payload whose core statuses are not faults", () => {
+    expect(isStaleCachedPayload(payload({ clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }), ctx)).toBe(false);
+    // A confirmed absence is a finished analysis; only the budget expiry is the sticky hazard.
+    expect(isStaleCachedPayload(payload({ clinvar: "not_found", gnomadFrequency: "not_found", gnomadConstraint: "not_found", predictorData: "ok" }), ctx)).toBe(false);
+  });
+});

@@ -233,7 +233,25 @@ describe("run-state slot", () => {
 
   it("flags a gnomAD outage too", () => {
     const outage = { ...clean, serviceStatus: { gnomadFrequency: "timeout" } } as unknown as AnalysisResult;
-    expect(buildVariantHeaderModel(props(outage)).runState?.label).toBe("gnomAD did not answer");
+    const state = buildVariantHeaderModel(props(outage)).runState;
+    expect(state?.label).toBe("gnomAD did not answer");
+    // A resolved locus means gnomAD WAS asked — keep the frequency wording.
+    expect(state?.detail).toMatch(/gnomAD/i);
+  });
+
+  /** The FGFR3 run (2026-11-08): VEP never settled, so gnomAD was never asked at all. */
+  it("names the unresolved locus, not gnomAD, when the fetch never had a locus to use", () => {
+    const unresolved = {
+      ...clean,
+      predictorData: null,
+      transcriptId: null,
+      maneRefSeqId: null,
+      serviceStatus: { gnomadFrequency: "timeout" },
+    } as unknown as AnalysisResult;
+    const state = buildVariantHeaderModel(props(unresolved)).runState;
+    expect(state?.label).toBe("gnomAD did not answer");
+    expect(state?.detail).toMatch(/locus could not be resolved/i);
+    expect(state?.detail).not.toMatch(/gnomAD/s);
   });
 });
 

@@ -22,6 +22,20 @@ export interface FetchGnomadFrequencyOptions {
   bypassSqlite?: boolean;
   /** Build that the variant id's coordinates belong to, when known. Part of the cache key. */
   assembly?: string | null;
+  /**
+   * Absolute instant (epoch ms) by which the CALLER needs an answer, handed to `fetchWithRetry`:
+   * attempts size themselves to the time the caller actually has instead of starting a 15 s
+   * attempt inside the last second of the run's core budget, and a retry that cannot finish is
+   * not started. Measured: a run whose locus settled at second ~40 expired its 45 s budget while
+   * this fetch was still on its first full retry cycle.
+   */
+  deadlineAt?: number;
+  /**
+   * True when the deadline above is the CALLER's cap (the run's core budget) rather than this
+   * caller's tolerance for gnomAD. A budget-induced timeout is our scheduling, not a verdict on
+   * the provider, so it must not count against gnomAD's per-host circuit breaker.
+   */
+  cappedByCaller?: boolean;
 }
 
 export interface GnomadVariantFrequency {
@@ -134,6 +148,10 @@ export async function fetchGnomadVariantFrequency(
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ query, variables: { variantId } }),
         timeout: 15000,
+        // Supplied only when the caller gives one, so a caller without a deadline sends the exact
+        // wire shape it always did.
+        ...(options?.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
+        ...(options?.cappedByCaller !== undefined ? { cappedByCaller: options.cappedByCaller } : {}),
       },
       2,
       1500
