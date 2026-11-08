@@ -3,8 +3,9 @@
  *
  * Before a run, the card reads only what was typed. Once a run starts it fills in, field by field, from the
  * analysis result: the resolved gene, the protein change and its residue, the transcript and its tier, the
- * build and locus, and which numbering the residue numbers follow. Every cell has a fixed place, so the card
- * is as tall when the run starts as when it ends and nothing moves as values arrive.
+ * build and locus, and which numbering the residue numbers follow. Every cell has a fixed place, so the grid
+ * is as tall when the run starts as when it ends and nothing moves as values arrive (a long tag or caption can
+ * still wrap and add a line at a narrow width).
  *
  * It reuses the header's transcript and locus reading and the numbering policy, so this card, the top bar and
  * the Population rail cannot disagree about a transcript tier, a build or a notation.

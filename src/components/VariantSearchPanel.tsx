@@ -1244,8 +1244,14 @@ function VariantSearchPanel({
    * From the moment a run starts, and for as long as the loaded run is the one this line describes, the card
    * reads the variant out of the run (`VariantBreakdown`) instead of echoing what was typed. A result that
    * belongs to another variant (the previous run, still loaded while this one resolves) is never read.
+   *
+   * The signal is the intake/core run itself, not `isForegroundActive`: every value the breakdown reads is
+   * written when that run settles, and the background channels (biophysics, clinical) keep running long after
+   * it. Keyed to them, typing a different variant while an earlier run's clinical narrative still streamed
+   * showed the new line's gene and change over "Resolving…" cells for a run nobody had started.
    */
-  const breakdownOn = Boolean(quickDraft.trim()) && (isForegroundActive || loadedMatchesQuery);
+  const coreRunning = Boolean(analysisState.isLoading);
+  const breakdownOn = Boolean(quickDraft.trim()) && (coreRunning || loadedMatchesQuery);
   const breakdownResult = loadedMatchesQuery && result?.metadata?.gene === gene && result.metadata.variant === variant ? result : null;
   const breakdownTyped = useMemo(
     () => ({ gene: customGene, change: changeNotation, uniprot: customUniprot, resolvedChange }),
@@ -1657,7 +1663,7 @@ function VariantSearchPanel({
               {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
                   ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
               {breakdownOn ? (
-                <VariantBreakdown typed={breakdownTyped} result={breakdownResult} settled={!isForegroundActive} />
+                <VariantBreakdown typed={breakdownTyped} result={breakdownResult} settled={!coreRunning} />
               ) : quickDraft.trim() ? (
                 <dl className="qe__ticket" data-testid="quick-entry-preview">
                   {(() => {

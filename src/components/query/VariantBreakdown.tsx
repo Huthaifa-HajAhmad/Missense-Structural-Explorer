@@ -12,9 +12,10 @@ interface VariantBreakdownProps extends BreakdownInput {
  * position in the protein, UniProt accession, transcript and tier, build, genomic coordinate and numbering.
  *
  * Every cell has a fixed place from the first frame. A value that has not arrived says "Resolving…", and one
- * the finished run did not report says "Not reported", so the card is as tall when the run starts as when it
- * ends. Values that carry a caveat (a lifted build, an unverified numbering, a retired gene symbol, how an
- * rsID was read) say so under the grid, in the same words the Population rail uses.
+ * the finished run did not report says "Not reported", so the grid is as tall when the run starts as when it
+ * ends. (The card itself may still gain the workspace-loaded line above it and any caveat notes below it.) A
+ * value that carries a caveat (a lifted build, an unverified numbering, a retired gene symbol, how an rsID was
+ * read) says so under the grid, in the same words the Population rail uses.
  */
 export function VariantBreakdown({ typed, result, settled }: VariantBreakdownProps) {
   const { cells, notes, progress } = useMemo(() => buildVariantBreakdown({ typed, result, settled }), [typed, result, settled]);

@@ -180,6 +180,23 @@ describe("the composer knows what is already loaded", () => {
     expect(within(breakdown).getByText("Gene").closest("div")).toHaveTextContent("PAH");
   });
 
+  it("keeps the ticket while an earlier run's background work is still going", () => {
+    seedLoadedRun();
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGene: "PAH", customVariant: "p.Arg408Trp", customGenomic: "",
+        // The core run is over; only a background channel from the previous run is still streaming. Nothing is
+        // resolving the line being typed, so the card must not say it is.
+        isClinicalLoading: true,
+        analysisState: { isLoading: false, error: null, result: { metadata: { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" }, transcriptId: "ENST00000290810" } } as any,
+      });
+    });
+    renderPanel();
+
+    expect(screen.queryByTestId("variant-breakdown")).not.toBeInTheDocument();
+    expect(screen.getByTestId("quick-entry-preview")).toHaveTextContent("p.Arg408Trp");
+  });
+
   it("states nothing it has not run: an unseen coordinate gets no resolved change", () => {
     seedLoadedRun();
     act(() => useVariantAnalysisStore.setState({ customGenomic: "Chr16(GRCh38):g.66823282T>C" }));

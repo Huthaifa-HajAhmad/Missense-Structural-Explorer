@@ -194,6 +194,8 @@ src/components/molstar/readSecondaryStructure.ts,client,
 src/components/molstar/useDismiss.ts,client,
 src/components/molstar/useMolstarPlugin.ts,client,
 src/components/molstar/useMolstarStructure.ts,client,src/components/__tests__/MolstarTheme.test.ts
+src/components/query/VariantBreakdown.tsx,component,
+src/components/query/variantBreakdownModel.ts,client,src/components/query/__tests__/variantBreakdownModel.test.ts
 src/components/report/ReportBlocks.tsx,component,
 src/components/report/exportDocx.ts,client,src/components/report/__tests__/exportDocx.test.ts
 src/components/report/exportPptx.ts,client,src/components/report/__tests__/exportPptx.test.ts
