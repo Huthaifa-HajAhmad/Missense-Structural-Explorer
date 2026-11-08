@@ -179,8 +179,6 @@ export function ResidueDetail({
                 </div>
               )}
             </div>
-            <details className="mol-finding-details" open={workspace.comparison ? undefined : true}>
-            <summary>Exact probabilities, ranks and model context</summary>
             <dl className="ptb-facts">
               <div>
                 <dt>P(native {wtLabel || "residue"})</dt>
@@ -236,7 +234,6 @@ export function ResidueDetail({
                 <strong>Embedding shift not returned.</strong> {selected.embedding.absentReason}
               </p>
             )}
-            </details>
             {selected.rankSentence && <p className="ptb-detail__sentence">{selected.rankSentence}</p>}
           </>
         )}

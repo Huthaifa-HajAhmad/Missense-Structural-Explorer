@@ -92,9 +92,9 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
 
   return (
     <div className="ins-rail" data-testid="insights-rail">
-      <section className="review-selection ins-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
-        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />Selected evidence</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
-        <div className="ins-selection__body">
+      <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
+        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />{selected ? 'Pinned reading' : 'Explore a reading'}</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
+        <div className="review-selection__body">
           {selected ? <><h3>{selected.name}</h3><p><strong>{selected.lead}</strong> {selected.rest}</p>
             <p>{selected.counted ? `Counted as ${selected.code}.` : selected.state === 'pending' ? 'Still running; no criterion recorded.' : 'No counted criterion for this area.'}</p>
             {selected.counted && <p>Recorded strength: {criterionForLane(ev, selected)?.strength ?? 'Strength unavailable'}.</p>}

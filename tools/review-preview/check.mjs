@@ -66,7 +66,7 @@ try {
  const guideBox = await page.locator('.ins-shell__guide').boundingBox();
  check('Reading guide sits opposite the title', guideBox.x > titleBox.x + titleBox.width);
  // The selected-evidence head keeps one height whether or not a lane is pinned.
- const selectionHead = page.locator('.ins-selection > .review-selection__head');
+ const selectionHead = page.locator('.ins-rail .review-selection > .review-selection__head');
  const pinnedHead = (await selectionHead.boundingBox()).height;
  await page.getByRole('button', { name: 'Clear selection' }).click();
  const emptyHead = (await selectionHead.boundingBox()).height;

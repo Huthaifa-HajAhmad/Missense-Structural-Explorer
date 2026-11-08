@@ -18,6 +18,7 @@ const SECTIONS = [
   { id: 'mechanism', label: 'Mechanism' },
   { id: 'variant', label: 'Variant context' },
 ] as const;
+const VALIDITY_VIEWS = [{ id: 'comparison', label: 'Comparison' }, { id: 'records', label: 'Records' }] as const;
 
 export function GeneDiseaseTab({ analysisState }: TabComponentProps) {
   if (!analysisState.result) return null;
@@ -52,9 +53,8 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   const mechanism = selected && <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />;
   const variant = selected && <VariantLocusCard clinvar={result.clinvar} frame={selected} />;
 
-  const presentation = workspace.enabled && model.assertions.length > 0 ? <div className="gd-view-control" role="group" aria-label="Validity presentation">
-    <button type="button" aria-pressed={workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('comparison')}>Comparison</button>
-    <button type="button" aria-pressed={!workspace.comparison} aria-controls="gd-validity-representation" onClick={() => workspace.setView('records')}>Records</button>
+  const presentation = workspace.enabled && model.assertions.length > 0 ? <div className="cs-seg-control" role="group" aria-label="Validity presentation">
+    {VALIDITY_VIEWS.map(v => <button key={v.id} type="button" className="cs-seg-btn" aria-pressed={workspace.comparison === (v.id === 'comparison')} aria-controls="gd-validity-representation" onClick={() => workspace.setView(v.id)}>{v.label}</button>)}
   </div> : null;
 
   return <div ref={root} data-evidence-screen className="gd-screen cx-screen" data-testid="gene-disease-screen" data-comparison={workspace.comparison || undefined}>

@@ -430,15 +430,15 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
             <figcaption className="mol-map-title"><h2>Which annotations cover this position?</h2><p>Read along the protein sequence. Separate tracks retain overlapping source annotations; they are not independent evidence.</p></figcaption>
             <div className="fnd-figure-block__bar">
               <Legend ev={ev} win={win} hidden={hidden} onToggle={toggleLayer} />
-              <div className="fnd-seg" role="group" aria-label="Zoom the schematic">
-                <button type="button" aria-pressed={view === "whole"} onClick={() => setZoom("whole")}>
+              <div className="fnd-seg cs-seg-control" role="group" aria-label="Zoom the schematic">
+                <button type="button" className="cs-seg-btn" aria-pressed={view === "whole"} onClick={() => setZoom("whole")}>
                   Whole protein
                 </button>
-                <button type="button" aria-pressed={view === "near"} onClick={() => setZoom("near")}>
+                <button type="button" className="cs-seg-btn" aria-pressed={view === "near"} onClick={() => setZoom("near")}>
                   {ev.residue} ± {NEAR}
                 </button>
                 {typeof view === "object" && (
-                  <button type="button" aria-pressed="true" onClick={() => setZoom("whole")} title="Back to the whole protein" data-testid="zoom-custom">
+                  <button type="button" className="cs-seg-btn" aria-pressed="true" onClick={() => setZoom("whole")} title="Back to the whole protein" data-testid="zoom-custom">
                     {view.start}–{view.end}
                   </button>
                 )}

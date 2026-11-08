@@ -230,11 +230,12 @@ const DELEGATES: Record<
     file: 'src/components/evidence/perturbation/ReadingsTable.tsx',
     usage: ['<ReadingsTable'],
   },
-  // The model strip prints each model's `availability.label`, which perturbationEvidence takes from engineStatus.
+  // The model strip prints a missing model's state through the shared chip, which prints `availability.label`.
   'src/components/evidence/perturbation/FindingCard.tsx': {
-    token: '../../../shared/perturbationEvidence',
-    file: 'src/shared/perturbationEvidence.ts',
-    usage: ['perturbationFinding('],
+    token: './ModelAvailability',
+    file: 'src/components/evidence/perturbation/ModelAvailability.tsx',
+    usage: ['<StatusChip'],
+    chain: ['src/shared/perturbationEvidence.ts'],
   },
   // A status chip prints `availability.label`, which perturbationEvidence takes from engineStatus.
   'src/components/evidence/perturbation/ModelAvailability.tsx': {

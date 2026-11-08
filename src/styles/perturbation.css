@@ -72,26 +72,16 @@
 .ptb-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .ptb-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
-.ptb-hero__meta {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 4px 0 0;
-  border-top: 1px solid var(--cs-border-subtle);
-}
-.ptb-hero__meta > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px 0 0; min-width: 0; }
-.ptb-hero__meta > div + div { padding-left: 16px; border-left: 1px solid var(--cs-border-subtle); }
-.ptb-hero__meta dt { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.ptb-hero__meta dd { margin: 0; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); overflow-wrap: anywhere; }
-.ptb-hero__meta .ptb-sub { display: block; font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
-@container (max-width: 640px) {
-  .ptb-hero__meta { grid-template-columns: minmax(0, 1fr); }
-  .ptb-hero__meta > div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--cs-border-subtle); margin-top: 10px; }
-}
-
 .ptb-callout {
   display: flex; align-items: flex-start; gap: 8px; margin: 0;
   padding: 9px 12px; border-radius: 8px;
   font-size: var(--cs-font-size-prose); line-height: 1.5;
 }
 .ptb-callout > svg { flex: none; margin-top: 3px; }
+.ptb-callout p { margin: 0; }
+.ptb-callout ul { margin: 4px 0 0; padding-inline-start: 18px; }
+.ptb-notices { display: flex; flex-direction: column; gap: 8px; }
+.ptb-notices:empty { display: none; }
 .ptb-callout strong { font-weight: var(--cs-font-weight-semibold); color: inherit; }
 .ptb-callout[data-tone="warning"] { background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
 .ptb-callout[data-tone="neutral"] { background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); color: var(--cs-text-secondary); }
@@ -111,11 +101,14 @@
 }
 .ptb-model:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .ptb-model[aria-pressed="true"] { border-color: var(--cs-accent-clay); box-shadow: inset 0 0 0 1px var(--cs-accent-clay); }
-.ptb-model__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.ptb-model__name { font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ptb-model__served { font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptb-model__name { font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); overflow-wrap: anywhere; }
+/* What the model is, in a line a newcomer can read; it wraps rather than truncates. */
+.ptb-model__kind { flex: 1; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
+.ptb-models > li { display: flex; }
+.ptb-models > li > .ptb-model { height: 100%; }
+.ptb-hero__guides { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; }
 /* The card leads with the model's direction (its call), then its own odds; the rank is context. */
-.ptb-model__call { margin-top: 6px; font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.ptb-model__call { margin-top: 10px; font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
 .ptb-model[data-direction="flat"] .ptb-model__call { color: var(--cs-text-muted); }
 .ptb-model__odds { min-height: 1.5em; font-size: var(--cs-font-size-caption); font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
 .ptb-model__pips { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 1px; height: 6px; margin-top: 6px; }
@@ -123,11 +116,11 @@
 .ptb-model__pips > i[data-native] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--cs-text-primary); }
 .ptb-model__pips > i[data-here] { background: var(--cs-accent-clay); }
 .ptb-model__pips[data-flat] > i[data-here] { background: var(--cs-text-muted); }
-.ptb-model__foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
-.ptb-model__foot .ptb-mono { color: var(--cs-text-secondary); }
+.ptb-model__foot { margin-top: 4px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .ptb-model[data-state="absent"],
 .ptb-model[data-state="failed"] { border-style: dashed; background: transparent; }
 .ptb-model[data-state="pending"] .ptb-model__call { color: var(--cs-text-muted); }
+.ptb-model .ev-tier { align-self: start; margin-top: 10px; }
 @container (max-width: 560px) { .ptb-models { grid-template-columns: minmax(0, 1fr); } }
 
 /* ── Readings table ─────────────────────────────────────────── */
@@ -438,23 +431,16 @@
 .ptb-profile-values table { inline-size: 100%; text-align: start; font-variant-numeric: tabular-nums; }
 .ptb-profile-values:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .ptb-embedding-profile summary { padding-block: 8px; }
-.ptb-trace-details > summary { padding-block: 12px; }
-.ptb-trace-details > summary,
 .ptb-embedding-profile summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
 }
-.ptb-trace-details > summary::-webkit-details-marker,
 .ptb-embedding-profile summary::-webkit-details-marker { display: none; }
-.ptb-trace-details > summary::before,
 .ptb-embedding-profile summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }
-.ptb-trace-details[open] > summary::before,
 .ptb-embedding-profile details[open] > summary::before { transform: rotate(90deg); }
-.ptb-embedding-profile summary:focus-visible,
-.ptb-trace-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
-.ptb-embedding-profile summary:active,
-.ptb-trace-details > summary:active { color: var(--cs-text-accent); }
+.ptb-embedding-profile summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.ptb-embedding-profile summary:active { color: var(--cs-text-accent); }
 @media (prefers-reduced-motion: reduce) {
-  .ptb-trace-details > summary::before, .ptb-embedding-profile summary::before { transition: none; }
+  .ptb-embedding-profile summary::before { transition: none; }
 }
 .ptb-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
@@ -476,10 +462,6 @@
 .ptb-shift-panel .ptb-shift-note { flex: 1 1 180px; margin: 0; }
 
 /* Model records (comparison mode) */
-.ptb-model-record { padding-block: 12px; }
-.ptb-model-record + .ptb-model-record { border-block-start: 1px solid var(--cs-border-subtle); }
-.ptb-model-record h3 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: var(--cs-font-size-prose); }
-.ptb-model-record p { margin-block: 6px 0; }
 .ptb-screen .ptb-facts dt { display: flex; align-items: center; gap: 4px; }
 
 /* Hero (comparison mode) */

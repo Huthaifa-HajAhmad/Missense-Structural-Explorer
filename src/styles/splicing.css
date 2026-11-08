@@ -558,9 +558,4 @@
 .spl-inspection__head .eyebrow { display: inline-flex; align-items: center; gap: 7px; }
 .spl-inspection__empty { padding-block: 12px; }
 
-/* The inspector body owns the outer gutter; the reading header meets its card edges. The splicing
-   reading is the one banded-header exception to the workspace card padding: unlike the plain
-   .evw-inspection and .review-selection headers, this one is a full-width strip, so the workspace
-   card padding must not double around it. */
-.exploration-workspace .inspector-body .spl-rail .spl-inspection { padding: 0; }
 .spl-inspection > .spl-inspection__head { margin: 0; }

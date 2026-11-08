@@ -231,7 +231,9 @@ header.app-header button[aria-controls="main-navigation"]::after,
 }
 }
 
-/* Segmented control (Wild-Type / Mutant) */
+/* Segmented control: one sunken track with one raised segment. Every view, mode or unit switch uses it
+   (`cs-seg-control` on the group, `cs-seg-btn` on each button), so none draws its own pill. A button reads as
+   selected through `.active`, `aria-pressed="true"` or, for tab semantics, `aria-selected="true"`. */
 .cs-seg-control {
   display: inline-flex;
   background: var(--cs-surface-2);
@@ -255,11 +257,20 @@ header.app-header button[aria-controls="main-navigation"]::after,
 @media (hover: hover) and (pointer: fine) {
   .cs-seg-btn:hover { color: var(--cs-text-primary); }
 }
-.cs-seg-btn.active {
+.cs-seg-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.cs-seg-btn:disabled { opacity: .5; cursor: default; }
+.cs-seg-btn.active,
+.cs-seg-btn[aria-pressed="true"],
+.cs-seg-btn[aria-selected="true"] {
   background: var(--cs-surface);
   color: var(--cs-text-primary);
-  font-weight: 600;
   box-shadow: 0 1px 3px rgba(80,40,120,0.1);
+}
+/* Selection is the raised segment plus ink; the label weight never changes, so siblings do not shift. */
+@media (forced-colors: active) {
+  .cs-seg-btn.active,
+  .cs-seg-btn[aria-pressed="true"],
+  .cs-seg-btn[aria-selected="true"] { border: 1px solid Highlight; color: Highlight; }
 }
 
 /* History chip */
