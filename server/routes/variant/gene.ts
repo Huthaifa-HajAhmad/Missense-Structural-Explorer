@@ -31,14 +31,28 @@ export function registerGeneRoutes(apiRouter: Router, jsonParserRegular: any): v
         return;
       }
 
-      const budget = AbortSignal.timeout(GENE_RESOLVE_BUDGET_MS);
-      const uniprotId = await resolveGeneToUniprot(validatedGeneSymbol, { signal: budget, cappedByCaller: true });
-      if (!uniprotId && budget.aborted) {
+      // The lookup's own fill must not be cancelled by this route's deadline: the same cached fill is
+      // shared with other requests. Race the promise against a timer instead.
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<null>(resolve => {
+        timer = setTimeout(() => { timedOut = true; resolve(null); }, GENE_RESOLVE_BUDGET_MS);
+      });
+      let uniprotId: string | null;
+      try {
+        uniprotId = await Promise.race([
+          resolveGeneToUniprot(validatedGeneSymbol, { cappedByCaller: true }),
+          deadline,
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (!uniprotId && timedOut) {
         sendError(res, 504, "TIMEOUT", "Gene lookup timed out. Please try again.");
         return;
       }
       if (!uniprotId) {
-        sendError(res, 404, "NOT_FOUND", `Gene '${validatedGeneSymbol}' could not be mapped to a canonical UniProt accession. Please check the spelling or provide a different gene symbol.`);
+        sendError(res, 404, "NOT_FOUND", `No reviewed human UniProt entry matched '${validatedGeneSymbol}'. Check the spelling or provide a different gene symbol; if UniProt was unreachable, try again.`);
         return;
       }
 

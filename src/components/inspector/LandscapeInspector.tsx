@@ -7,6 +7,7 @@ import { selectResidueLetter } from "../../stores/slices/searchSlice";
 import { AMINO_ACID_MAP_FULL, toOneLetter } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
+import { isRegionFeatureType } from "../../shared/residueRegions";
 import {
   bandLabel,
   bandSpans,
@@ -197,7 +198,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const residueLetter = useVariantAnalysisStore((s) => selectResidueLetter(s, activeResIndex));
 
   const domains: UniprotFeatureItem[] = (analysisResult?.uniprotFeatures?.features || []).filter(
-    (f: any) => f.type === "DOMAIN" || f.type === "REGION"
+    (f: any) => isRegionFeatureType(f.type)
   );
   const meta = analysisResult?.landscapeMeta ?? null;
 

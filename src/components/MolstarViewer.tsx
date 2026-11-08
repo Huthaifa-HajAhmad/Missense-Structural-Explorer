@@ -1,6 +1,6 @@
-import { linkedPickPosition } from "../shared/structureSelection";
+import { linkedPickPosition, selectionCalloutFacts } from "../shared/structureSelection";
 import type { StructureCanvasView } from "../lib/useStructureWorkspace";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
@@ -12,6 +12,7 @@ import { StructureToolbar } from "./molstar/StructureToolbar";
 import { StructureLegend } from "./molstar/StructureLegend";
 import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
 import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
+import { StructureCallouts, type StructureCallout } from "./molstar/StructureCallouts";
 import { readProteinLength } from "../shared/foldingLimits";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
 import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
@@ -23,6 +24,16 @@ export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: num
     secondary: colour.secondary?.theme === "uniform" ? colour.secondary.color : PAIR_COLOURS.variant,
   };
 }
+
+/**
+ * Narrowest stage, in CSS pixels, that fits the left column, a readable structure and a callout column:
+ * 324 (guide) + 240 (card) + ~376 of structure. Below it the guide card lists the residues instead.
+ */
+const CALLOUT_MIN_STAGE = 940;
+/** The guide-and-legend column on the left: 12 px gutter + 312 px card (see `.s3d-overlay-col`). */
+const OVERLAY_COLUMN_WIDTH = 324;
+/** The pocket panel plus its gutter on the right (see `.s3d-pocket` in structure3d.css). */
+const POCKET_INSET = 340;
 
 
 export interface MolstarViewerProps {
@@ -62,7 +73,7 @@ export default function MolstarViewer({
   onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
-  const { model, coordinateIndex, selection, primary: primaryPdbData, compare: comparePdbData, allowFetch } = view;
+  const { model, coordinateIndex, selection, siteSelection, primary: primaryPdbData, compare: comparePdbData, allowFetch } = view;
   const variantPosition = model.site.position;
   const selectedResidue = selection.position;
   const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
@@ -103,6 +114,20 @@ export default function MolstarViewer({
   useEffect(() => setLabelAllCompanions(false), [focusKey]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Callouts need room beside the structure; below this width the guide card lists the residues instead.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageWidth, setStageWidth] = useState(0);
+  // Measured in a layout effect, not a passive one: the callouts must exist in the first painted frame,
+  // or a static read of the DOM (the WebGL proof harness) can catch a stage that has no cards yet.
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const width = stage.getBoundingClientRect().width;
+    if (width > 0) setStageWidth(width);
+    const observer = new ResizeObserver(([entry]) => setStageWidth(entry.contentRect.width));
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const onChange = () => setIsFullscreen(document.fullscreenElement === cardRef.current);
@@ -140,6 +165,9 @@ export default function MolstarViewer({
     if (!canDrawPocketOnCanvas) setShowPocket(false);
   }, [canDrawPocketOnCanvas]);
 
+  // Callouts need room beside the structure; below this width the guide card lists the residues instead.
+  const calloutRoom = !plugin.loadError && stageWidth - (pocketOpen ? POCKET_INSET : 0) >= CALLOUT_MIN_STAGE;
+
   const structure = useMolstarStructure({
     plugin,
     uniprotId,
@@ -155,6 +183,9 @@ export default function MolstarViewer({
     esm3Scores: model.representation === "esm3" ? esm3Scores : null,
     variantPosition,
     canAddressVariantSite: model.site.canAddressVariantSite,
+    residueNumbering: model.canvas.primary?.numbering ?? "unknown",
+    // When the site's card already names it, the canvas must not also draw a 3D text label on it.
+    suppressVariantLabel: calloutRoom && Boolean(variantPosition) && model.site.canAddressVariantSite,
     selectedResidue: selection.state === "available" ? selection.position : null,
     companionResidues: focusShown?.companions,
     showPolarContacts,
@@ -173,6 +204,11 @@ export default function MolstarViewer({
       useVariantAnalysisStore.getState().setPdbTextProvenance(provenance);
     },
     onEntryLoaded: entry => useVariantAnalysisStore.getState().setCustomPdbEntry(entry),
+    onSecondaryStructure: (secondary, state) => {
+      const store = useVariantAnalysisStore.getState();
+      store.setCanvasSecondary(secondary);
+      store.setCanvasSecondaryState(state);
+    },
   });
 
   const toggleFullscreen = async () => {
@@ -277,6 +313,39 @@ export default function MolstarViewer({
       clearLabel: "Exit site close-up",
     }] : []),
   ];
+  const callouts: StructureCallout[] = calloutRoom ? [
+    ...(siteName && model.site.canAddressVariantSite && variantPosition ? [{
+      key: "site",
+      position: variantPosition,
+      on: isSuperposed && !model.comparison.rigidBackbone ? "variant" as const : "primary" as const,
+      chain: siteSelection?.residue?.chain ?? null,
+      kicker: "Variant site",
+      title: model.site.substitution ?? siteName,
+      color: isSuperposed ? pairSwatches.primary : Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849,
+      secondaryColor: isSuperposed ? pairSwatches.secondary : null,
+      facts: siteSelection?.state === "available"
+        ? selectionCalloutFacts(siteSelection)
+        : [{ label: "Confidence", value: model.site.confidence.kind !== "none" ? model.site.confidence.text : model.site.check.text }],
+      frameLabel: `Frame variant residue ${siteName}`,
+      onFrame: handleFocusSite,
+    }] : []),
+    ...(selectedShown ? [{
+      key: "selected",
+      position: selectedShown,
+      on: "primary" as const,
+      chain: selection.residue?.chain ?? null,
+      kicker: selection.preview ? "Preview" : "Selected residue",
+      title: nameAt(selectedShown),
+      color: null,
+      facts: selectionCalloutFacts(selection),
+      frameLabel: `Frame selected residue ${nameAt(selectedShown)}`,
+      onFrame: () => structure.focusResidue(selectedShown, "residue"),
+      onClear: onReturnToVariant,
+      clearLabel: "Return to variant site",
+    }] : []),
+  ] : [];
+  const calloutKeys = new Set(callouts.map(c => c.key));
+  const guideRows = guideItems.filter(item => !calloutKeys.has(item.key));
   const hasVariant = Boolean(uniprotId || primaryPdbData || customPdbUrl);
   const pocketTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -327,12 +396,12 @@ export default function MolstarViewer({
           </div>
         )}
 
-        <div className="s3d-stage" data-pocket-open={pocketOpen ? "true" : undefined}>
+        <div ref={stageRef} className="s3d-stage" data-pocket-open={pocketOpen ? "true" : undefined}>
           <div ref={plugin.containerRef} className="s3d-canvas" id={VIEWER_CONTAINER_ID} />
           {/* One left column, so the canvas guide and the colour key stack instead of overlapping on a short stage. */}
           <div className="s3d-overlay-col">
           <StructureGuideCard
-            items={guideItems}
+            items={guideRows}
             labels={settings.show3DLabels !== false}
             onToggleLabels={() => setSettings(prev => ({ ...prev, show3DLabels: prev.show3DLabels === false }))}
             labelAll={focusShown && focusShown.companions.length > MAX_LABELLED_COMPANIONS ? { count: focusShown.companions.length, labelled: Math.min(focusShown.companions.length, MAX_LABEL_ALL_COMPANIONS), on: labelAllCompanions } : null}
@@ -341,6 +410,14 @@ export default function MolstarViewer({
           />
           <StructureLegend legend={model.legend} />
           </div>
+          <StructureCallouts
+            plugin={plugin.pluginCreated ? plugin.pluginRef.current : null}
+            readyVersion={structure.readyVersion}
+            anchorOf={structure.anchorOf}
+            callouts={callouts}
+            rightInset={pocketOpen ? POCKET_INSET : 0}
+            leftInset={OVERLAY_COLUMN_WIDTH}
+          />
           {pocketOpen && (
             <StructurePocketPanel
               pocket={pocket}

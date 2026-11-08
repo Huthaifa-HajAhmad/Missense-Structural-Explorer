@@ -1,6 +1,6 @@
 import type { StructureSelection } from "../../shared/structureSelection";
-import React, { useState } from "react";
-import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler } from "lucide-react";
+import React from "react";
+import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler, Spline } from "lucide-react";
 import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 import { landscapeKey } from "../../shared/landscapeEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -9,6 +9,11 @@ import { alphafoldDbCoverage } from "../../shared/alphafoldAvailability";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import type { CoordinateIdentity, ModelFamily, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
 import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
+import { formatSecondaryAt, secondaryAt } from "../../shared/structureSecondary";
+import { trackRegions } from "../../shared/residueRegions";
+import { StructureSelectionCard } from "./StructureSelectionCard";
+import { StructureFoldTrack } from "./StructureFoldTrack";
+import { StructureExperimentalEntries } from "./StructureExperimentalEntries";
 
 function Step({ step }: { step: TraceStep }) {
   return (
@@ -38,6 +43,8 @@ function IdentityRow({ role, identity }: { role: string; identity: CoordinateIde
 }
 
 function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; isWildType: boolean }) {
+  const canvasSecondary = useVariantAnalysisStore(s => s.canvasSecondary);
+  const secondary = site.canAddressVariantSite ? secondaryAt(canvasSecondary, site.position) : null;
   const checkLabel =
     site.check.state === "match"
       ? "Matches"
@@ -72,7 +79,13 @@ function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; 
             <dd>{site.burial}<span className="s3d-kv__note">From the analysis structure; it may differ from the canvas.</span></dd>
           </div>
         )}
-        {site.region && <div className="s3d-kv__row"><dt>UniProt region</dt><dd>{site.region}</dd></div>}
+        {secondary && (
+          <div className="s3d-kv__row">
+            <dt>Secondary structure</dt>
+            <dd>{formatSecondaryAt(secondary)}<span className="s3d-kv__note">Assigned on the model drawn now.</span></dd>
+          </div>
+        )}
+        {site.region && <div className="s3d-kv__row"><dt>UniProt annotation</dt><dd>{site.region}</dd></div>}
       </dl>
     </section>
   );
@@ -113,47 +126,12 @@ function ComparisonSection({ model }: { model: Structure3dEvidence }) {
   );
 }
 
-function ExperimentalEntries({ experimental, setCustomPdbUrl }: {
-  experimental: ReturnType<typeof useStructure3dEvidence>["experimental"];
-  setCustomPdbUrl: (url: string | null) => void;
-}) {
-  const [open, setOpen] = useState(() => experimental.rows.length <= 3 || experimental.rows.some(row => row.loaded));
-  return (
-    <details className="s3d-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-      <summary>Browse experimental entries</summary>
-      <ul className="s3d-entries" data-testid="structure-entries">
-        {experimental.rows.map(row => (
-          <li key={row.pdbId} className="s3d-entry" data-loaded={row.loaded || undefined}>
-            <span className="s3d-entry__id">
-              {row.pdbId}
-              {experimental.best?.pdbId === row.pdbId && <span className="s3d-entry__tag">closest covering entry</span>}
-            </span>
-            <button
-              type="button" className="s3d-entry__load" aria-pressed={row.loaded}
-              onClick={() => setCustomPdbUrl(row.loaded ? null : row.url)}
-              aria-label={row.loaded ? `Return to the AlphaFold model from PDB ${row.pdbId}` : `Load PDB ${row.pdbId} on the canvas`}
-            >{row.loaded ? "Shown" : "Show"}</button>
-            <span className="s3d-entry__meta">
-              {[
-                row.identity === "Not reported" ? "identity not reported" : `identity ${row.identity}`,
-                row.range ? `aligned ${row.range}` : "range not reported",
-                row.coversSite === "yes" ? "covers the site" : row.coversSite === "no" ? "does not cover the site" : null,
-                row.method ? row.method.toLowerCase() : null, row.resolution, row.organism,
-              ].filter(Boolean).join(" · ")}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <p className="s3d-empty s3d-dim">{experimental.note}</p>
-    </details>
-  );
-}
-
 export interface StructureInspectorProps {
   selection?: StructureSelection;
   family: ModelFamily;
   setCustomPdbUrl?: (url: string | null) => void;
   onReturnToVariant?: () => void;
+  onSelectResidue?: (position: number) => void;
 }
 
 export const StructureInspector: React.FC<StructureInspectorProps> = ({
@@ -161,11 +139,15 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
   setCustomPdbUrl,
   selection,
   onReturnToVariant,
+  onSelectResidue,
 }) => {
   const model = useStructure3dEvidence(family);
   const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
   const hasResult = useVariantAnalysisStore(s => Boolean(s.analysisState?.result));
   const deNovoFailed = useVariantAnalysisStore(s => Boolean(s.esmFoldingError));
+  const canvasSecondary = useVariantAnalysisStore(s => s.canvasSecondary);
+  const canvasSecondaryState = useVariantAnalysisStore(s => s.canvasSecondaryState);
+  const features = useVariantAnalysisStore(s => s.analysisState?.result?.uniprotFeatures?.features ?? null);
 
   if (!hasResult) {
     return <div className="s3d-rail"><p className="s3d-empty"><strong>No variant loaded</strong>The structure trace appears after an analysis.</p></div>;
@@ -183,18 +165,6 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
       : null;
   const capacity =
     capacityNotice && (family === "esmfold" ? !canvas.primary : capacityNotice.tone === "warning") ? capacityNotice : null;
-
-  const isAtVariantPosition = Boolean(selection?.position && site.position && selection.position === site.position);
-  const isAtVariantSite = Boolean(
-    site.canAddressVariantSite &&
-      selection?.state === "available" &&
-      isAtVariantPosition &&
-      selection?.isQueriedSite !== false,
-  );
-  const returnText =
-    site.canAddressVariantSite && selection?.state === "available" && site.substitution
-      ? `Return to ${site.substitution}`
-      : `Return to position ${site.position}`;
 
   const handleReturn = () => {
     const store = useVariantAnalysisStore.getState();
@@ -214,49 +184,40 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
     store.setSelectedGenomicVariant(null);
     store.setSelectedResidueIndex(site.position);
   };
+  const trackLength = proteinLength ?? (canvas.primary?.numbering === "uniprot" ? canvasSecondary?.segments.at(-1)?.end ?? 0 : 0);
+  // `readModelSecondary` numbers residues with the drawn model's own auth_seq_id. Plotting that row on
+  // the UniProt axis is only honest when the entry was renumbered to UniProt.
+  const numberingIsUniprot = canvas.primary?.numbering === "uniprot";
+  const foldSecondary = numberingIsUniprot ? canvasSecondary : null;
+  const foldNote = !canvas.primary
+    ? "Top row appears once the model is drawn. Bottom row: UniProt Domain features and its Linker and Disordered regions."
+    : !numberingIsUniprot
+      ? "Top row hidden: this entry is numbered by its own author codes, not UniProt, so its secondary structure cannot share this axis. Bottom row: UniProt Domain features and its Linker and Disordered regions."
+      : canvasSecondaryState === "reading"
+        ? "Reading the secondary-structure assignment from the model…"
+        : canvasSecondaryState === "unavailable"
+          ? "Mol* returned no secondary-structure assignment for this model, so the top row is empty. This is a result, not a load in progress."
+          : null;
 
   return (
     <div className="s3d-rail" data-testid="structure-rail" data-mode={model.viewMode}>
-      {selection && (
-        <section
-          className="s3d-selection"
-          aria-label={selection.preview ? "Residue preview" : "Selected residue"}
-          data-state={selection.state}
-          data-is-site={isAtVariantSite ? "true" : undefined}
-        >
-          <div className="s3d-selection__head">
-            <h3>{!selection.position ? "No residue selected" : `${selection.preview ? "Previewing residue" : "Selected residue"} · ${selection.position}`}</h3>
-            {selection.position && site.position && (
-              isAtVariantSite ? (
-                <span className="s3d-selection__badge">Queried site</span>
-              ) : !isAtVariantPosition ? (
-                <button
-                  type="button"
-                  className="s3d-selection__return"
-                  onClick={handleReturn}
-                  title="Select the queried site"
-                >
-                  {returnText}
-                </button>
-              ) : null
-            )}
-          </div>
-          <p className="s3d-selection__summary">{selection.summary}</p>
-          {selection.measurement && (
-            <dl className="s3d-kv">
-              <div className="s3d-kv__row">
-                <dt>{selection.measurement.label}</dt>
-                <dd className="s3d-mono">{selection.measurement.value}</dd>
-              </div>
-            </dl>
-          )}
-          <div className="s3d-selection__foot">
-            {selection.source && <p className="s3d-selection__source">Coordinates: {selection.source}</p>}
-            {selection.measurement && <p className="s3d-selection__source">{selection.measurement.note}</p>}
-            {!isAtVariantSite && <p className="s3d-selection__source s3d-selection__source--muted">Variant-site measurements below remain tied to the queried substitution.</p>}
-          </div>
-        </section>
-      )}
+      {selection && <StructureSelectionCard selection={selection} site={site} onReturn={handleReturn} />}
+
+      <section className="s3d-rsec" aria-labelledby="s3d-rail-fold">
+        <h3 className="eyebrow" id="s3d-rail-fold">
+          <span><Spline className="w-3.5 h-3.5" aria-hidden="true" />Fold and regions</span>
+        </h3>
+        <StructureFoldTrack
+          secondary={foldSecondary}
+          secondaryNote={foldNote}
+          regions={trackRegions(features)}
+          length={trackLength}
+          structureName={canvas.primary?.name ?? null}
+          variantPosition={site.position}
+          selectedPosition={selection?.position ?? null}
+          onSelectResidue={onSelectResidue}
+        />
+      </section>
 
       <section className="s3d-rsec s3d-rsec--canvas" aria-labelledby="s3d-rail-canvas">
         <h3 className="eyebrow" id="s3d-rail-canvas">
@@ -302,7 +263,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
             <p className="s3d-empty">
               {experimental.loading ? "Searching the PDB for entries of this protein and its homologs." : "RCSB's sequence search returned no experimental entry."}
             </p>
-          ) : <ExperimentalEntries experimental={experimental} setCustomPdbUrl={setCustomPdbUrl} />}
+          ) : <StructureExperimentalEntries experimental={experimental} setCustomPdbUrl={setCustomPdbUrl} />}
         </section>
       )}
 

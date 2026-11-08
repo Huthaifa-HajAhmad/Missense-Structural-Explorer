@@ -2,6 +2,7 @@ import { StateCreator } from "zustand";
 import { VariantBiophysicsState, createInitialBiophysicsState } from "../models";
 import type { PocketResult, EnergeticsData, StructuralDiffResult } from "../../types";
 import type { StructureProvenance } from "../../shared/contracts";
+import type { ModelSecondary } from "../../shared/structureSecondary";
 import type { FoldxProgress } from "../../shared/foldxPhase";
 
 export interface FoldxReferenceState {
@@ -16,6 +17,9 @@ export interface FoldxReferenceState {
 }
 
 export const IDLE_FOLDX_REFERENCE: FoldxReferenceState = { state: "idle", reason: null, provenance: null, basis: null };
+
+/** Lifecycle of the canvas secondary-structure read; `unavailable` is a result, not "still loading". */
+export type CanvasSecondaryState = "idle" | "reading" | "ready" | "unavailable";
 
 export interface BiophysicalState {
   // Normalized Sub-State Models
@@ -32,6 +36,13 @@ export interface BiophysicalState {
    * and FoldX's template lives on `foldingEnergetics.structureProvenance`.
    */
   pdbTextProvenance: StructureProvenance | null;
+  /** Secondary structure Mol* assigned to the model now drawn on the 3D canvas; null while loading. */
+  canvasSecondary: ModelSecondary | null;
+  /**
+   * Lifecycle of `canvasSecondary`, so "not read yet" is never shown for a read that failed:
+   * `reading` while the assignment is computed, `unavailable` when Mol* returned nothing or threw.
+   */
+  canvasSecondaryState: CanvasSecondaryState;
   /**
    * The coordinates FoldX built its variant on, fetched so the superposition pairs the variant with
    * its OWN template. Overlaying it on the AlphaFold model instead measured AlphaFold-versus-crystal
@@ -97,6 +108,8 @@ export interface BiophysicalActions {
   // Shared / Global Setters
   setPdbText: (pdbText: string | null) => void;
   setPdbTextProvenance: (pdbTextProvenance: StructureProvenance | null) => void;
+  setCanvasSecondary: (canvasSecondary: ModelSecondary | null) => void;
+  setCanvasSecondaryState: (canvasSecondaryState: CanvasSecondaryState) => void;
   setFoldxReference: (reference: FoldxReferenceState, referencePdb?: string | null) => void;
   setFoldxWtPdb: (pdb: string | null) => void;
   setFoldxAlignedPdb: (foldxAlignedPdb: string | null) => void;
@@ -136,6 +149,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   // Shared
   pdbText: null,
   pdbTextProvenance: null,
+  canvasSecondary: null,
+  canvasSecondaryState: "idle",
   foldxReferencePdb: null,
   foldxReference: IDLE_FOLDX_REFERENCE,
   foldxWtPdb: null,
@@ -218,6 +233,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   // Shared Setters
   setPdbText: (pdbText) => set({ pdbText }),
   setPdbTextProvenance: (pdbTextProvenance) => set({ pdbTextProvenance }),
+  setCanvasSecondary: (canvasSecondary) => set({ canvasSecondary }),
+  setCanvasSecondaryState: (canvasSecondaryState) => set({ canvasSecondaryState }),
   setFoldxReference: (foldxReference, referencePdb) =>
     set(referencePdb === undefined ? { foldxReference } : { foldxReference, foldxReferencePdb: referencePdb }),
   setFoldxWtPdb: (foldxWtPdb) => set({ foldxWtPdb }),
@@ -314,6 +331,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     primaryBiophysics: createInitialBiophysicsState(""),
     pdbText: null,
     pdbTextProvenance: null,
+    canvasSecondary: null,
+    canvasSecondaryState: "idle",
     foldxReferencePdb: null,
     foldxReference: IDLE_FOLDX_REFERENCE,
     foldxWtPdb: null,

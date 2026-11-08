@@ -34,20 +34,22 @@ describe("POST /resolve-gene", () => {
     expect(fetchAlphafoldPdb).not.toHaveBeenCalled();
   });
 
-  it("gives the lookup a deadline that is shorter than the browser's wait", async () => {
+  it("gives the lookup a deadline that is shorter than the browser's wait, without cancelling its shared fill", async () => {
     resolveGeneToUniprot.mockResolvedValue("P43694");
     await post({ gene: "GATA4" });
     const options = resolveGeneToUniprot.mock.calls[0][1];
-    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(options.signal).toBeUndefined();
     expect(options.cappedByCaller).toBe(true);
     expect(CLIENT_GENE_RESOLVE_BUDGET_MS).toBeGreaterThan(GENE_RESOLVE_BUDGET_MS);
   });
 
   it("reports a timeout as a timeout, not as an unknown gene", async () => {
-    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(AbortSignal.abort());
-    resolveGeneToUniprot.mockResolvedValue(null);
-    const sent = await post({ gene: "GATA4" });
-    timeout.mockRestore();
+    vi.useFakeTimers();
+    resolveGeneToUniprot.mockReturnValue(new Promise(() => { /* never settles */ }));
+    const pending = post({ gene: "GATA4" });
+    await vi.advanceTimersByTimeAsync(GENE_RESOLVE_BUDGET_MS + 1);
+    const sent = await pending;
+    vi.useRealTimers();
     expect(sent.status).toBe(504);
     expect(sent.body.error.code).toBe("TIMEOUT");
   });

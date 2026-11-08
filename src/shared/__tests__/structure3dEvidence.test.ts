@@ -668,3 +668,25 @@ describe("vocabulary", () => {
     expect(step2?.sub).toContain("Template not repaired (repair too slow on this server)");
   });
 });
+
+describe("secondary-structure colouring", () => {
+  it("is offered on any drawn structure and keys every class Mol* can draw", () => {
+    const m = buildStructure3dEvidence(baseInput({ representation: "secondary", secondarySource: "dssp" }));
+    expect(m.representations.find(r => r.id === "secondary")?.available).toBe(true);
+    expect(m.representation).toBe("secondary");
+    expect(m.colour.primary).toEqual({ theme: "secondary-structure" });
+    expect(m.legend?.entries.map(e => e.label)).toEqual(["α-helix", "3-10 helix", "π-helix", "β-strand", "Turn", "Bend", "Coil"]);
+    expect(m.legend?.provenanceNote).toMatch(/^DSSP \(Kabsch & Sander 1983\), computed by Mol\*/);
+  });
+
+  it("names deposited records when the entry supplied them", () => {
+    const m = buildStructure3dEvidence(baseInput({ representation: "secondary", secondarySource: "file" }));
+    expect(m.legend?.provenanceNote).toMatch(/^Depositors' HELIX\/SHEET records/);
+  });
+
+  it("never claims DSSP when no assignment was read", () => {
+    const m = buildStructure3dEvidence(baseInput({ representation: "secondary", secondarySource: null }));
+    expect(m.legend?.provenanceNote).not.toMatch(/DSSP/);
+    expect(m.legend?.provenanceNote).toMatch(/No secondary-structure assignment has been read/);
+  });
+});

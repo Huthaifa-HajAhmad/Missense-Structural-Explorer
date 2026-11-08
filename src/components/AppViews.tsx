@@ -614,6 +614,7 @@ export function AppViews({
               onRetryPocket={handleRetryPocket}
               onRetryNarrative={handleRetryNarrative}
               onReturnToVariant={handleReturnToVariant}
+              onSelectResidue={handleResidueClickMemo}
             />
           )}
         </WorkspaceLayout>
