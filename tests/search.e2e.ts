@@ -272,4 +272,24 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(cardOverflow <= 2, `the expanded card stays inside the deck (${cardOverflow}px past)`).toBe(true);
     await app.screenshot('expansion-scrolls');
   });
+
+  test('an open service drawer scrolls inside the monitor and never raises the deck', async ({ app, browser, screen }) => {
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await monitorSettled(browser);
+    const deckHeight = () => browser.evaluate(() =>
+      parseFloat((document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h')));
+    const closed = await deckHeight();
+
+    await screen.getByRole('button', 'Show details for Gemini Clinical AI').tap();
+    await expect(screen.getByRole('button', 'Hide details for Gemini Clinical AI')).toBeExpanded();
+    // Any re-measure (a resize, a health poll) must read the list as if the drawer were shut.
+    await browser.evaluate(() => new Promise<string>(r => {
+      window.dispatchEvent(new Event('resize'));
+      setTimeout(() => r('ok'), 300);
+    }));
+    const open = await deckHeight();
+    expect(Math.abs(open - closed) <= 1, `the deck keeps its height when a drawer opens (${closed} → ${open})`).toBe(true);
+    await app.screenshot('service-drawer-open');
+  });
 });

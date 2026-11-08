@@ -307,7 +307,6 @@ export function AppViews({
                     clearHistory={clearHistory}
                     handleSelectHistoryItem={handleSelectHistoryItemMemo}
                     onViewChange={setMasterView}
-                    onOpenOnboarding={onOpenOnboarding}
                   />
                 </div>
               </div>

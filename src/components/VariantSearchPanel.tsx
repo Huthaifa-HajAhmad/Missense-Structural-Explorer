@@ -25,7 +25,7 @@ import {
   ExternalLink,
   Server,
   ListChecks,
-  Info,
+  History as HistoryIcon,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { EVIDENCE_SUB_ITEMS, MasterView } from "./MasterSidebar";
@@ -84,7 +84,6 @@ interface VariantSearchPanelProps {
   clearHistory?: () => void;
   handleSelectHistoryItem?: (item: SearchHistoryItem) => void;
   onViewChange?: (view: MasterView) => void;
-  onOpenOnboarding?: () => void;
 }
 
 /**
@@ -497,7 +496,6 @@ function VariantSearchPanel({
   clearHistory: propsClearHistory,
   handleSelectHistoryItem: propsHandleSelectHistoryItem,
   onViewChange,
-  onOpenOnboarding,
 }: VariantSearchPanelProps) {
   // Directly subscribe to Zustand store slices to guarantee instant re-renders on keystroke and paste
   const storeCustomGene = useVariantAnalysisStore(s => s.customGene ?? "");
@@ -1108,6 +1106,9 @@ function VariantSearchPanel({
       const width = Math.round(rail.getBoundingClientRect().width);
       const clone = rail.cloneNode(true) as HTMLElement;
       clone.querySelector<HTMLElement>("#panel-pipeline")?.style.setProperty("display", "none");
+      // An open service drawer is the reader's own, temporary view: it scrolls inside the list and must not
+      // count as list height, or opening one would raise the deck for the rest of the session.
+      clone.querySelectorAll("[data-service-detail]").forEach(drawer => drawer.remove());
       // Ids and the inactive markers are meaningless in the detached copy, and duplicate ids must
       // not exist even for one synchronous read.
       for (const el of [clone, ...clone.querySelectorAll<HTMLElement>("[id], [data-inactive]")]) {
@@ -1274,37 +1275,43 @@ function VariantSearchPanel({
 
   /* One line per benchmark, set like a Recent analyses row: who, which change, what it teaches, then the run.
      The row is a control of its own so it can carry a second, form-only action without nesting buttons. */
-  const benchmarkGrid = (
-    <div className="workbench-benchmarks">
-      {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
-        <div key={preset.gene + preset.variant} className="workbench-benchmark">
-          <button
-            type="button"
-            onClick={() => runBenchmark(preset)}
-            aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
-            title={preset.description}
-          >
-            <span className="workbench-benchmark-identity">
-              <span className="workbench-benchmark-gene">{preset.gene}</span>
-              <span className="workbench-benchmark-variant">{preset.variant}</span>
-            </span>
-            <span className="workbench-benchmark-tag">{preset.tag}</span>
-            <span className="workbench-benchmark-run">
-              Run benchmark
-              <ArrowRight aria-hidden="true" />
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyPreset(preset)}
-            aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
-            className="workbench-benchmark-fill"
-          >
-            Fill form only
-          </button>
-        </div>
-      ))}
-    </div>
+  const benchmarkSection = (
+    <section className="workbench-benchmarks-section" aria-labelledby="benchmark-title">
+      <div className="workbench-benchmarks-head">
+        <h3 id="benchmark-title">Benchmark controls</h3>
+        <p>Known variants to try</p>
+      </div>
+      <div className="workbench-benchmarks">
+        {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
+          <div key={preset.gene + preset.variant} className="workbench-benchmark">
+            <button
+              type="button"
+              onClick={() => runBenchmark(preset)}
+              aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
+              title={preset.description}
+            >
+              <span className="workbench-benchmark-identity">
+                <span className="workbench-benchmark-gene">{preset.gene}</span>
+                <span className="workbench-benchmark-variant">{preset.variant}</span>
+              </span>
+              <span className="workbench-benchmark-tag">{preset.tag}</span>
+              <span className="workbench-benchmark-run">
+                Run benchmark
+                <ArrowRight aria-hidden="true" />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset(preset)}
+              aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
+              className="workbench-benchmark-fill"
+            >
+              Fill form only
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 
   return (
@@ -1991,24 +1998,18 @@ function VariantSearchPanel({
               <div className="workbench-recents-heading">
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
               </div>
-              {/* A short notice, not a sentence under the header: it says where analyses will appear and
-                  offers the tour once, beside the thing it explains. */}
-              <div className="workbench-notice">
-                <Info aria-hidden="true" />
-                <p>Variants you analyse in this session will appear here. To start, run a benchmark control below.</p>
-                {onOpenOnboarding && (
-                  <button
-                    type="button"
-                    onClick={onOpenOnboarding}
-                    className="workbench-tour-link"
-                    title="Walk through one analysis, from query to report"
-                  >
-                    <Compass aria-hidden="true" />
-                    Take the tour
-                  </button>
-                )}
+              {/* The history's own empty slot. It takes the height the tray has left, so the benchmarks sit at
+                  the foot of the tray. */}
+              <div className="workbench-recents-empty">
+                <span className="workbench-recents-empty-icon" aria-hidden="true">
+                  <HistoryIcon />
+                </span>
+                <p className="workbench-recents-empty-title">Analysed variants will appear here</p>
+                <p className="workbench-recents-empty-note">
+                  Each run is added to this history so you can run it again. It is kept in this browser.
+                </p>
               </div>
-              {benchmarkGrid}
+              {benchmarkSection}
             </>
           )}
         </section>
