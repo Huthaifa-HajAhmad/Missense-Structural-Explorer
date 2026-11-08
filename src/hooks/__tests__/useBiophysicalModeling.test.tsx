@@ -108,6 +108,33 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     expect(state.foldingEnergetics?.ddmut).toBe(-0.45);
   });
 
+  it("counts ThermoMPNN in the stability consensus when it finishes after FoldX", async () => {
+    const fetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "DONE", prediction: 1.5 })
+    });
+
+    renderHook(
+      () => useBiophysicalModeling({} as any, vi.fn(), {}, fetchWithAuth),
+      { wrapper }
+    );
+
+    act(() => {
+      useVariantAnalysisStore.getState().setFoldingEnergetics({ foldx: 2.1, pendingTools: ["ThermoMPNN"] } as any);
+      useVariantAnalysisStore.getState().setThermompnnStatus("pending");
+      useVariantAnalysisStore.getState().setThermompnnJobId("tm-1");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const energetics = useVariantAnalysisStore.getState().foldingEnergetics as any;
+    expect(energetics.thermompnn).toBe(1.5);
+    expect(energetics.consensusEnginesCounted).toBe(2);
+  });
+
   it("does not carry one job's 'still listening' flag onto a retried job", async () => {
     /**
      * Job 1 enters the slow "keep listening" mode (the provider answered UNAVAILABLE but retryable),

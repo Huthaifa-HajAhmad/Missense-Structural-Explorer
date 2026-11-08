@@ -9,6 +9,7 @@ import { PAIR_COLOURS, pdbIdFromUrl, type ColourPlan, type LoadedEntry, type The
 import type { StructureProvenance } from "../../shared/contracts";
 import { STRUCTURE_REF_HEADER } from "../../shared/structureRefs";
 import { registerStructureRefForPdb } from "../../api/structureRefRegistry";
+import type { MolstarPluginHandle } from "./useMolstarPlugin";
 import { SECONDARY_COLOURS, type ModelSecondary } from "../../shared/structureSecondary";
 import { readModelSecondary, residueAnchor } from "./readSecondaryStructure";
 import { drawContextLayer } from "./drawContextLayer";
@@ -26,8 +27,7 @@ import { drawContextLayer } from "./drawContextLayer";
 export type PlddtFilter = "none" | "50" | "70";
 
 export interface UseMolstarStructureOptions {
-  pluginRef: React.MutableRefObject<any>;
-  pluginCreated: boolean;
+  plugin: MolstarPluginHandle;
   uniprotId?: string | null;
   gene?: string | null;
   /** Coordinates for the primary structure. Null: load `customPdbUrl`, else (AlphaFold view only) fetch. */
@@ -81,8 +81,6 @@ export interface UseMolstarStructureOptions {
   onEntryLoaded?: (entry: LoadedEntry | null) => void;
   /** The drawn primary model's secondary structure once read; `null` at the start of every load. */
   onSecondaryStructure?: (secondary: ModelSecondary | null, state: "reading" | "ready" | "unavailable" | "idle") => void;
-  setLoading: (loading: boolean) => void;
-  setLoadError: (err: string | null) => void;
 }
 
 function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: number | null): { color: string; colorParams?: any; typeParams?: any } {
@@ -221,8 +219,7 @@ export function resolveHierarchyComponent(plugin: any, selector: { ref: string }
 
 export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const {
-    pluginRef,
-    pluginCreated,
+    plugin: { pluginRef, pluginCreated, setLoading, setLoadError },
     uniprotId,
     gene,
     primaryPdbData,
@@ -256,8 +253,6 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     onPdbTextLoaded,
     onEntryLoaded,
     onSecondaryStructure,
-    setLoading,
-    setLoadError,
   } = opts;
 
   const structureRef = useRef<any>(null);
@@ -466,10 +461,10 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
 
         // The context is background. If it cannot be built, the structure the reader asked for is still drawn.
-        let contextDrawn = false;
+        let contextBuilt = false;
         if (contextPdbData && contextCovered) {
           try {
-            contextDrawn = await drawContextLayer(plugin, contextPdbData, contextCovered, `${gene || "Protein"} · AlphaFold context`);
+            contextBuilt = await drawContextLayer(plugin, contextPdbData, contextCovered, `${gene || "Protein"} · AlphaFold context`);
           } catch (err) {
             console.warn("[3D] The AlphaFold context could not be drawn:", err);
           }
@@ -501,8 +496,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           isLoadingRef.current = false;
           const hasSecond = Boolean(structure2Ref.current && stillInTree(plugin, structure2Ref.current.ref));
           setDrawnPair(hasSecond);
-          setContextDrawn(contextDrawn);
-          announceDrawn(hasSecond ? 2 : 1, contextDrawn);
+          setContextDrawn(contextBuilt);
+          announceDrawn(hasSecond ? 2 : 1, contextBuilt);
           // Read after the cartoon is built: the cartoon attaches the same property, so this is the drawn assignment.
           onSecondaryRef.current?.(null, "reading");
           readModelSecondary(plugin, structure.obj.data).then(

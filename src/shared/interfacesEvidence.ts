@@ -696,7 +696,7 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     Object.assign(model, { state: "failed", stateLabel: ENGINE_STATE_LABELS["upstream-error"], reason: input.assemblyError ?? "The assembly service did not answer.", retryable: true });
   } else if (asmData?.status === "success") {
     model.state = "built";
-  } else if (asmData?.status === "running" || (input.modelRequested && asmData?.status !== "failed")) {
+  } else if (asmData?.status === "running" || (input.modelRequested && (!asmData || asmData.status === "not-requested"))) {
     Object.assign(model, {
       state: "running",
       stateLabel: ENGINE_STATE_LABELS.running,

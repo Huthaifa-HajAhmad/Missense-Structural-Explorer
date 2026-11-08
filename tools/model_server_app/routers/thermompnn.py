@@ -448,7 +448,9 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
 
         # One forward pass at a time on this CPU, and a pass the caller has already given up on is not started
         # (the refusal is a busy answer, not a failure: see `GateDeadlineExceeded`).
-        with models.cpu_gate.acquire(priority=1), torch.no_grad():
+        # Priority 0: the pass takes about 1 s, so going ahead of queued ESM-2 passes costs them almost nothing,
+        # and a 1 s pass that waited behind several 10-30 s ones used to run past its caller's wait.
+        with models.cpu_gate.acquire(priority=0), torch.no_grad():
             out, _ = model([parsed_pdb_dict], [mutation_obj])
 
         if not out or out[0] is None or "ddG" not in out[0]:

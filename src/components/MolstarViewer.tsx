@@ -1,5 +1,5 @@
-import { linkedPickPosition, selectionCalloutFacts, type StructureSelection } from "../shared/structureSelection";
-import type { ResidueAt } from "../shared/coordinateText";
+import { linkedPickPosition, selectionCalloutFacts } from "../shared/structureSelection";
+import type { StructureCanvasView } from "../lib/useStructureWorkspace";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
@@ -14,10 +14,9 @@ import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
 import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
 import { StructureCallouts, type StructureCallout } from "./molstar/StructureCallouts";
 import { readProteinLength } from "../shared/foldingLimits";
-import type { ContextFit } from "../shared/structureContext";
 import { CONTEXT_COLOUR } from "./molstar/drawContextLayer";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
-import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type Structure3dEvidence, type ViewMode } from "../shared/structure3dEvidence";
+import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
 
 /** Resolves the dual-swatch colours for the superposed variant site from the evidence colour plan. */
 export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: number; secondary: number } {
@@ -26,7 +25,6 @@ export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: num
     secondary: colour.secondary?.theme === "uniform" ? colour.secondary.color : PAIR_COLOURS.variant,
   };
 }
-
 
 /**
  * Narrowest stage, in CSS pixels, that fits the left column, a readable structure and a callout column:
@@ -38,26 +36,11 @@ const OVERLAY_COLUMN_WIDTH = 324;
 /** The pocket panel plus its gutter on the right (see `.s3d-pocket` in structure3d.css). */
 const POCKET_INSET = 340;
 
+
 export interface MolstarViewerProps {
   active?: boolean;
-  /** Cα residues of the primary coordinates, keyed by UniProt position (see `indexStructureResidues`). */
-  coordinateIndex: ReadonlyMap<number, ResidueAt>;
-  /** The selected/previewed residue and its provenance; the canvas only highlights `state: "available"`. */
-  selection: StructureSelection;
-  /** The same facts read at the queried variant site, for its callout. */
-  siteSelection?: StructureSelection;
-  /** The 3D evidence model (`useStructure3dEvidence`), built once by the caller. */
-  model: Structure3dEvidence;
-  /** Coordinates for the primary structure; null lets the viewer load `customPdbUrl` or fetch. */
-  primaryPdbData: string | null;
-  /** The superposed variant, when the model shows a superposition. */
-  comparePdbData: string | null;
-  /** The full-length AlphaFold model fitted onto a short template, drawn faintly around it. */
-  contextFit?: ContextFit | null;
-  /** Fetch the AlphaFold DB model when no coordinates were supplied (AlphaFold view only). */
-  allowFetch: boolean;
-  variantPosition: number | null;
-  selectedResidue: number | null;
+  /** What this tab draws (`useStructureWorkspace`). The canvas only highlights a selection with `state: "available"`. */
+  view: StructureCanvasView;
   onResidueClick: (index: number | null) => void;
   /** Selects the queried variant again; the site button calls it when another residue is selected. */
   onReturnToVariant?: () => void;
@@ -79,14 +62,8 @@ export interface MolstarViewerProps {
  * `compareVariant`) the component accepted and ignored.
  */
 export default function MolstarViewer({
-  active = true, coordinateIndex, selection, siteSelection,
-  model,
-  primaryPdbData,
-  comparePdbData,
-  contextFit = null,
-  allowFetch,
-  variantPosition,
-  selectedResidue,
+  active = true,
+  view,
   onResidueClick,
   onReturnToVariant,
   onModeChange,
@@ -97,6 +74,9 @@ export default function MolstarViewer({
   onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
+  const { model, coordinateIndex, selection, siteSelection, primary: primaryPdbData, compare: comparePdbData, contextFit, allowFetch } = view;
+  const variantPosition = model.site.position;
+  const selectedResidue = selection.position;
   const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
@@ -128,7 +108,6 @@ export default function MolstarViewer({
   const [siteCloseUp, setSiteCloseUp] = useState(false);
   const [pocketOpen, setPocketOpen] = useState(false);
   const [showPocket, setShowPocket] = useState(false);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [reloadNonce, setReloadNonce] = useState(0);
   // The reader's choice for a large highlighted set; reset whenever the set changes.
   const [labelAllCompanions, setLabelAllCompanions] = useState(false);
@@ -156,12 +135,6 @@ export default function MolstarViewer({
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-
-  useEffect(() => {
-    if (copyState === "idle") return;
-    const t = window.setTimeout(() => setCopyState("idle"), 2400);
-    return () => window.clearTimeout(t);
-  }, [copyState]);
 
   const plugin = useMolstarPlugin({
     isDark,
@@ -193,12 +166,11 @@ export default function MolstarViewer({
     if (!canDrawPocketOnCanvas) setShowPocket(false);
   }, [canDrawPocketOnCanvas]);
 
-  /** Callouts need room beside the structure; below this width the guide card lists the residues instead. */
+  // Callouts need room beside the structure; below this width the guide card lists the residues instead.
   const calloutRoom = !plugin.loadError && stageWidth - (pocketOpen ? POCKET_INSET : 0) >= CALLOUT_MIN_STAGE;
 
   const structure = useMolstarStructure({
-    pluginRef: plugin.pluginRef,
-    pluginCreated: plugin.pluginCreated,
+    plugin,
     uniprotId,
     gene,
     primaryPdbData,
@@ -240,8 +212,6 @@ export default function MolstarViewer({
       store.setCanvasSecondary(secondary);
       store.setCanvasSecondaryState(state);
     },
-    setLoading: plugin.setLoading,
-    setLoadError: plugin.setLoadError,
   });
 
   const toggleFullscreen = async () => {
@@ -354,8 +324,6 @@ export default function MolstarViewer({
       clearLabel: "Exit site close-up",
     }] : []),
   ];
-  // Cards are cleared while a load has failed: `plugin.clear` removed the structure and `readyVersion`
-  // moved, so an anchor would be a ghost of coordinates that are no longer drawn.
   const callouts: StructureCallout[] = calloutRoom ? [
     ...(siteName && model.site.canAddressVariantSite && variantPosition ? [{
       key: "site",
@@ -417,12 +385,8 @@ export default function MolstarViewer({
             setPocketOpen(next);
             setShowPocket(next);
           }}
-          captureOpen={plugin.captureMenuOpen}
-          setCaptureOpen={plugin.setCaptureMenuOpen}
-          captureMenuRef={plugin.captureMenuRef}
-          onDownload={() => plugin.handleDownloadCapture(fileStem)}
-          onCopy={async () => setCopyState((await plugin.handleCopyCapture()) ? "copied" : "failed")}
-          copyState={copyState}
+          onDownloadImage={() => plugin.downloadImage(fileStem)}
+          onCopyImage={plugin.copyImage}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
         />

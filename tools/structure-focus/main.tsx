@@ -8,6 +8,7 @@ import { SettingsProvider } from "../../src/context/SettingsContext";
 import { DevConsoleProvider } from "../../src/context/DevConsoleContext";
 import { useVariantAnalysisStore } from "../../src/stores/useVariantAnalysisStore";
 import { useStructure3dEvidence } from "../../src/lib/useStructure3dEvidence";
+import type { StructureCanvasView } from "../../src/lib/useStructureWorkspace";
 import { indexStructureResidues, readCaTrace } from "../../src/shared/coordinateText";
 import { summariseSecondary } from "../../src/shared/structureSecondary";
 import { buildStructureSelection } from "../../src/shared/structureSelection";
@@ -167,20 +168,21 @@ function Canvas() {
     [model, residues, selectedResidueIndex, context],
   );
   const siteSelection = useMemo(() => buildStructureSelection(model, residues, 5, context), [model, residues, context]);
+  const view = useMemo<StructureCanvasView>(() => ({
+    primary: pdbText,
+    compare: model.viewMode === "superimposed" ? VARIANT_PDB : null,
+    allowFetch: false,
+    model,
+    coordinateIndex: residues,
+    selection,
+    siteSelection,
+    contextFit,
+  }), [pdbText, model, residues, selection, siteSelection, contextFit]);
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--cs-bg)" }}>
       <MolstarViewer
-        model={model}
-        coordinateIndex={residues}
-        selection={selection}
-        siteSelection={siteSelection}
+        view={view}
         active
-        primaryPdbData={pdbText}
-        comparePdbData={model.viewMode === "superimposed" ? VARIANT_PDB : null}
-        contextFit={contextFit}
-        allowFetch={false}
-        variantPosition={5}
-        selectedResidue={selectedResidueIndex ?? null}
         onResidueClick={() => {}}
         onModeChange={() => {}}
         heightClass="h-full"

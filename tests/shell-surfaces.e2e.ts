@@ -32,14 +32,14 @@ test('a long history scrolls inside its card and keeps the deck in place', { tag
   await skipTour(browser);
   await browser.addInitScript(() => {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
-    const genes = ['NAE1', 'PAH', 'TP53', 'BRCA1', 'SOD1', 'CFTR', 'LMNA', 'MYH7'];
+    const genes = ['NAE1', 'PAH', 'TP53', 'BRCA1', 'SOD1', 'CFTR', 'LMNA', 'MYH7', 'GBA1', 'FGFR3'];
     localStorage.setItem('variant_search_history', JSON.stringify(
       genes.map(gene => ({ gene, variant: 'p.Arg100Trp', query: `${gene} p.Arg100Trp` })),
     ));
   });
   await browser.setViewport({ width: 1753, height: 981 });
   await app.open('/');
-  await expect(screen.getByRole('heading', 'Recent analyses 8')).toBeVisible();
+  await expect(screen.getByRole('heading', 'Recent analyses 10')).toBeVisible();
   await browser.evaluate(() => document.fonts.ready.then(() => true));
   const deck = () => browser.evaluate(() => {
     const recents = document.querySelector('.workbench-recents')!.getBoundingClientRect();
@@ -52,7 +52,7 @@ test('a long history scrolls inside its card and keeps the deck in place', { tag
       fits: recents.height >= 200,
     };
   });
-  expect(await deck(), 'all eight rows, in a scrolling list, with a stable monitor and room for three entries').toEqual({ rows: 8, scrolls: true, stableMonitor: true, fits: true });
+  expect(await deck(), 'all ten rows, in a scrolling list, with a stable monitor and room for three entries').toEqual({ rows: 10, scrolls: true, stableMonitor: true, fits: true });
   await expect(screen.getByRole('button', /^Show \d+ more$/)).toHaveCount(0);
   await app.screenshot('query-panels-long-history');
 });

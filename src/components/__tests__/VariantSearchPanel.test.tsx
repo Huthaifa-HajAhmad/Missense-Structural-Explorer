@@ -711,13 +711,13 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(state.customGenomic).toBe("");
     });
 
-    it("stays under the recent-analyses list once there is history", async () => {
+    it("gives way to the recent-analyses list once there is history: one list in the card, not both", async () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
       renderPanel();
       expect(screen.getByRole("heading", { name: /Recent analyses/ })).toBeInTheDocument();
-      expect(screen.getAllByRole("button", { name: /Run benchmark/ })).toHaveLength(ONBOARDING_BENCHMARK_PRESETS.length);
+      expect(screen.queryByRole("button", { name: /Run benchmark/ })).toBeNull();
     });
   });
 

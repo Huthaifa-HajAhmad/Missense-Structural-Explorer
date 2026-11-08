@@ -4,6 +4,7 @@ import { PDB_SOURCE_RCSB } from "../shared/contracts";
 import { describeFoldxPhase } from "../shared/foldxPhase";
 import { identifyAlphaFoldHeader, readResidueAt, scanBFactors } from "../shared/coordinateText";
 import { readProteinLength } from "../shared/foldingLimits";
+import { regionsAt } from "../shared/residueRegions";
 import {
   buildStructure3dEvidence,
   type ModelFamily,

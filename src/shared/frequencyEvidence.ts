@@ -839,7 +839,12 @@ function gnomadAbsence(
   if (status === "timeout" || status === "error") {
     return resolveEvidenceAvailability({
       status: "unavailable",
-      message: `The gnomAD frequency query ${status === "timeout" ? "timed out" : "returned an error"}, so this dataset was not read.`,
+      // The same distinction the classifier draws one branch above: a run whose locus never
+      // resolved never issued a gnomAD query, so the row names the resolution failure instead of
+      // attributing a provider fault to a database it never reached.
+      message: locusUnresolved
+        ? "The run's genomic locus could not be resolved, so this dataset was not read."
+        : `The gnomAD frequency query ${status === "timeout" ? "timed out" : "returned an error"}, so this dataset was not read.`,
     });
   }
   if (status === "pending") {

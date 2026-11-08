@@ -36,13 +36,40 @@ export function settleUnreportedStages(result: any): PipelineStages | null {
   return changed ? stages : null;
 }
 
+/** True when the core analysis text is a real answer, not the placeholder a run starts with. */
+export function hasCoreAnalysisText(result: any): boolean {
+  return typeof result?.analysis === "string" && Boolean(result.analysis) && !result.analysis.includes("in progress");
+}
+
+/**
+ * The stages of a result that is being stored or restored, with none left at "running". A stage that is
+ * still running cannot be running in the reader's next session, so it is settled by its evidence
+ * (see `settleUnreportedStages`). Core has no evidence field of its own: it is `complete` only when the
+ * analysis text is a real answer. Otherwise it is `error`, so the next run redoes it instead of
+ * serving the placeholder as a finished analysis. Returns null when nothing was running.
+ */
+export function settleStagesForStorage(result: any): PipelineStages | null {
+  const stages: Record<string, StageOutcome> | null = settleUnreportedStages(result);
+  const settled: Record<string, StageOutcome> = { ...(stages ?? result?.metadata?.pipelineStages ?? {}) };
+  let changed = stages !== null;
+  if (result?.metadata?.pipelineStages?.core === "running" && !hasCoreAnalysisText(result)) {
+    settled.core = "error";
+    changed = true;
+  }
+  if (settled.coordinates === "running") {
+    settled.coordinates = "complete";
+    changed = true;
+  }
+  return changed ? settled : null;
+}
+
 /** Declared running/failed/refused core is never made reusable by optional prose. */
 export function hasReusableCoreEvidence(result: any): boolean {
   if (!result || result.numberingChoices?.length || result.buildHint) return false;
   const core = result.metadata?.pipelineStages?.core;
   if (core) return core === "complete";
   // Compatibility for context-stamped legacy snapshots without stage outcomes.
-  return typeof result.analysis === "string" && Boolean(result.analysis) && !result.analysis.includes("in progress");
+  return hasCoreAnalysisText(result);
 }
 
 /** Stage-owned patches must never replace another stage's evidence or provenance. */

@@ -1,5 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import {
   Trash2,
   ChevronDown,
@@ -49,6 +49,7 @@ import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import BuildMismatchPrompt from "./BuildMismatchPrompt";
 import type { BuildHint, NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel, { type ServiceSummary } from "./telemetry/LiveTelemetryPanel";
+import { VariantBreakdown } from "./query/VariantBreakdown";
 
 /* Variant query workbench: serif heading, a primary query composer, and a separate status rail.
    Theme tokens carry colour; optional editors expand without stretching the empty form. */
@@ -1051,8 +1052,8 @@ function VariantSearchPanel({
    * elsewhere (a recent analysis, a benchmark, an example chip, the fields themselves). The draft is
    * only rewritten when it no longer says what the fields say, so a trailing space survives typing.
    */
-  /* The recents list shows about three rows and scrolls past them. It fades on the edge that has more behind
-     it, so the peeked row reads as "more below" and not as a clipped one (the sidebar nav does the same). */
+  /* The recents list scrolls when the history is longer than its card. It fades on the edge that has more behind
+     it, so a partly shown row reads as "more below" and not as a clipped one (the sidebar nav does the same). */
   const recentListRef = useRef<HTMLOListElement>(null);
   useEffect(() => {
     const el = recentListRef.current;
@@ -1077,12 +1078,11 @@ function VariantSearchPanel({
   /** True once the design height has been re-measured after the monitor finished loading (see the effect below). */
   const designSettled = useRef(false);
   /**
-   * The deck's height is the monitor's own content, measured, not whatever the query card happens to
-   * need: the rail's natural height is read with stretching off and written to a CSS variable that
-   * becomes the deck's one row. The left column fills that row — the query card keeps its own height
-   * and yields under pressure (its form scrolls inside), the recents takes the remainder and scrolls —
-   * so opening the refinements never drops the recents card lower and never stretches the monitor
-   * past the fold.
+   * The deck's minimum height is the monitor's own content, measured: the rail's natural height is read
+   * with stretching off and written to a CSS variable that becomes the deck's one row. The left column
+   * fills that row — the query card keeps its own height and never scrolls, the recents takes the
+   * remainder and scrolls — so opening the refinements pushes the recents card down inside the row and
+   * the monitor keeps its height.
    */
   useLayoutEffect(() => {
     const deck = deckRef.current;
@@ -1118,6 +1118,7 @@ function VariantSearchPanel({
         el.removeAttribute("inert");
       }
       Object.assign(clone.style, {
+        contain: "none",
         position: "absolute",
         insetBlockStart: "0px",
         insetInlineStart: "0px",
@@ -1238,6 +1239,23 @@ function VariantSearchPanel({
           return Boolean(typed && loaded && sameSubstitution(typed, loaded));
         })())
     )
+  );
+  /**
+   * From the moment a run starts, and for as long as the loaded run is the one this line describes, the card
+   * reads the variant out of the run (`VariantBreakdown`) instead of echoing what was typed. A result that
+   * belongs to another variant (the previous run, still loaded while this one resolves) is never read.
+   *
+   * The signal is the intake/core run itself, not `isForegroundActive`: every value the breakdown reads is
+   * written when that run settles, and the background channels (biophysics, clinical) keep running long after
+   * it. Keyed to them, typing a different variant while an earlier run's clinical narrative still streamed
+   * showed the new line's gene and change over "Resolving…" cells for a run nobody had started.
+   */
+  const coreRunning = Boolean(analysisState.isLoading);
+  const breakdownOn = Boolean(quickDraft.trim()) && (coreRunning || loadedMatchesQuery);
+  const breakdownResult = loadedMatchesQuery && result?.metadata?.gene === gene && result.metadata.variant === variant ? result : null;
+  const breakdownTyped = useMemo(
+    () => ({ gene: customGene, change: changeNotation, uniprot: customUniprot, resolvedChange }),
+    [customGene, changeNotation, customUniprot, resolvedChange],
   );
   const onQuickEntryChange = (line: string) => {
     setQuickDraft(line);
@@ -1644,7 +1662,9 @@ function VariantSearchPanel({
 
               {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
                   ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
-              {quickDraft.trim() ? (
+              {breakdownOn ? (
+                <VariantBreakdown typed={breakdownTyped} result={breakdownResult} settled={!coreRunning} />
+              ) : quickDraft.trim() ? (
                 <dl className="qe__ticket" data-testid="quick-entry-preview">
                   {(() => {
                     const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
@@ -1961,8 +1981,9 @@ function VariantSearchPanel({
                 </button>
               </div>
 
-              {/* Every entry stays in the list (the store keeps ten); the list scrolls inside its own box past
-                  about three rows, so a longer history never pushes the deck or the monitor down the page. */}
+              {/* Every entry stays in the list (the store keeps ten). The list is the card's only scroller: it takes the
+                  height the query card leaves, so a longer history never pushes the deck or the monitor down the page.
+                  The benchmarks are the empty tray's content and do not share the card with the history. */}
               <ol ref={recentListRef} className="workbench-recent-list" id="workbench-recent-list">
                 {history.map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
@@ -1991,17 +2012,14 @@ function VariantSearchPanel({
                   );
                 })}
               </ol>
-              {/* Benchmarks stay below the history: they are the way into a known result, and they fill the
-                  height the taller monitor sets, instead of leaving the tray empty under one recent run. */}
-              {benchmarkSection}
             </>
           ) : (
             <>
               <div className="workbench-recents-heading">
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
               </div>
-              {/* The history's own empty slot. It takes the height the taller monitor sets, so the benchmarks
-                  sit at the foot of the tray, exactly where they sit once a history exists. */}
+              {/* The history's own empty slot. It takes the height the tray has left, so the benchmarks sit at
+                  the foot of the tray. */}
               <div className="workbench-recents-empty">
                 <span className="workbench-recents-empty-icon" aria-hidden="true">
                   <HistoryIcon />

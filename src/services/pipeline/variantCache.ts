@@ -7,6 +7,7 @@ import { hasInterruptedPredictorReadings } from '../../shared/predictorRecovery'
 
 import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/narrativeFallback";
 import { analysisContextMatches, type AnalysisCacheContext } from "./analysisContext";
+import { settleStagesForStorage } from "./resultMerge";
 
 /**
  * Client-side snapshot cache, versioned so a schema change to what a bundle MEANS invalidates it.
@@ -165,6 +166,12 @@ function getCacheKey(gene: string, variant: string): string {
   return `${gene.trim().toUpperCase()}_${variant.trim().toLowerCase()}`;
 }
 
+/** The result with no stage left at "running": a stored or restored result is not mid-run. */
+function withSettledStages<T extends { metadata?: any }>(result: T): T {
+  const stages = settleStagesForStorage(result);
+  return stages ? { ...result, metadata: { ...result.metadata, pipelineStages: stages } } : result;
+}
+
 /** Reads reusable artifacts separately from context-dependent interpretation. */
 export function getCachedVariant(gene: string, variant: string, expected?: AnalysisCacheContext): CachedVariantBundle | null {
   const compatible = (entry: CachedVariantBundle): CachedVariantBundle | null => {
@@ -174,22 +181,7 @@ export function getCachedVariant(gene: string, variant: string, expected?: Analy
     if (!expected.uniprotId || (entry.uniprotId || "").toUpperCase() !== expected.uniprotId) return null;
     const copy = { ...entry };
     if (!analysisContextMatches(entry.analysisResult?.metadata?.pipelineContext, expected)) copy.analysisResult = undefined;
-    if (copy.analysisResult?.metadata?.pipelineStages) {
-      const stages = { ...copy.analysisResult.metadata.pipelineStages };
-      let hasRunning = false;
-      for (const [k, v] of Object.entries(stages)) {
-        if (v === "running") {
-          stages[k] = "complete";
-          hasRunning = true;
-        } 
-      }
-      if (hasRunning) {
-        copy.analysisResult = {
-          ...copy.analysisResult,
-          metadata: { ...copy.analysisResult.metadata, pipelineStages: stages }
-        };
-      }
-    }
+    if (copy.analysisResult) copy.analysisResult = withSettledStages(copy.analysisResult);
     if (entry.biophysicsContext !== expected.simulationConditions) {
       // Coordinates remain reusable. Energetics, mutants and remote jobs do not cross conditions.
       for (const key of ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "dynamut2JobId", "dynamut2Status", "ddmutJobId", "ddmutStatus", "thermompnnJobId", "thermompnnStatus", "thermompnnError", "biophysicsAttemptedAt"] as const) delete copy[key];
@@ -295,22 +287,7 @@ export function setCachedVariant(
     timestamp: Date.now()
   };
 
-  if (updated.analysisResult?.metadata?.pipelineStages) {
-    const stages = { ...updated.analysisResult.metadata.pipelineStages };
-    let hasRunning = false;
-    for (const [k, v] of Object.entries(stages)) {
-      if (v === "running") {
-        stages[k] = "complete";
-        hasRunning = true;
-      }
-    }
-    if (hasRunning) {
-      updated.analysisResult = {
-        ...updated.analysisResult,
-        metadata: { ...updated.analysisResult.metadata, pipelineStages: stages }
-      };
-    }
-  }
+  if (updated.analysisResult) updated.analysisResult = withSettledStages(updated.analysisResult);
 
   memoryVariantCache.delete(key);
   memoryVariantCache.set(key, updated);
