@@ -1,5 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import {
   Trash2,
   ChevronDown,
@@ -49,6 +49,7 @@ import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import BuildMismatchPrompt from "./BuildMismatchPrompt";
 import type { BuildHint, NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel, { type ServiceSummary } from "./telemetry/LiveTelemetryPanel";
+import { VariantBreakdown } from "./query/VariantBreakdown";
 
 /* Variant query workbench: serif heading, a primary query composer, and a separate status rail.
    Theme tokens carry colour; optional editors expand without stretching the empty form. */
@@ -1239,6 +1240,17 @@ function VariantSearchPanel({
         })())
     )
   );
+  /**
+   * From the moment a run starts, and for as long as the loaded run is the one this line describes, the card
+   * reads the variant out of the run (`VariantBreakdown`) instead of echoing what was typed. A result that
+   * belongs to another variant (the previous run, still loaded while this one resolves) is never read.
+   */
+  const breakdownOn = Boolean(quickDraft.trim()) && (isForegroundActive || loadedMatchesQuery);
+  const breakdownResult = loadedMatchesQuery && result?.metadata?.gene === gene && result.metadata.variant === variant ? result : null;
+  const breakdownTyped = useMemo(
+    () => ({ gene: customGene, change: changeNotation, uniprot: customUniprot, resolvedChange }),
+    [customGene, changeNotation, customUniprot, resolvedChange],
+  );
   const onQuickEntryChange = (line: string) => {
     setQuickDraft(line);
     const read = readQuickEntry(line);
@@ -1644,7 +1656,9 @@ function VariantSearchPanel({
 
               {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
                   ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
-              {quickDraft.trim() ? (
+              {breakdownOn ? (
+                <VariantBreakdown typed={breakdownTyped} result={breakdownResult} settled={!isForegroundActive} />
+              ) : quickDraft.trim() ? (
                 <dl className="qe__ticket" data-testid="quick-entry-preview">
                   {(() => {
                     const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
