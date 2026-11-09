@@ -261,7 +261,9 @@ export const createSearchSlice: StateCreator<
        * rather than retained, and Recents replays `variant` again.
        */
       const retained = item.query === undefined && previous?.query ? { ...item, query: previous.query } : item;
-      const entry = retained.query === "" ? { ...retained, query: undefined } : retained;
+      const withQuery = retained.query === "" ? { ...retained, query: undefined } : retained;
+      // An empty accession means "this save did not know it", so the one already stored survives.
+      const entry = withQuery.uniprotId || !previous?.uniprotId ? withQuery : { ...withQuery, uniprotId: previous.uniprotId };
       const updated = [entry, ...filtered].slice(0, maxItems);
       try {
         localStorage.setItem("variant_search_history", JSON.stringify(updated));

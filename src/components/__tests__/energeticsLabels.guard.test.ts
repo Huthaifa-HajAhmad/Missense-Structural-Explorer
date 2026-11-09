@@ -42,6 +42,11 @@ const GUARDED_SURFACES = [
   'src/components/evidence/DiseaseContextPicker.tsx',
   'src/components/inspector/EvidenceContextRail.tsx',
   "src/components/EnergeticsView.tsx",
+  // The pieces the Energetics view was split into; each renders engine state or the numbers beside it.
+  "src/components/energetics/FindingFacts.tsx",
+  "src/components/energetics/ProgressPanel.tsx",
+  "src/components/energetics/ReadingsTable.tsx",
+  "src/components/energetics/useEnergeticsEvidence.ts",
   "src/components/inspector/EnergeticsInspector.tsx",
   // The Energetics evidence model and its ruler, which every Energetics surface now renders from.
   "src/shared/energeticsEvidence.ts",
@@ -95,6 +100,11 @@ const GUARDED_SURFACES = [
    */
   "src/components/evidence/PerturbationTab.tsx",
   "src/shared/perturbationEvidence.ts",
+  // The tab's sections that print those states: the model strip, the readings table, its status chips and the ESM3 rows.
+  "src/components/evidence/perturbation/FindingCard.tsx",
+  "src/components/evidence/perturbation/ReadingsTable.tsx",
+  "src/components/evidence/perturbation/ModelAvailability.tsx",
+  "src/components/evidence/perturbation/Esm3Rows.tsx",
   /**
    * Residue Shifts & Pockets printed "Standby", "Model Offline", "ML Model Offline / Standby" and
    * "N/A". Its tab, rail and both models now take state words from engineStatus.
@@ -219,7 +229,37 @@ const DELEGATES: Record<
   // Rails that show a state word from a shared evidence model rather than writing one. Each model reads
   // ENGINE_STATE_LABELS directly, and the rail invokes the builder that produces the state it prints.
   'src/components/inspector/FunctionRail.tsx': { token: '../../shared/functionEvidence', file: 'src/shared/functionEvidence.ts', usage: ['buildFunctionEvidence('] },
-  'src/components/inspector/PerturbationRail.tsx': { token: '../../shared/perturbationEvidence', file: 'src/shared/perturbationEvidence.ts', usage: ['buildPerturbationEvidence('] },
+  // The Structural perturbation tab is a layout: its engine states are printed by its sections.
+  'src/components/evidence/PerturbationTab.tsx': {
+    token: './perturbation/ReadingsTable',
+    file: 'src/components/evidence/perturbation/ReadingsTable.tsx',
+    usage: ['<ReadingsTable'],
+  },
+  // The model strip prints a missing model's state through the shared chip, which prints `availability.label`.
+  'src/components/evidence/perturbation/FindingCard.tsx': {
+    token: './ModelAvailability',
+    file: 'src/components/evidence/perturbation/ModelAvailability.tsx',
+    usage: ['<StatusChip'],
+    chain: ['src/shared/perturbationEvidence.ts'],
+  },
+  // A status chip prints `availability.label`, which perturbationEvidence takes from engineStatus.
+  'src/components/evidence/perturbation/ModelAvailability.tsx': {
+    token: '../../../shared/perturbationEvidence',
+    file: 'src/shared/perturbationEvidence.ts',
+    usage: ['{a.label}'],
+  },
+  'src/components/evidence/perturbation/Esm3Rows.tsx': {
+    token: './ModelAvailability',
+    file: 'src/components/evidence/perturbation/ModelAvailability.tsx',
+    usage: ['<StatusChip'],
+    chain: ['src/shared/perturbationEvidence.ts'],
+  },
+  'src/components/inspector/PerturbationRail.tsx': {
+    token: '../evidence/perturbation/usePerturbationEvidence',
+    file: 'src/components/evidence/perturbation/usePerturbationEvidence.ts',
+    usage: ['usePerturbationEvidence('],
+    chain: ['src/shared/perturbationEvidence.ts'],
+  },
   'src/components/evidence/GeneDiseaseTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
   // FunctionTab draws its states from the same model FunctionRail does. It was deferred as "the lead is editing it";
   // that edit landed, and the file has imported the model all along.

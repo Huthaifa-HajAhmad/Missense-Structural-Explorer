@@ -66,7 +66,7 @@ try {
  const guideBox = await page.locator('.ins-shell__guide').boundingBox();
  check('Reading guide sits opposite the title', guideBox.x > titleBox.x + titleBox.width);
  // The selected-evidence head keeps one height whether or not a lane is pinned.
- const selectionHead = page.locator('.ins-selection > .review-selection__head');
+ const selectionHead = page.locator('.ins-rail .review-selection > .review-selection__head');
  const pinnedHead = (await selectionHead.boundingBox()).height;
  await page.getByRole('button', { name: 'Clear selection' }).click();
  const emptyHead = (await selectionHead.boundingBox()).height;
@@ -225,6 +225,30 @@ try {
  const stateBox = await state.boundingBox();
  check('Query accession state sits in the label row', stateBox !== null && accessionBox !== null && stateBox.y + stateBox.height <= accessionBox.y + 1);
  check('Query accession state names the format', (await state.innerText()).trim() === 'Format OK');
+ // The query card is the one that pushes: it keeps its own height (no shrink) and shows all of its fields, so its
+ // form must not be a scroller. If it could shrink or scroll, a tall card would be cut off instead of moving the
+ // recents card down.
+ const cardFlex = await page.evaluate(() => {
+  const cs = getComputedStyle(document.querySelector('.workbench-query'));
+  const form = getComputedStyle(document.querySelector('.workbench-query > form'));
+  return { shrink: cs.flexShrink, formOverflow: form.overflowY };
+ });
+ check('Query card keeps its height and never scrolls', cardFlex.shrink === '0' && cardFlex.formOverflow === 'visible');
+ // The monitor is the measured design height, on whichever tab is open — its rail must render that
+ // height, not the visible panel's own content (the defect: a per-tab content height).
+ const railAndDesign = () => page.evaluate(() => {
+  const deck = document.querySelector('.workbench-deck');
+  const rail = document.querySelector('.workbench-rail');
+  return { design: parseFloat(deck?.style.getPropertyValue('--workbench-deck-h') ?? ''), rail: rail ? rail.getBoundingClientRect().height : 0 };
+ });
+ const onServices = await railAndDesign();
+ await page.getByRole('tab', { name: 'Pipeline' }).click();
+ const onPipeline = await railAndDesign();
+ check('Monitor design height is measured and the rail renders it on either tab',
+  Number.isFinite(onServices.design) && Number.isFinite(onPipeline.design) &&
+  Math.abs(onServices.design - onServices.rail) <= 1 && Math.abs(onPipeline.design - onPipeline.rail) <= 1 &&
+  onPipeline.design >= onServices.design - 1);
+ await page.getByRole('tab', { name: 'Services' }).click();
  await page.screenshot({ path: `${output}/query-desktop.png` });
  await page.setViewportSize({ width: 390, height: 1100 });
  check('Query fits phone viewport', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));

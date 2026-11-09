@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import VariantSearchPanel, { WORKFLOW_STAGE_COUNTS } from "../VariantSearchPanel";
 import { ONBOARDING_BENCHMARK_PRESETS } from "../../shared/benchmarkPresets";
@@ -115,11 +115,86 @@ describe("the composer knows what is already loaded", () => {
       });
     });
 
-  it("names the protein change a coordinate resolved to, in the ticket", () => {
+  it("names the protein change a coordinate resolved to, in the breakdown", () => {
     seedLoadedRun();
     renderPanel();
 
-    expect(screen.getByTestId("quick-entry-resolved")).toHaveTextContent("resolved to p.Asp116Gly");
+    const breakdown = screen.getByTestId("variant-breakdown");
+    expect(within(breakdown).getByText("Protein change").closest("div")).toHaveTextContent("p.Asp116Gly");
+    expect(within(breakdown).getByText("Protein change").closest("div")).toHaveTextContent(`read from ${coordinate}`);
+    expect(screen.queryByTestId("quick-entry-preview")).not.toBeInTheDocument();
+  });
+
+  it("reads the variant out of the loaded run: gene, residue, accession, transcript and build", () => {
+    seedLoadedRun();
+    act(() => {
+      useVariantAnalysisStore.setState({
+        analysisState: {
+          isLoading: false, error: null,
+          result: {
+            metadata: { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", residueIndex: 116, sequence: "M".repeat(534) },
+            transcriptId: "ENST00000290810", maneRefSeqId: "NM_003905.4", isManeSelect: true,
+            assembly: "GRCh38", resolvedAssembly: "GRCh38", numberingBasis: "canonical",
+            predictorData: { gnomadVariantId: "16-66823281-T-C", gnomadVariantAssembly: "GRCh38" },
+          },
+        } as any,
+      });
+    });
+    renderPanel();
+
+    const cell = (label: string) => within(screen.getByTestId("variant-breakdown")).getByText(label).closest("div")!;
+    expect(cell("Residue")).toHaveTextContent("116 of 534");
+    expect(cell("UniProt")).toHaveTextContent("Q13564");
+    expect(cell("Transcript")).toHaveTextContent("NM_003905.4");
+    expect(cell("Transcript")).toHaveTextContent("MANE Select");
+    expect(cell("Build")).toHaveTextContent("GRCh38 / hg38");
+    expect(cell("Genomic coordinate")).toHaveTextContent("16-66823281-T-C");
+  });
+
+  it("opens the breakdown as soon as a run starts, with the unresolved cells marked as resolving", () => {
+    seedLoadedRun();
+    act(() => {
+      useVariantAnalysisStore.setState({ gene: "", variant: "", customGene: "NAE1", customVariant: "p.Asp116Gly", customGenomic: "", analysisState: { isLoading: true, error: null, result: null } as any });
+    });
+    renderPanel();
+
+    const breakdown = screen.getByTestId("variant-breakdown");
+    expect(breakdown).toHaveAttribute("aria-busy", "true");
+    expect(within(breakdown).getByText("Residue").closest("div")).toHaveTextContent("116");
+    expect(within(breakdown).getByText("Transcript").closest("div")).toHaveTextContent("Resolving…");
+  });
+
+  it("never reads the previous run's result for a different variant", () => {
+    seedLoadedRun();
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGene: "PAH", customVariant: "p.Arg408Trp", customGenomic: "",
+        analysisState: { isLoading: true, error: null, result: { metadata: { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" }, transcriptId: "ENST00000290810" } } as any,
+      });
+    });
+    renderPanel();
+
+    const breakdown = screen.getByTestId("variant-breakdown");
+    expect(breakdown).not.toHaveTextContent("ENST00000290810");
+    expect(breakdown).not.toHaveTextContent("Q13564");
+    expect(within(breakdown).getByText("Gene").closest("div")).toHaveTextContent("PAH");
+  });
+
+  it("keeps the ticket while an earlier run's background work is still going", () => {
+    seedLoadedRun();
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGene: "PAH", customVariant: "p.Arg408Trp", customGenomic: "",
+        // The core run is over; only a background channel from the previous run is still streaming. Nothing is
+        // resolving the line being typed, so the card must not say it is.
+        isClinicalLoading: true,
+        analysisState: { isLoading: false, error: null, result: { metadata: { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" }, transcriptId: "ENST00000290810" } } as any,
+      });
+    });
+    renderPanel();
+
+    expect(screen.queryByTestId("variant-breakdown")).not.toBeInTheDocument();
+    expect(screen.getByTestId("quick-entry-preview")).toHaveTextContent("p.Arg408Trp");
   });
 
   it("states nothing it has not run: an unseen coordinate gets no resolved change", () => {
@@ -412,18 +487,23 @@ describe("UniProt state takes the label-row slot (UI-5)", () => {
  * Row 1 is now shared, so the two stretch together.
  */
 describe("workspace deck: the recent card is a row of its own, not the form's column (UI-9)", () => {
-  it("puts the form and the rail on one grid row and the recent card on the next", () => {
+  it("puts the form's column and the rail on one grid row", () => {
     renderPanel();
     const form = document.getElementById("variant-input-card") as HTMLElement;
     const rail = document.getElementById("workspace-stage-rail") as HTMLElement;
     const recent = document.querySelector('[data-tour="recent-benchmarks"]') as HTMLElement;
 
     expect(recent).not.toBeNull();
-    // Siblings in the grid, so row 1's height is the tallest of form/rail and nothing depends on
-    // the recent card being present.
+    // The query card and the recents share one column — whose own height is what the deck
+    // stretches — and the monitor sits beside that column in the same row, so the deck's height
+    // does not depend on the recent card being present.
     expect(recent.parentElement).toBe(form.parentElement);
-    expect(rail.parentElement).toBe(form.parentElement);
-    expect(recent.className).toContain("lg:row-start-2");
+    const column = form.parentElement as HTMLElement;
+    expect(column.classList).toContain("workbench-columns");
+    expect(column.className).toContain("lg:col-span-8");
+    expect(column.className).toContain("lg:row-start-1");
+    expect(rail.parentElement).toBe(column.parentElement);
+    expect(rail.className).toContain("lg:col-span-4");
     expect(rail.className).toContain("lg:row-start-1");
     // Stretched to the row, not pinned to its own floor: the near-miss corner.
     expect(rail.className).not.toContain("lg:self-start");

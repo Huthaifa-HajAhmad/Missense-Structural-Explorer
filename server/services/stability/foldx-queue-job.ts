@@ -26,6 +26,7 @@ import {
   runRaspLocal,
   runStabilityOracleAnalysisDetailed,
 } from "../biophysics.ts";
+import { STABILITY_ORACLE_BACKGROUND_BUDGET_MS } from "./stabilityoracle.ts";
 import { requestBackgroundRepair } from "./foldx/background-repair.ts";
 import { backfillMutantCacheCompanions } from "./foldx/cache.ts";
 import { buildFoldxCacheKey } from "../infra/foldx-job-registry.ts";
@@ -74,9 +75,12 @@ export function startFoldxCompanions(jobId: string | undefined, data: any): Prom
   const run = runCompanions(jobId, data);
   if (jobId) {
     companionsInFlight.set(jobId, run);
-    void run.finally(() => {
+    // `then` with both handlers, not `finally`: a `finally` promise fails again with `run`'s error, and
+    // nothing would be listening to it.
+    const forget = () => {
       if (companionsInFlight.get(jobId) === run) companionsInFlight.delete(jobId);
-    });
+    };
+    void run.then(forget, forget);
   }
   return run;
 }
@@ -173,6 +177,7 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
         "",
         data.wtPdb,
         chain,
+        STABILITY_ORACLE_BACKGROUND_BUDGET_MS,
       );
       const hasScore = outcome.kind === "value" && Number.isFinite(outcome.result.ddG);
       await publishRemoteJobs(jobId, {

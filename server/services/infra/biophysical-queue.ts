@@ -64,6 +64,28 @@ const SERVER_CLAIMABLE = "(placement IS NULL OR placement NOT LIKE 'agent:%')";
 const FINISHING_LEASE_FLOOR_MS = 10 * 60 * 1000;
 
 /**
+ * How often a process checks whether a job it is running was ended by another process. During a
+ * blue/green deploy both processes answer requests, so a cancel can reach the one that is not running
+ * the job: it ends the row, and the running process must then stop the tool itself.
+ */
+export const ENDED_ELSEWHERE_CHECK_MS = 5_000;
+
+/** Days a positive whole number from the environment, or the fallback. */
+function envDays(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * How long a finished job is kept, so its result can still be polled and listed (`JOB_RETENTION_DAYS`,
+ * 14 by default). Both backends use it: a backend that dropped a job when it finished made the reader's
+ * next poll answer "not found" instead of the result.
+ */
+export function jobRetentionMs(): number {
+  return envDays("JOB_RETENTION_DAYS", 14) * 86_400_000;
+}
+
+/**
  * A job placed on an idle computer that has not claimed it after this long goes to the server. A computer
  * long-polls `/agent/claim` and re-checks every second, so an idle one claims a placed job within seconds;
  * one that does not is refusing it (for example a size its class has since learned it cannot hold).
@@ -165,6 +187,7 @@ export class SQLiteQueue {
 
   private timer: NodeJS.Timeout | null = null;
   private reaperInterval: NodeJS.Timeout | null = null;
+  private endedElsewhereInterval: NodeJS.Timeout | null = null;
   private isShutdown = false;
   private processingPaused: boolean;
   private costModels!: CostModelCache;
@@ -211,6 +234,9 @@ export class SQLiteQueue {
     if (!paused) this.recoverInterruptedJobs();
     this.scheduleNext();
     if (!paused) this.startReaper();
+    // Runs while paused too: a draining process must still stop work another process cancelled.
+    this.endedElsewhereInterval = setInterval(() => this.abortJobsEndedElsewhere(), ENDED_ELSEWHERE_CHECK_MS);
+    this.endedElsewhereInterval.unref();
   }
 
   /**
@@ -666,7 +692,7 @@ export class SQLiteQueue {
     const holder = (this.db.prepare("SELECT claimed_by FROM biophysical_jobs WHERE id = ? AND status = 'running'").get(id) as any)?.claimed_by;
     if (typeof holder === "string" && holder.startsWith("agent:")) this.endClaim(id, holder.slice("agent:".length), "cancelled", Date.now());
     this.db.prepare(`
-      UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
+      UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?, lease_expires_at = NULL
       WHERE id = ? AND status IN ('queued', 'running')
     `).run(reason, Date.now(), id);
     this.abortJob(id);
@@ -956,6 +982,11 @@ export class SQLiteQueue {
 
   jobExists(jobId: string): boolean {
     return Boolean(this.db.prepare("SELECT 1 FROM biophysical_jobs WHERE id = ?").get(jobId));
+  }
+
+  /** Did this computer's result complete this job? (`claimed_by` stays set on a finished job.) */
+  completedBy(jobId: string, agentId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM biophysical_jobs WHERE id = ? AND status = 'completed' AND claimed_by = ?").get(jobId, `agent:${agentId}`));
   }
 
   /** Is this job running on this computer right now? */
@@ -1357,6 +1388,16 @@ export class SQLiteQueue {
     }
   }
 
+  /** Stops each job this process runs whose row is no longer `running` (cancelled or reaped elsewhere). */
+  private abortJobsEndedElsewhere(): void {
+    if (this.isShutdown || this.activeJobs.size === 0) return;
+    const ids = [...this.activeJobs.keys()];
+    const stillRunning = new Set((this.db.prepare(
+      `SELECT id FROM biophysical_jobs WHERE status = 'running' AND id IN (${ids.map(() => "?").join(", ")})`
+    ).all(...ids) as any[]).map(r => r.id as string));
+    for (const id of ids) if (!stillRunning.has(id)) this.abortJob(id);
+  }
+
   private startReaper() {
     this.reaperInterval = setInterval(() => {
       this.reapStaleJobs();
@@ -1448,12 +1489,8 @@ export class SQLiteQueue {
    */
   pruneHistory(now = Date.now()): void {
     if (now - this.lastPrunedAt < 60 * 60 * 1000) return;
-    const days = (name: string, fallback: number) => {
-      const n = Number(process.env[name]);
-      return Number.isFinite(n) && n > 0 ? n : fallback;
-    };
-    const jobCutoff = now - days("JOB_RETENTION_DAYS", 14) * 86_400_000;
-    const telemetryCutoff = now - days("TELEMETRY_RETENTION_DAYS", 180) * 86_400_000;
+    const jobCutoff = now - jobRetentionMs();
+    const telemetryCutoff = now - envDays("TELEMETRY_RETENTION_DAYS", 180) * 86_400_000;
     try {
       this.db.prepare(`
         DELETE FROM job_watchers WHERE job_id IN (
@@ -1487,6 +1524,10 @@ export class SQLiteQueue {
     if (this.reaperInterval) {
       clearInterval(this.reaperInterval);
       this.reaperInterval = null;
+    }
+    if (this.endedElsewhereInterval) {
+      clearInterval(this.endedElsewhereInterval);
+      this.endedElsewhereInterval = null;
     }
     console.log("[Queue] Aborting all active SQLite jobs...");
     for (const [id, active] of this.activeJobs.entries()) {
@@ -1544,9 +1585,10 @@ export class BiophysicalJobQueue {
 
         this.bullQueue = new Queue("biophysical_jobs", {
           connection: connectionOpts,
-          defaultJobOptions: { 
-            removeOnComplete: true, 
-            removeOnFail: false,
+          defaultJobOptions: {
+            // Kept like the SQLite backend keeps them, so the reader's poll finds the result.
+            removeOnComplete: { age: Math.round(jobRetentionMs() / 1000) },
+            removeOnFail: { age: Math.round(jobRetentionMs() / 1000) },
             attempts: 3,
             backoff: {
               type: "exponential",

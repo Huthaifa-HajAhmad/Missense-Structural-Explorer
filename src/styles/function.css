@@ -113,14 +113,6 @@
 .fnd-key[data-kind="strand"] { width: 14px; height: 3px; border: 0; border-radius: 0; background: var(--cs-text-secondary); }
 .fnd-key[data-kind="structural"] { width: 14px; height: 4px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 60%, var(--cs-surface)); }
 
-.fnd-seg { display: inline-flex; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input, 8px); overflow: hidden; }
-.fnd-seg > button {
-  min-height: 28px; padding: 0 10px; border: 0; background: var(--cs-surface); cursor: pointer;
-  font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-secondary);
-}
-.fnd-seg > button + button { border-left: 1px solid var(--cs-border); }
-.fnd-seg > button[aria-pressed="true"] { background: var(--cs-text-primary); color: var(--cs-surface); }
-.fnd-seg > button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
 
 .fnd-facts {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));

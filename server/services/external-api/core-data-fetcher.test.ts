@@ -227,6 +227,74 @@ describe("Core Data Fetcher Service Unit Tests", () => {
     expect(coordinate).toEqual({ chrom: "1", pos: 1256452, ref: "C", alt: "A", assembly: "GRCh37" });
   });
 
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * THE GENE-LEVEL CONSTRAINT IS NOT A LOCUS-DEPENDENT SOURCE
+   * ─────────────────────────────────────────────────────────────────────────────
+   * The pinned gnomAD v4.1.2 constraint snapshot is a local file the GENE SYMBOL alone indexes.
+   * It used to wait behind the locus like every other gnomAD-derived source, so a run whose
+   * Ensembl VEP ladder never settled inside the core budget recorded the LOCAL, offline dataset
+   * as `timeout` and the header announced "gnomAD did not answer" for a provider that was never
+   * the problem (FGFR3 p.Gly380Arg, 2026-11-08; gnomAD itself answers its frequency query in
+   * 155–285 ms). Now: the gene-level record answers from the symbol, the locus only REFINES it
+   * (transcript-matched row + regional O/E), and the record that answers fine-grained-when-late
+   * must never cost us the answer that was already in hand.
+   */
+  it("serves the gene-level constraint from the symbol when the locus never settles", async () => {
+    const { fetchPredictorData } = await import("../prediction/index.ts");
+    const { fetchGnomadGeneConstraint } = await import("./gnomad.ts");
+    vi.mocked(fetchGnomadGeneConstraint).mockClear();
+    // The locus is stuck beyond the run's whole budget: the exact outage shape the RCA describes.
+    vi.mocked(fetchPredictorData).mockReturnValueOnce(new Promise(() => {}) as never);
+
+    const result = await fetchCoreVariantData(baseContext, 2000);
+
+    expect(fetchGnomadGeneConstraint).toHaveBeenCalledOnce();
+    expect(result.gnomadConstraint?.pli).toBe(0.95);
+    expect(result.serviceStatus.gnomadConstraint).toBe("ok");
+  }, 15_000);
+
+  it("still refines the constraint with the locus-verified transcript and regional record", async () => {
+    const { fetchPredictorData } = await import("../prediction/index.ts");
+    const { fetchGnomadGeneConstraint } = await import("./gnomad.ts");
+    vi.mocked(fetchGnomadGeneConstraint).mockClear();
+    vi.mocked(fetchPredictorData).mockResolvedValueOnce({
+      caddPhred: 28.5, revel: 0.85, amPathogenicity: 0.92, amClass: "pathogenic",
+      transcriptId: "NM_000477.4",
+      gnomadVariantId: "12-102845012-G-A",
+      gnomadVariantAssembly: "GRCh38",
+    } as never);
+
+    const result = await fetchCoreVariantData(baseContext, 5000);
+
+    const refined = vi.mocked(fetchGnomadGeneConstraint).mock.calls.find(call => call[2]?.transcriptId === "NM_000477.4");
+    expect(refined).toBeDefined();
+    expect(refined![2]!.coordinate).toEqual({ chrom: "12", pos: 102845012, ref: "G", alt: "A", assembly: "GRCh38" });
+    // The refined read is the one the payload carries.
+    expect(result.gnomadConstraint?.pli).toBe(0.95);
+    expect(result.serviceStatus.gnomadConstraint).toBe("ok");
+  }, 15_000);
+
+  /**
+   * The frequency lookup borrows the run's OWN deadline instead of living on a private 15 s that
+   * two 15 s attempts can outlive (a run whose locus settled at second 40 expired its 45 s budget
+   * while gnomAD's fetch was still retrying). The budget is OUR scheduling cap, not evidence about
+   * the provider, so it must also be flagged `cappedByCaller` — the flag that keeps a budget-induced
+   * timeout out of gnomAD's per-host circuit breaker.
+   */
+  it("passes the run's deadline into the gnomAD frequency fetch, capped against the provider's health", async () => {
+    const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+    vi.mocked(fetchGnomadVariantFrequency).mockClear();
+
+    await fetchCoreVariantData(baseContext, 5000);
+
+    expect(vi.mocked(fetchGnomadVariantFrequency)).toHaveBeenCalled();
+    const options = vi.mocked(fetchGnomadVariantFrequency).mock.calls[0]![1] as any;
+    expect(typeof options.deadlineAt).toBe("number");
+    expect(options.deadlineAt).toBeGreaterThan(Date.now() - 5000);
+    expect(options.cappedByCaller).toBe(true);
+  }, 15_000);
+
   it("does not query gnomAD with a coordinate whose build is unknown", async () => {
     // gnomAD r4 is GRCh38-only and answers by numeric position, so an id from another build whose
     // alleles coincide returns a DIFFERENT locus's frequency. Those frequencies drive
@@ -306,7 +374,15 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       expect(fetchLocalPopulationFrequencies).toHaveBeenCalledWith("PAH", 408, "p.Arg408Trp", { chrom: "12", pos: 102845012, ref: "G", alt: "A", assembly: "GRCh38" });
       // The remote gnomAD record is preferred: the local ingest has no ancestry groups or FAF95, so its
       // combined AF missed UROD p.Gly318Arg's 1.7% African-ancestry frequency (BS1). Local AoU stays.
-      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith("12-102845012-G-A", { assembly: "GRCh38" });
+      /**
+       * The call now carries the run's deadline (`cappedByCaller: true` — our scheduling, not a
+       * verdict on gnomAD's health), so the assertion is on the parts that matter here: the exact
+       * allele id and the build tag the gate verified.
+       */
+      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith(
+        "12-102845012-G-A",
+        expect.objectContaining({ assembly: "GRCh38", cappedByCaller: true }),
+      );
       expect(result.gnomadFrequency?.dataset).not.toBe("gnomad_r4_local");
       expect(result.aouFrequency).toEqual(local.aou);
       expect(result.aouLookup?.localTable).toBe("found");
@@ -409,7 +485,15 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
       vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({ gnomad: null, aou: null, aouInvalidCounts: true });
       const result = await fetchCoreVariantData(baseContext, 2000);
-      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith("12-102845012-G-A", { assembly: "GRCh38" });
+      /**
+       * The call now carries the run's deadline (`cappedByCaller: true` — our scheduling, not a
+       * verdict on gnomAD's health), so the assertion is on the parts that matter here: the exact
+       * allele id and the build tag the gate verified.
+       */
+      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith(
+        "12-102845012-G-A",
+        expect.objectContaining({ assembly: "GRCh38", cappedByCaller: true }),
+      );
       expect(result.gnomadFrequency?.maxAF).toBe(0.00002);
       expect(result.aouFrequency).toBeNull();
       expect(result.aouLookup).toBeNull();
@@ -424,7 +508,15 @@ describe("Core Data Fetcher Service Unit Tests", () => {
         gnomad: { maxAF: null, groupMaxAF: null, genomeAC: null, genomeAN: null, nHomozygous: null }, aou: null,
       });
       const result = await fetchCoreVariantData(baseContext, 2000);
-      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith("12-102845012-G-A", { assembly: "GRCh38" });
+      /**
+       * The call now carries the run's deadline (`cappedByCaller: true` — our scheduling, not a
+       * verdict on gnomAD's health), so the assertion is on the parts that matter here: the exact
+       * allele id and the build tag the gate verified.
+       */
+      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith(
+        "12-102845012-G-A",
+        expect.objectContaining({ assembly: "GRCh38", cappedByCaller: true }),
+      );
       expect(result.gnomadFrequency?.maxAF).toBe(0.00002);
     });
   });

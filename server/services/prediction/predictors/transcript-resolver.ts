@@ -36,7 +36,7 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
       ? `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(cleanInput)}.json`
       : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&format=json`;
 
-    const res = await fetchWithRetry(url, { timeout: 10000 });
+    const res = await fetchWithRetry(url, { timeout: 10000 }, 2);
     if (!res.ok) {
       const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
       // Only a definitive "no such entry" is remembered. A 429, a 5xx or any other refusal is

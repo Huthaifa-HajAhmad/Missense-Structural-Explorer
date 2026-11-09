@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Check, Database, Download, ExternalLink, GitBranch, RotateCcw, Search, Sparkles } from "lucide-react";
+import { Check, Database, Download, ExternalLink, GitBranch, Pin, RotateCcw, Search, Sparkles } from "lucide-react";
 import type { Citation, LiteratureEvidence, PaperReading } from "../../shared/literatureEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { LEXICON_VERSION } from "../../shared/literatureScreening";
@@ -299,7 +299,8 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   return (
     <div className="lit-rail" data-testid="literature-rail">
       <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected paper">
-        <div className="review-selection__head"><span>Selected source</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
+        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />{selected ? 'Pinned source' : workspace.selected ? 'Selected source' : 'Explore a source'}</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
+        <div className="review-selection__body">
         {selected ? <><h3>{selected.citation.title}</h3><p className="lit-mono">{selected.identifier.label} · {selected.citation.year ?? 'Year not reported'}</p>
           <p>{selected.citation.journal || 'Journal not reported'}</p>
           <p>Reading tier {selected.screening.tier} · a screening priority, not a quality score.</p>
@@ -309,6 +310,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
           <details><summary>Abstract</summary><p>{selected.citation.abstract || 'Europe PMC returned no abstract for this record.'}</p></details>
           <div className="review-selection__actions"><button type="button" className="review-action" onClick={workspace.showSelected}>Show selected source record</button><a className="lit-link" href={selected.href} target="_blank" rel="noopener noreferrer">Open paper<span className="sr-only"> (opens in a new tab)</span></a></div></>
           : <p>{workspace.selected ? 'The selected paper is not in this search result. Clear the selection or select another loaded source.' : 'Select a paper to inspect its quoted observations and abstract here. Adding it to the report is a separate action.'}</p>}
+        </div>
       </section>
       {/* ── 1. How the list was obtained ── */}
       <section className="rail-section" aria-labelledby="lit-rail-trace">

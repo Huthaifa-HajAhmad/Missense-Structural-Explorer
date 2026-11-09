@@ -27,6 +27,12 @@ function Fixture({ result = evidenceWorkspaceFixture('Partial') }: { result?: An
 }
 
 describe('Evidence workspace interactions', () => {
+  it('opens the reading card with an "Explore a reading" strip before anything is pinned', () => {
+    render(<Fixture />);
+    const card = screen.getByRole('region', { name: 'Selected evidence reading' });
+    expect(within(card).getByText('Explore a reading')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Clear pin' })).toBeNull();
+  });
   it('bounds the attribution overview without losing a pin, changing values or renormalising the axis', async () => {
     const result = evidenceWorkspaceFixture();
     const model = buildAttributionComparison(buildAlphaGenomeEvidence({ result }));

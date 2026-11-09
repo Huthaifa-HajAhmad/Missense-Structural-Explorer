@@ -363,7 +363,65 @@ async function runCoreFetch(
   const curatedInheritancePromise = readCuratedInheritance(gene).then(v => (curatedInheritance = v)).catch(() => null);
 
   let gnomadConstraintHasError = false;
-  const gnomadConstraintPromise = timeTask("gnomadConstraint", locusRunner.run(locus => locus.then(pred => fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) }))).catch(err => {
+  /**
+   * The gene-level record answers from the SYMBOL alone — the pinned snapshot is a local file and
+   * FGFR3's unique-MANE row resolves in milliseconds. It used to wait behind the locus like every
+   * other gnomAD-derived source, so a run whose Ensembl VEP ladder never settled inside the budget
+   * recorded the LOCAL, offline dataset as `timeout` and the header announced "gnomAD did not
+   * answer" for a provider that was never asked (FGFR3 p.Gly380Arg, 2026-11-08; gnomAD itself
+   * answers its frequency query in 155–285 ms, and this dataset never touches the network).
+   *
+   * The locus still REFINES it: the transcript-matched row and the regional O/E interval that PP2
+   * reads. A refinement the locus produces before the gene-level stand-in is allowed to answer
+   * wins; the gene record keeps `regionalStatus: "unverified-locus"`, so PP2 can never be awarded
+   * from a run the locus never reached.
+   */
+  const constraintGenePromise = fetchGnomadGeneConstraint(gene, pos).catch(err => {
+    console.warn("[Gnomad Constraint Warning] Failed to read the gene-level constraint:", err);
+    gnomadConstraintHasError = true;
+    return null;
+  });
+  /** Built (not awaited) beside the gene-level read; merged below. */
+  const constraintRefinedPromise = locusRunner.run(locus => locus.then(pred =>
+    fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) }))
+  ).catch(err => {
+    console.warn("[Gnomad Constraint Warning] Failed to fetch the refined gnomad constraint:", err);
+    return null;
+  });
+  /**
+   * How long the refined read is allowed to hold the answer back BEYOND the gene-level record.
+   * A quarter of the run's budget (8 s at the stock 45 s, and less on any tighter budget) covers
+   * the VEP region query's measured p95 (~8 s) on a healthy run while still answering inside the
+   * budget when the locus never does.
+   *
+   * A deliberate trade-off: a locus that answers after the grace is not applied. The gene-level record
+   * stands for that run, so the regional refinement (and PP2 built on it) is missing, where waiting out
+   * the whole budget would have kept it. The alternative holds the answer, and the core budget, hostage
+   * to a locus that may never resolve (the FGFR3 run).
+   */
+  const CONSTRAINT_REFINE_GRACE_MS = Math.max(500, Math.min(8000, Math.floor(coreTimeoutMs / 4)));
+  const gnomadConstraintPromise = timeTask("gnomadConstraint", (async () => {
+    const geneConstraint = await constraintGenePromise;
+    // A settled `null` is a GENUINE no-record, distinct from "not answered yet" — hence a sentinel
+    // for the timer and checking the winner against the sentinel rather than against `null`.
+    const notAnswered: unique symbol = Symbol("constraint-refined-not-answered");
+    let timer: any;
+    const timerPromise: Promise<typeof notAnswered> = new Promise(resolve => {
+      timer = setTimeout(() => resolve(notAnswered), CONSTRAINT_REFINE_GRACE_MS);
+      timer.unref?.();
+    });
+    const refined: GnomadGeneConstraint | null | typeof notAnswered =
+      await Promise.race([constraintRefinedPromise, timerPromise]);
+    // Either the refined record beat the grace or the grace answered with the gene-level one; an
+    // armed timer left behind on the refined path is the pending-timer leak `timeout-scope.ts`
+    // exists to prevent.
+    clearTimeout(timer);
+    if (refined !== notAnswered) {
+      if (refined !== null) gnomadConstraintHasError = false;
+      return refined;
+    }
+    return geneConstraint;
+  })().catch(err => {
     console.warn("[Gnomad Constraint Warning] Failed to fetch gnomad gene constraint:", err);
     gnomadConstraintHasError = true;
     return null;
@@ -437,7 +495,24 @@ async function runCoreFetch(
        */
       const coordinate = verifiedPopulationCoordinate(pred);
       if (!coordinate) return { refused: true, value: null };
-      return { refused: false, value: await fetchGnomadVariantFrequency(pred!.gnomadVariantId!, { assembly: coordinate.assembly }) };
+      // The locus resolved, so `pred` is a verified record; the non-null assertions below were the
+      // only thing leaning on that — spell it out instead, so a refactor of the gate cannot leave
+      // a TypeError on the wire.
+      const variantId = pred?.gnomadVariantId ?? null;
+      if (!variantId) return { refused: true, value: null };
+      // The run's core budget is this fetch's deadline, and is OUR scheduling, not a verdict on
+      // gnomAD's health (`cappedByCaller` keeps a budget-induced timeout out of the per-host
+      // breaker). `performance.now()` cannot be compared to an epoch `deadlineAt`; `overallStart`
+      // is measured with `performance.now()`, so the offset is moved onto the clock `deadlineAt`
+      // is expressed on (Date.now(), which `fetchWithRetry` compares against).
+      return {
+        refused: false,
+        value: await fetchGnomadVariantFrequency(variantId, {
+          assembly: coordinate.assembly,
+          deadlineAt: Date.now() + Math.max(0, coreTimeoutMs - (performance.now() - overallStart)),
+          cappedByCaller: true,
+        }),
+      };
     })).then(r => ({ ok: true as const, refused: r.refused, value: r.value }), (error: unknown) => ({ ok: false as const, refused: false, value: null, error }));
   /**
    * With a local row in hand, the remote record gets a bounded grace period, not its full retry budget
@@ -1106,7 +1181,10 @@ async function runCoreFetch(
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,
-    serviceTimings,
-    serviceTimingOffsets
+    // Stacked, not by reference: `timeTask` records a source's real settle time in these objects,
+    // and a source that settles AFTER this return (a background healer's catch, a late gnomAD)
+    // would otherwise rewrite the record the caller has already taken as this run's own.
+    serviceTimings: { ...serviceTimings },
+    serviceTimingOffsets: { ...serviceTimingOffsets }
   };
 }

@@ -16,15 +16,7 @@ import { SettingsProvider } from "../../context/SettingsContext";
  * claim that contradicted another rendered claim on the same screen.
  */
 
-const CLASS_PROPS = {
-  isDark: false,
-  classCard: "",
-  classCardHeader: "",
-  classCardTitle: "",
-  classBorderSec: "",
-  classTextBody: "",
-  classTextMute: "",
-};
+const CLASS_PROPS = { classCard: "" };
 
 /** The observed run: only DynaMut2 returned a value; FoldX timed out with a failed repair. */
 const MACO1_ENERGETICS = {
@@ -60,7 +52,7 @@ function analysisState() {
 function renderView(overrides: Record<string, unknown> = {}, opts: { records?: boolean } = {}) {
   const props = {
     ...CLASS_PROPS,
-    analysisState: analysisState(),
+    analysisResult: analysisState().result,
     foldingDdG: null,
     foldingStatus: "failed",
     foldingEnergetics: MACO1_ENERGETICS,
@@ -348,7 +340,7 @@ describe("EnergeticsView — the comparison tab", () => {
   function renderComparisonView(overrides: Record<string, unknown> = {}) {
     const props = {
       ...CLASS_PROPS,
-      analysisState: analysisState(),
+      analysisResult: analysisState().result,
       foldingDdG: null,
       foldingStatus: "failed",
       foldingEnergetics: MACO1_ENERGETICS,

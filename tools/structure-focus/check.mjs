@@ -15,7 +15,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { localTmpEnv } from "../../scripts/with-local-tmp.mjs";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -24,11 +24,44 @@ const root = path.resolve(here, "../..");
 const distIndex = path.join(here, "dist", "index.html");
 const shot = path.join(here, "structure-focus.png");
 /** Must match what main.tsx records: a shorter report means the run did not finish, not that it passed. */
-const EXPECTED_ASSERTIONS = 35;
+const EXPECTED_ASSERTIONS = 45;
+
+/**
+ * The Chromium that Playwright downloaded for this repo, if any. Preferred over a system browser:
+ * with `--virtual-time-budget`, a cold Edge profile can lay the canvas out after Mol* has already
+ * framed the structure, so the camera — and every projected callout anchor — is wrong until the user
+ * resets the view. This is the same browser CI uses, so a local pass and a CI pass mean the same thing.
+ */
+function playwrightBrowser() {
+  const roots = [
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "ms-playwright"),
+    process.env.HOME && path.join(process.env.HOME, ".cache", "ms-playwright"),
+    process.env.HOME && path.join(process.env.HOME, "Library", "Caches", "ms-playwright"),
+  ].filter(Boolean);
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    const versions = readdirSync(root).filter(name => name.startsWith("chromium")).sort().reverse();
+    for (const version of versions) {
+      const bases = [
+        "chrome-headless-shell-win64/chrome-headless-shell.exe",
+        "chrome-headless-shell-linux64/chrome-headless-shell",
+        "chrome-win/chrome.exe",
+        "chrome-linux/chrome",
+        "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+      ];
+      for (const base of bases) {
+        const candidate = path.join(root, version, base);
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  return undefined;
+}
 
 const CANDIDATES = [
   process.env.GEOMETRY_BROWSER,
   process.env.CHROME_PATH,
+  playwrightBrowser(),
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
   "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
@@ -97,7 +130,8 @@ const args = [
   `--user-data-dir=${path.join(here, ".browser-profile")}`,
   "--window-size=1500,1000",
   // Mol* loads the structure, builds components and draws; 8 s was enough for layout-only harnesses, not for this.
-  "--virtual-time-budget=120000",
+  // 240 s: the callout and secondary-structure checks add several camera flights and redraws.
+  "--virtual-time-budget=240000",
   "--dump-dom",
 ];
 if (process.env.FOCUS_SHOT) args.push(`--screenshot=${shot}`);

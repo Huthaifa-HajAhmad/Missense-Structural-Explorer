@@ -119,9 +119,23 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
     const constraintFailed = constraintStatus === "timeout" || constraintStatus === "error";
     const gnomadStatus = constraintFailed ? constraintStatus : frequencyStatus;
     if (gnomadStatus === "timeout" || gnomadStatus === "error") {
+      // A payload without a resolved locus never issued the gnomAD queries the statuses describe —
+      // the FGFR3 run's VEP ladder consumed the whole budget before either fetch could start. The
+      // slot names the resolution failure instead of the provider, so the reader retries the run
+      // rather than suspecting a healthy gnomAD. A constraint that reports `error` did not wait
+      // behind the locus: the dataset's own read failed, and that is what the slot says.
+      const locusUnresolved = !result?.predictorData?.gnomadVariantId;
+      const locusDetail = "The run's genomic locus could not be resolved, so population evidence could not be read.";
+      const constraintDetail = constraintStatus === "timeout" && locusUnresolved
+        ? locusDetail
+        : "Gene constraint could not be loaded on this run; constraint evidence is incomplete.";
+      const locusCase = constraintFailed ? constraintStatus === "timeout" && locusUnresolved : locusUnresolved;
       runState = {
-        label: "gnomAD did not answer",
-        detail: constraintFailed ? "Gene constraint could not be loaded on this run; constraint evidence is incomplete." : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
+        // The chip must not blame a database the run never reached.
+        label: locusCase ? "Genomic locus not resolved" : "gnomAD did not answer",
+        detail: constraintFailed ? constraintDetail
+          : locusUnresolved ? locusDetail
+          : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
         retryable: true,
         recoveryAction: "retry",
       };

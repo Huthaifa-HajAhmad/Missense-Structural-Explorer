@@ -4,6 +4,7 @@ import { PDB_SOURCE_RCSB } from "../shared/contracts";
 import { describeFoldxPhase } from "../shared/foldxPhase";
 import { identifyAlphaFoldHeader, readResidueAt, scanBFactors } from "../shared/coordinateText";
 import { readProteinLength } from "../shared/foldingLimits";
+import { regionsAt } from "../shared/residueRegions";
 import {
   buildStructure3dEvidence,
   type ModelFamily,
@@ -34,7 +35,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const uniprotFromSearch = useVariantAnalysisStore(s => s.uniprotId);
   const gene = useVariantAnalysisStore(s => s.gene);
   const disruption = useVariantAnalysisStore(s => s.analysisState?.result?.disruptionPredictor ?? null);
-  const features = useVariantAnalysisStore(s => s.analysisState?.result?.uniprotFeatures?.features ?? null);
   const esm3Eval = useVariantAnalysisStore(s => s.analysisState?.result?.esm3Eval ?? null);
 
   const pdbText = useVariantAnalysisStore(s => s.pdbText);
@@ -92,13 +92,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const deNovoScan = useMemo(() => scanBFactors(esmFoldWtPdb), [esmFoldWtPdb]);
   const deNovoSite = useMemo(() => readResidueAt(esmFoldWtPdb, position), [esmFoldWtPdb, position]);
 
-  const region = useMemo(() => {
-    if (!position || !Array.isArray(features)) return null;
-    const hit = features.find(
-      (f: any) => position >= f.start && position <= f.end && ["DOMAIN", "REGION", "BINDING", "ACT_SITE"].includes(f.type)
-    );
-    return hit ? `${hit.description || hit.type} (${hit.start}–${hit.end})` : null;
-  }, [features, position]);
+  const secondarySource = useVariantAnalysisStore(s => s.canvasSecondary?.source ?? null);
 
   return useMemo(() => {
     const disruptionStructure =
@@ -164,7 +158,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
       alignmentScope: esmAlignmentScope,
       metrics: family === "alphafold" ? (foldxMetrics as any) : (esmFoldMetrics as any),
       esm3,
-      region,
       burial: disruption
         ? {
             rsa: typeof disruption.rsa === "number" ? disruption.rsa : null,
@@ -180,6 +173,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
         : null,
       homologs: homologs as any,
       homologsLoading,
+      secondarySource,
     };
     return buildStructure3dEvidence(input);
   }, [
@@ -188,6 +182,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
     isFolding, foldingProgress, foldingStatus, foldingError, foldingDdG, foldingEnergetics, foldxReference,
     foldxAlignedPdb, foldxReferencePdb, referenceSite, isEsmFolding, esmFoldingError, esmFoldWtPdb, esmFoldMutPdb,
     esmFoldSingleStructure, esmFoldEngines, deNovoScan, esmFoldAlignedPdb, deNovoSite, foldxMetrics, esmFoldMetrics,
-    region, homologs, homologsLoading, position, proteinLength,
+    homologs, homologsLoading, position, proteinLength, secondarySource,
   ]);
 }

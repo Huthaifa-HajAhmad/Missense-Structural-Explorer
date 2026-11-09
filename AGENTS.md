@@ -16,4 +16,10 @@ The tables are exact for the branch you are on, because `npm run lint` fails whe
 After you change routes, tests, outside hosts, settings or database tables, run `npm run map` and commit
 `doc/code-map/` with your change. Details, columns and limits: `doc/code-map/README.md`.
 
+## State machines
+
+Before you change a status, a lock, a lease, a retry or a timer, read its section in `doc/STATE_MACHINES.md`,
+and update that section in the same change. `server/tests/state-machines-doc.test.ts` fails when the document
+names a file or function that no longer exists.
+
 The other rules for this repository are in `.agents/rules/`.

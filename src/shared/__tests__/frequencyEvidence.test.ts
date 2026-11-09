@@ -40,6 +40,9 @@ const input = (overrides: Partial<FrequencyEvidenceInput> = {}): FrequencyEviden
   ...overrides,
 });
 
+/** A run whose locus resolved, so gnomAD was asked and an outage is the provider's. */
+const RESOLVED_LOCUS = { predictorData: { gnomadVariantId: "12-102845012-G-A", gnomadVariantAssembly: "GRCh38" } as never, coordinateLift: null };
+
 function observation(overrides: Partial<FrequencyEvidenceInput>, id: string, key?: string) {
   const evidence = buildFrequencyEvidence(input(overrides));
   const found = key ? evidence.observations.find(o => o.key === key) : evidence.observations.find(o => o.id === id);
@@ -51,7 +54,7 @@ describe("frequencyEvidence — absence is classified, never worded", () => {
   it("withholds the criterion on a provider outage instead of reading it as absence", () => {
     for (const status of ["timeout", "error"]) {
       const evidence = buildFrequencyEvidence(
-        input({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: status } }),
+        input({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: status }, locus: RESOLVED_LOCUS }),
       );
       // The classifier must NOT reach PM2 (the server-side invariant, asserted here at the
       // rendering layer where it was previously broken).
@@ -82,7 +85,7 @@ describe("frequencyEvidence — absence is classified, never worded", () => {
   });
 
   it("keeps an outage distinct from a confirmed absence for the same empty payload", () => {
-    const outage = observation({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "timeout" } }, "gnomad-exomes");
+    const outage = observation({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "timeout" }, locus: RESOLVED_LOCUS }, "gnomad-exomes");
     const absent = observation({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "not_found" } }, "gnomad-exomes");
     expect(outage.availability.state).not.toBe(absent.availability.state);
     expect(outage.availability.action).toBe("retry");
@@ -213,6 +216,42 @@ describe("frequencyEvidence — absence is classified, never worded", () => {
       expect(evidence.criterion.af === null || Number.isFinite(evidence.criterion.af)).toBe(true);
       expect(evidence.criterion.statement).not.toContain("— exceeds");
     }
+  });
+
+  it("does not claim a provider the pipeline never asked: an unresolved locus is not a gnomAD fault", () => {
+    // The FGFR3 run: VEP's ladder never settled, so gnomAD's fetch never started and the budget
+    // expired both. `predictorData` carries the x-axis of the whole claim — with no locus there is
+    // no gnomAD query, and "the gnomAD query timed out" blames a provider that answered nothing.
+    const locusInput = input({
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "timeout" },
+      locus: { predictorData: null, coordinateLift: null },
+    });
+
+    const criterion = classifyAcmgFrequency(locusInput);
+    expect(criterion.code).toBe("withheld");
+    expect(criterion.statement).toMatch(/locus could not be resolved/i);
+    expect(criterion.statement).not.toMatch(/gnomAD query timed out/i);
+
+    const evidence = buildFrequencyEvidence(locusInput as never);
+    for (const row of evidence.observations.filter(o => o.id.startsWith("gnomad-"))) {
+      expect(row.availability.reason ?? "").toMatch(/locus could not be resolved/i);
+      expect(row.availability.reason ?? "").not.toMatch(/frequency query timed out/i);
+      // Not "Provider error": gnomAD was never asked.
+      expect(row.availability.state).toBe("no-result");
+    }
+    expect(evidence.hasProviderFault).toBe(false);
+    // Another run may resolve the locus, so the retry stays on offer.
+    expect(evidence.recoveryAction).toBe("retry");
+  });
+
+  it("keeps the gnomAD wording for a run whose locus resolved and whose gnomAD query timed out", () => {
+    const resolved = input({
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "timeout" },
+      locus: { predictorData: { gnomadVariantId: "12-102845012-G-A", gnomadVariantAssembly: "GRCh38" } as never, coordinateLift: null },
+    });
+    expect(classifyAcmgFrequency(resolved).statement).toMatch(/gnomAD query timed out/);
   });
 });
 

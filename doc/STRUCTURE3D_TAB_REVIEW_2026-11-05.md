@@ -1,6 +1,38 @@
 # 3D Structure tab — multi-dimensional review (2026-11-05)
 
-Scope: the uncommitted 3D-tab refactor, 10 files, ~890 added lines.
+## Status (2026-11-08, second pass)
+
+Every P1, P2 and P3 finding below is fixed in commits `65fe318` and `86c9204`; the code was re-checked against each one.
+The follow-up work added what the review did not cover, then a second four-way review fixed what that work introduced:
+
+- **Secondary structure on the canvas.** `src/components/molstar/readSecondaryStructure.ts` reads the assignment Mol* drew
+  into `src/shared/structureSecondary.ts`. The `source` reports the branch Mol* took: on the PDB text this app loads, Mol*
+  computes DSSP even for a deposited entry; the HELIX/SHEET branch is reachable only for mmCIF input.
+- **Words are as narrow as the flags.** A DSSP `B` reads as a β-bridge (not a strand in a sheet), a named non-α helix reads
+  with its class, and a helix whose class the entry does not name is never called α with an i→i+4 claim.
+- **Absence is a state.** `canvasSecondaryState` distinguishes reading, ready and unavailable, so "not read yet" is never
+  printed for a read that returned nothing or threw, and the legend no longer names DSSP when no assignment exists.
+- **UniProt regions read correctly.** The rail's region lookup tested `"DOMAIN"`/`"REGION"`; the server sends `"Domain"`/`"Region"`.
+  `isRegionFeatureType` in `src/shared/residueRegions.ts` is now the one rule, used by the 3D rail, `LandscapeInspector` and
+  `SequenceVisualizer`.
+- **Residue facts.** A selection carries its element, pLDDT band, UniProt annotations and the Cα distance to the variant site,
+  shown in `StructureSelectionCard` and the `StructureFoldTrack` sequence strip. The fold strip plots the secondary row only
+  when the drawn entry is UniProt-numbered; its region and fold rows never share an axis across numbering systems.
+- **Canvas callouts.** `StructureCallouts` ties a card to each residue's Cα with an elbowed, halo-backed leader, on the side
+  with room, as close to the structure as the projected body allows. Cards carry labelled fact rows, one explicit frame
+  action and one return action; off-canvas and "no Cα" are different, stated states, and framing is disabled for the second.
+- **One label per object.** When the variant site has a card, the canvas stops drawing its 3D text label: the card is the
+  label. Every other label (companions, close-up) still follows the "Residue labels" setting, and hiding cards on a narrow
+  stage restores the site's label.
+- **One card language on both sides.** The guide ("On this canvas") and the colour key use the same surface recipe, eyebrow
+  heading, swatch geometry, icon-button size and shadow as the residue cards.
+- **Proof in WebGL.** `npm run test:geometry:focus` checks the DSSP reading, the callout geometry and the distance (44 assertions).
+  Cards are placed synchronously on the first frame, the harness seeds a non-animated camera, and it prefers the repo's
+  Playwright Chromium, so a cold profile no longer fails on an unplaced DOM or an Edge cold-start layout.
+
+## Reviewed surface (first pass)
+
+The findings below were written against the uncommitted 3D-tab refactor, 10 files, ~890 added lines:
 
 - `src/components/MolstarViewer.tsx`
 - `src/components/inspector/StructureInspector.tsx`

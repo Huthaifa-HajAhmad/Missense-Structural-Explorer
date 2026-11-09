@@ -1,5 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import {
   Trash2,
   ChevronDown,
@@ -25,7 +25,7 @@ import {
   ExternalLink,
   Server,
   ListChecks,
-  Info,
+  History as HistoryIcon,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { EVIDENCE_SUB_ITEMS, MasterView } from "./MasterSidebar";
@@ -49,6 +49,7 @@ import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import BuildMismatchPrompt from "./BuildMismatchPrompt";
 import type { BuildHint, NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel, { type ServiceSummary } from "./telemetry/LiveTelemetryPanel";
+import { VariantBreakdown } from "./query/VariantBreakdown";
 
 /* Variant query workbench: serif heading, a primary query composer, and a separate status rail.
    Theme tokens carry colour; optional editors expand without stretching the empty form. */
@@ -84,7 +85,6 @@ interface VariantSearchPanelProps {
   clearHistory?: () => void;
   handleSelectHistoryItem?: (item: SearchHistoryItem) => void;
   onViewChange?: (view: MasterView) => void;
-  onOpenOnboarding?: () => void;
 }
 
 /**
@@ -497,7 +497,6 @@ function VariantSearchPanel({
   clearHistory: propsClearHistory,
   handleSelectHistoryItem: propsHandleSelectHistoryItem,
   onViewChange,
-  onOpenOnboarding,
 }: VariantSearchPanelProps) {
   // Directly subscribe to Zustand store slices to guarantee instant re-renders on keystroke and paste
   const storeCustomGene = useVariantAnalysisStore(s => s.customGene ?? "");
@@ -1053,8 +1052,8 @@ function VariantSearchPanel({
    * elsewhere (a recent analysis, a benchmark, an example chip, the fields themselves). The draft is
    * only rewritten when it no longer says what the fields say, so a trailing space survives typing.
    */
-  /* The recents list shows about three rows and scrolls past them. It fades on the edge that has more behind
-     it, so the peeked row reads as "more below" and not as a clipped one (the sidebar nav does the same). */
+  /* The recents list scrolls when the history is longer than its card. It fades on the edge that has more behind
+     it, so a partly shown row reads as "more below" and not as a clipped one (the sidebar nav does the same). */
   const recentListRef = useRef<HTMLOListElement>(null);
   useEffect(() => {
     const el = recentListRef.current;
@@ -1074,6 +1073,138 @@ function VariantSearchPanel({
   }, [history.length]);
   /** The monitor's own health reading, shown on the Services tab so it is visible while Pipeline is open. */
   const [serviceSummary, setServiceSummary] = useState<ServiceSummary | null>(null);
+  const deckRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLElement>(null);
+  /** True once the design height has been re-measured after the monitor finished loading (see the effect below). */
+  const designSettled = useRef(false);
+  /**
+   * The deck's minimum height is the monitor's own content, measured: the rail's natural height is read
+   * with stretching off and written to a CSS variable that becomes the deck's one row. The left column
+   * fills that row — the query card keeps its own height and never scrolls, the recents takes the
+   * remainder and scrolls — so opening the refinements pushes the recents card down inside the row and
+   * the monitor keeps its height.
+   */
+  useLayoutEffect(() => {
+    const deck = deckRef.current;
+    const rail = railRef.current;
+    if (!deck || !rail) return;
+    let settleFrame = 0;
+    let resizeFrame = 0;
+    let disposed = false;
+    // Until the first health summary the monitor is still loading, and loading content can be taller than the
+    // settled list. The design may therefore shrink once, when the summary arrives; after that it is a floor.
+    const loaded = serviceSummary !== null && serviceSummary.tone !== "checking";
+    /**
+     * The rail's natural height with the Services list showing — the Pipeline panel is left out, so
+     * a long run (banners, ten stages) scrolls inside the monitor and never makes the deck taller.
+     * Measured out of the live layout: a clone at the same inline size, appended hidden for the
+     * synchronous read. The live rail cannot answer this question, because its row has already been
+     * sized to the deck. The clone sits beside the deck inside `.variant-workbench`, not on `document.body`:
+     * that element is the CSS container and declares `--workbench-pad` (in container units), so a clone
+     * outside it would lay out with those paddings lost and with container queries that cannot match.
+     */
+    const readNatural = () => {
+      const width = Math.round(rail.getBoundingClientRect().width);
+      const clone = rail.cloneNode(true) as HTMLElement;
+      clone.querySelector<HTMLElement>("#panel-pipeline")?.style.setProperty("display", "none");
+      // An open service drawer is the reader's own, temporary view: it scrolls inside the list and must not
+      // count as list height, or opening one would raise the deck for the rest of the session.
+      clone.querySelectorAll("[data-service-detail]").forEach(drawer => drawer.remove());
+      // Ids and the inactive markers are meaningless in the detached copy, and duplicate ids must
+      // not exist even for one synchronous read.
+      for (const el of [clone, ...clone.querySelectorAll<HTMLElement>("[id], [data-inactive]")]) {
+        el.removeAttribute("id");
+        el.removeAttribute("data-inactive");
+        el.removeAttribute("inert");
+      }
+      Object.assign(clone.style, {
+        contain: "none",
+        position: "absolute",
+        insetBlockStart: "0px",
+        insetInlineStart: "0px",
+        blockSize: "auto",
+        inlineSize: `${width}px`,
+        visibility: "hidden",
+        pointerEvents: "none",
+        zIndex: "-1",
+        margin: "0px",
+      });
+      deck.parentElement!.appendChild(clone);
+      const height = Math.ceil(clone.getBoundingClientRect().height);
+      clone.remove();
+      return height;
+    };
+    /**
+     * Commit a measurement only after it survives one frame: a layout in flight (a tab switch, a
+     * diagnostics update, fonts settling) reports transient heights, and a frame is the smallest
+     * unit that shows the value has settled. `allowShrink` is for the first commit only — after
+     * that the height is a floor.
+     */
+    const commitWhenSettled = (current: number, allowShrink: boolean) => {
+      if (settleFrame) return;
+      settleFrame = requestAnimationFrame(() => {
+        settleFrame = 0;
+        if (disposed) return;
+        const settled = readNatural();
+        const moved = allowShrink ? Math.abs(settled - current) > 1 : settled - current > 1;
+        if (moved) deck.style.setProperty("--workbench-deck-h", `${settled}px`);
+        if (allowShrink && loaded) designSettled.current = true;
+      });
+    };
+    const consider = () => {
+      // Only the two-column desktop deck is height-capped; the stacked one flows with the page.
+      const columns = getComputedStyle(deck).gridTemplateColumns.trim().split(" ").length;
+      if (columns < 2) {
+        deck.style.removeProperty("--workbench-deck-h");
+        return;
+      }
+      const current = parseFloat(deck.style.getPropertyValue("--workbench-deck-h")) || 0;
+      const natural = readNatural();
+      if (!current) {
+        // The first paint needs a value synchronously; nothing has been seen yet, so the frame
+        // confirmation below may correct it in either direction.
+        deck.style.setProperty("--workbench-deck-h", `${natural}px`);
+        commitWhenSettled(natural, true);
+        return;
+      }
+      // The loading state can be taller than the settled list: shrink once, when the monitor has loaded.
+      if (loaded && !designSettled.current) {
+        commitWhenSettled(current, true);
+        return;
+      }
+      // The design height is a floor, not a follower of content: content growing (a run's banners,
+      // a summary line) raises it, but it never shrinks mid-session — a 10px content dip must not
+      // move the user's monitor.
+      if (natural - current > 1) commitWhenSettled(current, false);
+    };
+    consider();
+    /** A resize storm is one layout question: coalesce it into a frame. */
+    const onResize = () => {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        if (!disposed) consider();
+      });
+    };
+    // Once the deck has a height, the rail's body is as tall as that height, so this observer only sees a change
+    // in the body's WIDTH (a layout switch). Content growing inside it (a summary line, a service row wrapping)
+    // does not resize the body: that is what the `serviceSummary` dependency below re-measures. Dropping the
+    // dependency would freeze the design at its first value.
+    const body = rail.querySelector<HTMLElement>(".workbench-rail-body") ?? undefined;
+    const ro = body && typeof ResizeObserver !== "undefined" ? new ResizeObserver(consider) : null;
+    if (ro && body) ro.observe(body);
+    window.addEventListener("resize", onResize);
+    document.fonts?.ready?.then(() => { if (!disposed) consider(); });
+    return () => {
+      // A frame scheduled by this run must never write after it: `disposed` alone would leave the
+      // callback to fire against refs a later run has replaced, so both are cancelled outright.
+      disposed = true;
+      if (settleFrame) cancelAnimationFrame(settleFrame);
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
+      ro?.disconnect();
+      window.removeEventListener("resize", onResize);
+    };
+  }, [serviceSummary]);
   const [quickDraft, setQuickDraft] = useState("");
   useEffect(() => {
     setQuickDraft(draft =>
@@ -1108,6 +1239,23 @@ function VariantSearchPanel({
           return Boolean(typed && loaded && sameSubstitution(typed, loaded));
         })())
     )
+  );
+  /**
+   * From the moment a run starts, and for as long as the loaded run is the one this line describes, the card
+   * reads the variant out of the run (`VariantBreakdown`) instead of echoing what was typed. A result that
+   * belongs to another variant (the previous run, still loaded while this one resolves) is never read.
+   *
+   * The signal is the intake/core run itself, not `isForegroundActive`: every value the breakdown reads is
+   * written when that run settles, and the background channels (biophysics, clinical) keep running long after
+   * it. Keyed to them, typing a different variant while an earlier run's clinical narrative still streamed
+   * showed the new line's gene and change over "Resolving…" cells for a run nobody had started.
+   */
+  const coreRunning = Boolean(analysisState.isLoading);
+  const breakdownOn = Boolean(quickDraft.trim()) && (coreRunning || loadedMatchesQuery);
+  const breakdownResult = loadedMatchesQuery && result?.metadata?.gene === gene && result.metadata.variant === variant ? result : null;
+  const breakdownTyped = useMemo(
+    () => ({ gene: customGene, change: changeNotation, uniprot: customUniprot, resolvedChange }),
+    [customGene, changeNotation, customUniprot, resolvedChange],
   );
   const onQuickEntryChange = (line: string) => {
     setQuickDraft(line);
@@ -1145,37 +1293,43 @@ function VariantSearchPanel({
 
   /* One line per benchmark, set like a Recent analyses row: who, which change, what it teaches, then the run.
      The row is a control of its own so it can carry a second, form-only action without nesting buttons. */
-  const benchmarkGrid = (
-    <div className="workbench-benchmarks">
-      {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
-        <div key={preset.gene + preset.variant} className="workbench-benchmark">
-          <button
-            type="button"
-            onClick={() => runBenchmark(preset)}
-            aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
-            title={preset.description}
-          >
-            <span className="workbench-benchmark-identity">
-              <span className="workbench-benchmark-gene">{preset.gene}</span>
-              <span className="workbench-benchmark-variant">{preset.variant}</span>
-            </span>
-            <span className="workbench-benchmark-tag">{preset.tag}</span>
-            <span className="workbench-benchmark-run">
-              Run benchmark
-              <ArrowRight aria-hidden="true" />
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyPreset(preset)}
-            aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
-            className="workbench-benchmark-fill"
-          >
-            Fill form only
-          </button>
-        </div>
-      ))}
-    </div>
+  const benchmarkSection = (
+    <section className="workbench-benchmarks-section" aria-labelledby="benchmark-title">
+      <div className="workbench-benchmarks-head">
+        <h3 id="benchmark-title">Benchmark controls</h3>
+        <p>Known variants to try</p>
+      </div>
+      <div className="workbench-benchmarks">
+        {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
+          <div key={preset.gene + preset.variant} className="workbench-benchmark">
+            <button
+              type="button"
+              onClick={() => runBenchmark(preset)}
+              aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
+              title={preset.description}
+            >
+              <span className="workbench-benchmark-identity">
+                <span className="workbench-benchmark-gene">{preset.gene}</span>
+                <span className="workbench-benchmark-variant">{preset.variant}</span>
+              </span>
+              <span className="workbench-benchmark-tag">{preset.tag}</span>
+              <span className="workbench-benchmark-run">
+                Run benchmark
+                <ArrowRight aria-hidden="true" />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset(preset)}
+              aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
+              className="workbench-benchmark-fill"
+            >
+              Fill form only
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 
   return (
@@ -1200,9 +1354,13 @@ function VariantSearchPanel({
 
       {/* The monitor spans both desktop rows; the form and recents keep their natural height.
           On narrow containers, DOM order remains query, recents, monitor. */}
-      <div className="workbench-deck grid grid-cols-1 lg:grid-cols-12">
+      {/* The monitor spans the shared, measured height; the left column stacks the query card and the
+          recents, and only the recents flexes. On narrow containers, DOM order remains query, recents,
+          monitor — the wrapper dissolves in CSS there. */}
+      <div ref={deckRef} className="workbench-deck grid grid-cols-1 lg:grid-cols-12">
+        <div className="workbench-columns min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1">
         <section
-          className="workbench-query cs-panel flex flex-col min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1"
+          className="workbench-query cs-panel flex flex-col min-w-0"
           data-tour="variant-input"
           id="variant-input-card"
           aria-labelledby="variant-form-title"
@@ -1504,7 +1662,9 @@ function VariantSearchPanel({
 
               {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
                   ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
-              {quickDraft.trim() ? (
+              {breakdownOn ? (
+                <VariantBreakdown typed={breakdownTyped} result={breakdownResult} settled={!coreRunning} />
+              ) : quickDraft.trim() ? (
                 <dl className="qe__ticket" data-testid="quick-entry-preview">
                   {(() => {
                     const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
@@ -1800,7 +1960,7 @@ function VariantSearchPanel({
         {/* Recent runs and first-run benchmarks share the ruled workbench tray. */}
         <section
           aria-labelledby="recent-title"
-          className="workbench-recents flex flex-col gap-3 min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-2"
+          className="workbench-recents flex flex-col gap-3 min-w-0"
           data-tour="recent-benchmarks"
         >
           {history.length > 0 ? (
@@ -1821,8 +1981,9 @@ function VariantSearchPanel({
                 </button>
               </div>
 
-              {/* Every entry stays in the list (the store keeps ten); the list scrolls inside its own box past
-                  about three rows, so a longer history never pushes the deck or the monitor down the page. */}
+              {/* Every entry stays in the list (the store keeps ten). The list is the card's only scroller: it takes the
+                  height the query card leaves, so a longer history never pushes the deck or the monitor down the page.
+                  The benchmarks are the empty tray's content and do not share the card with the history. */}
               <ol ref={recentListRef} className="workbench-recent-list" id="workbench-recent-list">
                 {history.map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
@@ -1851,43 +2012,32 @@ function VariantSearchPanel({
                   );
                 })}
               </ol>
-              {/* Benchmarks stay below the history: they are the way into a known result, and they fill the
-                  height the taller monitor sets, instead of leaving the tray empty under one recent run. */}
-              <div className="workbench-benchmarks-head">
-                <h3 id="benchmark-title">Benchmark controls</h3>
-                <span>Known variants to try</span>
-              </div>
-              {benchmarkGrid}
             </>
           ) : (
             <>
               <div className="workbench-recents-heading">
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
               </div>
-              {/* A short notice, not a sentence under the header: it says where analyses will appear and
-                  offers the tour once, beside the thing it explains. */}
-              <div className="workbench-notice">
-                <Info aria-hidden="true" />
-                <p>Variants you analyse in this session will appear here. To start, run a benchmark control below.</p>
-                {onOpenOnboarding && (
-                  <button
-                    type="button"
-                    onClick={onOpenOnboarding}
-                    className="workbench-tour-link"
-                    title="Walk through one analysis, from query to report"
-                  >
-                    <Compass aria-hidden="true" />
-                    Take the tour
-                  </button>
-                )}
+              {/* The history's own empty slot. It takes the height the tray has left, so the benchmarks sit at
+                  the foot of the tray. */}
+              <div className="workbench-recents-empty">
+                <span className="workbench-recents-empty-icon" aria-hidden="true">
+                  <HistoryIcon />
+                </span>
+                <p className="workbench-recents-empty-title">Analysed variants will appear here</p>
+                <p className="workbench-recents-empty-note">
+                  Each run is added to this history so you can run it again. It is kept in this browser.
+                </p>
               </div>
-              {benchmarkGrid}
+              {benchmarkSection}
             </>
           )}
         </section>
+        </div>
 
         {/* The monitor spans the query and recents; tab content scrolls within that shared height. */}
         <aside
+          ref={railRef}
           className="workbench-rail cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 flex flex-col"
           data-tour="workflow-rail"
           id="workspace-stage-rail"
@@ -1944,16 +2094,16 @@ function VariantSearchPanel({
               />
             </div>
 
-            {/* Both tabpanels stay mounted; the inactive one is `hidden`. The rail then always holds the
-                taller of the two, so a switch cannot move the deck, and the telemetry panel keeps its
-                health reading (the Services badge) fresh while Pipeline is open. */}
+            {/* Both tabpanels stay mounted and share one grid cell, so a switch cannot move the deck, and the
+                telemetry panel keeps its health reading (the Services badge) fresh while Pipeline is open.
+                The cell is as tall as the Services list; a longer Pipeline scrolls inside it. */}
             <div
               id="panel-telemetry"
               role="tabpanel"
               aria-labelledby="tab-telemetry"
-              /* `inert`, not `hidden`: the inactive panel must stay in the layout so the rail's
-                 height can be a property of the design (the shared grid area below sizes to the
-                 taller panel on either tab), while taking it out of the accessibility tree and
+              /* `inert`, not `hidden`: the inactive panel must stay in the layout so both panels keep their one
+                 shared grid cell (a tab switch moves nothing; the cell is as tall as the Services list and a
+                 longer Pipeline scrolls inside it), while taking it out of the accessibility tree and
                  the focus order exactly as `hidden` would. Mobile swaps instead (CSS). */
               inert={activeRightTab !== "telemetry"}
               data-inactive={activeRightTab !== "telemetry" || undefined}

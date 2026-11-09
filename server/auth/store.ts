@@ -379,9 +379,15 @@ export function replaceInvite(input: { tokenHash: string; email: string; role: R
   });
 }
 
-/** Single-use: returns the user id only for the caller that consumed a live link. */
+/**
+ * Single-use: returns the user id only for the caller that consumed a live link.
+ * A link for a disabled account is not live, and is left unused so it works again once the account is enabled.
+ */
 export function consumePasswordReset(tokenHash: string, now: number): string | null {
-  const row = accountsDb().prepare("SELECT user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?").get(tokenHash, now) as
+  const row = accountsDb().prepare(
+    `SELECT r.user_id FROM password_resets r JOIN users u ON u.id = r.user_id
+     WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ? AND u.status = 'active'`,
+  ).get(tokenHash, now) as
     | { user_id: string }
     | undefined;
   if (!row) return null;
@@ -475,14 +481,20 @@ export function replacePairingCode(input: { codeHash: string; userId: string; ex
   });
 }
 
-/** Single use: the owner's id only for the one caller that consumed a live code. */
-export function consumePairingCode(codeHash: string, now: number): string | null {
+/** Whose live, unused code this is, without using it up. Lets a caller check its conditions first. */
+export function pairingCodeOwner(codeHash: string, now: number): string | null {
   const row = accountsDb()
     .prepare("SELECT user_id FROM agent_pairing_codes WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?")
     .get(codeHash, now) as { user_id: string } | undefined;
-  if (!row) return null;
+  return row?.user_id ?? null;
+}
+
+/** Single use: the owner's id only for the one caller that consumed a live code. */
+export function consumePairingCode(codeHash: string, now: number): string | null {
+  const userId = pairingCodeOwner(codeHash, now);
+  if (!userId) return null;
   const r = accountsDb().prepare("UPDATE agent_pairing_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL").run(now, codeHash);
-  return Number(r.changes) === 1 ? row.user_id : null;
+  return Number(r.changes) === 1 ? userId : null;
 }
 
 /** Codes are short-lived; drop the dead ones so the table cannot grow. */

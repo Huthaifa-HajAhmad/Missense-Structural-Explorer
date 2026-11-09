@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import EnergeticsInspector from "./EnergeticsInspector";
 import { SettingsProvider } from "../../context/SettingsContext";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
@@ -101,6 +101,9 @@ describe("EnergeticsInspector — the rule trace", () => {
     expect(foldx).toHaveTextContent("≥ +1.5");
     expect(foldx).toHaveTextContent("+2.62");
     expect(foldx).toHaveTextContent("Past mark");
+    // "Below" alone left the reader asking below what; the engines under their mark say so.
+    expect(marks).toHaveTextContent("Below mark");
+    expect(marks.textContent).not.toMatch(/Below(?! mark)/);
     expect(marks).toHaveTextContent("Method");
     expect(foldx.getAttribute("data-active")).toBe("true");
     expect(marks.closest("section")).toHaveTextContent("FoldX publishes no threshold");
@@ -300,5 +303,19 @@ describe("EnergeticsInspector — the method inspector section", () => {
     const section = document.getElementById("nrg-selected-title")!.closest("section")!;
     expect(section.textContent).toContain("Positive means less stable folding.");
     expect(section.textContent).not.toContain("reversed");
+  });
+
+  it("opens on an Explore a reading strip and offers Clear pin only while a method is pinned", () => {
+    const onClearEngine = vi.fn();
+    const { unmount } = renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done", onClearEngine });
+    const card = document.getElementById(INSPECTOR_SECTIONS.stabilityMethod)!;
+    expect(within(card).getByText("Explore a reading")).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Clear pin" })).toBeNull();
+    unmount();
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done", selectedEngine: "foldx", onClearEngine });
+    const pinned = document.getElementById(INSPECTOR_SECTIONS.stabilityMethod)!;
+    expect(within(pinned).getByText("Pinned reading")).toBeInTheDocument();
+    fireEvent.click(within(pinned).getByRole("button", { name: "Clear pin" }));
+    expect(onClearEngine).toHaveBeenCalledOnce();
   });
 });

@@ -90,8 +90,11 @@ export interface ReadingAvailability {
   /** From ENGINE_STATE_LABELS — never a hand-written status word. */
   label: string;
   reason: string | null;
-  action: "switch-saprot-35m" | "retry" | "settings" | null;
+  action: ModelAction | null;
 }
+
+/** What a reader can do about a missing reading: switch engine, re-run, or open connection settings. */
+export type ModelAction = "switch-saprot-35m" | "retry" | "settings";
 
 export type LmCaveat = "fallback-model" | "sequence-only" | "probability-floor" | "inferred-model" | "flat";
 
@@ -263,7 +266,8 @@ export interface PerturbationEvidence {
     band: RankBand | null;
   };
   physical: {
-    available: boolean;
+    /** The FoldX leg: still running, failed, never built, or built ("computed"). */
+    state: AvailabilityState;
     rigidBackbone: boolean;
     /** How the mutant model was built, in one line, when the caller recorded it. */
     method: string | null;
@@ -305,7 +309,8 @@ export interface PerturbationEvidenceInput {
 
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
+/** "+0.26", "−3.02": a signed number with a true minus sign. */
+export const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
 
 /** "384×", "1,075×", "1.4×" — odds the way a reader says them. */
 export function oddsText(odds: number): string {
@@ -559,7 +564,7 @@ function buildPhysical(
 
   if (!hasFe && !diff && !metrics) {
     return {
-      available: false,
+      state: isFolding ? "pending" : foldingStatus === "failed" || foldingError ? "failed" : "absent",
       rigidBackbone: false,
       method: null,
       inputConfidence,
@@ -700,7 +705,7 @@ function buildPhysical(
 
   const wtClashes = finite(diff?.clashes?.wtClashCount);
   const mutClashes = finite(diff?.clashes?.mutClashCount);
-  return { available: true, rigidBackbone: rigid, method, inputConfidence,
+  return { state: "computed", rigidBackbone: rigid, method, inputConfidence,
     clashCounts: wtClashes !== null && mutClashes !== null ? { wt: wtClashes, mut: mutClashes } : null,
     contactChange: lost !== null && gained !== null ? { lost, gained } : null,
     runs: runs ?? null, runsIdentical, readings, reason: null };
@@ -878,80 +883,4 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
     },
     pending: lms.some(l => l.availability.state === "pending") || Boolean(input.isFolding)
   };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Finding
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** "SaProt", "SaProt and ESM-2", "SaProt, ESM-2 and ESMC". */
-export function listModels(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/** "Gln 384× as likely as His in ESM-2" — one model's own odds, never pooled. */
-function oddsClause(l: LmReading, wt: string, mut: string): string {
-  if (l.odds === null) return `${l.name}: no ΔLLR`;
-  if (l.direction === "favours-variant") return `${mut} ${oddsText(1 / l.odds)} as likely as ${wt} in ${l.name}`;
-  if (l.direction === "even") return `${wt} and ${mut} within a factor of two in ${l.name}`;
-  return `${wt} ${oddsText(l.odds)} as likely as ${mut} in ${l.name}`;
-}
-
-/**
- * The finding: which way each model reads the substitution, from its own output.
- *
- * The cross-model statement is a count of directions, which needs no shared scale. Magnitudes are
- * given per model as odds ("Gln 384× as likely as His in ESM-2") — the ΔLLR restated, never pooled.
- * A flat model is named as having no preference, not counted for either side.
- */
-export function perturbationFinding(ev: PerturbationEvidence): { headline: string; predicate: string } {
-  const mut = ev.residues.mutLabel || "the variant residue";
-  const wt = ev.residues.wtLabel || "the native residue";
-  const distinct = deduplicateServedModels(ev.scored);
-  const by = (dir: LmDirection) => distinct.filter(l => l.direction === dir);
-  const native = by("favours-native");
-  const variant = by("favours-variant");
-  const even = by("even");
-  const flat = by("flat");
-  const read = distinct.filter(l => l.direction !== null && l.direction !== "flat");
-
-  let headline: string;
-  if (distinct.length === 0) {
-    headline = ev.pending ? "The language models are still running" : "No language model scored this substitution";
-  } else if (read.length === 0) {
-    headline = flat.length > 0
-      ? `No model shows a preference at this site: ${flat.length === 1 ? `${flat[0].name}'s distribution is` : "every distribution is"} near-flat`
-      : `${distinct.length} language model${distinct.length === 1 ? "" : "s"} answered without a ΔLLR`;
-  } else if (native.length === read.length) {
-    headline = `${listModels(native.map(l => l.name))} ${native.length === 1 ? "favours" : "favour"} native ${wt} over ${mut}`;
-  } else if (variant.length === read.length) {
-    headline = `${listModels(variant.map(l => l.name))} ${variant.length === 1 ? "rates" : "rate"} ${mut} at least as likely as native ${wt}`;
-  } else if (even.length === read.length) {
-    headline = `${listModels(even.map(l => l.name))} ${even.length === 1 ? "rates" : "rate"} ${wt} and ${mut} about equally`;
-  } else {
-    const parts: string[] = [];
-    if (native.length) parts.push(`${listModels(native.map(l => l.name))} favour${native.length === 1 ? "s" : ""} ${wt}`);
-    if (variant.length) parts.push(`${listModels(variant.map(l => l.name))} favour${variant.length === 1 ? "s" : ""} ${mut}`);
-    if (even.length) parts.push(`${listModels(even.map(l => l.name))} ${even.length === 1 ? "is" : "are"} near even`);
-    headline = `The models split: ${parts.join("; ")}`;
-  }
-
-  const parts: string[] = [];
-  if (read.length) parts.push(`${read.map(l => oddsClause(l, wt, mut)).join(", ")} — each on its own model's scale`);
-  if (flat.length && read.length) {
-    parts.push(`${listModels(flat.map(l => l.name))} ${flat.length === 1 ? "spreads its" : "spread their"} probability almost evenly here, so ${flat.length === 1 ? "it has" : "they have"} no preference to read`);
-  }
-  const vdw = ev.physical.readings.find(x => x.key === "vdw");
-  if (vdw?.value != null) {
-    parts.push(
-      vdw.value > THRESHOLDS.vdwClash.significantClash
-        ? `FoldX places the substitution above the local clash mark (VdW ${vdw.text} kcal/mol)`
-        : `FoldX finds no clash above the local mark (VdW ${vdw.text} kcal/mol)`
-    );
-  }
-  const predicate = parts.length
-    ? `${parts.join("; ")}. None of this is calibrated pathogenicity evidence`
-    : "These scores are context for curation, not calibrated pathogenicity evidence";
-  return { headline, predicate };
 }

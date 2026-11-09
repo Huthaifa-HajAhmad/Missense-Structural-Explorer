@@ -101,12 +101,18 @@ export class Semaphore {
 /**
  * Three-state resilience circuit breaker (CLOSED, OPEN, HALF-OPEN)
  * with jittered cooldown to prevent thundering herds.
+ *
+ * HALF-OPEN means one trial request is out. The first caller after the cooldown gets the trial; every
+ * other caller is refused until the trial reports (`recordSuccess` closes the breaker, `recordFailure`
+ * opens it again). A trial that never reports (its caller was aborted) is replaced after one cooldown,
+ * so the breaker cannot stay shut because of a lost caller.
  */
 export class CircuitBreaker {
   private state: "CLOSED" | "OPEN" | "HALF-OPEN" = "CLOSED";
   private failures = 0;
   private lastFailureTime = 0;
   private currentCooldownMs = 60000;
+  private trialStartedAt: number | null = null;
   private threshold: number;
   private cooldownMs: number;
 
@@ -119,27 +125,35 @@ export class CircuitBreaker {
     this.currentCooldownMs = cooldownMs;
   }
 
+  /** Whether a caller may send a request now. A true answer in OPEN or HALF-OPEN takes the trial. */
   canExecute(): boolean {
-    if (this.state === "OPEN") {
-      const now = Date.now();
-      if (now - this.lastFailureTime > this.currentCooldownMs) {
-        this.state = "HALF-OPEN";
-        return true;
-      }
-      return false;
+    if (!this.isAvailable()) return false;
+    if (this.state !== "CLOSED") {
+      this.state = "HALF-OPEN";
+      this.trialStartedAt = Date.now();
     }
     return true;
+  }
+
+  /** The same answer as `canExecute()`, without taking the trial. For callers that only want to know. */
+  isAvailable(): boolean {
+    if (this.state === "CLOSED") return true;
+    const now = Date.now();
+    if (this.state === "OPEN") return now - this.lastFailureTime > this.currentCooldownMs;
+    return this.trialStartedAt === null || now - this.trialStartedAt > this.cooldownMs;
   }
 
   recordSuccess(): void {
     this.failures = 0;
     this.state = "CLOSED";
+    this.trialStartedAt = null;
     this.currentCooldownMs = this.cooldownMs;
   }
 
   recordFailure(): void {
     this.failures++;
     this.lastFailureTime = Date.now();
+    this.trialStartedAt = null;
     if (this.failures >= this.threshold) {
       this.state = "OPEN";
       // Add ±20% randomized jitter to prevent thundering herd when breaker exits cooldown

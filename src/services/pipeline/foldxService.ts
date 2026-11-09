@@ -583,7 +583,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
 
       let delay = 2000;
       let foldxCommitted = false;
-      const submitStart = Date.now();
+      let queuedSince = Date.now();
       /**
        * When the server first reported this job as `running`, or null while it is still queued.
        *
@@ -598,7 +598,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
         if (signal.aborted || getActiveRequestId() !== requestId) return;
 
         // Phase-aware deadline: queue wait and execution are budgeted separately.
-        const phaseStart = executionStart ?? submitStart;
+        const phaseStart = executionStart ?? queuedSince;
         const phaseBudget = executionStart !== null
           ? CLIENT_FOLDX_POLL_BUDGET_MS
           : CLIENT_FOLDX_QUEUE_BUDGET_MS;
@@ -662,6 +662,12 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
         // The job has left the queue: from here the execution budget applies, not the queue budget.
         if (pollData.status === "running" && executionStart === null) {
           executionStart = Date.now();
+        }
+        // Back in the queue (a paired computer gave it back, its lease ran out, or the server restarted):
+        // the next run is a new run, so both budgets start again from now.
+        if (pollData.status === "queued" && executionStart !== null) {
+          executionStart = null;
+          queuedSince = Date.now();
         }
 
         // The worker's own account of what it is doing — rendered verbatim, never guessed at.

@@ -259,7 +259,11 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     renderPanel();
 
     expect(screen.getByText("No recent analyses")).toBeInTheDocument();
-    expect(screen.getByText(/Variants you analyse in this session will appear here/i)).toBeInTheDocument();
+    expect(screen.getByText(/Analysed variants will appear here/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Benchmark controls" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Benchmark controls" })).toBeInTheDocument();
+    // The tour has its own entry points (header, command palette); the tray no longer repeats it.
+    expect(screen.queryByRole("button", { name: /take the tour/i })).toBeNull();
   });
 
   it("renders recent search pills when history is populated and selects item on click", async () => {
@@ -707,13 +711,13 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(state.customGenomic).toBe("");
     });
 
-    it("stays under the recent-analyses list once there is history", async () => {
+    it("gives way to the recent-analyses list once there is history: one list in the card, not both", async () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
       renderPanel();
       expect(screen.getByRole("heading", { name: /Recent analyses/ })).toBeInTheDocument();
-      expect(screen.getAllByRole("button", { name: /Run benchmark/ })).toHaveLength(ONBOARDING_BENCHMARK_PRESETS.length);
+      expect(screen.queryByRole("button", { name: /Run benchmark/ })).toBeNull();
     });
   });
 

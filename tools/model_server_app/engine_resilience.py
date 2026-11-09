@@ -347,7 +347,7 @@ class BudgetHeaderMiddleware:
 class PriorityCpuGate:
     """
     Serializes CPU-bound forward passes so OpenMP threads do not oversubscribe cores,
-    waking priority=0 (fast masked LLR triage) callers ahead of priority=1 (embedding / structure) callers.
+    waking priority=0 (passes of about a second: masked LLR triage, ThermoMPNN) callers ahead of priority=1 (embedding / structure) callers.
 
     A pass is refused (`GateDeadlineExceeded`) when its caller's deadline has passed, whether that is
     discovered on arrival or while queued. A running pass cannot be stopped, but a queued one that nobody

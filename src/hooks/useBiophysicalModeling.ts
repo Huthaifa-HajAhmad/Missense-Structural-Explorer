@@ -288,7 +288,7 @@ export function useBiophysicalModeling(
       });
     },
     onSuccess: data => {
-      setFoldingEnergetics((prev: any) => ({
+      setFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         thermompnn: data.prediction,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "ThermoMPNN") : []

@@ -14,6 +14,8 @@
  *            owner's `share_results`), written to the shared cache under a key that includes the tool
  *            version when it differs from the server's, finished like a server run, and completes the
  *            job. A result for a job that is no longer this computer's is a 409 and is discarded.
+ *            Delivering again is safe: the same computer's repeat of an accepted result is answered
+ *            "accepted" and not applied twice, and two deliveries in flight at once share one run.
  *   INVALID  The attempt is recorded as `invalid_result` and the job goes to the server, once.
  *   FAILURE  Whatever the computer's reason (tool missing, out of memory, paused mid-job, a bad
  *            input), the job goes to the server, once. The computer is never trusted to fail a job for
@@ -133,7 +135,25 @@ export function agentJoinGuard(queue: { agentQueue(): SQLiteQueue | null }, requ
 /** While the server finishes a validated FoldX result (companions, enrichment), the lease must not run out. */
 const FINISH_LEASE_MS = 15 * 60 * 1000;
 
-export async function acceptAgentResult(
+/** Deliveries being processed, by computer and job: a retry that arrives meanwhile waits for the first. */
+const deliveriesInFlight = new Map<string, Promise<AgentResultOutcome>>();
+
+export function acceptAgentResult(
+  queue: SQLiteQueue,
+  agent: { agentId: string; userId: string },
+  report: AgentHostReport | null,
+  jobId: string,
+  body: AgentResultBody,
+): Promise<AgentResultOutcome> {
+  const key = `${agent.agentId}:${jobId}`;
+  const inFlight = deliveriesInFlight.get(key);
+  if (inFlight) return inFlight;
+  const run = acceptOnce(queue, agent, report, jobId, body).finally(() => deliveriesInFlight.delete(key));
+  deliveriesInFlight.set(key, run);
+  return run;
+}
+
+async function acceptOnce(
   queue: SQLiteQueue,
   agent: { agentId: string; userId: string },
   report: AgentHostReport | null,
@@ -142,6 +162,8 @@ export async function acceptAgentResult(
 ): Promise<AgentResultOutcome> {
   const job = await queue.getJob(jobId);
   if (!job) return { status: 404, reason: "No such job." };
+  // The same computer delivering again (its first reply was lost): the job is already done with its result.
+  if (queue.completedBy(jobId, agent.agentId)) return { status: 200, accepted: true };
   if (!queue.isClaimedBy(jobId, agent.agentId)) {
     return { status: 409, reason: "This job is no longer yours (it was cancelled, finished, or handed to the server). The result was discarded." };
   }

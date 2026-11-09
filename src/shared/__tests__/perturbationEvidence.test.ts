@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPerturbationEvidence, perturbationFinding } from "../perturbationEvidence";
+import { buildPerturbationEvidence, oddsText } from "../perturbationEvidence";
 import { NAE1_ENERGETICS, NAE1_RESIDUES, NAE1_RESULT } from "./fixtures/nae1Perturbation";
 import { SLC12A4_RESIDUES, SLC12A4_RESULT } from "./fixtures/slc12a4Perturbation";
 import { LEGACY_ENGINE_LABELS } from "../engineStatus";
@@ -38,14 +38,12 @@ describe("buildPerturbationEvidence — NAE1 p.Asp116Gly", () => {
     expect(ev).not.toHaveProperty("lps");
   });
 
-  it("states the finding as each model's direction and its own odds, without a pathogenicity claim", () => {
-    const f = perturbationFinding(build());
-    expect(f.headline).toBe("SaProt, ESM-2 and ESMC favour native Asp over Gly");
+  it("reads each model's direction with its own odds, never pooled", () => {
+    const ev = build();
+    expect(ev.scored.map(l => [l.name, l.direction])).toEqual([["SaProt", "favours-native"], ["ESM-2", "favours-native"], ["ESMC", "favours-native"]]);
     // exp(6.991) ≈ 1,087 — the ΔLLR restated per model, never pooled.
-    expect(f.predicate).toContain("Asp 1,087× as likely as Gly in SaProt");
-    expect(f.predicate).toContain("each on its own model's scale");
-    expect(f.predicate).toContain("None of this is calibrated pathogenicity evidence");
-    expect(`${f.headline} ${f.predicate}`).not.toMatch(/stability|disruption|consensus verdict/i);
+    expect(oddsText(ev.scored[0].odds!)).toBe("1,087×");
+    expect(ev.scale.mixed).toBe(true);
   });
 
   it("reads the engine's own concordance: the language models are informational", () => {
@@ -122,9 +120,8 @@ describe("buildPerturbationEvidence — NAE1 p.Asp116Gly", () => {
     expect(ev.direction.nScored).toBe(2);
     expect(ev.direction.nFavourNative).toBe(2);
     expect(ev.consensus.nRanked).toBe(2);
-    const f = perturbationFinding(ev);
     // Named by the checkpoint that ran: "ESMC" here credited ESMC with VESM-150M's reading.
-    expect(f.headline).toBe("SaProt and VESM-150M favour native Asp over Gly");
+    expect(ev.scored.map(l => l.name)).toEqual(["SaProt", "VESM-150M", "VESM-150M"]);
   });
 
   it("names ESM3's quantity for what it is and drops the heuristic impact line", () => {
@@ -177,13 +174,11 @@ describe("buildPerturbationEvidence — SLC12A4 p.Gln867His", () => {
     expect(ev.consensus.nRanked).toBe(2);
   });
 
-  it("states the finding the right way round", () => {
-    const f = perturbationFinding(ev);
-    expect(f.headline).toBe("ESM-2 and ESMC favour native Gln over His");
-    expect(f.predicate).toContain("Gln 384× as likely as His in ESM-2");
-    expect(f.predicate).toContain("Gln 1,075× as likely as His in ESMC");
-    expect(f.predicate).toContain("SaProt spreads its probability almost evenly here");
-    expect(`${f.headline} ${f.predicate}`).not.toMatch(/disagree|dispreferred half/);
+  it("reads the finding the right way round: two models favour the native, the flat one is set aside", () => {
+    expect(ev.scored.filter(l => l.direction === "favours-native").map(l => l.name)).toEqual(["ESM-2", "ESMC"]);
+    expect(oddsText(lm("esm2").odds!)).toBe("384×");
+    expect(oddsText(lm("esmc").odds!)).toBe("1,075×");
+    expect(lm("saprot").direction).toBe("flat");
   });
 
   it("gives ESM3's drift at the variant and how far its peak is", () => {
@@ -206,6 +201,16 @@ describe("buildPerturbationEvidence — SLC12A4 p.Gln867His", () => {
     const none = buildPerturbationEvidence({ result: SLC12A4_RESULT, residues: SLC12A4_RESIDUES });
     expect(none.physical.reason).toBe("No FoldX mutant model was built for this variant.");
   });
+
+  it("records the FoldX leg's state, so the table needs no folding flags of its own", () => {
+    const build = (over: Partial<Parameters<typeof buildPerturbationEvidence>[0]>) =>
+      buildPerturbationEvidence({ result: SLC12A4_RESULT, residues: SLC12A4_RESIDUES, ...over }).physical.state;
+    expect(build({ isFolding: true, foldingStatus: "failed" })).toBe("pending");
+    expect(build({ foldingStatus: "failed" })).toBe("failed");
+    expect(build({ foldingError: "RepairPDB exceeded its time budget." })).toBe("failed");
+    expect(build({})).toBe("absent");
+    expect(buildPerturbationEvidence({ result: NAE1_RESULT, residues: NAE1_RESIDUES, foldingEnergetics: NAE1_ENERGETICS }).physical.state).toBe("computed");
+  });
 });
 
 /**
@@ -223,9 +228,6 @@ describe("buildPerturbationEvidence — the ESM-2 card after a Hugging Face refu
     expect(esm2.name).toBe("VESM-150M");
     expect(esm2.caveats).toContain("fallback-model");
     expect(esm2.serviceNote).toBe("Hugging Face has no inference credits left on the saved token");
-    const f = perturbationFinding(ev);
-    expect(f.predicate).toContain("in VESM-150M");
-    expect(f.predicate).not.toContain("in ESM-2");
   });
 
   it("reads genuine ESM-2 on this server as ESM-2, with the refusal kept as a note", () => {
@@ -303,8 +305,8 @@ describe("buildPerturbationEvidence — GATA4 p.Ser159Cys (VESM stands in after 
     residues: { wtCode: "S", mutCode: "C", wtLabel: "Ser", mutLabel: "Cys" }
   });
 
-  it("credits the finding to the models that ran, not to the card's name", () => {
-    expect(perturbationFinding(ev).headline).toBe("SaProt, VESM-150M and ESMC favour native Ser over Cys");
+  it("credits the reading to the models that ran, not to the card's name", () => {
+    expect(ev.scored.map(l => l.name)).toEqual(["SaProt", "VESM-150M", "ESMC"]);
   });
 
   it("states the cause from the engine's code and keeps the raw error in the notes", () => {

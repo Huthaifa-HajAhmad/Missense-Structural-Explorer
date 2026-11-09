@@ -60,6 +60,21 @@ export {
 const REFUSAL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * How long a row that records an expired core source is served as it is. A revisit after this runs the
+ * core providers again. Inside it the row is the run that just timed out: running all eleven providers
+ * again straight away would most likely time out too, and every revisit would repeat that load. The reader
+ * can still re-run at once with the Re-run button.
+ */
+const CORE_TIMEOUT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+/** True when the persisted row was written less than `windowMs` ago. No timestamp means it is not recent. */
+function updatedWithin(recordUpdatedAt: string | null | undefined, windowMs: number): boolean {
+  if (!recordUpdatedAt) return false;
+  const t = new Date(recordUpdatedAt).getTime();
+  return Number.isFinite(t) && Date.now() - t < windowMs;
+}
+
+/**
  * Removes server-internal routing metadata from a payload before it goes on the wire.
  *
  * `assembleCoreResponsePayload` carries `_internal.pdbMapping` for the STRUCTURAL route, which reads
@@ -79,6 +94,19 @@ function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T,
 
 export function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
+  /**
+   * An expired CORE source is not a finished analysis.
+   *
+   * The FGFR3 p.Gly380Arg run (2026-11-08): Ensembl VEP's unbounded ladder never settled inside
+   * the 45 s core budget, so `predictorData`, `gnomadFrequency` and the LOCAL constraint expired
+   * together — and the payload was cached as finished, so every later visit re-read "the gnomAD
+   * frequency query timed out" while a re-run answered in seconds. A confirmed absence
+   * (`not_found`) is still a finished analysis; only the budget sentinel is sticky. It is retried on
+   * the next visit after a short back-off, not on every visit.
+   */
+  const statuses = payload.serviceStatus;
+  if (statuses && ["gnomadFrequency", "gnomadConstraint", "predictorData"]
+      .some(key => statuses[key] === "timeout") && !updatedWithin(recordUpdatedAt, CORE_TIMEOUT_RETRY_BACKOFF_MS)) return true;
   if (hasInterruptedPredictorReadings(payload)) return true;
   // The persisted outer key is gene + protein + weighting, not nucleotide identity. A supplied
   // allele must escape a prior definitive ambiguity (or a different ALT at the same position).
@@ -148,11 +176,7 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
       // side effect"). The refusal is recorded, so honour it — but for a bounded window only:
       // unlike "not indexed" (a permanent Atlas property), a build refusal is transient, and
       // the lift may succeed on the next attempt (review M1).
-      const refusalIsRecent = (() => {
-        if (!recordUpdatedAt) return false;
-        const t = new Date(recordUpdatedAt).getTime();
-        return Number.isFinite(t) && Date.now() - t < REFUSAL_RETRY_WINDOW_MS;
-      })();
+      const refusalIsRecent = updatedWithin(recordUpdatedAt, REFUSAL_RETRY_WINDOW_MS);
       const isBuildRefused = refusalIsRecent &&
         Boolean(cons.assemblyRefusals?.some((r: { source: string }) => r.source === "alphagenome"));
       const alphaMissing = !isBuildRefused && !isAlreadyQueriedUnindexed &&

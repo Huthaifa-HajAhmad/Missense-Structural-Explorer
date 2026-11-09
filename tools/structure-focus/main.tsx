@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource-variable/source-sans-3";
 import "@fontsource-variable/source-code-pro";
@@ -8,8 +8,11 @@ import { SettingsProvider } from "../../src/context/SettingsContext";
 import { DevConsoleProvider } from "../../src/context/DevConsoleContext";
 import { useVariantAnalysisStore } from "../../src/stores/useVariantAnalysisStore";
 import { useStructure3dEvidence } from "../../src/lib/useStructure3dEvidence";
-import { indexStructureResidues } from "../../src/shared/coordinateText";
+import type { StructureCanvasView } from "../../src/lib/useStructureWorkspace";
+import { indexStructureResidues, readCaTrace } from "../../src/shared/coordinateText";
+import { summariseSecondary } from "../../src/shared/structureSecondary";
 import { buildStructureSelection } from "../../src/shared/structureSelection";
+import { fitContextOntoTemplate } from "../../src/shared/structureContext";
 import type { ResidueFocus } from "../../src/shared/residueFocus";
 import SOD1_PDB from "./sod1-afdb.pdb?raw";
 
@@ -45,7 +48,7 @@ function record(name: string, pass: boolean, detail: string): void {
 
 const nextFrame = () => new Promise<void>((resolve) => setTimeout(() => setTimeout(() => resolve(), 0), 0));
 
-async function until(what: string, predicate: () => boolean, timeoutMs: number): Promise<boolean> {
+async function until(_what: string, predicate: () => boolean, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return true;
@@ -131,28 +134,55 @@ function seed(): void {
  * The four lines `AppViews` uses to feed the canvas, repeated rather than imported: they are a few `useMemo`s over
  * store selectors, and importing the whole workspace would mount nine other views and their data.
  */
+/** Residues 20–60 of the variant, in another frame: what a short experimental template looks like to the canvas. */
+const FRAGMENT_PDB = VARIANT_PDB.split("\n").filter(line => {
+  const seq = Number.parseInt(line.slice(22, 26), 10);
+  return line.startsWith("ATOM  ") && seq >= 20 && seq <= 60;
+}).map(line => {
+  const x = Number.parseFloat(line.slice(30, 38));
+  const y = Number.parseFloat(line.slice(38, 46));
+  const z = Number.parseFloat(line.slice(46, 54));
+  const f = (v: number) => v.toFixed(3).padStart(8);
+  return `${line.slice(0, 30)}${f(-y + 30)}${f(x - 12)}${f(z + 7)}${line.slice(54)}`;
+}).join("\n");
+
 function Canvas() {
   const family = useVariantAnalysisStore(s => s.active3dModelTab === "esmfold2" ? "esmfold" : "alphafold");
   const model = useStructure3dEvidence(family);
-  const pdbText = model.viewMode === "mutant" ? VARIANT_PDB : SOD1_PDB;
+  // Switched on by the check, after the ordinary mode cases: the variant then draws a short template with the full model around it.
+  const [fragmentTemplate, setFragmentTemplate] = useState(false);
+  useEffect(() => {
+    const on = () => setFragmentTemplate(true);
+    window.addEventListener("fragment-template", on);
+    return () => window.removeEventListener("fragment-template", on);
+  }, []);
+  const contextFit = useMemo(() => (fragmentTemplate ? fitContextOntoTemplate(SOD1_PDB, FRAGMENT_PDB) : null), [fragmentTemplate]);
+  const pdbText = model.viewMode === "mutant" ? (fragmentTemplate ? FRAGMENT_PDB : VARIANT_PDB) : SOD1_PDB;
   const selectedResidueIndex = useVariantAnalysisStore((s) => s.selectedResidueIndex);
   const residues = useMemo(() => indexStructureResidues(pdbText), [pdbText]);
+  const secondary = useVariantAnalysisStore((s) => s.canvasSecondary);
+  const trace = useMemo(() => readCaTrace(pdbText), [pdbText]);
+  const context = useMemo(() => ({ secondary, trace, features: null }), [secondary, trace]);
   const selection = useMemo(
-    () => buildStructureSelection(model, residues, selectedResidueIndex),
-    [model, residues, selectedResidueIndex],
+    () => buildStructureSelection(model, residues, selectedResidueIndex, context),
+    [model, residues, selectedResidueIndex, context],
   );
+  const siteSelection = useMemo(() => buildStructureSelection(model, residues, 5, context), [model, residues, context]);
+  const view = useMemo<StructureCanvasView>(() => ({
+    primary: pdbText,
+    compare: model.viewMode === "superimposed" ? VARIANT_PDB : null,
+    allowFetch: false,
+    model,
+    coordinateIndex: residues,
+    selection,
+    siteSelection,
+    contextFit,
+  }), [pdbText, model, residues, selection, siteSelection, contextFit]);
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--cs-bg)" }}>
       <MolstarViewer
-        model={model}
-        coordinateIndex={residues}
-        selection={selection}
+        view={view}
         active
-        primaryPdbData={pdbText}
-        comparePdbData={model.viewMode === "superimposed" ? VARIANT_PDB : null}
-        allowFetch={false}
-        variantPosition={5}
-        selectedResidue={selectedResidueIndex ?? null}
         onResidueClick={() => {}}
         onModeChange={() => {}}
         heightClass="h-full"
@@ -163,7 +193,9 @@ function Canvas() {
 
 function publish(): void {
   const node = document.getElementById("geometry-result");
-  if (node) node.textContent = btoa(JSON.stringify({ checks: CHECKS }));
+  // UTF-8 first: details carry "Å" and "α", which `btoa` (Latin-1 only) rejects. check.mjs decodes UTF-8.
+  const bytes = new TextEncoder().encode(JSON.stringify({ checks: CHECKS }));
+  if (node) node.textContent = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
 }
 
 async function run(): Promise<void> {
@@ -183,6 +215,75 @@ async function run(): Promise<void> {
   );
   record("the fixture loads as the AlphaFold model for P00441", firstDraw, document.querySelector('[data-testid="structure-source"]')?.textContent ?? "no source chip");
   await until("settle", () => false, 1_500);
+
+  // ── Secondary structure, as Mol* assigned it on the drawn model ────────────────────────────────────────────
+  // SOD1 is a Greek-key β-barrel (eight strands, two short helices): a real DSSP reading must find mostly strand.
+  const readSecondary = await until("secondary structure", () => Boolean(store.getState().canvasSecondary), 20_000);
+  const secondary = store.getState().canvasSecondary;
+  const summary = secondary ? summariseSecondary(secondary) : null;
+  record("Mol* assigns DSSP to the predicted model and the viewer publishes it", readSecondary && secondary?.source === "dssp" && secondary.chain === "A" && secondary.residueCount === 154,
+    secondary ? `${secondary.source}, chain ${secondary.chain}, ${secondary.residueCount} residues` : "nothing published");
+  record("the SOD1 β-barrel reads as mostly strand", Boolean(summary && summary.strands >= 6 && summary.strandFraction > 0.3 && summary.strandFraction > summary.helixFraction),
+    summary ? `${summary.strands} strands (${Math.round(summary.strandFraction * 100)}%), ${summary.helices} helices (${Math.round(summary.helixFraction * 100)}%)` : "no summary");
+
+  // ── Callouts: a card per residue, tied to its Cα by a leader line ──────────────────────────────────────────
+  const stageBox = () => document.querySelector<HTMLElement>(".s3d-stage")!.getBoundingClientRect();
+  const calloutLine = (key: string) => document.querySelectorAll<SVGPathElement>(".s3d-callouts__line")[[...document.querySelectorAll("[data-callout]")].findIndex(c => c.getAttribute("data-callout") === key)];
+  /** The last point of the leader path: "M x y L x y L x y". */
+  const lineEnd = (key: string) => {
+    const d = calloutLine(key)?.getAttribute("d") ?? "";
+    const parts = d.split("L").pop()?.trim().split(/\s+/).map(Number) ?? [];
+    return parts.length === 2 ? { x: parts[0], y: parts[1] } : null;
+  };
+  /** A card is only usable once the placement pass has run: before that it sits at the stage origin. */
+  const placed = (key: string) => document.querySelector(`[data-callout="${key}"]`)?.getAttribute("data-placed") === "true";
+  const lineInside = (key: string) => {
+    const line = calloutLine(key);
+    if (!line || line.style.display === "none" || !placed(key)) return false;
+    const end = lineEnd(key);
+    if (!end) return false;
+    const box = stageBox();
+    return end.x > 0 && end.y > 0 && end.x < box.width && end.y < box.height;
+  };
+  const siteCallout = await until("site callout", () => lineInside("site"), 20_000);
+  const siteCard = document.querySelector('[data-callout="site"]');
+  record("the variant site has a callout whose leader line ends on the canvas", siteCallout,
+    `${siteCard?.textContent?.slice(0, 120)} · line to (${lineEnd("site")?.x}, ${lineEnd("site")?.y})`);
+  record("the site callout names the element DSSP assigned there", /(helix|strand|Turn|Bend|Coil)/.test(siteCard?.textContent ?? ""), siteCard?.textContent ?? "no card");
+  record("the site's row moved from the guide card to its callout", !document.querySelector('[data-guide-item="site"]'), document.querySelector('[data-guide-item="site"]') ? "still in guide" : "guide row absent");
+
+  store.getState().setSelectedResidueIndex(100);
+  const trace = readCaTrace(SOD1_PDB);
+  const at = (r: number) => trace.residues.indexOf(r) * 3;
+  const expected = Math.hypot(trace.coords[at(100)] - trace.coords[at(5)], trace.coords[at(100) + 1] - trace.coords[at(5) + 1], trace.coords[at(100) + 2] - trace.coords[at(5) + 2]);
+  const selectedCallout = await until("selected callout", () => lineInside("selected"), 20_000);
+  const selectedText = document.querySelector('[data-callout="selected"]')?.textContent ?? "";
+  record("a selected residue gets its own callout and line", selectedCallout, selectedText.slice(0, 140));
+  record("its distance to the variant site is the Cα–Cα distance in the file", selectedText.includes("To site") && selectedText.includes(`${expected.toFixed(1)} Å`), `expected ${expected.toFixed(1)} Å; card: ${selectedText.slice(0, 140)}`);
+  const xBefore = lineEnd("selected")?.x;
+  const siteBefore = lineEnd("site")?.x;
+  const clickFrame = () => document.querySelector<HTMLButtonElement>('[data-callout="selected"] .s3d-callout__icon')?.click();
+  // The claim is that the click starts a camera move and the lines re-project. Both anchors must move:
+  // one moving alone would be a redraw artefact, not a camera change.
+  const cameraMoved = () => Math.abs((lineEnd("selected")?.x ?? xBefore ?? 0) - (xBefore ?? 0)) > 0.1
+    && Math.abs((lineEnd("site")?.x ?? siteBefore ?? 0) - (siteBefore ?? 0)) > 0.05;
+  clickFrame();
+  let followed = await until("line follows the camera", cameraMoved, 10_000);
+  if (!followed) {
+    // The card may have re-rendered between locating it and clicking it; retry once against the live node.
+    clickFrame();
+    followed = await until("line follows the camera", cameraMoved, 10_000);
+  }
+  record("framing the residue moves the camera and the line follows it", followed, `selected x ${xBefore} to ${lineEnd("selected")?.x}; site x ${siteBefore} to ${lineEnd("site")?.x}`);
+  store.getState().setSelectedResidueIndex(null);
+
+  // ── Secondary-structure colouring ──────────────────────────────────────────────────────────────────────────
+  store.getState().setStructureRepresentation("secondary");
+  document.querySelector<HTMLButtonElement>('.s3d-legend[data-collapsed="true"] .s3d-legend__toggle')?.click();
+  const keyed = await until("secondary legend", () => /Secondary structure/.test(document.querySelector(".s3d-legend")?.textContent ?? ""), 20_000);
+  record("the cartoon can be coloured by secondary structure, keyed with its source", keyed && /DSSP \(Kabsch & Sander 1983\)/.test(document.querySelector(".s3d-legend")?.textContent ?? ""),
+    document.querySelector(".s3d-legend")?.textContent?.slice(0, 160) ?? "no legend");
+  store.getState().setStructureRepresentation("confidence");
 
   record(
     "no companion set is drawn before any focus is chosen",
@@ -273,6 +374,12 @@ async function run(): Promise<void> {
       record(`${name} keeps the requested mode`, checked === modeLabel[viewMode], `${checked}`);
     }
   }
+  // A template that covers only residues 20–60: the full model must be drawn around it, fitted onto it.
+  store.setState({ active3dModelTab: "alphafold2", viewMode: "mutant" });
+  await until("variant drawn", () => drawnStructures() === "1", 60_000);
+  window.dispatchEvent(new Event("fragment-template"));
+  const contextDrawn = await until("context drawn", () => container()?.getAttribute("data-drawn-context") === "1", 60_000);
+  record("a short template is drawn with the full-length model faint around it", contextDrawn, `drawnContext=${container()?.getAttribute("data-drawn-context")}, guide: ${document.querySelector('[data-guide-item="context"]')?.textContent?.slice(0, 120) ?? "no row"}`);
   store.setState({ active3dModelTab: "alphafold2", viewMode: "wildtype" });
   await until("final draw", () => companionAtoms() > 0 && drawnStructures() === "1", 60_000);
 
@@ -283,6 +390,12 @@ async function run(): Promise<void> {
 }
 
 seed();
+// Camera flights are not what this harness tests, and an animated flight leaves the residue's true
+// screen position undefined until enough frames have run. Snapping the camera makes a cold browser
+// profile as deterministic as a warm one.
+try {
+  localStorage.setItem("missenseUserSettings", JSON.stringify({ cameraDuration: 0 }));
+} catch { /* the check still runs; only the timing guarantee is lost */ }
 createRoot(document.getElementById("root")!).render(
   <DevConsoleProvider>
     <SettingsProvider>

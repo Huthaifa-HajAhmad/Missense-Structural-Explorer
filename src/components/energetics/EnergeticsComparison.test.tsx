@@ -63,7 +63,7 @@ describe('TanStack stability comparison', () => {
     expect(anchorOf('+2.00')).toBe('start');
     expect(anchorOf('0.00')).toBe('start');
   });
-  it('names the two FoldX templates under the chart, and plots ProtVar on the row after FoldX', async () => {
+  it('plots ProtVar on the row after FoldX, and leaves the template check to the inspector so it is stated once', async () => {
     function TwoTemplates() {
       const [options, setOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: false, showMarks: false });
       const evidence = buildEnergeticsEvidence({
@@ -77,9 +77,7 @@ describe('TanStack stability comparison', () => {
     }
     render(<TwoTemplates />);
     const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 8000 });
-    const check = screen.getByTestId('foldx-template-check');
-    expect(check).toHaveTextContent('The two FoldX values differ by 1.50 kcal/mol');
-    expect(check).toHaveTextContent('1YOV:A (experimental, 2.8 Å)');
+    expect(screen.queryByTestId('foldx-template-check')).toBeNull();
     expect(within(chart).getByText('+1.12')).toBeInTheDocument();
     expect(within(chart).getByText('ProtVar FoldX')).toBeInTheDocument();
   });

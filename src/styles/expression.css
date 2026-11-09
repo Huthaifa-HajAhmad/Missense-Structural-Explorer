@@ -106,7 +106,6 @@
 .xp-review-settings > summary:active { background: var(--cs-surface-2); }
 .xp-pext-reference { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-size: 12px; }
 .xp-workspace [data-testid="pext-card"] tr[data-selected] { background: var(--cs-workbench-header-surface); }
-.xp-rail .evw-inspection[data-empty] { border: 0; margin-block-end: 8px; padding-block-end: 0; }
 .xp-rail > .xp-boundary { margin-block: 0 16px; }
 .xp-rail .rail-section { border-block-start: 0; }
 .xp-rail > .ctx-details { border-block: 0; }

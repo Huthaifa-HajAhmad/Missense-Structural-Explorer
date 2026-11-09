@@ -1,5 +1,5 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
-import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, foldxErrorInPlainWords, listNames, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, foldxErrorInPlainWords, listNames, signedDdg, signedDdgNumber, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
 import { FIX_SHELL_OFFSET_NOTE } from './foldxRepairMode';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
@@ -61,7 +61,7 @@ export function buildEnergeticsComparison(evidence: EnergeticsEvidence, unit: En
   const points: EnergyPoint[] = readings.flatMap((r, row) => r.ddg === null ? [] : [{
     key: r.key, name: r.name, value: r.ddg === 0 ? 0 : r.ddg * factor, row, guide: r.strongMark * factor,
     counted: r.counted,
-    valueText: signedDdg(r.ddg, unit).replace(/ (kcal|kJ)\/mol$/, ''),
+    valueText: signedDdgNumber(r.ddg, unit),
     guideLabel: `Local destabilising guide for ${r.name}: ${markText(r.strongMark, unit)} ${unit}. App-defined, not a clinical cut-point.`,
     label: `${r.name}: ${signedDdg(r.ddg, unit)}. ${r.callLabel ?? 'Estimate'}${r.counted ? '' : '; not counted in agreement'}.`,
   }]);

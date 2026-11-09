@@ -38,6 +38,7 @@ vi.mock("./foldx/background-repair.ts", () => ({
 
 const { runFoldxQueueJobOnServer, foldxFailureResult, finishFoldxQueueJob } = await import("./foldx-queue-job.ts");
 const cache = await import("./foldx/cache.ts");
+const { STABILITY_ORACLE_BACKGROUND_BUDGET_MS } = await import("./stabilityoracle.ts");
 
 const data = { wtPdb: "PDB TEXT", mutation: "SA489C", uniprotId: "Q9H8M5", options: { pH: 7.4, temperature: 298.15, ionicStrength: 0.15 } };
 const result = (energetics: Record<string, unknown>) => ({ pdb: "x", ddG: 0, status: "success", energetics: { foldxMean: 0, ...energetics } });
@@ -163,6 +164,13 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     });
     await runFoldxQueueJobOnServer(data, undefined, "job-done");
     expect(publishedRemote.some(r => r.stabilityoracleStatus === "done" && r.stabilityoracleVal === 1.85)).toBe(true);
+  });
+
+  it("lets StabilityOracle wait the long, background-job time: the model service runs ESM-2 passes ahead of it", async () => {
+    generateMutantPdb.mockResolvedValue(result({}));
+    await runFoldxQueueJobOnServer(data, undefined, "job-budget");
+    expect(runStabilityOracleAnalysisDetailed).toHaveBeenCalledTimes(1);
+    expect(runStabilityOracleAnalysisDetailed.mock.calls[0][6]).toBe(STABILITY_ORACLE_BACKGROUND_BUDGET_MS);
   });
 
   it("never submits StabilityOracle without the template it scores; it reports unavailability instead", async () => {

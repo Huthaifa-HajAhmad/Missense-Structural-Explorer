@@ -239,3 +239,30 @@ describe("interrupted predictor cache recovery", () => {
     expect(getCachedVariant("GATA4", "p.Ser159Cys")?.analysisResult).toEqual(result);
   });
 });
+
+describe("stored stage outcomes", () => {
+  beforeEach(() => {
+    installSessionStorageShim();
+    clearClientVariantCache();
+  });
+
+  const resultWith = (analysis: string, stages: Record<string, string>) =>
+    ({ analysis, metadata: { gene: "GENEC", variant: "p.Ala1Val", pipelineStages: stages } }) as never;
+
+  it("does not store an unfinished core as complete: the placeholder analysis must not be served as an answer", () => {
+    setCachedVariant("GENEC", "p.Ala1Val", "P00001", {
+      analysisResult: resultWith("Analysis in progress", { core: "running", narrative: "running" }),
+    });
+    const stages = getCachedVariant("GENEC", "p.Ala1Val")?.analysisResult?.metadata?.pipelineStages as Record<string, string>;
+    expect(stages.core).toBe("error");
+    expect(stages.narrative).toBe("complete");
+  });
+
+  it("settles a running core as complete once the analysis text is real", () => {
+    setCachedVariant("GENED", "p.Ala1Val", "P00001", {
+      analysisResult: resultWith("A finished interpretation.", { core: "running" }),
+    });
+    const stages = getCachedVariant("GENED", "p.Ala1Val")?.analysisResult?.metadata?.pipelineStages as Record<string, string>;
+    expect(stages.core).toBe("complete");
+  });
+});

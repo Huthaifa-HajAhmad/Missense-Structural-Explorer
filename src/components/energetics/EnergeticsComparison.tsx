@@ -39,7 +39,7 @@ export default function EnergeticsComparison({ evidence, unit, selected, onSelec
         // owns selection: labels, stems and pin rings must not add false keyboard positions.
         decorative(link(model.points, { id: 'estimate-stems', key: 'key', x1: () => 0, x2: 'value', y1: 'row', y2: 'row',
           stroke: p => p.counted ? 'var(--cs-accent-clay)' : 'var(--cs-text-secondary)', strokeWidth: 4, strokeOpacity: .3 })),
-        // The two FoldX estimates, joined: the gap between them is the template check below the chart.
+        // The two FoldX estimates, joined: the gap between them is the template check in the inspector.
         ...(model.foldxPair.length ? [decorative(link(model.foldxPair, { id: 'foldx-pair', key: 'key', x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2',
           stroke: 'var(--cs-text-secondary)', strokeDasharray: '2 4', strokeWidth: 1.5, strokeOpacity: .7 }))] : []),
         ...(showMarks ? [link(model.points, { id: 'local-marks', key: 'key', x1: 'guide', x2: 'guide', y1: d => d.row - 0.17, y2: d => d.row + 0.17, stroke: 'var(--cs-text-secondary)', strokeDasharray: '3 3', strokeWidth: 2 })] : []),
@@ -78,10 +78,6 @@ export default function EnergeticsComparison({ evidence, unit, selected, onSelec
       onFocusChange={point => setPreview(point ? { model, label: point.markId === 'local-marks' ? point.datum.guideLabel : point.datum.label } : null)} />
       : null}
     <p className="nrg-chart-readout" role="status" aria-label="Estimate readout">{(preview?.model === model ? preview.label : null) ?? pinned?.label ?? 'Select an estimate to inspect its method, structure basis and limitations.'}</p>
-    {evidence.foldxTemplateCheck && <div className="nrg-template-check" data-state={evidence.foldxTemplateCheck.state} data-testid="foldx-template-check">
-      <strong>FoldX on two templates</strong>
-      <span>{evidence.foldxTemplateCheck.headline} {evidence.foldxTemplateCheck.detail}</span>
-    </div>}
     {pinnedReading && <p className="nrg-comparison-caution" role="status">{pinnedReading.name} is excluded from the agreement, so "Counted only" hides it. Turn the filter off to see its value again.</p>}
     {model.missing.length > 0 && <div className="nrg-missing-methods"><span>No point plotted</span>{model.missing.map(r => <button type="button" key={r.key} aria-pressed={selected === r.key} onClick={() => onSelect(r.key)} title={r.reason}>{r.name}<small>{r.reason}</small></button>)}</div>}
     <details className="nrg-chart-help"><summary>How to read this comparison</summary><p>ΔΔG is the predicted change in folding free energy caused by this substitution. Zero means no predicted change; negative values point towards more stable folding and positive values towards less stable folding. Signs are normalised across methods.</p><p>Methods can disagree because their assumptions and training data differ. They are not independent experimental confirmations. Local guides explain the app's method calls; distance from zero is not a probability of disease. An empty row means no estimate, not a value of zero.</p></details>

@@ -1,6 +1,6 @@
 import { describe, beforeEach, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { skipTour } from './support.js';
+import { monitorSettled, skipTour } from './support.js';
 
 describe('variant search form', { tags: ['search'] }, () => {
   beforeEach(async ({ app, browser }) => {
@@ -99,6 +99,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     await browser.setViewport({ width: 1753, height: 981 });
     await app.open('/');
     await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+    await monitorSettled(browser);
     // Measured on Services first: the monitor is the taller of its two tabpanels, and the query card
     // claim below compares against that layout, not against a shrunk Pipeline.
     const layout = await browser.evaluate(() => {
@@ -113,6 +114,7 @@ describe('variant search form', { tags: ['search'] }, () => {
         recentsHeight: recents.height,
         bodyHeight: document.querySelector(".workbench-query-body")!.getBoundingClientRect().height,
         fieldsOpen: Boolean(document.querySelector(".qe-refine #input-gene-symbol")),
+        deckVar: (document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h'),
       };
     });
     expect(layout.height >= 640, 'monitor keeps its full desktop height').toBe(true);
@@ -127,9 +129,18 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(layout.gap >= 0, 'the tray reads below the form, whatever its stretched height').toBe(true);
     await app.screenshot('single-recent-full-monitor');
 
-    // The pipeline tab then holds the deck's height too.
+    // The pipeline tab then holds the deck's height too: the summary has settled, so the switch moves nothing.
     await screen.getByRole('tab', 'Pipeline').tap();
     const pipelineHeight = await browser.evaluate(() => document.querySelector('.workbench-rail')!.getBoundingClientRect().height);
+    // The measured design height is the deck's, and the monitor renders IT rather than the visible
+    // tab's own content: that is the contract the tab switch must never break. (The design itself
+    // may still grow while the test runs — a diagnostics poll can add a line to the summary — so
+    // the check is "rail follows the design", not "the design is frozen".)
+    const pipelineVar = await browser.evaluate(() => (document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h'));
+    const designPipeline = parseFloat(pipelineVar);
+    expect(Number.isFinite(designPipeline), `the deck carries a measured design height (${pipelineVar})`).toBe(true);
+    expect(designPipeline, `the design height never shrinks (${layout.deckVar} → ${pipelineVar})`).toBeGreaterThanOrEqual(parseFloat(layout.deckVar) - 1);
+    expect(Math.abs(pipelineHeight - designPipeline) <= 1, `the monitor renders the design height, not the tab's content (${pipelineHeight.toFixed(1)} vs ${designPipeline})`).toBe(true);
     expect(Math.abs(pipelineHeight - layout.height) <= 1, `monitor height switches without moving (${layout.height.toFixed(0)} → ${pipelineHeight.toFixed(0)})`).toBe(true);
     await app.screenshot('pipeline-recent-full-monitor');
     await browser.setViewport({ width: 390, height: 844 });
@@ -211,5 +222,74 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(reading !== null && /^\d+\/\d+$/.test(reading), `the Services badge holds a count (${reading})`).toBe(true);
     await screen.getByRole('tab', 'Services').tap();
     await app.screenshot('services-badge');
+  });
+
+  test('a grown query card scrolls instead of dropping the recents card and moving the monitor', async ({ app, browser, screen }) => {
+    await browser.addInitScript(() => {
+      localStorage.setItem('variant_search_history', JSON.stringify([
+        { gene: 'CNNM2', variant: 'p.Glu357Lys', uniprotId: 'Q9H8M5' },
+      ]));
+    });
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await browser.evaluate(() => document.fonts.ready.then(() => new Promise<string>(r => setTimeout(() => r('ok'), 300))));
+    await expect(screen.getByRole('button', 'Select recent search CNNM2 p.Glu357Lys')).toBeVisible();
+    await monitorSettled(browser);
+
+    const closed = await browser.evaluate(() => ({
+      monitor: Math.round(document.querySelector('.workbench-rail')!.getBoundingClientRect().height * 10) / 10,
+      recentsH: Math.round(document.querySelector('.workbench-recents')!.getBoundingClientRect().height * 10) / 10,
+      deck: getComputedStyle(document.querySelector('.workbench-deck')!).getPropertyValue('--workbench-deck-h'),
+    }));
+    expect(closed.deck !== '', `the deck's design height was measured (${closed.deck})`).toBe(true);
+
+    await screen.getByText('Optional refinements', { exact: true }).tap();
+    await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('ok'), 400)));
+    const open = await browser.evaluate(() => {
+      const r = (sel: string) => (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
+      const recents = r('.workbench-recents');
+      const monitor = r('.workbench-rail');
+      return {
+        monitor: Math.round(monitor.height * 10) / 10,
+        recents: Math.round(recents.height * 10) / 10,
+        aligned: Math.abs(monitor.bottom - recents.bottom) <= 1,
+      };
+    });
+    // The deck's height is the monitor's measured content, and the query card grows into it: the
+    // recents card yields (shrinks, scrolls inside itself) instead of dropping the column or the
+    // monitor, and the two columns still share their bottom edge. The health summary has settled
+    // before the first measurement, so the monitor does not move at all.
+    expect(Math.abs(open.monitor - closed.monitor) <= 1, `the monitor keeps its height when the query expands (${closed.monitor} → ${open.monitor})`).toBe(true);
+    expect(open.recents <= closed.recentsH - 20, `the recents card yields to the expansion (${closed.recentsH} → ${open.recents})`).toBe(true);
+    expect(open.aligned, 'both columns still share a bottom edge').toBe(true);
+    // And the grown card never lurches past the deck it shares: it fits its row (scrolling inside
+    // when its content is taller), it does not push the deck taller.
+    const cardOverflow = await browser.evaluate(() => {
+      const deck = document.querySelector('.workbench-deck')!.getBoundingClientRect();
+      const card = document.querySelector('.workbench-query')!.getBoundingClientRect();
+      return Math.round((card.bottom - deck.bottom) * 10) / 10;
+    });
+    expect(cardOverflow <= 2, `the expanded card stays inside the deck (${cardOverflow}px past)`).toBe(true);
+    await app.screenshot('expansion-scrolls');
+  });
+
+  test('an open service drawer scrolls inside the monitor and never raises the deck', async ({ app, browser, screen }) => {
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await monitorSettled(browser);
+    const deckHeight = () => browser.evaluate(() =>
+      parseFloat((document.querySelector('.workbench-deck') as HTMLElement).style.getPropertyValue('--workbench-deck-h')));
+    const closed = await deckHeight();
+
+    await screen.getByRole('button', 'Show details for Gemini Clinical AI').tap();
+    await expect(screen.getByRole('button', 'Hide details for Gemini Clinical AI')).toBeExpanded();
+    // Any re-measure (a resize, a health poll) must read the list as if the drawer were shut.
+    await browser.evaluate(() => new Promise<string>(r => {
+      window.dispatchEvent(new Event('resize'));
+      setTimeout(() => r('ok'), 300);
+    }));
+    const open = await deckHeight();
+    expect(Math.abs(open - closed) <= 1, `the deck keeps its height when a drawer opens (${closed} → ${open})`).toBe(true);
+    await app.screenshot('service-drawer-open');
   });
 });

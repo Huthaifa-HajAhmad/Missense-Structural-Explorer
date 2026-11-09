@@ -135,8 +135,8 @@
   font-size: 12px;
   line-height: 1.5;
 }
+.cx-screen .cx-record-toolbar .cs-seg-control { box-sizing: border-box; align-items: center; min-block-size: 38px; }
+.cx-screen .cx-record-toolbar .cs-seg-btn { box-sizing: border-box; min-block-size: 30px; padding-inline: 14px; font-size: var(--cs-font-size-prose); }
 .cx-screen .cx-record-toolbar .viz-action { white-space: nowrap; }
 .cx-screen .cx-record-toolbar .cx-check { min-block-size: 38px; }
 
-.cx-screen .cx-record-toolbar .gd-view-control { box-sizing: border-box; min-block-size: 38px; }
-.cx-screen .cx-record-toolbar .gd-view-control button { box-sizing: border-box; min-block-size: 30px; padding-block: 4px; line-height: 1.5; }

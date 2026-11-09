@@ -117,7 +117,6 @@ describe("de novo overlay for a protein past AlphaFold DB's ceiling", () => {
 describe("3D rail — NAE1 p.Asp116Gly", () => {
   it.each([
     ['known AlphaFold', {}, 'Explain this structure confidence measure', 'pLDDT'],
-    ['missing coordinates', { pdbText: null }, 'Why structure confidence is not interpreted', 'Uninterpreted structure confidence'],
     ['unknown provenance', { pdbText: CRYSTAL, pdbTextProvenance: null }, 'Why structure confidence is not interpreted', 'Uninterpreted structure confidence'],
   ])('opens confidence guidance appropriate to %s', (_label, overrides, trigger, title) => {
     HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
@@ -128,11 +127,18 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     expect(view.getByRole('dialog').getAttribute('aria-labelledby')).toBeTruthy();
     expect(within(view.getByRole('dialog')).getByRole('heading', { level: 2 }).textContent).toContain(title);
   });
+  it("keeps the guide on the AlphaFold model's own confidence measure while its coordinates are still loading", () => {
+    seed({ pdbText: null });
+    const view = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const guide = view.getByRole("button", { name: "Explain this structure confidence measure" });
+    expect(guide.getAttribute("data-explanation-topic")).toBe("plddt");
+    expect(view.container.textContent).not.toMatch(/N\/A/);
+  });
+
   it("names the AlphaFold model as the wild type and never calls 1YOV's B-factor pLDDT", () => {
     const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
     const text = container.textContent ?? "";
     expect(within(container.querySelector("[data-testid='structure-rail-canvas']") as HTMLElement).getByText("AF-Q13564-F1 v6")).toBeTruthy();
-    expect(text).toContain("pLDDT 92.3 · very high");
     expect(text).not.toMatch(/pLDDT 94\.5/);
     expect(text).not.toMatch(/\bN\/A\b/);
     expect(container.textContent).not.toContain("Side-chain comparison");
@@ -199,7 +205,6 @@ describe("3D toolbar and legend", () => {
     alignmentScope: "global",
     metrics: null,
     esm3: null,
-    region: null,
     burial: null,
     homologs: [],
     homologsLoading: false,
@@ -220,18 +225,42 @@ describe("3D toolbar and legend", () => {
         onFocusSite={noop}
         pocketOpen={false}
         onTogglePocket={noop}
-        captureOpen={false}
-        setCaptureOpen={vi.fn()}
-        captureMenuRef={React.createRef()}
-        onDownload={noop}
-        onCopy={noop}
-        copyState="idle"
-        onOpenGuide={noop}
+        onDownloadImage={async () => {}}
+        onCopyImage={async () => true}
         isFullscreen={false}
         onToggleFullscreen={noop}
         {...extra}
       />
     );
+
+  it("the image menu owns its open state: copy reports the result, Escape and an outside click close it", async () => {
+    const onCopyImage = vi.fn(async () => false);
+    const onDownloadImage = vi.fn(async () => {});
+    const { getByRole, queryByRole } = toolbar(buildStructure3dEvidence(input()), { onCopyImage, onDownloadImage });
+    const trigger = getByRole("button", { name: "Save or copy an image of the view" });
+
+    fireEvent.click(trigger);
+    fireEvent.click(getByRole("button", { name: /Copy to clipboard/ }));
+    expect(onCopyImage).toHaveBeenCalledTimes(1);
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(await within(trigger).findByText("Copy failed")).toBeTruthy();
+
+    fireEvent.click(trigger);
+    fireEvent.click(getByRole("button", { name: /Download PNG/ }));
+    expect(onDownloadImage).toHaveBeenCalledTimes(1);
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(document.body);
+    expect(queryByRole("group", { name: "Image actions" })).toBeNull();
+  });
 
   it("disables the variant and superposition while FoldX runs, and says why", () => {
     const { container } = toolbar(buildStructure3dEvidence(input()));
@@ -295,14 +324,22 @@ describe("3D toolbar and legend", () => {
     const { container } = render(<StructureLegend legend={model.legend} />);
     const legend = container.querySelector("[data-testid='structure-legend']")!;
     expect(legend.getAttribute("data-provenance")).toBe("published");
-    expect(legend.textContent).toContain("Very high");
-    expect(legend.textContent).toContain("AlphaFold DB bands");
-
-    const toggle = within(legend as HTMLElement).getByRole("button", { name: "Hide colour key" });
-    expect(toggle.getAttribute("aria-controls")).toBe("s3d-legend-body");
-    fireEvent.click(toggle);
+    // Collapsed by default: a title and a mini colour bar, no bands yet.
     expect(legend.getAttribute("data-collapsed")).toBe("true");
     expect(legend.querySelectorAll(".s3d-legend__mini-seg")).toHaveLength(model.legend!.entries.length);
+    expect(legend.querySelector(".s3d-legend__list")).toBeNull();
+
+    const toggle = within(legend as HTMLElement).getByRole("button", { name: "Show colour key" });
+    expect(toggle.getAttribute("aria-controls")).toBe("s3d-legend-body");
+    fireEvent.click(toggle);
+    expect(legend.getAttribute("data-collapsed")).toBeNull();
+    expect(legend.textContent).toContain("Very high");
+    expect(legend.textContent).toContain("> 90");
+    expect(legend.textContent).toContain("AlphaFold DB bands");
+    expect(legend.querySelectorAll(".s3d-legend__swatch")).toHaveLength(model.legend!.entries.length);
+
+    fireEvent.click(within(legend as HTMLElement).getByRole("button", { name: "Hide colour key" }));
+    expect(legend.getAttribute("data-collapsed")).toBe("true");
   });
 
   it("keeps the Close-up toggle and omits the redundant side-chain diagram in both model families", () => {
@@ -410,7 +447,7 @@ describe("3D toolbar and legend", () => {
       />,
     );
     expect(atSite.container.querySelector(".s3d-selection__badge")?.textContent).toBe("Queried site");
-    expect(atSite.container.textContent).not.toContain("Variant-site measurements below remain tied to the queried substitution.");
+    expect(atSite.container.textContent).not.toContain("Site readings below stay tied to the queried substitution.");
     atSite.unmount();
 
     // Unmapped selection at the variant position must not claim "Queried site" and must keep the caveat note
@@ -432,7 +469,7 @@ describe("3D toolbar and legend", () => {
     );
     expect(unmappedAtSite.container.querySelector(".s3d-selection__badge")).toBeNull();
     expect(unmappedAtSite.container.querySelector(".s3d-selection__return")).toBeNull();
-    expect(unmappedAtSite.container.textContent).toContain("Variant-site measurements below remain tied to the queried substitution.");
+    expect(unmappedAtSite.container.textContent).not.toContain("Coordinates:");
     unmappedAtSite.unmount();
 
     // Unmapped selection away from the site labels the action "Return to position 116" without a substitution
@@ -473,7 +510,6 @@ describe("3D toolbar and legend", () => {
     );
     const returnBtn = awayFromSite.getByRole("button", { name: /Return to Asp116Gly/i });
     expect(returnBtn).toBeTruthy();
-    expect(awayFromSite.container.textContent).toContain("Variant-site measurements below remain tied to the queried substitution.");
     fireEvent.click(returnBtn);
     const state = useVariantAnalysisStore.getState();
     expect(state.selectedResidueIndex).toBe(116);

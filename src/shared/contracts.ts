@@ -794,8 +794,7 @@ export const resolveGeneRequestSchema = z.object({
 
 export const resolveGeneResponseSchema = z.object({
   gene: z.string(),
-  uniprotId: z.string(),
-  pdbUrl: z.string().nullable().optional()
+  uniprotId: z.string()
 });
 
 export type TranslateVariantRequest = z.infer<typeof translateVariantRequestSchema>;
