@@ -58,7 +58,7 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <EvidenceViewTabs tab="expression-models" comparisonLabel="Tissue explorer" marks={{ protein: proteinAtlasMark(context.hpaLoad?.data), pext: pextMark(pextLocation.region) }} />
-    {(workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary><strong>Review context</strong><span>{systemCount ? `${systemCount} ${systemCount === 1 ? 'system' : 'systems'}` : 'All systems'}</span><span className="xp-review-disease">{chosen?.label ?? 'No disease selected'}</span></summary>{reviewFrame}</details> : reviewFrame)}
+    {(workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary><strong>Review context</strong><span className="xp-review-disease">{chosen?.label ?? 'No disease selected'}</span><span>{systemCount ? `${systemCount} ${systemCount === 1 ? 'system' : 'systems'}` : 'All systems'}</span></summary>{reviewFrame}</details> : reviewFrame)}
     <EvidencePanel tab="expression-models">
       {showHero && <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} activeFinding={activeFinding} />}
       {(!workspace.enabled || workspace.comparison || workspace.view === 'records') && <ContextExplorer tab="expression-models" rows={rows} hasReviewSystems={context.selection.systems.length > 0} onChooseSystems={chooseSystems} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}

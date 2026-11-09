@@ -56,11 +56,11 @@
    It grows into whatever height the tray has left, so the benchmarks below it stay at the tray floor. */
 .workbench-recents-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .375rem; min-block-size: 6rem; margin: 1rem var(--workbench-pad) .25rem; padding: 1rem; border: 1px dashed var(--cs-border); border-radius: 8px; text-align: center; }
 .workbench-recents-empty-icon { display: inline-flex; align-items: center; justify-content: center; inline-size: 2.5rem; block-size: 2.5rem; margin-block-end: .25rem; border: 1px solid var(--cs-border-subtle); border-radius: 50%; background: var(--cs-workbench-header-surface); color: var(--cs-text-muted); }
-.workbench-recents-empty-icon > svg { inline-size: 18px; block-size: 18px; stroke-width: 1.5; }
+.workbench-recents-empty-icon > svg { inline-size: 18px; block-size: 18px; flex: none; stroke-width: 1.5; }
 .workbench-recents-empty-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
 .workbench-recents-empty-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
 /* The list rules are the only row lines: a boxed current row would sit against its neighbour's rule as a double line. */
-.workbench-recent[aria-pressed="true"] { background: var(--cs-surface-2); box-shadow: inset 2px 0 0 var(--cs-accent-clay); }
+.workbench-recent[aria-pressed="true"] { background: color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface)); box-shadow: inset 3px 0 0 var(--cs-accent-clay); }
 .workbench-recent-identity { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr); align-items: baseline; gap: .125rem 1rem; flex: 1; min-inline-size: 0; }
 .workbench-recent-gene { font-size: 13px; font-weight: 600; }
 .workbench-recent-variant { font-family: var(--cs-font-mono); font-size: 12px; overflow-wrap: anywhere; }
@@ -93,14 +93,14 @@
 .workbench-benchmark-variant { font-family: var(--cs-font-mono); font-size: 12px; color: var(--cs-text-secondary); overflow-wrap: anywhere; }
 .workbench-benchmark-tag { min-inline-size: 0; font-size: 11px; color: var(--cs-text-muted); }
 .workbench-benchmark-run { display: inline-flex; align-items: center; gap: .375rem; font-size: 11px; color: var(--cs-text-accent); }
-.workbench-benchmark-run > svg { inline-size: 13px; block-size: 13px; }
+.workbench-benchmark-run > svg { inline-size: 13px; block-size: 13px; flex: none; }
 .workbench-benchmark-fill { min-block-size: 1.75rem; padding-inline: .5rem; border: 0; border-radius: var(--cs-radius-badge); background: transparent; color: var(--cs-text-muted); font-size: 11px; cursor: pointer; }
 .workbench-benchmark-fill:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
 .workbench-rail.cs-panel { background: var(--cs-panel-body); border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); box-shadow: var(--cs-workbench-shadow); min-inline-size: 0; overflow: clip; }
 .workbench-rail-body { display: flex; flex-direction: column; min-block-size: 0; }
 .workbench-rail-heading { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; flex: none; padding: .875rem 1.25rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-rail [role="tabpanel"] { padding: 1rem 1.25rem; }
-.workbench-rail-heading > svg { inline-size: 16px; block-size: 16px; margin-inline-start: auto; color: var(--cs-text-muted); stroke-width: 1.5; }
+.workbench-rail-heading > svg { inline-size: 16px; block-size: 16px; flex: none; margin-inline-start: auto; color: var(--cs-text-muted); stroke-width: 1.5; }
 /* The monitor's view switch: a segmented control. One raised thumb, drawn by the track rather than by each tab, slides
    to the selected segment, so a switch reads as movement and not as a repaint. Selection is ink plus the thumb; the
    label weight never changes, so the labels do not shift. */
@@ -245,7 +245,9 @@
 .qe-ai__label { font-size: 12px; color: var(--cs-text-secondary); }
 .qe-ai__textarea { inline-size: 100%; field-sizing: content; min-block-size: 5rem; max-block-size: 13rem; resize: vertical; padding: .75rem; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-accent-wash); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; user-select: text; }
 .qe-ai__textarea::placeholder { color: var(--cs-text-muted); }
-.variant-workbench :is(.qe__input, .qe__tool, .qe__submit, .qe__example, .qe-refine__summary, .qe-ai__textarea):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+/* The input and the in-bar tool carry no outline of their own: .qe__bar already outlines on :has(:focus-visible). A second outline here is the double border. */
+.qe__input:focus-visible { outline: 2px solid transparent; }
+.variant-workbench :is(.qe__submit, .qe__example, .qe-refine__summary, .qe-ai__textarea):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .qe__tool:active, .qe__example:active, .qe-refine__summary:active { background: var(--cs-bg-subtle); }
 
 @media (min-width: 64rem) {
