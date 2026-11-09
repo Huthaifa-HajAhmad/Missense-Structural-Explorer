@@ -25,6 +25,21 @@ function Harness({ result }: { result: AnalysisResult }) {
 beforeEach(() => { fetchWithAuth.mockReset(); sessionStorage.clear(); const f = contextWorkspaceFixture(); store.setState({ ...f.state, gene: 'SOD1', variant: f.result.metadata!.variant }); });
 
 describe('production context tabs and linked inspectors', () => {
+  it('shows the disease before review systems in both context summaries', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    for (const tab of ['Go expression', 'Go species']) {
+      fireEvent.click(screen.getByRole('button', { name: tab }));
+      const summary = screen.getByText('Review context').closest('summary')!;
+      const disease = summary.querySelector('.xp-review-disease, .sm-review-disease');
+      const systems = [...summary.querySelectorAll('span')].find(s => s.textContent?.match(/systems/));
+      expect(disease, `${tab}: summary must carry a disease span`).not.toBeNull();
+      expect(systems, `${tab}: summary must carry a systems span`).toBeTruthy();
+      // Reading order: the disease span precedes the systems span in the DOM,
+      // and its text comes first — not just "child 1 is not systems".
+      expect(disease!.compareDocumentPosition(systems!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(summary.textContent!.indexOf(disease!.textContent!)).toBeLessThan(summary.textContent!.indexOf(systems!.textContent!));
+    }
+  });
   it('gives unique expression and species content its own topic without duplicating measurements', () => {
     store.setState({ extraContexts: { ...store.getState().extraContexts, 'pext:SOD1': { status: 'ready', data: { gene: 'SOD1', status: 'ready', geneId: 'ENSG1', chrom: '21', flags: [], provenance: null, message: null, regions: [{ start: 100, stop: 200, mean: 0.5, tissues: [] }] } } } });
     render(<Harness result={contextWorkspaceFixture().result} />);

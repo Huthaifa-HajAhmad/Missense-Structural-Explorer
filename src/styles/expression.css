@@ -102,7 +102,7 @@
 .xp-workspace .cx-guide { border-block-end: 0; }
 .xp-workspace .cx-guide > div { max-inline-size: none; }
 .xp-review-settings > .xp-frame { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
-.xp-review-settings > summary .xp-review-disease { flex: 1 1 25ch; overflow-wrap: anywhere; }
+.xp-review-settings > summary .xp-review-disease { flex: 0 1 auto; overflow-wrap: anywhere; }
 .xp-review-settings > summary:active { background: var(--cs-surface-2); }
 .xp-pext-reference { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-size: 12px; }
 .xp-workspace [data-testid="pext-card"] tr[data-selected] { background: var(--cs-workbench-header-surface); }

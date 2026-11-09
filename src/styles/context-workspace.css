@@ -107,7 +107,7 @@
 .sm-review { border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface); }
 .sm-review > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-block-size: 44px; padding: 10px 14px; cursor: pointer; color: var(--cs-text-primary); font-size: 13px; }
 .sm-review > summary > span { font-size: 12px; color: var(--cs-text-secondary); }
-.sm-review-disease { flex: 1 1 25ch; overflow-wrap: anywhere; }
+.sm-review-disease { flex: 0 1 auto; overflow-wrap: anywhere; }
 .sm-review > summary::after { content: ''; inline-size: 7px; block-size: 7px; margin-inline-start: auto; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); }
 .sm-review[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
 .sm-review > .xp-frame { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
