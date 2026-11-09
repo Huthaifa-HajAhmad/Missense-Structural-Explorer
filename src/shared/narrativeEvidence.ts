@@ -50,6 +50,7 @@ import {
   type DeepEvidenceContext,
   type DeepModelEvidence,
 } from "./deepModelEvidence.ts";
+import { serviceStatusOf } from "./serviceStatus.ts";
 
 /**
  * The narrative EVIDENCE contract's version.
@@ -278,7 +279,7 @@ export function narrativeEvidenceSourceFromResult(
     aouLookup: result?.aouLookup ?? null,
     uniprotFeatures: result?.uniprotFeatures ?? null,
     sequence: result?.metadata?.sequence ?? result?.sequence ?? null,
-    serviceStatus: result?.serviceStatus ?? result?.metadata?.serviceStatus ?? null,
+    serviceStatus: serviceStatusOf(result),
     /*
      * The deep-model block, projected here rather than passed in, so a caller cannot plan a request with
      * one deep-evidence set and check its freshness against another. The projection is a pure function

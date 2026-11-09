@@ -96,7 +96,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setThermompnnJobId: vi.fn(),
       setThermompnnStatus: vi.fn(),
       setThermompnnError: vi.fn(),
-      lastFetchedFoldRef: { current: "" }
     };
   });
 
@@ -110,22 +109,12 @@ describe("useAnalysisPipeline Hook Integration", () => {
      *
      * Mechanism: `abortAllPendingRequests` bumps the request id AND aborts, so `foldxService`'s finally
      * (`!signal.aborted && getActiveRequestId() === requestId`) is false on BOTH clauses and correctly
-     * declines to write. If the new run then skips Stage 3 — the search form does, because
-     * `lastFetchedFoldRef` still holds the variant, the backfill is cooldown-blocked, and the early
-     * return needs no FoldX — nothing sets or clears the flag again, and all six engines render
-     * "running" forever.
+     * declines to write. If the new run then skips Stage 3 — the cooldown holds, or the cached path
+     * needs no FoldX — nothing sets or clears the flag again, and all six engines render "running"
+     * forever. The same holds for the pocket and homolog flags and the step line.
      */
-    const foldRefWrites: string[] = [];
-    mockOptions.lastFetchedFoldRef = {
-      _value: "PAH_p.Arg408Trp",
-      get current() {
-        return this._value;
-      },
-      set current(next: string) {
-        foldRefWrites.push(next);
-        this._value = next;
-      },
-    };
+    mockOptions.setIsPocketLoading = vi.fn();
+    mockOptions.setIsHomologsLoading = vi.fn();
 
     const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
 
@@ -138,10 +127,8 @@ describe("useAnalysisPipeline Hook Integration", () => {
       "the first thing a new run does must be clearing what the abort left set"
     ).toEqual([false]);
 
-    expect(
-      foldRefWrites[0],
-      "the fold ref must be cleared too, or the clear turns a permanent Running into a permanent FoldX no-result that re-searching cannot fix"
-    ).toBe("");
+    expect(mockOptions.setIsPocketLoading.mock.calls[0], "a replaced run no longer lowers this flag itself").toEqual([false]);
+    expect(mockOptions.setIsHomologsLoading.mock.calls[0], "a replaced run no longer lowers this flag itself").toEqual([false]);
 
     /**
      * ...and the FoldX progress object is cleared with the flag.
@@ -207,7 +194,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setThermompnnJobId: vi.fn(),
       setThermompnnStatus: vi.fn(),
       setThermompnnError: vi.fn(),
-      lastFetchedFoldRef: { current: "" }
     };
     const structureSink = {
       setPdbText: vi.fn(),

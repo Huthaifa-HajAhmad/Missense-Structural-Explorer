@@ -11,11 +11,10 @@ import {
 } from "../services/pipeline/structureService.ts";
 import { executeFullAnalysisWorkflow } from "../services/pipeline/workflowOrchestrator.ts";
 import { getCachedVariant } from "../services/pipeline/variantCache.ts";
-import { hasReusableCoreEvidence } from "../services/pipeline/resultMerge";
+import { isServableStoredResult } from "../services/pipeline/storedAnalysis";
 import { createAnalysisCacheContext } from "../services/pipeline/analysisContext.ts";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { deepEvidenceContextFromStore } from "../shared/deepModelEvidence";
-import { isBuildDegradedResult } from "../shared/contracts.ts";
 import {
   PipelineAnalysisSink,
   PipelineStructureSink,
@@ -45,6 +44,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
       serverGeminiReady: options.serverGeminiReady,
       userDirections: options.userDirections,
       numberingBasis: options.numberingBasis,
+      waitForServerGemini: options.waitForServerGemini,
       getCurrentEvidence: options.getCurrentEvidence,
       sinks: options.sinks
     };
@@ -95,8 +95,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setDdmutStatus: flat.setDdmutStatus || (() => {}),
         setThermompnnJobId: flat.setThermompnnJobId || (() => {}),
         setThermompnnStatus: flat.setThermompnnStatus || (() => {}),
-        setThermompnnError: flat.setThermompnnError || (() => {}),
-        lastFetchedFoldRef: flat.lastFetchedFoldRef || { current: "" }
+        setThermompnnError: flat.setThermompnnError || (() => {})
       },
       structure: {
         setPdbText: flat.setPdbText || (() => {}),
@@ -272,14 +271,14 @@ export function useAnalysisPipeline() {
     );
 
     /**
-     * Clear the run state an abort leaves behind — BEFORE the new run claims its request id.
+     * Clear the activity an aborted run leaves behind, BEFORE the new run claims its request id. A
+     * replaced run writes nothing, so the run that replaces it is the only thing that can lower its flags.
      *
      * `abortAllPendingRequests` bumps the id and aborts, and `foldxService`'s finally is
      * `!signal.aborted && getActiveRequestId() === requestId`. After an abort BOTH clauses are false, so
      * the run correctly declines to write and NOTHING owns the flag. If the new run then skips Stage 3 —
-     * which is exactly what the search form does, because `lastFetchedFoldRef` still holds this variant,
-     * the backfill is cooldown-blocked, and the early return needs no FoldX — no dispatch ever sets or
-     * clears it, and `isFolding` stays true while all six engines render "running" with no way back.
+     * which it does whenever the cooldown holds or the cached path needs no FoldX, no dispatch ever sets
+     * or clears it, and `isFolding` stays true while all six engines render "running" with no way back.
      *
      * This is the only place in the app that aborts and then starts a run, so it is the one point where
      * the clear cannot race a newer run. It must NOT move into the abort itself: `workflowOrchestrator`
@@ -291,14 +290,10 @@ export function useAnalysisPipeline() {
     // ...and the phase goes with it: `setIsFolding` clears progress, but a sink supplied by an
     // older caller (or a test double) may not implement the pairing.
     normalizedOptions.sinks.biophysical.setFoldingProgress?.(null);
-    /**
-     * The companion, and it is not optional.
-     *
-     * Clearing the flag alone converts a permanent "Running" into a permanent FoldX "no result" that
-     * pressing Search again cannot fix: `lastFetchedFoldRef` still holds this variant, so Stage 3 is
-     * skipped on every retry and nothing re-attempts the fold. Clearing the ref re-arms it.
-     */
-    normalizedOptions.sinks.biophysical.lastFetchedFoldRef.current = "";
+    structureSink.setIsPocketLoading(false);
+    setIsHomologsLoading(false);
+    structureSink.setIsHomologsLoading(false);
+    analysisSink.setLoadingStep("");
 
     const requestId = ++activeRequestIdRef.current;
 
@@ -329,10 +324,7 @@ export function useAnalysisPipeline() {
      * The bundle is skipped rather than deleted: the run below re-fetches, and the heavy build-free
      * artefacts (PDB text, energetics) are still restored from it.
      */
-    const servableCachedResult =
-      cached?.analysisResult && hasReusableCoreEvidence(cached.analysisResult) && !isBuildDegradedResult(cached.analysisResult)
-        ? cached.analysisResult
-        : null;
+    const servableCachedResult = isServableStoredResult(cached?.analysisResult) ? cached!.analysisResult : null;
     if (servableCachedResult) {
       analysisSink.setAnalysisState({ isLoading: false, error: null, result: servableCachedResult });
       analysisSink.setIsBiophysicalLoading(false);

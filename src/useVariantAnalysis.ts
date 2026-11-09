@@ -8,6 +8,7 @@ import { useFoldxSuperposition } from "./hooks/useFoldxSuperposition";
 import { useStructuralFolding } from "./hooks/useStructuralFolding";
 import { useAnalysisPipeline } from "./hooks/useAnalysisPipeline";
 import { getVariantStyles } from "./shared/variantStyles";
+import { firstDiagnosticsReading } from "./stores/diagnosticsStore";
 import { useVariantAnalysisStore } from "./stores/useVariantAnalysisStore";
 import { fetchProgressiveStructuralAssessments } from "./services/pipeline/biophysicalService";
 
@@ -89,6 +90,7 @@ export default function useVariantAnalysis() {
         // A reader's numbering decision applies to the run they made it for; the store clears it when
         // the notation changes, so it can never leak onto a later, different query.
         ...(currentStore.numberingBasis ? { numberingBasis: currentStore.numberingBasis } : {}),
+        waitForServerGemini: async () => Boolean((await firstDiagnosticsReading()).diagnostics?.geminiReady),
         sinks: {
           search: {
             setGene: currentStore.setGene,
@@ -127,7 +129,6 @@ export default function useVariantAnalysis() {
             setThermompnnJobId: currentStore.setThermompnnJobId,
             setThermompnnStatus: currentStore.setThermompnnStatus,
             setThermompnnError: currentStore.setThermompnnError,
-            lastFetchedFoldRef: biophysical.lastFetchedFoldRef
           },
           structure: {
             setPdbText: currentStore.setPdbText,

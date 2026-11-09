@@ -231,7 +231,8 @@ export default function App() {
     setActiveEvidenceTab,
     setIsOffline,
     fetchWithAuth,
-    consoleDispatch
+    consoleDispatch,
+    settings
   });
 
   // Theme-adaptive typography & card styling tokens (L-9: use CSS variable-backed Tailwind utility classes instead of hardcoded hex values)

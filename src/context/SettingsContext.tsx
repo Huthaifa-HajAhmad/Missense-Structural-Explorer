@@ -6,6 +6,8 @@ import {
   TransientSettingKey,
   prefersReducedMotion
 } from "../components/settings/defaults";
+import { useDiagnostics } from "../hooks/useDiagnostics";
+import { geminiCredentials } from "../shared/geminiCredentials";
 
 export const SETTINGS_SECTIONS = [
   "appearance",
@@ -337,29 +339,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const [serverGeminiReady, setServerGeminiReady] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/v1/diagnostics")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.geminiReady) {
-          setServerGeminiReady(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const serverGeminiReady = Boolean(useDiagnostics().diagnostics?.geminiReady);
 
   const openSettingsTab = (tab: SettingsTabId | LegacySettingsTabId = "appearance") => {
     setSettingsTab(LEGACY_TAB_MAP[tab as LegacySettingsTabId] ?? (tab as SettingsTabId));
     setIsSettingsOpen(true);
   };
 
-  const hasConfiguredGeminiKey = Boolean(
-    serverGeminiReady ||
-    settings.geminiApiKey?.trim() ||
-    (settings.geminiSessionId && typeof settings.geminiSessionExpiresAt === "number" && settings.geminiSessionExpiresAt > Date.now())
-  );
+  const hasConfiguredGeminiKey = geminiCredentials(settings, serverGeminiReady, Date.now()).canAttemptNarrative;
 
   return (
     <SettingsContext.Provider

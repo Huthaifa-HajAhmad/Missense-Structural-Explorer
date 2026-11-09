@@ -2,6 +2,7 @@ import type { AnalysisResult } from "./contracts.ts";
 import { formatDdg, type RemoteStatus } from "./engineStatus.ts";
 import { buildEnergeticsEvidence } from "./energeticsEvidence.ts";
 import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
+import { serviceStatusOf } from "./serviceStatus.ts";
 import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "./locusResolution.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error" | "unavailable" | "on-demand";
@@ -21,6 +22,17 @@ export function isOnDemandView(view: string): boolean {
   return ON_DEMAND_VIEWS.has(view);
 }
 
+/** What each stage does, shown while it has nothing of its own to report. */
+const STAGE_DESCRIPTIONS: Record<string, string> = {
+  evidence: "ClinVar, gnomAD & ACMG rules engine",
+  structure: "AlphaFold DB, ESMFold & PDB 3D templates",
+  energetics: "FoldX, DynaMut2 & DDMut stability engines",
+  landscape: "3D spatial mutation mapping & pocket impact",
+  insights: "AI-driven variant interpretation narrative",
+  literature: "PubMed Central & Europe PMC citation mining",
+  report: "Downloadable clinical report & variant summary"
+};
+
 export function summarizeWorkflowStatuses(statuses: WorkflowStatusType[]) {
   const automatic = statuses.filter(status => status !== "on-demand");
   const settled = automatic.filter(status => ["complete", "degraded", "error", "unavailable"].includes(status)).length;
@@ -30,6 +42,21 @@ export function summarizeWorkflowStatuses(statuses: WorkflowStatusType[]) {
     percent: automatic.length ? Math.round(settled / automatic.length * 100) : 0,
     hasProblems: automatic.some(status => ["degraded", "error", "unavailable"].includes(status))
   };
+}
+
+/** The one summary of a run. Stages the reader opens on demand are never part of it. */
+export function summarizeRunStages(stages: ReadonlyArray<{ key: string; status: WorkflowStatusType }>) {
+  return summarizeWorkflowStatuses(stages.filter(stage => !isOnDemandView(stage.key)).map(stage => stage.status));
+}
+
+/**
+ * A stage with no outcome after core has finished will never get one, so it is settled rather than
+ * left waiting. Returns null while core may still produce one.
+ */
+function settledWithNothing(result: AnalysisResult, reason: string): { status: WorkflowStatusType; desc: string } | null {
+  const core = result.metadata?.pipelineStages?.core;
+  if (core !== "complete" && core !== "degraded") return null;
+  return { status: "unavailable", desc: result.metadata?.uniprotId ? reason : "Not run · No protein accession was resolved for this variant" };
 }
 
 function remoteStatus(status: string | null | undefined): RemoteStatus {
@@ -117,11 +144,19 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   if (params.foldingStatus || energetics || result?.metadata?.pipelineStages?.core === "complete") {
     return { status: "unavailable", desc: "Stability engines settled without a numeric result · Open Energetics for details" };
   }
-  return { status: params.isLoadingSearch || params.isBiophysicalLoading ? "progress" : "pending", desc: "Awaiting stability engine results..." };
+  const waiting = params.isLoadingSearch || params.isBiophysicalLoading;
+  return { status: waiting ? "progress" : "pending", desc: result || waiting ? "Awaiting stability engine results..." : STAGE_DESCRIPTIONS.energetics };
+}
+
+function narrativeStageOf(result: AnalysisResult | null | undefined) {
+  return result?.metadata?.pipelineStages?.narrative;
 }
 
 export function hasRealAnalysis(result: AnalysisResult | null | undefined): boolean {
   if (typeof result?.analysis !== "string") return false;
+  const stage = narrativeStageOf(result);
+  if (stage) return stage === "complete" && Boolean(result.analysis.trim());
+  // A stored result from before narrative stages were recorded: only its wording is left to go on.
   const a = result.analysis.trim().toLowerCase();
   return (
     Boolean(a) &&
@@ -135,6 +170,8 @@ export function hasRealAnalysis(result: AnalysisResult | null | undefined): bool
 
 export function isAnalysisFailed(result: AnalysisResult | null | undefined): boolean {
   if (typeof result?.analysis !== "string") return false;
+  const stage = narrativeStageOf(result);
+  if (stage) return stage === "error" || stage === "degraded";
   const a = result.analysis.toLowerCase();
   return (
     a.includes("generation failed") ||
@@ -143,17 +180,18 @@ export function isAnalysisFailed(result: AnalysisResult | null | undefined): boo
   );
 }
 
-export function hasRealInsights(insights: any): boolean {
+export function hasRealInsights(insights: any, narrativeStage?: string): boolean {
   if (!insights || typeof insights !== "object") return false;
   const shift = typeof insights.biochemicalShift === "string" ? insights.biochemicalShift.toLowerCase() : "";
   const impact = typeof insights.structuralImpact === "string" ? insights.structuralImpact.toLowerCase() : "";
   if (
+    narrativeStage !== "complete" && (
     shift.includes("unavailable") ||
     shift.includes("failed") ||
     shift.includes("not synthesized") ||
     impact.includes("unavailable") ||
     impact.includes("failed") ||
-    impact.includes("not synthesized")
+    impact.includes("not synthesized"))
   ) {
     return false;
   }
@@ -199,53 +237,7 @@ export interface WorkflowStageStatusParams {
   evidenceTabsLoading?: readonly string[];
 }
 
-export function getWorkflowStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string };
-export function getWorkflowStageStatus(
-  view: string,
-  result?: AnalysisResult | null,
-  isFolding?: boolean,
-  isBiophysicalLoading?: boolean,
-  isClinicalLoading?: boolean,
-  isLoadingSearch?: boolean,
-  loadingStep?: string,
-  isPocketLoading?: boolean,
-  dynamut2Status?: string | null,
-  ddmutStatus?: string | null,
-  isNarrativeLoading?: boolean,
-  hasStructureCoordinates?: boolean
-): { status: WorkflowStatusType; desc: string };
-export function getWorkflowStageStatus(
-  viewOrParams: string | WorkflowStageStatusParams,
-  argResult?: AnalysisResult | null,
-  argIsFolding?: boolean,
-  argIsBiophysicalLoading?: boolean,
-  argIsClinicalLoading?: boolean,
-  argIsLoadingSearch?: boolean,
-  argLoadingStep?: string,
-  argIsPocketLoading?: boolean,
-  argDynamut2Status?: string | null,
-  argDdmutStatus?: string | null,
-  argIsNarrativeLoading?: boolean,
-  argHasStructureCoordinates?: boolean
-): { status: WorkflowStatusType; desc: string } {
-  const p: WorkflowStageStatusParams =
-    typeof viewOrParams === "string"
-      ? {
-          view: viewOrParams,
-          result: argResult,
-          isFolding: argIsFolding ?? false,
-          isBiophysicalLoading: argIsBiophysicalLoading ?? false,
-          isClinicalLoading: argIsClinicalLoading ?? false,
-          isLoadingSearch: argIsLoadingSearch,
-          loadingStep: argLoadingStep,
-          isPocketLoading: argIsPocketLoading,
-          dynamut2Status: argDynamut2Status,
-          ddmutStatus: argDdmutStatus,
-          isNarrativeLoading: argIsNarrativeLoading,
-          hasStructureCoordinates: argHasStructureCoordinates
-        }
-      : viewOrParams;
-
+export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string } {
   const {
     view,
     result,
@@ -277,16 +269,7 @@ export function getWorkflowStageStatus(
     describeFoldxPhase(foldingPhase)?.detail ??
     "FoldX force-field run in progress — stage not reported by the compute server yet.";
 
-  // Define default descriptions for stages
-  const defaultDescs: Record<string, string> = {
-    evidence: "ClinVar, gnomAD & ACMG rules engine",
-    structure: "AlphaFold DB, ESMFold & PDB 3D templates",
-    energetics: "FoldX, DynaMut2 & DDMut stability engines",
-    landscape: "3D spatial mutation mapping & pocket impact",
-    insights: "AI-driven variant interpretation narrative",
-    literature: "PubMed Central & Europe PMC citation mining",
-    report: "Downloadable clinical report & variant summary"
-  };
+  const defaultDescs = STAGE_DESCRIPTIONS;
 
   if (view === "search") {
     return { status: "complete", desc: "Variant search workspace active" };
@@ -310,7 +293,7 @@ export function getWorkflowStageStatus(
         return {
           status: "progress",
           // Evidence that ARRIVED: a source that failed or timed out has delivered nothing to be "available".
-          desc: Object.values(result.serviceStatus ?? result.metadata?.serviceStatus ?? {}).some(status => status === "ok")
+          desc: Object.values(serviceStatusOf(result) ?? {}).some(status => status === "ok")
             ? "Partial evidence available · Remaining sources loading"
             : "Querying ClinVar, gnomAD, and predictors..."
         };
@@ -320,7 +303,7 @@ export function getWorkflowStageStatus(
        * show it in the same green as a clean one: a fallback locus (the GRCh38 lookup failed, so
        * gnomAD was never queried) or a gnomAD query that timed out or failed.
        */
-      const gnomadStatus = result.serviceStatus?.gnomadFrequency ?? result.metadata?.serviceStatus?.gnomadFrequency;
+      const gnomadStatus = serviceStatusOf(result)?.gnomadFrequency;
       if (isFallbackLocus(result)) {
         return {
           status: "degraded",
@@ -399,7 +382,7 @@ export function getWorkflowStageStatus(
       if (coordinates === "error" || coordinates === "degraded" || coordinates === "skipped") {
         return { status: "unavailable", desc: "Protein coordinates query settled without a structure · Re-run to retry" };
       }
-      return {
+      return settledWithNothing(result, "PDB structure unavailable") ?? {
         status: "pending",
         desc: "PDB structure unavailable"
       };
@@ -426,7 +409,7 @@ export function getWorkflowStageStatus(
             desc: "Loading residue scores..."
           };
         }
-        return {
+        return settledWithNothing(result, "Landscape data unavailable") ?? {
           status: "pending",
           desc: "Landscape data unavailable"
         };
@@ -476,14 +459,14 @@ export function getWorkflowStageStatus(
         };
       }
 
-      if (realAnalysis || hasRealInsights(result.insights)) {
+      if (realAnalysis || hasRealInsights(result.insights, narrativeStageOf(result))) {
         return {
           status: "complete",
           desc: "Variant interpretation consensus ready"
         };
       }
 
-      return {
+      return settledWithNothing(result, "Variant insights unavailable") ?? {
         status: "pending",
         desc: "Variant insights unavailable"
       };

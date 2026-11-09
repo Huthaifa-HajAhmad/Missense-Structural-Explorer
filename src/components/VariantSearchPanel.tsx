@@ -30,7 +30,7 @@ import {
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { EVIDENCE_SUB_ITEMS, MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
-import { getWorkflowStageStatus, isOnDemandView, summarizeWorkflowStatuses } from "../shared/workflowStatus";
+import { getWorkflowStageStatus, isOnDemandView, summarizeRunStages } from "../shared/workflowStatus";
 import { evidenceTabsLoading } from "../shared/evidenceTabProgress";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import {
@@ -607,18 +607,10 @@ function VariantSearchPanel({
   };
 
   const stageInfos = WORKFLOW_STAGES.map(stage => ({ stage, info: getStageInfo(stage.key) }));
-  // Completion and problems are judged over every stage, as before.
-  const summary = summarizeWorkflowStatuses(stageInfos.map(({ info }) => info.rawStatus));
-  /**
-   * The COUNT the rail quotes ("N of M settled") and its progress bar cover the automatic run only. An
-   * on-demand stage is opened by the reader, so counting it made the denominator swing between six and
-   * seven as it was opened, while the idle label already said six core stages.
-   */
-  const coreSummary = summarizeWorkflowStatuses(
-    stageInfos.filter(({ stage }) => !isOnDemandView(stage.key)).map(({ info }) => info.rawStatus)
-  );
-  const settledCount = coreSummary.settled;
-  const progressPct = coreSummary.percent;
+  // The one summary of the run: the count, the bar and the "partial results" wording all come from it.
+  const summary = summarizeRunStages(stageInfos.map(({ stage, info }) => ({ key: stage.key, status: info.rawStatus })));
+  const settledCount = summary.settled;
+  const progressPct = summary.percent;
 
   const isWorkflowSettled = Boolean(result && summary.total > 0 && summary.settled >= summary.total);
 
@@ -2065,7 +2057,9 @@ function VariantSearchPanel({
                 badge={
                   serviceSummary && serviceSummary.tone !== "checking" ? (
                     <span className="workbench-monitor-count" data-tone={serviceSummary.tone} aria-hidden="true">
-                      {serviceSummary.online}/{serviceSummary.total}
+                      {/* A reading that could not be renewed is not a count: "0/10" would say every
+                          service is down when the truth is that the check never answered. */}
+                      {serviceSummary.stale ? "—" : `${serviceSummary.online}/${serviceSummary.total}`}
                     </span>
                   ) : null
                 }
@@ -2080,7 +2074,7 @@ function VariantSearchPanel({
                 badge={
                   isPipelineActive ? (
                     <span className="workbench-monitor-count" data-tone="run" aria-hidden="true">
-                      {settledCount}/{coreSummary.total}
+                      {settledCount}/{summary.total}
                       <span className="sr-only">analysis running</span>
                     </span>
                   ) : hasCoreError ? (
@@ -2138,7 +2132,7 @@ function VariantSearchPanel({
                     </span>
                     <span className="text-[11px] tabular-nums text-cs-text-muted">
                       {hasRun
-                        ? `${settledCount} of ${coreSummary.total} settled`
+                        ? `${settledCount} of ${summary.total} settled`
                         : `${WORKFLOW_STAGE_COUNTS.core} core · ${WORKFLOW_STAGE_COUNTS.onDemand} on-demand`}
                     </span>
                   </div>
@@ -2149,7 +2143,7 @@ function VariantSearchPanel({
                       role="progressbar"
                       aria-label="Pipeline progress"
                       aria-valuemin={0}
-                      aria-valuemax={coreSummary.total}
+                      aria-valuemax={summary.total}
                       aria-valuenow={settledCount}
                     >
                       <div

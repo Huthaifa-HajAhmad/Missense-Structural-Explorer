@@ -15,7 +15,7 @@ import { pextResponseSchema } from '../shared/pext';
 import { modelOrganismResponseSchema } from '../shared/modelOrganisms';
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import type { ContextLoad } from '../stores/slices/evidenceContextSlice';
-import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
+import { evidenceContextIdentity, onlyFillsInIdentity } from '../shared/evidenceContextIdentity';
 import { extraContextKey, hotspotsSlot, type ExtraContextKind } from '../shared/evidenceKeys';
 import { readHotspots } from './hotspotsRead';
 import { ContextHttpError, contextRequestFailure } from '../shared/contextRequest';
@@ -141,7 +141,12 @@ export function useEvidenceContext(result: EvidenceContextInput, options: Eviden
   };
   useEffect(() => { actions.loadPhenotypeSelection(key); }, [key]);
   useEffect(() => {
-    if (previousKey.current !== key && JSON.stringify(JSON.parse(previousKey.current).slice(0, 3)) === JSON.stringify(JSON.parse(key).slice(0, 3))) setRefinedIdentity(key);
+    const previous = previousKey.current;
+    if (previous !== key && JSON.stringify(JSON.parse(previous).slice(0, 3)) === JSON.stringify(JSON.parse(key).slice(0, 3))) {
+      // A transcript arriving while the result streams is only worth a notice if a choice was left behind.
+      const choiceLeftBehind = JSON.stringify(useVariantAnalysisStore.getState().phenotypeSelections[previous] ?? EMPTY_SELECTION) !== JSON.stringify(EMPTY_SELECTION);
+      if (choiceLeftBehind || !onlyFillsInIdentity(previous, key)) setRefinedIdentity(key);
+    }
     previousKey.current = key;
   }, [key]);
   useEffect(() => {

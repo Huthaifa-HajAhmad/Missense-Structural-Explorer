@@ -4,6 +4,16 @@ import { resolveSourceAvailability } from "../evidenceAvailability";
 import { getWorkflowStageStatus } from "../workflowStatus";
 import type { LocusFailureKind } from "../locusResolution";
 
+/** The argument order these cases were written in, mapped onto the one object form. */
+const positionalStatus = (
+  view: string, result?: any, isFolding?: boolean, isBiophysicalLoading?: boolean, isClinicalLoading?: boolean,
+  isLoadingSearch?: boolean, loadingStep?: string, isPocketLoading?: boolean, dynamut2Status?: string | null,
+  ddmutStatus?: string | null, isNarrativeLoading?: boolean, hasStructureCoordinates?: boolean
+) => getWorkflowStageStatus({
+  view, result, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep,
+  isPocketLoading, dynamut2Status, ddmutStatus, isNarrativeLoading, hasStructureCoordinates
+});
+
 const locus = (retryable: boolean, failureKind?: LocusFailureKind) => ({
   predictorData: {
     gnomadVariantAssembly: "GRCh37" as const,
@@ -31,7 +41,7 @@ describe("locus outcome reconciliation", () => {
       expect(row.availability).toMatchObject({ state: "no-result", action: "provide-allele", userActionable: true });
     }
     expect(summariseReadings(reading.observations)?.kind).not.toBe("none-observed");
-    expect(getWorkflowStageStatus("evidence", locus(false, "ambiguous-allele") as any).desc).toMatch(/original.*variant/i);
+    expect(positionalStatus("evidence", locus(false, "ambiguous-allele") as any).desc).toMatch(/original.*variant/i);
   });
 
   it("legacy ambiguity text has the same recovery policy", () => {
@@ -49,7 +59,7 @@ describe("locus outcome reconciliation", () => {
       expect(reading.retryable).toBe(false);
       expect(reading.hasProviderFault).toBe(false);
       expect(reading.observations[0].availability).toMatchObject({ state: "no-result", action: null });
-      expect(getWorkflowStageStatus("evidence", locus(false, kind) as any).desc).not.toMatch(/retry|lookup failure|did not complete/i);
+      expect(positionalStatus("evidence", locus(false, kind) as any).desc).not.toMatch(/retry|lookup failure|did not complete/i);
     }
   });
 

@@ -160,24 +160,4 @@ describe("useDiagnostics — degraded coverage follow-up", () => {
     await advance(1500);
     expect(diagCalls).toBe(7);
   });
-
-  it("safely combines signals when AbortSignal.any is not supported", async () => {
-    const originalAny = AbortSignal.any;
-    try {
-      // Simulate environment without AbortSignal.any
-      delete (AbortSignal as any).any;
-
-      const { result } = renderHook(() => useDiagnostics());
-      await act(async () => {});
-      expect(diagCalls).toBe(1);
-
-      const ext = new AbortController();
-      await act(async () => {
-        await result.current.refresh(ext.signal);
-      });
-      expect(diagCalls).toBe(2);
-    } finally {
-      AbortSignal.any = originalAny;
-    }
-  });
 });

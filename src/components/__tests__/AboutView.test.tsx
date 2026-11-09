@@ -24,8 +24,8 @@ vi.mock("../../context/SettingsContext", () => ({
   useSettings: () => ({ openSettingsTab })
 }));
 
-vi.mock("../../hooks/useDiagnostics", () => ({
-  useDiagnostics: () => ({ version: { version: "1.0.0", env: "test" } })
+vi.mock("../../hooks/useAppVersion", () => ({
+  useAppVersion: () => ({ version: "1.0.0", env: "test" })
 }));
 
 // Imported after the mocks so the component picks them up.

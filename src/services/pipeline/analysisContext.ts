@@ -5,6 +5,7 @@ import {
   DEFAULT_UI_BIOPHYSICS_CONDITIONS,
   readUiBiophysicsConditions,
 } from "../../shared/biophysicsConditions";
+import type { UserSettings } from "../../types/ui";
 
 export interface AnalysisCacheContext {
   uniprotId: string;
@@ -88,11 +89,14 @@ export function biophysicsContextOf(conditions?: unknown): string {
   });
 }
 
+/** Conditions stay `unknown` here because `biophysicsContextOf` is what checks them. */
+type CacheContextSettings = Omit<Partial<UserSettings>, "biophysicsConditions"> & { biophysicsConditions?: unknown };
+
 /** Public scientific inputs only. Credentials must never enter persisted metadata. */
-export function createAnalysisCacheContext(uniprotId: string, settings: any = {}, notation: any = {}, userDirections = "", numberingBasis?: string): AnalysisCacheContext {
+export function createAnalysisCacheContext(uniprotId: string, settings: CacheContextSettings = {}, notation: any = {}, userDirections = "", numberingBasis?: string): AnalysisCacheContext {
   return {
     uniprotId: uniprotId.trim().toUpperCase(),
-    acmgWeighting: ["standard", "conservative", "strict-structural"].includes(settings.acmgWeighting) ? settings.acmgWeighting : "standard",
+    acmgWeighting: ["standard", "conservative", "strict-structural"].includes(settings.acmgWeighting as string) ? settings.acmgWeighting as string : "standard",
     saprotEngine: settings.saprotEngine || "saprot-650m",
     assembly: notation.assembly || "",
     genomicCoordinates: notation.genomicCoordinates || "",
@@ -102,11 +106,11 @@ export function createAnalysisCacheContext(uniprotId: string, settings: any = {}
     userDirections: opaqueInputIdentity(userDirections.trim()),
     simulationConditions: biophysicsContextOf(settings.biophysicsConditions),
     providerConfiguration: JSON.stringify({
-      hf: Boolean(settings.huggingfaceApiKey),
-      biohub: Boolean(settings.biohubToken),
-      alphagenome: Boolean(settings.alphaGenomeApiKey),
-      gpnEndpoint: opaqueInputIdentity(settings.gpnStarEndpoint || ""),
-      alphagenomeEndpoint: opaqueInputIdentity(settings.alphaGenomeEndpoint || "")
+      hf: Boolean(settings.hfToken),
+      biohub: Boolean(settings.biohubApiToken),
+      alphagenome: Boolean(settings.alphagenomeApiKey),
+      gpnEndpoint: opaqueInputIdentity(settings.gpnApiUrl || ""),
+      alphagenomeEndpoint: opaqueInputIdentity(settings.alphagenomeApiUrl || "")
     })
   };
 }

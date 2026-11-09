@@ -2,19 +2,29 @@ import { describe, it, expect } from "vitest";
 import { getWorkflowStageStatus, summarizeWorkflowStatuses } from "../workflowStatus.ts";
 import type { AnalysisResult } from "../contracts.ts";
 
+/** The argument order these cases were written in, mapped onto the one object form. */
+const positionalStatus = (
+  view: string, result?: any, isFolding?: boolean, isBiophysicalLoading?: boolean, isClinicalLoading?: boolean,
+  isLoadingSearch?: boolean, loadingStep?: string, isPocketLoading?: boolean, dynamut2Status?: string | null,
+  ddmutStatus?: string | null, isNarrativeLoading?: boolean, hasStructureCoordinates?: boolean
+) => getWorkflowStageStatus({
+  view, result, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep,
+  isPocketLoading, dynamut2Status, ddmutStatus, isNarrativeLoading, hasStructureCoordinates
+});
+
 describe("workflowStatus Helper Unit Tests (C-7)", () => {
   it("should return complete status when view is 'search'", () => {
-    const status = getWorkflowStageStatus("search", null, false, false, false);
+    const status = positionalStatus("search", null, false, false, false);
     expect(status.status).toBe("complete");
     expect(status.desc).toBe("Variant search workspace active");
   });
 
   it("should return correct statuses when search is running", () => {
-    const runningStatus1 = getWorkflowStageStatus("evidence", null, false, false, false, true, "Step 1/4: Querying clinical data");
+    const runningStatus1 = positionalStatus("evidence", null, false, false, false, true, "Step 1/4: Querying clinical data");
     expect(runningStatus1.status).toBe("progress");
     expect(runningStatus1.desc).toBe("Step 1/4: Querying clinical data");
 
-    const runningStatus2 = getWorkflowStageStatus("energetics", null, false, false, false, true, "Step 4/4: Biophysics");
+    const runningStatus2 = positionalStatus("energetics", null, false, false, false, true, "Step 4/4: Biophysics");
     expect(runningStatus2.status).toBe("progress");
   });
 
@@ -37,11 +47,11 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       }
     };
 
-    const status1 = getWorkflowStageStatus("evidence", mockResult, false, false, false);
+    const status1 = positionalStatus("evidence", mockResult, false, false, false);
     expect(status1.status).toBe("complete");
     expect(status1.desc).toContain("ClinVar: pathogenic");
 
-    const status2 = getWorkflowStageStatus("energetics", mockResult, false, false, false);
+    const status2 = positionalStatus("energetics", mockResult, false, false, false);
     expect(status2.status).toBe("complete");
   });
 
@@ -53,7 +63,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
 
     // FoldX job still running (isFolding=true) AND predictors pending — the tab must still
     // be "complete" because the Gemini narrative resolved (async-chip decision).
-    const status = getWorkflowStageStatus(
+    const status = positionalStatus(
       "energetics",
       geminiOnlyResult,
       /* isFolding */ true,
@@ -72,7 +82,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
   });
 
   it("P1-12: energetics gate shows progress only while the initial biophysical call is in flight and nothing has resolved", () => {
-    const status = getWorkflowStageStatus(
+    const status = positionalStatus(
       "energetics",
       { analysis: null } as any,
       /* isFolding */ false,
@@ -88,7 +98,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     };
 
     // FoldX dead (job failed) but narrative finished — tab must be complete.
-    const notLoading = getWorkflowStageStatus(
+    const notLoading = positionalStatus(
       "insights",
       insightsResult,
       /* isFolding */ false,
@@ -103,7 +113,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     );
     expect(notLoading.status).toBe("complete");
 
-    const loading = getWorkflowStageStatus(
+    const loading = positionalStatus(
       "insights",
       insightsResult,
       false, false, false,
@@ -122,14 +132,14 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       landscapeData: [{ position: 1, score: 0.8 }] as any
     };
 
-    const insightsStatus = getWorkflowStageStatus("insights", cachedResult, false, false, false, false, undefined, false, null, null, false);
+    const insightsStatus = positionalStatus("insights", cachedResult, false, false, false, false, undefined, false, null, null, false);
     expect(insightsStatus.status).toBe("complete");
 
-    const litStatus = getWorkflowStageStatus("literature", cachedResult, false, false, false, false, undefined, false, null, null, false);
+    const litStatus = positionalStatus("literature", cachedResult, false, false, false, false, undefined, false, null, null, false);
     expect(litStatus.status).toBe("on-demand");
     expect(litStatus.desc).toContain("Open Literature");
 
-    const reportStatus = getWorkflowStageStatus("report", cachedResult, false, false, false, false, undefined, false, null, null, false);
+    const reportStatus = positionalStatus("report", cachedResult, false, false, false, false, undefined, false, null, null, false);
     expect(reportStatus.status).toBe("complete");
   });
 
@@ -143,28 +153,28 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     };
 
     // When biophysical & clinical are loading and 3D repacking is active:
-    const evidenceStatus = getWorkflowStageStatus("evidence", placeholderResult, true, true, true);
+    const evidenceStatus = positionalStatus("evidence", placeholderResult, true, true, true);
     expect(evidenceStatus.status).toBe("progress");
 
-    const structureStatus = getWorkflowStageStatus("structure", placeholderResult, true, true, true);
+    const structureStatus = positionalStatus("structure", placeholderResult, true, true, true);
     expect(structureStatus.status).toBe("pending");
 
-    const energeticsStatus = getWorkflowStageStatus("energetics", placeholderResult, true, true, true);
+    const energeticsStatus = positionalStatus("energetics", placeholderResult, true, true, true);
     expect(energeticsStatus.status).toBe("progress");
     expect(energeticsStatus.status).not.toBe("complete");
 
-    const landscapeStatus = getWorkflowStageStatus("landscape", placeholderResult, true, true, true);
+    const landscapeStatus = positionalStatus("landscape", placeholderResult, true, true, true);
     expect(landscapeStatus.status).toBe("progress");
 
-    const insightsStatus = getWorkflowStageStatus("insights", placeholderResult, true, true, true);
+    const insightsStatus = positionalStatus("insights", placeholderResult, true, true, true);
     expect(insightsStatus.status).toBe("pending");
     expect(insightsStatus.status).not.toBe("complete");
 
-    const literatureStatus = getWorkflowStageStatus("literature", placeholderResult, true, true, true);
+    const literatureStatus = positionalStatus("literature", placeholderResult, true, true, true);
     expect(literatureStatus.status).toBe("on-demand");
     expect(literatureStatus.status).not.toBe("complete");
 
-    const reportStatus = getWorkflowStageStatus("report", placeholderResult, true, true, true);
+    const reportStatus = positionalStatus("report", placeholderResult, true, true, true);
     expect(reportStatus.status).toBe("pending");
     expect(reportStatus.status).not.toBe("complete");
   });
@@ -246,23 +256,23 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       }
     } as any;
 
-    const evidenceStatus = getWorkflowStageStatus("evidence", errorResult);
+    const evidenceStatus = positionalStatus("evidence", errorResult);
     expect(evidenceStatus.status).toBe("error");
 
-    const structureStatus = getWorkflowStageStatus("structure", errorResult);
+    const structureStatus = positionalStatus("structure", errorResult);
     expect(structureStatus.status).toBe("unavailable");
 
-    const energeticsStatus = getWorkflowStageStatus("energetics", errorResult);
+    const energeticsStatus = positionalStatus("energetics", errorResult);
     expect(energeticsStatus.status).toBe("unavailable");
 
-    const landscapeStatus = getWorkflowStageStatus("landscape", errorResult);
+    const landscapeStatus = positionalStatus("landscape", errorResult);
     expect(landscapeStatus.status).toBe("unavailable");
 
-    const insightsStatus = getWorkflowStageStatus("insights", errorResult);
+    const insightsStatus = positionalStatus("insights", errorResult);
     expect(insightsStatus.status).toBe("unavailable");
     expect(insightsStatus.status).not.toBe("complete");
 
-    const reportStatus = getWorkflowStageStatus("report", errorResult);
+    const reportStatus = positionalStatus("report", errorResult);
     expect(reportStatus.status).toBe("unavailable");
 
     const summary = summarizeWorkflowStatuses([

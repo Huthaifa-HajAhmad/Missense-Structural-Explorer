@@ -60,6 +60,7 @@ import {
   fallbackCause,
   type LocusResultLike,
 } from "./locusResolution.ts";
+import { serviceStatusOf } from "./serviceStatus.ts";
 
 /**
  * The gnomAD source key, as `assembly.ts` spells it.
@@ -340,7 +341,7 @@ export function frequencyEvidenceInputFromResult(
     gnomadFrequency: result.gnomadFrequency ?? null,
     aouFrequency: result.aouFrequency ?? null,
     aouLookup: result.aouLookup ?? null,
-    serviceStatus: result.serviceStatus ?? result.metadata?.serviceStatus ?? null,
+    serviceStatus: serviceStatusOf(result),
     clinvar: result.clinvar
       ? { classification: result.clinvar.classification, alleleFrequencies: result.clinvar.alleleFrequencies }
       : null,

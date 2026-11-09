@@ -15,6 +15,7 @@ import { variantNumberingView } from "../../shared/numbering";
 import { isFallbackLocus, locusFailureKind, locusRecoveryAction, fallbackCause, fallbackLocusShortLabel } from "../../shared/locusResolution";
 import { describeSplicePlacement } from "../../shared/splicingEvidence";
 import { buildConstraintMetrics, type VhMetric } from "./constraintMetrics";
+import { serviceStatusOf } from "../../shared/serviceStatus";
 
 export type TierTone = "good" | "clay" | "warn" | "muted";
 
@@ -114,8 +115,8 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
       recoveryAction: locusRecoveryAction(result),
     };
   } else {
-    const constraintStatus = result?.serviceStatus?.gnomadConstraint ?? result?.metadata?.serviceStatus?.gnomadConstraint;
-    const frequencyStatus = result?.serviceStatus?.gnomadFrequency ?? result?.metadata?.serviceStatus?.gnomadFrequency;
+    const constraintStatus = serviceStatusOf(result)?.gnomadConstraint;
+    const frequencyStatus = serviceStatusOf(result)?.gnomadFrequency;
     const constraintFailed = constraintStatus === "timeout" || constraintStatus === "error";
     const gnomadStatus = constraintFailed ? constraintStatus : frequencyStatus;
     if (gnomadStatus === "timeout" || gnomadStatus === "error") {

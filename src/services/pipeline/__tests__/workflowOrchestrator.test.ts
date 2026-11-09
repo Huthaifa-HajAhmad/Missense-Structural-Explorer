@@ -52,7 +52,6 @@ const createMockSinks = () => ({
       setIsNarrativeLoading: vi.fn()
     },
     biophysical: {
-      lastFetchedFoldRef: { current: null },
       setIsFolding: vi.fn(),
       setFoldingError: vi.fn(),
       setFoldingStatus: vi.fn(),
@@ -342,9 +341,11 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
     foldingEnergetics: { foldx: 2.1, dynamut2: -0.5, stabilityoracle: null }
   };
 
-  async function runWithCache(bundle: Record<string, unknown>) {
+  async function runWithCache({ biophysicsAttemptedAt, ...bundle }: Record<string, unknown>) {
     const sinks = createMockSinks();
-    variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", { biophysicsContext: createAnalysisCacheContext("P00439", { biophysicsConditions: {} }).simulationConditions, ...bundle });
+    const conditions = createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any).simulationConditions;
+    variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", { biophysicsContext: conditions, ...bundle });
+    if (typeof biophysicsAttemptedAt === "number") variantCache.recordBiophysicsAttempt("PAH", "p.Arg408Trp", conditions, biophysicsAttemptedAt);
     await executeFullAnalysisWorkflow({
       targetGeneArg: "PAH",
       targetVariantArg: "p.Arg408Trp",

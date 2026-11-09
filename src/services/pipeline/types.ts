@@ -79,7 +79,6 @@ export interface PipelineBiophysicalSink {
   setThermompnnJobId: (id: string | null) => void;
   setThermompnnStatus: (status: "pending" | "unavailable" | "done" | "error" | null) => void;
   setThermompnnError: (err: string | null) => void;
-  lastFetchedFoldRef: React.MutableRefObject<string>;
 }
 
 export interface PipelineStructureSink {
@@ -241,6 +240,8 @@ export interface StructuredPipelineOptions {
    * the same bare string is refused again, forever.
    */
   numberingBasis?: "canonical";
+  /** Waits for the first health reading, then says whether the server holds a Gemini key. */
+  waitForServerGemini?: () => Promise<boolean>;
   sinks: PipelineStateSinks;
   /**
    * The run's current evidence, read at the moment the automatic synthesis is requested.

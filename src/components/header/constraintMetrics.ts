@@ -13,6 +13,7 @@ import { CONSTRAINT_GUIDANCE_URL, CONSTRAINT_RELEASE, type ConstraintMetricKey, 
 
 export type { ConstraintMetricKey };
 import type { AnalysisResult } from "../../types";
+import { serviceStatusOf } from "../../shared/serviceStatus";
 
 // ─────────────────────────────────────────────
 // Display constants
@@ -461,7 +462,7 @@ export function buildConstraintMetrics(analysisResult: AnalysisResult | null | u
       gnomad?.regionalRelease ? `gnomAD v${gnomad.regionalRelease}` : "gnomAD (regional release unreported)"),
   ];
   const source = constraintSourceLabel(analysisResult);
-  const status = analysisResult.serviceStatus?.gnomadConstraint ?? analysisResult.metadata?.serviceStatus?.gnomadConstraint;
+  const status = serviceStatusOf(analysisResult)?.gnomadConstraint;
   const legacy = !!gnomad && gnomad.provenance?.release !== CONSTRAINT_RELEASE;
   const flagLabels: Record<string, string> = {
     low_exome_coverage: "Low exome coverage", low_exome_mapping_quality: "Low exome mapping quality",

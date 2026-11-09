@@ -302,8 +302,8 @@ run. Every write checks that the run is still the active one.
 
 ## 15. Client analysis pipeline stages
 
-Code: `src/services/pipeline/workflowOrchestrator.ts`, `resultMerge.ts`, `biophysicalService.ts`.
-**Tested** for settling (`resultMerge.test.ts`); the rest **Read**.
+Code: `src/services/pipeline/workflowOrchestrator.ts`, `pipelineRun.ts`, `resultMerge.ts`, `storedAnalysis.ts`, `biophysicalService.ts`.
+**Tested** (`resultMerge.test.ts`, `pipelineRun.test.ts`, `runOwnership.test.ts`, `staleRunWrites.test.ts`, `restoredRun.test.ts`).
 
 Stages: `core`, `coordinates`, `landscape`, `structural`, `multimer`, `ppi`, `narrative`, `literature`.
 Outcomes: `running`, `complete`, `degraded`, `error`, `skipped`.
@@ -312,8 +312,31 @@ Rules: a stage's patch may not overwrite another stage's evidence (`mergeResultP
 stages still `running` become `skipped` and core becomes `error`. A stage that failed after some models
 arrived is `degraded`. At the end of a run, `settleUnreportedStages` settles any stage still `running`
 (except `coordinates`): `complete` when its evidence arrived, `error` when it did not, and `complete` for a
-stage with no evidence field of its own (narrative, literature have their own writers). A cached result
-with a `running` or `error` stage is re-run when opened. Responses for an old request are ignored.
+stage with no evidence field of its own (narrative, literature have their own writers). A result saved in the middle of a run records no outcome for
+a narrative or literature search still running. A cached result with a `running` or `error` stage is re-run
+when opened, and each resumed stage is marked `running`.
+Responses for an old request are ignored.
+
+`createPipelineRun` is the only answer to "is this run still current?" (`isStale`) and "may evidence still
+land?" (`acceptsEvidence`, also false after core failed). Ownership rule for activity flags: **only the
+current run writes them, and a new run starts by lowering them** (`executeAnalysis`). A replaced run writes
+nothing. Once core has landed, nothing can turn the run into a core failure: a failed narrative refresh is
+logged and the evidence stays. A stage with no outcome after core finished shows as `unavailable`, never
+`pending`, so a finished run always reaches its full count.
+
+Restoring a saved result (`storedAnalysis.ts`): every route asks `isServableStoredResult`. `restoreStoredArtifacts`
+replaces all viewer data as one step, writing empty for anything not saved, so one variant's structure or ΔΔG
+cannot stay beside another. A page reload paints without a run only when `reloadMayPaint` says a run would have
+nothing to do; it compares settings only, because the URL cannot carry the coordinate, directions or numbering
+answer. Otherwise the reload replays the original submission from Recents.
+
+Evidence written by both core and structural (`ruleBasedInsights`, `disruptionPredictor`): once structural has
+written, core may not replace it, so the order of the two responses does not matter. The narrative flag is
+lowered by a run only when no Re-synthesize request is in flight (`narrativeActivityOutstanding`).
+
+FoldX cooldown (`recordBiophysicsAttempt`): written when a run **finishes** (success or failure), keyed by
+variant and conditions. An abandoned or reloaded run records nothing, because sending it again joins the
+running server job (section 4) or reads the server's cache.
 
 The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own suites) follows remote
 engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min) → `done`,
@@ -327,7 +350,8 @@ after an attempt, unless FoldX cannot run here and no remote engine failed.
 | Trace run | `src/types/devConsole.ts` | `running`, `completed`, `failed`, `cancelled` |
 | Service fetch | `server/services/orchestration/payload-assembler.ts` | `ok`, `not_found`, `timeout`, `error`, `unsupported-build`, `stand-in` |
 | Multimer | `src/shared/contracts.ts` | `success`, `monomeric`, `not-modelled`, `failed`, `not-requested`, `running` |
-| Engine and provider state | `src/shared/engineStatus.ts`, `src/shared/providerStatus.ts` | five-state vocabulary |
+| Engine and provider state | `src/shared/engineStatus.ts`, `src/shared/providerStatus.ts` | engine vocabulary; provider `connected`, `configured`, `degraded`, `unreachable`, `not-configured`, `checking`, `stale` |
+| Health reading | `src/stores/diagnosticsStore.ts` | one reading shared by all readers; `lastCheckFailed`, `coveragePending`; polled every 60 s only while a live reader is mounted and the tab is visible; rows go `stale` (`Out of date`) after a failed check — including one that failed before any reading arrived — or three missed polls; a caller waiting for the first reading gives up after `FIRST_READING_DEADLINE_MS` (15 s) rather than waiting on a request that never answers |
 | Numbering | `server/services/translation/isoform-numbering.ts` | `canonical`, `remapped`, `unverified`, `unsupported` |
 | Canvas secondary structure | `src/stores/slices/biophysicalSlice.ts` (`canvasSecondaryState`), written by `src/components/molstar/useMolstarStructure.ts` | `idle`, `reading`, `ready`, `unavailable` |
 | Gene lookup deadline | `server/routes/variant/gene.ts`, `src/shared/structureLookupBudgets.ts` (`GENE_RESOLVE_BUDGET_MS`) | `answered`, `not-found`, `timed-out`; the shared cache fill is not cancelled by one caller's deadline |

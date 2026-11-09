@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { MasterView } from "../components/MasterSidebar";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { getBiophysicsAttemptedAt, getCachedVariant } from "../services/pipeline/variantCache";
-import { shouldRunBiophysics } from "../services/pipeline/biophysicsRetryPolicy";
+import { createAnalysisCacheContext, narrativeModeOf } from "../services/pipeline/analysisContext";
+import { reloadMayPaint, restoreStoredArtifacts } from "../services/pipeline/storedAnalysis";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 
 interface UseAppEffectsParams {
@@ -15,6 +16,7 @@ interface UseAppEffectsParams {
   fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>;
   consoleDispatch: (action: any) => void;
   executeAnalysis?: (g: string, v: string, u?: string, signal?: AbortSignal) => void;
+  settings?: any;
   fetchEsmFold?: (uniprotIdArg?: string, variantArg?: string, wtSeq?: string, mutSeq?: string) => void;
 }
 
@@ -28,6 +30,7 @@ export function useAppEffects({
   fetchWithAuth,
   consoleDispatch,
   executeAnalysis: propsExecuteAnalysis,
+  settings,
   fetchEsmFold: propsFetchEsmFold
 }: UseAppEffectsParams) {
   // Fine-grained Zustand store subscriptions
@@ -73,44 +76,23 @@ export function useAppEffects({
 
     if (gene && variant && !analysisState.result && !analysisState.isLoading) {
       const cached = getCachedVariant(gene, variant);
+      const context = createAnalysisCacheContext(uniprotId || "", settings ?? {});
+      const attemptedAt = getBiophysicsAttemptedAt(gene, variant, context.simulationConditions);
+      const store = useVariantAnalysisStore.getState();
       /**
-       * Paint-only is safe only for a bundle whose biophysics finished. A bundle saved while FoldX was
-       * still running (the page reloaded, or the run was superseded) holds the other engines but no
-       * FoldX value, and this shortcut never asked again: UROD p.Gly318Arg showed FoldX "No value" a
-       * day after the server had computed −1.75 kcal/mol. Such a bundle goes through the orchestrator,
-       * which paints the same cache and backfills under the shared retry rule and cooldown.
+       * Painting without a run is safe only when a run would have nothing to do. Anything else (a changed
+       * setting, a failed stage, FoldX still owed) goes through the run, which paints the same saved
+       * result and repairs only what is missing.
        */
-      const biophysicsSettled = cached ? !shouldRunBiophysics(cached, getBiophysicsAttemptedAt(gene, variant)) : false;
-      if (cached?.analysisResult && biophysicsSettled) {
-        const store = useVariantAnalysisStore.getState();
-        store.setAnalysisState({
-          result: cached.analysisResult,
-          isLoading: false,
-          error: null
-        });
-        if (cached.pdbText) {
-          store.setPdbText(cached.pdbText);
-        }
-        if (cached.mutantPdb) {
-          store.setMutantPdb(cached.mutantPdb);
-          store.setFoldxWtPdb(cached.foldxWtPdb ?? null);
-        }
-        if (cached.foldingDdG != null) {
-          store.setFoldingDdG(cached.foldingDdG);
-        }
-        if (cached.foldingEnergetics) {
-          store.setFoldingEnergetics(cached.foldingEnergetics);
-        }
-        if (cached.computedPocket) {
-          store.setComputedPocket(cached.computedPocket);
-        }
+      if (cached && reloadMayPaint(cached, context, attemptedAt, narrativeModeOf(settings))) {
+        store.setAnalysisState({ result: cached.analysisResult, isLoading: false, error: null });
+        restoreStoredArtifacts(cached, store, store);
         return;
       }
 
-      // Otherwise trigger analysis automatically without forcing tab switch
-      if (executeAnalysisRef.current) {
-        executeAnalysisRef.current(gene, variant, uniprotId);
-      }
+      // The URL holds the resolved notation. Replaying the submission keeps a coordinate on its own build.
+      const prior = store.history.find(h => h.gene === gene && (h.variant === variant || h.query === variant));
+      executeAnalysisRef.current?.(gene, prior?.query ?? variant, uniprotId);
     }
   }, [gene, variant, uniprotId, analysisState.result, analysisState.isLoading]);
 

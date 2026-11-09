@@ -113,6 +113,14 @@ describe('authenticated context loading and gene isolation', () => {
     act(() => hook.result.current.setSelection({ ...hook.result.current.selection, systems: ['hearing'] }));
     expect(hook.result.current.identityChanged).toBe(false);
   });
+  it('does not claim the reference changed when the transcript simply arrives and nothing was chosen', async () => {
+    fetchWithAuth.mockResolvedValue({ ok: true, json: async () => data('A') });
+    const hook = renderHook(({ transcript }) => useEvidenceContext({ ...result('A'), transcriptId: transcript }), { initialProps: { transcript: undefined as string | undefined } });
+    await waitFor(() => expect(hook.result.current.diseaseLoad?.status).toBe('ready'));
+    hook.rerender({ transcript: 'ENST00000000001.2' });
+    await act(async () => {});
+    expect(hook.result.current.identityChanged).toBe(false);
+  });
   it('keeps a late response for the previous gene out of the current gene frame', async () => {
     let resolveA!: (value: unknown) => void;
     fetchWithAuth.mockImplementation((url: string) => url.endsWith('/A') ? new Promise(resolve => { resolveA = resolve; }) : Promise.resolve({ ok: true, json: async () => data('B') }));
