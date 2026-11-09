@@ -87,7 +87,6 @@ function run() {
         },
         analysis,
         biophysical: {
-          lastFetchedFoldRef: { current: null },
           setIsFolding: vi.fn(), setFoldingError: vi.fn(), setFoldingStatus: vi.fn(),
           setMutantPdb: vi.fn(), setFoldedResidueIndex: vi.fn(), setFoldingDdG: vi.fn(),
           setFoldingEnergetics: vi.fn(), setDynamut2JobId: vi.fn(), setDynamut2Status: vi.fn(),

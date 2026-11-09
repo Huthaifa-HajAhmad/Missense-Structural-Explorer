@@ -1,8 +1,10 @@
 import { isConservationModelPending } from "./conservationProgress.ts";
+import { serviceStatusOf } from "./serviceStatus.ts";
 
 /**
- * Which Evidence tabs are still waiting on their backing data — one answer for the sidebar's
- * per-tab indicators, the Evidence row and the search rail, so the three cannot disagree.
+ * Which Evidence tabs are still waiting on their backing data. The sidebar's per-tab indicators pass
+ * gene-context loads. The Evidence row and the search rail do not: a two-minute optional context
+ * request must not hold a usable analysis at "still loading".
  *
  * Every tab reads its OWN sources. The parent row used to summarise core only: it said "complete"
  * while AlphaGenome, Expression or Interfaces were still loading, and said "running" while every
@@ -24,7 +26,7 @@ export function isEvidenceTabLoading(
   result: any,
   context: GeneContextLoading = NO_GENE_CONTEXT_LOADING
 ): boolean {
-  const statuses = result?.serviceStatus ?? result?.metadata?.serviceStatus;
+  const statuses = serviceStatusOf(result);
   const pending = (key: string) => {
     const status = (statuses as Record<string, string> | undefined)?.[key];
     return status ? status === "pending" : isBiophysicalLoading;

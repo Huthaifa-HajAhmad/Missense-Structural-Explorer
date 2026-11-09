@@ -389,7 +389,8 @@ export async function generateClinicalNarrative(
      */
     if (!narrativeActivityOutstanding()) {
       analysisSink.setIsNarrativeLoading(false);
-      analysisSink.setLoadingStep("");
+      // The step line belongs to the current run, so a replaced run leaves it alone.
+      if (getActiveRequestId() === requestId && !signal.aborted) analysisSink.setLoadingStep("");
     }
   }
 }

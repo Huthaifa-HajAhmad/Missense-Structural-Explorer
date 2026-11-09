@@ -227,18 +227,18 @@ describe("LiveTelemetryPanel — AlphaGenome and the key source", () => {
     sessionStorage.removeItem("missenseTransientCredentials");
   });
 
-  it("counts a key entered in this browser as connected when the server has no key", () => {
+  it("names a key entered in this browser as set up, because nothing has checked it", () => {
     sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ alphagenomeApiKey: "AG-browser-key" }));
     h.state.current = allReady({}, { alphagenome: svc(agDown) });
     renderPanel();
 
     const row = within(rowOf("alphagenome"));
-    expect(row.getByText("Connected")).toBeInTheDocument();
+    expect(row.getByText("Configured")).toBeInTheDocument();
     expect(row.getByText(/key set in this browser/)).toBeInTheDocument();
     expect(row.queryByText("Not configured")).toBeNull();
 
     fireEvent.click(rowOf("alphagenome"));
-    expect(within(drawerOf("alphagenome")!).getByText("Working normally")).toBeInTheDocument();
+    expect(within(drawerOf("alphagenome")!).getByText("Set up, not yet checked")).toBeInTheDocument();
     expect(within(drawerOf("alphagenome")!).getByText("API key configured (this browser)")).toBeInTheDocument();
   });
 

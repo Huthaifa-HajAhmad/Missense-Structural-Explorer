@@ -9,15 +9,16 @@ import {
   type CachedVariantBundle,
 } from "../variantCache";
 
+const CONDITIONS = "ph7";
+
 /**
  * The biophysics retry cooldown, and the store it lives in.
  *
  * WHY THIS EXISTS
  * ---------------
- * `workflowOrchestrator` records an attempt BEFORE dispatching a backfill, so an abort or a crash
- * still starts the cooldown rather than letting the next visit launch another multi-minute FoldX
- * run. Two separate defects made that intent useless, both found by measuring the shipped code
- * rather than reading it:
+ * `workflowOrchestrator` records an attempt when a FoldX run finishes, so a variant that keeps failing
+ * is not re-run on every visit. Two separate defects once made the store useless, both found by
+ * measuring the shipped code rather than reading it:
  *
  *   1. The timestamp was first kept in module memory only — the cache's persistence guard refuses
  *      failed/preliminary bundles, which is exactly the state that retries — so pressing F5
@@ -85,14 +86,14 @@ describe("biophysics attempt cooldown", () => {
   });
 
   it("reads back what it recorded, through the real reader", () => {
-    recordBiophysicsAttempt("GENEA", "p.Ala1Val", "P00001");
-    const at = getBiophysicsAttemptedAt("GENEA", "p.Ala1Val");
+    recordBiophysicsAttempt("GENEA", "p.Ala1Val", CONDITIONS);
+    const at = getBiophysicsAttemptedAt("GENEA", "p.Ala1Val", CONDITIONS);
     expect(typeof at).toBe("number");
     expect(at).toBeGreaterThan(0);
   });
 
   it("persists under its own key, so it can outlive the session's memory", () => {
-    recordBiophysicsAttempt("GENEB", "p.Ala1Val", "P00001");
+    recordBiophysicsAttempt("GENEB", "p.Ala1Val", CONDITIONS);
 
     const keys = attemptKeys();
     expect(keys).toHaveLength(1);
@@ -108,7 +109,7 @@ describe("biophysics attempt cooldown", () => {
     // screen until the new fetch landed. The invariant that prevents it is that nothing is
     // persisted under a bundle key.
     setCachedVariant("GENEC", "p.Ala1Val", "P00001", FAILED_BUNDLE);
-    recordBiophysicsAttempt("GENEC", "p.Ala1Val", "P00001");
+    recordBiophysicsAttempt("GENEC", "p.Ala1Val", CONDITIONS);
 
     expect(persistedKeys("mrx_bundle_")).toEqual([]);
     expect(attemptKeys()).toHaveLength(1);
@@ -121,27 +122,21 @@ describe("biophysics attempt cooldown", () => {
 
   it("does not disturb a good bundle for the same variant", () => {
     setCachedVariant("GENEE", "p.Ala1Val", "P00001", { foldingDdG: 1.2 });
-    recordBiophysicsAttempt("GENEE", "p.Ala1Val", "P00001");
+    recordBiophysicsAttempt("GENEE", "p.Ala1Val", CONDITIONS);
 
     const restored = getCachedVariant("GENEE", "p.Ala1Val");
     expect(restored?.foldingDdG).toBe(1.2);
-    expect(getBiophysicsAttemptedAt("GENEE", "p.Ala1Val")).toBeGreaterThan(0);
+    expect(getBiophysicsAttemptedAt("GENEE", "p.Ala1Val", CONDITIONS)).toBeGreaterThan(0);
   });
 
   it("keeps the cooldown independent per variant", () => {
-    recordBiophysicsAttempt("GENEF", "p.Ala1Val", "P00001");
-    expect(getBiophysicsAttemptedAt("GENEF", "p.Gly2Asp")).toBeNull();
-    expect(getBiophysicsAttemptedAt("OTHERGENE", "p.Ala1Val")).toBeNull();
+    recordBiophysicsAttempt("GENEF", "p.Ala1Val", CONDITIONS);
+    expect(getBiophysicsAttemptedAt("GENEF", "p.Gly2Asp", CONDITIONS)).toBeNull();
+    expect(getBiophysicsAttemptedAt("OTHERGENE", "p.Ala1Val", CONDITIONS)).toBeNull();
   });
 
   it("returns null when nothing has been recorded", () => {
-    expect(getBiophysicsAttemptedAt("GENEG", "p.Ala1Val")).toBeNull();
-  });
-
-  it("still honours a timestamp written into a bundle by the previous release", () => {
-    // Backwards compatibility: bundles persisted before the dedicated store existed carry the field.
-    setCachedVariant("GENEH", "p.Ala1Val", "P00001", { foldingDdG: 1.2, biophysicsAttemptedAt: 1_700_000_000_000 });
-    expect(getBiophysicsAttemptedAt("GENEH", "p.Ala1Val")).toBe(1_700_000_000_000);
+    expect(getBiophysicsAttemptedAt("GENEG", "p.Ala1Val", CONDITIONS)).toBeNull();
   });
 });
 
@@ -166,8 +161,8 @@ describe("biophysics attempt cooldown — across a reload", () => {
   });
 
   it("reads the persisted attempt after the module's memory is discarded", async () => {
-    recordBiophysicsAttempt("RELOADA", "p.Ala1Val", "P00001");
-    const written = getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val");
+    recordBiophysicsAttempt("RELOADA", "p.Ala1Val", CONDITIONS);
+    const written = getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val", CONDITIONS);
     expect(typeof written).toBe("number");
 
     vi.resetModules();
@@ -185,7 +180,7 @@ describe("biophysics attempt cooldown — across a reload", () => {
     ).not.toBe(getBiophysicsAttemptedAt);
 
     expect(
-      reloaded.getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val"),
+      reloaded.getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val", CONDITIONS),
       "the cooldown did not survive a reload — the next visit re-dispatches the full FoldX run"
     ).toBe(written);
   });
@@ -197,8 +192,8 @@ describe("biophysics attempt cooldown — across a reload", () => {
       foldingStatus: "failed",
       foldingEnergetics: { foldxError: "FoldX binary not found" } as never,
     });
-    recordBiophysicsAttempt("RELOADB", "p.Ala1Val", "P00001");
-    const written = getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val");
+    recordBiophysicsAttempt("RELOADB", "p.Ala1Val", CONDITIONS);
+    const written = getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val", CONDITIONS);
     expect(typeof written).toBe("number");
 
     vi.resetModules();
@@ -215,7 +210,7 @@ describe("biophysics attempt cooldown — across a reload", () => {
       "resetModules did not yield a fresh instance, so this test would certify nothing"
     ).not.toBe(getBiophysicsAttemptedAt);
 
-    expect(reloaded.getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val")).toBe(written);
+    expect(reloaded.getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val", CONDITIONS)).toBe(written);
     // ...and the failed bundle is still not persisted, before or after the reload.
     expect(reloaded.getCachedVariant("RELOADB", "p.Ala1Val")).toBeNull();
   });
@@ -255,7 +250,7 @@ describe("stored stage outcomes", () => {
     });
     const stages = getCachedVariant("GENEC", "p.Ala1Val")?.analysisResult?.metadata?.pipelineStages as Record<string, string>;
     expect(stages.core).toBe("error");
-    expect(stages.narrative).toBe("complete");
+    expect(stages.narrative).toBeUndefined();
   });
 
   it("settles a running core as complete once the analysis text is real", () => {
@@ -264,5 +259,32 @@ describe("stored stage outcomes", () => {
     });
     const stages = getCachedVariant("GENED", "p.Ala1Val")?.analysisResult?.metadata?.pipelineStages as Record<string, string>;
     expect(stages.core).toBe("complete");
+  });
+});
+
+
+describe("saving evidence while FoldX is unfinished", () => {
+  beforeEach(() => { installSessionStorageShim(); clearClientVariantCache(); });
+  const stored = (gene: string) => {
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)!;
+      if (key.startsWith("mrx_bundle_") && key.includes(gene)) return JSON.parse(sessionStorage.getItem(key)!);
+    }
+    return null;
+  };
+  const result = (version: number) => ({ analysis: "x", version, metadata: { pipelineStages: { core: "complete" } } });
+
+  it("keeps the newest evidence in storage but not the unfinished FoldX numbers", () => {
+    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(1) });
+    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { foldingEnergetics: { pendingTools: ["ddmut"] }, foldingDdG: 2 });
+    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(2) });
+    expect(stored("PRELIM").analysisResult.version).toBe(2);
+    expect(stored("PRELIM").foldingEnergetics).toBeUndefined();
+    expect(stored("PRELIM").foldingDdG).toBeUndefined();
+  });
+
+  it("still holds the unfinished FoldX numbers in memory for this session", () => {
+    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(1), foldingDdG: 2, foldingEnergetics: { pendingTools: ["ddmut"] } });
+    expect(getCachedVariant("PRELIM", "p.Ala1Val")?.foldingDdG).toBe(2);
   });
 });

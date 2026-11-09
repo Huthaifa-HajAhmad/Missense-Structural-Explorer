@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, settleUnreportedStages } from "../resultMerge";
+import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, settleUnreportedStages, settleStagesForStorage } from "../resultMerge";
 import { createCompletedAnalysisState } from "../pipelineStateFactory";
 
 const base = { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" };
@@ -85,5 +85,30 @@ describe("settling stages a finished run left at running", () => {
 
   it("returns null when nothing was left running", () => {
     expect(settleUnreportedStages({ metadata: { pipelineStages: { core: "complete", coordinates: "running" } } })).toBeNull();
+  });
+});
+
+describe("evidence that the core and structural stages both write", () => {
+  const start = () => ({ result: { metadata: { pipelineStages: { core: "running", structural: "running" } } } });
+  const refined = { disruptionPredictor: { rsa: 0.11 } };
+  const fromCore = { disruptionPredictor: { rsa: null } };
+
+  it("keeps the structural reading when the structural response arrives first", () => {
+    const afterStructural = mergeResultPatch(start(), refined, undefined, "structural", "complete");
+    const afterCore = mergeResultPatch(afterStructural, fromCore, undefined, "core", "complete");
+    expect(afterCore.result.disruptionPredictor).toEqual({ rsa: 0.11 });
+  });
+
+  it("keeps the structural reading when the core response arrives first", () => {
+    const afterCore = mergeResultPatch(start(), fromCore, undefined, "core", "complete");
+    const afterStructural = mergeResultPatch(afterCore, refined, undefined, "structural", "complete");
+    expect(afterStructural.result.disruptionPredictor).toEqual({ rsa: 0.11 });
+  });
+});
+
+describe("saving a result whose narrative is still being written", () => {
+  it("records no narrative outcome, because none exists yet", () => {
+    const stages = settleStagesForStorage({ analysis: "", metadata: { pipelineStages: { core: "complete", narrative: "running", literature: "running" } } });
+    expect(stages).toEqual({ core: "complete" });
   });
 });

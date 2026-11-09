@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { refusalAttachmentsFromError } from "../workflowOrchestrator";
+import { refusalAttachmentsFromError } from "../refusalAttachments";
 import {
   createBiophysicalErrorAnalysisState,
   createTopLevelErrorAnalysisState,

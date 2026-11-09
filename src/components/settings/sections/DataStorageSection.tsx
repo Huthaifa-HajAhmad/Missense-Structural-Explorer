@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
+import { useAppVersion } from "../../../hooks/useAppVersion";
 import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 import { DEFAULT_USER_SETTINGS, TRANSIENT_SETTING_KEYS } from "../defaults";
 import { clearClientVariantCache } from "../../../services/pipeline/variantCache";
@@ -51,7 +52,8 @@ function ActionButton({
 
 export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () => void }) {
   const { settings, applySettings } = useSettings();
-  const { version, diagnostics, refresh } = useDiagnostics();
+  const { diagnostics, refresh } = useDiagnostics();
+  const version = useAppVersion();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [dataStatus, setDataStatus] = useState<string | null>(null);

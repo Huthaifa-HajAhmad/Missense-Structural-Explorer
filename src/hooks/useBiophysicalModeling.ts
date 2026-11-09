@@ -142,7 +142,6 @@ export function useBiophysicalModeling(
   const dynamutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const ddmutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const thermompnnPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
-  const lastFetchedFoldRef = useRef<string>("");
 
   const notifiedJobsRef = useRef<Set<string>>(new Set());
 
@@ -371,7 +370,6 @@ export function useBiophysicalModeling(
     dynamutPollIntervalRef,
     ddmutPollIntervalRef,
     thermompnnPollIntervalRef,
-    lastFetchedFoldRef,
     clearDynaMutPoll,
     clearDdmutPoll,
     clearThermoMpnnPoll,

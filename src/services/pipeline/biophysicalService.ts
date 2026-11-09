@@ -2,7 +2,8 @@ import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
 import type { CoordinateLiftRecord } from "../../shared/contracts";
 import { TraceContext } from "./types";
 import { getCachedVariant, setCachedVariant, type CachedVariantBundle } from "./variantCache";
-import { mergeResultPatch } from "./resultMerge";
+import { mergeResultPatch, type PipelineStage, type StageOutcome } from "./resultMerge";
+import { serviceStatusOf } from "../../shared/serviceStatus";
 import { deepModelEvidenceFor } from "../../shared/deepModelEvidence";
 import { STRUCTURAL_MODEL_FIELDS, STRUCTURAL_MODEL_KEYS, type StructuralModelKey } from "../../shared/structuralStream";
 
@@ -44,6 +45,22 @@ function ownsCachedAnalysis(cached: CachedVariantBundle | null, params: Biophysi
   return Boolean(cached?.analysisResult && (!params.pipelineRunId || cached.analysisResult.metadata?.pipelineRunId === params.pipelineRunId));
 }
 
+/** Applies one stage's evidence to the screen and, if this run owns the saved bundle, to the bundle too. */
+function applyStagePatch(
+  params: BiophysicalAnalysisParams,
+  setAnalysisState: (fn: any) => void,
+  patch: Record<string, unknown>,
+  stage: PipelineStage,
+  outcome: StageOutcome
+): void {
+  setAnalysisState((prev: any) => mergeResultPatch(prev, patch, undefined, stage, outcome));
+  const cached = getCachedVariant(params.gene, params.variant);
+  if (!ownsCachedAnalysis(cached, params)) return;
+  setCachedVariant(params.gene, params.variant, params.uniprotId, {
+    analysisResult: mergeResultPatch({ result: cached.analysisResult }, patch, undefined, stage, outcome).result
+  });
+}
+
 export async function fetchBiophysicalAnalysis(
   params: BiophysicalAnalysisParams,
   apiClient: any,
@@ -53,8 +70,6 @@ export async function fetchBiophysicalAnalysis(
 ): Promise<any> {
   const { gene, variant, uniprotId, assembly, genomicCoordinates, numberingBasis } = params;
   const { liftedGenomicCoordinates, resolvedAssembly } = params;
-  // Same protein notation can carry different verified loci or interpretation settings.
-  const bpKey = `biophysical_${JSON.stringify(params)}`;
   const bpStart = performance.now();
 
   const requestBody = {
@@ -82,108 +97,101 @@ export async function fetchBiophysicalAnalysis(
     ...(numberingBasis ? { numberingBasis } : {})
   };
 
-  /**
-   * The run's signal is passed as the request's identity, so a re-query of the same variant
-   * cannot be handed the promise the previous run's abort already doomed (see
-   * `getDeduplicatedPromise`).
-   */
-  return getDeduplicatedPromise(bpKey, () => {
-    const streamOrPromise = apiClient.streamBiophysicalAnalysis
-      ? apiClient.streamBiophysicalAnalysis(
-          requestBody,
-          (chunkData: any) => {
-            if (signal.aborted) return;
-            if (onChunk) onChunk(chunkData);
-          },
-          signal
-        )
-      : apiClient.getBiophysicalAnalysis(requestBody, signal);
+  const streamOrPromise = apiClient.streamBiophysicalAnalysis
+    ? apiClient.streamBiophysicalAnalysis(
+        requestBody,
+        (chunkData: any) => {
+          if (signal.aborted) return;
+          if (onChunk) onChunk(chunkData);
+        },
+        signal
+      )
+    : apiClient.getBiophysicalAnalysis(requestBody, signal);
 
-    return streamOrPromise
-      .then((res: any) => {
-        const durationMs = Math.round(performance.now() - bpStart);
-        const offsetMs = traceContext ? Math.max(0, Math.round(bpStart - traceContext.traceStart)) : 0;
-        if (traceContext?.activeTraceId) {
-          traceContext.addTraceSpan({
-            traceId: traceContext.activeTraceId,
-            name: "Core evidence sources",
-            stage: "biophysics",
-            startTime: Date.now() - durationMs,
-            offsetMs,
-            durationMs,
-            status: "success",
-            ...(typeof (res?.metadata?.cacheHit ?? res?.cacheHit) === "boolean" ? { cached: res.metadata?.cacheHit ?? res.cacheHit } : {}),
-            meta: { gene, variant, cacheLayer: res?.metadata?.cacheLayer ?? res?.cacheLayer ?? null }
-          });
+  return streamOrPromise
+    .then((res: any) => {
+      const durationMs = Math.round(performance.now() - bpStart);
+      const offsetMs = traceContext ? Math.max(0, Math.round(bpStart - traceContext.traceStart)) : 0;
+      if (traceContext?.activeTraceId) {
+        traceContext.addTraceSpan({
+          traceId: traceContext.activeTraceId,
+          name: "Core evidence sources",
+          stage: "biophysics",
+          startTime: Date.now() - durationMs,
+          offsetMs,
+          durationMs,
+          status: "success",
+          ...(typeof (res?.metadata?.cacheHit ?? res?.cacheHit) === "boolean" ? { cached: res.metadata?.cacheHit ?? res.cacheHit } : {}),
+          meta: { gene, variant, cacheLayer: res?.metadata?.cacheLayer ?? res?.cacheLayer ?? null }
+        });
 
-          // Feed granular server task sub-spans into the Waterfall
-          const timings = res?.serviceTimings || res?.metadata?.serviceTimings;
-          const statuses = res?.serviceStatus || res?.metadata?.serviceStatus;
-          const timingOffsets = res?.serviceTimingOffsets || res?.metadata?.serviceTimingOffsets;
-          if (timings && typeof timings === "object") {
-            const serviceLabels: Record<string, { name: string; stage: "structure" | "biophysics" | "clinical" }> = {
-              pdbMapping: { name: "3D Structure Homology Search (RCSB PDB / AlphaFold)", stage: "structure" },
-              uniprotFeatures: { name: "Functional Domain Annotations (UniProtKB)", stage: "structure" },
-              disruptionPredictor: { name: "3D Residue Microenvironment & Disruption Triage", stage: "structure" },
-              predictorData: { name: "In-Silico Pathogenicity (dbNSFP / AlphaMissense / CADD)", stage: "biophysics" },
-              conservationData: { name: "Evolutionary Conservation (ConSurf / REVEL / GERP++)", stage: "biophysics" },
-              esm2: { name: "Zero-Shot ESM-2 Masked Marginal Likelihood", stage: "biophysics" },
-              clinvar: { name: "ClinVar Clinical Interpretation (NCBI E-Utilities)", stage: "clinical" },
-              gnomadFrequency: { name: "Population Allele Frequency (gnomAD r4 GraphQL)", stage: "clinical" },
-              gnomadConstraint: { name: "Gene Constraint & Regional Missense (gnomAD)", stage: "clinical" },
-              stringInteractions: { name: "Protein-Protein Interaction Network (STRING DB)", stage: "clinical" }
-            };
+        // Feed granular server task sub-spans into the Waterfall
+        const timings = res?.serviceTimings || res?.metadata?.serviceTimings;
+        const statuses = serviceStatusOf(res);
+        const timingOffsets = res?.serviceTimingOffsets || res?.metadata?.serviceTimingOffsets;
+        if (timings && typeof timings === "object") {
+          const serviceLabels: Record<string, { name: string; stage: "structure" | "biophysics" | "clinical" }> = {
+            pdbMapping: { name: "3D Structure Homology Search (RCSB PDB / AlphaFold)", stage: "structure" },
+            uniprotFeatures: { name: "Functional Domain Annotations (UniProtKB)", stage: "structure" },
+            disruptionPredictor: { name: "3D Residue Microenvironment & Disruption Triage", stage: "structure" },
+            predictorData: { name: "In-Silico Pathogenicity (dbNSFP / AlphaMissense / CADD)", stage: "biophysics" },
+            conservationData: { name: "Evolutionary Conservation (ConSurf / REVEL / GERP++)", stage: "biophysics" },
+            esm2: { name: "Zero-Shot ESM-2 Masked Marginal Likelihood", stage: "biophysics" },
+            clinvar: { name: "ClinVar Clinical Interpretation (NCBI E-Utilities)", stage: "clinical" },
+            gnomadFrequency: { name: "Population Allele Frequency (gnomAD r4 GraphQL)", stage: "clinical" },
+            gnomadConstraint: { name: "Gene Constraint & Regional Missense (gnomAD)", stage: "clinical" },
+            stringInteractions: { name: "Protein-Protein Interaction Network (STRING DB)", stage: "clinical" }
+          };
 
-            Object.entries(timings).forEach(([key, taskDurationMs]) => {
-              const labelInfo = serviceLabels[key];
-              if (labelInfo && typeof taskDurationMs === "number" && taskDurationMs >= 0) {
-                const serviceState = statuses?.[key];
-                const isFail = serviceState === "error" || serviceState === "timeout";
-                const isUnavailable = serviceState === "unavailable";
-                // A source that answered 200 with a failed state is invisible to the fetch interceptor,
-                // so say so here — otherwise the span turns red and the Errors tab stays empty.
-                if (isFail || isUnavailable) {
-                  console.warn(`[Service] ${labelInfo.name}: ${serviceState}`);
-                }
-                // Server offsets describe SETTLEMENT, not start. Duration recovers the relative start.
-                const taskOffset = typeof timingOffsets?.[key] === "number" ? Math.max(0, timingOffsets[key] - taskDurationMs) : 0;
-                traceContext.addTraceSpan({
-                  traceId: traceContext.activeTraceId,
-                  name: `↳ ${labelInfo.name}`,
-                  stage: labelInfo.stage,
-                  startTime: Date.now() - durationMs + taskOffset,
-                  offsetMs: offsetMs + taskOffset,
-                  durationMs: taskDurationMs,
-                  status: isFail ? "failed" : isUnavailable ? "unavailable" : "success",
-                  meta: { serviceKey: key, status: statuses?.[key] || "ok", tier: key === "esm2" ? "fast-triage" : undefined }
-                });
+          Object.entries(timings).forEach(([key, taskDurationMs]) => {
+            const labelInfo = serviceLabels[key];
+            if (labelInfo && typeof taskDurationMs === "number" && taskDurationMs >= 0) {
+              const serviceState = statuses?.[key];
+              const isFail = serviceState === "error" || serviceState === "timeout";
+              const isUnavailable = serviceState === "unavailable";
+              // A source that answered 200 with a failed state is invisible to the fetch interceptor,
+              // so say so here — otherwise the span turns red and the Errors tab stays empty.
+              if (isFail || isUnavailable) {
+                console.warn(`[Service] ${labelInfo.name}: ${serviceState}`);
               }
-            });
-          }
-        }
-        return res;
-      })
-      .catch((err: any) => {
-        const durationMs = Math.round(performance.now() - bpStart);
-        const offsetMs = traceContext ? Math.max(0, Math.round(bpStart - traceContext.traceStart)) : 0;
-        if (traceContext?.activeTraceId) {
-          traceContext.addTraceSpan({
-            traceId: traceContext.activeTraceId,
-            name: "Core evidence sources",
-            stage: "biophysics",
-            startTime: Date.now() - durationMs,
-            offsetMs,
-            durationMs,
-            status: "failed",
-            error: err.message || "Biophysical analysis failed"
+              // Server offsets describe SETTLEMENT, not start. Duration recovers the relative start.
+              const taskOffset = typeof timingOffsets?.[key] === "number" ? Math.max(0, timingOffsets[key] - taskDurationMs) : 0;
+              traceContext.addTraceSpan({
+                traceId: traceContext.activeTraceId,
+                name: `↳ ${labelInfo.name}`,
+                stage: labelInfo.stage,
+                startTime: Date.now() - durationMs + taskOffset,
+                offsetMs: offsetMs + taskOffset,
+                durationMs: taskDurationMs,
+                status: isFail ? "failed" : isUnavailable ? "unavailable" : "success",
+                meta: { serviceKey: key, status: statuses?.[key] || "ok", tier: key === "esm2" ? "fast-triage" : undefined }
+              });
+            }
           });
         }
-        if (!signal.aborted && err.name !== "AbortError") {
-          console.error("[BiophysicalService] Biophysical analysis failed:", err);
-        }
-        throw err;
-      });
-  }, signal);
+      }
+      return res;
+    })
+    .catch((err: any) => {
+      const durationMs = Math.round(performance.now() - bpStart);
+      const offsetMs = traceContext ? Math.max(0, Math.round(bpStart - traceContext.traceStart)) : 0;
+      if (traceContext?.activeTraceId) {
+        traceContext.addTraceSpan({
+          traceId: traceContext.activeTraceId,
+          name: "Core evidence sources",
+          stage: "biophysics",
+          startTime: Date.now() - durationMs,
+          offsetMs,
+          durationMs,
+          status: "failed",
+          error: err.message || "Biophysical analysis failed"
+        });
+      }
+      if (!signal.aborted && err.name !== "AbortError") {
+        console.error("[BiophysicalService] Biophysical analysis failed:", err);
+      }
+      throw err;
+    });
 }
 
 export function fetchProgressiveLandscape(
@@ -203,19 +211,10 @@ export function fetchProgressiveLandscape(
     .then((landscapeRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
       if (!Array.isArray(landscapeRes?.landscapeData)) throw new Error("Landscape response did not contain a residue array");
-      setAnalysisState((prev: any) => mergeResultPatch(prev, {
+      applyStagePatch(params, setAnalysisState, {
         landscapeData: landscapeRes.landscapeData,
         landscapeMeta: landscapeRes.landscapeMeta ?? null
-      }, undefined, "landscape", "complete"));
-      const cached = getCachedVariant(params.gene, params.variant);
-      if (ownsCachedAnalysis(cached, params)) {
-        setCachedVariant(params.gene, params.variant, params.uniprotId, {
-          analysisResult: mergeResultPatch({ result: cached.analysisResult }, {
-            landscapeData: landscapeRes.landscapeData,
-            landscapeMeta: landscapeRes.landscapeMeta ?? null
-          }, undefined, "landscape", "complete").result
-        });
-      }
+      }, "landscape", "complete");
     })
     .catch((landErr: any) => {
       if (!signal.aborted && getActiveRequestId() === requestId) {
@@ -253,15 +252,8 @@ export function fetchProgressiveMultimer(
   }, signal)
     .then((data: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return data;
-      setAnalysisState((prev: any) => mergeResultPatch(prev, { multimerData: data || null }, undefined, "multimer", data ? "complete" : "skipped"));
-      if (data) {
-        const cached = getCachedVariant(gene, variant);
-        if (ownsCachedAnalysis(cached, params)) {
-          setCachedVariant(gene, variant, uniprotId, {
-            analysisResult: mergeResultPatch({ result: cached.analysisResult }, { multimerData: data }, undefined, "multimer", "complete").result
-          });
-        }
-      }
+      if (data) applyStagePatch(params, setAnalysisState, { multimerData: data }, "multimer", "complete");
+      else setAnalysisState((prev: any) => mergeResultPatch(prev, { multimerData: null }, undefined, "multimer", "skipped"));
       return data;
     })
     .catch((err: any) => {
@@ -310,15 +302,8 @@ export function fetchProgressivePpi(
   }, signal)
     .then((data: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return data;
-      setAnalysisState((prev: any) => mergeResultPatch(prev, { ppiBindingData: data || null }, undefined, "ppi", data ? "complete" : "skipped"));
-      if (data) {
-        const cached = getCachedVariant(gene, variant);
-        if (ownsCachedAnalysis(cached, params)) {
-          setCachedVariant(gene, variant, uniprotId, {
-            analysisResult: mergeResultPatch({ result: cached.analysisResult }, { ppiBindingData: data }, undefined, "ppi", "complete").result
-          });
-        }
-      }
+      if (data) applyStagePatch(params, setAnalysisState, { ppiBindingData: data }, "ppi", "complete");
+      else setAnalysisState((prev: any) => mergeResultPatch(prev, { ppiBindingData: null }, undefined, "ppi", "skipped"));
       return data;
     })
     .catch((err: any) => {
@@ -425,38 +410,20 @@ export function fetchProgressiveStructuralAssessments(
         );
       }
 
-      setAnalysisState((prev: any) => mergeResultPatch(prev, {
+      applyStagePatch(params, setAnalysisState, {
         ...(structRes.disruptionPredictor ? { disruptionPredictor: structRes.disruptionPredictor } : {}),
         esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
         esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
         metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
         serviceStatus: structRes.serviceStatus ?? {},
         ...(structRes.ruleBasedInsights ? { ruleBasedInsights: structRes.ruleBasedInsights } : {})
-      }, undefined, "structural", failedModels.length ? "degraded" : "complete"));
-
-      const cached = getCachedVariant(params.gene, params.variant);
-      if (ownsCachedAnalysis(cached, params)) {
-        setCachedVariant(params.gene, params.variant, params.uniprotId, {
-          analysisResult: mergeResultPatch({ result: cached.analysisResult }, {
-            ...(structRes.disruptionPredictor ? { disruptionPredictor: structRes.disruptionPredictor } : {}),
-            esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
-            esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
-            metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
-            serviceStatus: structRes.serviceStatus ?? {},
-            ...(structRes.ruleBasedInsights ? { ruleBasedInsights: structRes.ruleBasedInsights } : {})
-          }, undefined, "structural", failedModels.length ? "degraded" : "complete").result
-        });
-      }
+      }, "structural", failedModels.length ? "degraded" : "complete");
     })
     .catch((structErr: any) => {
+      // A replaced run no longer owns the flag: the run after it reset it and may have raised it again.
+      if (getActiveRequestId() !== requestId || signal.aborted) return;
       setIsStructuralLoading?.(false);
-      if (
-        getActiveRequestId() !== requestId ||
-        signal.aborted ||
-        structErr.name === "AbortError"
-      ) {
-        return;
-      }
+      if (structErr.name === "AbortError") return;
 
       const isTimeout = structErr.name === "TimeoutError" || structErr.message?.includes("timed out");
       const errMessage = isTimeout
@@ -472,10 +439,7 @@ export function fetchProgressiveStructuralAssessments(
         if (!prev.result) return prev;
         const failureStatus = Object.fromEntries(unfinished.map(key => [key, failure.status]));
         const failedEvaluations = Object.fromEntries(unfinished.map(key => [STRUCTURAL_MODEL_FIELDS[key], failure]));
-        const mergedServiceStatus = {
-          ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
-          ...failureStatus
-        };
+        const mergedServiceStatus = { ...serviceStatusOf(prev.result), ...failureStatus };
         return {
           ...prev,
           result: {

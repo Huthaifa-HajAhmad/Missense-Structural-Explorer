@@ -19,7 +19,7 @@ import {
 import { BrandMark } from "./ui/BrandMark";
 import { motion } from "motion/react";
 import { useSettings } from "../context/SettingsContext";
-import { useDiagnostics } from "../hooks/useDiagnostics";
+import { useAppVersion } from "../hooks/useAppVersion";
 import {
   APP_REPOSITORY,
   PROVENANCE_DATA_SOURCES,
@@ -711,7 +711,7 @@ interface AboutViewProps {
 }
 
 export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutViewProps = {}) {
-  const { version } = useDiagnostics();
+  const version = useAppVersion();
   const { openSettingsTab } = useSettings();
   const sectionIds = useMemo(() => CONTENTS.map((entry) => entry.id), []);
   const [activeId, noteNavigation] = useActiveSection(sectionIds);

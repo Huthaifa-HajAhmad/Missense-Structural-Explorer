@@ -18,6 +18,12 @@ const enrichmentOwners: Record<string, PipelineStage> = {
 };
 
 /**
+ * Evidence the core stage writes first and the structural stage can refine, with the metadata field that
+ * records who wrote it last. The two responses race, so once structural has written, core may not replace it.
+ */
+const structuralRefinements = { ruleBasedInsights: "ruleBasedInsightsStage", disruptionPredictor: "disruptionPredictorStage" } as const;
+
+/**
  * The stages a finished run left at "running", settled. A stage whose evidence arrived is `complete`; one
  * whose evidence never arrived did not report, so it is `error` (the screen offers a retry, and a cached
  * result re-runs it) rather than a `complete` with nothing behind it. A stage with no evidence field of its
@@ -46,7 +52,8 @@ export function hasCoreAnalysisText(result: any): boolean {
  * still running cannot be running in the reader's next session, so it is settled by its evidence
  * (see `settleUnreportedStages`). Core has no evidence field of its own: it is `complete` only when the
  * analysis text is a real answer. Otherwise it is `error`, so the next run redoes it instead of
- * serving the placeholder as a finished analysis. Returns null when nothing was running.
+ * serving the placeholder as a finished analysis. A narrative or literature search still running records no
+ * outcome: its writer has not finished, so nothing can be said about it. Returns null when nothing was running.
  */
 export function settleStagesForStorage(result: any): PipelineStages | null {
   const stages: Record<string, StageOutcome> | null = settleUnreportedStages(result);
@@ -54,6 +61,11 @@ export function settleStagesForStorage(result: any): PipelineStages | null {
   let changed = stages !== null;
   if (result?.metadata?.pipelineStages?.core === "running" && !hasCoreAnalysisText(result)) {
     settled.core = "error";
+    changed = true;
+  }
+  for (const stage of ["narrative", "literature"]) {
+    if (result?.metadata?.pipelineStages?.[stage] !== "running") continue;
+    delete settled[stage];
     changed = true;
   }
   if (settled.coordinates === "running") {
@@ -83,24 +95,21 @@ export function mergeResultPatch(prev: any, patch: any, base?: PipelineStateBase
       if (stage !== owner) delete patch[field];
     }
   }
-  if (stage === "core" && result.metadata?.ruleBasedInsightsStage === "structural") {
-    patch = { ...patch };
-    delete patch.ruleBasedInsights;
+  const refinements = Object.entries(structuralRefinements);
+  if (stage === "core") {
+    for (const [field, marker] of refinements) if (result.metadata?.[marker] === "structural") delete patch[field];
   }
+  const refinedBy = stage === "core" || stage === "structural"
+    ? Object.fromEntries(refinements.filter(([field]) => patch[field]).map(([, marker]) => [marker, stage]))
+    : {};
   const status = {
     ...(result.metadata?.serviceStatus ?? {}), ...(result.serviceStatus ?? {}),
     ...(patch.metadata?.serviceStatus ?? {}), ...(patch.serviceStatus ?? {})
   };
-  if (stage === "core" && ["complete", "degraded"].includes(result.metadata?.pipelineStages?.structural)) {
-    for (const key of ["esm3", "esmc", "saprot", "esm2Eval"]) {
-      const value = result.serviceStatus?.[key] ?? result.metadata?.serviceStatus?.[key];
-      if (value !== undefined) status[key] = value;
-    }
-  }
   const metadata = {
     ...result.metadata, ...patch.metadata,
     serviceStatus: status,
-    ...(patch.ruleBasedInsights && (stage === "core" || stage === "structural") ? { ruleBasedInsightsStage: stage } : {}),
+    ...refinedBy,
     pipelineStages: {
       ...(result.metadata?.pipelineStages ?? {}), ...(patch.metadata?.pipelineStages ?? {}),
       ...(stage && outcome ? { [stage]: outcome } : {})

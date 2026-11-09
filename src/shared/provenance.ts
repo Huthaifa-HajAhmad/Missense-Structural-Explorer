@@ -9,6 +9,7 @@ import { CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_RELEASE } from "./constraintSou
 
 import type { AnalysisResult, StructureProvenance, EnergeticsData } from "./contracts.ts";
 import { variantNumberingView } from "./numbering.ts";
+import { serviceStatusOf } from "./serviceStatus.ts";
 
 /**
  * The project repository. Exported so the provenance manifest and the About view
@@ -212,7 +213,7 @@ export function generateProvenanceManifest(
   }
 ): ProvenanceManifest {
   const meta = (analysisResult as any)?.metadata || {};
-  const status = (analysisResult as any)?.serviceStatus || meta?.serviceStatus || {};
+  const status = serviceStatusOf(analysisResult) ?? {};
   const structureProv: StructureProvenance | null =
     (foldingEnergetics as any)?.provenance ||
     (analysisResult as any)?.structureProvenance ||

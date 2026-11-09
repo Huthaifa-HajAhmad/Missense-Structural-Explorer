@@ -20,8 +20,10 @@
  */
 
 export const PROVIDER_STATE_LABELS = {
-  /** The last probe answered, or the credential it needs is present. */
+  /** Something answered: the last probe, or a live session or key the server holds. */
   connected: "Connected",
+  /** Set up in this browser (a key or an endpoint), and nothing has tested it yet. */
+  configured: "Configured",
   /**
    * Not at full strength. A verified fallback is covering for a primary that did not answer, a local
    * component is installed but cannot run, or a credential has lapsed. It is also used where the probe
@@ -35,6 +37,8 @@ export const PROVIDER_STATE_LABELS = {
   "not-configured": "Not configured",
   /** A probe is still in flight. */
   checking: "Checking",
+  /** The last reading could not be renewed, so it cannot say how the service is doing now. */
+  stale: "Out of date",
 } as const;
 
 export type ProviderState = keyof typeof PROVIDER_STATE_LABELS;

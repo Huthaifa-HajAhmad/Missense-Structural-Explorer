@@ -426,7 +426,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     expect(document.getElementById("panel-telemetry")!.hasAttribute("inert")).toBe(false);
   });
 
-  it("shows AlphaGenome Atlas as Connected when a key is configured in client settings", async () => {
+  it("shows AlphaGenome Atlas as Configured when a key is set in client settings", async () => {
     sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ alphagenomeApiKey: "ag-secret-key-xyz" }));
 
     renderPanel();
@@ -436,7 +436,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       const el = document.querySelector('[data-service-id="alphagenome"]') as HTMLElement | null;
       expect(el?.textContent).toMatch(/key set in this browser/);
       // The pill reads "Checking" until the diagnostics poll settles; wait for it rather than race it.
-      expect(within(el!).getByText("Connected")).toBeInTheDocument();
+      expect(within(el!).getByText("Configured")).toBeInTheDocument();
       return el!;
     });
     expect(row).toBeInTheDocument();

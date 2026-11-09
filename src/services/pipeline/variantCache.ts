@@ -6,7 +6,7 @@ import { hasInterruptedPredictorReadings } from '../../shared/predictorRecovery'
  */
 
 import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/narrativeFallback";
-import { analysisContextMatches, type AnalysisCacheContext } from "./analysisContext";
+import { analysisContextMatches, opaqueInputIdentity, type AnalysisCacheContext } from "./analysisContext";
 import { settleStagesForStorage } from "./resultMerge";
 
 /**
@@ -82,14 +82,8 @@ const MAX_CACHE_ENTRIES = 25;
 /**
  * Biophysics attempt timestamps live under their OWN key, deliberately not inside a cached bundle.
  *
- * They were briefly written as a payload-free bundle record, which failed twice over, both measured
- * by review:
- *   • the only reader of `biophysicsAttemptedAt` sits INSIDE the cached-bundle branch, and a record
- *     with no `analysisResult` can never reach it — so the cooldown was written and then ignored,
- *     and the multi-minute FoldX re-run it exists to prevent still happened;
- *   • `getCachedVariant` returned that record as a truthy "cached variant", so the four call sites
- *     guarding on `if (!cached) resetViewerState()` skipped their reset and left the PREVIOUS
- *     variant's structure on screen.
+ * A record with no `analysisResult` could never reach the cooldown check, and `getCachedVariant` returned
+ * it as a truthy "cached variant", which left the previous variant's structure on screen.
  *
  * A timestamp is not a bundle. Keeping it in its own store means it cannot be mistaken for one.
  */
@@ -122,16 +116,11 @@ export interface CachedVariantBundle {
   computedPocket?: any | null;
   homologs?: any[] | null;
   disruptionPredictor?: any | null;
-  /**
-   * When the biophysics pipeline was last dispatched for this variant.
-   *
-   * Dedicated to this purpose on purpose: `timestamp` below is a whole-bundle marker refreshed by
-   * ANY write (landscape, multimer, pockets), so using it as a retry clock would let an unrelated
-   * update silently re-arm — or suppress — a multi-minute FoldX re-run.
-   */
-  biophysicsAttemptedAt?: number;
   timestamp: number;
 }
+
+/** What a FoldX run and its remote engines produced. None of it is valid outside that run's conditions. */
+const BIOPHYSICS_RESULT_FIELDS = ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "dynamut2JobId", "dynamut2Status", "ddmutJobId", "ddmutStatus", "thermompnnJobId", "thermompnnStatus", "thermompnnError"] as const;
 
 const memoryVariantCache = new Map<string, CachedVariantBundle>();
 
@@ -184,7 +173,7 @@ export function getCachedVariant(gene: string, variant: string, expected?: Analy
     if (copy.analysisResult) copy.analysisResult = withSettledStages(copy.analysisResult);
     if (entry.biophysicsContext !== expected.simulationConditions) {
       // Coordinates remain reusable. Energetics, mutants and remote jobs do not cross conditions.
-      for (const key of ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "dynamut2JobId", "dynamut2Status", "ddmutJobId", "ddmutStatus", "thermompnnJobId", "thermompnnStatus", "thermompnnError", "biophysicsAttemptedAt"] as const) delete copy[key];
+      for (const key of BIOPHYSICS_RESULT_FIELDS) delete copy[key];
     }
     return copy;
   };
@@ -308,72 +297,47 @@ export function setCachedVariant(
 
   if (isFallback) {
     /**
-     * Drop the degraded narrative from the IN-MEMORY entry as well.
-     *
-     * Previously only sessionStorage was guarded, and `memoryVariantCache.set` above had
-     * already stored the fallback. `getCachedVariant` reads memory first and returns for 24h,
-     * so within a session a single transient provider 503 permanently pinned the fallback for
-     * that variant: every later re-analysis served the stale offline report and never retried
-     * the model. That is what made the outage look permanent rather than transient.
-     *
-     * Biophysical artefacts (structures, energetics, pockets) are still cached — only the
-     * narrative is discarded so the next lookup re-attempts synthesis.
+     * Drop the degraded narrative from the in-memory entry as well. Memory is read first, so one
+     * transient provider failure would otherwise keep serving the fallback text for a whole day.
+     * Structures, energetics and pockets are still saved: only the narrative is discarded.
      */
     updated.analysisResult = withoutDegradedNarrative(updated.analysisResult);
     memoryVariantCache.set(key, updated);
-
-    try {
-      const hasBiophysicalData = Boolean(
-        updated.analysisResult || updated.pdbText ||
-        updated.mutantPdb ||
-        updated.foldingDdG !== undefined ||
-        updated.foldingEnergetics ||
-        updated.computedPocket
-      );
-      if (hasBiophysicalData) {
-        const storageCopy = { ...updated };
-        if (storageCopy.pdbText && storageCopy.pdbText.length > 2 * 1024 * 1024) {
-          delete storageCopy.pdbText;
-        }
-        if (storageCopy.mutantPdb && storageCopy.mutantPdb.length > 2 * 1024 * 1024) {
-          delete storageCopy.mutantPdb;
-        }
-        delete storageCopy.foldxWtPdb;
-        sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(storageCopy));
-      } else {
-        sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
-      }
-    } catch (err) {
-      noteCacheWriteFailure(err);
+    const hasBiophysicalData = Boolean(
+      updated.analysisResult || updated.pdbText || updated.mutantPdb ||
+      updated.foldingDdG !== undefined || updated.foldingEnergetics || updated.computedPocket
+    );
+    if (hasBiophysicalData) persistBundle(key, updated);
+    else {
+      try { sessionStorage.removeItem(`${CACHE_PREFIX}${key}`); } catch (_) {}
     }
     return;
   }
 
   if (updated.foldingStatus === "failed" || (updated.foldingEnergetics as any)?.foldxError || isPreliminary) {
-    // No cooldown write here any more — `recordBiophysicsAttempt` owns that, under its own key.
+    // Unfinished FoldX numbers stay in memory. The evidence beside them is still worth keeping for a reload.
+    if (updated.analysisResult) {
+      const withoutFoldx = { ...updated };
+      for (const field of BIOPHYSICS_RESULT_FIELDS) delete withoutFoldx[field];
+      delete withoutFoldx.biophysicsContext;
+      persistBundle(key, withoutFoldx);
+    }
     return;
   }
 
-  // Enforce LRU bounds in memory
-  if (memoryVariantCache.size > MAX_CACHE_ENTRIES) {
-    const oldestKey = memoryVariantCache.keys().next().value;
-    if (oldestKey) memoryVariantCache.delete(oldestKey);
-  }
+  persistBundle(key, updated);
+}
 
-  // Persist to sessionStorage (excluding overly large raw PDB strings if storage is constrained)
+/** Saves a bundle for a reload, leaving out structures too large for sessionStorage. */
+function persistBundle(key: string, bundle: CachedVariantBundle): void {
+  const storageCopy = { ...bundle };
+  if (storageCopy.pdbText && storageCopy.pdbText.length > 2 * 1024 * 1024) delete storageCopy.pdbText;
+  if (storageCopy.mutantPdb && storageCopy.mutantPdb.length > 2 * 1024 * 1024) delete storageCopy.mutantPdb;
+  delete storageCopy.foldxWtPdb;
   try {
-    const storageCopy = { ...updated };
-    if (storageCopy.pdbText && storageCopy.pdbText.length > 2 * 1024 * 1024) {
-      delete storageCopy.pdbText;
-    }
-    if (storageCopy.mutantPdb && storageCopy.mutantPdb.length > 2 * 1024 * 1024) {
-      delete storageCopy.mutantPdb;
-    }
-    delete storageCopy.foldxWtPdb;
     sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(storageCopy));
   } catch (err) {
-    // This entry is not persisted (the eviction below frees room for the NEXT write, it does not
-    // retry this one), so the session keeps it in memory only.
+    // This entry stays in memory only. The eviction frees room for the next write; it does not retry this one.
     noteCacheWriteFailure(err);
     try {
       for (let i = 0; i < sessionStorage.length; i++) {
@@ -424,18 +388,21 @@ export function purgeFallbackNarratives(): void {
   }
 }
 
+/** One FoldX calculation: the variant and the conditions it ran under. */
+function attemptKey(gene: string, variant: string, conditions: string): string {
+  return `${getCacheKey(gene, variant)}_${opaqueInputIdentity(conditions)}`;
+}
+
 /**
- * Records that a biophysics attempt was made for this variant, in memory and in sessionStorage.
+ * Records that a FoldX run FINISHED for this variant under these conditions, which starts the retry
+ * cooldown. It has its own store because it must survive where a failed or partial bundle is not saved.
  *
- * Written BEFORE dispatch so an abort or a crash still starts the cooldown. Independent of
- * `setCachedVariant` and its persistence guard by design: the cooldown is recorded at exactly the
- * moment that guard refuses to store a bundle (the previous attempt failed or is still partial), so
- * routing it through the bundle was always going to be fragile.
+ * Only a finished run counts. A run the reader abandoned, or lost to a reload, has told us nothing, and
+ * sending it again is cheap: the server joins the job that is still running or answers from its cache.
  */
-export function recordBiophysicsAttempt(gene: string, variant: string, _uniprotId?: string | null): void {
+export function recordBiophysicsAttempt(gene: string, variant: string, conditions: string, at = Date.now()): void {
   if (!gene || !variant) return;
-  const key = getCacheKey(gene, variant);
-  const at = Date.now();
+  const key = attemptKey(gene, variant, conditions);
   memoryAttempts.set(key, at);
   try {
     sessionStorage.setItem(`${ATTEMPT_PREFIX}${key}`, String(at));
@@ -444,16 +411,10 @@ export function recordBiophysicsAttempt(gene: string, variant: string, _uniprotI
   }
 }
 
-/**
- * The last recorded attempt time for this variant, or null.
- *
- * Falls back to a bundle field so a timestamp written by the previous release is still honoured —
- * but prefers the dedicated store, which is the one that survives a reload for failed and
- * preliminary bundles alike.
- */
-export function getBiophysicsAttemptedAt(gene: string, variant: string): number | null {
+/** When FoldX last finished for this variant under these conditions, or null. */
+export function getBiophysicsAttemptedAt(gene: string, variant: string, conditions: string): number | null {
   if (!gene || !variant) return null;
-  const key = getCacheKey(gene, variant);
+  const key = attemptKey(gene, variant, conditions);
 
   const inMemory = memoryAttempts.get(key);
   if (typeof inMemory === "number") return inMemory;
@@ -468,10 +429,7 @@ export function getBiophysicsAttemptedAt(gene: string, variant: string): number 
       }
     }
   } catch (_) {}
-
-  // Backwards compatibility with a bundle that carries the field.
-  const fromBundle = getCachedVariant(gene, variant)?.biophysicsAttemptedAt;
-  return typeof fromBundle === "number" ? fromBundle : null;
+  return null;
 }
 
 export function clearClientVariantCache(): void {

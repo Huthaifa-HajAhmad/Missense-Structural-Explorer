@@ -1,4 +1,5 @@
 import type { ConservationData, ConservationModelKey, ConservationModelState } from "./contracts.ts";
+import { serviceStatusOf } from "./serviceStatus.ts";
 
 /**
  * Where one model inside the conservation composite stands, for a surface deciding between
@@ -19,7 +20,7 @@ export function conservationModelState(
   model: ConservationModelKey,
   fallbackLoading: boolean
 ): ConservationModelState {
-  const composite = result?.serviceStatus?.conservationData ?? result?.metadata?.serviceStatus?.conservationData;
+  const composite = serviceStatusOf(result)?.conservationData;
   const perModel: ConservationModelState | undefined = result?.conservationData?.modelStatus?.[model];
   if (composite && composite !== "pending") {
     // A stale `pending` cannot outlive the composite: the run is over for this source.
@@ -44,7 +45,7 @@ export function isConservationModelPending(result: any, model: ConservationModel
  * the core stage itself is terminal, not merely until the composite settles.
  */
 export function isConservationCompositePending(result: any, fallbackLoading: boolean): boolean {
-  const composite = result?.serviceStatus?.conservationData ?? result?.metadata?.serviceStatus?.conservationData;
+  const composite = serviceStatusOf(result)?.conservationData;
   if (composite === "pending") return true;
   if (result?.metadata?.pipelineStages?.core === "running") return true;
   return composite ? false : fallbackLoading;
