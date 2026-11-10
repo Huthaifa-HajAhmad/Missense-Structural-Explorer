@@ -172,7 +172,7 @@ export interface FunctionEvidence {
   headline: { figure: string; sub: string };
   finding: { lead: string; rest: string };
   facts: FunctionFact[];
-  caveats: Array<{ lead: string; rest: string }>;
+  caveats: Array<{ lead: string; rest: string; anchor?: "hotspots" }>;
   notAnnotated: string[];
   trace: TraceStep[];
   sources: Array<{ label: string; value: string; url: string | null }>;
@@ -195,6 +195,8 @@ export interface FunctionEvidenceInput {
   acmgWeighting?: string | null;
   /** gnomAD regional missense constraint at the residue; context only, PM1 does not use it. */
   regionalConstraint?: { isConstrained: boolean; oeRatio: number | null; regionText: string | null } | null;
+  /** Native solved PDBe-KB interface partners at the residue; 3D context when 1D sequence annotations miss an interface. */
+  interfaceAtResidue?: ReadonlyArray<{ label: string; k: number; n: number }> | null;
 }
 
 /** Member databases drawn as domain boxes. Family and superfamily signatures are listed, not drawn. */
@@ -945,6 +947,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     caveats.push({
       lead: `UniProtKB lists ${density.total} disease variant${density.total === 1 ? "" : "s"} across ${density.residues} residue${density.residues === 1 ? "" : "s"}.`,
       rest: "PM1's hot-spot reading, a cluster of pathogenic variants with no benign variation, is not tested by the engine. The Hotspots view lays out each published definition for this protein.",
+      anchor: "hotspots",
     });
   }
   // D1: PM1 asks for a region without benign variation but does not test it. Show the one population
@@ -954,6 +957,20 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     caveats.push({
       lead: "Benign variation in the region is not tested for PM1.",
       rest: `For context, gnomAD observes missense variants at ${rc.oeRatio.toFixed(2)} of expectation${rc.regionText ? ` in the window ${rc.regionText}` : " in this residue's window"} (regional O/E; 1.0 is neutral). It is not used by PM1.`,
+    });
+  }
+  const iface = input.interfaceAtResidue;
+  if (iface?.length && Number.isFinite(residue) && residue >= 1) {
+    const partnerPhrase = (label: string) => {
+      const m = /^(.+), other chain$/.exec(label);
+      return m ? `the other ${m[1]} chain` : label;
+    };
+    const where = iface
+      .map((x) => `${partnerPhrase(x.label)} in ${x.k} of ${x.n} solved ${x.n === 1 ? "structure" : "structures"}`)
+      .join("; ");
+    caveats.push({
+      lead: `PDBe-KB places residue ${residue} at the interface with ${where}.`,
+      rest: "Distances on this tab are along the 1D sequence; see Interfaces & PPI (Interface atlas) for the solved-structure record.",
     });
   }
   if (engineMismatch) caveats.push({ lead: "Engine record differs from the current rule.", rest: engineMismatch });

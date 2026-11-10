@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildFunctionEvidence } from "../functionEvidence";
+import { functionEvidenceInputFrom } from "../functionEvidenceInput";
 import { NAE1_INPUT, NAE1_UNIPROT } from "./fixtures/nae1FunctionalDomains";
 
 describe("buildFunctionEvidence — NAE1 p.Asp116Gly", () => {
@@ -193,5 +194,74 @@ describe("buildFunctionEvidence — context for PM1 and mutagenesis at the resid
     expect(rows.map((r) => r.name)).toEqual(["TM1", "TM2"]);
     expect(rows[0].note).toBe("Transmembrane, numbered here by position");
     expect(rows.every((r) => r.lane === "membrane")).toBe(true);
+  });
+
+  it("A13: notes when the residue lies at a solved PDBe-KB protein interface with k of n in the lead, without changing PM1 or requiring UniProt", () => {
+    const withIface = buildFunctionEvidence({
+      ...NAE1_INPUT,
+      interfaceAtResidue: [{ label: "UBA3", k: 12, n: 14 }, { label: "NAE1, other chain", k: 1, n: 1 }, { label: "Uba3 (mouse)", k: 2, n: 3 }],
+    });
+    const caveat = withIface.caveats.find((c) => c.lead.startsWith("PDBe-KB places residue"));
+    expect(caveat?.lead).toBe(
+      "PDBe-KB places residue 116 at the interface with UBA3 in 12 of 14 solved structures; the other NAE1 chain in 1 of 1 solved structure; Uba3 (mouse) in 2 of 3 solved structures."
+    );
+    expect(caveat?.rest).toBe(
+      "Distances on this tab are along the 1D sequence; see Interfaces & PPI (Interface atlas) for the solved-structure record."
+    );
+    expect(withIface.verdict).toBe(buildFunctionEvidence(NAE1_INPUT).verdict);
+
+    // Preserved even when UniProt feature table is absent.
+    const withoutUniprot = buildFunctionEvidence({
+      ...NAE1_INPUT,
+      uniprot: null,
+      interfaceAtResidue: [{ label: "UBA3", k: 12, n: 14 }],
+    });
+    expect(withoutUniprot.caveats.some((c) => c.lead.startsWith("PDBe-KB places residue 116"))).toBe(true);
+  });
+
+  it("A13: withholds interfaceAtResidue when RCSB entry classification failed or crystal packing was not checked", () => {
+    const baseExp = {
+      status: "ok" as const,
+      entryKinds: "ok" as const,
+      crystalChecked: true,
+      partners: [
+        {
+          accession: "P00441",
+          gene: "SOD1",
+          name: "SOD1",
+          organism: null,
+          homomeric: true,
+          artefact: false,
+          context: "native" as const,
+          pdbEntries: ["1hl5", "2c9v"],
+          variantEntries: ["1hl5"],
+          variantAtInterface: true,
+          residues: [5],
+          support: [1],
+        },
+      ],
+    };
+    const baseAssembly = { kind: "homomer", copies: 2, partners: [] };
+    const baseResult: any = {
+      metadata: { gene: "SOD1", residueIndex: 5, wildType: "A", mutant: "V", uniprotId: "P00441" },
+      multimerData: { assembly: baseAssembly, experimental: baseExp },
+    };
+    expect(functionEvidenceInputFrom(baseResult).interfaceAtResidue).toEqual([
+      { label: "SOD1, other chain", k: 1, n: 2 },
+    ]);
+    // RCSB entryKinds failed -> fibrils could be mislabeled native -> withheld.
+    const failedKinds = {
+      ...baseResult,
+      multimerData: { assembly: baseAssembly, experimental: { ...baseExp, entryKinds: "failed" as const } },
+    };
+    expect(functionEvidenceInputFrom(failedKinds).interfaceAtResidue).toBeNull();
+    // crystalChecked === false -> crystal packing could be mislabeled native -> withheld.
+    const uncheckedCrystal = {
+      ...baseResult,
+      multimerData: { assembly: baseAssembly, experimental: { ...baseExp, crystalChecked: false } },
+    };
+    expect(functionEvidenceInputFrom(uncheckedCrystal).interfaceAtResidue).toBeNull();
+    // Absent multimerData -> null.
+    expect(functionEvidenceInputFrom({ ...baseResult, multimerData: null }).interfaceAtResidue).toBeNull();
   });
 });

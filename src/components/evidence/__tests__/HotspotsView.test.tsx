@@ -140,3 +140,86 @@ describe("HotspotsView — repairing a read", () => {
     expect(screen.queryByTestId("hotspots-retry")).toBeNull();
   });
 });
+
+describe("HotspotsView — map geometry and linked pinning", () => {
+  it("clamps C-terminal bands (including start === end === L) and bars to 100% width and flips the variant label near the C-terminus", () => {
+    const cTermCtx = {
+      ...sod1,
+      perRerun: {
+        ...sod1.perRerun,
+        regions: [
+          { start: 140, end: 154, minAdjP: 0.001 },
+          { start: 154, end: 154, minAdjP: 0.001 },
+        ],
+      },
+      distribution: {
+        ...sod1.distribution,
+        plp: [...sod1.distribution.plp.filter((p) => p.pos !== 154), { pos: 154, n: 2, maxStars: 2, changes: ["p.Gln154Arg"] }],
+        gnomad: [...sod1.distribution.gnomad.filter((g) => g.pos !== 154), { pos: 154, variants: 1, pass: 1 }],
+      },
+    };
+    const cTermEv = buildHotspotEvidence({ context: cTermCtx, loadState: "ready", residue: 120, residueLabel: "Gly120" });
+    const { container } = render(<HotspotsView ev={cTermEv} onShow3d={null} />);
+    expect(container.querySelector(".hsp-map__variant")?.hasAttribute("data-flip")).toBe(true);
+    const bands = Array.from(container.querySelectorAll<HTMLElement>(".hsp-map__band"));
+    expect(bands.length).toBeGreaterThanOrEqual(2);
+    for (const b of bands) {
+      const left = parseFloat(b.style.left);
+      const width = parseFloat(b.style.width);
+      expect(left + width).toBeLessThanOrEqual(100.0001);
+      expect(width).toBeGreaterThan(0);
+    }
+    const bars = Array.from(container.querySelectorAll<HTMLElement>(".hsp-map__lane > i"));
+    for (const bar of bars) {
+      const left = parseFloat(bar.style.left);
+      const width = parseFloat(bar.style.width);
+      expect(left + width).toBeLessThanOrEqual(100.0001);
+    }
+  });
+
+  it("links residue hover, keyboard focus, and click between the ClinVar P/LP table, map bars, and definition rungs", () => {
+    const cTermCtx = {
+      ...sod1,
+      perRerun: { ...sod1.perRerun, regions: [{ start: 140, end: 154, minAdjP: 0.001 }] },
+    };
+    const cTermEv = buildHotspotEvidence({ context: cTermCtx, loadState: "ready", residue: 5, residueLabel: "Ala5" });
+    const { container } = render(<HotspotsView ev={cTermEv} onShow3d={null} />);
+    const ala5Row = screen.getAllByTestId("hotspot-row").find((r) => r.getAttribute("data-row-key") === "hs:5")!;
+    const ala5Pin = within(ala5Row).getByRole("button", { name: "Ala5" });
+    const ala5Bar = container.querySelector('.hsp-map__row--up i[data-pos="5"]')!;
+
+    // Mouse enter and leave toggle data-lit.
+    fireEvent.mouseEnter(ala5Row);
+    expect(ala5Bar.hasAttribute("data-lit")).toBe(true);
+    fireEvent.mouseLeave(ala5Row);
+    expect(ala5Bar.hasAttribute("data-lit")).toBe(false);
+
+    // Keyboard focus and blur on the pin button also toggle data-lit on the map bar.
+    fireEvent.focus(ala5Pin);
+    expect(ala5Bar.hasAttribute("data-lit")).toBe(true);
+    fireEvent.blur(ala5Pin);
+    expect(ala5Bar.hasAttribute("data-lit")).toBe(false);
+
+    // Clicking the pin button selects both row and bar; clicking again clears selection.
+    fireEvent.click(ala5Pin);
+    expect(ala5Row.hasAttribute("data-selected")).toBe(true);
+    expect(ala5Bar.hasAttribute("data-selected")).toBe(true);
+    fireEvent.click(ala5Pin);
+    expect(ala5Row.hasAttribute("data-selected")).toBe(false);
+    expect(ala5Bar.hasAttribute("data-selected")).toBe(false);
+
+    // Clicking a map bar selects the corresponding table row.
+    fireEvent.click(ala5Bar);
+    expect(ala5Row.hasAttribute("data-selected")).toBe(true);
+
+    // Clicking a map band selects the definition rung and its lane.
+    const band = container.querySelector<HTMLElement>(".hsp-map__band")!;
+    fireEvent.click(band);
+    expect(screen.getByTestId("hotspot-rung-per-rerun").hasAttribute("data-selected")).toBe(true);
+
+    // Clicking a definition rung button selects both the rung and its lane on the map.
+    fireEvent.click(screen.getByRole("button", { name: "3D proximity to pathogenic residues" }));
+    expect(screen.getByTestId("hotspot-rung-spatial").hasAttribute("data-selected")).toBe(true);
+    expect(container.querySelector('.hsp-map__row[data-lane="spatial"]')?.hasAttribute("data-selected")).toBe(true);
+  });
+});

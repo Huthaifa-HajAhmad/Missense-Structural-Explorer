@@ -37,8 +37,8 @@ function Step({ n, warn, children }: { n: number; warn?: boolean; children: Reac
 }
 
 export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResult }) {
-  const ev = useMemo(() => buildFunctionEvidence(functionEvidenceInputFrom(analysisResult)), [analysisResult]);
-  const readings = useMemo(() => functionReadings(ev), [ev]);
+  const fndInput = useMemo(() => functionEvidenceInputFrom(analysisResult), [analysisResult]);
+  const ev = useMemo(() => buildFunctionEvidence(fndInput), [fndInput]);
   // Natural variants are left out: ECO:0000269 on a variant is a publication reporting it, not an observation
   // of a site, and listing it as "Experimental, counts for PM1" implied the variant rows were evidence for PM1.
   const levelsHere = useMemo(() => new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence)), [ev]);
@@ -50,16 +50,18 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
   const hotspotGene = analysisResult.metadata?.gene || storeGene || null;
   const slot = hotspotsSlot(hotspotGene, analysisResult.metadata?.uniprotId, analysisResult.transcriptId);
   const hotspotLoad = useVariantAnalysisStore((st) => st.extraContexts[slot]) as ContextLoad<HotspotContext> | undefined;
+  const hotspotEv = useMemo(
+    () => buildHotspotEvidence(hotspotInputFrom(analysisResult, ev, hotspotLoad, fndInput.engineCriteria)),
+    [analysisResult, ev, hotspotLoad, fndInput.engineCriteria]
+  );
+  const readings = useMemo(() => functionReadings(ev, hotspotEv), [ev, hotspotEv]);
   const hotspots = useMemo(() => {
     if (workspace.enabled && workspace.view !== "hotspots") return null;
     const context = hotspotLoad?.status === "ready" ? hotspotLoad.data : null;
     // Same inputs and the same load state as the view. The rail used to rebuild with `loadState: "ready"`,
     // so beside a failed view it rendered nothing and beside a loading one it claimed a finished answer.
-    return {
-      context,
-      ev: buildHotspotEvidence(hotspotInputFrom(analysisResult, ev, hotspotLoad, functionEvidenceInputFrom(analysisResult).engineCriteria)),
-    };
-  }, [workspace.enabled, workspace.view, hotspotLoad, ev, analysisResult]);
+    return { context, ev: hotspotEv };
+  }, [workspace.enabled, workspace.view, hotspotLoad, hotspotEv]);
 
   return (
     <div className="fnd-rail" data-testid="function-rail">

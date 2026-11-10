@@ -13,7 +13,7 @@ import { safeExternalHref } from '../../../shared/externalLink';
 import { disulfideSelection } from '../../../shared/residueFocus';
 import { FunctionWindowControl } from './FunctionWindowControl';
 import { evidenceTab } from '../../../shared/evidenceTabs';
-import { buildHotspotEvidence } from '../../../shared/hotspotEvidence';
+import { buildHotspotEvidence, isHotspotSelectionKey } from '../../../shared/hotspotEvidence';
 import { hotspotInputFrom } from '../../../shared/hotspotInput';
 import { useVariantAnalysisStore } from '../../../stores/useVariantAnalysisStore';
 import { hotspotsSlot } from '../../../shared/evidenceKeys';
@@ -265,7 +265,8 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
     return { fnd: q.get(FND_WINDOW_PARAM), fsel: q.get(FND_SELECTION_PARAM) };
   });
   const [localSelected, setLocalSelected] = useState<string | null>(fromUrl.fsel);
-  const selectedKey = workspace.enabled ? workspace.selected : localSelected;
+  const rawSelectedKey = workspace.enabled ? workspace.selected : localSelected;
+  const selectedKey = rawSelectedKey && !isHotspotSelectionKey(rawSelectedKey) ? rawSelectedKey : null;
   const setSelectedKey = (key: string | null) => { setLocalSelected(key); workspace.select(key); };
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [localHidden, setLocalHidden] = useState<ReadonlySet<LayerKey>>(new Set());
@@ -294,14 +295,15 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       return next;
     });
 
-  const ev = useMemo(() => (result ? buildFunctionEvidence(functionEvidenceInputFrom(result)) : null), [result]);
+  const fndInput = useMemo(() => (result ? functionEvidenceInputFrom(result) : null), [result]);
+  const ev = useMemo(() => (fndInput ? buildFunctionEvidence(fndInput) : null), [fndInput]);
   // Hot spots load up front with the other Evidence context (EvidenceContextPrefetch); the tab only reads
   // the slot. The slot key comes from `hotspotsSlot`, the same builder the loader uses — including its
   // result-metadata-or-store-gene rule, so a fallback identity reads the slot the writer filled.
   const storeGene = useVariantAnalysisStore(s => s.gene);
   const hotspotGene = result?.metadata?.gene || storeGene || null;
   const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(hotspotGene, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
-  const hotspots = useMemo(() => ev && result ? buildHotspotEvidence(hotspotInputFrom(result, ev, hotspotLoad, functionEvidenceInputFrom(result).engineCriteria)) : null, [ev, hotspotLoad, result]);
+  const hotspots = useMemo(() => ev && result ? buildHotspotEvidence(hotspotInputFrom(result, ev, hotspotLoad, fndInput?.engineCriteria)) : null, [ev, hotspotLoad, result, fndInput]);
   /** One row-key index for the domain-name disclosure, shared with the drawing's own resolver. */
   const domainKeyFor = useMemo(() => domainRowKeyResolver(ev?.rows ?? []), [ev]);
 
@@ -488,6 +490,14 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
             {ev.caveats.map((c) => (
               <li key={c.lead}>
                 <strong>{c.lead}</strong> {c.rest}
+                {workspace.enabled && c.anchor === "hotspots" && (
+                  <>
+                    {" "}
+                    <button type="button" className="viz-action" onClick={() => workspace.setView("hotspots")}>
+                      Open Hotspots
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>

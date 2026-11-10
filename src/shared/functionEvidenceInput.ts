@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "./contracts.ts";
 import type { FunctionEvidenceInput } from "./functionEvidence.ts";
+import { nativeInterfaceSupport } from "./interfacesEvidence.ts";
 
 /**
  * The one reading of an analysis result into `buildFunctionEvidence`'s input, shared by the tab, the
@@ -12,10 +13,17 @@ import type { FunctionEvidenceInput } from "./functionEvidence.ts";
 export function functionEvidenceInputFrom(result: AnalysisResult): FunctionEvidenceInput {
   const r = result as any;
   const meta = r?.metadata ?? {};
+  const residue = typeof meta.residueIndex === "number" ? meta.residueIndex : NaN;
+  const interfaces = r?.multimerData
+    ? nativeInterfaceSupport(r.multimerData, meta.gene ?? "This protein")
+    : null;
+  const interfaceAtResidue = interfaces?.status === "ok" && Number.isFinite(residue)
+    ? (interfaces.byResidue.get(residue) ?? null)
+    : null;
   return {
     gene: meta.gene ?? null,
     uniprotId: meta.uniprotId ?? null,
-    residue: typeof meta.residueIndex === "number" ? meta.residueIndex : NaN,
+    residue,
     wildType: meta.wildType ?? null,
     mutant: meta.mutant ?? null,
     uniprot: r?.uniprotFeatures ?? null,
@@ -26,5 +34,6 @@ export function functionEvidenceInputFrom(result: AnalysisResult): FunctionEvide
     engineCriteria: r?.ruleBasedInsights?.acmgCriteria ?? r?.insights?.acmgCriteria ?? null,
     acmgWeighting: meta.acmgWeighting ?? null,
     regionalConstraint: r?.gnomadConstraint?.regionalConstraint ?? null,
+    interfaceAtResidue,
   };
 }
