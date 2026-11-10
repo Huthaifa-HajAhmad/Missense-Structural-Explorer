@@ -128,6 +128,26 @@ export const HOTSPOT_GRADE_LABEL: Record<HotspotGrade, string> = {
 export type RungKey = "cspec" | "regional" | "per-published" | "per-rerun" | "spatial" | "distribution";
 export type RungState = "read" | "none" | "not-shown" | "failed" | "loading";
 
+export const HOTSPOT_LANE_LABEL: Partial<Record<RungKey, string>> = {
+  cspec: "Expert panel",
+  regional: "PP2 band",
+  "per-published": "Published PER",
+  "per-rerun": "PER re-run",
+};
+
+export const HOTSPOT_STATE_WORD: Record<RungState, string> = {
+  read: "Read",
+  none: "No region",
+  "not-shown": "Not shown",
+  failed: "Provider error",
+  loading: "Running",
+};
+
+export const hotspotRowKey = (residue: number): string => `hs:${residue}`;
+export const hotspotRungKey = (key: RungKey): string => `rung:${key}`;
+export const isHotspotSelectionKey = (key: string | null | undefined): boolean =>
+  Boolean(key && (key.startsWith("hs:") || key.startsWith("rung:")));
+
 export interface HotspotBand { start: number; end: number; label: string; hit: boolean }
 
 export interface HotspotRung {
@@ -471,7 +491,7 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
     const i = tIndex.get(p.pos);
     const ref = p.changes[0]?.match(/^p\.([A-Z][a-z]{2})/)?.[1] ?? "";
     return {
-      key: `hs:${p.pos}`, residue: p.pos, label: `${ref}${p.pos}`, plp: p.n, maxStars: p.maxStars, changes: p.changes,
+      key: hotspotRowKey(p.pos), residue: p.pos, label: `${ref}${p.pos}`, plp: p.n, maxStars: p.maxStars, changes: p.changes,
       gnomad: d.status === "ok" ? gn.get(p.pos) ?? 0 : null, sequenceDistance: p.pos - residue,
       distanceA: distanceA === null ? null : Math.round(distanceA * 10) / 10,
       plddt: i === undefined || !trace ? null : trace.plddt[i],

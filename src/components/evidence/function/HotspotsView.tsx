@@ -1,13 +1,23 @@
 import React, { useMemo, useState } from "react";
 import { Box, ExternalLink, Flame } from "lucide-react";
-import { HOTSPOT_GRADE_LABEL, type HotspotEvidence, type HotspotRung, type RungKey } from "../../../shared/hotspotEvidence";
+import {
+  HOTSPOT_GRADE_LABEL,
+  HOTSPOT_LANE_LABEL,
+  HOTSPOT_STATE_WORD,
+  RSA_UNIT_NOTE,
+  hotspotRowKey,
+  hotspotRungKey,
+  isHotspotSelectionKey,
+  type HotspotEvidence,
+  type HotspotRung,
+  type RungKey,
+} from "../../../shared/hotspotEvidence";
 import { residueFocus, type ResidueFocus } from "../../../shared/residueFocus";
 import { safeExternalHref } from "../../../shared/externalLink";
 import { ResearchGuideButton } from "../../knowledge/ResearchGuideButton";
 import { useEvidenceWorkspace } from "../EvidenceWorkspace";
 import { Prose } from "../../ui/Prose";
 import { HotspotsRetry, type HotspotsRead } from "./HotspotsRetry";
-import { RSA_UNIT_NOTE } from "../../../shared/hotspotEvidence";
 
 /**
  * Hotspots — "is this residue in a germline mutational hot spot, and by whose definition?"
@@ -21,24 +31,11 @@ import { RSA_UNIT_NOTE } from "../../../shared/hotspotEvidence";
  */
 
 const RUNG_ORDER: RungKey[] = ["cspec", "regional", "per-published", "per-rerun", "spatial", "distribution"];
-const LANE_LABEL: Partial<Record<RungKey, string>> = {
-  cspec: "Expert panel",
-  regional: "PP2 band",
-  "per-published": "Published PER",
-  "per-rerun": "PER re-run",
-};
 /** Full names for the map's narrow label column (shown in full as the label's title). */
 const LANE_TITLE: Partial<Record<RungKey, string>> = {
   regional: "Regional missense O/E in a calibrated PP2 band (Chao et al.)",
   "per-published": "Published pathogenic-enriched region (Pérez-Palma et al. 2020)",
   "per-rerun": "Pathogenic-enriched region, the published test re-run on current data (not validated)",
-};
-const STATE_WORD: Record<HotspotRung["state"], string> = {
-  read: "Read",
-  none: "No region",
-  "not-shown": "Not shown",
-  failed: "Provider error",
-  loading: "Running",
 };
 const ROWS_DEFAULT = 12;
 /** Partners listed per residue before "+N more"; a hub residue would otherwise make one row a column tall. */
@@ -53,10 +50,18 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
 }) {
   const workspace = useEvidenceWorkspace('function');
   const [localAll, setLocalAll] = useState(false);
+  const [localSelected, setLocalSelected] = useState<string | null>(null);
+  const [hoverResidue, setHoverResidue] = useState<number | null>(null);
   // The row disclosure is a display choice like the expanded rows beside it: it survives a view switch
   // whenever the tab runs inside the workspace.
   const allRows = workspace.enabled ? workspace.hotspotAllRows === true : localAll;
   const setAllRows = (v: boolean) => { setLocalAll(v); workspace.setOptions({ hotspotAllRows: v }); };
+  const selectedKey = workspace.enabled ? (isHotspotSelectionKey(workspace.selected) ? workspace.selected : null) : localSelected;
+  const toggleSelected = (key: string) => {
+    const next = selectedKey === key ? null : key;
+    if (workspace.enabled) workspace.select(next);
+    else setLocalSelected(next);
+  };
   const rungs = useMemo(() => RUNG_ORDER.map((k) => ev.rungs.find((r) => r.key === k)).filter((r): r is HotspotRung => !!r), [ev.rungs]);
 
   if (ev.state !== "ready") {
@@ -102,34 +107,42 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
         )}
       </div>
 
-      <HotspotMap ev={ev} rungs={rungs} />
+      <HotspotMap ev={ev} rungs={rungs} selectedKey={selectedKey} hoverResidue={hoverResidue} onHoverResidue={setHoverResidue} onSelectKey={toggleSelected} />
 
       <ol className="hsp-rungs" aria-label="Hot-spot definitions, strongest grade first">
-        {rungs.map((r) => (
-          <li key={r.key} className="hsp-rung" data-state={r.state} data-grade={r.grade} data-testid={`hotspot-rung-${r.key}`}>
-            <div className="hsp-rung__head">
-              <span className="hsp-grade" data-grade={r.grade}>{HOTSPOT_GRADE_LABEL[r.grade]}</span>
-              <h3 className="hsp-rung__name">{r.name}</h3>
-              {r.atVariant && <span className="hsp-at" data-at={r.atVariant}>{r.atVariant === "inside" ? `${ev.residueLabel} inside` : `${ev.residueLabel} outside`}</span>}
-              <span className="hsp-state-word" data-state={r.state}>{STATE_WORD[r.state]}</span>
-            </div>
-            <p className="hsp-rung__headline">{r.headline}</p>
-            {(r.details.length > 0 || r.source.url) && (
-              <details className="hsp-rung__more">
-                <summary>Method, coverage and source</summary>
-                <ul>{r.details.map((d) => <li key={d}>{d}</li>)}</ul>
-                <div className="hsp-rung__links">
-                  {r.source.url && safeExternalHref(r.source.url) && (
-                    <a href={safeExternalHref(r.source.url)!} target="_blank" rel="noreferrer">
-                      {r.source.label} <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                    </a>
-                  )}
-                  <ResearchGuideButton topic={r.explain} label={`How to read: ${r.name}`} className="rgd-trigger hsp-guide" />
-                </div>
-              </details>
-            )}
-          </li>
-        ))}
+        {rungs.map((r) => {
+          const rungKey = hotspotRungKey(r.key);
+          const isSelected = selectedKey === rungKey;
+          return (
+            <li key={r.key} className="hsp-rung" data-state={r.state} data-grade={r.grade} data-selected={isSelected || undefined} data-testid={`hotspot-rung-${r.key}`}>
+              <div className="hsp-rung__head">
+                <span className="hsp-grade" data-grade={r.grade}>{HOTSPOT_GRADE_LABEL[r.grade]}</span>
+                <h3 className="hsp-rung__name">
+                  <button type="button" className="hsp-rung__btn" aria-pressed={isSelected} onClick={() => toggleSelected(rungKey)}>
+                    {r.name}
+                  </button>
+                </h3>
+                {r.atVariant && <span className="hsp-at" data-at={r.atVariant}>{r.atVariant === "inside" ? `${ev.residueLabel} inside` : `${ev.residueLabel} outside`}</span>}
+                <span className="hsp-state-word" data-state={r.state}>{HOTSPOT_STATE_WORD[r.state]}</span>
+              </div>
+              <p className="hsp-rung__headline">{r.headline}</p>
+              {(r.details.length > 0 || r.source.url) && (
+                <details className="hsp-rung__more">
+                  <summary>Method, coverage and source</summary>
+                  <ul>{r.details.map((d) => <li key={d}>{d}</li>)}</ul>
+                  <div className="hsp-rung__links">
+                    {r.source.url && safeExternalHref(r.source.url) && (
+                      <a href={safeExternalHref(r.source.url)!} target="_blank" rel="noreferrer">
+                        {r.source.label} <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                      </a>
+                    )}
+                    <ResearchGuideButton topic={r.explain} label={`How to read: ${r.name}`} className="rgd-trigger hsp-guide" />
+                  </div>
+                </details>
+              )}
+            </li>
+          );
+        })}
       </ol>
 
       <div className="hsp-residues">
@@ -168,37 +181,61 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.key} data-here={r.residue === ev.residue || undefined} data-testid="hotspot-row">
-                  <th scope="row" className="fnd-mono" title={r.changes.join(", ")}>{r.label}</th>
-                  <td className="fnd-num">{r.plp}{r.maxStars !== null ? <span className="hsp-stars" title="Best ClinVar review status (gold stars)"> · {r.maxStars}★</span> : null}</td>
-                  <td className="fnd-num">{r.gnomad === null ? "—" : r.gnomad}</td>
-                  <td className="fnd-num">{r.sequenceDistance === 0 ? "0" : r.sequenceDistance > 0 ? `+${r.sequenceDistance}` : r.sequenceDistance}</td>
-                  <td className="fnd-num">{r.residue === ev.residue ? "here" : r.distanceA === null ? "—" : `${r.distanceA.toFixed(1)} Å`}</td>
-                  <td className="fnd-num">{r.plddt === null ? "—" : r.plddt.toFixed(0)}</td>
-                  <td className="fnd-num" title={cols.rsa.state === "ok" ? undefined : none(cols.rsa)}>{r.rsa === null ? "—" : `${Math.round(r.rsa * 100)}%`}</td>
-                  <td className="hsp-in hsp-col-text" title={cols.sites.state === "ok" ? undefined : none(cols.sites)}>
-                    {cols.sites.state !== "ok" ? "—" : r.sites.length ? r.sites.map((x) => <span key={x.name} className="hsp-site">{x.name}<small> · {x.evidence}</small></span>) : "None"}
-                  </td>
-                  <td className="hsp-in hsp-col-text" title={cols.interface.state === "ok" ? undefined : none(cols.interface)}>
-                    {cols.interface.state !== "ok" ? "—" : r.interfaceSupport.length
-                      ? <>
-                          {r.interfaceSupport.slice(0, INTERFACES_SHOWN).map((x) => <span key={x.label} className="hsp-site">{x.label}<small> · {x.k}/{x.n}</small></span>)}
-                          {r.interfaceSupport.length > INTERFACES_SHOWN && <span className="hsp-site"><small>+{r.interfaceSupport.length - INTERFACES_SHOWN} more</small></span>}
-                        </>
-                      : "None"}
-                  </td>
-                  <td className="fnd-num">{r.pathprox === null ? "—" : `${r.pathprox >= 0 ? "+" : ""}${r.pathprox.toFixed(2)}`}</td>
-                  <td className="hsp-in">{r.inRegions.length ? r.inRegions.map((k) => LANE_LABEL[k] ?? k).join(", ") : "—"}</td>
-                  <td>
-                    {canShow3d && (
-                      <button type="button" className="hsp-row3d" title={`Show ${r.label} in the 3D viewer`} onClick={() => onShow3d!(r.residue, residueFocus(r.residue, [ev.residue], `${r.label} with the variant residue ${ev.residueLabel}`))} aria-label={`Show ${r.label} in 3D`}>
-                        <Box className="w-3.5 h-3.5" aria-hidden="true" />
+              {rows.map((r) => {
+                const isSelected = selectedKey === r.key;
+                const isLit = hoverResidue === r.residue;
+                return (
+                  <tr
+                    key={r.key}
+                    data-row-key={r.key}
+                    data-here={r.residue === ev.residue || undefined}
+                    data-selected={isSelected || undefined}
+                    data-lit={isLit || undefined}
+                    onMouseEnter={() => setHoverResidue(r.residue)}
+                    onMouseLeave={() => setHoverResidue((cur) => (cur === r.residue ? null : cur))}
+                    data-testid="hotspot-row"
+                  >
+                    <th scope="row" className="fnd-mono" title={r.changes.join(", ")}>
+                      <button
+                        type="button"
+                        className="hsp-row__pin"
+                        aria-pressed={isSelected}
+                        onFocus={() => setHoverResidue(r.residue)}
+                        onBlur={() => setHoverResidue((cur) => (cur === r.residue ? null : cur))}
+                        onClick={() => toggleSelected(r.key)}
+                      >
+                        {r.label}
                       </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </th>
+                    <td className="fnd-num">{r.plp}{r.maxStars !== null ? <span className="hsp-stars" title="Best ClinVar review status (gold stars)"> · {r.maxStars}★</span> : null}</td>
+                    <td className="fnd-num">{r.gnomad === null ? "—" : r.gnomad}</td>
+                    <td className="fnd-num">{r.sequenceDistance === 0 ? "0" : r.sequenceDistance > 0 ? `+${r.sequenceDistance}` : r.sequenceDistance}</td>
+                    <td className="fnd-num">{r.residue === ev.residue ? "here" : r.distanceA === null ? "—" : `${r.distanceA.toFixed(1)} Å`}</td>
+                    <td className="fnd-num">{r.plddt === null ? "—" : r.plddt.toFixed(0)}</td>
+                    <td className="fnd-num" title={cols.rsa.state === "ok" ? undefined : none(cols.rsa)}>{r.rsa === null ? "—" : `${Math.round(r.rsa * 100)}%`}</td>
+                    <td className="hsp-in hsp-col-text" title={cols.sites.state === "ok" ? undefined : none(cols.sites)}>
+                      {cols.sites.state !== "ok" ? "—" : r.sites.length ? r.sites.map((x) => <span key={x.name} className="hsp-site">{x.name}<small> · {x.evidence}</small></span>) : "None"}
+                    </td>
+                    <td className="hsp-in hsp-col-text" title={cols.interface.state === "ok" ? undefined : none(cols.interface)}>
+                      {cols.interface.state !== "ok" ? "—" : r.interfaceSupport.length
+                        ? <>
+                            {r.interfaceSupport.slice(0, INTERFACES_SHOWN).map((x) => <span key={x.label} className="hsp-site">{x.label}<small> · {x.k}/{x.n}</small></span>)}
+                            {r.interfaceSupport.length > INTERFACES_SHOWN && <span className="hsp-site"><small>+{r.interfaceSupport.length - INTERFACES_SHOWN} more</small></span>}
+                          </>
+                        : "None"}
+                    </td>
+                    <td className="fnd-num">{r.pathprox === null ? "—" : `${r.pathprox >= 0 ? "+" : ""}${r.pathprox.toFixed(2)}`}</td>
+                    <td className="hsp-in">{r.inRegions.length ? r.inRegions.map((k) => HOTSPOT_LANE_LABEL[k] ?? k).join(", ") : "—"}</td>
+                    <td>
+                      {canShow3d && (
+                        <button type="button" className="hsp-row3d" title={`Show ${r.label} in the 3D viewer`} onClick={() => onShow3d!(r.residue, residueFocus(r.residue, [ev.residue], `${r.label} with the variant residue ${ev.residueLabel}`))} aria-label={`Show ${r.label} in 3D`}>
+                          <Box className="w-3.5 h-3.5" aria-hidden="true" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           </div>
@@ -225,52 +262,128 @@ function Head() {
 }
 
 /** The aligned map: HTML with percentage positions (crisp at any width), counts drawn as bar height. */
-function HotspotMap({ ev, rungs }: { ev: HotspotEvidence; rungs: HotspotRung[] }) {
+function HotspotMap({
+  ev,
+  rungs,
+  selectedKey,
+  hoverResidue,
+  onHoverResidue,
+  onSelectKey,
+}: {
+  ev: HotspotEvidence;
+  rungs: HotspotRung[];
+  selectedKey: string | null;
+  hoverResidue: number | null;
+  onHoverResidue: (residue: number | null) => void;
+  onSelectKey: (key: string) => void;
+}) {
   const d = ev.distribution;
   const L = Math.max(ev.length, ev.residue, 1);
   const pct = (r: number) => ((r - 1) / Math.max(1, L - 1)) * 100;
   const w = Math.max(100 / L, 0.15);
-  const maxPlp = Math.max(1, ...(d?.plp.map((p) => p.n) ?? []));
-  const maxGn = Math.max(1, ...(d?.gnomad.map((g) => g.variants) ?? []));
-  const lanes = rungs.filter((r) => LANE_LABEL[r.key] && r.state === "read" && r.bands.length);
+  const barLeft = (r: number) => Math.min(100 - w, Math.max(0, pct(r)));
+  const { maxPlp, maxGn, plpPeaks, gnPeaks } = useMemo(() => {
+    const peaks = (rows: { pos: number; n: number }[] | undefined, unit: string) =>
+      [...(rows ?? [])].sort((a, b) => b.n - a.n).slice(0, 5).map((p) => `${p.pos} (${p.n} ${unit})`).join(", ");
+    return {
+      maxPlp: Math.max(1, ...(d?.plp.map((p) => p.n) ?? [])),
+      maxGn: Math.max(1, ...(d?.gnomad.map((g) => g.variants) ?? [])),
+      plpPeaks: peaks(d?.plp, "P/LP"),
+      gnPeaks: peaks(d?.gnomad.map((g) => ({ pos: g.pos, n: g.variants })), "gnomAD"),
+    };
+  }, [d]);
+  const gnomadBars = useMemo(
+    () =>
+      d?.gnomad.map((g) => (
+        <i
+          key={g.pos}
+          style={{ left: `${Math.min(100 - w, Math.max(0, ((g.pos - 1) / Math.max(1, L - 1)) * 100))}%`, width: `${w}%`, height: `${(g.variants / maxGn) * 100}%` }}
+          title={`${g.pos}: ${g.variants} gnomAD missense`}
+        />
+      )),
+    [d, L, w, maxGn]
+  );
+  const lanes = rungs.filter((r) => HOTSPOT_LANE_LABEL[r.key] && r.state === "read" && r.bands.length);
   const spatial = rungs.find((r) => r.key === "spatial" && r.state === "read");
   const scores = spatial ? ev.rows : [];
-  // The density shape is the figure's claim, and its bars are aria-hidden with mouse-only titles. A screen
-  // reader gets the peaks in words; the totals already appear on the distribution rung.
-  const peaks = (rows: { pos: number; n: number }[] | undefined, unit: string) =>
-    [...(rows ?? [])].sort((a, b) => b.n - a.n).slice(0, 5).map((p) => `${p.pos} (${p.n} ${unit})`).join(", ");
-  const plpPeaks = peaks(d?.plp, "P/LP");
-  const gnPeaks = peaks(d?.gnomad.map((g) => ({ pos: g.pos, n: g.variants })), "gnomAD");
+  const variantPct = pct(ev.residue);
   return (
     <figure className="hsp-map" aria-label={`Germline variants along ${L} residues with hot-spot definitions; the variant at ${ev.residue}`}>
       <div className="hsp-map__plot">
-        <div className="hsp-map__variant" style={{ left: `calc(var(--hsp-label) + (100% - var(--hsp-label)) * ${pct(ev.residue) / 100})` }}><span>{ev.residueLabel}</span></div>
+        <div
+          className="hsp-map__variant"
+          data-flip={variantPct > 75 || undefined}
+          style={{ left: `calc(var(--hsp-label) + (100% - var(--hsp-label)) * ${variantPct / 100})` }}
+        >
+          <span>{ev.residueLabel}</span>
+        </div>
         <div className="hsp-map__row hsp-map__row--up" aria-hidden="true">
           <span className="hsp-map__label" title="ClinVar P/LP missense per residue (germline)">ClinVar P/LP</span>
           <div className="hsp-map__lane">
-            {d?.plp.map((p) => <i key={p.pos} style={{ left: `${pct(p.pos)}%`, width: `${w}%`, height: `${(p.n / maxPlp) * 100}%` }} title={`${p.pos}: ${p.n} P/LP`} />)}
+            {d?.plp.map((p) => {
+              const rowKey = hotspotRowKey(p.pos);
+              return (
+                <i
+                  key={p.pos}
+                  data-pos={p.pos}
+                  data-selected={selectedKey === rowKey || undefined}
+                  data-lit={hoverResidue === p.pos || undefined}
+                  onMouseEnter={() => onHoverResidue(p.pos)}
+                  onMouseLeave={() => onHoverResidue(null)}
+                  onClick={() => onSelectKey(rowKey)}
+                  style={{ left: `${barLeft(p.pos)}%`, width: `${w}%`, height: `${(p.n / maxPlp) * 100}%` }}
+                  title={`${p.pos}: ${p.n} P/LP`}
+                />
+              );
+            })}
           </div>
         </div>
         <div className="hsp-map__row hsp-map__row--down" aria-hidden="true">
           <span className="hsp-map__label" title="gnomAD v4 missense variants per residue">gnomAD</span>
-          <div className="hsp-map__lane">
-            {d?.gnomad.map((g) => <i key={g.pos} style={{ left: `${pct(g.pos)}%`, width: `${w}%`, height: `${(g.variants / maxGn) * 100}%` }} title={`${g.pos}: ${g.variants} gnomAD missense`} />)}
-          </div>
+          <div className="hsp-map__lane">{gnomadBars}</div>
         </div>
-        {lanes.map((r) => (
-          <div key={r.key} className="hsp-map__row" data-lane={r.key}>
-            <span className="hsp-map__label" title={LANE_TITLE[r.key] ?? LANE_LABEL[r.key]}>{LANE_LABEL[r.key]}</span>
-            <div className="hsp-map__lane" role="img" aria-label={`${LANE_LABEL[r.key]} (${HOTSPOT_GRADE_LABEL[r.grade]}${r.grade === "method-unvalidated" ? ", not validated here" : ""}): ${r.bands.map((b) => `${b.start}–${b.end}`).join(", ")}`}>
-              {r.bands.map((b) => <span key={`${b.start}-${b.end}`} className="hsp-map__band" data-hit={b.hit || undefined} style={{ left: `${pct(b.start)}%`, width: `${Math.max(pct(b.end + 1) - pct(b.start), w)}%` }} title={`${b.start}–${b.end} · ${b.label}`} />)}
+        {lanes.map((r) => {
+          const rungKey = hotspotRungKey(r.key);
+          return (
+            <div key={r.key} className="hsp-map__row" data-lane={r.key} data-selected={selectedKey === rungKey || undefined}>
+              <span className="hsp-map__label" title={LANE_TITLE[r.key] ?? HOTSPOT_LANE_LABEL[r.key]}>{HOTSPOT_LANE_LABEL[r.key]}</span>
+              <div className="hsp-map__lane" role="img" aria-label={`${HOTSPOT_LANE_LABEL[r.key]} (${HOTSPOT_GRADE_LABEL[r.grade]}${r.grade === "method-unvalidated" ? ", not validated here" : ""}): ${r.bands.map((b) => `${b.start}–${b.end}`).join(", ")}`}>
+                {r.bands.map((b) => {
+                  const left = Math.min(100 - w, Math.max(0, pct(b.start)));
+                  const end = Math.min(100, Math.max(left, pct(b.end + 1)));
+                  const width = Math.min(100 - left, Math.max(end - left, w));
+                  return (
+                    <span
+                      key={`${b.start}-${b.end}`}
+                      className="hsp-map__band"
+                      data-hit={b.hit || undefined}
+                      onClick={() => onSelectKey(rungKey)}
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                      title={`${b.start}–${b.end} · ${b.label}`}
+                    />
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {spatial && (
-          <div className="hsp-map__row" data-lane="spatial">
+          <div className="hsp-map__row" data-lane="spatial" data-selected={selectedKey === hotspotRungKey("spatial") || undefined}>
             <span className="hsp-map__label" title="PathProx score at ClinVar P/LP residues; above the line favours pathogenic neighbours">PathProx</span>
             <div className="hsp-map__lane hsp-map__lane--zero" role="img" aria-label="PathProx scores at ClinVar P/LP residues; above the line favours pathogenic neighbours">
               {scores.filter((s) => s.pathprox !== null).map((s) => (
-                <i key={s.residue} data-sign={s.pathprox! >= 0 ? "pos" : "neg"} style={{ left: `${pct(s.residue)}%`, width: `${w}%`, height: `${Math.min(50, Math.abs(s.pathprox!) * 50)}%` }} title={`${s.label}: PathProx ${s.pathprox!.toFixed(2)}`} />
+                <i
+                  key={s.residue}
+                  data-pos={s.residue}
+                  data-sign={s.pathprox! >= 0 ? "pos" : "neg"}
+                  data-selected={selectedKey === s.key || undefined}
+                  data-lit={hoverResidue === s.residue || undefined}
+                  onMouseEnter={() => onHoverResidue(s.residue)}
+                  onMouseLeave={() => onHoverResidue(null)}
+                  onClick={() => onSelectKey(s.key)}
+                  style={{ left: `${barLeft(s.residue)}%`, width: `${w}%`, height: `${Math.min(50, Math.abs(s.pathprox!) * 50)}%` }}
+                  title={`${s.label}: PathProx ${s.pathprox!.toFixed(2)}`}
+                />
               ))}
             </div>
           </div>

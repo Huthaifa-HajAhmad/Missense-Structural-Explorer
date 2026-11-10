@@ -3,14 +3,98 @@
  * Domain overlap is retained as source annotation, never merged into a biological consensus. */
 import type { EvidenceChartRow, EvidenceChartModel } from './evidenceComparison';
 import type { FunctionEvidence } from './functionEvidence';
+import { HOTSPOT_GRADE_LABEL, HOTSPOT_LANE_LABEL, HOTSPOT_STATE_WORD, RSA_UNIT_NOTE, hotspotRungKey, type HotspotEvidence } from './hotspotEvidence';
 import type { ResidueContextEvidence } from './residueContextEvidence';
 import { RESIDUE_SCALE_SOURCES } from './residueScales';
 import { LM_CAVEAT_TEXT, type PerturbationEvidence } from './perturbationEvidence';
 import { PHYSICAL_EXPLANATIONS } from './researchGuides';
 
-export function functionReadings(ev: FunctionEvidence): (EvidenceChartRow & { reportUrl?: string | null })[] {
+export function hotspotReadings(ev: HotspotEvidence): (EvidenceChartRow & { reportUrl?: string | null })[] {
+  if (ev.state !== 'ready') return [];
+  const rungs = ev.rungs.map(r => {
+    const provenanceFacts =
+      r.key === 'per-rerun'
+        ? [
+            { label: 'Method', value: r.source.label },
+            { label: 'Data', value: 'ClinVar and gnomAD v4 in this entry' },
+          ]
+        : r.key === 'spatial'
+          ? [
+              { label: 'Method', value: r.source.label },
+              { label: 'Data', value: 'ClinVar, gnomAD v4 and AlphaFold DB in this entry' },
+            ]
+          : [{ label: 'Source', value: r.source.label }];
+    return {
+      key: hotspotRungKey(r.key),
+      name: r.name,
+      value: null,
+      valueText: HOTSPOT_GRADE_LABEL[r.grade],
+      group: 'Hot-spot definitions',
+      tone: 'neutral' as const,
+      knowledgeKey: r.explain,
+      description: r.headline,
+      facts: [
+        { label: 'Grade', value: HOTSPOT_GRADE_LABEL[r.grade] },
+        { label: 'Status', value: HOTSPOT_STATE_WORD[r.state] },
+        { label: 'At variant', value: r.atVariant === 'inside' ? `${ev.residueLabel} inside` : r.atVariant === 'outside' ? `${ev.residueLabel} outside` : 'Not applicable' },
+        ...provenanceFacts,
+      ],
+      notes: [...r.details, ev.pm1Note].filter((n): n is string => Boolean(n)),
+      reportUrl: r.source.url,
+    };
+  });
+  const cols = ev.columns;
+  const distRung = ev.rungs.find(x => x.key === 'distribution');
+  const modelName = ev.model ? `${ev.model.entryId}${ev.model.version ? ` ${ev.model.version}` : ''}` : null;
+  const rows = ev.rows.map(r => {
+    const dist3d =
+      r.residue === ev.residue
+        ? '0 Å (variant residue)'
+        : r.distanceA !== null
+          ? `${r.distanceA.toFixed(1)} Å`
+          : ev.modelNote
+            ? 'Withheld (numbering mismatch)'
+            : ev.model
+              ? 'Not on the model'
+              : 'No model';
+    const starsText = r.maxStars === null ? '' : ` · ${r.maxStars} of 4 review stars`;
+    return {
+      key: r.key,
+      name: `${r.label} · ClinVar P/LP`,
+      value: r.plp,
+      valueText: `${r.plp} P/LP`,
+      group: 'ClinVar P/LP residues',
+      tone: (r.residue === ev.residue ? 'accent' : 'neutral') as 'accent' | 'neutral',
+      knowledgeKey: 'hotspots',
+      description: `${r.plp} ClinVar P/LP missense variant${r.plp === 1 ? '' : 's'} (${r.changes.join(', ')}).`,
+      facts: [
+        { label: 'ClinVar P/LP', value: `${r.plp}${starsText}` },
+        { label: 'gnomAD missense', value: r.gnomad === null ? 'Not read' : String(r.gnomad) },
+        { label: 'Sequence distance', value: r.sequenceDistance === 0 ? `0 (at ${ev.residueLabel})` : `${r.sequenceDistance > 0 ? `+${r.sequenceDistance}` : r.sequenceDistance} from ${ev.residueLabel}` },
+        { label: '3D Cα–Cα distance', value: dist3d },
+        { label: 'pLDDT', value: r.plddt === null ? 'Not available' : `${r.plddt.toFixed(0)} / 100` },
+        { label: 'RSA', value: r.rsa === null ? (cols.rsa.reason ?? 'Not measured') : `${Math.round(r.rsa * 100)}%` },
+        { label: 'Sites', value: cols.sites.state !== 'ok' ? (cols.sites.reason ?? 'Not read') : r.sites.length ? r.sites.map(s => `${s.name} (${s.evidence})`).join('; ') : 'None' },
+        { label: 'Native interfaces', value: cols.interface.state !== 'ok' ? (cols.interface.reason ?? 'Not read') : r.interfaceSupport.length ? r.interfaceSupport.map(x => `${x.label} (${x.k} of ${x.n} structures)`).join('; ') : 'None' },
+        ...(r.pathprox !== null ? [{ label: 'PathProx', value: `${r.pathprox >= 0 ? '+' : ''}${r.pathprox.toFixed(2)} (> 0 favours pathogenic neighbours)` }] : []),
+        { label: 'In regions', value: r.inRegions.length ? r.inRegions.map(k => HOTSPOT_LANE_LABEL[k] ?? k).join(', ') : 'None' },
+        { label: 'Source', value: distRung?.source.label ?? 'ClinVar germline (via gnomAD v4)' },
+        ...(modelName ? [{ label: 'Model', value: modelName }] : []),
+      ],
+      notes: [
+        cols.rsa.state === 'ok' && r.rsa !== null ? RSA_UNIT_NOTE : null,
+        ev.modelNote,
+        ev.pm1Note,
+      ].filter((n): n is string => Boolean(n)),
+      reportUrl: ev.model?.url ?? distRung?.source.url ?? null,
+    };
+  });
+  return [...rungs, ...rows];
+}
+
+export function functionReadings(ev: FunctionEvidence, hotspots?: HotspotEvidence | null): (EvidenceChartRow & { reportUrl?: string | null })[] {
   const boxes = [...ev.domains, ...ev.motifs, ...ev.structuralDomains];
-  return ev.groups.flatMap(g => g.rows.map(r => {
+  const annotations = ev.groups.flatMap(g => g.rows.map(r => {
     const box = boxes.find(d => `match-${d.key}` === r.key);
     return { key: r.key, name: r.name, value: null, valueText: r.residuesText, group: g.label, tone: 'neutral' as const,
       description: r.note ?? `${r.type} annotation`,
@@ -22,6 +106,7 @@ export function functionReadings(ev: FunctionEvidence): (EvidenceChartRow & { re
         r.group === 'variants' ? 'A reported variant at this position is context; it is not an experimental functional assay.' : 'An annotation alone does not establish pathogenicity. The rule trace below gives the recorded PM1 decision.'].filter((n): n is string => Boolean(n)),
       reportUrl: box?.url ?? r.citation?.url };
   }));
+  return hotspots ? [...annotations, ...hotspotReadings(hotspots)] : annotations;
 }
 
 /** The other residues on one published scale, so a pinned row can be read against the alphabet

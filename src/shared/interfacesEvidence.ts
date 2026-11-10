@@ -519,14 +519,32 @@ export interface NativeInterfaceSupport {
   byResidue: ReadonlyMap<number, ReadonlyArray<{ label: string; k: number; n: number }>>;
 }
 
+const nativeInterfaceMemo = new WeakMap<object, Map<string, NativeInterfaceSupport>>();
+
 export function nativeInterfaceSupport(assembly: MultimerData | null | undefined, gene: string): NativeInterfaceSupport {
   const none = new Map<number, never[]>();
   if (!assembly) return { status: "unavailable", reason: "The assembly was not read.", byResidue: none };
   if (isStaleAssembly(assembly)) return { status: "unavailable", reason: "The stored assembly predates per-residue support and is being re-read.", byResidue: none };
   const exp = assembly.experimental;
   if (exp?.status !== "ok") return { status: "unavailable", reason: "PDBe-KB interfaces were not read for this protein.", byResidue: none };
+  if (exp.entryKinds === "failed" || exp.crystalChecked === false) {
+    return {
+      status: "unavailable",
+      reason: "RCSB did not answer, so fibril and monomer-assembly entries could not be told apart from native ones.",
+      byResidue: none,
+    };
+  }
+  const byGene = nativeInterfaceMemo.get(exp);
+  const cached = byGene?.get(gene);
+  if (cached) return cached;
   const native = exp.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal");
-  if (!native.length) return { status: "none", reason: null, byResidue: none };
+  if (!native.length) {
+    const emptyResult: NativeInterfaceSupport = { status: "none", reason: null, byResidue: none };
+    const map = byGene ?? new Map<string, NativeInterfaceSupport>();
+    map.set(gene, emptyResult);
+    nativeInterfaceMemo.set(exp, map);
+    return emptyResult;
+  }
   const byResidue = new Map<number, Array<{ label: string; k: number; n: number }>>();
   for (const p of native) {
     p.residues.forEach((residue, i) => {
@@ -538,7 +556,11 @@ export function nativeInterfaceSupport(assembly: MultimerData | null | undefined
     });
   }
   for (const list of byResidue.values()) list.sort((a, b) => b.k / Math.max(1, b.n) - a.k / Math.max(1, a.n) || b.k - a.k);
-  return { status: "ok", reason: null, byResidue };
+  const result: NativeInterfaceSupport = { status: "ok", reason: null, byResidue };
+  const map = byGene ?? new Map<string, NativeInterfaceSupport>();
+  map.set(gene, result);
+  nativeInterfaceMemo.set(exp, map);
+  return result;
 }
 
 // ── Builder ─────────────────────────────────────────────────────────────────
