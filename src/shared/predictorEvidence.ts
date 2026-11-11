@@ -1088,7 +1088,7 @@ export function informationalSummary(evidence: PredictorEvidence): Informational
  */
 export const LOCAL_AGREEMENT_COPY = {
   descriptive: "Descriptive agreement only. Correlated models are not independent evidence; these readings never change PP3 / BP4.",
-  preference: "Sequence preference is not a benign or pathogenic call. Published bands are shown separately from sequence preference; scores are not averaged.",
+  preference: "Sequence preference is not a benign or pathogenic call. Published bands sit separately from sequence preference; scores are not averaged.",
   /** A calibrated tool's own code (ESM1b's PP3) is a published band, not a counted vote here. */
   calibratedBand: "(published band, not counted)",
   /** Conservation and genome-wide scores have a direction; they are just not a preference ratio. */

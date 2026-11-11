@@ -41,9 +41,11 @@ test('GATA4 names only its own atoms and shows a readable distant pocket at phon
   await screen.getByRole('combobox', 'Evidence').selectOption('Residue shifts & pockets');
   await screen.getByRole('combobox', 'Example').selectOption('GATA4');
   await screen.getByRole('tab', 'Residue comparison').click();
-  await expect(screen.getByTestId('glyph-diff-summary')).toContainText('OG = gamma oxygen; SG = gamma sulfur');
-  // Ser to Cys has no atom beyond CB, OG and SG, so the key must not name any other.
-  expect(await browser.evaluate(() => /CD|CE|CZ|NE|NH/.test(document.querySelector('.rsx-atom-key')!.textContent!))).toBe(false);
+  // Ser to Cys has no atom beyond CB, OG and SG, so the drawing's atom titles must not name any other.
+  const titles = await browser.evaluate(() => [...document.querySelectorAll('.rsx-glyph-svg title')].map(t => t.textContent).join('|'));
+  expect(titles).toContain('OG = gamma oxygen');
+  expect(titles).toContain('SG = gamma sulfur');
+  expect(/CD|CE|CZ|NE|NH/.test(titles)).toBe(false);
   await expect(screen.getByTestId('residue-marker-key')).toContainText('Arrow: direction of the change');
   const charge = screen.getByRole('button', { name: /^Net charge/ });
   await expect(charge).toContainText('No change');

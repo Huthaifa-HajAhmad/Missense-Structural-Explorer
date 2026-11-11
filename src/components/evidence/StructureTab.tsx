@@ -6,6 +6,8 @@ import type { ResidueContextEvidence } from "../../shared/residueContextEvidence
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { Prose } from "../ui/Prose";
 import { ResidueGlyph } from "./residue/ResidueGlyph";
+import { ValueTrack } from "./residue/ValueTrack";
+import { GranthamDistance } from "./residue/GranthamDistance";
 import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { ResiduePropertyComparison } from './MolecularComparison';
@@ -26,42 +28,6 @@ import { evidenceTab } from '../../shared/evidenceTabs';
  * inspector's. No ACMG criterion reads this evidence, so nothing here is coloured as pathogenic or
  * benign.
  */
-
-function pct(value: number, max: number): string {
-  return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
-}
-
-function ValueTrack({
-  value,
-  max,
-  marks,
-  label,
-  unit = ""
-}: {
-  value: number;
-  max: number;
-  marks: readonly number[];
-  label: string;
-  unit?: string;
-}) {
-  return (
-    <div className="rsx-track" role="img" aria-label={label}>
-      <div className="rsx-track__bar">
-        {marks.map(m => (
-          <span key={m} className="rsx-track__cut" style={{ left: pct(m, max) }} />
-        ))}
-        <span className="rsx-track__mut" style={{ left: pct(value, max) }} />
-      </div>
-      <div className="rsx-track__axis" aria-hidden="true">
-        <span className="rsx-track__tick" data-edge="start" style={{ left: 0 }}>0</span>
-        {marks.map(m => (
-          <span key={m} className="rsx-track__tick" style={{ left: pct(m, max) }}>{m}</span>
-        ))}
-        <span className="rsx-track__tick" data-edge="end" style={{ left: "100%" }}>{max}{unit}</span>
-      </div>
-    </div>
-  );
-}
 
 function Finding({ model }: { model: ResidueContextEvidence }) {
   const { pair } = model;
@@ -90,9 +56,7 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
           <Prose className="rsx-finding" data-testid="residue-finding-text">
             <strong>{model.finding.headline}</strong> {model.finding.detail}
           </Prose>
-          {pair.grantham !== null && (
-            <p className="rsx-term" data-testid="residue-grantham"><strong>Grantham distance {pair.grantham}, {pair.granthamClass}.</strong> It scores how chemically different the two amino acids are, from composition, polarity and size (5–215). A larger score is a bigger difference, not a higher chance of disease.</p>
-          )}
+          {pair.grantham !== null && pair.granthamClass !== null && <GranthamDistance distance={pair.grantham} distanceClass={pair.granthamClass} />}
         </div>
         {model.glyph && (
           <div className="rsx-hero__glyph">
@@ -137,9 +101,7 @@ function ResidueContextLine({ model }: { model: ResidueContextEvidence }) {
         {pair.wildType || "?"}<span aria-hidden="true"> &rarr; </span>{pair.mutant || "?"}
       </span>
       <span>{[names, pair.position ? `at ${pair.position}` : null].filter(Boolean).join(" ")}</span>
-      {pair.grantham !== null && (
-        <span>Grantham distance <span className="rsx-mono">{pair.grantham}</span>, {pair.granthamClass}</span>
-      )}
+      {pair.grantham !== null && pair.granthamClass !== null && <span>Grantham distance <span className="rsx-mono">{pair.grantham}</span>, {pair.granthamClass}</span>}
     </p>
   );
 }

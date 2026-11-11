@@ -32,6 +32,9 @@ describe('Evidence workspace interactions', () => {
     const card = screen.getByRole('region', { name: 'Selected evidence reading' });
     expect(within(card).getByText('Explore a reading')).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Clear pin' })).toBeNull();
+    // One footer, one pin hint: the readout, axis label and captions merged into a single bar, so the
+    // hint must not regress to a second copy.
+    expect(screen.getAllByText(/pin it, again to clear/)).toHaveLength(1);
   });
   it('bounds the attribution overview without losing a pin, changing values or renormalising the axis', async () => {
     const result = evidenceWorkspaceFixture();

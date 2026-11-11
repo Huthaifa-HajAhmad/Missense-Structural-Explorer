@@ -533,23 +533,33 @@
 /* Informational results keep their meaning when the inspector becomes narrow. */
 .prd-context { padding: 16px; }
 .prd-context > p { margin-block: 0 12px; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
-.prd-context__hint { padding-block-start: 4px; font-style: italic; }
 .prd-context__groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 20px; margin-block-end: 16px; }
 .prd-context h3,
-.prd-context h4,
-.prd-unplotted-groups h4 { margin-block: 0 8px; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.prd-context h4 { margin-block: 0 8px; padding-block-end: 8px; border-block-end: 1px solid var(--cs-border); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
 .prd-context section > p { margin-block: 0 8px; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
 .prd-context dl { margin: 0; }
-.prd-context dl > div { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr); align-items: baseline; gap: 4px 12px; padding-block: 8px; border-block-end: 1px solid var(--cs-border-subtle); }
+.prd-context dl > div { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr); align-items: baseline; gap: 4px 12px; padding-block: 10px; border-block-end: 1px solid var(--cs-border-subtle); }
 .prd-context dt { color: var(--cs-text-primary); }
 .prd-context dd { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-font-size-caption); font-variant-numeric: tabular-nums; text-align: end; overflow-wrap: anywhere; }
 .prd-context__score { font-family: var(--cs-font-mono); color: var(--cs-text-primary); }
 .prd-rail .prd-context { padding: 0; }
 .prd-rail .prd-context__groups { grid-template-columns: minmax(0, 1fr); }
 .prd-context-head { flex-wrap: wrap; }
-.prd-unplotted-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 20px; padding: 4px 22px 10px; }
-.prd-unplotted-groups .evw-reading-list { display: flex; flex-direction: column; padding: 0; }
-.prd-unplotted-groups strong { font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-muted); }
+/* Readings the chart cannot place, one column per family. Four narrow columns sit in one row at the card's full width,
+   so a lone family (Conservation) never drops onto a second row with a void beside it; the card wraps by family as it narrows. */
+.prd-unplotted-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 20px 32px; padding: 16px 22px 14px; }
+.prd-unplotted-groups h4 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0; padding-block-end: 8px; border-block-end: 1px solid var(--cs-border); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.prd-unplotted-groups h4 span { font-weight: var(--cs-font-weight-medium); color: var(--cs-text-muted); font-variant-numeric: tabular-nums; }
+.prd-unplotted-groups .evw-reading-list { padding: 0; }
+.prd-unplotted-groups .evw-reading-list button { min-height: 44px; padding-block: 8px; font-size: 13px; color: var(--cs-text-primary); }
+.prd-unplotted-groups .evw-reading-list strong { font-size: 13px; font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); }
+.prd-unplotted-groups .evw-reading-list strong[data-state="absent"] { font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-regular); color: var(--cs-text-muted); }
+/* The Comparison card's agreement summary: flat label / statement rows on the card's 16px edge, like the Population tab's key-value blocks. */
+.prd-agreement { margin: 0; }
+.prd-agreement > div { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 11px 16px; border-block-end: 1px solid var(--cs-border-subtle); }
+.prd-agreement > div:last-child { border-block-end: 0; }
+.prd-agreement dt { flex: 0 0 148px; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-muted); }
+.prd-agreement dd { flex: 1 1 260px; margin: 0; font-size: 13px; line-height: 1.55; color: var(--cs-text-primary); }
 .prd-family-guide > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
   min-height: 24px; padding-block: 6px; font-size: var(--cs-font-size-caption);

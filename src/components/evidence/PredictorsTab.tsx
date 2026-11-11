@@ -19,6 +19,7 @@ import {
 } from "../../shared/predictorEvidence";
 import { buildLadderEvidence } from "../../shared/ladderEvidence";
 import { PredictorInformationalSummary } from "./PredictorInformationalSummary";
+import { DecimalScore } from "./DecimalScore";
 import { ScoreRuler } from "./predictors/ScoreRuler";
 import { StrengthLadder } from "./predictors/StrengthLadder";
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
@@ -177,13 +178,13 @@ function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
   );
 }
 
-function LocalAgreementRow({ evidence, showScores = true }: { evidence: PredictorEvidence; showScores?: boolean }) {
+function LocalAgreementRow({ evidence, compact = false }: { evidence: PredictorEvidence; compact?: boolean }) {
   return <div data-testid="predictor-local-agreement">
     <header className="prd-hero__head prd-context-head">
       <h2 className="eyebrow">Local agreement / informational</h2>
       <span className="ev-tier" data-tone="muted">Context only / never counted by the vote</span>
     </header>
-    <PredictorInformationalSummary evidence={evidence} headingLevel="h3" showScores={showScores} />
+    <PredictorInformationalSummary evidence={evidence} headingLevel="h3" compact={compact} />
   </div>;
 }
 
@@ -232,24 +233,6 @@ function ReferenceRow({ evidence }: { evidence: PredictorEvidence }) {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * A score split at its decimal point, so a column mixing 0.231, 26.3, -4.00 and 7 lines up on the
- * point rather than on the last digit (right-aligning alone left the points staggered). The split
- * halves are hidden from assistive technology and the whole number is read once from the sr-only copy.
- */
-function DecimalScore({ text }: { text: string }) {
-  const dot = text.indexOf(".");
-  const int = dot < 0 ? text : text.slice(0, dot);
-  const frac = dot < 0 ? "" : text.slice(dot);
-  return (
-    <span className="prd-dec">
-      <span className="sr-only">{text}</span>
-      <span className="prd-dec__int" aria-hidden="true">{int}</span>
-      <span className="prd-dec__frac" aria-hidden="true">{frac}</span>
-    </span>
   );
 }
 
@@ -524,7 +507,7 @@ function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSetti
       {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
       {/* Local agreement is not the engine's reading, so it gets its own card rather than a row
           inside the engine card: its own note says these readings never change PP3 / BP4. */}
-      {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} showScores={false} /></section>}
+      {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} compact /></section>}
       {(!workspace.enabled || workspace.view === 'records') && <>
       <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>
       <InformationalCard evidence={evidence} />

@@ -51,9 +51,16 @@ describe("PredictorsTab", () => {
     const row = screen.getByTestId("predictor-local-agreement");
     expect(row.textContent).toContain("4 favour native");
     expect(row.textContent).toContain("never change PP3 / BP4");
-    expect(within(row).getByRole("button", { name: /ESM-2/ })).toBeTruthy();
-    expect(row.textContent).toContain("No sequence-preference reading");
-    expect(row.textContent).toContain("Not scored");
+    // The summary states what the readings say together; each reading is listed once, in the outside-the-comparison card.
+    expect(within(row).queryByRole("button")).toBeNull();
+    const groups = screen.getByTestId("predictor-unplotted-groups");
+    expect(within(groups).getByRole("button", { name: /ESM-2/ })).toBeTruthy();
+    expect(within(groups).getByRole("button", { name: /ESM1b/ }).textContent).toContain("No result");
+    // Numeric readings split at the decimal point so the column lines up; states keep the muted "absent" treatment.
+    const esm2 = within(groups).getByRole("button", { name: /ESM-2/ });
+    expect(esm2.querySelector(".prd-dec__int")!.textContent).toBe("-4");
+    expect(esm2.querySelector(".prd-dec__frac")!.textContent).toBe(".78");
+    expect(within(groups).getByRole("button", { name: /ESM1b/ }).querySelector("strong[data-state='absent']")).toBeTruthy();
   });
 
   it("separates missing marked tools from returned scores in Comparison", () => {
@@ -78,9 +85,9 @@ describe("PredictorsTab", () => {
       },
     }));
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    const row = screen.getByTestId("predictor-local-agreement");
-    expect(row.textContent).toContain("Timed out");
-    expect(row.textContent).not.toContain("MetaRNN (No result)");
+    const groups = screen.getByTestId("predictor-unplotted-groups");
+    expect(groups.textContent).toContain("Timed out");
+    expect(groups.textContent).not.toContain("MetaRNN (No result)");
   });
 
   it("starts the informational table groups collapsed and expands them on request", () => {

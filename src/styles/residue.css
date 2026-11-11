@@ -303,18 +303,21 @@
 
 /* ── Residue Glyphs (2D side-chain skeletal diff) ────────── */
 .rsx-hero__glyph {
-  min-width: 0;
+  display: flex; min-width: 0;
 }
+/* The panel fills the column so its base lines up with the Grantham card beside it; the drawings centre in the room. */
 .rsx-glyph-panel {
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex: 1; flex-direction: column; gap: 8px;
   padding: 12px 16px; border: 1px solid var(--cs-border-subtle);
   border-radius: var(--cs-radius-sm, 8px); background: var(--cs-accent-wash);
 }
 .rsx-glyph-pair {
-  display: flex; align-items: flex-start; justify-content: center; gap: 16px;
+  display: flex; flex: 1; align-items: stretch; justify-content: center; gap: 16px;
 }
+/* Caption on top, drawing centred in the room that is left, note (if any) at the foot: both cards share the same rows,
+   so the two captions and the two drawings line up even when only one residue has atoms to draw. */
 .rsx-glyph-card {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0;
+  display: grid; grid-template-rows: auto 1fr auto; justify-items: center; gap: 6px; flex: 1; min-width: 0;
 }
 .rsx-glyph-caption {
   display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 4px 8px; font-size: var(--cs-font-size-caption);
@@ -341,17 +344,18 @@
   color: var(--cs-text-muted); font-size: 16px;
 }
 .rsx-glyph-arrow { font-size: 16px; }
-.rsx-glyph-summary {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px;
+/* The drawing's one legend: a swatch drawn like each atom mark, a count, and the shared-scale note at the far end. */
+.rsx-glyph-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0;
   padding-block-start: 10px; border-top: 1px solid var(--cs-border-subtle);
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); font-variant-numeric: tabular-nums;
 }
-.rsx-glyph-badge {
-  font-family: var(--cs-font-sans); font-size: 10px; font-weight: var(--cs-font-weight-semibold);
-  text-transform: uppercase; letter-spacing: 0.05em; color: var(--cs-text-muted);
-}
-.rsx-glyph-diff-text {
-  font-family: var(--cs-font-mono); color: var(--cs-text-primary); font-size: 12px;
-}
+.rsx-glyph-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.rsx-glyph-legend__scale { margin-inline-start: auto; color: var(--cs-text-muted); }
+.rsx-glyph-swatch { flex: none; box-sizing: border-box; inline-size: 10px; block-size: 10px; border-radius: 50%; background: var(--cs-text-secondary); border: 1.5px solid var(--cs-text-secondary); }
+/* Lost mirrors the drawing's mark — a hollow atom ring; the dash belongs to the bond to it, not the atom. */
+.rsx-glyph-swatch[data-status="lost"] { background: var(--cs-surface); }
+.rsx-glyph-swatch[data-status="gained"] { background: var(--cs-accent-clay); border-color: var(--cs-accent-clay); }
 
 /* ── Property Dumbbell & Context Ticks ───────────────────── */
 /* ── Pocket Distance Strip ───────────────────────────────── */
@@ -402,7 +406,6 @@
   border-radius: var(--cs-radius-sm, 8px); overflow: hidden;
 }
 
-.rsx-glyph-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
 .rsx-glyph-empty { font-size: 12px; color: var(--cs-text-secondary); }
 
 /* Keep a selection explicit without turning a scientific row into a coloured card: the state is
@@ -415,10 +418,17 @@
 .mol-property__pin { font-size: var(--cs-font-size-caption); font-weight: 500; color: var(--cs-text-secondary); }
 .mol-property__definition { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.6; }
 .mol-key { margin-top: 8px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
-.rsx-term { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.6; }
-/* The hero copy shares a row with the side-chain sketch; anchoring the note to the bottom of the
-   column uses that height instead of leaving a void under the paragraph. */
-.rsx-hero__copy .rsx-term { margin-top: auto; }
+/* The Grantham card is the hero copy's second figure. It sits at the foot of the column, level with the base of
+   the side-chain sketch, so the two columns end together and no gap opens under the paragraph. Head strip and
+   white body follow the two-tone card rule. */
+.rsx-gr { display: flex; flex-direction: column; margin-top: auto; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-sm, 8px); background: var(--cs-surface); overflow: hidden; }
+.rsx-gr__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 6px 16px; background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle); }
+.rsx-gr__head h3 { margin: 0; }
+.rsx-gr__body { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; }
+.rsx-gr__value { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.rsx-gr__num { font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold); line-height: 1.1; color: var(--cs-text-primary); }
+.rsx-gr__of { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rsx-gr__note { margin: 0; font-size: var(--cs-font-size-caption); line-height: 1.6; color: var(--cs-text-muted); }
 /* The records view drops the hero but still says which substitution the readings describe. */
 .rsx-context-line {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
@@ -427,8 +437,6 @@
   background: var(--cs-surface); font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
 }
 .rsx-context-line__pair { font-size: 14px; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
-
-.rsx-atom-key { display: block; flex-basis: 100%; font-family: var(--cs-font-sans); color: var(--cs-text-secondary); line-height: 1.6; }
 /* The arrow runs between the two markers. It uses left/right like the markers do, so it never
    mirrors away from them in a right-to-left page. Both markers are drawn after it and sit on top. */
 .rsx-track__direction { position: absolute; top: 50%; height: 2px; background: var(--cs-accent-clay); transform: translateY(-50%); }

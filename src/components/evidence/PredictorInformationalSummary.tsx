@@ -1,5 +1,5 @@
 import React from 'react';
-import { localPredictorAgreement, type PredictorEvidence, type PredictorReading } from '../../shared/predictorEvidence';
+import { LOCAL_AGREEMENT_COPY, localPredictorAgreement, type PredictorEvidence, type PredictorReading } from '../../shared/predictorEvidence';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { InspectReadingButton } from './EvidenceWorkspace';
 
@@ -8,30 +8,37 @@ type SummaryHeading = 'h3' | 'h4';
 /**
  * Keep informational readings separate by meaning in both the workspace and inspector.
  *
- * `showScores` is off on the Comparison card, where the chart's own unplotted list already carries
- * every value; the summary there explains the groups and keeps the selectable names. The records
- * view and the inspector keep the values, because they are the surfaces read without the chart.
+ * `compact` is the Comparison card. The chart's own "outside the comparison" card already lists every
+ * non-voting reading with its value, so repeating the names here would show each reading twice; the
+ * compact form states only what the readings say together (coverage, sequence preference, how to read
+ * them). The records view and the inspector keep the per-reading lists, because they are read without the chart.
  */
 export function PredictorInformationalSummary({
   evidence,
   headingLevel = 'h4',
-  showScores = true,
+  compact = false,
 }: {
   evidence: PredictorEvidence;
   headingLevel?: SummaryHeading;
-  showScores?: boolean;
+  compact?: boolean;
 }) {
   const agreement = localPredictorAgreement(evidence);
+  if (compact) {
+    return <dl className="prd-agreement" data-testid="predictor-agreement-summary">
+      <div><dt>Coverage</dt><dd>{agreement.scored} of {agreement.total} non-voting readings scored.</dd></div>
+      <div><dt>Sequence preference</dt><dd>{agreement.preferenceSummary}</dd></div>
+      <div><dt>How to read</dt><dd>{LOCAL_AGREEMENT_COPY.descriptive} {agreement.preferenceCaveat}</dd></div>
+    </dl>;
+  }
   const Heading = headingLevel;
   // "Not scored" would be a false completed state while an analysis is still producing readings.
-  const notScoredHeading = agreement.missing.some(reading => reading.availability.state === "pending")
-    ? "Not yet returned"
-    : "Not scored";
+  const notScoredHeading = agreement.missing.some(reading => reading.availability.state === 'pending')
+    ? 'Not yet returned'
+    : 'Not scored';
   const score = (reading: PredictorReading) =>
-    showScores ? <span className="prd-context__score">{reading.scoreText}{reading.unit ? ` ${reading.unit}` : ''}</span> : null;
+    <span className="prd-context__score">{reading.scoreText}{reading.unit ? ` ${reading.unit}` : ''}</span>;
   return <div className="prd-context">
     <p>{agreement.descriptive}</p>
-    {!showScores && <p className="prd-context__hint">Exact scores are in the comparison above; select a model to inspect its scale and source.</p>}
     <div className="prd-context__groups">
       {agreement.calibrated.length > 0 && <section><Heading>Published bands / not counted</Heading><dl>{agreement.calibrated.map(({ reading, label }) => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{score(reading)}<span>{label}</span></dd></div>)}</dl></section>}
       <section><Heading>Sequence preference</Heading><p>{agreement.preferenceSummary}</p>{agreement.preference.length > 0 && <dl>{agreement.preference.map(({ reading, label }) => <div key={reading.key}><dt><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></dt><dd>{score(reading)}<span>{label}</span></dd></div>)}</dl>}</section>
