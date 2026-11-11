@@ -36,11 +36,19 @@ describe("ResidueGlyph", () => {
     expect(screen.getByText("Aspartate")).toBeInTheDocument();
     expect(screen.getByText("Glycine")).toBeInTheDocument();
 
+    // The atoms kept, lost and gained stay in the text alternative; the visible legend only counts them.
     const summary = screen.getByTestId("glyph-diff-summary");
     expect(summary).toHaveTextContent(/CB, CG, OD1 and OD2 lost/i);
-    expect(summary).toHaveTextContent('CB = beta carbon');
-    expect(summary).toHaveTextContent('OD1 = delta oxygen 1');
-    expect(summary).not.toHaveTextContent('sulfur');
+    expect(screen.getByTestId("glyph-legend")).toHaveTextContent("4 lost");
+    expect(screen.getByTestId("glyph-legend")).not.toHaveTextContent("gained");
+    // The full names live in the text alternative (keyboard and screen-reader reach), and each drawing
+    // label keeps the same naming as its hover title.
+    expect(summary).toHaveTextContent("Atoms shown: CB = beta carbon");
+    expect(summary).toHaveTextContent("OD1 = delta oxygen 1");
+    const titles = [...screen.getByTestId("residue-glyph-pair").querySelectorAll("svg title")].map(t => t.textContent);
+    expect(titles).toContain("CB = beta carbon");
+    expect(titles).toContain("OD1 = delta oxygen 1");
+    expect(titles.some(t => t?.includes("sulfur"))).toBe(false);
   });
 });
 

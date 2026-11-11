@@ -45,7 +45,12 @@ describe("StructureTab", () => {
   it("states one finding and says no ACMG criterion reads this tab", () => {
     renderTab();
     expect(screen.getByTestId("residue-pair")).toHaveTextContent("Asp→Gly");
-    expect(screen.getByTestId("residue-grantham")).toHaveTextContent("Grantham distance 94, moderately conservative");
+    const grantham = screen.getByTestId("residue-grantham");
+    expect(grantham).toHaveTextContent("Grantham distance");
+    expect(grantham).toHaveTextContent("94");
+    expect(grantham).toHaveTextContent("Moderately conservative");
+    expect(grantham).toHaveAccessibleName("Grantham distance 94, moderately conservative");
+    expect(within(grantham).getByRole("img", { name: /on a scale from 0 to 215/ })).toBeInTheDocument();
     expect(screen.getByTestId("residue-finding-text")).toHaveTextContent(
       "The side chain loses its negative charge and becomes less polar, 23.1 Å from the nearest predicted pocket."
     );

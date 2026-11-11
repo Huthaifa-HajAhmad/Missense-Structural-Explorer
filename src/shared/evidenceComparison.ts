@@ -94,6 +94,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
     unplottedHeading: 'Not plotted',
     unplottedBody: 'Zero and unavailable frequencies cannot sit on a log axis. Their states remain distinct.',
     emptyCopy: 'No values can be plotted on this axis. Inspect the available records below.',
+    caption: 'AC counts copies; AN counts assessed alleles, not people. Cohorts can overlap. The engine input is the frequency the ACMG rule read; it is not another cohort.',
     summary: `${values.length} positive frequency readings. Equal steps on this axis represent multiplicative changes. Zero and unavailable readings are listed separately. The engine input is distinguished from source observations.` };
 }
 

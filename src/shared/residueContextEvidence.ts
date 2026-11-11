@@ -72,10 +72,15 @@ export function describeStructureSource(pdbId?: string | null, pdbSource?: strin
 /** Grantham distance classes, Li, Wu and Luo 1984. */
 export type GranthamClass = "conservative" | "moderately conservative" | "moderately radical" | "radical";
 
+/** The limits between the four classes, on the same axis the classifier reads. */
+export const GRANTHAM_CLASS_LIMITS = [50, 100, 150] as const;
+/** The largest distance in the matrix (Cys–Trp), so every ruler shares one top of scale. */
+export const GRANTHAM_SCALE_MAX = 215;
+
 export function granthamClass(distance: number): GranthamClass {
-  if (distance <= 50) return "conservative";
-  if (distance <= 100) return "moderately conservative";
-  if (distance <= 150) return "moderately radical";
+  if (distance <= GRANTHAM_CLASS_LIMITS[0]) return "conservative";
+  if (distance <= GRANTHAM_CLASS_LIMITS[1]) return "moderately conservative";
+  if (distance <= GRANTHAM_CLASS_LIMITS[2]) return "moderately radical";
   return "radical";
 }
 
@@ -261,7 +266,7 @@ export interface ResidueContextEvidence {
     mutantName: string | null;
     position: number | null;
     grantham: number | null;
-    granthamClass: string | null;
+    granthamClass: GranthamClass | null;
   };
   /** Rows largest shift first; null while the scales are unresolved. */
   properties: BiochemicalContrastRow[] | null;

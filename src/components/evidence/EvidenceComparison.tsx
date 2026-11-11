@@ -9,6 +9,7 @@ import { chartTheme } from '../charts/chartTheme';
 import { populationLabelWidth, populationRowLabel, type EvidenceChartModel, type EvidenceWorkspaceTab, type AttributionFilter } from '../../shared/evidenceComparison';
 import { AVI_GROUP_LABEL } from '../../shared/alphagenomeEvidence';
 import { useEvidenceWorkspace } from './EvidenceWorkspace';
+import { DecimalScore, isNumericText } from './DecimalScore';
 
 /** Room for the row names on each side of the AlphaGenome plot. Equal on both sides so the zero line sits in the middle
  *  and the axis guide's "0" (centred by CSS) stays over it. */
@@ -17,6 +18,9 @@ const ALPHAGENOME_SIDE_MARGIN = 150;
 /** Room right of the expression plot for the value text ("145.6 TPM" is about 60px wide) plus its 18px gap. The row names
  *  need much more room, but only on the left, so this side stays small. */
 const EXPRESSION_VALUE_MARGIN = 112;
+
+/** What the footer says until a mark is hovered, focused or pinned. One sentence for every tab: pinning behaves the same everywhere. */
+const POINTER_HINT = 'Hover, focus or arrow-key a mark to read it · click or press Enter to pin it, again to clear';
 
 /** Per-tab GEOMETRY only (margins, hit heights, controls); values and interpretation come from the model. */
 export default function EvidenceComparison({ tab, model, title, description }: {
@@ -42,6 +46,9 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const missing = model.rows.filter(r => r.value === null);
   const selected = model.rows.find(r => r.key === w.selected);
   const hovered = hoverKey ? model.rows.find(r => r.key === hoverKey) : null;
+  const reading = hovered ?? selected;
+  // State, not just value: while this reading is the pin, say so, including when its dot is itself hovered or focused.
+  const readout = reading ? `${reading.key === w.selected ? 'Pinned: ' : ''}${reading.name} · ${reading.valueText}` : null;
   const definition = useMemo(() => defineChart({
     theme: tab === 'predictors' ? { ...chartTheme, background: 'transparent' } : chartTheme, margin,
     scales: {
@@ -80,19 +87,25 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       : tab === 'alphagenome' && w.filter !== 'all'
         ? 'No returned contributions in this view. Unattributed features remain inspectable below.'
         : model.emptyCopy}
-    footer={<><span>{model.axisLabel}</span>
-      {/* Colour alone never carries a call: each dot tone names its meaning in words (WCAG 1.4.1). */}
-      {tab === 'predictors' && <>
-        <span className="evw-legend"><i className="evw-legend__dot" data-tone="danger" />Pathogenic direction</span>
-        <span className="evw-legend"><i className="evw-legend__dot" data-tone="good" />Benign direction</span>
-        <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Indeterminate or no call</span>
-        <span>* Informational: not counted by the voting rule.</span>
-      </>}
-      {tab === 'alphagenome' && <>
-        <span className="evw-legend"><i className="evw-legend__dot" data-tone="accent" />Molecular prediction</span>
-        <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Other input</span>
-      </>}
-      <span>{tab === 'alphagenome' ? 'Arrow keys explore; Enter pins or clears a reading.' : 'Hover or use arrow keys · click or press Enter to pin'}</span></>}>
+    // One footer for the whole figure: the live reading on the first line, then what the axis is and the caveats that
+    // go with it. They used to be three stacked bars (caption, readout, axis strip) that each repeated the pin hint.
+    footer={<>
+      <p className="evw-readout" role="status" data-idle={readout ? undefined : true}>{readout ?? POINTER_HINT}</p>
+      <p className="evw-foot-meta">
+        <span>{model.axisLabel}</span>
+        {/* Colour alone never carries a call: each dot tone names its meaning in words (WCAG 1.4.1). */}
+        {tab === 'predictors' && <>
+          <span className="evw-legend"><i className="evw-legend__dot" data-tone="danger" />Pathogenic direction</span>
+          <span className="evw-legend"><i className="evw-legend__dot" data-tone="good" />Benign direction</span>
+          <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Indeterminate or no call</span>
+          <span>* Informational: not counted by the voting rule.</span>
+        </>}
+        {tab === 'alphagenome' && <>
+          <span className="evw-legend"><i className="evw-legend__dot" data-tone="accent" />Molecular prediction</span>
+          <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Other input</span>
+        </>}
+        {model.caption && <span className="evw-foot-meta__caption">{model.caption}</span>}
+      </p></>}>
     {tab === 'alphagenome' && <div className="evw-figure-scope">
       {returned > 0 && <span className="evw-scope-count"><strong>{Math.min(returned, limit)} of {returned} inputs shown</strong><span>Sorted by contribution size</span></span>}
       <div className="evw-controls">
@@ -114,18 +127,8 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         </div>
       </div>
     </div>}
-    {model.caption && <p className="evw-caption">{model.caption}</p>}
-    <p className="evw-readout" role="status">{(() => {
-      const row = hovered ?? selected;
-      // The inspector already says what a pin shows; this line says what THIS line does, not the same thing twice.
-      if (!row) return 'Hover or focus a mark to read its value here; select it to pin the full record in the inspector.';
-      // State, not just value: while this reading is the pin, say so — including when its dot is
-      // itself hovered or keyboard-focused.
-      return `${row.key === w.selected ? 'Pinned: ' : ''}${row.name} · ${row.valueText}`;
-    })()}</p>
     {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All inputs to see it here.</p>}
     {tab === 'alphagenome' && selected?.value != null && !plotted.some(r => r.key === selected.key) && <p className="evw-caption">The pinned feature is outside the largest 8. Choose Show all to see it; its details remain in the inspector.</p>}
-    {tab === 'clinical' && <p className="evw-caption">AC counts copies; AN counts assessed alleles, not people. Cohorts can overlap. The engine input is the frequency the ACMG rule read; it is not another cohort.</p>}
     {/* The perturbation model strip pins its model id, which is an inspector row but not a dot on this
         chart; saying "outside this chart" for it fired on the normal path. Only a probability reading
         (`<model>:<amino acid>`) that this chart does not plot is genuinely outside it. */}
@@ -138,7 +141,10 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         <h3 className="eyebrow" id={`${unplottedId}-title`}><EyeOff className="w-3.5 h-3.5" aria-hidden="true" />{model.unplottedHeading}<span className="evw-unplotted__count">{missing.length}</span></h3>
         <p>{model.unplottedBody}</p>
       </header>
-      {tab === 'predictors' ? <div className="prd-unplotted-groups" data-testid="predictor-unplotted-groups" role="region" aria-label="Predictors outside the calibrated comparison">{Array.from(new Set(missing.map(r => r.group))).map(group => <section key={group}><h4>{group}</h4><div className="evw-reading-list">{missing.filter(r => r.group === group).map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span><strong>{r.valueText}</strong></button>)}</div></section>)}</div> : <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong className="ev-tier" data-tone="muted">{r.valueText}</strong></button>)}</div>}
+      {tab === 'predictors' ? <div className="prd-unplotted-groups" data-testid="predictor-unplotted-groups" role="region" aria-label="Predictors outside the calibrated comparison">{Array.from(new Set(missing.map(r => r.group))).map(group => {
+        const inGroup = missing.filter(r => r.group === group);
+        return <section key={group}><h4>{group}<span>{inGroup.length}</span></h4><div className="evw-reading-list">{inGroup.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{isNumericText(r.valueText) ? <strong className="prd-mono"><DecimalScore text={r.valueText} /></strong> : <strong data-state="absent">{r.valueText}</strong>}</button>)}</div></section>;
+      })}</div> : <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong className="ev-tier" data-tone="muted">{r.valueText}</strong></button>)}</div>}
     </section>}
   </div>;
 }

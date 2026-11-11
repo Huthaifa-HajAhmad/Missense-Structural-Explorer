@@ -61,6 +61,7 @@ src/components/evidence/ContextCharts.tsx,component,src/components/evidence/__te
 src/components/evidence/ContextExplorer.tsx,component,
 src/components/evidence/ContextFigures.tsx,component,
 src/components/evidence/ContextSourceState.tsx,component,src/components/evidence/__tests__/ContextSourceState.test.tsx
+src/components/evidence/DecimalScore.tsx,component,
 src/components/evidence/DevelopmentalExpressionCard.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/DiseaseContextPicker.tsx,component,src/components/__tests__/EvidenceContextTabs.test.tsx
 src/components/evidence/EvidenceComparison.tsx,component,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx
@@ -123,9 +124,11 @@ src/components/evidence/population/FrequencyScale.tsx,component,
 src/components/evidence/population/populationFormat.ts,client,src/components/evidence/__tests__/populationFormat.test.ts
 src/components/evidence/predictors/ScoreRuler.tsx,component,
 src/components/evidence/predictors/StrengthLadder.tsx,component,
+src/components/evidence/residue/GranthamDistance.tsx,component,
 src/components/evidence/residue/PocketDistanceStrip.tsx,component,src/components/evidence/residue/__tests__/residueComponents.test.tsx
 src/components/evidence/residue/PropertyDumbbell.tsx,component,src/components/evidence/residue/__tests__/residueComponents.test.tsx
 src/components/evidence/residue/ResidueGlyph.tsx,component,src/components/evidence/residue/__tests__/residueComponents.test.tsx
+src/components/evidence/residue/ValueTrack.tsx,component,
 src/components/evidence/splicing/SpliceMap.tsx,component,
 src/components/evidence/splicing/SpliceRuler.tsx,component,
 src/components/evidence/splicing/SpliceWindowControl.tsx,component,src/components/__tests__/SpliceWindowControl.test.tsx

@@ -147,3 +147,6 @@ tools/structure-focus/
 .e2e/*.log
 .e2e/predictor.config.ts
 .e2e/writing-reference.txt
+
+# Design-review hook's machine cache; the config beside it is tracked.
+.impeccable/hook.cache.json

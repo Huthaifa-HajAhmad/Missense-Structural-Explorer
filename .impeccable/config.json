@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/styles/predictors.css"
+        ],
+        "createdAt": "2026-11-11T07:58:53.273Z",
+        "reason": "False positive: .prd-legend__tick is a 12px zero-width legend tick mark drawn with a 2px left border, not a card accent; line predates this session (commit 8faab8c1). User asked to address it."
+      }
+    ]
+  }
+}

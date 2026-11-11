@@ -140,6 +140,7 @@ function SingleGlyphSvg({
         const isLost = atom.status === "lost";
         return (
           <g key={atom.name}>
+            <title>{`${atom.name} = ${describeAtomName(atom)}`}</title>
             <circle
               cx={atom.x}
               cy={-atom.y}
@@ -176,9 +177,17 @@ export function ResidueGlyph({
 }: ResidueGlyphProps) {
   if (!diff) return null;
 
-  // One entry per atom name: Ser and Cys share CB, so it is listed once.
-  const atomsByName = new Map([...diff.wildType.atoms, ...diff.mutant.atoms].map(atom => [atom.name, atom] as const));
-  const atomKey = [...atomsByName.values()].map(atom => `${atom.name} = ${describeAtomName(atom)}`);
+  // The diff already names the kept, lost and gained atoms; the legend counts them, a status with none is not listed.
+  const counts = ([
+    { status: "kept", label: "kept", count: diff.kept.length },
+    { status: "lost", label: "lost", count: diff.lost.length },
+    { status: "gained", label: "gained", count: diff.gained.length },
+  ] as const).filter(item => item.count > 0);
+  // The atoms are named on the drawing itself, so the full names live in the text alternative, where
+  // keyboard and screen-reader users can reach them; each drawing label keeps its hover title.
+  const glossary = [...new Map([...diff.wildType.atoms, ...diff.mutant.atoms].map(atom => [atom.name, atom] as const)).values()]
+    .map(atom => `${atom.name} = ${describeAtomName(atom)}`)
+    .join("; ");
 
   return (
     <div className="rsx-glyph-panel" data-testid="residue-glyph-pair">
@@ -219,15 +228,15 @@ export function ResidueGlyph({
           {diff.mutant.atoms.length === 0 && <span className="rsx-glyph-empty">No heavy side-chain atoms</span>}
         </div>
       </div>
-      <p className="rsx-glyph-note">Side-chain schematic, shown at the same scale. Dashed bonds mark atoms lost; accent marks atoms gained.</p>
-
-      {diff.summary && (
-        <div className="rsx-glyph-summary" data-testid="glyph-diff-summary">
-          <span className="rsx-glyph-badge">Side-chain atoms</span>
-          <span className="rsx-glyph-diff-text">{diff.summary}</span>
-          <span className="rsx-atom-key">N = nitrogen; Cα = alpha carbon{atomKey.length ? `; ${atomKey.join("; ")}` : ""}.</span>
-        </div>
-      )}
+      {/* One legend line. The atoms are named on the drawing itself, so the list of which ones were kept, lost or
+          gained stays in the text alternative, and each label's full name is its hover title. */}
+      <p className="rsx-glyph-legend" data-testid="glyph-legend">
+        {counts.map(({ status, label, count }) => (
+          <span key={status}><i className="rsx-glyph-swatch" data-status={status} aria-hidden="true" />{count} {label}</span>
+        ))}
+        <span className="rsx-glyph-legend__scale">Same scale</span>
+      </p>
+      {diff.summary && <p className="sr-only" data-testid="glyph-diff-summary">{diff.summary}{glossary && ` Atoms shown: ${glossary}.`}</p>}
     </div>
   );
 }
