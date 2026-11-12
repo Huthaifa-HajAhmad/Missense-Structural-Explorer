@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildFunctionEvidence, type AnnotationRow } from "../../../../shared/functionEvidence";
+import { buildFunctionEvidence, type AnnotationRow, type DomainBox } from "../../../../shared/functionEvidence";
+import { buildDomainUnits } from "../../../../shared/domainUnits";
 import { functionEvidenceInputFrom } from "../../../../shared/functionEvidenceInput";
 import { molecularWorkspaceFixture } from "../../../../test/molecularWorkspaceFixture";
 import { NAE1_INPUT } from "../../../../shared/__tests__/fixtures/nae1FunctionalDomains";
@@ -184,11 +185,12 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
     ...over,
   });
   type ArchInput = Parameters<typeof layoutArchitecture>[0];
-  const evidenceWith = (over: Partial<ArchInput>): ArchInput => ({
+  // Boxes in, units out: the layout draws the model's domain units, built here the way the model builds them.
+  const evidenceWith = ({ domains = [], ...over }: Partial<ArchInput> & { domains?: DomainBox[] }): ArchInput => ({
     length: 100,
     residue: 50,
     variantShort: "p.Xxx50Yyy",
-    domains: [],
+    domainUnits: buildDomainUnits(domains, [], 50),
     structuralDomains: [],
     secondaryStructure: [],
     rows: [row()],
@@ -235,8 +237,8 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
       { start: 1, end: 100 },
       null
     );
-    const covering = L.domains.find((d) => d.key.startsWith("dom-"));
-    const overlapping = L.domains.find((d) => d.key.startsWith("over-"));
+    const covering = L.domains.find((d) => d.key.startsWith("dom:"));
+    const overlapping = L.domains.find((d) => d.key.startsWith("over:"));
     expect(covering!.lane).toBe(0);
     expect(overlapping!.lane).toBe(1);
     expect(belowPin(L).residue).toBe(40);

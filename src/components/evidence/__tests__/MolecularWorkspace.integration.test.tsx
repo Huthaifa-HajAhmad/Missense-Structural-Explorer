@@ -47,7 +47,7 @@ describe('molecular workspace interaction contracts', () => {
   it('retains the domain pin, window and layers across navigation, then resets for another substitution at the same residue', () => {
     const result = molecularWorkspaceFixture();
     const view = render(<Harness result={result} />);
-    fireEvent.click(screen.getByRole('button', { name: /Illustrative overlap \(SMART/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Illustrative overlap, 90–245 · SMART/ }));
     fireEvent.click(screen.getByRole('button', { name: '116 ± 50' }));
     fireEvent.click(screen.getByTestId('layer-variants'));
     expect(inspector().getByRole('heading', { name: 'Illustrative overlap' })).toBeInTheDocument();
@@ -65,15 +65,15 @@ describe('molecular workspace interaction contracts', () => {
   it('validates numeric zoom without changing the evidence, and exposes an off-window variant', () => {
     render(<Harness result={molecularWorkspaceFixture()} />);
     const verdict = screen.getByTestId('pm1-verdict').textContent;
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '300' } });
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '200' } });
-    expect(screen.getByRole('button', { name: 'Apply window' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('From residue'), { target: { value: '300' } });
+    fireEvent.change(screen.getByLabelText('To residue'), { target: { value: '200' } });
+    expect(screen.getByRole('button', { name: 'Zoom' })).toBeDisabled();
     // The invalid inputs point a screen reader at the reason, which is a live status.
-    const from = screen.getByLabelText('From');
+    const from = screen.getByLabelText('From residue');
     const describedBy = from.getAttribute('aria-describedby');
     expect(describedBy).toBeTruthy();
     expect(document.getElementById(describedBy!)?.textContent).toMatch(/increasing positions between 1 and 534/);
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '400' } });
+    fireEvent.change(screen.getByLabelText('To residue'), { target: { value: '400' } });
     fireEvent.submit(screen.getByRole('form', { name: 'Protein map window' }));
     expect(screen.getByText(/variant at 116 is outside this window/)).toBeInTheDocument();
     expect(screen.getByTestId('pm1-verdict').textContent).toBe(verdict);

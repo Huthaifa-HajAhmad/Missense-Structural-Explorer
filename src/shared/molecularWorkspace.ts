@@ -96,13 +96,18 @@ export function functionReadings(ev: FunctionEvidence, hotspots?: HotspotEvidenc
   const boxes = [...ev.domains, ...ev.motifs, ...ev.structuralDomains];
   const annotations = ev.groups.flatMap(g => g.rows.map(r => {
     const box = boxes.find(d => `match-${d.key}` === r.key);
+    // One drawn box stands for every database that models the domain: name them on whichever row is pinned.
+    const unit = ev.domainUnits.find(u => u.memberKeys.includes(r.key));
+    const agreed = unit && unit.sources.length > 1 && (unit.core.start !== unit.start || unit.core.end !== unit.end)
+      ? `The databases agree on residues ${unit.core.start}–${unit.core.end}; only some extend to ${unit.start}–${unit.end}.` : null;
     return { key: r.key, name: r.name, value: null, valueText: r.residuesText, group: g.label, tone: 'neutral' as const,
       description: r.note ?? `${r.type} annotation`,
       facts: [{ label: 'Residues', value: r.residuesText }, { label: 'Variant position', value: r.covers ? `Includes ${ev.residue}` : `${Math.abs(r.distance)} residues away in sequence` },
-        { label: 'Evidence', value: r.evidenceLabel }, { label: 'Source', value: box ? `${box.source} ${box.accession}` : `UniProtKB ${ev.uniprotId}` }],
-      notes: [r.detail, r.evidenceCodes.length ? `Evidence codes: ${r.evidenceCodes.join(', ')}` : null,
+        { label: 'Evidence', value: r.evidenceLabel }, { label: 'Source', value: box ? `${box.source} ${box.accession}` : `UniProtKB ${ev.uniprotId}` },
+        ...(unit ? [{ label: 'Matched by', value: unit.sources.map(s => `${s.source} ${s.accession}`).join(', ') }] : [])],
+      notes: [r.detail, agreed, r.evidenceCodes.length ? `Evidence codes: ${r.evidenceCodes.join(', ')}` : null,
         ...r.parts.map(p => [p.name, p.note, p.detail, p.citation?.label].filter(Boolean).join(' · ')),
-        box ? 'Overlapping database signatures can describe the same region. Track order separates annotations for reading; it is not a physical layer or additional independent evidence.' : null,
+        box || unit ? 'Overlapping database signatures can describe the same region. Track order separates annotations for reading; it is not a physical layer or additional independent evidence.' : null,
         r.group === 'variants' ? 'A reported variant at this position is context; it is not an experimental functional assay.' : 'An annotation alone does not establish pathogenicity. The rule trace below gives the recorded PM1 decision.'].filter((n): n is string => Boolean(n)),
       reportUrl: box?.url ?? r.citation?.url };
   }));

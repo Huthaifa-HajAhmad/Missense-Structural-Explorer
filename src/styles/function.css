@@ -111,6 +111,11 @@
 .fnd-key[data-kind="uncited"] { background: var(--cs-text-muted); border-color: var(--cs-text-muted); }
 .fnd-key[data-kind="helix"] { width: 14px; height: 6px; border: 0; border-radius: 1px; background: color-mix(in srgb, var(--cs-text-muted) 72%, var(--cs-surface)); }
 .fnd-key[data-kind="strand"] { width: 14px; height: 3px; border: 0; border-radius: 0; background: var(--cs-text-secondary); }
+.fnd-key[data-kind="partial"] {
+  width: 18px; height: 10px; border: 1px solid var(--cs-text-muted); border-radius: 3px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cs-text-muted) 5%, var(--cs-surface)) 0 30%, color-mix(in srgb, var(--cs-text-muted) 14%, var(--cs-surface)) 30% 100%);
+}
+.fnd-arch__entry { letter-spacing: .01em; }
 .fnd-key[data-kind="structural"] { width: 14px; height: 4px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 60%, var(--cs-surface)); }
 
 
@@ -151,10 +156,6 @@
 .fnd-arch__text[data-tone="accent"] { fill: var(--cs-text-accent); }
 
 .fnd-arch__backbone { fill: color-mix(in srgb, var(--cs-text-muted) 14%, var(--cs-surface)); stroke: var(--cs-border); stroke-width: 1; }
-.fnd-arch__domain rect {
-  fill: color-mix(in srgb, var(--cs-accent-clay) 16%, var(--cs-surface));
-  stroke: var(--cs-accent-clay); stroke-width: 1.25;
-}
 .fnd-arch__region rect {
   fill: color-mix(in srgb, var(--cs-text-muted) 30%, var(--cs-surface));
   stroke: var(--cs-text-muted); stroke-width: 1; cursor: pointer;
@@ -277,7 +278,6 @@
 .fnd-rsec { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid var(--cs-border-subtle); }
 .fnd-rsec:first-child { padding-top: 0; border-top: 0; }
 .fnd-rsec > h3.eyebrow { margin: 0; }
-.fnd-rail__note { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 
 .fnd-steps {
   list-style: none; margin: 0; padding: 14px; display: flex; flex-direction: column;
@@ -297,21 +297,18 @@
 .fnd-step__value { color: var(--cs-text-secondary); line-height: 1.5; padding-top: 1px; overflow-wrap: anywhere; }
 .fnd-step__value strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
-.fnd-cuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.fnd-cut {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 8px; padding: 5px 0;
-  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-}
-.fnd-cut + .fnd-cut { border-top: 1px solid var(--cs-border-subtle); }
-.fnd-cut__label { color: var(--cs-text-secondary); }
-.fnd-cut__rule { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); font-variant-numeric: tabular-nums; color: var(--cs-text-muted); text-align: right; }
-.fnd-cut__here { grid-column: 1 / -1; font-size: var(--cs-font-size-badge); color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.fnd-cut__here:empty { display: none; }
-.fnd-cut[data-present] .fnd-cut__label { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+
+/* Evidence levels use the shared rail-cut list (rail.css) like the other tabs; only the columns differ: name, then
+   the meaning with its ECO codes, then what PM1 does with it. */
+.fnd-rail .rail-cut { grid-template-columns: 112px minmax(0, 1fr); }
+.fnd-rail .rail-cut__here { grid-column: 2; white-space: normal; }
+.fnd-level__codes { display: block; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 .fnd-kv { display: flex; flex-direction: column; margin: 0; }
 .fnd-kv > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 0; }
 .fnd-kv > div + div { border-top: 1px solid var(--cs-border-subtle); }
+.fnd-kv > .fnd-kv__group { display: block; }
+.fnd-kv__group .fnd-kv { margin-top: 4px; padding-left: 12px; }
 .fnd-kv dt { flex: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .fnd-kv dd { margin: 0; min-width: 0; text-align: right; font-size: var(--cs-font-size-badge); color: var(--cs-text-primary); overflow-wrap: anywhere; }
 .fnd-kv a { color: var(--cs-text-accent); text-decoration: none; border-radius: 3px; }

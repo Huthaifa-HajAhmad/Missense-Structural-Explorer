@@ -51,6 +51,17 @@ export const EVIDENCE_LEVEL_LABEL: Record<EvidenceLevel, string> = {
   none: "No evidence cited",
 };
 
+/** What each level means to a curator, in one line, for the rail. */
+export const EVIDENCE_LEVEL_MEANING: Record<EvidenceLevel, string> = {
+  experimental: "Observed in this protein",
+  structure: "Seen in a solved structure of this protein",
+  proteomics: "Seen in a large-scale study of this protein",
+  curated: "Stated by a curator without a direct experiment",
+  similarity: "Copied from a related protein",
+  predicted: "Predicted from the sequence",
+  none: "No evidence given",
+};
+
 /** The ECO codes behind each level, for the rail's legend. */
 export const EVIDENCE_LEVEL_CODES: Array<{ level: EvidenceLevel; codes: string }> = [
   { level: "experimental", codes: "ECO:0000269" },

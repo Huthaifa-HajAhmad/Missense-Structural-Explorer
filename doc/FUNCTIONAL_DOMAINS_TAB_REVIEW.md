@@ -112,3 +112,50 @@ drag-to-zoom, arrow keys), tab (URL state, folded variant rows). Geometry harnes
 `sod1`, `sod1-narrow`; the `dense`, `interact` and `prose` families).
 
 Not done: PM1's hot-spot reading (owner decision), 3D neighbourhood, a helix/strand cartoon.
+
+## Follow-up audit, 2026-11-12 (GZF1 p.Arg591Trp, Q9H116, 711 aa)
+
+GZF1 has a BTB domain and ten C2H2 zinc fingers. InterPro entry IPR013087 models the zinc fingers with four
+signatures: Pfam PF00096 (and PF13912 for finger 6), SMART SM00355, the PROSITE profile PS50157 and the PROSITE
+pattern PS00028. UniProt lists one disease variant, "in JLSM", over residues 289–711. Fixture:
+`src/shared/__tests__/fixtures/gzf1FunctionalDomains.ts` (UniProtKB, UniParc and InterPro, read 2026-11-12).
+
+| # | Severity | What was wrong | Fix | Test |
+|---|---|---|---|---|
+| G1 | High (integrity) | The server tags a match with its InterPro **entry's** type. PS00028 sits in IPR013087, a `domain` entry, so the 2026-10-04 routing drew the short pattern as a fourth row of domain boxes | `kindOfMatch` checks the PS00xxx pattern accession before the entry type | `functionEvidenceGzf1.test.ts` |
+| G2 | High (legibility) | One row per signature: forty look-alike boxes on four rows for ten zinc fingers. Matches of one domain read as independent evidence, and the variant's box was hard to find | `shared/domainUnits.ts`: one unit per InterPro entry and location (half-overlap rule); solid core where every database agrees, pale ends where only some extend; UniProt's name labels the unit; a click selects UniProt's row; any database row lights the unit | `functionEvidenceGzf1.test.ts`, `architectureLayout.gzf1.test.ts` |
+| G3 | Medium (integrity) | UniProt zinc fingers were filed as "sites": the finding said "Residue 591 carries one annotation: C2H2-type 10", and the finger was drawn a second time as an inset over its own box | `Zinc finger` is a domain-class feature; the finding now says the residue lies inside the C2H2-type 10 zinc finger, with no site at it. Zinc fingers no InterPro domain models still get a box | same |
+| G4 | Medium (integrity) | The Domain fact quoted one PROSITE match's ten locations ("PROSITE 350–371, 379–400, …, 27% of the protein") as the residue's domain | The fact names the covering unit: "C2H2-type 10 zinc finger · 575–602 · 10 of 10 · Pfam, SMART and PROSITE" | same |
+| G5 | Medium (integrity) | The 289–711 disease variant was a pin at 289, "the nearest disease variant, 0 residues downstream"; after a partial fix the Disease fact said "None in UniProtKB"; the caveat said "1 disease variant across 1 residue" | Lane `span`: drawn as a red line over 289–711; fact "Disease variant over it: 289–711"; caveat "one over a stretch (289–711)"; density counts residues for single-residue variants only | same |
+| G6 | Low (legibility) | In a zoomed window a domain cut by the edge drew a sliver with no name, and region labels centred off the drawing ("2H2-type 8") | Cut sides stay square; labels sit in the visible part; region labels are clamped inside the drawing | `architectureLayout.gzf1.test.ts` |
+| G7 | Low (UX) | An empty "Pin an annotation" card repeated the inspector's prompt; a lone "Amino-acid positions" label sat far from its fields; an empty band sat over the domains when no single-residue disease variant was in view | The card shows only once something is pinned; the control reads "Zoom to residues [ ] to [ ] Zoom"; pin tiers are reserved only when there are pins | `MolecularWorkspace.integration.test.tsx` |
+| G8 | Low (inspector) | Evidence levels: "counts for PM1" wrapped under the label and a separate paragraph explained two of the levels; thirteen FunFam rows buried the sources | One row per level with its count in this entry, its meaning and whether PM1 counts it (`EVIDENCE_LEVEL_MEANING`); a database with more than two family matches folds into one line | rendered check |
+
+Effect on the reference variant: PM1 is unchanged (not met: no experimentally evidenced site at 591). Only labels,
+the drawing and the finding's wording changed; the rule engine is untouched.
+
+Verification: `npx tsc --noEmit`, `npm run lint`, full `npx vitest run` (519 files, 6741 tests passed, 5 skipped as
+before), function-track geometry harness (241 assertions; the GZF1 case now expects 11 boxes, and box checks read the
+new `.fnd-arch__box` path). Rendered with the GZF1 fixture in light, dark and an 820 px window.
+
+Not done:
+- The Annotation details table still lists each database match as its own row. That is a records view, so it keeps
+  them, but it could group rows under their unit.
+- An unintegrated signature (Pfam PF13894 at 377–400) is not merged into zinc finger 3, because InterPro has not
+  said it models the same domain; it sits alone on a second row.
+- A C2H2 finger's DNA-contact positions (−1, 3, 6 of the recognition helix) are a plausible functional reading for
+  residue 591. No source in the payload states them, so the tab claims nothing about them.
+- PM1's hot-spot reading remains the owner's decision.
+
+Review follow-ups (same day):
+- Placement is exact: new tests assert that every pin, span end, box edge and the variant's stem sit on the one residue
+  scale (to 1e-6 px) in the whole protein, in a 541-641 window and at 380 px. The geometry harness checks the same
+  in a real browser.
+- The inspector's evidence levels now use the shared `rail-cut` list from `rail.css`, like the other tabs, with one
+  scoped column override. A first version had its own `fnd-level` styles, which would have drifted. No colour or
+  surface of the inspector changed; every rule uses design tokens.
+- Hotspots still sees zinc fingers. They were "sites" by accident of the old grouping, and moving them to domains
+  would have silently dropped them from the hot-spot neighbours (`hotspotInput.ts`; tested).
+- A pinned unit now names every database that matched it ("Matched by: Pfam PF00096, SMART SM00355, PROSITE PS50157")
+  and says where they agree. Before, a click on a zinc finger showed only UniProtKB.
+- Removed `domainRowKey` and `domainRowKeyResolver`, which nothing used after the move to units.

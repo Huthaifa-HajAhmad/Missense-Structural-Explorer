@@ -57,6 +57,19 @@ describe("buildFunctionEvidence — NAE1 p.Asp116Gly", () => {
     expect(poly?.lane).toBe("none");
   });
 
+  it("says a disease deletion spanning the residue spans it, instead of 'nearest variant, 0 residues downstream'", () => {
+    const uniprot = structuredClone(NAE1_UNIPROT);
+    uniprot.features = [
+      ...uniprot.features,
+      { type: "Natural variant", description: "in a test syndrome; loss of function", start: 100, end: 200, evidence: [] },
+    ];
+    const span = buildFunctionEvidence({ ...NAE1_INPUT, uniprot });
+    expect(span.finding.rest).toContain("a disease variant that spans this residue: residues 100–200");
+    expect(span.finding.rest).not.toMatch(/0 residues downstream/);
+    expect(span.finding.rest).not.toMatch(/broad span rather than a site/);
+    expect(span.nearestDiseaseVariant?.shortLabel).toBe("R85Q");
+  });
+
   it("classifies the UBA3 region as a functional region, not disorder", () => {
     const region = ev.rows.find((r) => r.type === "Region");
     expect(region?.group).toBe("sites");

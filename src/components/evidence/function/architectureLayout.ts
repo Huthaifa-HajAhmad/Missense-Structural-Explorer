@@ -30,45 +30,13 @@
 
 import type { AnnotationRow, DomainBox, FunctionEvidence } from "../../../shared/functionEvidence";
 import type { SecondaryStructureElement } from "../../../shared/contracts";
+import { BOX_H, LANE_PITCH, layoutDomainBoxes, type ArchBox } from "./domainLaneLayout";
+
+export type { ArchBox } from "./domainLaneLayout";
 
 export interface ArchWindow {
   start: number;
   end: number;
-}
-
-/**
- * UniProt fallback boxes refer to feature rows, InterPro boxes to match rows.
- *
- * The index is cached on the rows array: a layout pass resolves a row key for every domain segment,
- * and the uncached form rescanned every row twice per segment (architectureLayout ran it on every
- * window, width or selection change). The cache is keyed on the caller's payload array, which is
- * stable across re-renders, not on the filtered copy layout builds.
- */
-const domainRowIndex = new WeakMap<readonly AnnotationRow[], (d: DomainBox) => string>();
-
-export function domainRowKeyResolver(rows: readonly AnnotationRow[]): (d: DomainBox) => string {
-  const cached = domainRowIndex.get(rows);
-  if (cached) return cached;
-  const byRange = new Map<string, string>();
-  const byRangeName = new Map<string, string>();
-  for (const r of rows) {
-    if (r.type.toLowerCase() !== 'domain') continue;
-    const range = `${r.start}:${r.end}`;
-    if (!byRange.has(range)) byRange.set(range, r.rowKey);
-    const named = `${range}:${r.name}`;
-    if (!byRangeName.has(named)) byRangeName.set(named, r.rowKey);
-  }
-  const resolve = (d: DomainBox): string => {
-    if (d.source !== 'UniProtKB') return `match-${d.key}`;
-    const range = `${d.segments[0]?.start}:${d.segments[0]?.end}`;
-    return byRangeName.get(`${range}:${d.name}`) ?? byRange.get(range) ?? `match-${d.key}`;
-  };
-  domainRowIndex.set(rows, resolve);
-  return resolve;
-}
-
-export function domainRowKey(d: DomainBox, rows: AnnotationRow[]): string {
-  return domainRowKeyResolver(rows)(d);
 }
 
 export interface ArchLabel {
@@ -175,20 +143,17 @@ interface ArchPinRowCount {
   rowKey: string;
 }
 
-export interface ArchBox {
+/** A disease variant over a stretch of residues, drawn as that stretch. */
+export interface ArchSpan {
   key: string;
   rowKey: string;
+  x1: number;
+  x2: number;
   y: number;
-  lane: number;
+  clip: { left: boolean; right: boolean };
   selected: boolean;
-  start: number;
-  end: number;
-  x: number;
-  width: number;
-  covers: boolean;
-  label: ArchLabel | null;
-  ends: ArchLabel[];
   title: string;
+  label: ArchLabel | null;
 }
 
 export interface ArchLayout {
@@ -198,6 +163,9 @@ export interface ArchLayout {
   x1: number;
   backbone: { y: number; h: number };
   domains: ArchBox[];
+  /** One name over an entry's units where the boxes are too narrow to carry theirs. */
+  entryLabels: ArchLabel[];
+  spans: ArchSpan[];
   structural: Array<{ key: string; x: number; width: number; y: number }>;
   motifs: ArchMotif[];
   density: ArchDensity | null;
@@ -252,7 +220,7 @@ export interface ArchOverview {
 
 /** The whole protein as a thin strip with the current window bracketed, so a zoomed view keeps its place. */
 export function layoutOverview(
-  ev: Pick<FunctionEvidence, "length" | "residue" | "domains" | "rows">,
+  ev: Pick<FunctionEvidence, "length" | "residue" | "domainUnits" | "rows">,
   width: number,
   win: ArchWindow
 ): ArchOverview {
@@ -268,7 +236,7 @@ export function layoutOverview(
     x0,
     x1,
     trackY,
-    domains: ev.domains.flatMap((d) => d.segments.map((s) => ({ x: x(s.start), width: Math.max(2, x(s.end) - x(s.start)), covers: d.covers }))),
+    domains: ev.domainUnits.map((u) => ({ x: x(u.start), width: Math.max(2, x(u.end) - x(u.start)), covers: u.covers })),
     membrane: ev.rows.filter((r) => r.lane === "membrane" && r.type.toLowerCase() !== "topological domain").map((r) => ({ x: x(r.start), width: Math.max(1.5, x(r.end) - x(r.start)) })),
     queryX: Number.isFinite(ev.residue) ? x(ev.residue) : null,
     window: { x: x(win.start), width: Math.max(6, x(win.end) - x(win.start)) },
@@ -333,7 +301,7 @@ export interface ArchOptions {
 }
 
 export function layoutArchitecture(
-  evIn: Pick<FunctionEvidence, "length" | "residue" | "variantShort" | "domains" | "structuralDomains" | "rows" | "secondaryStructure"> & { motifs?: DomainBox[] },
+  evIn: Pick<FunctionEvidence, "length" | "residue" | "variantShort" | "domainUnits" | "structuralDomains" | "rows" | "secondaryStructure"> & { motifs?: DomainBox[] },
   width: number,
   win: ArchWindow,
   selectedKey: string | null,
@@ -353,8 +321,6 @@ export function layoutArchitecture(
   const x0 = 22;
   const x1 = W - 22;
   const span = Math.max(1, win.end - win.start);
-  /** Resolve every domain segment's row key from one index, not a fresh scan per segment. */
-  const rowKeyOf = domainRowKeyResolver(evIn.rows);
   const inWin = (r: number) => r >= win.start && r <= win.end;
   const x = (r: number) => x0 + ((Math.min(Math.max(r, win.start), win.end) - win.start) / span) * (x1 - x0);
 
@@ -363,35 +329,33 @@ export function layoutArchitecture(
   // Distinct disease-variant residues in view: past DENSE_ABOVE they are a bar track (two tiers of height), not pins.
   const aboveResidues = new Set(ev.rows.filter((r) => r.lane === "above" && r.start >= win.start && r.start <= win.end).map((r) => r.start));
   const denseAbove = aboveResidues.size > DENSE_ABOVE;
-  const aboveTiers = denseAbove ? 2 : 3;
+  // No single-residue disease variant in view: no pin tiers, so no empty band between the variant's head and the domains.
+  const aboveTiers = denseAbove ? 2 : aboveResidues.size ? 3 : 0;
   const queryLabelY = 14;
   // With the variant outside the window nothing is drawn up there: no head, no label, so no blank band above the marks.
   const queryHeadY = inWin(ev.residue) ? queryLabelY + 14 : 0;
   const pinHeadAbove = queryHeadY + 14 + aboveTiers * labelTier; // lowest above-pin head
-  const bb = pinHeadAbove + 34; // backbone centre
+  // Disease variants over a stretch get their own thin row between the pins and the domains.
+  const spanRows = ev.rows.filter((r) => r.lane === "span" && r.end >= win.start && r.start <= win.end);
+  const spanY = pinHeadAbove + 14;
+  const bb = pinHeadAbove + 34 + (spanRows.length ? 20 : 0); // backbone centre
   const bh = 12;
-  // Every signature used to share bb, hiding nested and overlapping matches. Pack complete
-  // signatures (including all discontinuous segments) on stable lanes, with room for hit areas.
-  // This changes drawing geometry only; overlapping source evidence is never deduplicated.
-  const domainLanes = new Map<string, number>();
-  // Lane assignment is decided in residue space, once for every signature drawn: two signatures
-  // share a lane exactly when their residue intervals never intersect. Database matches are
-  // usually adjacent, not overlapping, and a pixel-gap test made the same adjacent pair switch
-  // lanes between zoom levels, re-flowing the whole stack. Because this pass starts from the
-  // whole signature set, the assignment is identical for every visible window.
-  const laneIntervals: Array<Array<[number, number]>> = [];
-  [...ev.domains]
-    .sort((a, b) => Math.min(...a.segments.map(s => s.start)) - Math.min(...b.segments.map(s => s.start)) || a.key.localeCompare(b.key))
-    .forEach(d => {
-      // One lane for the complete signature, including every discontinuous segment: those land
-      // together because no interval on the lane intersects any of them.
-      const isFree = (intervals: Array<[number, number]>) => !d.segments.some(s => intervals.some(([lo, hi]) => s.start <= hi && s.end >= lo));
-      let lane = laneIntervals.findIndex(isFree);
-      if (lane < 0) { lane = laneIntervals.length; laneIntervals.push([]); }
-      for (const s of d.segments) laneIntervals[lane].push([s.start, s.end]);
-      domainLanes.set(d.key, lane);
-    });
-  const domainOffset = Math.max(0, laneIntervals.length - 1) * 42;
+  // Domain lanes are decided once over every unit (see domainLaneLayout); the count fixes the vertical plan.
+  const regionRowsAll = ev.rows.filter((r) => r.lane === "region" && r.end >= win.start && r.start <= win.end);
+  const absorbed = new Set(ev.domainUnits.flatMap((u) => u.memberKeys));
+  const regionRowsDrawn = regionRowsAll.filter((r) => !absorbed.has(r.key));
+  const queryX = inWin(ev.residue) ? x(ev.residue) : null;
+  const domainLayout = layoutDomainBoxes({
+    units: ev.domainUnits,
+    win,
+    x,
+    bb,
+    queryX,
+    regionSpans: regionRowsDrawn.map((r) => [x(r.start) - 4, Math.max(x(r.start) + 4, x(r.end)) + 4] as [number, number]),
+    selectedKey,
+  });
+  const domains = domainLayout.boxes;
+  const domainOffset = Math.max(0, domainLayout.laneCount - 1) * LANE_PITCH;
   const lowerBackbone = bb + domainOffset;
   const hasStructural = ev.structuralDomains.length > 0;
   const hasSS = ev.secondaryStructure.length > 0 && span <= SECONDARY_MAX_SPAN;
@@ -408,66 +372,11 @@ export function layoutArchitecture(
 
   let hiddenLabels = 0;
 
-  // Domains. A box's label goes in the widest stretch of the box that no region inset, the variant's
-  // stem or an end number covers, so nothing is ever drawn through it.
-  const regionSpans = ev.rows
-    .filter((r) => r.lane === "region" && r.end >= win.start && r.start <= win.end)
-    .map((r) => [x(r.start) - 4, Math.max(x(r.start) + 4, x(r.end)) + 4] as [number, number]);
-  const queryX = inWin(ev.residue) ? x(ev.residue) : null;
-  const domains: ArchBox[] = ev.domains.flatMap((d: DomainBox) =>
-    d.segments
-      .filter((s) => s.end >= win.start && s.start <= win.end)
-      .map((s, i) => {
-        const lane = domainLanes.get(d.key) ?? 0;
-        const centreY = bb + lane * 42;
-        const a = x(s.start);
-        const b = x(s.end);
-        const w = Math.max(3, b - a);
-        const name = d.name;
-        const src = d.accession ? `${d.source} ${d.accession}` : d.source;
-        const showEnds = w > 80 && inWin(s.start) && inWin(s.end);
-        // An end number the variant's stem would cross is left off; the range is in the table and the title.
-        const crossed = (l: ArchLabel) => {
-          if (queryX === null) return false;
-          const w = textWidth(l.text, l.size);
-          const [lo, hi] = l.anchor === "start" ? [l.x, l.x + w] : [l.x - w, l.x];
-          return queryX > lo - 4 && queryX < hi + 4;
-        };
-        const ends: ArchLabel[] = showEnds
-          ? ([
-              { x: a + 7, y: centreY + 4, text: String(s.start), anchor: "start", size: 10.5, mono: true, tone: "secondary" },
-              { x: b - 7, y: centreY + 4, text: String(s.end), anchor: "end", size: 10.5, mono: true, tone: "secondary" },
-            ] as ArchLabel[]).filter((l) => !crossed(l))
-          : [];
-        const lo = a + (showEnds ? 14 + textWidth(String(s.start), 10.5) : 6);
-        const hi = b - (showEnds ? 14 + textWidth(String(s.end), 10.5) : 6);
-        const blocks = [...(lane === 0 ? regionSpans : []), ...(queryX !== null ? [[queryX - 5, queryX + 5] as [number, number]] : [])]
-          .filter(([l, r]) => r > lo && l < hi)
-          .sort((p, q) => p[0] - q[0]);
-        const free: Array<[number, number]> = [];
-        let cursor = lo;
-        for (const [l, r] of blocks) {
-          if (l > cursor) free.push([cursor, l]);
-          cursor = Math.max(cursor, r);
-        }
-        if (hi > cursor) free.push([cursor, hi]);
-        const widest = free.sort((p, q) => q[1] - q[0] - (p[1] - p[0]))[0];
-        const room = widest ? widest[1] - widest[0] : 0;
-        const full = `${name} · ${src}`;
-        const text = textWidth(full, 12) + 12 < room ? full : textWidth(name, 12) + 12 < room ? name : null;
-        const label: ArchLabel | null = text && widest
-          ? { x: (widest[0] + widest[1]) / 2, y: centreY + 4, text, anchor: "middle", size: 12, weight: 600, tone: "ink" }
-          : null;
-        const rowKey = rowKeyOf(d);
-        return { key: `${d.key}-${i}`, rowKey, y: centreY - 15, lane, selected: selectedKey === rowKey, start: s.start, end: s.end, x: a, width: w, covers: residueIn(s, ev.residue), label, ends, title: `${name} (${src}), ${s.start}–${s.end}` };
-      })
-  );
-
   /** The lowest drawn domain-box bottom edge whose x-range covers `px`, in that box's own lane. */
   const boxBottomAt = (px: number): number | null => {
     let bottom: number | null = null;
     for (const d of domains) {
-      if (px >= d.x && px <= d.x + d.width) bottom = Math.max(bottom ?? -Infinity, bb + d.lane * 42 + 15);
+      if (px >= d.x && px <= d.x + d.width) bottom = Math.max(bottom ?? -Infinity, d.y + BOX_H);
     }
     return bottom;
   };
@@ -494,14 +403,19 @@ export function layoutArchitecture(
     .map((e) => ({ kind: e.kind, x: x(e.start), width: Math.max(1.5, x(e.end + 1) - x(e.start)), y: ssY }));
 
   // Regions on the backbone: functional spans, drawn as insets with a label above the backbone.
-  const regionRows = ev.rows.filter((r) => r.lane === "region" && r.end >= win.start && r.start <= win.end);
+  // A region the domain units already draw (a UniProt zinc finger over its own box) is not drawn twice.
   const aboveTiersUsed: number[][] = [];
-  const regions = regionRows.map((r) => {
+  for (const l of domainLayout.entryLabels.filter((e) => e.y < bb)) {
+    const half = textWidth(l.text, 11) / 2;
+    placeTier(aboveTiersUsed, l.x - half, l.x + half, 1);
+  }
+  const regions = regionRowsDrawn.map((r) => {
     const a = x(r.start);
     const w = Math.max(4, x(r.end) - a);
     const text = r.shortLabel;
     const lw = textWidth(text, 11);
-    const cx = a + w / 2;
+    // Kept inside the drawing: a region cut by the window edge used to centre its label off the edge ("2H2-type 8").
+    const cx = Math.min(Math.max(a + w / 2, x0 + lw / 2), x1 - lw / 2);
     // Region labels sit just above the backbone in their own row; if two collide the later is dropped.
     const t = placeTier(aboveTiersUsed, cx - lw / 2, cx + lw / 2, 1);
     if (t < 0) hiddenLabels++;
@@ -524,7 +438,7 @@ export function layoutArchitecture(
   const pins: ArchPin[] = [];
   const upper: number[][] = [];
   const lower: number[][] = [];
-  const qx = inWin(ev.residue) ? x(ev.residue) : null;
+  const qx = queryX;
   const qText = ev.variantShort;
   // The query stem crosses every upper tier; reserve its column so no label is drawn over it.
   if (qx !== null) for (let t = 0; t < aboveTiers; t++) upper[t] = [qx - 2, qx + 2];
@@ -794,6 +708,33 @@ export function layoutArchitecture(
     }
   }
 
+  const entryLabels = domainLayout.entryLabels.filter((l) => {
+    const half = textWidth(l.text, 11) / 2;
+    return !pins.some((p) => p.shape === "dot" && p.stem && Math.abs(p.x - l.x) < half + 6);
+  });
+
+  const spans: ArchSpan[] = spanRows.map((r) => {
+    const a = x(Math.max(r.start, win.start));
+    const b = x(Math.min(r.end, win.end));
+    const text = r.residuesText;
+    const lw = textWidth(text, 10.5);
+    // The label sits on the line near its start, or just past the variant's stem when the stem would cross it.
+    let lx = a + 8;
+    if (qx !== null && qx > lx - 4 && qx < lx + lw + 4) lx = qx + 8;
+    const label: ArchLabel | null = lx + lw + 4 <= b ? { x: lx, y: spanY + 3.5, text, anchor: "start", size: 10.5, mono: true, tone: "secondary" } : null;
+    return {
+      key: `span-${r.key}`,
+      rowKey: r.rowKey,
+      x1: a,
+      x2: Math.max(a + 2, b),
+      y: spanY,
+      clip: { left: r.start < win.start, right: r.end > win.end },
+      selected: isSelected(r),
+      title: `${r.note ? `Disease variant, ${r.note}` : "Disease variant"}, over residues ${r.residuesText}`,
+      label,
+    };
+  });
+
   const query =
     qx !== null
       ? {
@@ -838,6 +779,8 @@ export function layoutArchitecture(
     x1,
     backbone: { y: bb, h: bh },
     domains,
+    entryLabels,
+    spans,
     structural,
     motifs,
     density,

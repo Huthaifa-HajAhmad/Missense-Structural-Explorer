@@ -20,7 +20,9 @@ export type HotspotLoad = { status: "loading" | "ready" | "error"; data: unknown
 export function hotspotInputFrom(result: AnalysisResult, fn: FunctionEvidence, load: HotspotLoad, engineCriteria: HotspotInput["engineCriteria"]): HotspotInput {
   const annotations = fn.availability.state === "ok"
     ? fn.rows
-      .filter((r) => (r.group === "sites" || r.group === "modifications") && !isBroadAnnotation(r, fn.length))
+      // A zinc finger is filed under domains in the Functional domains table, but it was a hot-spot neighbour
+      // before that move and a hot spot inside one is worth naming, so it stays in this list.
+      .filter((r) => (r.group === "sites" || r.group === "modifications" || r.type.toLowerCase() === "zinc finger") && !isBroadAnnotation(r, fn.length))
       .map((r) => ({ start: r.start, end: r.end, isPair: r.isPair, name: r.name, evidence: r.evidenceLabel }))
     : null;
   return {

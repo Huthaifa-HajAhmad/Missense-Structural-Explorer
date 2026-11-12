@@ -98,7 +98,8 @@ src/components/evidence/function/FunctionTab.tsx,component,src/components/eviden
 src/components/evidence/function/FunctionWindowControl.tsx,component,
 src/components/evidence/function/HotspotsRetry.tsx,component,
 src/components/evidence/function/HotspotsView.tsx,component,src/components/evidence/__tests__/HotspotsView.test.tsx
-src/components/evidence/function/architectureLayout.ts,client,src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts
+src/components/evidence/function/architectureLayout.ts,client,src/components/evidence/function/__tests__/architectureLayout.gzf1.test.ts;src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts
+src/components/evidence/function/domainLaneLayout.ts,client,
 src/components/evidence/function/functionInput.ts,barrel,src/components/__tests__/ReviewWorkspaces.test.tsx
 src/components/evidence/function/viewUrlState.ts,client,
 src/components/evidence/interfaces/AssemblyDiagram.tsx,component,src/components/evidence/__tests__/AssemblyDiagram.test.tsx
@@ -346,6 +347,7 @@ src/shared/curatedLiterature.ts,client,src/shared/__tests__/curatedLiterature.te
 src/shared/deepModelEvidence.ts,client,server/routes/variant/narrativeEvidenceHash.test.ts;src/hooks/__tests__/useNarrativeResynthesis.test.tsx;src/services/pipeline/__tests__/narrativeService.test.ts;src/shared/__tests__/deepModelEvidence.test.ts;src/shared/__tests__/narrativeEvidence.test.ts
 src/shared/developmentalExpression.ts,client,
 src/shared/diseaseFrame.ts,client,src/shared/__tests__/evidenceContext.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
+src/shared/domainUnits.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts;src/shared/__tests__/functionEvidenceGzf1.test.ts
 src/shared/dosageSensitivity.ts,client,src/shared/__tests__/dosageSensitivity.test.ts;src/shared/__tests__/geneDiseaseEvidence.test.ts
 src/shared/embeddingSource.ts,client,src/shared/__tests__/embeddingSource.test.ts
 src/shared/energeticsComparison.ts,client,src/shared/__tests__/energeticsComparison.test.ts
@@ -369,7 +371,7 @@ src/shared/foldxRepairBenchmark.generated.ts,client,src/shared/__tests__/energet
 src/shared/foldxRepairMode.ts,client,server/services/stability/foldx/runner-repair-cache.test.ts;src/shared/__tests__/computeRouting.test.ts
 src/shared/frequencyEvidence.ts,client,src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/frequencyRule.ts,client,src/shared/__tests__/frequencyRule.test.ts
-src/shared/functionEvidence.ts,client,src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/functionEvidence.test.ts;src/shared/__tests__/functionEvidenceSod1.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
+src/shared/functionEvidence.ts,client,src/components/evidence/function/__tests__/architectureLayout.gzf1.test.ts;src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/functionEvidence.test.ts;src/shared/__tests__/functionEvidenceGzf1.test.ts;src/shared/__tests__/functionEvidenceSod1.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
 src/shared/functionEvidenceInput.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/functionEvidence.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
 src/shared/functionalSites.ts,client,src/shared/__tests__/functionEvidenceSod1.test.ts;src/shared/__tests__/functionalSites.test.ts
 src/shared/geminiCredentials.ts,client,src/shared/__tests__/workflowStatus.restingState.test.ts
@@ -377,7 +379,7 @@ src/shared/geneDiseaseEvidence.ts,client,src/shared/__tests__/geneDiseaseEvidenc
 src/shared/geometry3.ts,client,
 src/shared/gnomadGroups.ts,client,src/shared/__tests__/frequencyRule.test.ts
 src/shared/hotspotEvidence.ts,client,server/routes/evidence-context.http.test.ts;server/services/evidence-context/hotspots.test.ts;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/shared/__tests__/hotspotEvidence.test.ts
-src/shared/hotspotInput.ts,client,
+src/shared/hotspotInput.ts,client,src/shared/__tests__/functionEvidenceGzf1.test.ts
 src/shared/hpa.ts,client,server/services/evidence-context/phenotypesHpa.test.ts
 src/shared/hpoAnnotation.ts,client,server/services/evidence-context/hpo.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/httpBody.ts,client,src/shared/__tests__/httpBody.test.ts
@@ -399,7 +401,7 @@ src/shared/mechanismWorkspace.ts,client,src/shared/__tests__/mechanismWorkspace.
 src/shared/modelCalibration.ts,client,src/shared/__tests__/modelCalibration.test.ts
 src/shared/modelOrganisms.ts,client,src/shared/__tests__/modelOrganisms.test.ts
 src/shared/modelPhenotypes.ts,client,server/services/evidence-context/phenotypesHpa.test.ts
-src/shared/molecularWorkspace.ts,client,src/components/evidence/function/__tests__/domainOverlap.test.ts;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/shared/__tests__/molecularWorkspace.test.ts
+src/shared/molecularWorkspace.ts,client,src/components/evidence/function/__tests__/domainOverlap.test.ts;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/shared/__tests__/functionEvidenceGzf1.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
 src/shared/multimerAssembly.ts,client,src/shared/__tests__/interfacesEvidenceSod1.test.ts;src/shared/__tests__/multimerAssembly.test.ts
 src/shared/multimerHandoff.ts,client,src/shared/__tests__/multimerHandoff.test.ts
 src/shared/narrativeAuthorship.ts,client,src/shared/__tests__/narrativeAuthorship.test.ts

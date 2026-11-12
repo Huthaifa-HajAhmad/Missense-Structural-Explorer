@@ -163,8 +163,8 @@ const CASES: Case[] = [
   { id: "nae1-dark", label: "NAE1 p.Asp116Gly — dark theme", data: NAE1_UNIPROT, uniprotId: "Q13564", residue: 116, wt: "D", mut: "G", width: 1010, dark: true, engine: ["PM2", "PP3"], expect: { verdict: "PM1 not met", pins: 9, domains: 1, hiddenLabels: "none" } },
   // CNNM2: 3 UniProt domains; the phosphoserine is the one pin; TM helices are regions.
   { id: "cnnm2", label: "CNNM2 p.Ser489Cys — inside CBS 1", whole: true, membrane: { tm: 3, rails: 0 }, data: CNNM2, uniprotId: "Q9H8M5", residue: 489, wt: "S", mut: "C", width: 1010, engine: ["PP3"], expect: { verdict: "PM1 not met", pins: 1, domains: 3, hiddenLabels: "none" } },
-  // GZF1: 1 domain; 2 mutagenesis + 1 phospho = 3 pins; ten adjacent zinc-finger labels cannot all fit.
-  { id: "gzf1", label: "GZF1 p.Arg591Trp — ten adjacent zinc fingers", whole: true, data: GZF1, uniprotId: "Q9H116", residue: 591, wt: "R", mut: "W", width: 1010, engine: [], expect: { verdict: "PM1 not met", pins: 3, domains: 1, hiddenLabels: "some" } },
+  // GZF1 (UniProt only): BTB and ten zinc fingers, one box each; 2 mutagenesis + 1 phospho = 3 pins; ten adjacent zinc-finger names cannot all fit.
+  { id: "gzf1", label: "GZF1 p.Arg591Trp — ten adjacent zinc fingers", whole: true, data: GZF1, uniprotId: "Q9H116", residue: 591, wt: "R", mut: "W", width: 1010, engine: [], expect: { verdict: "PM1 not met", pins: 3, domains: 11, hiddenLabels: "some" } },
   // SLC12A4 opened as the tab opens it (1085 aa > 600, so 817–917): sites S834p and S916p = 2 pins; Pfam segments 709–824 and 840–1085 = 2 boxes; helices 855–871 in the window so the strip is drawn; the cytoplasmic rail only.
   { id: "slc12a4", label: "SLC12A4 p.Gln867His — opens on 867 ± 50", data: SLC12A4, uniprotId: "Q9UP95", residue: 867, wt: "Q", mut: "H", width: 1010, membrane: { tm: 0, rails: 1 }, engine: ["PM2"], expect: { verdict: "PM1 not met", pins: 2, domains: 2, hiddenLabels: "none" } },
   // The same protein across its whole length: 12 helices and 10 topological spans; 9 point sites (K+ x3, Cl-, V135A, I136A, S24p, S834p, S916p); 4 Pfam segments; no helix/strand strip.
@@ -306,7 +306,7 @@ function checkMarks(c: Case, s: Schematic): Check[] {
   const qx = s.query ? centreX(s.query.querySelector("circle")!) : NaN;
   const domOff: string[] = [];
   for (const d of s.domains) {
-    const rect = bbox(d.querySelector("rect")!);
+    const rect = bbox(d.querySelector<SVGGraphicsElement>(".fnd-arch__box")!);
     const a = Math.max(Number(d.getAttribute("data-start")), s.window.start);
     const e = Math.min(Number(d.getAttribute("data-end")), s.window.end);
     if (Math.abs(rect.left - expectedX(s, a)) > 0.75 || Math.abs(rect.right - expectedX(s, e)) > 0.75)
@@ -366,12 +366,12 @@ function checkStems(c: Case, s: Schematic): Check[] {
     if (Math.abs(x1 - x) > 0.5) bad.push(`${p.getAttribute("data-residue")}: stem at ${px(x1)}, head at ${px(x)}`);
     if (p.getAttribute("data-shape") === "dot") {
       // It starts on the top edge of what it stands on: a domain box when there is one, else the backbone.
-      const box = s.domains.map((d) => bbox(d.querySelector("rect")!)).find((r) => x >= r.left && x <= r.right);
+      const box = s.domains.map((d) => bbox(d.querySelector<SVGGraphicsElement>(".fnd-arch__box")!)).find((r) => x >= r.left && x <= r.right);
       const base = box ? box.top : s.bbTop;
       if (Math.abs(y1 - base) > 0.5) bad.push(`${p.getAttribute("data-residue")}: stem starts at ${px(y1)}, ${box ? "domain" : "backbone"} top ${px(base)}`);
       if (y2 < head.bottom - 1.5 || y2 > head.bottom + 0.5) bad.push(`${p.getAttribute("data-residue")}: stem ends at ${px(y2)}, head bottom ${px(head.bottom)}`);
     } else {
-      const box = s.domains.map((d) => bbox(d.querySelector("rect")!)).find((r) => x >= r.left && x <= r.right);
+      const box = s.domains.map((d) => bbox(d.querySelector<SVGGraphicsElement>(".fnd-arch__box")!)).find((r) => x >= r.left && x <= r.right);
       const hasStrip = !!s.svg.querySelector(".fnd-arch__structural, .fnd-arch__helix, .fnd-arch__strand");
       if (y1 < s.bbBottom - 0.5 || y2 > head.top + 1.5) bad.push(`${p.getAttribute("data-residue")}: diamond stem ${px(y1)}–${px(y2)} does not join backbone to head`);
       // With no domain box over it and no other drawn layer, the stem must touch the backbone. The
@@ -404,7 +404,7 @@ function checkContrast(c: Case, s: Schematic, host: HTMLElement): Check[] {
     ...Array.from(s.svg.querySelectorAll(".fnd-arch__structural, .fnd-arch__helix, .fnd-arch__strand")).slice(0, 6).map((el) => [el.getAttribute("class") || "", el, "fill"] as [string, Element, "fill"]),
     // A region is a tinted inset; its outline carries the shape.
     ...Array.from(s.svg.querySelectorAll(".fnd-arch__region rect")).slice(0, 3).map((el) => ["region outline", el, "stroke"] as [string, Element, "stroke"]),
-    ...s.domains.map((d) => ["domain outline", d.querySelector("rect"), "stroke"] as [string, Element | null, "stroke"]),
+    ...s.domains.map((d) => ["domain outline", d.querySelector(".fnd-arch__box"), "stroke"] as [string, Element | null, "stroke"]),
   ];
   const lowMarks: string[] = [];
   for (const [name, el, prop] of marks) {
