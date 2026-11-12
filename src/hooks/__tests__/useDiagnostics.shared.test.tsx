@@ -2,7 +2,7 @@
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useDiagnostics, DIAGNOSTICS_POLL_MS } from "../useDiagnostics";
-import { useAppVersion } from "../useAppVersion";
+import { useAppVersion, versionLabel } from "../useAppVersion";
 
 const healthy = { status: "ok", timestamp: "t", foldxReady: true, geminiReady: false, modelServerReady: true, serviceHealth: {} };
 const jsonRes = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body }) as any;
@@ -125,5 +125,22 @@ describe("the one health reading", () => {
     expect(calls.capabilities).toBe(0);
     expect(calls.version).toBe(1);
     expect(result.current).toEqual({ version: "2.0.0", env: "test" });
+    expect(versionLabel(result.current)).toBe("v2.0.0 · test");
+  });
+
+  it("says the version is unavailable when the server does not give one, never a made-up number", async () => {
+    answer = async () => jsonRes({}, 502);
+    const { result } = renderHook(() => useAppVersion());
+    expect(versionLabel(result.current)).toBe("…");
+    await drain();
+    expect(result.current).toBe("unavailable");
+    expect(versionLabel(result.current)).toBe("Version unavailable");
+  });
+
+  it("does not print 'vundefined' when the server answers 200 without a version", async () => {
+    answer = async () => jsonRes({});
+    const { result } = renderHook(() => useAppVersion());
+    await drain();
+    expect(versionLabel(result.current)).toBe("Version unavailable");
   });
 });

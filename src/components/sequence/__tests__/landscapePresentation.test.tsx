@@ -114,6 +114,19 @@ describe("a residue dbNSFP has no record for", () => {
   });
 });
 
+describe("a window whose scores could not be fetched", () => {
+  it("says the score could not be loaded, not that dbNSFP has no record", () => {
+    // Residue 8 is in view but its row never arrived: the request for that window failed.
+    focus({ residues: ["K", "A", "V", "C", "G"], windowFailed: true });
+    const cell = screen.getByLabelText(/^G8A:/);
+    expect(cell.getAttribute("aria-label")).toBe("G8A: score could not be loaded");
+    expect(cell.getAttribute("data-band")).toBe("unscored");
+    expect(screen.getByLabelText("Residue 8: score could not be loaded")).toBeTruthy();
+    // A residue that did load and truly has no record keeps saying so.
+    expect(screen.getByLabelText(/^V6A: no dbNSFP missense record at this residue/)).toBeTruthy();
+  });
+});
+
 describe("rows that only said they were empty are not drawn", () => {
   it("omits the domain row when no domain overlaps the window", () => {
     focus({ domains: [] });

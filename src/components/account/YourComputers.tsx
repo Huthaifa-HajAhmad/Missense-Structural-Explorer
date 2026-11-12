@@ -43,7 +43,9 @@ function ConnectCode({ code, expiresAt, onDone }: { code: string; expiresAt: num
 
 export function YourComputers() {
   const [agents, setAgents] = useState<AgentView[] | null>(null);
-  const [downloads, setDownloads] = useState<AgentDownload[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [downloads, setDownloads] = useState<AgentDownload[] | null>(null);
+  const [downloadsError, setDownloadsError] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,17 +53,28 @@ export function YourComputers() {
   const load = useCallback(async () => {
     try {
       setAgents((await accountApi.listMyAgents()).agents);
-    } catch {
-      setAgents((a) => a ?? []);
+      setLoadError(null);
+    } catch (err) {
+      // Keep the last list on screen: the next refresh, a few seconds later, may succeed.
+      setLoadError(err instanceof AccountError ? err.message : "Could not load your computers.");
+    }
+  }, []);
+
+  const loadDownloads = useCallback(async () => {
+    setDownloadsError(null);
+    try {
+      setDownloads((await accountApi.agentDownloads()).platforms);
+    } catch (err) {
+      setDownloadsError(err instanceof AccountError ? err.message : "Could not load the agent downloads.");
     }
   }, []);
 
   useEffect(() => {
     void load();
-    accountApi.agentDownloads().then((d) => setDownloads(d.platforms)).catch(() => {});
+    void loadDownloads();
     const t = window.setInterval(() => void load(), 5000);
     return () => window.clearInterval(t);
-  }, [load]);
+  }, [load, loadDownloads]);
 
   const connect = async () => {
     setBusy(true);
@@ -86,7 +99,7 @@ export function YourComputers() {
   };
 
   const mine = guessPlatform();
-  const ordered = [...downloads].sort((a, b) => (a.platform === mine ? -1 : b.platform === mine ? 1 : 0));
+  const ordered = [...(downloads ?? [])].sort((a, b) => (a.platform === mine ? -1 : b.platform === mine ? 1 : 0));
 
   return (
     <>
@@ -96,10 +109,20 @@ export function YourComputers() {
         stacked
       >
         {error && <FormAlert tone="danger">{error}</FormAlert>}
+        {loadError && (
+          <FormAlert tone="danger">
+            {loadError}{" "}
+            <button type="button" className="acct-link" onClick={() => { setLoadError(null); void load(); }}>
+              Try again
+            </button>
+          </FormAlert>
+        )}
         {agents === null ? (
-          <p className="acct-note" aria-busy>
-            <Loader2 className="w-3.5 h-3.5 animate-spin inline" aria-hidden /> Loading…
-          </p>
+          !loadError && (
+            <p className="acct-note" aria-busy>
+              <Loader2 className="w-3.5 h-3.5 animate-spin inline" aria-hidden /> Loading…
+            </p>
+          )
         ) : agents.length === 0 ? (
           <p className="acct-note">No computer connected yet.</p>
         ) : (
@@ -137,7 +160,18 @@ export function YourComputers() {
         )}
       </SettingsRow>
       <SettingsBlock title="Get the agent">
-        {ordered.length === 0 ? (
+        {downloadsError ? (
+          <FormAlert tone="danger">
+            {downloadsError}{" "}
+            <button type="button" className="acct-link" onClick={() => void loadDownloads()}>
+              Try again
+            </button>
+          </FormAlert>
+        ) : downloads === null ? (
+          <p className="acct-note" aria-busy>
+            <Loader2 className="w-3.5 h-3.5 animate-spin inline" aria-hidden /> Loading…
+          </p>
+        ) : ordered.length === 0 ? (
           <p className="acct-note">Your workspace admin has not made the agent available here yet. Ask them for the agent zip.</p>
         ) : (
           <>

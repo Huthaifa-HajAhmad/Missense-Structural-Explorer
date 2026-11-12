@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import { YourComputers } from "../YourComputers";
 import { TeamFoldx } from "../TeamFoldx";
 import { ComputeLimits, describeHostClass } from "../ComputeLimits";
@@ -64,6 +64,34 @@ describe("Your computers", () => {
     render(<YourComputers />);
     expect(await screen.findByText("No computer connected yet.")).toBeTruthy();
     expect(screen.getByText(/has not made the agent available here yet/)).toBeTruthy();
+  });
+});
+
+describe("Your computers, when the server does not answer", () => {
+  it("says it could not load, rather than that nothing is connected or offered", async () => {
+    const fetch = mockFetch(() => ({ status: 500, body: { error: { code: "X", message: "The server answered 500." } } }));
+    render(<YourComputers />);
+    expect(await screen.findAllByText(/The server answered 500/)).toHaveLength(2);
+    expect(screen.queryByText("No computer connected yet.")).toBeNull();
+    expect(screen.queryByText(/has not made the agent available/)).toBeNull();
+
+    // "Try again" on the downloads asks the server once more and shows what it now offers.
+    fetch.mockImplementation(async (input: RequestInfo | URL) =>
+      new Response(JSON.stringify(String(input).endsWith("/me/agent-downloads") ? { platforms: [] } : { agents: [] }), { status: 200 })
+    );
+    const downloadsBlock = document.querySelector<HTMLElement>('[data-setting-title="Get the agent"]')!;
+    fireEvent.click(within(downloadsBlock).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/has not made the agent available/)).toBeTruthy();
+  });
+});
+
+describe("FoldX for the team, when the server does not answer", () => {
+  it("says it could not load, rather than that FoldX is not shared", async () => {
+    mockFetch(() => ({ status: 500, body: { error: { code: "X", message: "The server answered 500." } } }));
+    render(<TeamFoldx />);
+    expect(await screen.findByText(/The server answered 500/)).toBeTruthy();
+    expect(screen.queryByText(/^Not shared/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove FoldX from the team" })).toBeNull();
   });
 });
 

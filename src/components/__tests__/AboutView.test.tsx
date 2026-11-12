@@ -24,7 +24,8 @@ vi.mock("../../context/SettingsContext", () => ({
   useSettings: () => ({ openSettingsTab })
 }));
 
-vi.mock("../../hooks/useAppVersion", () => ({
+vi.mock("../../hooks/useAppVersion", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/useAppVersion")>()),
   useAppVersion: () => ({ version: "1.0.0", env: "test" })
 }));
 

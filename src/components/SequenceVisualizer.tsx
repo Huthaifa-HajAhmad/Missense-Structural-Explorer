@@ -176,10 +176,14 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const extraRows = useVariantAnalysisStore((s) => (s.landscapeExtra?.key === key ? s.landscapeExtra.rows : null));
   const addLandscapeRows = useVariantAnalysisStore((s) => s.addLandscapeRows);
   const [extraLoading, setExtraLoading] = useState(false);
+  /** The last window request failed; `windowAttempt` re-runs the request when the reader asks. */
+  const [windowFailed, setWindowFailed] = useState(false);
+  const [windowAttempt, setWindowAttempt] = useState(0);
   const requested = useRef<Set<string>>(new Set());
   const activeWindowRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     requested.current = new Set();
+    setWindowFailed(false);
   }, [key]);
 
   const landscapeMap = useMemo(() => {
@@ -199,7 +203,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         break;
       }
     }
-    if (!missing) return;
+    if (!missing) {
+      setWindowFailed(false);
+      return;
+    }
     const start = Math.max(1, center - FETCH_HALF_SPAN);
     const end = Math.min(sequence.length, center + FETCH_HALF_SPAN);
     const reqKey = `${start}-${end}`;
@@ -208,18 +215,21 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     const controller = new AbortController();
     activeWindowRequest.current = controller;
     setExtraLoading(true);
+    setWindowFailed(false);
     apiClient
       .getLandscapeData({ gene, uniprotId, variant, landscapeWindow: { start, end } }, controller.signal)
       .then((res) => addLandscapeRows(key, res.landscapeData ?? []))
       .catch((err: any) => {
         // Forget the request so a later visit (or a re-run after an abort) asks again.
         requested.current.delete(reqKey);
-        if (err?.name !== "AbortError") console.warn("[Landscape] window fetch failed:", err);
+        if (err?.name === "AbortError") return;
+        console.warn("[Landscape] window fetch failed:", err);
+        if (activeWindowRequest.current === controller) setWindowFailed(true);
       })
       // Only the latest request clears the flag; an aborted one finishing late must not.
       .finally(() => activeWindowRequest.current === controller && setExtraLoading(false));
     return () => controller.abort();
-  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key]);
+  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key, windowAttempt]);
 
   /*
    * Whole-protein overview and gene context: one request per query, after the window has loaded.
@@ -522,6 +532,15 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
           {workspaceTab === "map" && <LandscapeLegend overview colorBy="alphaMissense" />}
 
           {workspaceTab === "focus" && <>
+          {windowFailed && !extraLoading && (
+            <div className="flex flex-wrap items-center gap-2 text-[12px] text-cs-text-secondary" role="alert">
+              <AlertTriangle className="w-3.5 h-3.5 text-cs-danger shrink-0" aria-hidden />
+              <span>Scores for part of this window could not be loaded. Those residues are unscored here; that is not the same as having no dbNSFP record.</span>
+              <button type="button" className="viz-action" onClick={() => setWindowAttempt((n) => n + 1)}>
+                Retry residue scores
+              </button>
+            </div>
+          )}
           <LandscapeFocus
             residues={residues}
             start={range.start}
@@ -535,6 +554,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             selected={selection}
             hoveredPos={hoveredResidueIndex ?? null}
             loadingWindow={!landscapeData || extraLoading}
+            windowFailed={windowFailed}
             codons={codons}
             onPickResidue={pickResidue}
             onPickSubstitution={pickSubstitution}

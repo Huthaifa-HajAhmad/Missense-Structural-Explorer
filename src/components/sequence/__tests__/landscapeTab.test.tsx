@@ -7,12 +7,17 @@
  *   — loading / failure states for the sequence.
  */
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaGenomeSaturationPosition, LandscapeResidueItem } from "../../../shared/contracts";
 
+const landscapeApi = vi.hoisted(() => ({
+  getLandscapeData: vi.fn(),
+  getLandscapeOverview: vi.fn(() => new Promise(() => {}))
+}));
+const fetchWithAuth = vi.hoisted(() => vi.fn());
 vi.mock("../../../apiClient", () => ({
-  useApiClient: () => ({ fetchWithAuth: vi.fn(), apiClient: { getLandscapeData: vi.fn(async () => ({ landscapeData: [] })), getLandscapeOverview: vi.fn(() => new Promise(() => {})) } })
+  useApiClient: () => ({ fetchWithAuth, apiClient: landscapeApi })
 }));
 const sequenceState = { sequence: "", isLoading: false, error: null as string | null };
 vi.mock("../../../hooks/useProteinSequence", () => ({ useProteinSequence: () => sequenceState }));
@@ -169,6 +174,46 @@ describe("GenomicSaturationHeatmap on a − strand gene", () => {
     const queried = screen.getByLabelText(/chr16:101 T>C .*AVI Phred 12\.0/);
     expect(queried.getAttribute("data-base")).toBe("G");
     expect(screen.getByLabelText(/^Reference A at chr16:101/)).toBeTruthy();
+  });
+});
+
+describe("SequenceVisualizer residue window", () => {
+  const SEQUENCE = "M".repeat(100) + "SGSFVEESPENLLDNDPSFFCRFTVVVATQL" + "A".repeat(50);
+  const renderViewer = () =>
+    render(<SequenceVisualizer uniprotId="Q13564" gene="NAE1" variant="p.Asp116Gly" residueIndex={116} landscapeData={[...rows.values()]} />);
+
+  beforeEach(() => {
+    sequenceState.sequence = SEQUENCE;
+    landscapeApi.getLandscapeData.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    sequenceState.sequence = "";
+    vi.restoreAllMocks();
+  });
+
+  it("says so when the scores for the window could not be fetched, and asks again on Retry for the same span", async () => {
+    landscapeApi.getLandscapeData.mockRejectedValueOnce(new Error("network down")).mockResolvedValue({ landscapeData: [] });
+    renderViewer();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/could not be loaded/);
+    expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(1);
+    const firstSpan = landscapeApi.getLandscapeData.mock.calls[0][0].landscapeWindow;
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry residue scores" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(2));
+    expect(landscapeApi.getLandscapeData.mock.calls[1][0].landscapeWindow).toEqual(firstSpan);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("raises no alert when the request is cancelled by moving on", async () => {
+    landscapeApi.getLandscapeData.mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    renderViewer();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

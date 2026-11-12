@@ -19,7 +19,7 @@ import {
 import { BrandMark } from "./ui/BrandMark";
 import { motion } from "motion/react";
 import { useSettings } from "../context/SettingsContext";
-import { useAppVersion } from "../hooks/useAppVersion";
+import { useAppVersion, versionLabel } from "../hooks/useAppVersion";
 import {
   APP_REPOSITORY,
   PROVENANCE_DATA_SOURCES,
@@ -758,8 +758,6 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
   const filtering = needle !== "" || kind !== "all";
   const activeInCredits = GROUP_IDS.has(activeId);
 
-  const versionLabel = `v${version?.version || "1.0.0"}${version?.env ? ` · ${version.env}` : ""}`;
-
   return (
     <div className="about-view">
       <div className="about-shell">
@@ -782,7 +780,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
           <div className="about-stats">
             <div className="about-stat">
               <span className="about-stat-label">Version</span>
-              <span className="about-stat-value font-mono">{versionLabel}</span>
+              <span className="about-stat-value font-mono">{versionLabel(version)}</span>
             </div>
             <a className="about-stat about-stat-link" href="#about-credits" onClick={() => noteNavigation("about-credits")}>
               <span className="about-stat-label">Sources credited</span>
