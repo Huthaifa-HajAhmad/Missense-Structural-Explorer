@@ -102,7 +102,11 @@ fails minutes later is **not** a red CI run. Two guards close the gap:
 - **Drift watch.** `.github/workflows/deploy-drift.yml` (hourly + manual) compares the public
   `/api/v1/version` commit against the tip of `main` and fails when a revision CD reported as
   deployed is not actually live. A run still in progress, or one inside the 45-minute grace window,
-  is a notice rather than a failure. A red run here is the signal that the on-host log
+  is a notice rather than a failure. It also fails for a commit nothing will ever deploy: CI for the
+  tip finished without success, or green CI produced no CD run after a short scheduling window —
+  `cd.yml` is gated on CI and no gate is retried on its own, so warning there is how `main@451b01ea`
+  stayed one merge behind production for 29 hours. The message names the unstick (re-run that CI run,
+  or `gh workflow run cd.yml --ref main`). A red run here is the signal that the on-host log
   (`~/mse-deploy-*.log`) and `deploy/runtime/rollout.json` are worth reading.
 
 When either guard fires, the fix is on the host, not another push: free disk or repair the handover,

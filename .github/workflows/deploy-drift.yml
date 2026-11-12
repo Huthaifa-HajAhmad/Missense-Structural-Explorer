@@ -24,6 +24,15 @@ name: Production drift watch
 # (rollback keeps the old generation serving), so nothing is in flight and the mismatch is reported
 # at once — that is what makes running on CD completion worth doing rather than decorative.
 #
+# A COMMIT NOTHING WILL EVER DEPLOY IS DRIFT TOO. Because `cd.yml` is gated on a successful push run
+# of `ci.yml` and nothing retries a cancelled or failed gate, a merge whose CI run died has no deploy
+# coming. On 2026-11-11/12 main@451b01ea sat in exactly that state — its CI push run was cancelled
+# 69 s in by `concurrency: cancel-in-progress`, its CD run concluded `skipped` — and this watch
+# warned and exited 0 on every cron for 29 hours while production served the previous merge. The
+# branch below therefore reads CI for the tip: mid-flight is a notice, finished-without-success is a
+# failure that names the unstick, and green CI with no CD run gets CD_TRIGGER_MINUTES of scheduling
+# lag before it counts as drift.
+#
 # A red run here is email/The-Actions-tab visible by default. Add Slack/webhook delivery later only
 # if that proves too quiet.
 on:
@@ -54,6 +63,11 @@ jobs:
       # A detached rollout (build + handover + drain) can outlast CD by a wide margin. Below this age
       # a mismatch is expected and never fails the watch.
       GRACE_MINUTES: "45"
+      # How long a "nothing is deploying this commit" read may still mean "not yet". The hop from CI
+      # concluding to its workflow_run CD run being created is normally seconds; a push a few seconds
+      # old may not have its CI run yet at all. This only has to outlast scheduling lag — a rollout is
+      # GRACE_MINUTES' problem.
+      CD_TRIGGER_MINUTES: "10"
     steps:
       - name: Compare the deployed revision with main
         env:
@@ -61,10 +75,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          main=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha) || {
+          # The commit date rides along in the same call: a push seconds old may not have its CI run
+          # yet, and that must read as "waiting", not as "nothing will ever deploy it".
+          main_row=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '[.sha, .commit.committer.date] | @tsv') || {
             echo "::error::Could not read the tip of main via the API; cannot check for drift."
             exit 1
           }
+          main=$(printf '%s' "$main_row" | cut -f1)
+          main_date=$(printf '%s' "$main_row" | cut -f2)
           echo "main       = $main"
 
           # The commit's `production/deploy` status is the reader-facing truth (CD sets it pending).
@@ -120,13 +138,67 @@ jobs:
           }
 
           if [ -z "$run_json" ]; then
-            # Either CD has not started, or every CD run for this sha was skipped (see above). Name
-            # CI's state so a red CI on main is not mistaken for "still coming".
-            ci=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=ci.yml --branch main --limit 30 \
-              --json headSha,status,conclusion,createdAt \
-              --jq "[.[] | select(.headSha == \"$main\")] | sort_by(.createdAt) | last | (.status + \"/\" + (.conclusion // \"-\"))" || true)
-            echo "::warning::main ($main) has no deploying CD run yet (CI: ${ci:-unknown}); production is on $live. Not failing the watch."
-            exit 0
+            # NOTHING IS DEPLOYING THIS COMMIT — WHICH IS NOT THE SAME AS "NOTHING HAS STARTED YET".
+            # `cd.yml` runs only after a SUCCESSFUL push run of `ci.yml`, and no gate is ever retried
+            # on its own, so CI's state is the difference between "a deploy is coming" and "this
+            # commit will never be live". Read it for THIS sha and decide; do not warn.
+            ci_json=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=ci.yml --branch main --limit 30 \
+              --json headSha,status,conclusion,createdAt,updatedAt,url \
+              --jq "[.[] | select(.headSha == \"$main\")] | sort_by(.createdAt) | last // empty") || {
+              echo "::error::Could not list CI runs (gh run list failed); cannot tell whether a deploy is still coming for $main. production is on $live."
+              exit 1
+            }
+
+            if [ -z "$ci_json" ]; then
+              # No CI run at all: a `[skip ci]` push, a disabled workflow, or a run deleted while CD
+              # had not started. Nothing can trigger a deploy, so this is drift — unless the commit
+              # is seconds old and its run is still being created.
+              main_age=""
+              if [ -n "$main_date" ] && main_epoch=$(date -u -d "$main_date" +%s 2>/dev/null); then
+                main_age=$(( ( $(date -u +%s) - main_epoch ) / 60 ))
+              fi
+              if [ -n "$main_age" ] && [ "$main_age" -lt "$CD_TRIGGER_MINUTES" ]; then
+                echo "::notice::main moved ${main_age} min ago and has no CI run yet; the push is still being picked up. Not failing the watch."
+                exit 0
+              fi
+              set_status failure "No CI run for this commit, so nothing will deploy it"
+              echo "::error::No CI run exists for $main, so cd.yml will never be triggered and production stays on $live. Give the commit a gate (push again) or deploy it deliberately: gh workflow run cd.yml --ref main."
+              exit 1
+            fi
+
+            CI_STATUS=$(printf '%s' "$ci_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+            CI_CONCLUSION=$(printf '%s' "$ci_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")')
+            CI_UPDATED_AT=$(printf '%s' "$ci_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("updatedAt",""))')
+            CI_URL=$(printf '%s' "$ci_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("url",""))')
+            echo "CI for main: status=${CI_STATUS:-none} conclusion=${CI_CONCLUSION:-none} url=${CI_URL:-none}"
+
+            # Queued or in progress: the one case where a deploy can still arrive on its own. This
+            # check comes FIRST — a running gate must never be reported as drift.
+            if [ "${CI_STATUS:-}" != "completed" ]; then
+              echo "::notice::CI for $main is still ${CI_STATUS:-unknown}, so CD has not been triggered yet. Not failing the watch."
+              exit 0
+            fi
+
+            if [ "${CI_CONCLUSION:-}" != "success" ]; then
+              set_status failure "Will not deploy: CI for this commit concluded '${CI_CONCLUSION:-unknown}'"
+              echo "::error::CI for $main concluded '${CI_CONCLUSION:-unknown}', so cd.yml will never run for it and production stays on $live. Re-run that gate (gh run rerun ${CI_URL##*/}) or deploy the commit deliberately (gh workflow run cd.yml --ref main)."
+              exit 1
+            fi
+
+            # CI passed, so CD should exist: the workflow_run hop is seconds. Give scheduling lag its
+            # window, then treat a missing CD run as the silent failure it is.
+            if [ -z "$CI_UPDATED_AT" ]; then
+              echo "::notice::CI for $main succeeded but has no timestamp to age. Not failing the watch."
+              exit 0
+            fi
+            ci_age=$(( ( $(date -u +%s) - $(date -u -d "$CI_UPDATED_AT" +%s) ) / 60 ))
+            if [ "$ci_age" -lt "$CD_TRIGGER_MINUTES" ]; then
+              echo "::notice::CI for $main succeeded ${ci_age} min ago and no CD run exists for it yet; workflow_run scheduling can lag. Not failing the watch."
+              exit 0
+            fi
+            set_status failure "CI passed but no CD run was created for this commit"
+            echo "::error::CI for $main succeeded ${ci_age} min ago but no CD run exists for it, so production stays on $live. Dispatch it: gh workflow run cd.yml --ref main."
+            exit 1
           fi
 
           STATUS=$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')

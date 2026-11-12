@@ -248,6 +248,14 @@ until it has no requests, jobs or background tasks → resume the new one → st
 the same the other way and never force-stops a busy process. Both processes answer requests during the
 drain, which is why R8 matters.
 
+The deploy gate (`production/deploy`) is its own machine: pending → success / failure. `cd.yml` marks
+the commit pending when it dispatches and success once the public `/api/v1/version` serves it; the
+drift watch finalises whatever the runner left open. It fails the gate when production provably will
+not serve the commit — a CD run that concluded non-success, a tip whose CI push run finished without
+success, or a green CI that produced no CD run — and succeeds when the two revisions match. A commit
+whose CI is still queued or in progress, or that is younger than ten minutes (CD_TRIGGER_MINUTES), is a
+notice: a deploy can still arrive.
+
 A promise that fails with nobody listening is logged and the process keeps running
 (`keepRunningOnUnhandledRejection`). A thrown error still stops it.
 
