@@ -8,18 +8,21 @@ import { ChevronRight } from "lucide-react";
 import { clearInvalidApiKey } from "../../../api/authSession";
 import { AccountTokenControls, LastCredentialUse, TokenOwnershipIntro, useSavedSecrets } from "./TokenOwnership";
 
-function ServicePill({ name, ready, detail }: { name: string; ready: boolean | undefined; detail?: string }) {
-  const state = ready === undefined ? "Checking…" : ready ? "Online" : "Offline";
+/** `ready` is undefined until the server answers; `unchecked` says the check failed, so it is not "Checking…" forever. */
+function ServicePill({ name, ready, detail, unchecked = false }: { name: string; ready: boolean | undefined; detail?: string; unchecked?: boolean }) {
+  const state = unchecked ? "Could not check" : ready === undefined ? "Checking…" : ready ? "Online" : "Offline";
   return (
     <div className="flex items-center gap-2.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 px-3 py-2 min-w-0">
       <span
         aria-hidden
         className={`h-2 w-2 rounded-full shrink-0 ${
-          ready === undefined
-            ? "bg-cs-text-muted animate-pulse"
-            : ready
-              ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]"
-              : "bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.15)]"
+          unchecked
+            ? "bg-cs-text-muted"
+            : ready === undefined
+              ? "bg-cs-text-muted animate-pulse"
+              : ready
+                ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]"
+                : "bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.15)]"
         }`}
       />
       <div className="min-w-0">
@@ -54,7 +57,8 @@ function TokenField({ children }: { children: React.ReactNode }) {
 export function ConnectionsSection() {
   const { settings, updateSetting, serverGeminiReady } = useSettings();
   const { tests, runTest, linking, linkError, linkGeminiKey, clearLinkError } = useApiConnections();
-  const { diagnostics, loading } = useDiagnostics();
+  const { diagnostics, loading, lastCheckFailed, refresh } = useDiagnostics();
+  const unchecked = diagnostics === null && lastCheckFailed && !loading;
   const [, tick] = useReducer((x: number) => x + 1, 0);
   const secrets = useSavedSecrets();
 
@@ -281,10 +285,24 @@ export function ConnectionsSection() {
       >
         <SettingsBlock>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <ServicePill name="FoldX engine" ready={diagnostics?.foldxReady} />
-            <ServicePill name="Model server" ready={diagnostics?.modelServerReady} />
-            <ServicePill name="Gemini" ready={geminiOperational} detail={geminiSource} />
+            <ServicePill name="FoldX engine" ready={diagnostics?.foldxReady} unchecked={unchecked} />
+            <ServicePill name="Model server" ready={diagnostics?.modelServerReady} unchecked={unchecked} />
+            {/* A client session or key is known without the check; a server key is not, so before the server answers say so rather than "Offline". */}
+            <ServicePill
+              name="Gemini"
+              ready={geminiOperational || diagnostics ? geminiOperational : undefined}
+              detail={geminiSource}
+              unchecked={unchecked && !geminiOperational}
+            />
           </div>
+          {unchecked && !loading && (
+            <p className="mt-2 text-[12px] text-cs-text-muted">
+              The server did not answer its health check.{" "}
+              <button type="button" className="acct-link" onClick={refresh}>
+                Check again
+              </button>
+            </p>
+          )}
         </SettingsBlock>
       </SettingsSection>
     </div>

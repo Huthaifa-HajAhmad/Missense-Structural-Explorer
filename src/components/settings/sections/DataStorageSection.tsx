@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
-import { useAppVersion } from "../../../hooks/useAppVersion";
+import { useAppVersion, versionLabel } from "../../../hooks/useAppVersion";
 import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 import { DEFAULT_USER_SETTINGS, TRANSIENT_SETTING_KEYS } from "../defaults";
 import { clearClientVariantCache } from "../../../services/pipeline/variantCache";
@@ -323,8 +323,7 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
               Missense Structural Explorer
             </span>
             <span className="font-mono text-[11px] [font-variant-numeric:tabular-nums]">
-              v{version?.version || "1.0.0"}
-              {version?.env ? ` · ${version.env}` : ""}
+              {versionLabel(version)}
             </span>
           </div>
         </SettingsBlock>

@@ -23,12 +23,14 @@ export function TeamFoldx() {
   const [licence, setLicence] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "danger" | "success"; text: string } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setBundles((await accountApi.listFoldxBundles()).platforms);
-    } catch {
-      setBundles([]);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof AccountError ? err.message : "Could not load what is shared.");
     }
   }, []);
   useEffect(() => void load(), [load]);
@@ -71,7 +73,14 @@ export function TeamFoldx() {
         </SettingsBlock>
       )}
       <SettingsBlock title="Shared now">
-        {bundles === null ? (
+        {loadError ? (
+          <FormAlert tone="danger">
+            {loadError}{" "}
+            <button type="button" className="acct-link" onClick={() => void load()}>
+              Try again
+            </button>
+          </FormAlert>
+        ) : bundles === null ? (
           <p className="acct-note">Loading…</p>
         ) : bundles.length === 0 ? (
           <p className="acct-note">Not shared. Team members' computers run pocket detection only, unless someone adds FoldX on their own computer; FoldX jobs run on the shared server.</p>
@@ -93,7 +102,7 @@ export function TeamFoldx() {
             ))}
           </ul>
         )}
-        {bundles && bundles.length > 0 && (
+        {!loadError && bundles && bundles.length > 0 && (
           <div className="acct-actions acct-actions--start">
             <button type="button" className="cs-btn-ghost" onClick={() => void revoke()}>
               Remove FoldX from the team

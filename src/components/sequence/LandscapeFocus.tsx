@@ -62,6 +62,8 @@ interface Props {
   selected: { kind: "residue" | "substitution" | "nucleotide"; pos: number; alt?: string } | null;
   hoveredPos: number | null;
   loadingWindow: boolean;
+  /** The scores for residues outside the first window could not be fetched: say so, never "no dbNSFP record". */
+  windowFailed?: boolean;
   /** Codons the SNV-reachability hatching reads; the nucleotide ranks themselves live in the Nucleotide map tab. */
   codons: Map<number, CodonNucleotide[]>;
   onPickResidue: (pos: number) => void;
@@ -74,7 +76,7 @@ interface Props {
 export function LandscapeFocus(props: Props) {
   const {
     residues, start, target, width, rows, mode, colorBy, variantScores, domains, selected,
-    hoveredPos, loadingWindow, codons,
+    hoveredPos, loadingWindow, windowFailed = false, codons,
     onPickResidue, onPickSubstitution, onHover
   } = props;
   const residueClass = props.residueClass ?? ((aa: string) => LETTER_CLASS[aa] ?? "hydrophobic");
@@ -118,7 +120,9 @@ export function LandscapeFocus(props: Props) {
     const why =
       reachable && !reachable.has(alt)
         ? "needs two or more nucleotide changes, not scored in dbNSFP"
-        : hasNoRecord(row) && !(loadingWindow && !row)
+        : windowFailed && !row
+          ? "score could not be loaded"
+          : hasNoRecord(row) && !(loadingWindow && !row)
           ? "no dbNSFP missense record at this residue"
           : "no score";
     return [`${aa}${pos}${alt}`, ...(scored.length ? scored : [why]), isTarget ? "the queried variant" : null].filter(Boolean).join(" · ");
@@ -154,7 +158,8 @@ export function LandscapeFocus(props: Props) {
         const v = sub ? (colorBy === "revel" ? sub.revel : sub.am) : null;
         const reachable = reachableByPos.get(pos);
         const pending = loadingWindow && !rows.has(pos);
-        const norecord = !pending && hasNoRecord(rows.get(pos));
+        const unavailable = !pending && windowFailed && !rows.has(pos);
+        const norecord = !pending && !unavailable && hasNoRecord(rows.get(pos));
         const band =
           v !== null ? bandKey(colorBy, v) : pending ? "unscored" : reachable && !reachable.has(alt) ? "unreachable" : norecord ? "norecord" : "unscored";
         const isTarget = pos === target.pos && alt === target.mut;
@@ -165,6 +170,8 @@ export function LandscapeFocus(props: Props) {
             ? `${TOOL_NAME[colorBy]} ${f3(v)} (${bandLabel(colorBy, v)})`
             : pending
               ? "loading"
+              : unavailable
+              ? "score could not be loaded"
               : band === "unreachable"
               ? "needs two or more nucleotide changes; not scored in dbNSFP"
               : band === "norecord"
@@ -313,7 +320,7 @@ export function LandscapeFocus(props: Props) {
           const pending = loadingWindow && !row;
           const label =
             v === null
-              ? `Residue ${pos}: ${pending ? "loading" : hasNoRecord(row) ? "no dbNSFP missense record" : `no ${TOOL_NAME[colorBy]} score`}`
+              ? `Residue ${pos}: ${pending ? "loading" : windowFailed && !row ? "score could not be loaded" : hasNoRecord(row) ? "no dbNSFP missense record" : `no ${TOOL_NAME[colorBy]} score`}`
               : `Residue ${pos} ${TOOL_NAME[colorBy]} ${statWord} ${f3(v)} over ${n} scored substitution${n === 1 ? "" : "s"} · band ${bandLabel(colorBy, v)} (orientation only)` +
                 (pos === target.pos ? ` · this variant ${colorBy === "revel" ? variantScores.revel?.toFixed(3) ?? "—" : variantScores.am?.toFixed(3) ?? "—"}` : "");
           return (

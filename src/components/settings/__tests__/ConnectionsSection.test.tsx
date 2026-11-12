@@ -5,10 +5,11 @@
  * across a note's text.
  */
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { account, api } = vi.hoisted(() => ({
+const { account, api, diag } = vi.hoisted(() => ({
+  diag: { diagnostics: null, loading: false, lastCheckFailed: false, refresh: () => {} } as Record<string, unknown>,
   account: { user: null as null | { id: string } },
   api: {
     savedSecrets: vi.fn(),
@@ -35,7 +36,7 @@ vi.mock("../../../hooks/useApiConnections", () => {
   };
 });
 vi.mock("../../../hooks/useDiagnostics", () => ({
-  useDiagnostics: () => ({ diagnostics: null, loading: false }),
+  useDiagnostics: () => diag,
 }));
 
 import { ConnectionsSection } from "../sections/ConnectionsSection";
@@ -52,6 +53,7 @@ function renderConnections() {
 }
 
 beforeEach(() => {
+  Object.assign(diag, { lastCheckFailed: false, loading: false });
   localStorage.clear();
   sessionStorage.clear();
   account.user = { id: "u1" };
@@ -73,6 +75,43 @@ beforeEach(() => {
     dispatchEvent: () => false,
   })));
   global.fetch = vi.fn().mockRejectedValue(new Error("offline")) as unknown as typeof fetch;
+});
+
+describe("ConnectionsSection server services", () => {
+  it("says the check failed instead of 'Checking…' forever, and offers to check again", async () => {
+    const refresh = vi.fn();
+    Object.assign(diag, { lastCheckFailed: true, refresh });
+    renderConnections();
+    // Gemini too: with no client key or session, the server key is exactly what the failed check would have said.
+    expect(await screen.findAllByText("Could not check")).toHaveLength(3);
+    expect(screen.queryByText("Checking…")).toBeNull();
+    expect(screen.queryByText("Offline")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("still reports Gemini from what is known here when the server check failed", async () => {
+    Object.assign(diag, { lastCheckFailed: true });
+    localStorage.setItem("missenseUserSettings", "{}");
+    sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ geminiApiKey: "AIza-test" }));
+    renderConnections();
+    expect(await screen.findAllByText("Could not check")).toHaveLength(2);
+    expect(screen.getByText("Client key")).toBeTruthy();
+  });
+
+  it("says 'Checking…' again while a retry runs, and hides the retry link", async () => {
+    Object.assign(diag, { lastCheckFailed: true, loading: true });
+    renderConnections();
+    expect(await screen.findAllByText("Checking…")).toHaveLength(3);
+    expect(screen.queryByText("Could not check")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  });
+
+  it("still says 'Checking…' while the first check runs", async () => {
+    renderConnections();
+    expect(await screen.findAllByText("Checking…")).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  });
 });
 
 describe("ConnectionsSection token rows", () => {
