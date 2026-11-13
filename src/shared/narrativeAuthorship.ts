@@ -40,13 +40,18 @@ export interface NarrativeAuthorshipInput {
   isDegraded: boolean;
   /** The route's own record, when the payload carries one. */
   declaredSource?: string | null;
+  /** True when a live pipeline run holds prose that is not yet stamped with narrative evidence. */
+  unstampedPipelineRun?: boolean;
 }
 
 export function deriveNarrativeAuthorship({
   analysis,
   isDegraded,
   declaredSource,
+  unstampedPipelineRun = false,
 }: NarrativeAuthorshipInput): NarrativeAuthorship {
+  if (unstampedPipelineRun) return "none";
+
   const hasProse = typeof analysis === "string" && analysis.trim().length > 0;
   if (!hasProse && !isDegraded) return "none";
 

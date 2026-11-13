@@ -109,3 +109,11 @@
   --color-indigo-700:  var(--accent-700);
   --color-indigo-705:  var(--accent-705);
 }
+
+/* Keep --cs-accent tokens aligned when the user selects a non-default accent swatch. */
+:root[data-accent]:not([data-accent="clay"]) {
+  --cs-accent:       var(--accent-500);
+  --cs-accent-clay:  var(--accent-500);
+  --cs-accent-solid: var(--accent-550);
+  --cs-accent-wash:  color-mix(in srgb, var(--accent-500) 10%, var(--cs-surface));
+}

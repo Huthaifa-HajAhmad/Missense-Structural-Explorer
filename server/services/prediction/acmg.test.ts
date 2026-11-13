@@ -638,3 +638,36 @@ describe("PP3/BP4 over a salvaged conservation composite", () => {
     expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
   });
 });
+
+describe("PM4 / BP3 in-frame indel repeat check prefers explicit residueIndex", () => {
+  it("uses residueIndex over transcript digits in variant string", () => {
+    const seq = "AAAAAAACDEFGHIKLMNPQRSTVWY";
+    const repeatRes = computeRuleBasedACMG({
+      gene: "TEST",
+      variant: "NM_000001.1:p.Ala4del",
+      residueIndex: 4,
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      sequence: seq,
+      acmgWeighting: "standard",
+    });
+    expect(repeatRes.acmgCriteria.some(c => c.code === "BP3")).toBe(true);
+
+    const nonRepeatRes = computeRuleBasedACMG({
+      gene: "TEST",
+      variant: "NM_000001.1:p.Ala4del",
+      residueIndex: 15,
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      sequence: seq,
+      acmgWeighting: "standard",
+    });
+    expect(nonRepeatRes.acmgCriteria.some(c => c.code === "PM4")).toBe(true);
+  });
+});

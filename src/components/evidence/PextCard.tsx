@@ -7,6 +7,7 @@ import { MeasureBar, PextStrip } from './ContextCharts';
 
 const LOCATION_NOTE = {
   'no-locus': 'This analysis has no verified GRCh38 position, so the variant cannot be placed on the coding regions.',
+  'no-gene-locus': 'The gnomAD gene record did not include a chromosome locus, so the variant cannot be placed on the coding regions.',
   'other-chromosome': 'The variant position is on a different chromosome than the gnomAD gene record, so it is not placed.',
   'no-region': 'This position is outside the coding regions that pext covers (UTR or intron). No region means no value, not zero.',
 } as const;

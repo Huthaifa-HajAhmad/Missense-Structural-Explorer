@@ -1,6 +1,16 @@
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
+import readline from "readline";
 import { filterPII, anonymizeGenomicCoordinate, hashClientIp } from "./security.ts";
+
+let auditWriteChain: Promise<void> = Promise.resolve();
+
+function serializeAuditFileOp<T>(fn: () => Promise<T>): Promise<T> {
+  const run = auditWriteChain.then(fn, fn);
+  auditWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 export function sanitizeAuditMetadata(metadata: any): any {
   if (!metadata || typeof metadata !== "object") return metadata;
@@ -53,28 +63,29 @@ export class AuditLogger {
       // Print to stdout durably for Cloud Logging ingestion
       console.log(`[AUDIT] ${entryStr}`);
 
-      const dir = path.dirname(this.logPath);
-      if (!fs.existsSync(dir)) {
-        await fs.promises.mkdir(dir, { recursive: true });
-      }
-
-      // Rotate log if it exceeds 10MB
-      try {
-        if (fs.existsSync(this.logPath)) {
-          const stats = await fs.promises.stat(this.logPath);
-          if (stats.size > 10 * 1024 * 1024) { // 10 MB
-            const backupPath = path.join(dir, "audit.1.jsonl");
-            if (fs.existsSync(backupPath)) {
-              await fs.promises.unlink(backupPath);
-            }
-            await fs.promises.rename(this.logPath, backupPath);
-          }
+      const targetPath = this.logPath;
+      await serializeAuditFileOp(async () => {
+        const dir = path.dirname(targetPath);
+        if (!fs.existsSync(dir)) {
+          await fs.promises.mkdir(dir, { recursive: true });
         }
-      } catch (rotationErr: any) {
-        console.error("[AuditLogger] Log rotation failed:", rotationErr.message);
-      }
 
-      await fs.promises.appendFile(this.logPath, entryStr + "\n", "utf8");
+        // Rotate log if it exceeds 10MB
+        try {
+          if (fs.existsSync(targetPath)) {
+            const stats = await fs.promises.stat(targetPath);
+            if (stats.size > 10 * 1024 * 1024) { // 10 MB
+              const backupPath = path.join(dir, "audit.1.jsonl");
+              await fs.promises.rm(backupPath, { force: true });
+              await fs.promises.rename(targetPath, backupPath);
+            }
+          }
+        } catch (rotationErr: any) {
+          console.error("[AuditLogger] Log rotation failed:", rotationErr.message);
+        }
+
+        await fs.promises.appendFile(targetPath, entryStr + "\n", "utf8");
+      });
     } catch (err: any) {
       AuditLogger.failureCount++;
       console.error("[AuditLogger] Failed to write audit log:", err.message);
@@ -104,38 +115,47 @@ export class AuditLogger {
    */
   static async purgeExpiredLogs(maxAgeDays = 30): Promise<number> {
     const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
-    let purgedCount = 0;
+    const currentPath = this.logPath;
 
-    const logFiles = [this.logPath, path.join(path.dirname(this.logPath), "audit.1.jsonl")];
-    for (const file of logFiles) {
-      if (!fs.existsSync(file)) continue;
-      try {
-        const content = await fs.promises.readFile(file, "utf8");
-        const lines = content.split("\n").filter(l => l.trim().length > 0);
-        const validLines: string[] = [];
-
-        for (const line of lines) {
-          try {
-            const entry = JSON.parse(line);
-            const entryTime = new Date(entry.timestamp).getTime();
-            if (!isNaN(entryTime) && entryTime < cutoffTime) {
-              purgedCount++;
-            } else {
+    return serializeAuditFileOp(async () => {
+      let purgedCount = 0;
+      const logFiles = [currentPath, path.join(path.dirname(currentPath), "audit.1.jsonl")];
+      for (const file of logFiles) {
+        if (!fs.existsSync(file)) continue;
+        const tmpFile = `${file}.purge.${process.pid}.${crypto.randomUUID()}.tmp`;
+        try {
+          const validLines: string[] = [];
+          let filePurged = 0;
+          const stream = fs.createReadStream(file, { encoding: "utf8" });
+          const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+          for await (const rawLine of rl) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            try {
+              const entry = JSON.parse(line);
+              const entryTime = new Date(entry.timestamp).getTime();
+              if (!isNaN(entryTime) && entryTime < cutoffTime) {
+                filePurged++;
+              } else {
+                validLines.push(line);
+              }
+            } catch (_) {
               validLines.push(line);
             }
-          } catch (_) {
-            validLines.push(line);
           }
-        }
 
-        if (validLines.length !== lines.length) {
-          const newContent = validLines.length > 0 ? validLines.join("\n") + "\n" : "";
-          await fs.promises.writeFile(file, newContent, "utf8");
+          if (filePurged > 0) {
+            const newContent = validLines.length > 0 ? validLines.join("\n") + "\n" : "";
+            await fs.promises.writeFile(tmpFile, newContent, "utf8");
+            await fs.promises.rename(tmpFile, file);
+            purgedCount += filePurged;
+          }
+        } catch (err: any) {
+          await fs.promises.unlink(tmpFile).catch(() => {});
+          console.warn(`[AuditLogger] Failed to purge expired logs from ${file}:`, err.message);
         }
-      } catch (err: any) {
-        console.warn(`[AuditLogger] Failed to purge expired logs from ${file}:`, err.message);
       }
-    }
-    return purgedCount;
+      return purgedCount;
+    });
   }
 }

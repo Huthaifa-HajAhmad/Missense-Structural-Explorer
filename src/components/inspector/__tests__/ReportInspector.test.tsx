@@ -117,4 +117,30 @@ describe("ReportInspector", () => {
     expect(screen.getByText("Ready to export. No author edit is out of date.")).toBeInTheDocument();
     expect(screen.getByText(/sections in$/)).toBeInTheDocument();
   });
+
+  it("includes settings weighting and derived consensus context in exported evidence bundles", () => {
+    localStorage.setItem("missenseUserSettings", JSON.stringify({ acmgWeighting: "strict" }));
+    const s = useVariantAnalysisStore.getState();
+    s.setFoldingEnergetics({
+      consensusVerdict: "Stale Snapshot",
+      evidenceComplete: false,
+      pendingTools: ["stabilityoracle"],
+      foldx: { status: "done", ddg: 2.9 },
+      rasp: { status: "done", ddg: 2.1 },
+      thermompnn: { status: "done", ddg: 1.8 },
+    } as any);
+    try {
+      mount();
+      fireEvent.click(screen.getByRole("button", { name: "Download Full evidence bundle (.json)" }));
+      const bundle = JSON.parse(vi.mocked(downloadBlob).mock.calls.at(-1)![2] as string);
+      expect(bundle.provenanceManifest.queryCoordinate.acmgWeighting).toBe("strict");
+      expect(bundle.provenanceManifest.verdictSummary.stabilityVerdict).not.toBe("Stale Snapshot");
+      expect(bundle.provenanceManifest.verdictSummary.stabilityVerdict).toBeTruthy();
+      expect(bundle.provenanceManifest.verdictSummary.stabilityEvidenceComplete).toBe(false);
+      expect(bundle.provenanceManifest.verdictSummary.pendingEngines).toEqual(["stabilityoracle"]);
+    } finally {
+      localStorage.clear();
+      s.setFoldingEnergetics(null);
+    }
+  });
 });

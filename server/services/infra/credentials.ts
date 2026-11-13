@@ -306,11 +306,28 @@ export function credentialSourceTag(kind: CredentialKind, token: string | null |
 const ownBuckets = new Map<string, string>();
 const MAX_OWN_BUCKETS = 1000;
 /**
- * Distinct own tokens one owner may use per provider per hour, each with its own bucket. Past that, a
- * further token shares the provider's team bucket: inventing tokens must not multiply the server's slots.
+ * Distinct own tokens one owner may use per provider per hour, each with its own bucket. Past that,
+ * further tokens from that owner share ONE per-(owner, provider) overflow bucket rather than multiplying
+ * governor slots OR spilling into the team bucket.
  */
 export const MAX_OWN_TOKENS_PER_OWNER = 3;
 const ownTokensByOwner = new Map<string, Map<string, number>>();
+const ownOverflowBuckets = new Map<string, { id: string; at: number }>();
+
+function overflowBucketFor(key: string, now: number): string | null {
+  if (!isPerson(key.split("\n")[0])) return null;
+  const existing = ownOverflowBuckets.get(key);
+  if (existing && now - existing.at < HOUR_MS) {
+    existing.at = now;
+    return existing.id;
+  }
+  const id = `ovf-${crypto.randomBytes(6).toString("hex")}`;
+  ownOverflowBuckets.set(key, { id, at: now });
+  if (ownOverflowBuckets.size > SWEEP_ABOVE) {
+    for (const [k, v] of ownOverflowBuckets) if (now - v.at >= HOUR_MS) ownOverflowBuckets.delete(k);
+  }
+  return id;
+}
 
 function bucketFor(token: string): string {
   const digest = crypto.createHash("sha256").update(token).digest("hex");
@@ -334,7 +351,7 @@ function ownBucketFor(kind: CredentialKind, token: string, owner: string, now = 
   for (const [bucket, at] of seen) if (now - at >= HOUR_MS) seen.delete(bucket);
   if (!seen.has(id) && seen.size >= MAX_OWN_TOKENS_PER_OWNER) {
     ownTokensByOwner.set(key, seen);
-    return null;
+    return overflowBucketFor(key, now);
   }
   seen.set(id, now);
   ownTokensByOwner.set(key, seen);
@@ -414,5 +431,6 @@ export function resetCredentialsForTests(): void {
   teamCalls.clear();
   ownBuckets.clear();
   ownTokensByOwner.clear();
+  ownOverflowBuckets.clear();
   warnedFallback = "";
 }

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState, useEffect, useLayoutEffect } from "react";
+import React, { createContext, useCallback, useContext, useState, useEffect, useLayoutEffect, useMemo } from "react";
 import { UserSettings } from "../types";
 import {
   DEFAULT_USER_SETTINGS,
@@ -126,9 +126,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme(isDark ? "light" : "dark");
-  };
+  }, [isDark]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -228,7 +228,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-accent", settings.primaryAccent || "indigo");
+    document.documentElement.setAttribute("data-accent", settings.primaryAccent || "clay");
   }, [settings.primaryAccent]);
 
   const [osReducedMotion, setOsReducedMotion] = useState<boolean>(() => prefersReducedMotion());
@@ -339,38 +339,55 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const serverGeminiReady = Boolean(useDiagnostics().diagnostics?.geminiReady);
+  const serverGeminiReady = Boolean(useDiagnostics({ geminiReadyOnly: true }).diagnostics?.geminiReady);
 
-  const openSettingsTab = (tab: SettingsTabId | LegacySettingsTabId = "appearance") => {
+  const openSettingsTab = useCallback((tab: SettingsTabId | LegacySettingsTabId = "appearance") => {
     setSettingsTab(LEGACY_TAB_MAP[tab as LegacySettingsTabId] ?? (tab as SettingsTabId));
     setIsSettingsOpen(true);
-  };
+  }, []);
 
   const hasConfiguredGeminiKey = geminiCredentials(settings, serverGeminiReady, Date.now()).canAttemptNarrative;
 
+  const value = useMemo<SettingsContextType>(
+    () => ({
+      theme,
+      isDark,
+      setTheme,
+      toggleTheme,
+      settings,
+      setSettings,
+      updateSetting,
+      applySettings,
+      resetSettingsToDefault,
+      showPolarContacts,
+      setShowPolarContacts,
+      isSettingsOpen,
+      setIsSettingsOpen,
+      settingsTab,
+      setSettingsTab,
+      openSettingsTab,
+      hasConfiguredGeminiKey,
+      serverGeminiReady,
+    }),
+    [
+      theme,
+      isDark,
+      toggleTheme,
+      settings,
+      updateSetting,
+      applySettings,
+      resetSettingsToDefault,
+      showPolarContacts,
+      isSettingsOpen,
+      settingsTab,
+      openSettingsTab,
+      hasConfiguredGeminiKey,
+      serverGeminiReady,
+    ]
+  );
+
   return (
-    <SettingsContext.Provider
-      value={{
-        theme,
-        isDark,
-        setTheme,
-        toggleTheme,
-        settings,
-        setSettings,
-        updateSetting,
-        applySettings,
-        resetSettingsToDefault,
-        showPolarContacts,
-        setShowPolarContacts,
-        isSettingsOpen,
-        setIsSettingsOpen,
-        settingsTab,
-        setSettingsTab,
-        openSettingsTab,
-        hasConfiguredGeminiKey,
-        serverGeminiReady,
-      }}
-    >
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

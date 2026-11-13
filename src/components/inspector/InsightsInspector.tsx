@@ -6,7 +6,7 @@ import { formatEvidenceCode } from "../../shared/thresholds";
 import { buildInsightsEvidence, criterionForLane } from "../../shared/insightsEvidence";
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
-import { deriveNarrativeAuthorship } from "../../shared/narrativeAuthorship";
+import { narrativeAuthorshipOfResult } from "../../shared/narrativeEvidence";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
@@ -78,12 +78,10 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
     );
   }
 
-  const narrative = analysisResult.analysis ?? "";
-  const authorship = deriveNarrativeAuthorship({
-    analysis: narrative,
-    isDegraded: isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason),
-    declaredSource: (analysisResult.insights as { source?: string } | undefined)?.source,
-  });
+  const authorship = narrativeAuthorshipOfResult(
+    analysisResult,
+    isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason)
+  );
   const readCount = ev.lanes.filter(l => l.state === "read").length;
   const vote = predictors?.vote;
   const voters = predictors?.voters;
@@ -109,7 +107,7 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
             {readCount} of {ev.lanes.length} areas returned a reading. Each row on the board is that tab&apos;s own recorded call.
           </Step>
           <Step n={2} label="Narrative">
-            {authorship === "ai" ? "Written by the language model." : narrative ? "Assembled from database evidence, not a model." : "No narrative yet."}{" "}
+            {authorship === "ai" ? "Written by the language model." : authorship === "rule-based" ? "Assembled from database evidence, not a model." : "No narrative yet."}{" "}
             {ev.proposals.length + ev.droppedEngineOwned.length > 0
               ? `It proposed ${ev.proposals.length + ev.droppedEngineOwned.length} ${ev.proposals.length + ev.droppedEngineOwned.length === 1 ? "criterion" : "criteria"}.`
               : "It proposed no criteria."}

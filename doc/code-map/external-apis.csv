@@ -7,7 +7,6 @@ api.genome.ucsc.edu,server/services/prediction/predictors/locus-resolver.ts
 api.genome.ucsc.edu,server/services/prediction/splice_resolver.ts
 api.japanfold.aiand.com,server/config.ts
 api.japanfold.aiand.com,server/routes/capabilities.ts
-api.japanfold.aiand.com,server/services/external-api/japanfold.ts
 app.tamarind.bio,server/services/stability/energy-models.ts
 biohub.ai,server/routes/structure.ts
 biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts
@@ -26,7 +25,6 @@ eutils.ncbi.nlm.nih.gov,server/services/translation/identifier-intake.ts
 files.rcsb.org,server/services/external-api/pdbe-entries.ts
 files.rcsb.org,server/services/structure/structure-fetcher.ts
 forge.evolutionaryscale.ai,server/routes/structure.ts
-genos.app,server/services/external-api/adapters/service-adapters.ts
 github.com,server/agent/tools.ts
 github.com,server/services/infra/egress-governor.ts
 github.com,server/services/stability/ddmut-ppi.ts
@@ -50,7 +48,9 @@ myvariant.info,server/services/prediction/predictors/conservation-orchestrator.t
 myvariant.info,server/services/prediction/predictors/vep-orchestrator.ts
 ontology.jax.org,server/services/evidence-context/hpo.ts
 pubmed.ncbi.nlm.nih.gov,server/services/llm/literature-rag.ts
+query.dbnsfp.org,server/services/external-api/adapters/service-adapters.ts
 query.dbnsfp.org,server/services/prediction/predictors/dbnsfp-query.ts
+query.genos.us,server/services/external-api/adapters/service-adapters.ts
 query.genos.us,server/services/external-api/genos_web.ts
 raw.githubusercontent.com,server/services/evidence-context/modelPhenotypes.ts
 rest.ensembl.org,server/services/evidence-context/alignment.ts

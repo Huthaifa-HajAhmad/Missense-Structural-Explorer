@@ -215,6 +215,23 @@ describe("Full Pipeline Integration Test (C-7)", () => {
 
         await handler(authReq, purgeRes, () => {});
         expect(purgeJson.status).toBe("success");
+
+        // A header that merely exists is not authorization: a Gemini session id or a wrong token is refused.
+        for (const headers of [
+          { "x-gemini-session-id": "any-session" },
+          { authorization: "Bearer wrong-token" },
+          { authorization: "Basic abc" }
+        ]) {
+          let refusedStatus: number | null = null;
+          let refusedBody: any = null;
+          const refusedRes: any = {
+            status(code: number) { refusedStatus = code; return this; },
+            json(body: any) { refusedBody = body; return this; }
+          };
+          await handler({ path: "/debug/clear-caches", headers } as any, refusedRes, () => {});
+          expect(refusedStatus).toBe(403);
+          expect(refusedBody?.error?.code).toBe("FORBIDDEN");
+        }
       } finally {
         process.env.APP_API_TOKEN = originalToken;
       }

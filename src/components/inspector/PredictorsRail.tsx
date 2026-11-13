@@ -21,6 +21,7 @@ import {
 } from "../../shared/ladderEvidence";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import { constraintSourceLabel } from "../header/constraintMetrics";
 
 /**
  * PredictorsRail — the Evidence Lineage inspector for the Predictors tab.
@@ -113,9 +114,9 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const add = (label: string, value: unknown) => {
     if (typeof value === "string" && value.trim()) sources.push([label, value.trim()]);
   };
-  add("Missense scores", analysisResult.conservationData?.source ?? "dbNSFP via MyVariant.info");
-  add("CADD · AlphaMissense", analysisResult.predictorData?.source ?? "Ensembl VEP");
-  add("Gene constraint", analysisResult.gnomadConstraint ? "gnomAD v4 (GraphQL)" : null);
+  add("Missense scores", analysisResult.conservationData?.source);
+  add("CADD · AlphaMissense", analysisResult.predictorData?.source);
+  add("Gene constraint", analysisResult.gnomadConstraint ? constraintSourceLabel(analysisResult) : null);
   add("ESMC / VESM", r.esmcEval?.provenance);
   add("SaProt", r.saprotEval?.provenance);
 

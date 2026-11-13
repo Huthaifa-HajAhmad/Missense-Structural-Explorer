@@ -110,6 +110,7 @@ export async function fetchClinVarData(
     // VCV000123456 or 123456 → its numeric id. Leading zeros are not part of the id E-utilities
     // summaries key on, so they are stripped here, not at the summary step.
     const varId = cleanVar.replace(/^VCV/i, "").replace(/^0+/, "");
+    if (!varId) return defaultRes;
     idList = [varId];
   } else {
     term = `${normGene}[gene] AND (${variant}[variant name] OR ${cleanVar}[variant name])`;
@@ -187,7 +188,7 @@ export async function fetchClinVarData(
     const title = (entry.title || "").toLowerCase();
     let isMatch = isDirectIdSearch;
     if (!isMatch && queryNorm) {
-      const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}/g);
+      const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}(?![a-z0-9*]|fs)/gi);
       if (pChangeMatches) {
         for (const pMatch of pChangeMatches) {
           const cleanMatch = pMatch.replace(/^p\./i, "").trim().toLowerCase();
@@ -215,7 +216,7 @@ export async function fetchClinVarData(
       if (!isMatch) {
         const cleanVariant = variant.replace(/^p\./i, "").toLowerCase();
         const escaped = cleanVariant.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+        const regex = new RegExp(`(?:^|[^a-z0-9])${escaped}(?![a-z0-9*]|fs)`, 'i');
         if (regex.test(title)) {
           isMatch = true;
         }
@@ -235,7 +236,12 @@ export async function fetchClinVarData(
   let matchedIdx = 0;
   if (options.originalNotation) {
     const cleanNotation = options.originalNotation.trim().toLowerCase();
-    const idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+    const escapedNotation = cleanNotation.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const exactRegex = new RegExp(`(?:^|[^a-z0-9])${escapedNotation}(?![a-z0-9*]|fs)`, 'i');
+    let idx = matchingEntries.findIndex(m => exactRegex.test(m.cleanTitle));
+    if (idx === -1) {
+      idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+    }
     if (idx !== -1) {
       matchedIdx = idx;
     }

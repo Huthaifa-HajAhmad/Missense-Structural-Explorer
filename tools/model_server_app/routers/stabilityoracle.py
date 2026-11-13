@@ -71,6 +71,20 @@ FALLBACK_RADIUS_A = 1.7
 
 PDB2PQR_LIMIT_S = 180.0
 
+# `pdb2pqr --ff=AMBER` renames residues by protonation state; the charge and radius tables are keyed by the
+# 20 standard names only (the authors' inputs use them). Without this mapping every histidine, disulfide
+# cysteine and neutral/protonated side chain looked up as "missing" and silently took charge 0 and the
+# fallback radius.
+_PROTONATION_ALIASES = {
+    "HID": "HIS", "HIE": "HIS", "HIP": "HIS", "HSD": "HIS", "HSE": "HIS", "HSP": "HIS",
+    "CYX": "CYS", "CYM": "CYS", "ASH": "ASP", "GLH": "GLU", "LYN": "LYS",
+}
+
+
+def canonical_residue_name(name: str) -> str:
+    """The standard three-letter name for a residue name PDB2PQR may have rewritten for its protonation state."""
+    return _PROTONATION_ALIASES.get(name.upper(), name)
+
 
 @functools.lru_cache(maxsize=1)
 def _input_tables() -> dict:
@@ -122,7 +136,7 @@ def get_stability_oracle_model():
 
         print(f"[Model Server] Loading StabilityOracle model from: {ckpt_path}...")
         model = SiameseGraphormer(StabilityOracleArgs())
-        ckpt = torch.load(ckpt_path, map_location="cpu")
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         new_ckpt = {k.replace("module.", ""): v for k, v in ckpt.items()}
         model.load_state_dict(new_ckpt, strict=True)
         model.eval()
@@ -200,7 +214,7 @@ def _prepare_chain(chain_pdb_text: str):
         name = line[12:16].strip()
         bare = name.lstrip("0123456789")
         names.append(name)
-        res_names.append(line[17:20].strip())
+        res_names.append(canonical_residue_name(line[17:20].strip()))
         res_seqs.append(int(line[22:26]))
         chains.append((line[21].strip() or "A").upper())
         elements.append("H" if bare.startswith("H") else bare[0])
@@ -255,8 +269,19 @@ def featurize_pdb_for_stability_oracle(
     if requested_chain and requested_chain in chains_seen:
         target_chain = requested_chain
     else:
-        # Match chain holding the requested position if unique, else first chain
-        matching_chains = sorted({a["chain"] for a in atoms if a["res_seq"] == position})
+        # Match chain holding the requested position (and wild-type residue when heteromers differ),
+        # in file chain order (`chains_seen`) to match ThermoMPNN's chain precedence.
+        matching_chains = [
+            ch for ch in chains_seen
+            if any(a["chain"] == ch and a["res_seq"] == position for a in atoms)
+        ]
+        if len(matching_chains) > 1 and wt3 in AA_INDEX:
+            wt_matching = [
+                ch for ch in matching_chains
+                if any(a["chain"] == ch and a["res_seq"] == position and a["res_name"] == wt3 for a in atoms)
+            ]
+            if wt_matching:
+                matching_chains = wt_matching
         target_chain = matching_chains[0] if matching_chains else chains_seen[0]
 
     target = [a for a in atoms if a["chain"] == target_chain and a["res_seq"] == position]

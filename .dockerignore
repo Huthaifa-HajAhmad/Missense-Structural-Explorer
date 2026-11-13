@@ -56,3 +56,7 @@ graphify-out
 graft
 coverage
 temp_jobs
+.e2e
+**/.browser-profile
+.clavix
+.codex

@@ -25,7 +25,7 @@ interface Props {
 function StatusBadge({ status }: { status: TraceSpan["status"] }) {
   const tone = status === "success" ? "good" : status === "running" ? "running" : status === "unavailable" ? "warn" : "danger";
   return (
-    <span className="cx-badge" data-tone={tone}>
+    <span className="dc-badge" data-tone={tone}>
       {status}
     </span>
   );
@@ -68,11 +68,11 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
 
   return (
     <>
-      <div className="cx-trace-bar">
-        <label htmlFor="cx-trace-session">Trace session</label>
+      <div className="dc-trace-bar">
+        <label htmlFor="dc-trace-session">Trace session</label>
         <select
-          id="cx-trace-session"
-          className="cx-select"
+          id="dc-trace-session"
+          className="dc-select"
           aria-label="Trace session"
           value={activeRun?.traceId || ""}
           onChange={(e) => onSelectRun(e.target.value)}
@@ -90,10 +90,10 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
         </select>
 
         {activeRun && activeRun.spans.length > 0 && (
-          <div className="cx-tabs" role="group" aria-label="Filter stages">
+          <div className="dc-tabs" role="group" aria-label="Filter stages">
             <button
               type="button"
-              className="cx-tab"
+              className="dc-tab"
               aria-pressed={stageFilter === "all"}
               onClick={() => setStageFilter("all")}
             >
@@ -106,13 +106,13 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
                 <button
                   key={stage}
                   type="button"
-                  className="cx-tab"
+                  className="dc-tab"
                   aria-pressed={stageFilter === stage}
                   onClick={() => setStageFilter(stageFilter === stage ? "all" : stage)}
                 >
-                  <span className="cx-stage-dot" data-stage={stage} style={{ width: 6, height: 6 }} />
+                  <span className="dc-stage-dot" data-stage={stage} style={{ width: 6, height: 6 }} />
                   <span style={{ textTransform: "capitalize" }}>{stage}</span>
-                  <span className="cx-count">{count}</span>
+                  <span className="dc-count">{count}</span>
                 </button>
               );
             })}
@@ -120,10 +120,10 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
         )}
 
         {hasLongSpans && (
-          <div className="cx-tabs" role="group" aria-label="Timeline scale">
+          <div className="dc-tabs" role="group" aria-label="Timeline scale">
             <button
               type="button"
-              className="cx-tab"
+              className="dc-tab"
               aria-pressed={scale === "focus"}
               onClick={() => setScale("focus")}
               title="Clip very long operations so the other bars stay readable"
@@ -132,7 +132,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
             </button>
             <button
               type="button"
-              className="cx-tab"
+              className="dc-tab"
               aria-pressed={scale === "full"}
               onClick={() => setScale("full")}
               title="Linear scale across the whole run"
@@ -144,7 +144,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
 
         <button
           type="button"
-          className="cx-btn"
+          className="dc-btn"
           disabled={!activeRun || spans.length === 0}
           onClick={toggleExpandAll}
           title={allCollapsed ? "Expand all pipeline stages" : "Collapse all pipeline stages"}
@@ -152,29 +152,29 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
           {allCollapsed ? "Expand all" : "Collapse all"}
         </button>
 
-        <span className="cx-spacer" />
-        <button type="button" className="cx-btn" disabled={runs.length === 0} onClick={onExport} aria-label="Export trace runs as JSON">
+        <span className="dc-spacer" />
+        <button type="button" className="dc-btn" disabled={runs.length === 0} onClick={onExport} aria-label="Export trace runs as JSON">
           <Download aria-hidden />
           Export traces
         </button>
-        <button type="button" className="cx-btn" disabled={runs.length === 0} onClick={onClear} aria-label="Clear all trace runs">
+        <button type="button" className="dc-btn" disabled={runs.length === 0} onClick={onClear} aria-label="Clear all trace runs">
           <Trash2 aria-hidden />
           Clear traces
         </button>
       </div>
 
       {timeline?.clipped && (
-        <div className="cx-banner" role="status" style={{ background: "var(--cs-surface-2)", color: "var(--cs-text-secondary)", borderBottomColor: "var(--cs-border)" }}>
+        <div className="dc-banner" role="status" style={{ background: "var(--cs-surface-2)", color: "var(--cs-text-secondary)", borderBottomColor: "var(--cs-border)" }}>
           {timeline.clippedCount} long-running operation{timeline.clippedCount === 1 ? " is" : "s are"} clipped (torn edge) so the
           other bars stay readable.
-          <button type="button" className="cx-btn" onClick={() => setScale("full")}>
+          <button type="button" className="dc-btn" onClick={() => setScale("full")}>
             Show full run
           </button>
         </div>
       )}
 
-      <div className="cx-body" data-inspector={selected ? "open" : "closed"} onKeyDown={handleKeyDown}>
-        <div className="cx-main">
+      <div className="dc-body" data-inspector={selected ? "open" : "closed"} onKeyDown={handleKeyDown}>
+        <div className="dc-main">
           {!activeRun || activeRun.spans.length === 0 || !timeline ? (
             <div className="dev-console-empty">
               <Layers aria-hidden />
@@ -225,7 +225,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
                     >
                       <span className="gantt-stage-title">
                         <ChevronDown aria-hidden />
-                        <span className="cx-stage-dot" data-stage={stage} />
+                        <span className="dc-stage-dot" data-stage={stage} />
                         Stage {meta.index}: {meta.title}
                       </span>
                       <span className="gantt-stage-meta">
@@ -252,12 +252,12 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
                             <div className="gantt-name" title={span.name}>
                               <span>{span.name}</span>
                               {span.cached && (
-                                <span className="cx-badge" data-tone="warn">
+                                <span className="dc-badge" data-tone="warn">
                                   Cached
                                 </span>
                               )}
                               {slowestName === span.name && (
-                                <span className="cx-badge" data-tone="danger">
+                                <span className="dc-badge" data-tone="danger">
                                   <Flame style={{ width: 10, height: 10 }} aria-hidden />
                                   Slowest
                                 </span>
@@ -296,20 +296,20 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
         </div>
 
         {selected && activeRun && (
-          <aside className="cx-aside" aria-label="Span detail inspector">
-            <div className="cx-aside-head">
-              <span className="cx-stage-dot" data-stage={selected.stage} />
+          <aside className="dc-aside" aria-label="Span detail inspector">
+            <div className="dc-aside-head">
+              <span className="dc-stage-dot" data-stage={selected.stage} />
               <b style={{ minWidth: 0, overflowWrap: "anywhere" }}>{selected.name}</b>
-              <span className="cx-spacer" />
-              <button type="button" className="cx-icon-btn" onClick={() => setSelectedId(null)} aria-label="Close span inspector">
+              <span className="dc-spacer" />
+              <button type="button" className="dc-icon-btn" onClick={() => setSelectedId(null)} aria-label="Close span inspector">
                 <X />
               </button>
             </div>
-            <div className="cx-aside-body">
+            <div className="dc-aside-body">
               <div>
                 <button
                   type="button"
-                  className="cx-btn"
+                  className="dc-btn"
                   onClick={() => copy(JSON.stringify(selected, null, 2), "span")}
                   title="Copy span as JSON"
                 >
@@ -319,13 +319,13 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
               </div>
 
               {selected.status === "unavailable" && (
-                <div className="cx-message" style={{ borderColor: "color-mix(in srgb, var(--cs-warn) 40%, transparent)" }}>
+                <div className="dc-message" style={{ borderColor: "color-mix(in srgb, var(--cs-warn) 40%, transparent)" }}>
                   The backend reported this model as unavailable — the run waited, then gave up. This is a service
                   condition, not a client error.
                 </div>
               )}
 
-              <table className="dev-console-meta-table cx-mono">
+              <table className="dev-console-meta-table dc-mono">
                 <tbody>
                   <tr>
                     <td>Pipeline stage</td>
@@ -369,8 +369,8 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
 
               {selected.meta && Object.keys(selected.meta).length > 0 && (
                 <section>
-                  <h4 className="cx-section-title">Metadata</h4>
-                  <table className="dev-console-meta-table cx-mono">
+                  <h4 className="dc-section-title">Metadata</h4>
+                  <table className="dev-console-meta-table dc-mono">
                     <tbody>
                       {Object.entries(selected.meta).map(([k, v]) => (
                         <tr key={k}>

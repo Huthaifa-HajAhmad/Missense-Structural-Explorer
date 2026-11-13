@@ -258,4 +258,25 @@ describe("getCachedOrFetch — isUsable read gate", () => {
     expect(calls).toBe(0);
     expect(result).toEqual({ any: "value" });
   });
+
+  it("preserves remaining L2 SQLite TTL when promoting an entry into L1", async () => {
+    const { AnalysisDatabase } = await import("./analysis-db.ts");
+    const db = AnalysisDatabase.resetInstance(":memory:");
+    const registry = createCacheRegistry();
+    const l1Cache = new LRUCache<string, any>({ max: 50, ttl: 24 * 60 * 60 * 1000 });
+    await db.saveExternalCacheAsync("ttl-key", { ok: true }, "test", 5);
+
+    const value = await registry.getCachedOrFetch({
+      key: "ttl-key",
+      source: "test",
+      l1Cache,
+      ttlSeconds: 86_400,
+      fetcher: async () => ({ ok: false }),
+    });
+
+    expect(value).toEqual({ ok: true });
+    const remaining = l1Cache.getRemainingTTL("ttl-key");
+    expect(remaining).toBeGreaterThan(0);
+    expect(remaining).toBeLessThanOrEqual(5_000);
+  });
 });

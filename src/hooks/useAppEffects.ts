@@ -123,22 +123,30 @@ export function useAppEffects({
         return;
       }
 
+      const controller = new AbortController();
+
       const runFolding = async () => {
-        lastFoldedKeyRef.current = foldKey;
         let mutSeq = metadata.mutatedSequence;
         let wtSeq = metadata.sequence || "";
 
         if (!wtSeq && activeUniprot) {
           try {
-            const res = await fetchWithAuthRef.current(`/api/v1/sequence/${activeUniprot}`);
+            const res = await fetchWithAuthRef.current(`/api/v1/sequence/${activeUniprot}`, {
+              signal: controller.signal
+            });
+            if (controller.signal.aborted) return;
             if (res.ok) {
               const data = await res.json();
+              if (controller.signal.aborted) return;
               wtSeq = data.sequence;
             }
-          } catch (err) {
+          } catch (err: any) {
+            if (err?.name === "AbortError" || controller.signal.aborted) return;
             console.error("[ESMFold] Failed to resolve mutated sequence:", err);
           }
         }
+
+        if (controller.signal.aborted) return;
 
         if (wtSeq && pos && mutRes && !mutSeq) {
           const mutUpper = mutRes.toUpperCase();
@@ -146,15 +154,24 @@ export function useAppEffects({
           mutSeq = wtSeq.substring(0, pos - 1) + mut1 + wtSeq.substring(pos);
         }
 
-        if (wtSeq && mutSeq && pos && !esmFoldWtPdb && !isEsmFolding && !esmFoldingError) {
+        const live = useVariantAnalysisStore.getState();
+        const liveMeta = live.analysisState.result?.metadata;
+        const liveUniprot = live.uniprotId || liveMeta?.uniprotId;
+        if (liveMeta?.residueIndex !== pos || liveMeta?.mutant !== mutRes || liveUniprot !== activeUniprot) {
+          return;
+        }
+
+        if (wtSeq && mutSeq && pos && !live.esmFoldWtPdb && !live.isEsmFolding && !live.esmFoldingError) {
           const variantString = metadata.variant || variant || `p.${metadata.wildType}${pos}${metadata.mutant}`;
           if (fetchEsmFoldRef.current) {
+            lastFoldedKeyRef.current = foldKey;
             fetchEsmFoldRef.current(activeUniprot, variantString, wtSeq, mutSeq);
           }
         }
       };
 
-      runFolding();
+      void runFolding();
+      return () => controller.abort();
     }
   }, [
     masterView,

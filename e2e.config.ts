@@ -45,7 +45,7 @@ export default {
               .map((name) => [name, process.env[name] as string]),
           ),
         },
-        reuseExisting: true,
+        reuseExisting: !process.env.CI,
         log: '.e2e/logs/app.log',
       },
     },

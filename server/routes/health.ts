@@ -2,7 +2,7 @@
 import { type Router } from "express";
 import fs from "fs";
 import path from "path";
-import { AuditLogger, sendError } from "../utils.ts";
+import { AuditLogger, sendError, safeCompare } from "../utils.ts";
 import { clearAllCaches, defaultCacheRegistry } from "../services/cache.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
 import { adapterRegistry } from "../services/adapters/service-adapters.ts";
@@ -275,7 +275,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
     });
   });
 
-  apiRouter.get(["/debug/cache-stats", "/api/v1/debug/cache-stats"], (req, res) => {
+  apiRouter.get("/debug/cache-stats", (req, res) => {
     const memoryReport = defaultCacheRegistry.getMemoryReport();
     res.json({
       status: "ok",
@@ -285,8 +285,18 @@ export function registerHealthRoutes(apiRouter: Router): void {
   });
 
   apiRouter.post("/debug/clear-caches", (req, res) => {
-    if (process.env.NODE_ENV === "production" && !req.headers.authorization && !req.headers["x-gemini-session-id"]) {
-      sendError(res, 403, "FORBIDDEN", "Administrative cache clearance requires authorization.");
+    // This wipes shared caches and the live job registry for every user, so presence of a header is
+    // not enough: it takes a signed-in admin, or the verified APP_API_TOKEN as a Bearer token. A
+    // Gemini session id (anyone can mint one with their own key) or a member account is refused.
+    const principal = (req as { principal?: { kind?: string; user?: { role?: string } } }).principal;
+    const isAdmin = principal?.kind === "user" && principal.user?.role === "admin";
+    const bearer = typeof req.headers?.authorization === "string" && req.headers.authorization.startsWith("Bearer ")
+      ? req.headers.authorization.slice("Bearer ".length)
+      : "";
+    const configuredToken = process.env.APP_API_TOKEN;
+    const hasValidToken = Boolean(configuredToken && bearer && safeCompare(bearer, configuredToken));
+    if (!isAdmin && !hasValidToken) {
+      sendError(res, 403, "FORBIDDEN", "Administrative cache clearance requires an admin sign-in or the server API token.");
       return;
     }
 
@@ -350,7 +360,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
         }
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message || "Failed to clear caches." });
+      console.error("[clear-caches] failed:", err);
+      sendError(res, 500, "INTERNAL_ERROR", "Failed to clear caches.");
     }
   });
 

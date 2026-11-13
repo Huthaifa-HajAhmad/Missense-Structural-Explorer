@@ -99,6 +99,8 @@ describe("SidecarSupervisor", () => {
 
       mockChildProcess.emit("error", new Error("Spawn failure"));
       expect(supervisor.getProcess()).toBeNull();
+      vi.advanceTimersByTime(2500);
+      expect(spawn).toHaveBeenCalledTimes(2);
     } finally {
       (CONFIG.services as any).sidecarBaseUrl = originalUrl;
     }

@@ -49,7 +49,7 @@ server/routes/variant/literature.ts,server,
 server/routes/variant/narrative.ts,server,
 server/routes/variant/spliceai.ts,server,
 server/routes/variant/translation.ts,server,
-server/routes/variant/variant-parser.ts,server,server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
+server/routes/variant/variant-parser.ts,server,server/routes/variant/sanitize-url.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
 server/services/acmg.ts,barrel,server/invariants.test.ts;server/tests/canary.test.ts
 server/services/adapters/index.ts,barrel,
 server/services/adapters/registry.ts,barrel,
@@ -96,7 +96,6 @@ server/services/evidence-context/perRegions.ts,server,server/services/evidence-c
 server/services/evidence-context/pext.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/alignmentPext.test.ts
 server/services/evidence-context/snapshotInstall.ts,server,server/services/evidence-context/snapshotInstall.test.ts
 server/services/evidence-context/store.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/snapshotInstall.test.ts;server/services/evidence-context/store.test.ts
-server/services/evolutionaryscale.ts,barrel,
 server/services/external-api/adapters/index.ts,barrel,
 server/services/external-api/adapters/registry.ts,server,
 server/services/external-api/adapters/service-adapters.ts,server,server/services/external-api/adapters/adapters.test.ts
@@ -111,7 +110,6 @@ server/services/external-api/core-data-fetcher.ts,server,server/services/externa
 server/services/external-api/esm2.ts,server,server/services/external-api/esm2-credentials.test.ts;server/services/external-api/esm2.test.ts;server/services/structure/structural-model-fetcher.test.ts
 server/services/external-api/esm3_forge.ts,server,server/services/external-api/esm3_forge.test.ts
 server/services/external-api/esmc.ts,server,server/services/external-api/esmc.test.ts;server/services/structure/structural-model-fetcher.test.ts
-server/services/external-api/evolutionaryscale.ts,types,
 server/services/external-api/genos_web.ts,server,server/services/external-api/genos_web.test.ts
 server/services/external-api/gnomad-gene-constraint.ts,server,
 server/services/external-api/gnomad.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/external-api/gnomad.test.ts;server/services/external-api/gnomadFrequency.test.ts;server/services/prediction/landscape-context.test.ts
@@ -119,7 +117,6 @@ server/services/external-api/gpn.ts,server,server/services/external-api/evolutio
 server/services/external-api/index.ts,barrel,
 server/services/external-api/intact.ts,server,server/services/external-api/ppi.test.ts
 server/services/external-api/japanfold-client.ts,server,server/services/external-api/esmc.test.ts;server/services/external-api/japanfold-client.test.ts;server/services/external-api/ppi.test.ts;server/services/external-api/saprot.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/structure/multimer.test.ts
-server/services/external-api/japanfold.ts,server,
 server/services/external-api/lmShiftWindow.ts,server,server/services/external-api/esm2.test.ts
 server/services/external-api/pdbe-entries.ts,server,
 server/services/external-api/pdbe-interfaces.ts,server,server/services/external-api/pdbe-interfaces.test.ts;server/services/external-api/ppi.test.ts;server/services/structure/multimer.test.ts
@@ -144,7 +141,7 @@ server/services/infra/agent-registry.ts,server,
 server/services/infra/agent-results.ts,server,server/services/infra/agent-results.test.ts
 server/services/infra/analysis-db-core.ts,server,server/services/infra/analysis-db.test.ts;server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/analysis-db-pool.ts,server,
-server/services/infra/analysis-db.ts,server,server/services/infra/analysis-db.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/infra/cache.test.ts;server/services/infra/stale-on-rate-limit.test.ts;server/services/prediction/splice_resolver.test.ts;server/services/structure/entry-for-variant.test.ts;server/services/structure/structure-fetcher.test.ts;server/services/structure/structure-resolver.test.ts
+server/services/infra/analysis-db.ts,server,server/services/infra/analysis-db.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/infra/cache-registry.test.ts;server/services/infra/cache.test.ts;server/services/infra/stale-on-rate-limit.test.ts;server/services/prediction/splice_resolver.test.ts;server/services/structure/entry-for-variant.test.ts;server/services/structure/structure-fetcher.test.ts;server/services/structure/structure-resolver.test.ts
 server/services/infra/biophysical-queue.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/live-routing.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/services/infra/admission.test.ts;server/services/infra/biophysical-handover.test.ts;server/services/infra/biophysical-queue.handover.invariants.test.ts;server/services/infra/biophysical-queue.invariants.test.ts;server/services/infra/biophysical-queue.redis-retention.test.ts;server/services/infra/biophysical-queue.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/queue-fairness.test.ts;server/services/infra/review-fixes.test.ts
 server/services/infra/cache-keys.ts,server,server/services/infra/cache-hygiene.test.ts;server/services/infra/credentials.test.ts;server/services/prediction/predictors/vep-orchestrator.test.ts
 server/services/infra/cache-registry.ts,server,server/services/external-api/alphagenome-bridge.test.ts;server/services/infra/cache-registry.test.ts;server/services/infra/stale-on-rate-limit.test.ts
@@ -177,7 +174,6 @@ server/services/infra/stale-response.ts,server,server/services/infra/stale-on-ra
 server/services/infra/tool-bundles.ts,server,
 server/services/infra/tools-python.ts,server,server/services/structure/sasa-runner.test.ts;server/services/structure/structural-diff/evaluator.test.ts
 server/services/japanfold-client.ts,barrel,
-server/services/japanfold.ts,barrel,
 server/services/landscape.ts,barrel,
 server/services/literature-rag.ts,barrel,server/routes/variant/literature.test.ts
 server/services/llm/curated-literature.ts,server,server/routes/variant/literature.test.ts;server/services/llm/curated-literature.test.ts
@@ -214,7 +210,7 @@ server/services/prediction/local-population.ts,server,server/services/prediction
 server/services/prediction/predictors/allele-identity.ts,server,server/services/prediction/predictors/allele-identity.test.ts
 server/services/prediction/predictors/conservation-orchestrator.ts,server,server/services/prediction/predictors/conservation-allele.test.ts;server/services/prediction/predictors/conservation-streaming.test.ts;server/services/prediction/predictors/predictors-modules.test.ts
 server/services/prediction/predictors/consurf-resolver.ts,server,
-server/services/prediction/predictors/dbnsfp-query.ts,server,
+server/services/prediction/predictors/dbnsfp-query.ts,server,server/services/prediction/predictors/predictors-modules.test.ts
 server/services/prediction/predictors/index.ts,barrel,
 server/services/prediction/predictors/locus-resolver.ts,server,server/services/prediction/predictors/locus-resolver.test.ts
 server/services/prediction/predictors/normalizer.ts,server,server/services/prediction/predictors/predictors-modules.test.ts
@@ -274,7 +270,7 @@ server/services/structure/pocket/java-detector.ts,server,
 server/services/structure/pocket/propensities.ts,server,
 server/services/structure/pocket/runner.ts,server,server/routes/shared-cache.test.ts;server/services/infra/review-fixes.test.ts;server/services/structure/pocket/runner.test.ts
 server/services/structure/pocket/selection.ts,server,server/services/structure/pocket/selection.test.ts
-server/services/structure/sasa-runner.ts,server,server/services/structure/sasa-runner.test.ts
+server/services/structure/sasa-runner.ts,server,server/services/external-api/esm3_forge.test.ts;server/services/structure/pocket/disruption.test.ts;server/services/structure/sasa-runner.test.ts
 server/services/structure/sequence-aligner.ts,server,server/services/structure/sequence-aligner.test.ts
 server/services/structure/structural-diff.ts,barrel,server/services/structure/structural-diff.test.ts
 server/services/structure/structural-diff/aligner.ts,server,

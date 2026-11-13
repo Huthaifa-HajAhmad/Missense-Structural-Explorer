@@ -1,6 +1,8 @@
 import os
 import time
 import hashlib
+import threading
+import weakref
 import torch
 import asyncio
 import numpy as np
@@ -341,12 +343,24 @@ def predict_esm2_3b_sync(req: Esm2Request, deadline: float | None = None):
     vesm_res["fallbackReason"] = local_error
     return vesm_res
 
-_inference_semaphore = asyncio.Semaphore(1)
+_loop_semaphores: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_semaphore_lock = threading.Lock()
+
+
+def _get_inference_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    with _semaphore_lock:
+        sem = _loop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(1)
+            _loop_semaphores[loop] = sem
+        return sem
+
 
 @router.post("/predict/esm2", response_model=Esm2Response)
 @router.post("/predict/esm2_3b", response_model=Esm2Response)
 async def predict_esm2_3b(req: Esm2Request):
     # Counted from arrival, so time spent queued behind another ESM-2 request comes out of the budget.
     deadline = time.monotonic() + EMBEDDING_BUDGET_S
-    async with _inference_semaphore:
+    async with _get_inference_semaphore():
         return await asyncio.to_thread(predict_esm2_3b_sync, req, deadline)

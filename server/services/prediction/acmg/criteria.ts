@@ -479,9 +479,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // PM4 / BP3 — In-frame Indels in repeat vs non-repeat regions
   // -------------------------------------------------------------------------
   if (isInFrameIndel(variant)) {
-    const match = variant.match(/\d+/);
-    const pos = match ? parseInt(match[0], 10) : NaN;
-    const isRepeat = sequence ? isIndelInRepeatRegion(sequence, pos) : false;
+    const pos = residuePos();
+    const isRepeat = pos !== null && sequence ? isIndelInRepeatRegion(sequence, pos) : false;
     
     if (isRepeat) {
       if (!skipBenignComp) {

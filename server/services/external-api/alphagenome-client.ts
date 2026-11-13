@@ -80,7 +80,8 @@ function getAtlasService(): any {
     oneofs: true,
     includeDirs: [
       protoDir,
-      path.resolve(protoDir, "..")
+      path.resolve(protoDir, ".."),
+      path.resolve(protoDir, "../..")
     ]
   });
 

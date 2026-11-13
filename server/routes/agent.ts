@@ -389,7 +389,10 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     if (!file || !fs.existsSync(file)) return sendError(res, 404, "NOT_FOUND", "The agent for this kind of computer is not available on this workspace yet. Ask your workspace admin.");
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename="MissenseAgent-${known![0]}.zip"`);
-    fs.createReadStream(file).pipe(res);
+    const stream = fs.createReadStream(file);
+    stream.on("error", () => (res.headersSent ? res.destroy() : sendError(res, 500, "BUNDLE_UNREADABLE", "The agent bundle could not be read.")));
+    res.on("close", () => stream.destroy());
+    stream.pipe(res);
   });
 
   // ── The paired computer ─────────────────────────────────────────────────────────────────────────
@@ -430,6 +433,7 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     const deadline = Date.now() + waitSec * 1000;
     const types = jobTypesFor(report);
     const named = { ...agent, name: getAgent(agent.agentId)?.name ?? null };
+    let lastTouchAt = Date.now();
     for (;;) {
       // Disconnected (or its owner disabled) while this long poll waited: the token is no longer valid.
       if (getAgent(agent.agentId)?.revoked_at != null) {
@@ -458,9 +462,14 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
         return res.json({ job: payload, foldxBundleVersion: bundleVersionFor(report) });
       }
       if (gone) return;
-      if (Date.now() >= deadline) return res.json({ job: null, foldxBundleVersion: bundleVersionFor(report) });
-      await sleep(Math.min(1000, Math.max(0, deadline - Date.now())));
-      updateAgentReport(agent.agentId, { now: Date.now() });
+      const now = Date.now();
+      if (now >= deadline) return res.json({ job: null, foldxBundleVersion: bundleVersionFor(report) });
+      await sleep(Math.min(1000, Math.max(0, deadline - now)));
+      const afterSleep = Date.now();
+      if (afterSleep - lastTouchAt >= 10_000) {
+        lastTouchAt = afterSleep;
+        updateAgentReport(agent.agentId, { now: afterSleep });
+      }
     }
   }));
 
@@ -549,6 +558,7 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     void AuditLogger.log("agent.foldx_bundle_downloaded", { agentId: req.principal?.kind === "agent" ? req.principal.agentId : null, platform, version: info.version });
     const stream = fs.createReadStream(foldxBundlePath(info));
     stream.on("error", () => (res.headersSent ? res.destroy() : sendError(res, 500, "BUNDLE_UNREADABLE", "The bundle could not be read.")));
+    res.on("close", () => stream.destroy());
     stream.pipe(res);
   });
 
@@ -600,35 +610,38 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
         ? sendError(res, 413, "TOO_LARGE", "That file is larger than any FoldX download.")
         : sendError(res, 400, "UPLOAD_FAILED", "The upload did not complete. Try again.");
     }
-    const check = await checkFoldxArchive(fs.readFileSync(temp), platform);
-    if (!check.ok) {
+    try {
+      const check = await checkFoldxArchive(fs.readFileSync(temp), platform);
+      if (!check.ok) {
+        return sendError(res, 422, "NOT_FOLDX", check.problem);
+      }
+      const now = Date.now();
+      const adminId = req.principal!.userId as string;
+      const bundle = storeFoldxBundle({
+        platform,
+        tempFile: temp,
+        sha256: hash.digest("hex"),
+        sizeBytes: size,
+        binaryName: check.plan.binaryName,
+        expiry: check.plan.expiry,
+        uploadedBy: adminId,
+        now,
+      });
+      // The licence position is the admin's, recorded with who and when (plan decision 6).
+      void AuditLogger.log("admin.foldx_bundle_uploaded", {
+        adminId,
+        platform,
+        version: bundle.version,
+        sha256: bundle.sha256,
+        binaryName: bundle.binaryName,
+        licenceConfirmed: true,
+        licenceConfirmedAt: now,
+        host: os.hostname(),
+      });
+      res.status(201).json({ bundle });
+    } finally {
       fs.rmSync(temp, { force: true });
-      return sendError(res, 422, "NOT_FOLDX", check.problem);
     }
-    const now = Date.now();
-    const adminId = req.principal!.userId as string;
-    const bundle = storeFoldxBundle({
-      platform,
-      tempFile: temp,
-      sha256: hash.digest("hex"),
-      sizeBytes: size,
-      binaryName: check.plan.binaryName,
-      expiry: check.plan.expiry,
-      uploadedBy: adminId,
-      now,
-    });
-    // The licence position is the admin's, recorded with who and when (plan decision 6).
-    void AuditLogger.log("admin.foldx_bundle_uploaded", {
-      adminId,
-      platform,
-      version: bundle.version,
-      sha256: bundle.sha256,
-      binaryName: bundle.binaryName,
-      licenceConfirmed: true,
-      licenceConfirmedAt: now,
-      host: os.hostname(),
-    });
-    res.status(201).json({ bundle });
   });
 
   apiRouter.delete("/admin/tools/foldx", (req, res) => {

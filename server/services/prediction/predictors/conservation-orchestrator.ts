@@ -330,12 +330,12 @@ export async function fetchConservationData(
               gpnStar: finalGpn,
               gpnStarStatus: finalGpn !== null ? "live" : (gpnTabixRes?.status ?? "unavailable"),
               gpnStarMessage: gpnTabixRes?.message ?? null,
-              aouFrequency: {
+              aouFrequency: (rec.aou_ac != null || rec.aou_an != null || rec.aou_het != null || rec.aou_hom != null) ? {
                 aouAC: rec.aou_ac,
                 aouAN: rec.aou_an ?? null,
                 aouHet: rec.aou_het ?? null,
                 aouHom: rec.aou_hom ?? null
-              },
+              } : null,
               spliceProximity,
               spliceai: (rec as any).SpliceAI_pred_DS_AG !== undefined || (rec as any).spliceai_ds_ag !== undefined ? (() => {
                 const ag = safeParseFloat((rec as any).SpliceAI_pred_DS_AG ?? (rec as any).spliceai_ds_ag);
@@ -533,13 +533,23 @@ export async function fetchConservationData(
                 return hLower.includes(matchTerm3) || (matchTerm1 && hLower.includes(matchTerm1));
               });
             });
-            const hit = matchedHit || parsedData.hits[0];
-            const isExactMatch = Boolean(matchedHit);
-
+            const hit = matchedHit;
             if (!hit) {
-              conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
-              return defaultRes;
+              let finalPopEVE = popEVEScore;
+              if (finalPopEVE === null && enrichCoordinateHere) {
+                finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+              }
+              const missedRes: ConservationData = {
+                ...defaultRes,
+                consurf: consurfVal,
+                popeve: finalPopEVE,
+              };
+              if (consurfVal === null && finalPopEVE === null) {
+                conservationCache.set(cacheKey, missedRes, { ttl: 5 * 60 * 1000 });
+              }
+              return missedRes;
             }
+            const isExactMatch = true;
 
             const dbnsfp = hit.dbnsfp;
             if (dbnsfp) {
@@ -598,15 +608,21 @@ export async function fetchConservationData(
               let clinpred: number | null = null;
               let clinpredPred: string | null = null;
               if (isExactMatch && dbnsfp.clinpred) {
-                clinpred = dbnsfp.clinpred.score != null ? safeParseFloat(dbnsfp.clinpred.score) : null;
-                clinpredPred = typeof dbnsfp.clinpred.pred === "string" ? dbnsfp.clinpred.pred : null;
+                const cp = Array.isArray(dbnsfp.clinpred) ? dbnsfp.clinpred[0] : dbnsfp.clinpred;
+                const cs = Array.isArray(cp?.score) ? cp.score[0] : cp?.score;
+                const cpred = Array.isArray(cp?.pred) ? cp.pred[0] : cp?.pred;
+                clinpred = cs != null ? safeParseFloat(cs) : null;
+                clinpredPred = typeof cpred === "string" ? cpred : null;
               }
 
               let eigenPhred: number | null = null;
               let eigenRaw: number | null = null;
               if (isExactMatch && dbnsfp.eigen) {
-                eigenPhred = dbnsfp.eigen.phred_coding != null ? safeParseFloat(dbnsfp.eigen.phred_coding) : null;
-                eigenRaw = dbnsfp.eigen.raw_coding != null ? safeParseFloat(dbnsfp.eigen.raw_coding) : null;
+                const eg = Array.isArray(dbnsfp.eigen) ? dbnsfp.eigen[0] : dbnsfp.eigen;
+                const ep = Array.isArray(eg?.phred_coding) ? eg.phred_coding[0] : eg?.phred_coding;
+                const er = Array.isArray(eg?.raw_coding) ? eg.raw_coding[0] : eg?.raw_coding;
+                eigenPhred = ep != null ? safeParseFloat(ep) : null;
+                eigenRaw = er != null ? safeParseFloat(er) : null;
               }
 
               let dann: number | null = null;

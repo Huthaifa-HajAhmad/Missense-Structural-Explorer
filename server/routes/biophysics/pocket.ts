@@ -451,7 +451,13 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
 
       const computedNeighbors: any[] = [];
       for (const r of residues) {
-        if (r.resSeq === targetIndexNum) continue;
+        if (
+          r.chain === targetRes.chain &&
+          r.resSeq === targetRes.resSeq &&
+          (r.insCode || "") === (targetRes.insCode || "")
+        ) {
+          continue;
+        }
         if (targetChain && r.chain !== targetChain) continue;
         if (r.x === undefined || r.y === undefined || r.z === undefined) continue;
 

@@ -180,4 +180,22 @@ describe("Insights rail — how the case was built", () => {
     renderRail(null);
     expect(screen.getByText(/Run a variant/)).toBeInTheDocument();
   });
+
+  it("agrees across the provenance row and trace rail when pipelineRunId is unstamped", () => {
+    const unstamped = {
+      ...RESULT,
+      metadata: { ...RESULT.metadata, pipelineRunId: "run-unstamped-1" },
+    };
+
+    const row = renderRow(unstamped);
+    expect(screen.getByText("No narrative")).toBeInTheDocument();
+    expect(screen.queryByText("AI synthesis")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rule-based")).not.toBeInTheDocument();
+    row.unmount();
+
+    renderRail(unstamped);
+    expect(screen.getByTestId("insights-trace")).toHaveTextContent("No narrative yet.");
+    expect(screen.queryByText("Written by the language model.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Assembled from database evidence/)).not.toBeInTheDocument();
+  });
 });

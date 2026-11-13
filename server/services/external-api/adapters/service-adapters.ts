@@ -67,11 +67,23 @@ export class DbnsfpAdapter implements ExternalServiceAdapter<any, any> {
     try {
       const { isLocalDbnsfpAvailable } = await import("../../prediction/dbnsfp_local.ts");
       const localAvailable = isLocalDbnsfpAvailable();
-      const latencyMs = Math.round(performance.now() - start);
+      if (localAvailable) {
+        return {
+          healthy: true,
+          latencyMs: Math.round(performance.now() - start),
+          message: "Local SQLite dbNSFP Active",
+          timestamp: new Date().toISOString()
+        };
+      }
+      const res = await fetchWithRetry("https://query.dbnsfp.org/", {
+        timeout: 3000,
+        probe: true,
+        signal
+      }, 1);
       return {
-        healthy: true,
-        latencyMs,
-        message: localAvailable ? "Local SQLite dbNSFP Active" : "Remote dbNSFP Query Fallback Active",
+        healthy: res.ok,
+        latencyMs: Math.round(performance.now() - start),
+        message: res.ok ? "Remote dbNSFP Query Fallback Active" : `HTTP ${res.status}`,
         timestamp: new Date().toISOString()
       };
     } catch (err: any) {
@@ -103,7 +115,7 @@ export class GenosAdapter implements ExternalServiceAdapter<any, any> {
   async healthCheck(signal?: AbortSignal): Promise<HealthStatus> {
     const start = performance.now();
     try {
-      const res = await fetchWithRetry("https://genos.app/api/v1/health", {
+      const res = await fetchWithRetry("https://query.genos.us/", {
         timeout: 3000,
         probe: true,
         signal

@@ -1,4 +1,5 @@
 import type { Server } from "http";
+import { CONFIG } from "./config.ts";
 
 /**
  * A promise that fails with nobody listening is logged, and the server keeps running.
@@ -26,7 +27,7 @@ export interface ShutdownHook {
  * Order: stop accepting connections, run the hooks (the job queue, worker pools and temp files close
  * here), then close the connections still open (event streams, idle keep-alives) and exit. Accepting
  * new requests while the hooks run used to send them to a queue whose database was already closed.
- * A 10 s watchdog still forces the exit.
+ * A configurable watchdog still forces the exit.
  */
 export function registerGracefulShutdown(
   serverInstance: Pick<Server, "close"> & Partial<Pick<Server, "closeAllConnections">>,
@@ -41,11 +42,12 @@ export function registerGracefulShutdown(
 
     console.log(`[Shutdown] Received ${signal}. Starting graceful shutdown...`);
 
-    // 10-second unreferenced watchdog timer to prevent hung shutdowns
+    const watchdogMs = CONFIG.timeouts.gracefulShutdownWatchdogMs;
+    // Unreferenced watchdog timer prevents hung shutdowns while letting clean exits finish early
     const watchdog = setTimeout(() => {
-      console.error("[Shutdown] Force exiting after 10-second timeout.");
+      console.error(`[Shutdown] Force exiting after ${watchdogMs}ms timeout.`);
       process.exit(1);
-    }, 10000);
+    }, watchdogMs);
     if (typeof watchdog.unref === "function") {
       watchdog.unref();
     }

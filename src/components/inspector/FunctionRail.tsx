@@ -117,12 +117,19 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
             <Step key={i} n={i + 1} warn={s.warn}>
               {i === 1 && s.strong ? (
                 <span>
-                  <strong>{s.strong}</strong> {s.text}
+                  <strong>{s.strong}</strong>
+                  {s.warn ? ": " : " "}
+                  {s.text}
                 </span>
               ) : (
                 <span>
                   {s.text}
-                  {s.strong ? <strong>{s.strong}</strong> : null}
+                  {s.strong ? (
+                    <>
+                      {s.text && !/\s$/.test(s.text) ? " " : ""}
+                      <strong>{s.strong}</strong>
+                    </>
+                  ) : null}
                 </span>
               )}
             </Step>

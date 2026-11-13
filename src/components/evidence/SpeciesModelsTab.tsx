@@ -39,7 +39,7 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
     </>}
     {(!w.enabled || w.comparison || w.view === 'phenotypes') && <>
     {phenotypes?.mapping === 'unavailable' && <p className="cx-notice">Cross-species term mapping is unavailable. Curated phenotype records remain available without disease-overlap claims.</p>}
-    {incomplete.length > 0 && <p className="cx-notice">Phenotypes could not be read completely for {[...new Set(incomplete.map(s => s.symbol))].join(', ')}. <button type="button" className="viz-action" onClick={c.retryPhenotypes}>Retry phenotypes</button></p>}
+    {incomplete.length > 0 && <p className="cx-notice">Phenotypes could not be read completely for {[...new Set(incomplete.map(s => s.symbol))].join(', ')}. <button type="button" className="viz-action" onClick={() => void c.retryPhenotypes()}>Retry phenotypes</button></p>}
     {omitted > 0 && w.enabled && !w.comparison && w.view === 'phenotypes' && <p className="cx-notice">{omitted} returned phenotype {omitted === 1 ? 'summary' : 'summaries'} could not be resolved into the displayed term records. Coverage is partial; displayed counts are not the full annotation set.</p>}
     </>}
     <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}{(!w.enabled || w.comparison) && <ContextExplorer tab="species-models" rows={rows}

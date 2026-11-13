@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
@@ -284,9 +284,11 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const onSecondaryRef = useRef(onSecondaryStructure);
   onSecondaryRef.current = onSecondaryStructure;
 
-  const colourKey = JSON.stringify(colour);
+  const colourKey = useMemo(() => JSON.stringify(colour), [colour]);
   // A length-only key left an existing ESM3 heatmap stale after a same-length rerun.
-  const scoresKey = esm3Scores ? JSON.stringify(esm3Scores) : "";
+  const scoresKey = useMemo(() => (esm3Scores ? JSON.stringify(esm3Scores) : ""), [esm3Scores]);
+  const companionKey = useMemo(() => companionResidues.join(","), [companionResidues]);
+  const pocketKey = useMemo(() => pocketResidueIndices.join(","), [pocketResidueIndices]);
   const filterCut = plddtScale && plddtFilter !== "none" ? Number(plddtFilter) / (plddtScale === 1 ? 100 : 1) : null;
   // Alpha/visibility are representation properties, not colour-theme properties. Only these
   // changes require rebuilding visual components; palette and ESM3 score changes do not.
@@ -294,13 +296,20 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   /** Residue numbers can be addressed on the canvas: verified UniProt numbering, site absent or not. */
   const residueNumbersTrusted = residueNumbering === "uniprot" || canAddressVariantSite;
   const ribbonAlphaOverride = closeUpActive ? 0.22 : null;
-  const visualStructureKey = JSON.stringify({
-    filterCut,
-    primaryAlpha: colour.primary.theme === "uniform" ? colour.primary.alpha : 1,
-    secondaryAlpha: colour.secondary?.theme === "uniform" ? colour.secondary.alpha : 1,
-    secondaryCartoon: colour.secondaryCartoon,
-    closeUpActive,
-  });
+  const primaryUniformAlpha = colour.primary.theme === "uniform" ? colour.primary.alpha : 1;
+  const secondaryUniformAlpha = colour.secondary?.theme === "uniform" ? colour.secondary.alpha : 1;
+  const secondaryCartoon = colour.secondaryCartoon;
+  const visualStructureKey = useMemo(
+    () =>
+      JSON.stringify({
+        filterCut,
+        primaryAlpha: primaryUniformAlpha,
+        secondaryAlpha: secondaryUniformAlpha,
+        secondaryCartoon,
+        closeUpActive,
+      }),
+    [filterCut, primaryUniformAlpha, secondaryUniformAlpha, secondaryCartoon, closeUpActive]
+  );
 
   /* ── Load and draw ───────────────────────────────────────────────────── */
   useEffect(() => {
@@ -796,7 +805,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       if (container) delete container.dataset.companionLabels;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionResidues.join(","), showPolarContacts, show3DLabels, suppressVariantLabel, labelAllCompanions, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, companionKey, showPolarContacts, show3DLabels, suppressVariantLabel, labelAllCompanions, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketKey]);
 
   /** Frames a residue (or its 5 Å neighbourhood) without changing any selection. */
   const focusResidue = (index: number, scope: "residue" | "neighbourhood" = "residue") => {

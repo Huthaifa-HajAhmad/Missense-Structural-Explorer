@@ -29,12 +29,14 @@ ANALYSIS_DB_WORKERS,server/services/infra/analysis-db-pool.ts
 APP_API_TOKEN,server/auth/principal.ts
 APP_API_TOKEN,server/config.ts
 APP_API_TOKEN,server/middleware.ts
+APP_API_TOKEN,server/routes/health.ts
 APP_SESSION_SECRET,server/auth/user-secrets.ts
 APP_SESSION_SECRET,server/config.ts
 APP_SESSION_SECRET,server/routes/auth.ts
 APP_SESSION_SECRET,server/routes/session.ts
 APP_SESSION_SECRET,server/services/orchestration/core-identity.ts
 APP_SESSION_SECRET,server/utils/crypto-session.ts
+APP_SESSION_SECRET,server/utils/security.ts
 AUDIT_IP_SALT,server/utils/security.ts
 AUDIT_LOG_PATH,server/utils/audit-logger.ts
 AUTH_MODE,server/auth/config.ts
@@ -100,9 +102,8 @@ GPN_API_URL,server/services/external-api/gpn.ts
 HOME,server/services/structure/pocket/java-detector.ts
 HTTP_DEFAULT_TIMEOUT_MS,server/config.ts
 JAPANFOLD_API_KEY,server/config.ts
-JAPANFOLD_API_KEY,server/services/external-api/japanfold.ts
+JAPANFOLD_API_URL,server/config.ts
 JAPANFOLD_API_URL,server/routes/capabilities.ts
-JAPANFOLD_API_URL,server/services/external-api/japanfold.ts
 JAPANFOLD_FOLDING_TIMEOUT_MS,server/config.ts
 JAPANFOLD_URL,server/config.ts
 JAPANFOLD_ZEROSHOT_TIMEOUT_MS,server/config.ts

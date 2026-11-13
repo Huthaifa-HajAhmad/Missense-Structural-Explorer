@@ -431,6 +431,13 @@ class SqliteInFlightPrewarms {
       return this.releaseInMemory(key, token, now);
     }
   }
+
+  close(): void {
+    try {
+      this.db?.close();
+    } catch (_) {}
+    this.db = null;
+  }
 }
 
 const sqlitePrewarms = new SqliteInFlightPrewarms();
@@ -505,3 +512,24 @@ class RedisInFlightPrewarms {
 }
 
 export const inFlightPrewarms = new RedisInFlightPrewarms();
+
+/** Closes shared-state SQLite and optional Redis clients on server shutdown. */
+export async function closeStateStores(): Promise<void> {
+  sqlitePrewarms.close();
+  const clients = [redisClient, redisPub, redisSub];
+  redisClient = null;
+  redisPub = null;
+  redisSub = null;
+  await Promise.allSettled(
+    clients.map(async (client) => {
+      if (!client) return;
+      try {
+        await client.quit();
+      } catch {
+        try {
+          client.disconnect();
+        } catch {}
+      }
+    }),
+  );
+}

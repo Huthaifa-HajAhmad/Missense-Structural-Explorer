@@ -12,6 +12,7 @@ import {
   Upload
 } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
+import { downloadBlob } from "../../../lib/download";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
 import { useAppVersion, versionLabel } from "../../../hooks/useAppVersion";
 import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
@@ -98,16 +99,11 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
       if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key)) continue;
       payload[key] = (settings as unknown as Record<string, unknown>)[key];
     }
-    const blob = new Blob(
-      [JSON.stringify({ __type: "missense-settings", version: 1, settings: payload }, null, 2)],
-      { type: "application/json" }
+    downloadBlob(
+      "missense-settings.json",
+      "application/json",
+      JSON.stringify({ __type: "missense-settings", version: 1, settings: payload }, null, 2)
     );
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "missense-settings.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
     flashStatus("Settings exported. API tokens and credentials are never included.");
   };
 

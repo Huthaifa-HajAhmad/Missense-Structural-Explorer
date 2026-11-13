@@ -1,4 +1,6 @@
 import os
+import threading
+import weakref
 import torch
 import numpy as np
 from fastapi import APIRouter, HTTPException
@@ -272,9 +274,21 @@ def _predict_esm3_remote(req: Esm3Request, sequence: str, pos: int, mut: str):
 
 # One ESM-3 request at a time, like the ESM-2 and SaProt routes: on a 2-thread CPU host, concurrent
 # fallback passes only slow each other down and push every one of them past its budget.
-_inference_semaphore = asyncio.Semaphore(1)
+_loop_semaphores: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_semaphore_lock = threading.Lock()
+
+
+def _get_inference_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    with _semaphore_lock:
+        sem = _loop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(1)
+            _loop_semaphores[loop] = sem
+        return sem
+
 
 @router.post("/predict/esm3", response_model=Esm3Response)
 async def predict_esm3(req: Esm3Request):
-    async with _inference_semaphore:
+    async with _get_inference_semaphore():
         return with_remote_failure(await asyncio.to_thread(predict_esm3_sync, req), "biohub")

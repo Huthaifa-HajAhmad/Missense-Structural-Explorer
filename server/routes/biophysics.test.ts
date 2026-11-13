@@ -399,6 +399,55 @@ END`;
       expect(jsonVal.error.message).toContain("Query parameter 'jobs'");
     });
 
+    it("answers a bad subscription with a real 400 before any stream headers are flushed", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/jobs/events");
+      if (!route || !route.route) throw new Error("Route /jobs/events not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const tooMany = Array.from({ length: 51 }, (_, i) => `job-${i}`).join(",");
+      for (const jobs of [tooMany, "ok-1,bad id!", "a/../b"]) {
+        let statusCode = 200;
+        let jsonVal: any = null;
+        const res: any = {
+          setHeader: vi.fn(),
+          flushHeaders: vi.fn(),
+          write: vi.fn(),
+          status: (code: number) => { statusCode = code; return res; },
+          json: (data: any) => { jsonVal = data; return res; }
+        };
+        handler({ query: { jobs }, on: vi.fn() } as any, res, () => {});
+        expect(statusCode).toBe(400);
+        expect(jsonVal.error.code).toBe("BAD_REQUEST");
+        expect(res.flushHeaders).not.toHaveBeenCalled();
+        expect(res.write).not.toHaveBeenCalled();
+      }
+    });
+
+    it("refuses non-admin cancellation of SYSTEM_OWNER prewarm jobs", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/jobs/:jobId/cancel");
+      if (!route || !route.route) throw new Error("Route /jobs/:jobId/cancel not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const { BiophysicalJobQueue } = await import("../services/biophysical-queue.ts");
+      const queue = BiophysicalJobQueue.getInstance();
+      const ownerSpy = vi.spyOn(queue, "getJobOwner").mockResolvedValueOnce("__system__" as any);
+      const cancelSpy = vi.spyOn(queue, "cancelFor");
+
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status: (code: number) => { statusCode = code; return res; },
+        json: (data: any) => { jsonVal = data; return res; }
+      };
+      await handler({ params: { jobId: "sys-prewarm-1" }, principal: { kind: "service", userId: "service" } } as any, res, () => {});
+      expect(statusCode).toBe(403);
+      expect(jsonVal.error.code).toBe("FORBIDDEN");
+      expect(cancelSpy).not.toHaveBeenCalled();
+
+      ownerSpy.mockRestore();
+      cancelSpy.mockRestore();
+    });
+
     it("should resolve pdbRef from cache in /pocket-detect", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/pocket-detect");
       expect(route).toBeDefined();

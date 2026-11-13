@@ -14,7 +14,27 @@ export default defineConfig(() => {
     },
     build: {
       minify: true,
-      sourcemap: false
+      sourcemap: false,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const norm = id.replace(/\\/g, "/");
+            if (!norm.includes("/node_modules/")) return undefined;
+            if (norm.includes("/node_modules/molstar/")) return "vendor-molstar";
+            if (norm.includes("/node_modules/lucide-react/")) return "vendor-icons";
+            if (norm.includes("/node_modules/motion/") || norm.includes("/node_modules/framer-motion/")) return "vendor-motion";
+            if (norm.includes("/node_modules/@tanstack/")) return "vendor-tanstack";
+            if (
+              norm.includes("/node_modules/react/") ||
+              norm.includes("/node_modules/react-dom/") ||
+              norm.includes("/node_modules/scheduler/")
+            ) {
+              return "vendor-react";
+            }
+            return undefined;
+          }
+        }
+      }
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

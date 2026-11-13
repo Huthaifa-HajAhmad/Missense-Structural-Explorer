@@ -81,11 +81,13 @@ function execFileAsync(
   const target = lowPriority ? lowPriorityTarget(direct) : direct;
   return new Promise((resolve, reject) => {
     let killed = false;
+    let cleanSignalListener: (() => void) | undefined;
     const child = execFile(target.file, target.args, { maxBuffer: 16 * 1024 * 1024, ...execOptions }, (err, stdout, stderr) => {
+      cleanSignalListener?.();
       if (err) {
         if (!killed) {
           killed = true;
-          killProcessTree(child.pid);
+          killProcessTree(child?.pid);
         }
         // execFile hands the output it collected to the callback, not to the error: a rejection that
         // dropped it left every caller reading `err.stdout` / `err.stderr` as undefined, so a killed
@@ -98,7 +100,7 @@ function execFileAsync(
     });
     // Its memory counts toward the queue job running it (job-meter.ts); a no-op outside a job.
     meterChildProcess(child);
-    if (lowPriority && target === direct && child.pid) {
+    if (lowPriority && target === direct && child?.pid) {
       try { os.setPriority(child.pid, os.constants.priority.PRIORITY_LOW); } catch { /* best effort: no nice on this host */ }
     }
 
@@ -106,15 +108,15 @@ function execFileAsync(
       const onAbort = () => {
         if (!killed) {
           killed = true;
-          killProcessTree(child.pid);
+          killProcessTree(child?.pid);
         }
       };
       options.signal.addEventListener("abort", onAbort);
-      const cleanListener = () => {
+      cleanSignalListener = () => {
         options.signal?.removeEventListener("abort", onAbort);
       };
-      child.on("exit", cleanListener);
-      child.on("error", cleanListener);
+      child?.on?.("exit", cleanSignalListener);
+      child?.on?.("error", cleanSignalListener);
     }
   });
 }
@@ -138,7 +140,29 @@ export interface FoldxOptions {
  */
 export type FoldxPhaseReporter = (phase: "repairing" | "modelling" | "finalizing") => void | Promise<void>;
 
-const inFlightFoldx = new Map<string, Promise<any>>();
+interface InFlightFoldxEntry {
+  promise: Promise<any>;
+  controller: AbortController;
+  waiters: number;
+  jobDir: string;
+  cleanupDeferred: boolean;
+}
+
+const inFlightFoldx = new Map<string, InFlightFoldxEntry>();
+
+/**
+ * Mark an in-flight deduplicated FoldX jobDir so the original owner caller skips early cleanup
+ * if it aborts while another waiter is still sharing the execution directory.
+ */
+export function deferFoldxJobDirCleanup(jobDir: string): boolean {
+  for (const entry of inFlightFoldx.values()) {
+    if (entry.jobDir === jobDir && entry.waiters > 0) {
+      entry.cleanupDeferred = true;
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * BuildModel writes a paired wild type beside every variant it builds: `WT_wt_1_0.pdb` for
@@ -187,40 +211,90 @@ export async function generateMutantPdb(
     return cached;
   }
 
-  let promise = inFlightFoldx.get(cacheKey);
-  if (!promise) {
-    promise = (async () => {
+  if (signal?.aborted) {
+    throw new Error("Aborted");
+  }
+
+  let entry = inFlightFoldx.get(cacheKey);
+  if (!entry) {
+    const controller = new AbortController();
+    const created: InFlightFoldxEntry = {
+      promise: Promise.resolve(),
+      controller,
+      waiters: 0,
+      jobDir,
+      cleanupDeferred: false,
+    };
+    created.promise = (async () => {
       try {
         const seed = options?.seed !== undefined ? options.seed : 12345;
-        const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, undefined, { ...options, seed }, onPhase);
+        const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, controller.signal, { ...options, seed }, onPhase);
         writeMutantToCache(cacheKey, result);
         return result;
       } finally {
         inFlightFoldx.delete(cacheKey);
+        if (created.cleanupDeferred) {
+          fs.promises.rm(created.jobDir, { recursive: true, force: true }).catch(() => {});
+        }
       }
     })();
-    inFlightFoldx.set(cacheKey, promise);
+    // Prevent unhandled rejections if the final waiter aborts or detaches before observation
+    created.promise.catch(() => {});
+    entry = created;
+    inFlightFoldx.set(cacheKey, entry);
   } else {
     console.log(`[Biophysical Deduplication] Joining in-flight FoldX task for cache key: ${cacheKey}`);
   }
 
-  if (signal) {
-    return new Promise((resolve, reject) => {
-      const onAbort = () => reject(new Error("Aborted"));
-      signal.addEventListener("abort", onAbort, { once: true });
-      promise!
-        .then((res) => {
-          signal.removeEventListener("abort", onAbort);
-          resolve(res);
-        })
-        .catch((err) => {
-          signal.removeEventListener("abort", onAbort);
-          reject(err);
-        });
-    });
+  entry.waiters++;
+
+  if (!signal) {
+    try {
+      return await entry.promise;
+    } finally {
+      entry.waiters--;
+    }
   }
 
-  return promise;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      entry!.waiters--;
+      if (entry!.waiters <= 0) {
+        // Last caller left: abort the shared FoldX execution and wait for it to unwind
+        // (killing any child process cleanly) before rejecting and allowing jobDir cleanup.
+        entry!.controller.abort();
+        entry!.promise.catch(() => {}).finally(() => reject(new Error("Aborted")));
+      } else {
+        reject(new Error("Aborted"));
+      }
+    };
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    entry!.promise
+      .then((res) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        entry!.waiters--;
+        resolve(res);
+      })
+      .catch((err) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        entry!.waiters--;
+        reject(err);
+      });
+  });
 }
 
 /**
@@ -514,52 +588,12 @@ export async function generateMutantPdbInternal(
     throw new Error(`Mutation mismatch: expected wild-type residue at position ${pos} is ${wt1} (${expectedWt3}), but PDB structure contains ${targetRes.resName3}.`);
   }
 
-  // Background work (a speculative RepairPDB) yields the slot to this job rather than making it wait.
-  preemptBackgroundFoldx();
-  await biophysicalSemaphore.acquire(CONFIG.timeouts.foldxSemaphoreWaitMs, signal);
-  try {
-  const fullWtPath = path.join(jobDir, "wt.pdb");
-  const fullMutPath = path.join(jobDir, "individual_list.txt");
-
-  // 1. Write WT PDB data to temporary file (cleaned of HETATMs to prevent RepairPDB crashes)
-  await fs.promises.mkdir(jobDir, { recursive: true });
   const cleanedWt = cleanPdbForFoldX(wtPdb);
-  await fs.promises.writeFile(fullWtPath, cleanedWt, "utf8");
-
   /**
    * Identity of the STRUCTURE, computed from the same normalised text the mutant cache hashes.
    * Used for the repair cache, which must not depend on the mutation (see `cache.ts`).
    */
   const pdbHash = crypto.createHash("sha256").update(cleanedWt).digest("hex");
-
-  // Construct mutation list using resolved chain and insertion code (BIO-4)
-  const insCode = targetRes.insCode || "";
-  const mutLine = `${wt1}${resolvedChain}${pos}${insCode}${mut1};\n`;
-  await fs.promises.writeFile(fullMutPath, mutLine, "utf8");
-
-  const { foldxBin, extraArgs } = prepareFoldxWorkdir(jobDir, options);
-
-  let foldxSuccess = false;
-  let mutantPdbContent = "";
-  /** BuildModel's paired wild type for the same run (`WT_wt_1_0.pdb`), or null when FoldX wrote none. */
-  let wtReferencePdbContent: string | null = null;
-  let overallDdG: number | null = null;
-  let overallSd: number = 0;
-  let status: "success" = "success";
-  let parsedResult: FoldxParsedResult | null = null;
-  let foldxRepairFailed = false;
-  let foldxRepairSkipped = false;
-  /**
-   * Distinguishes "this structure was repaired just now" from "this structure was repaired once and
-   * the coordinates were reused", and names WHICH heuristic skipped repair when it was skipped.
-   * Both travel into `energetics` so a surface can disclose them: a ΔΔG computed on an
-   * un-repaired template is a weaker claim, and the reason it was not repaired is either a
-   * deliberate cost guard (large structure) or a deliberate pLDDT guard (AlphaFold model).
-   */
-  let foldxRepairSkippedReason: "repair-exceeds-budget" | "cached-repair-rejected" | undefined;
-  let foldxRepairCached = false;
-  /** What RepairPDB did, for the failure record (see FoldxRunContext.repair). Unset until it is decided. */
-  let repairDiagnostic: FoldxRepairDiagnostic | undefined;
   const residueCount = pdbResidues.length;
   /**
    * Which repair this run is meant to get, from the template's size alone (`foldxIntendedRepairMode`) so
@@ -576,7 +610,83 @@ export async function generateMutantPdbInternal(
     throw new Error(`Target residue ${pos} on chain ${resolvedChain} has no atoms left after the structure was cleaned for FoldX.`);
   }
   const repairCacheKey = getRepairCacheKey(pdbHash, options, localRepair ? repairScope : undefined);
-  const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
+  const { foldxBin: detectedFoldxBin } = detectFoldxBinaryAndDir();
+  const foldxEmulated = getFoldxExecutionTarget(detectedFoldxBin, []).file !== detectedFoldxBin;
+
+  // Pre-flight PDB validation: check for non-standard content that could crash RepairPDB
+  const hasStandardResidues = /\bATOM\s+.*?\b(?:ALA|ARG|ASN|ASP|CYS|GLN|GLU|GLY|HIS|ILE|LEU|LYS|MET|PHE|PRO|SER|THR|TRP|TYR|VAL)/i.test(wtPdb);
+  const hasTerminations = /HETATM|WAT|HOH|SOL|UNK|NONSTD/i.test(wtPdb);
+  let foldxRepairFailed = false;
+  if (!hasStandardResidues && pdbResidues.length > 0) {
+    console.warn("[Biophysical Modeling] PDB has ATOM lines but no standard amino acid residues detected — RepairPDB will likely fail.");
+    foldxRepairFailed = true;
+  } else if (hasTerminations) {
+    console.log(`[Biophysical Modeling] PDB contains heteroatoms (${hasTerminations}), RepairPDB will attempt cleanup.`);
+  }
+
+  let foldxRepairSkipped = false;
+  let foldxRepairSkippedReason: "repair-exceeds-budget" | "cached-repair-rejected" | undefined;
+  let foldxRepairCached = false;
+  let repairDiagnostic: FoldxRepairDiagnostic | undefined;
+  let prefetchedRepairPdb: string | null = null;
+
+  /**
+   * Check the repair cache and, when eligible, wait for an in-flight spare-core repair BEFORE
+   * preempting background work or acquiring the FoldX semaphore slot so joining repairs never hold
+   * the execution slot hostage behind non-CPU waits.
+   */
+  const cachedRepair = await getRepairedStructureFromCache(repairCacheKey);
+  if (cachedRepair) {
+    console.log(`[Biophysical Modeling] Reusing cached FoldX-repaired template (${cachedRepair.pdb.length} bytes) — skipping RepairPDB.`);
+    prefetchedRepairPdb = cachedRepair.pdb;
+    foldxRepairCached = true;
+    repairDiagnostic = { outcome: "reused" };
+  } else if (!localRepair && !repairFitsBudget({ residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated })) {
+    const joined = await joinInflightRepair(repairCacheKey, {
+      residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated, jobStartedAt, signal, onPhase
+    });
+    if (joined?.pdb) {
+      prefetchedRepairPdb = joined.pdb;
+      foldxRepairCached = true;
+      repairDiagnostic = { outcome: "reused", elapsedMs: joined.waitedMs };
+    } else {
+      foldxRepairSkipped = true;
+      foldxRepairSkippedReason = "repair-exceeds-budget";
+      repairDiagnostic = { outcome: "skipped", skipReason: foldxRepairSkippedReason, ...(joined ? { elapsedMs: joined.waitedMs } : {}) };
+      console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${residueCount} residues (${countIncompleteResidues(cleanedWt)} incomplete): ${foldxRepairSkippedReason}; background repair may run within its own budget.`);
+    }
+  }
+
+  if (signal?.aborted) {
+    throw new Error("Aborted");
+  }
+
+  // Background work (a speculative RepairPDB) yields the slot to this job rather than making it wait.
+  preemptBackgroundFoldx();
+  await biophysicalSemaphore.acquire(CONFIG.timeouts.foldxSemaphoreWaitMs, signal);
+  try {
+  const fullWtPath = path.join(jobDir, "wt.pdb");
+  const fullMutPath = path.join(jobDir, "individual_list.txt");
+
+  // 1. Write WT PDB data to temporary file (cleaned of HETATMs to prevent RepairPDB crashes)
+  await fs.promises.mkdir(jobDir, { recursive: true });
+  await fs.promises.writeFile(fullWtPath, prefetchedRepairPdb ?? cleanedWt, "utf8");
+
+  // Construct mutation list using resolved chain and insertion code (BIO-4)
+  const insCode = targetRes.insCode || "";
+  const mutLine = `${wt1}${resolvedChain}${pos}${insCode}${mut1};\n`;
+  await fs.promises.writeFile(fullMutPath, mutLine, "utf8");
+
+  const { foldxBin, extraArgs } = prepareFoldxWorkdir(jobDir, options);
+
+  let foldxSuccess = false;
+  let mutantPdbContent = "";
+  /** BuildModel's paired wild type for the same run (`WT_wt_1_0.pdb`), or null when FoldX wrote none. */
+  let wtReferencePdbContent: string | null = null;
+  let overallDdG: number | null = null;
+  let overallSd: number = 0;
+  let status: "success" = "success";
+  let parsedResult: FoldxParsedResult | null = null;
   /**
    * Sized to this structure, host AND template (see budget.ts): a flat 180 s killed a run that needed
    * 214 s. It depends on how many incomplete residues BuildModel is handed, which RepairPDB changes, so
@@ -585,54 +695,13 @@ export async function generateMutantPdbInternal(
   let buildModelBudget = buildModelBudgetMs({ residueCount, numberOfRuns: 5, emulated: foldxEmulated });
 
   try {
-    // Pre-flight PDB validation: check for non-standard content that could crash RepairPDB
-    const hasStandardResidues = /\bATOM\s+.*?\b(?:ALA|ARG|ASN|ASP|CYS|GLN|GLU|GLY|HIS|ILE|LEU|LYS|MET|PHE|PRO|SER|THR|TRP|TYR|VAL)/i.test(wtPdb);
-    const hasTerminations = /HETATM|WAT|HOH|SOL|UNK|NONSTD/i.test(wtPdb);
-    if (!hasStandardResidues && pdbResidues.length > 0) {
-      console.warn("[Biophysical Modeling] PDB has ATOM lines but no standard amino acid residues detected — RepairPDB will likely fail.");
-      foldxRepairFailed = true;
-    } else if (hasTerminations) {
-      console.log(`[Biophysical Modeling] PDB contains heteroatoms (${hasTerminations}), RepairPDB will attempt cleanup.`);
-    }
-
-    {
-      /**
-       * Repair is a function of the STRUCTURE, not of the mutation, so it is cached on its own key
-       * and reused across variants. Without this every new substitution on the same template paid
-       * the full repack again — measured at 205 s of a 208 s run (see `cache.ts`).
-       *
-       * The repaired coordinates are still produced by FoldX RepairPDB; a cache hit only skips
-       * repeating identical work, and the payload says so (`foldxRepairCached`) rather than
-       * pretending a fresh minimisation happened.
-       */
-      const cachedRepair = await getRepairedStructureFromCache(repairCacheKey);
-
-      if (cachedRepair) {
-        console.log(`[Biophysical Modeling] Reusing cached FoldX-repaired template (${cachedRepair.pdb.length} bytes) — skipping RepairPDB.`);
-        await fs.promises.writeFile(fullWtPath, cachedRepair.pdb, "utf8");
+    if (!prefetchedRepairPdb && !foldxRepairSkipped) {
+      const lateCachedRepair = await getRepairedStructureFromCache(repairCacheKey);
+      if (lateCachedRepair) {
+        console.log(`[Biophysical Modeling] Reusing cached FoldX-repaired template (${lateCachedRepair.pdb.length} bytes) — skipping RepairPDB.`);
+        await fs.promises.writeFile(fullWtPath, lateCachedRepair.pdb, "utf8");
         foldxRepairCached = true;
         repairDiagnostic = { outcome: "reused" };
-      } else if (!localRepair && !repairFitsBudget({ residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated })) {
-        // A whole-chain repair that would run to its cap and be killed (see repairFitsBudget) is not started.
-        // It happens on a slow host with a crystal structure that has many truncated side chains. If the
-        // background repair of this structure is nearly done, wait for it; otherwise BuildModel completes the
-        // side chains itself and the reason is disclosed. That result did not get the repair its key names,
-        // so it is shown but not cached (`writeMutantToCache`); the background repair fills the repair
-        // cache, and the next request then gets the whole-chain result the key promises.
-        const joined = await joinInflightRepair(repairCacheKey, {
-          residueCount, incompleteResidues: countIncompleteResidues(cleanedWt), emulated: foldxEmulated, jobStartedAt, signal, onPhase
-        });
-        if (joined?.pdb) {
-          await fs.promises.writeFile(fullWtPath, joined.pdb, "utf8");
-          foldxRepairCached = true;
-          repairDiagnostic = { outcome: "reused", elapsedMs: joined.waitedMs };
-        } else {
-          foldxRepairSkipped = true;
-          foldxRepairSkippedReason = "repair-exceeds-budget";
-          // A wait for the background repair that ran out is recorded: it shortened BuildModel's share of the job.
-          repairDiagnostic = { outcome: "skipped", skipReason: foldxRepairSkippedReason, ...(joined ? { elapsedMs: joined.waitedMs } : {}) };
-          console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${residueCount} residues (${countIncompleteResidues(cleanedWt)} incomplete): ${foldxRepairSkippedReason}; background repair may run within its own budget.`);
-        }
       } else if (repairRecentlyFailed(repairCacheKey)) {
         // The last attempt at exactly this repair failed. Repeating it costs the whole cap and returns
         // the same answer; serve the unrepaired template (disclosed, never cached under this key) and

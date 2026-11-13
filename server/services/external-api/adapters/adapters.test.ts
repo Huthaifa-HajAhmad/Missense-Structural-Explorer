@@ -63,7 +63,10 @@ describe("External Service Adapters & Registry Tests", () => {
       if (u.includes("einfo.fcgi")) {
         return new Response("{}", { status: 200 });
       }
-      if (u.includes("genos.app")) {
+      if (u.includes("query.genos.us")) {
+        return new Response("{}", { status: 200 });
+      }
+      if (u.includes("query.dbnsfp.org")) {
         return new Response("{}", { status: 200 });
       }
       if (u.includes("uniprotkb")) {
@@ -196,6 +199,18 @@ describe("SidecarAdapter health probe — cold start vs readiness", () => {
     // Absence of a probe must never be dressed up as a cold start: "offline" and "warming" call
     // for different reactions from whoever reads this.
     expect(status.state).toBeUndefined();
+  });
+
+  it("reports dbnsfp unhealthy when local SQLite is unavailable and remote probe fails", async () => {
+    vi.doMock("../../prediction/dbnsfp_local.ts", () => ({
+      isLocalDbnsfpAvailable: () => false
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
+    const { DbnsfpAdapter } = await import("./service-adapters.ts");
+    const status = await new DbnsfpAdapter().healthCheck();
+    expect(status.healthy).toBe(false);
+    expect(status.message).toContain("503");
+    vi.doUnmock("../../prediction/dbnsfp_local.ts");
   });
 });
 

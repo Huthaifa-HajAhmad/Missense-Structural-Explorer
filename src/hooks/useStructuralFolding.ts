@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { StructuralMetrics } from "../types";
 import { getErrorMessage } from "../variantAnalysisUtils";
 import {
@@ -17,7 +17,27 @@ interface EsmFoldCacheEntry {
   engines: DeNovoEngines;
 }
 
-const esmFoldGlobalCache: Record<string, EsmFoldCacheEntry> = {};
+const MAX_ESMFOLD_CACHE_ENTRIES = 12;
+const esmFoldGlobalCache = new Map<string, EsmFoldCacheEntry>();
+
+function readEsmFoldCache(key: string): EsmFoldCacheEntry | undefined {
+  const hit = esmFoldGlobalCache.get(key);
+  if (!hit) return undefined;
+  // Refresh LRU recency.
+  esmFoldGlobalCache.delete(key);
+  esmFoldGlobalCache.set(key, hit);
+  return hit;
+}
+
+function writeEsmFoldCache(key: string, entry: EsmFoldCacheEntry): void {
+  if (esmFoldGlobalCache.has(key)) {
+    esmFoldGlobalCache.delete(key);
+  } else if (esmFoldGlobalCache.size >= MAX_ESMFOLD_CACHE_ENTRIES) {
+    const oldest = esmFoldGlobalCache.keys().next().value;
+    if (oldest !== undefined) esmFoldGlobalCache.delete(oldest);
+  }
+  esmFoldGlobalCache.set(key, entry);
+}
 
 export interface UseStructuralFoldingOptions {
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
@@ -51,8 +71,21 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
   const [isEsmFolding, setIsEsmFolding] = useState<boolean>(false);
   const [esmFoldingError, setEsmFoldingError] = useState<string | null>(null);
   const [active3dModelTab, setActive3dModelTab] = useState<"alphafold2" | "esmfold2" | "esm3">("alphafold2");
+  const activeControllerRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      requestSeqRef.current += 1;
+      activeControllerRef.current?.abort();
+      activeControllerRef.current = null;
+    };
+  }, []);
 
   const resetEsmFoldState = useCallback(() => {
+    requestSeqRef.current += 1;
+    activeControllerRef.current?.abort();
+    activeControllerRef.current = null;
     setEsmFoldWtPdb(null);
     setEsmFoldMutPdb(null);
     setEsmFoldAlignedPdb(null);
@@ -86,10 +119,14 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
       return;
     }
 
-    const cacheKey = `${uniprotIdArg}_${variantArg}`;
+    const alignmentScope = useVariantAnalysisStore.getState().esmAlignmentScope ?? "local";
+    const cacheKey = `${uniprotIdArg}_${variantArg}_${alignmentScope}`;
 
-    if (esmFoldGlobalCache[cacheKey]) {
-      const cached = esmFoldGlobalCache[cacheKey];
+    const cached = readEsmFoldCache(cacheKey);
+    if (cached) {
+      requestSeqRef.current += 1;
+      activeControllerRef.current?.abort();
+      activeControllerRef.current = null;
       setEsmFoldWtPdb(cached.wtPdb);
       setEsmFoldMutPdb(cached.mutPdb);
       setEsmFoldAlignedPdb(cached.alignedPdb);
@@ -119,6 +156,12 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
       return;
     }
 
+    activeControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+    const requestSeq = ++requestSeqRef.current;
+    const isStale = () => controller.signal.aborted || requestSeqRef.current !== requestSeq;
+
     setIsEsmFolding(true);
     setEsmFoldingError(null);
     sink?.setIsEsmFolding?.(true);
@@ -130,7 +173,8 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
         variant: variantArg,
         wtSeq,
         mutSeq
-      });
+      }, controller.signal);
+      if (isStale()) return;
 
       const engines: DeNovoEngines = foldData.engines
         ? { wildType: foldData.engines.wildType ?? null, variant: foldData.engines.variant ?? null }
@@ -170,8 +214,9 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
         pdb2: foldData.mutPdb,
         targetIndex: position,
         // The scope the toolbar shows, so the first superposition matches the toggle's state.
-        alignmentScope: useVariantAnalysisStore.getState().esmAlignmentScope ?? "local"
-      });
+        alignmentScope
+      }, controller.signal);
+      if (isStale()) return;
 
       if (alignData.alignedPdb) {
         setEsmFoldAlignedPdb(alignData.alignedPdb);
@@ -180,17 +225,18 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
         sink?.setEsmFoldMutPdb?.(foldData.mutPdb);
         sink?.setEsmFoldAlignedPdb?.(alignData.alignedPdb);
         sink?.setEsmFoldMetrics?.(alignData.metrics);
-        esmFoldGlobalCache[cacheKey] = {
+        writeEsmFoldCache(cacheKey, {
           wtPdb: foldData.wtPdb,
           mutPdb: foldData.mutPdb,
           alignedPdb: alignData.alignedPdb,
           metrics: alignData.metrics,
           engines
-        };
+        });
       } else {
         throw new Error("Alignment service did not return aligned structure.");
       }
     } catch (err: any) {
+      if (isStale() || err?.name === "AbortError") return;
       const rawMessage = err?.message || "Failed to fold/align protein sequence.";
       const cleanMessage = rawMessage.replace(/^Failed to run ESMFold:\s*/i, "").trim() || rawMessage;
       console.warn("[ESMFold] De novo folding unavailable:", cleanMessage);
@@ -198,8 +244,13 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
       sink?.setEsmFoldingError?.(cleanMessage);
       // Suppress popup toast notification: status is displayed directly as an in-viewer message
     } finally {
-      setIsEsmFolding(false);
-      sink?.setIsEsmFolding?.(false);
+      if (requestSeqRef.current === requestSeq) {
+        setIsEsmFolding(false);
+        sink?.setIsEsmFolding?.(false);
+        if (activeControllerRef.current === controller) {
+          activeControllerRef.current = null;
+        }
+      }
     }
   }, [sink]);
 

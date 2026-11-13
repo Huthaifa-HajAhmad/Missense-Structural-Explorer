@@ -877,7 +877,7 @@ export const QUERY_TRANSMISSION = {
     { host: "alphafold.ebi.ac.uk · files.rcsb.org · search.rcsb.org · data.rcsb.org", sent: "UniProt accession or PDB id", note: "Structure retrieval only — no variant data." },
     { host: "string-db.org", sent: "Gene symbol", note: null },
     { host: "spliceai-38-xwkwwwxdwq-uc.a.run.app · spliceai-37-xwkwwwxdwq-uc.a.run.app", sent: "Genomic coordinate", note: "One endpoint per genome build. Named in full because the hostnames are opaque, which is also how a reader can recognise them in a network log." },
-    { host: "query.genos.us · genos.app", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace. The second host serves the adapter's health probe." },
+    { host: "query.genos.us", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace." },
     { host: "data.evemodel.org", sent: "RefSeq transcript id", note: null },
     { host: "huggingface.co · api.japanfold.aiand.com · forge.evolutionaryscale.ai · biohub.ai", sent: "Sequence, structure payloads, model weight downloads", note: "Structure-aware model execution. The Biohub / EvolutionaryScale tier is optional and falls back to the local VESM model. Server-side encode calls go to forge.evolutionaryscale.ai, falling back to biohub.ai." },
     { host: "api.esmatlas.com", sent: "Amino-acid sequence", note: "Keyless de novo folding fallback, used when no Biohub token is configured." },

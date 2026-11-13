@@ -137,7 +137,8 @@
 .rsx-disclosure > summary::after { content: "+"; margin-left: auto; color: var(--cs-text-muted); font-family: var(--cs-font-mono); font-size: 14px; line-height: 1; }
 .rsx-disclosure[open] > summary::after { content: "–"; }
 .rsx-disclosure > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: var(--cs-radius-sm); }
-.rsx-disclosure > summary > h3 { margin: 0; flex: 1; }
+.rsx-disclosure > summary > h3,
+.rsx-disclosure > summary > span { margin: 0; flex: 1; display: inline-flex; align-items: center; gap: 6px; }
 .rsx-disclosure > .rsx-refs { margin-top: 10px; }
 .rsx-reason { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .rsx-group > td { background: var(--cs-workbench-header-surface); padding: 8px 16px; }

@@ -38,7 +38,7 @@ export function AppearanceSection() {
             showSelectedName
             colors={[...ACCENT_SWATCHES]}
             value={
-              ACCENT_SWATCHES.find((a) => a.id === (settings.primaryAccent || "indigo"))?.hex ||
+              ACCENT_SWATCHES.find((a) => a.id === (settings.primaryAccent || "clay"))?.hex ||
               ACCENT_SWATCHES[0].hex
             }
             onChange={(hex) => {

@@ -1,8 +1,9 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { generateProvenanceManifest } from "../shared/provenance";
-import { deriveConsensus } from "../lib/insightsConsensus";
-export { deriveConsensus } from "../lib/insightsConsensus";
+import { buildExportVerdictContext, deriveConsensus } from "../lib/insightsConsensus";
+export { buildExportVerdictContext, deriveConsensus } from "../lib/insightsConsensus";
+import { downloadBlob } from "../lib/download";
 import { toCanonicalDdg } from "../shared/engineStatus";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
@@ -10,7 +11,7 @@ import { toCanonicalDdg } from "../shared/engineStatus";
 // The condensed clinical summary this view shows in place of the full narrative, plus the shared
 // "is this narrative AI-authored or rule-based" verdict — the payload carries both kinds of text.
 import { summariseNarrative } from "../shared/narrativeSummary";
-import { deriveNarrativeAuthorship } from "../shared/narrativeAuthorship";
+import { narrativeAuthorshipOfResult } from "../shared/narrativeEvidence";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import {
@@ -27,49 +28,6 @@ import type { EvidenceTabId } from "../shared/insightsEvidence";
 import { VARIANT_PRESETS } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
 import type { MasterView } from "./MasterSidebar";
-
-/**
- * The `verdictContext` the export paths pass to the manifest — one function, so the call site has
- * nothing left to get wrong.
- *
- * A review showed the gap this closes: the tests pinned the manifest's precedence rules, but the
- * component that calls it was untested, so a regression passing `foldingEnergetics?.consensusVerdict`
- * (the frozen snapshot — exactly the `109fa35` defect) as the derived verdict passed every test. The
- * caller could supply an *answer* where an input belonged.
- *
- * This takes inputs and returns the context, so the component's call site is a single call whose
- * argument is data. Substituting the stored verdict is no longer something a caller can express, and
- * the accompanying test fails if this ever returns the snapshot.
- */
-export function buildExportVerdictContext(args: {
-  result: AnalysisState["result"] | null;
-  foldingEnergetics?: any;
-  foldingDdG?: number | null;
-  plddt?: number | null;
-}) {
-  const derived = deriveConsensus(args);
-  /**
-   * The caveat comes from the STORED field — a derivation from `pendingTools` was REVERTED.
-   *
-   * It looked like the same staleness fix as the verdict, and it was not. A review traced every
-   * producer and reader: both server producers compute `evidenceComplete` and `pendingTools` from one
-   * snapshot with `evidenceComplete === (pendingTools.length === 0)`, and no client code writes
-   * `foldingEnergetics` into the cache — so the stored pair could never disagree, and deriving it
-   * changed nothing for stored data.
-   *
-   * What it did change is that it made the value WRONG in a new way. `pendingTools` is pruned only by
-   * the pollers; `settleUnreachableRemoteEngines` clears STATUSES without removing the name. So after a
-   * terminal commit an engine reads `no-result` on screen, leaves `coverage.running`, and still sits in
-   * `pendingTools` — and the derived caveat then says the run is incomplete for a run the screen shows
-   * as complete. A value that cannot disagree was replaced by one that can.
-   */
-  const pendingTools = args.foldingEnergetics?.pendingTools ?? [];
-  return {
-    derivedVerdict: derived?.consensusVerdict ?? null,
-    evidenceComplete: args.foldingEnergetics?.evidenceComplete ?? null,
-    pendingTools
-  };
-}
 
 interface ClinicalInsightsCardProps {
   isDark: boolean;
@@ -186,15 +144,14 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
    * route assembles a rule-based report), so testing for text alone would label rule-based prose as a
    * model's.
    */
-  const narrativeAuthorship = deriveNarrativeAuthorship({
-    analysis: analysisState.result?.analysis,
-    isDegraded: isFallbackNarrative(
+  const narrativeAuthorship = narrativeAuthorshipOfResult(
+    analysisState.result,
+    isFallbackNarrative(
       analysisState.result?.analysis,
       analysisState.result?.isFallback,
       analysisState.result?.fallbackReason
-    ),
-    declaredSource: (analysisState.result?.insights as { source?: string } | undefined)?.source,
-  });
+    )
+  );
   const narrativeIsAi = narrativeAuthorship === "ai";
   const narrativeModel = (analysisState.result?.insights as { model?: string } | undefined)?.model;
 
@@ -342,13 +299,8 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       }
     };
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${gene}_${variant}_analysis_export.json`.replace(/\s+/g, "_");
-    link.click();
-    URL.revokeObjectURL(url);
+    const filename = `${gene}_${variant}_analysis_export.json`.replace(/\s+/g, "_");
+    downloadBlob(filename, "application/json", JSON.stringify(exportData, null, 2));
   };
 
   const handleExportProvenanceJSON = () => {
@@ -368,13 +320,8 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         plddt: disruptionPredictor?.plddt
       })
     );
-    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${gene}_${variant}_provenance_manifest.json`.replace(/\s+/g, "_");
-    link.click();
-    URL.revokeObjectURL(url);
+    const filename = `${gene}_${variant}_provenance_manifest.json`.replace(/\s+/g, "_");
+    downloadBlob(filename, "application/json", JSON.stringify(manifest, null, 2));
   };
 
   return (

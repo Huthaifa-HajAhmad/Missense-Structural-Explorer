@@ -180,7 +180,11 @@ export const CONFIG = {
   },
   services: {
     sidecarBaseUrl: (process.env.SIDECAR_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""),
-    japanfoldBaseUrl: (process.env.JAPANFOLD_URL || "https://api.japanfold.aiand.com").replace(/\/+$/, ""),
+    japanfoldBaseUrl: (
+      process.env.JAPANFOLD_URL ||
+      (process.env.JAPANFOLD_API_URL ? process.env.JAPANFOLD_API_URL.replace(/\/v1\/predictions\/?$/i, "") : "") ||
+      "https://api.japanfold.aiand.com"
+    ).replace(/\/+$/, ""),
     japanfoldApiKey: process.env.JAPANFOLD_API_KEY || null,
     alphagenomeUrl: process.env.ALPHAGENOME_API_URL || null,
     alphagenomeApiKey: process.env.ALPHAGENOME_API_KEY || null,
@@ -196,7 +200,7 @@ export function validateStartupEnvironment(): void {
     console.error("FATAL: APP_API_TOKEN is not set. Refusing to start.");
     process.exit(1);
   }
-  if (CONFIG.server.isProduction && (apiToken === "a_secure_arbitrary_api_token" || apiToken.length < 16)) {
+  if (CONFIG.server.isProduction && (apiToken === "a_secure_arbitrary_api_token" || apiToken === "a_secure_production_api_token_32_bytes" || apiToken.length < 16)) {
     console.error("FATAL: APP_API_TOKEN is insecure (using default example or too short) for production. Refusing to start.");
     process.exit(1);
   }
@@ -212,6 +216,7 @@ export function validateStartupEnvironment(): void {
     "change-me",
     "placeholder",
     "secret",
+    "a_secure_session_secret_32_bytes_long",
     "dev-session-secret-must-be-changed-in-prod",
     "dev_session_secret_must_be_changed_in_prod_32_bytes_long"
   ];

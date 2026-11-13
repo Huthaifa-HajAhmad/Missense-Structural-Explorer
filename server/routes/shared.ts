@@ -106,6 +106,34 @@ export const REGISTRY_PATH = path.join(process.cwd(), "temp_jobs", "job_registry
  * write waits for the previous one to finish.
  */
 let registryWriteChain: Promise<void> = Promise.resolve();
+let registryReadCache: { path: string; mtimeMs: number; size: number; entries: RegistryJob[] } | null = null;
+
+/**
+ * Finds a job record by id and engine type without re-reading and parsing `job_registry.json`
+ * on every polling tick when the file is unchanged.
+ */
+export async function findJobInRegistry(
+  jobId: string,
+  type: "dynamut2" | "ddmut" | "thermompnn"
+): Promise<RegistryJob | null> {
+  const registryPath = getRegistryPath();
+  if (!fs.existsSync(registryPath)) {
+    registryReadCache = null;
+    return null;
+  }
+  const stat = await fs.promises.stat(registryPath);
+  if (
+    !registryReadCache ||
+    registryReadCache.path !== registryPath ||
+    registryReadCache.mtimeMs !== stat.mtimeMs ||
+    registryReadCache.size !== stat.size
+  ) {
+    const content = await fs.promises.readFile(registryPath, "utf-8");
+    const entries = JSON.parse(content) as RegistryJob[];
+    registryReadCache = { path: registryPath, mtimeMs: stat.mtimeMs, size: stat.size, entries };
+  }
+  return registryReadCache.entries.find((j) => j.jobId === jobId && j.type === type) ?? null;
+}
 
 async function writeJobToRegistry(
   jobId: string,
@@ -143,6 +171,7 @@ async function writeJobToRegistry(
         await fs.promises.unlink(tmpPath).catch(() => {});
       }
     }
+    registryReadCache = null;
   } catch (err: any) {
     console.warn("[Job Registry Warning] Failed to write job to registry:", err.message);
   }

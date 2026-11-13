@@ -825,12 +825,45 @@ Please use this database grounding to inform your pathogenicity assessment and A
   }
 
   let conservationEvidence = "";
-  if (conservationData && conservationData.available) {
+  const hasSuppliedConservationMetric = Boolean(
+    conservationData && (
+      conservationData.available ||
+      [
+        conservationData.revel,
+        conservationData.gerp,
+        conservationData.phylop,
+        conservationData.bayesdel,
+        conservationData.metarnn,
+        conservationData.clinpred,
+        conservationData.eigenPhred,
+        conservationData.dann,
+        conservationData.esm1b,
+        conservationData.popeve,
+        conservationData.gpnStar,
+        conservationData.spliceai?.max_ds,
+        conservationData.alphagenome?.aviPhred
+      ].some(v => v != null)
+    )
+  );
+  if (conservationData && hasSuppliedConservationMetric) {
+    const agSummary = conservationData.alphagenome?.aviPhred != null
+      ? `${conservationData.alphagenome.aviPhred}${conservationData.alphagenome.topModality ? ` (top modality: ${conservationData.alphagenome.topModality})` : ""}`
+      : "not measured";
     conservationEvidence = `
 [EVOLUTIONARY CONSERVATION SCORES]:
 - REVEL Score: ${conservationData.revel ?? "not measured"}
 - GERP++ Score: ${conservationData.gerp ?? "not measured"}
 - phyloP Vertebrate Score: ${conservationData.phylop ?? "not measured"}
+- BayesDel Score: ${conservationData.bayesdel ?? "not measured"}
+- MetaRNN Score: ${conservationData.metarnn ?? "not measured"}
+- ClinPred Score: ${conservationData.clinpred ?? "not measured"}
+- Eigen Phred Score: ${conservationData.eigenPhred ?? "not measured"}
+- DANN Score: ${conservationData.dann ?? "not measured"}
+- ESM-1b LLR Score: ${conservationData.esm1b ?? "not measured"}
+- PopEVE Score: ${conservationData.popeve ?? "not measured"}
+- GPN-Star Score: ${conservationData.gpnStar ?? "not measured"}
+- SpliceAI Max Delta Score: ${conservationData.spliceai?.max_ds ?? "not measured"}
+- AlphaGenome AVI Phred: ${agSummary}
 `;
   } else {
     conservationEvidence = `
@@ -1473,11 +1506,11 @@ Generate a JSON object with:
                 properties: {
                   biochemicalShift: {
                     type: Type.STRING,
-                    description: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
+                    description: "Compact biophysical report on the chemical change of properties (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.')"
                   },
                   structuralImpact: {
                     type: Type.STRING,
-                    description: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
+                    description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Loss of positive charge may affect local interactions; no contact geometry was supplied to test this hypothesis.')"
                   }
                 },
                 required: ["biochemicalShift", "structuralImpact"]

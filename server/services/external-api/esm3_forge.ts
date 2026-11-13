@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
-import { UNMEASURED_BURIAL_ENVIRONMENT, classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
+import { UNMEASURED_BURIAL_ENVIRONMENT, UNMEASURED_SSE_ENVIRONMENT, classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
 import { THRESHOLDS } from "../../../src/shared/thresholds/constants.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
@@ -36,7 +37,7 @@ export interface ESM3StructureEvalResult {
   microenvironments: string[];
   putativeStructuralChanges: string[];
   confidence: {
-    level: "high" | "moderate" | "low";
+    level: "high" | "moderate" | "low" | null;
     plddt: number;
     sequenceCoverage: number;
   };
@@ -74,6 +75,22 @@ const ESM3_SIDECAR_BUDGET_MS = (sequenceLength: number): number =>
     ? Math.min(100000, Math.max(20000, CONFIG.timeouts.structuralModelsMs - 10000))
     : 40000;
 
+function resolvePdbChain(pdbText: string, preferredChain?: string | null): string {
+  const preferred = preferredChain?.trim().toUpperCase() || "A";
+  let firstChain = "";
+  for (const line of pdbText.split(/\r?\n/)) {
+    const record = line.slice(0, 6).trim();
+    if (record === "ENDMDL") break;
+    if (record === "ATOM" && line.slice(12, 16).trim() === "CA") {
+      const chainId = line.slice(21, 22).trim().toUpperCase();
+      if (!chainId) continue;
+      if (!firstChain) firstChain = chainId;
+      if (chainId === preferred) return preferred;
+    }
+  }
+  return firstChain || preferred;
+}
+
 export async function fetchEsm3StructureEval(
   uniprotId: string,
   position: number,
@@ -87,9 +104,20 @@ export async function fetchEsm3StructureEval(
    * model; for an experimental entry it is a temperature factor, and the Perturbation tab was showing
    * it as "input confidence". Omitted: treated as before (older callers pass AlphaFold text).
    */
-  wtStructureSource?: "alphafold" | "experimental" | null
+  wtStructureSource?: "alphafold" | "experimental" | null,
+  chain?: string | null
 ): Promise<ESM3StructureEvalResult | null> {
-  const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}`;
+  const contextHash = createHash("sha256")
+    .update(wtStructureSource ?? "")
+    .update("\0")
+    .update(chain ?? "")
+    .update("\0")
+    .update(sequenceOverride ?? "")
+    .update("\0")
+    .update(wtPdbText ?? "")
+    .digest("hex")
+    .slice(0, 12);
+  const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}:${contextHash}`;
   const cached = esm3StructureCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
@@ -110,10 +138,11 @@ export async function fetchEsm3StructureEval(
   /** Set only when the sidecar failed, so a timeout is not reported as a generic error. */
   let esm3Status: "error" | "timeout" | undefined;
 
+  const targetChain = wtPdbText ? resolvePdbChain(wtPdbText, chain) : "A";
   let sequence = sequenceOverride || "";
   if (!sequence && wtPdbText) {
     try {
-      const parsed = extractSequenceFromPdb(wtPdbText, "A");
+      const parsed = extractSequenceFromPdb(wtPdbText, targetChain);
       sequence = parsed.sequence;
     } catch (_) {}
   }
@@ -204,8 +233,11 @@ export async function fetchEsm3StructureEval(
   let hasMeasuredRsa = false;
   let rsa = 0.12; // placeholder only; not a measurement until the sidecar answers
 
+  let hasSseHeaders = false;
+  let sasaRes: { rsa: number; sse: string; sasa: number } | null = null;
+
   if (wtPdbText) {
-    const sasaRes = await runSasaEval(wtPdbText, "A", position);
+    sasaRes = await runSasaEval(wtPdbText, targetChain, position);
     if (sasaRes) {
       rsa = sasaRes.rsa;
       hasMeasuredRsa = true;
@@ -221,32 +253,45 @@ export async function fetchEsm3StructureEval(
 
     for (const line of lines) {
       const record = line.slice(0, 6).trim();
+      if (record === "ENDMDL") break;
       if (record === "ATOM") {
+        const atomChain = line.slice(21, 22).trim().toUpperCase();
+        if (atomChain && atomChain !== targetChain) continue;
         const resNum = parseInt(line.slice(22, 26).trim(), 10);
         const atomName = line.slice(12, 16).trim();
         const bFactor = parseFloat(line.slice(60, 66).trim());
 
-        if (atomName === "CA") {
-          totalAtomB += bFactor;
-          atomCount++;
-          if (resNum === position) {
-            targetB += bFactor;
-            targetAtomCount++;
+        if (atomName === "CA" && !Number.isNaN(resNum)) {
+          if (!Number.isNaN(bFactor)) {
+            totalAtomB += bFactor;
+            atomCount++;
+            if (resNum === position) {
+              targetB += bFactor;
+              targetAtomCount++;
+            }
           }
         }
-        if (resNum > seqLen) seqLen = resNum;
+        if (!Number.isNaN(resNum) && resNum > seqLen) seqLen = resNum;
       }
-      
+
       // Fallback geometric parsing if Python SASA execution failed
       if (!sasaRes) {
         if (line.startsWith("HELIX")) {
-          const start = parseInt(line.substring(21, 25).trim());
-          const end = parseInt(line.substring(33, 37).trim());
-          if (position >= start && position <= end) isHelix = true;
+          hasSseHeaders = true;
+          const helixChain = line.slice(19, 20).trim().toUpperCase();
+          const start = parseInt(line.substring(21, 25).trim(), 10);
+          const end = parseInt(line.substring(33, 37).trim(), 10);
+          if ((!helixChain || helixChain === targetChain) && !Number.isNaN(start) && !Number.isNaN(end) && position >= start && position <= end) {
+            isHelix = true;
+          }
         } else if (line.startsWith("SHEET")) {
-          const start = parseInt(line.substring(22, 26).trim());
-          const end = parseInt(line.substring(33, 37).trim());
-          if (position >= start && position <= end) isSheet = true;
+          hasSseHeaders = true;
+          const sheetChain = line.slice(21, 22).trim().toUpperCase();
+          const start = parseInt(line.substring(22, 26).trim(), 10);
+          const end = parseInt(line.substring(33, 37).trim(), 10);
+          if ((!sheetChain || sheetChain === targetChain) && !Number.isNaN(start) && !Number.isNaN(end) && position >= start && position <= end) {
+            isSheet = true;
+          }
         }
       }
     }
@@ -303,9 +348,11 @@ export async function fetchEsm3StructureEval(
   // absence, not a finding" styling off it.
   else microenvironments.push(UNMEASURED_BURIAL_ENVIRONMENT);
 
+  const hasMeasuredSse = Boolean(sasaRes || hasSseHeaders);
   if (isHelix) microenvironments.push("Alpha-Helix");
   else if (isSheet) microenvironments.push("Beta-Sheet");
-  else microenvironments.push("Loop / Flexible Turn");
+  else if (hasMeasuredSse) microenvironments.push("Loop / Flexible Turn");
+  else microenvironments.push(UNMEASURED_SSE_ENVIRONMENT);
 
   // 3. Putative Structural Changes
   const putativeStructuralChanges: string[] = [];
@@ -338,10 +385,12 @@ export async function fetchEsm3StructureEval(
   // honest result when no rule applies.
 
   // 4. Confidence
-  let confLevel: "high" | "moderate" | "low" = "high";
-  if (targetPlddt === null || targetPlddt === undefined) confLevel = "low";
-  else if (targetPlddt < 50) confLevel = "low";
-  else if (targetPlddt < 75) confLevel = "moderate";
+  let confLevel: "high" | "moderate" | "low" | null = null;
+  if (targetPlddt !== null && targetPlddt !== undefined) {
+    if (targetPlddt < 50) confLevel = "low";
+    else if (targetPlddt < 75) confLevel = "moderate";
+    else confLevel = "high";
+  }
 
   const result: ESM3StructureEvalResult = {
     uniprotId,

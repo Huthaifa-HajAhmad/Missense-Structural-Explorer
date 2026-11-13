@@ -119,17 +119,11 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
 };
 
 export function getClientIp(req: any): string {
-  const sessionId = req.headers["x-gemini-session-id"] as string | undefined;
-  if (sessionId) {
-    try {
-      const apiKey = getApiKeyFromSession(sessionId);
-      if (apiKey) {
-        const sessionHash = crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 16);
-        return `session_${sessionHash}`;
-      }
-    } catch (_) {
-      // Invalid or expired session: fall through to IP-based rate limiting
-    }
+  // Signed-in accounts get a stable per-user bucket so researchers behind a shared lab NAT do not
+  // exhaust one another's quota. Never key rate limiters on X-Gemini-Session-ID: POST /session/refresh
+  // re-encrypts the same key with a fresh random IV, which allowed infinite bucket rotation.
+  if (req.principal?.kind === "user" && req.principal.userId) {
+    return `user_${req.principal.userId}`;
   }
 
   // Use Express's built-in req.ip which respects the configured 'trust proxy' setting

@@ -16,7 +16,7 @@ export function ImpactBadge({ entry }: { entry: Pick<ConsoleEntry, "impact" | "l
   if (impact === "info") return null;
   const tone = impact === "fatal" ? "danger" : impact === "degraded" ? "warn" : "info";
   return (
-    <span className="cx-badge" data-tone={tone}>
+    <span className="dc-badge" data-tone={tone}>
       {impact}
     </span>
   );
@@ -47,7 +47,7 @@ function CopyButton({
   title: string;
 }) {
   return (
-    <button type="button" className="cx-btn" onClick={onClick} title={title}>
+    <button type="button" className="dc-btn" onClick={onClick} title={title}>
       {status === "copied" ? <Check style={{ color: "var(--cs-good)" }} /> : icon}
       <span>{status === "copied" ? doneLabel : status === "failed" ? "Copy failed" : label}</span>
     </button>
@@ -63,17 +63,17 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
   const meta = entry.meta && Object.keys(entry.meta).length > 0 ? Object.entries(entry.meta) : [];
 
   return (
-    <aside className="cx-aside" aria-label="Entry detail inspector">
-      <div className="cx-aside-head">
+    <aside className="dc-aside" aria-label="Entry detail inspector">
+      <div className="dc-aside-head">
         <span className="dev-console-source-tag" data-source={entry.source}>
           {entry.source}
         </span>
-        <span className="cx-mono" style={{ fontWeight: 700, textTransform: "uppercase" }}>
+        <span className="dc-mono" style={{ fontWeight: 700, textTransform: "uppercase" }}>
           {entry.level}
         </span>
         <ImpactBadge entry={entry} />
         <span
-          className="cx-mono"
+          className="dc-mono"
           style={{ color: "var(--cs-text-muted)" }}
           title={new Date(entry.timestamp).toLocaleString()}
         >
@@ -82,13 +82,13 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
           {formatClock(entry.timestamp)}
           {entry.count > 1 ? ` · ×${entry.count}` : ""}
         </span>
-        <span className="cx-spacer" />
-        <button type="button" className="cx-icon-btn" onClick={onClose} aria-label="Close entry inspector">
+        <span className="dc-spacer" />
+        <button type="button" className="dc-icon-btn" onClick={onClose} aria-label="Close entry inspector">
           <X />
         </button>
       </div>
 
-      <div className="cx-aside-body">
+      <div className="dc-aside-body">
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <CopyButton
             label="Copy Report"
@@ -119,14 +119,14 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
         </div>
 
         <section>
-          <h4 className="cx-section-title">Message</h4>
-          <div className="cx-message">{entry.message}</div>
+          <h4 className="dc-section-title">Message</h4>
+          <div className="dc-message">{entry.message}</div>
         </section>
 
         {http && (
           <section>
-            <h4 className="cx-section-title">HTTP exchange</h4>
-            <table className="dev-console-meta-table cx-mono">
+            <h4 className="dc-section-title">HTTP exchange</h4>
+            <table className="dev-console-meta-table dc-mono">
               <tbody>
                 {http.url && (
                   <Row label="Endpoint">
@@ -145,10 +145,10 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
             {http.requestBody !== undefined && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <h4 className="cx-section-title" style={{ margin: 0 }}>Request body</h4>
+                  <h4 className="dc-section-title" style={{ margin: 0 }}>Request body</h4>
                   <button
                     type="button"
-                    className="cx-btn"
+                    className="dc-btn"
                     style={{ padding: "2px 7px", fontSize: 10.5 }}
                     onClick={() => copy(stringifyPayload(http.requestBody), "reqBody")}
                     title="Copy request body"
@@ -163,10 +163,10 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
             {Boolean(http.responseBody) && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <h4 className="cx-section-title" style={{ margin: 0 }}>Response body</h4>
+                  <h4 className="dc-section-title" style={{ margin: 0 }}>Response body</h4>
                   <button
                     type="button"
-                    className="cx-btn"
+                    className="dc-btn"
                     style={{ padding: "2px 7px", fontSize: 10.5 }}
                     onClick={() => copy(stringifyPayload(http.responseBody), "resBody")}
                     title="Copy response body"
@@ -184,10 +184,10 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
         {entry.detail && (
           <section>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <h4 className="cx-section-title" style={{ margin: 0 }}>Stack trace / detail</h4>
+              <h4 className="dc-section-title" style={{ margin: 0 }}>Stack trace / detail</h4>
               <button
                 type="button"
-                className="cx-btn"
+                className="dc-btn"
                 style={{ padding: "2px 7px", fontSize: 10.5 }}
                 onClick={() => copy(entry.detail!, "detail")}
                 title="Copy detail / stack trace"
@@ -202,8 +202,8 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
 
         {meta.length > 0 && (
           <section>
-            <h4 className="cx-section-title">Metadata</h4>
-            <table className="dev-console-meta-table cx-mono">
+            <h4 className="dc-section-title">Metadata</h4>
+            <table className="dev-console-meta-table dc-mono">
               <tbody>
                 {meta.map(([k, v]) => (
                   <Row key={k} label={k}>
@@ -217,8 +217,8 @@ export default function ConsoleInspector({ entry, now, onClose }: Props) {
 
         {ctx && (
           <section>
-            <h4 className="cx-section-title">Session when captured</h4>
-            <table className="dev-console-meta-table cx-mono">
+            <h4 className="dc-section-title">Session when captured</h4>
+            <table className="dev-console-meta-table dc-mono">
               <tbody>
                 {ctx.gene && (
                   <Row label="Variant">

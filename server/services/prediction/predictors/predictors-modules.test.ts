@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { safeParseFloat, safeParseInt, toSingleAa, getFirstOrVal } from "./normalizer.ts";
 import { resolveGpnStarScore } from "./conservation-orchestrator.ts";
 import { UNIPROT_ACCESSION_REGEX, getTranscriptsForProtein, transcriptMappingCache } from "./transcript-resolver.ts";
+import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 
 describe("Predictors Sub-Resolvers Unit Tests", () => {
   describe("normalizer", () => {
@@ -76,10 +77,39 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
         const mapping = await getTranscriptsForProtein("CDKN2A");
         expect(mapping.isManeSelect).toBe(true);
         expect(mapping.ensemblId).toBe("ENST00000304494");
-        expect(requestedUrls[0]).toContain("https://rest.uniprot.org/uniprotkb/search?query=gene_exact:CDKN2A");
+        expect(requestedUrls[0]).toContain("https://rest.uniprot.org/uniprotkb/search?query=gene_exact:CDKN2A+AND+organism_id:9606+AND+reviewed:true");
         expect(requestedUrls[0]).not.toContain("/uniprotkb/CDKN2A.json");
       } finally {
         global.fetch = origFetch;
+      }
+    });
+
+    it("falls back to unreviewed human UniProt search only when reviewed search returns empty results", async () => {
+      transcriptMappingCache.clear();
+      const origFetch = global.fetch;
+      const requestedUrls: string[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string | URL | Request) => {
+        const u = String(url);
+        requestedUrls.push(u);
+        if (u.includes("reviewed:true")) {
+          return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({
+          results: [{
+            primaryAccession: "A0A000",
+            uniProtKBCrossReferences: [{ database: "Ensembl", id: "ENST00000999999", isoformId: "A0A000-1", properties: [] }]
+          }]
+        }), { status: 200 });
+      });
+      try {
+        const mapping = await getTranscriptsForProtein("UNREVGENE");
+        expect(requestedUrls).toHaveLength(2);
+        expect(requestedUrls[0]).toContain("+AND+reviewed:true");
+        expect(requestedUrls[1]).not.toContain("reviewed:true");
+        expect(mapping.ensemblId).toBe("ENST00000999999");
+      } finally {
+        global.fetch = origFetch;
+        transcriptMappingCache.clear();
       }
     });
 
@@ -122,6 +152,28 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
       expect(resolveGpnStarScore({ gpn_msa: ["-2.1"] })).toBe(-2.1);
       expect(resolveGpnStarScore({ gpnStar: -0.5 })).toBe(-0.5);
       expect(resolveGpnStarScore({})).toBeNull();
+    });
+  });
+
+  describe("queryDbnsfpOrg", () => {
+    it("normalizes 1-letter variants to p.3-letter and preserves rows when only secondary scores exist", async () => {
+      const origFetch = global.fetch;
+      let capturedBody: any = null;
+      global.fetch = vi.fn().mockImplementation(async (_url: any, init: any) => {
+        capturedBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({
+          tabs: {
+            all_transcripts: { rows: [{ BayesDel_noAF_score: "0.42" }] }
+          }
+        }), { status: 200 });
+      });
+      try {
+        const res = await queryDbnsfpOrg("BRAF", "V600E");
+        expect(capturedBody.variants).toEqual(["BRAF:p.Val600Glu"]);
+        expect(res?.bayesdel).toBe(0.42);
+      } finally {
+        global.fetch = origFetch;
+      }
     });
   });
 });
