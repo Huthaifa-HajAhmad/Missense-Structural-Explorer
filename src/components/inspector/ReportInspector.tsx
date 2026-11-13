@@ -5,11 +5,12 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { useSettings } from "../../context/SettingsContext";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { generateProvenanceManifest } from "../../shared/provenance";
+import { buildExportVerdictContext } from "../../lib/insightsConsensus";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import { REPORT_PRESETS, REPORT_GROUPS, BLOCK_ORDER, exportedBlocks, reportGroupOf, REPORT_SOURCES, type BlockKey, type ReportPresetId } from "../../shared/reportDocument";
 import { renderReportHtml, renderReportJson, renderReportText } from "../../shared/reportRender";
 import { deriveAiStatus } from "../report/reportStatus";
-import { narrativeFreshness, readNarrativeEvidenceStamp } from "../../shared/narrativeEvidence";
+import { narrativeFreshness, hasStampedNarrative } from "../../shared/narrativeEvidence";
 import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import { useReportDocument } from "../report/useReportDocument";
 import { parseReportDraftFile, reportDraftKeys } from "../../stores/reportDraftStorage";
@@ -75,6 +76,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const foldingEnergetics = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingEnergetics ?? s.foldingEnergetics);
   const foldingDdG = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingDdG ?? s.foldingDdG);
+  const disruptionPredictor = useVariantAnalysisStore(s => s.disruptionPredictor);
   const storeIsNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
   const addNotification = useVariantAnalysisStore(s => s.addNotification);
   const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
@@ -120,7 +122,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         providerDetail: analysisResult?.providerDetail,
         attemptedModels: analysisResult?.attemptedModels,
         isKeyActive,
-        hasNarrative: Boolean(narrative && (!analysisResult?.metadata?.pipelineRunId || readNarrativeEvidenceStamp(analysisResult))),
+        hasNarrative: Boolean(narrative && hasStampedNarrative(analysisResult)),
         isNarrativeLoading: isNarrativeBusy,
         narrativeMode: settings?.narrativeMode,
         narrativeOutdated: narrativeFreshness(analysisResult, narrativeContext) === "outdated",
@@ -211,8 +213,14 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
       variant,
       uniprotId || analysisResult.metadata?.uniprotId || "",
       analysisResult,
-      { acmgWeighting: settings.acmgWeighting },
-      foldingEnergetics as any
+      settings,
+      foldingEnergetics as any,
+      buildExportVerdictContext({
+        result: analysisResult,
+        foldingEnergetics,
+        foldingDdG,
+        plddt: disruptionPredictor?.plddt,
+      })
     );
     const bundle = {
       schema: "mse.evidence-bundle/1",

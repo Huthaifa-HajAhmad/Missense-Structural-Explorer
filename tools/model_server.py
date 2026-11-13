@@ -87,22 +87,27 @@ class ClearCacheResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
-    is_warming = any(state in ("downloading", "loading") for state in models.model_status.values())
+    with models._model_lock:
+        active_models = len(models.loaded_models)
+        vesm_loaded = models.vesm_model is not None
+    status_snapshot = dict(models.model_status)
+    errors_snapshot = dict(models.model_errors)
+    is_warming = any(state in ("downloading", "loading") for state in status_snapshot.values())
     return {
         "status": "healthy",
         "state": "warming_up" if is_warming else "ready",
-        "model_loaded": models.vesm_model is not None,
-        "active_models": len(models.esm2_models) + len(models.saprot_models),
-        "models": models.model_status,
-        "model_status": models.model_status,
-        "model_errors": models.model_errors
+        "model_loaded": vesm_loaded,
+        "active_models": active_models,
+        "models": status_snapshot,
+        "model_status": status_snapshot,
+        "model_errors": errors_snapshot,
     }
 
 @app.post("/models/clear-cache", response_model=ClearCacheResponse)
 def clear_model_cache():
     """Explicitly releases cached PyTorch model weights and flushes GPU RAM."""
-    models.esm2_models.clear()
-    models.saprot_models.clear()
+    with models._model_lock:
+        models.loaded_models.clear()
     vesm.clear_vesm_caches()
     esm2.clear_esm2_caches()
     models.clear_gpu_cache()

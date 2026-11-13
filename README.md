@@ -12,7 +12,7 @@
 
 **MissenseResolve®** is a full-stack bioinformatics application designed to assist clinical geneticists and rare disease researchers in evaluating the biophysical impact of single-amino acid substitutions. 
 
-By unifying GPU-accelerated **3D structural visualization (Molstar)**, **deterministic database grounding (ClinVar & gnomAD)**, **Ensembl VEP notation translation**, and **generative AI reasoning (Gemini 2.5 Flash)**, the platform streamlines the evaluation of genetic variants from VCF genomic coordinates down to molecular atomic contacts.
+By unifying GPU-accelerated **3D structural visualization (Molstar)**, **deterministic database grounding (ClinVar & gnomAD)**, **Ensembl VEP notation translation**, and **generative AI reasoning (Google Gemini AI)**, the platform streamlines the evaluation of genetic variants from VCF genomic coordinates down to molecular atomic contacts.
 
 ### 🌟 Key Capabilities
 *   **WebGL 3D Viewer (Molstar Engine)**: Rotate, zoom, and analyze 3D structures fetched directly from the EBI AlphaFold Database. Toggle polar contacts and hydrogen bonding networks on the fly.
@@ -57,7 +57,7 @@ Rather than relying on static, hardcoded variants, the application dynamically p
     3. Copy the `molecules/` folder and the `rotabase.txt` file from your FoldX distribution directly into the `tools/foldx/` directory.
     4. (Optional) Alternatively, you can define `FOLDX_BINARY` in your `.env` pointing to the absolute path of the executable.
 *   **Python 3 & uv tool (Required for local VESM sidecar predictions)**:
-    1. Ensure Python 3 (v3.10+) is installed.
+    1. Ensure Python 3.12 (required by `tools/pyproject.toml`) is installed.
     2. Install the **uv** command-line manager (highly optimized package runner) by running `pip install uv`.
     3. The application spawns the sidecar in the background using `python -m uv run tools/model_server.py`.
 

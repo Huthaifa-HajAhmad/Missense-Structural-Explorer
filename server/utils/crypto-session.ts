@@ -47,6 +47,7 @@ export function encryptSession(payload: SessionPayload, secret: string): string 
  */
 export function decryptSession(token: string, secret: string): SessionPayload | undefined {
   try {
+    if (typeof token !== "string" || typeof secret !== "string") return undefined;
     const parts = token.split(":");
     if (parts.length !== 3) return undefined;
     const [ivB64, ciphertextB64, tagB64] = parts;
@@ -68,7 +69,18 @@ export function decryptSession(token: string, secret: string): SessionPayload | 
       decipher.final()
     ]);
 
-    return JSON.parse(decrypted.toString("utf8"));
+    const parsed = JSON.parse(decrypted.toString("utf8")) as unknown;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof (parsed as SessionPayload).apiKey !== "string" ||
+      (parsed as SessionPayload).apiKey.trim().length === 0 ||
+      typeof (parsed as SessionPayload).expiresAt !== "number" ||
+      !Number.isFinite((parsed as SessionPayload).expiresAt)
+    ) {
+      return undefined;
+    }
+    return parsed as SessionPayload;
   } catch (_) {
     return undefined;
   }

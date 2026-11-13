@@ -12,15 +12,7 @@ export function fileStem(gene: string, variant: string): string {
   return `${clean(gene, "variant")}_${clean(variant, "report")}`;
 }
 
-export function downloadBlob(filename: string, mime: string, content: string | Blob): void {
-  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+export { downloadBlob } from "../../lib/download";
 
 /** Opens the browser's print dialog on the report; the user chooses "Save as PDF". */
 export function printReport(doc: ReportDocument): void {

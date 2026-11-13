@@ -104,14 +104,14 @@ export const THRESHOLDS = {
 
 
   foldxDdG: {
-    /** ΔΔG > 1.5 kcal/mol: strong destabilization */
+    /** ΔΔG ≥ 1.5 kcal/mol: strong destabilization */
     destabilizingStrong: 1.5,
-    /** ΔΔG > 0.5 kcal/mol: supporting destabilization */
+    /** ΔΔG ≥ 0.5 kcal/mol: supporting destabilization */
     destabilizingSupporting: 0.5,
     /** ΔΔG within ±0.5: neutral / well-tolerated */
     neutralLow: -0.5,
     neutralHigh: 0.5,
-    /** ΔΔG < -0.5: stabilizing variant */
+    /** ΔΔG ≤ -0.5: stabilizing variant */
     stabilizing: -0.5,
   },
 

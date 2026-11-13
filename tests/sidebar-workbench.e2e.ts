@@ -43,7 +43,7 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   expect(await browser.evaluate(() => {
     const list = document.getElementById('ms-children-evidence')!.getBoundingClientRect();
     return [...document.querySelectorAll('#ms-children-evidence button')].every(button => button.getBoundingClientRect().bottom <= list.bottom + 1);
-  }), 'all Evidence links fit inside the expanded group');
+  }), 'all Evidence links fit inside the expanded group').toBe(true);
   await app.screenshot('sidebar-expanded');
   await screen.getByRole('button', 'Switch to dark mode').tap();
   await app.screenshot('sidebar-dark');

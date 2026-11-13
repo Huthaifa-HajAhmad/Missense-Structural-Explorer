@@ -93,7 +93,8 @@ export async function fetchGpnStarByCoordinate(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chrom, pos, ref, alt }),
-        signal: combinedSignal
+        signal: combinedSignal,
+        ...(customEndpoint ? { rejectRedirects: true } : {}),
       });
 
       if (res.ok) {

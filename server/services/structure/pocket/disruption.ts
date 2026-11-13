@@ -53,7 +53,10 @@ export async function predictStructuralDisruption(
    */
   structureSource?: "alphafold" | "experimental"
 ): Promise<DisruptionPrediction> {
-  const lines = wtPdbText.split(/\r?\n/);
+  const rawLines = wtPdbText.split(/\r?\n/);
+  const endMdlIdx = rawLines.findIndex(l => l.startsWith("ENDMDL"));
+  const lines = endMdlIdx >= 0 ? rawLines.slice(0, endMdlIdx) : rawLines;
+  const firstModelPdb = endMdlIdx >= 0 ? lines.join("\n") : wtPdbText;
   
   // 1. Parse HELIX and SHEET lines
   interface StructRange {
@@ -85,7 +88,7 @@ export async function predictStructuralDisruption(
   }
 
   // 2. Parse atoms of target residue to get pLDDT and compute neighbor count (burial status)
-  const atoms = parseAtomsFromPdb(wtPdbText);
+  const atoms = parseAtomsFromPdb(firstModelPdb);
   let resolvedChain = chain;
   if (!resolvedChain) {
     const matching = atoms.find(a => a.resSeq === position);
@@ -152,7 +155,7 @@ export async function predictStructuralDisruption(
     }
   }
   // 3. Compute true SASA and RSA using the sidecar script
-  const sasaRun = await runSasaEval(wtPdbText, resolvedChain || "A", position);
+  const sasaRun = await runSasaEval(firstModelPdb, resolvedChain || "A", position);
   const sasaResult = "error" in sasaRun ? null : sasaRun;
   const sasaUnavailableReason = "error" in sasaRun ? sasaRun.error : undefined;
 
@@ -212,11 +215,13 @@ export async function predictStructuralDisruption(
     G: 60.1, A: 88.6, S: 89.0, C: 108.5, D: 111.1, P: 112.7, N: 114.1, T: 116.1, E: 138.4, Q: 143.9, 
     H: 153.2, V: 140.0, M: 162.9, I: 166.7, L: 166.7, K: 168.6, R: 173.4, F: 189.9, Y: 193.6, W: 227.8
   };
-  const volWt = aaVolumes[wt] || 120;
-  const volMut = aaVolumes[mut] || 120;
-  const volDelta = volMut - volWt;
-  if (isBuried && volDelta > 100) {
-    return buildResult("high", `Severe core steric expansion (volume increase of +${volDelta.toFixed(1)} Å³ from ${wt} to ${mut} at position ${position}), expected to cause steric clashes in the packed hydrophobic core.`);
+  const volWt = aaVolumes[wt];
+  const volMut = aaVolumes[mut];
+  if (isBuried && volWt !== undefined && volMut !== undefined) {
+    const volDelta = volMut - volWt;
+    if (volDelta > 100) {
+      return buildResult("high", `Severe core steric expansion (volume increase of +${volDelta.toFixed(1)} Å³ from ${wt} to ${mut} at position ${position}), expected to cause steric clashes in the packed hydrophobic core.`);
+    }
   }
 
   // Rule D: Proline to glycine loop-flexibility shift

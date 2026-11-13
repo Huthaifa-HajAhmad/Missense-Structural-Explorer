@@ -113,8 +113,9 @@ A claim is open until it gets one outcome:
 | `cancelled` | a person cancelled the job |
 
 Lease: renewed by each heartbeat (about every 20 s, lease 60 s), never shortened. While the server
-finishes a delivered FoldX result it holds the lease for 15 minutes, and the reaper does not apply the job
-cap then. A heartbeat or result for a job that is no longer the computer's gets 410 or 409.
+finishes a delivered FoldX result it holds the lease for 15 minutes, and `reapAgentLeases` spares the
+job from both the job cap and disconnect hand-backs then. A heartbeat or result for a job that is no
+longer the computer's gets 410 or 409.
 
 Result delivery is safe to repeat: the same computer delivering an accepted result again is told
 "accepted" and nothing is applied twice (`completedBy`), and two deliveries in flight at once share one run.
@@ -241,7 +242,7 @@ Code: `deployment-role.ts`, `deployment-control.ts`, `graceful-shutdown.ts`, `de
 | --- | --- | --- |
 | Role (file `.deployment-role`) | `active`, `paused` | `/internal/deployment/pause` and `/resume`; the file is written first, then the queue changes. A bad file stops start-up. |
 | Queue processing | running, paused | `pauseProcessing` stops the timers and reapers; running jobs finish. `resumeProcessing` restarts them. A closed queue cannot resume. |
-| Process | serving → closing → exited | `SIGTERM` or `SIGINT`: stop accepting connections, run the hooks (sidecar, background tasks, queue, pools, temp files), close the connections still open, exit 0. A 10 s watchdog forces exit 1. |
+| Process | serving → closing → exited | `SIGTERM` or `SIGINT`: stop accepting connections, run the hooks (sidecar, background tasks, queue awaiting a bounded worker drain before closing SQLite, pools, temp files), close the connections still open, exit 0. A `gracefulShutdownWatchdogMs` (default 10 s) watchdog forces exit 1. |
 
 Handover (`rollout.py`): start the new generation paused → wait until ready → pause the old one → wait
 until it has no requests, jobs or background tasks → resume the new one → stop the old one. Rollback is
@@ -292,9 +293,9 @@ Code: `server/sidecar-supervisor.ts`. **Read**.
 | State | Entered | Left when |
 | --- | --- | --- |
 | `stopped` | start, or after `stop()` | `start()` |
-| `running` | spawned; a 180 s start-up grace begins | the process exits |
-| `backoff` | exit while not shutting down | after 2 s × 2^(n−1), at most 60 s |
-| `offline` | 10 restarts in a row, or a failed spawn | the health loop sees 3 failed probes with no process and no timer, and respawns |
+| `running` | spawned; a 180 s start-up grace begins | the process exits or emits a spawn error |
+| `backoff` | exit or spawn error (`scheduleRestart`) while not shutting down | after 2 s × 2^(n−1), at most 60 s |
+| `offline` | 10 restarts in a row | the health loop sees 3 failed probes with no process and no timer, and respawns |
 
 The restart counter resets after 30 s of stable running or one healthy probe. An unresponsive process
 (3 failed probes, one per minute after the grace) is killed and restarted.
@@ -347,7 +348,8 @@ variant and conditions. An abandoned or reloaded run records nothing, because se
 running server job (section 4) or reads the server's cache.
 
 The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own suites) follows remote
-engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min) → `done`,
+engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min; HTTP polling
+pauses while the tab is hidden, resumes on focus, and backs off while the SSE channel is `OPEN`) → `done`,
 `error` or `unavailable`, with exactly one final callback. `shouldRunBiophysics` allows a re-run 15 min
 after an attempt, unless FoldX cannot run here and no remote engine failed.
 

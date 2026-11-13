@@ -50,12 +50,15 @@ export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: 
         const timeout = setTimeout(() => abortCtrl.abort(), 4000);
         const pingRes = await fetch(pingUrl, {
           method: "GET",
+          redirect: "manual",
           signal: abortCtrl.signal,
           headers: userApiKey ? { Authorization: `Bearer ${userApiKey}` } : {}
         }).finally(() => clearTimeout(timeout));
 
         const latencyMs = Date.now() - startTime;
-        if (pingRes.ok) {
+        if (pingRes.status >= 300 && pingRes.status < 400) {
+          res.json({ ok: false, latencyMs, mode: "custom-proxy", error: `Proxy returned HTTP ${pingRes.status} redirect (redirects disabled)` });
+        } else if (pingRes.ok) {
           res.json({ ok: true, latencyMs, mode: "custom-proxy", url: userApiUrl });
         } else {
           res.json({ ok: false, latencyMs, mode: "custom-proxy", error: `Proxy returned HTTP ${pingRes.status}` });

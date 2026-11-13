@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef, ReactNode } from "react";
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo, useRef, ReactNode } from "react";
+import { downloadBlob } from "../lib/download";
 import {
   ConsoleEntry,
   DevConsoleState,
@@ -409,7 +410,10 @@ export interface DevConsoleContextValue {
   exportTraceRuns: () => void;
 }
 
+export type DevConsoleActionsValue = Omit<DevConsoleContextValue, "state">;
+
 const DevConsoleContext = createContext<DevConsoleContextValue | null>(null);
+const DevConsoleActionsContext = createContext<DevConsoleActionsValue | null>(null);
 
 function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "debug", message: string, status?: number): ErrorImpact {
   if (level === "info" || level === "debug") return "info";
@@ -459,10 +463,15 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(devConsoleReducer, initialState);
   const isInternalCapturingRef = useRef(false);
   const sessionContextRef = useRef<SessionContext>(state.sessionContext);
+  const traceRunsRef = useRef<TraceRun[]>(state.traceRuns);
 
   useEffect(() => {
     sessionContextRef.current = state.sessionContext;
   }, [state.sessionContext]);
+
+  useEffect(() => {
+    traceRunsRef.current = state.traceRuns;
+  }, [state.traceRuns]);
 
   // Debounced sync to sessionStorage to prevent main-thread jank and quota exhaustion
   useEffect(() => {
@@ -547,14 +556,12 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const exportTraceRuns = useCallback(() => {
-    const blob = new Blob([JSON.stringify(state.traceRuns, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `pipeline-traces-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state.traceRuns]);
+    downloadBlob(
+      `pipeline-traces-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+      "application/json",
+      JSON.stringify(traceRunsRef.current, null, 2)
+    );
+  }, []);
 
   // Install Global Interceptors
   useEffect(() => {
@@ -786,23 +793,47 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     };
   }, [pushErrorEntry, pushLiveEntry]);
 
-  return (
-    <DevConsoleContext.Provider
-      value={{
-        state,
-        dispatch,
-        pushErrorEntry,
-        pushLiveEntry,
-        startTraceRun,
-        addTraceSpan,
-        updateTraceSpan,
-        finishTraceRun,
-        exportTraceRuns,
-      }}
-    >
-      {children}
-    </DevConsoleContext.Provider>
+  const actionsValue = useMemo<DevConsoleActionsValue>(
+    () => ({
+      dispatch,
+      pushErrorEntry,
+      pushLiveEntry,
+      startTraceRun,
+      addTraceSpan,
+      updateTraceSpan,
+      finishTraceRun,
+      exportTraceRuns,
+    }),
+    [dispatch, pushErrorEntry, pushLiveEntry, startTraceRun, addTraceSpan, updateTraceSpan, finishTraceRun, exportTraceRuns]
   );
+
+  const contextValue = useMemo<DevConsoleContextValue>(
+    () => ({
+      state,
+      ...actionsValue,
+    }),
+    [state, actionsValue]
+  );
+
+  return (
+    <DevConsoleActionsContext.Provider value={actionsValue}>
+      <DevConsoleContext.Provider value={contextValue}>
+        {children}
+      </DevConsoleContext.Provider>
+    </DevConsoleActionsContext.Provider>
+  );
+}
+
+/**
+ * Subscribe only to DevConsole dispatchers/trace actions so mutations to log entries or trace
+ * spans do not re-render pipeline orchestrators.
+ */
+export function useDevConsoleActions(): DevConsoleActionsValue {
+  const context = useContext(DevConsoleActionsContext);
+  if (!context) {
+    throw new Error("useDevConsoleActions must be used within a DevConsoleProvider");
+  }
+  return context;
 }
 
 export function useDevConsole(): DevConsoleContextValue {

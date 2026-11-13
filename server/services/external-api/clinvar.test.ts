@@ -381,5 +381,34 @@ describe("fetchClinVarData", () => {
       expect((await fetchClinVarData("CNNM2", "p.Glu357Lys")).conditionsRead).toBe("full-record");
       partial.mockRestore();
     });
+
+    it("rejects empty stripped VCV IDs and frameshift false matches like p.Arg158Glnfs*5", async () => {
+      clearAllCaches(true);
+      const zeroVcv = await fetchClinVarData("PAH", "VCV0000");
+      expect(zeroVcv.classification).toBe("Not found in ClinVar");
+      expect(zeroVcv.uid).toBeNull();
+
+      const spy = vi.spyOn(global, "fetch");
+      spy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ esearchresult: { idlist: ["777"] } })
+      } as any);
+      spy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            uids: ["777"],
+            "777": {
+              title: "NM_000277.3(PAH):c.473del (p.Arg158Glnfs*5)",
+              germline_classification: { description: "Pathogenic" }
+            }
+          }
+        })
+      } as any);
+      const fsMismatch = await fetchClinVarData("PAH", "p.Arg158Gln");
+      expect(fsMismatch.classification).toBe("Not found in ClinVar");
+      expect(fsMismatch.uid).toBeNull();
+      spy.mockRestore();
+    });
   });
 });

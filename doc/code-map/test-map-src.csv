@@ -194,7 +194,7 @@ src/components/molstar/StructurePocketPanel.tsx,component,
 src/components/molstar/StructureStatusOverlay.tsx,component,src/components/__tests__/Structure3dView.test.tsx
 src/components/molstar/StructureToolbar.tsx,component,src/components/__tests__/Structure3dView.test.tsx
 src/components/molstar/drawContextLayer.ts,client,
-src/components/molstar/molstarThemes.ts,client,
+src/components/molstar/molstarThemes.ts,client,src/components/molstar/__tests__/molstarThemes.test.ts
 src/components/molstar/readSecondaryStructure.ts,client,
 src/components/molstar/useDismiss.ts,client,
 src/components/molstar/useMolstarPlugin.ts,client,
@@ -223,7 +223,6 @@ src/components/sequence/useMeasuredWidth.ts,client,
 src/components/sequence/useRovingGrid.ts,client,src/components/sequence/__tests__/useRovingGrid.test.tsx
 src/components/settings/SettingsDrawer.tsx,component,src/components/account/__tests__/AccountSettings.test.tsx;src/components/settings/__tests__/SettingsDrawer.test.tsx
 src/components/settings/defaults.ts,client,src/context/__tests__/SettingsContext.test.tsx;src/services/pipeline/__tests__/foldxService.test.ts
-src/components/settings/sections/AboutSection.tsx,barrel,
 src/components/settings/sections/AccountSection.tsx,component,
 src/components/settings/sections/AnalysisSection.tsx,component,
 src/components/settings/sections/AppearanceSection.tsx,component,
@@ -275,7 +274,6 @@ src/hooks/useApiConnections.ts,client,
 src/hooks/useAppEffects.ts,client,src/hooks/__tests__/useAppEffects.reload.test.tsx
 src/hooks/useAppVersion.ts,client,src/hooks/__tests__/useDiagnostics.shared.test.tsx
 src/hooks/useBiophysicalModeling.ts,client,src/hooks/__tests__/useBiophysicalModeling.test.tsx
-src/hooks/useClinicalEvidence.ts,client,
 src/hooks/useContextWorkspace.ts,client,
 src/hooks/useCredentialUseNotice.ts,client,src/hooks/__tests__/useCredentialUseNotice.test.ts
 src/hooks/useDiagnostics.ts,client,src/hooks/__tests__/useDiagnostics.shared.test.tsx;src/hooks/__tests__/useDiagnostics.test.tsx
@@ -285,14 +283,13 @@ src/hooks/useGeneContextLoading.ts,client,
 src/hooks/useJobPoller.ts,client,src/hooks/__tests__/useJobPoller.hardening.test.ts;src/hooks/__tests__/useJobPoller.test.ts
 src/hooks/useNarrativeEvidenceContext.ts,client,
 src/hooks/useNarrativeResynthesis.ts,client,src/hooks/__tests__/useNarrativeResynthesis.test.tsx
-src/hooks/useNotificationSystem.ts,client,
 src/hooks/useProteinSequence.ts,client,src/hooks/__tests__/useProteinSequence.test.ts
-src/hooks/useSearchHistory.ts,client,
 src/hooks/useSidebarShortcut.ts,client,src/hooks/__tests__/useSidebarShortcut.test.tsx
 src/hooks/useStaleDataNotice.ts,client,src/hooks/__tests__/useStaleDataNotice.test.ts
 src/hooks/useStructuralFolding.ts,client,src/hooks/__tests__/useStructuralFolding.test.ts
 src/hooks/useVariantUrlSync.ts,client,
-src/lib/insightsConsensus.ts,barrel,src/components/__tests__/ReviewWorkspaces.test.tsx
+src/lib/download.ts,client,src/lib/__tests__/download.test.ts
+src/lib/insightsConsensus.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx
 src/lib/inspectorFocus.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/EnergeticsInspector.test.tsx;src/components/inspector/__tests__/EvidenceInspector.test.tsx;src/components/inspector/__tests__/ViewInspector.test.tsx;src/lib/__tests__/inspectorFocus.test.tsx
 src/lib/residueScalesLoading.ts,client,
 src/lib/residueShiftModel.ts,client,src/lib/__tests__/residueShiftModel.test.ts
@@ -479,7 +476,7 @@ src/stores/slices/pipelineSlice.ts,client,
 src/stores/slices/searchSlice.ts,client,src/stores/__tests__/useVariantAnalysisStore.test.ts
 src/stores/slices/structuralFoldingSlice.ts,client,
 src/stores/slices/uiSlice.ts,client,src/components/__tests__/ClinicalInsightsCard.narrativeSummary.test.tsx;src/components/__tests__/ClinicalReportBar.test.tsx;src/components/inspector/__tests__/ReportInspector.test.tsx;src/stores/__tests__/handleCopyReport.test.ts
-src/stores/useVariantAnalysisStore.ts,client,src/components/__tests__/ClinicalInsightsCard.narrativeSummary.test.tsx;src/components/__tests__/ClinicalReportBar.test.tsx;src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/__tests__/ExplorationWorkspace.test.tsx;src/components/__tests__/HeaderBar.test.tsx;src/components/__tests__/Structure3dView.test.tsx;src/components/__tests__/VariantSearchPanel.buildMismatch.test.tsx;src/components/__tests__/VariantSearchPanel.buildSelector.test.tsx;src/components/__tests__/VariantSearchPanel.pipeline.test.tsx;src/components/__tests__/VariantSearchPanel.queryForm.test.tsx;src/components/__tests__/VariantSearchPanel.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/__tests__/reportDraftPersistence.test.ts;src/components/energetics/RetryDynamut2.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx;src/components/evidence/__tests__/EvidenceContextPrefetch.test.tsx;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/evidence/__tests__/SpeciesReviewFixes.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/components/header/__tests__/variantChrome.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/components/inspector/__tests__/ConstraintInspector.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/components/inspector/__tests__/LandscapeInspector.test.tsx;src/components/inspector/__tests__/ReportInspector.test.tsx;src/components/inspector/__tests__/StructureInspectorFoldingLimits.test.tsx;src/components/sequence/__tests__/landscapeTab.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/hooks/__tests__/useAppEffects.reload.test.tsx;src/hooks/__tests__/useBiophysicalModeling.test.tsx;src/hooks/__tests__/useNarrativeResynthesis.test.tsx;src/hooks/__tests__/useProteinSequence.test.ts;src/hooks/useEvidenceContext.test.ts;src/lib/__tests__/useStructureWorkspace.test.ts;src/stores/__tests__/handleCopyReport.test.ts;src/stores/__tests__/recentsReplay.test.ts;src/stores/__tests__/useVariantAnalysisStore.test.ts
+src/stores/useVariantAnalysisStore.ts,client,src/components/__tests__/ClinicalInsightsCard.narrativeSummary.test.tsx;src/components/__tests__/ClinicalReportBar.test.tsx;src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/__tests__/ExplorationWorkspace.test.tsx;src/components/__tests__/HeaderBar.test.tsx;src/components/__tests__/Structure3dView.test.tsx;src/components/__tests__/VariantSearchPanel.buildMismatch.test.tsx;src/components/__tests__/VariantSearchPanel.buildSelector.test.tsx;src/components/__tests__/VariantSearchPanel.pipeline.test.tsx;src/components/__tests__/VariantSearchPanel.queryForm.test.tsx;src/components/__tests__/VariantSearchPanel.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/__tests__/reportDraftPersistence.test.ts;src/components/energetics/RetryDynamut2.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx;src/components/evidence/__tests__/EvidenceContextPrefetch.test.tsx;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/evidence/__tests__/SpeciesReviewFixes.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/components/header/__tests__/variantChrome.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/components/inspector/__tests__/ConstraintInspector.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/components/inspector/__tests__/LandscapeInspector.test.tsx;src/components/inspector/__tests__/ReportInspector.test.tsx;src/components/inspector/__tests__/StructureInspectorFoldingLimits.test.tsx;src/components/sequence/__tests__/landscapeTab.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/hooks/__tests__/useAppEffects.reload.test.tsx;src/hooks/__tests__/useBiophysicalModeling.test.tsx;src/hooks/__tests__/useNarrativeResynthesis.test.tsx;src/hooks/__tests__/useProteinSequence.test.ts;src/hooks/__tests__/useStructuralFolding.test.ts;src/hooks/useEvidenceContext.test.ts;src/lib/__tests__/useStructureWorkspace.test.ts;src/stores/__tests__/handleCopyReport.test.ts;src/stores/__tests__/recentsReplay.test.ts;src/stores/__tests__/useVariantAnalysisStore.test.ts
 src/test/contextWorkspaceFixture.ts,client,src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx;src/components/evidence/__tests__/SpeciesReviewFixes.test.tsx;src/test/contextWorkspace.test.ts;src/test/expressionWorkspaceFinding.test.ts
 src/test/evidenceWorkspaceFixture.ts,client,src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/test/evidenceComparison.test.ts
 src/test/mechanismWorkspaceFixture.ts,client,src/components/evidence/__tests__/MechanismWorkspace.test.tsx;src/components/knowledge/__tests__/ContextualCoverage.test.tsx

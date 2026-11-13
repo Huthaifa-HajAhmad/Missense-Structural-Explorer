@@ -1,4 +1,6 @@
 import os
+import threading
+import weakref
 import torch
 import asyncio
 import numpy as np
@@ -35,6 +37,7 @@ class SaprotRequest(BaseModel):
     wt: str
     mut: str
     wtPdb: str | None = None
+    chainId: str | None = None
     hfToken: str | None = None
     modelName: str = "westlake-repl/SaProt_650M_AF2"
     preferRemote: bool = False
@@ -129,7 +132,7 @@ def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: 
 
     return probs
 
-def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str, token: str, wt_pdb: str, start_offset: int = 0):
+def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str, token: str, wt_pdb: str, start_offset: int = 0, chain_id: str | None = None):
     from huggingface_hub import InferenceClient
     # Bounded, like the ESM-2 remote tier: the Node layer gives the whole sidecar call a fixed budget.
     client = InferenceClient(token=token, timeout=float(os.environ.get("SAPROT_REMOTE_TIMEOUT_S", "30")))
@@ -137,7 +140,7 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     wt_sequence = sequence.upper()
     
     if wt_pdb:
-        seq_3di = encode_pdb_to_3di(wt_pdb, len(wt_sequence), start_idx=start_offset + 1, target_seq=wt_sequence)
+        seq_3di = encode_pdb_to_3di(wt_pdb, len(wt_sequence), start_idx=start_offset + 1, target_seq=wt_sequence, chain_id=chain_id)
     else:
         seq_3di = "#" * len(wt_sequence)
         
@@ -221,8 +224,8 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         seq_len = min(wt_emb.shape[0], mut_emb.shape[0])
         distances = np.linalg.norm(wt_emb[:seq_len] - mut_emb[:seq_len], axis=-1)
         
-        emb_pos = pos if pos < seq_len else seq_len - 1
-        embedding_shift = float(distances[emb_pos])
+        if 1 <= pos < seq_len - 1:
+            embedding_shift = float(distances[pos])
         
         for i in range(-10, 11):
             target_token_idx = pos + i
@@ -300,7 +303,7 @@ def predict_saprot_sync(req: SaprotRequest):
             models.model_status["saprot"] = "remote_inference"
             try:
                 print(f"[Model Server] Querying SaProt remotely via HF Serverless Inference API (model={req.modelName})...")
-                result = run_saprot_remote(req.modelName, sequence, pos, wt, mut, req.hfToken, req.wtPdb, start_offset=start_offset)
+                result = run_saprot_remote(req.modelName, sequence, pos, wt, mut, req.hfToken, req.wtPdb, start_offset=start_offset, chain_id=req.chainId)
                 print(f"[Model Server] SaProt remote call succeeded.")
                 saprot_available = True
                 return result
@@ -339,7 +342,7 @@ def predict_saprot_sync(req: SaprotRequest):
                 
                 if req.wtPdb:
                     models.model_status["saprot"] = "generating_3di_tokens"
-                    seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1, target_seq=sequence)
+                    seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1, target_seq=sequence, chain_id=req.chainId)
                 else:
                     seq_3di = "#" * len(sequence)
                     
@@ -397,7 +400,7 @@ def predict_saprot_sync(req: SaprotRequest):
                 diff = hidden_states[:seq_len] - mut_hidden_states[:seq_len]
                 distances = torch.norm(diff, p=2, dim=-1)
                 
-                embedding_shift = round(distances[pos].item(), 4)
+                embedding_shift = round(distances[pos].item(), 4) if 1 <= pos < seq_len - 1 else None
                 
                 local_shift_map = []
                 for i in range(-10, 11):
@@ -457,9 +460,21 @@ def predict_saprot_sync(req: SaprotRequest):
     finally:
         models.model_status["saprot"] = "ready" if saprot_available else "unavailable"
 
-_inference_semaphore = asyncio.Semaphore(1)
+_loop_semaphores: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_semaphore_lock = threading.Lock()
+
+
+def _get_inference_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    with _semaphore_lock:
+        sem = _loop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(1)
+            _loop_semaphores[loop] = sem
+        return sem
+
 
 @router.post("/predict/saprot", response_model=SaprotResponse)
 async def predict_saprot(req: SaprotRequest):
-    async with _inference_semaphore:
+    async with _get_inference_semaphore():
         return with_remote_failure(await asyncio.to_thread(predict_saprot_sync, req), "huggingface")

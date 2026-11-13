@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from "react";
-import { useDevConsole } from "../../context/DevConsoleContext.tsx";
+import { useDevConsoleActions } from "../../context/DevConsoleContext.tsx";
 import type { TraceContext } from "../../services/pipeline/types.ts";
 import type { TraceRunFinishStatus } from "../../types/devConsole.ts";
 
@@ -7,7 +7,7 @@ import type { TraceRunFinishStatus } from "../../types/devConsole.ts";
  * Manages DevConsole telemetry spans and distributed tracing context for variant pipelines.
  */
 export function usePipelineTelemetry() {
-  const { dispatch, startTraceRun, addTraceSpan, updateTraceSpan, finishTraceRun } = useDevConsole();
+  const { dispatch, startTraceRun, addTraceSpan, updateTraceSpan, finishTraceRun } = useDevConsoleActions();
   const activeTraceIdRef = useRef<string | null>(null);
   const traceStartRef = useRef<number>(0);
 

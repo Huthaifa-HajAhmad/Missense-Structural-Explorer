@@ -6,18 +6,25 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import fs from "fs";
-import { runTempJobsJanitor, AuditLogger } from "./server/utils.ts";
+import { runTempJobsJanitor, stopTempJobsJanitor, AuditLogger } from "./server/utils.ts";
 import { initializeRaspDatabase, findBindingPocket } from "./server/services/biophysics.ts";
 import { runFoldxQueueJobOnServer } from "./server/services/stability/foldx-queue-job.ts";
+import { deferFoldxJobDirCleanup } from "./server/services/stability/foldx/runner.ts";
 import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
 import { shutdownPool } from "./server/services/biophysics-pool.ts";
 import { shutdownDbPool } from "./server/services/infra/analysis-db-pool.ts";
+import { AnalysisDatabase } from "./server/services/infra/analysis-db.ts";
 import { warmServerTools } from "./server/services/infra/host-probe.ts";
 import { warmAtlasGrpcChannel } from "./server/services/external-api/alphagenome-client.ts";
 import { startSidecarSupervisor } from "./server/sidecar-supervisor.ts";
 import { createExpressApp } from "./server/express-config.ts";
 import { keepRunningOnUnhandledRejection, registerGracefulShutdown } from "./server/graceful-shutdown.ts";
 import { activeBackgroundTasks } from "./server/routes.ts";
+import { getRegistryPath } from "./server/routes/shared.ts";
+import { closeStateStores } from "./server/routes/state.ts";
+import { closeAccountsDb } from "./server/auth/store.ts";
+import { closeLocalDbnsfpStore } from "./server/services/prediction/dbnsfp_local.ts";
+import { closeLiteratureDb } from "./server/services/llm/literature-rag.ts";
 import { CONFIG } from "./server/config.ts";
 import { initialDeploymentPaused } from "./server/deployment-role.ts";
 
@@ -77,7 +84,7 @@ function initBiophysicalJobQueue(): void {
       throw new Error(`Unknown biophysical job type: ${type}`);
     } finally {
       try {
-        if (data.jobDir && fs.existsSync(data.jobDir)) {
+        if (data.jobDir && !(type === "foldx" && deferFoldxJobDirCleanup(data.jobDir)) && fs.existsSync(data.jobDir)) {
           await fs.promises.rm(data.jobDir, { recursive: true, force: true });
           console.log(`[Queue Worker] Cleaned up temporary job directory: ${data.jobDir}`);
         }
@@ -103,14 +110,19 @@ async function abortActiveBackgroundTasks(): Promise<void> {
 }
 
 /**
- * Cleans up root temp_jobs directory on shutdown.
+ * Cleans up temporary job directories inside temp_jobs/ on shutdown while preserving the job registry.
  */
 async function cleanupTempJobsRoot(): Promise<void> {
   try {
     const tempJobsRoot = path.join(process.cwd(), "temp_jobs");
-    if (fs.existsSync(tempJobsRoot)) {
-      console.log(`[Shutdown] Cleaning up temporary jobs directory: ${tempJobsRoot}`);
-      await fs.promises.rm(tempJobsRoot, { recursive: true, force: true });
+    if (!fs.existsSync(tempJobsRoot)) return;
+    console.log(`[Shutdown] Cleaning up temporary jobs directory: ${tempJobsRoot}`);
+    const registryResolved = path.resolve(getRegistryPath());
+    const entries = await fs.promises.readdir(tempJobsRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(tempJobsRoot, entry.name);
+      if (path.resolve(entryPath) === registryResolved) continue;
+      await fs.promises.rm(entryPath, { recursive: true, force: true });
     }
   } catch (err: any) {
     console.error(`[Shutdown Error] Failed to clean up temp jobs directory:`, err.message);
@@ -154,11 +166,17 @@ async function startServer(): Promise<void> {
 
   // Register graceful shutdown coordinator
   registerGracefulShutdown(serverInstance, [
+    { name: "Temp Jobs Janitor", fn: stopTempJobsJanitor },
     { name: "Sidecar Process", fn: () => sidecar.stop() },
     { name: "Route Background Tasks", fn: abortActiveBackgroundTasks },
     { name: "Biophysical Job Queue", fn: () => BiophysicalJobQueue.getInstance().shutdown() },
     { name: "Biophysics Worker Pool", fn: shutdownPool },
     { name: "Analysis DB Worker Pool", fn: shutdownDbPool },
+    { name: "Main-Thread Analysis DB", fn: () => AnalysisDatabase.closeInstance() },
+    { name: "Accounts SQLite DB", fn: closeAccountsDb },
+    { name: "Shared State & Redis", fn: closeStateStores },
+    { name: "Local dbNSFP Store", fn: closeLocalDbnsfpStore },
+    { name: "Literature RAG DB", fn: closeLiteratureDb },
     { name: "Temp Jobs Cleanup", fn: cleanupTempJobsRoot }
   ]);
 }

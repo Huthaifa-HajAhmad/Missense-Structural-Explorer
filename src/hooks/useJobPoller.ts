@@ -67,6 +67,7 @@ export function useJobPoller<TData = any>({
 
     let attempt = 0;
     let stopped = false;
+    let inFlight = false;
     let consecutiveTransientErrors = 0;
     let listening = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -74,11 +75,25 @@ export function useJobPoller<TData = any>({
     let eventSource: EventSource | null = null;
     const controller = new AbortController();
     const pollStart = Date.now();
+    const isTabHidden = () =>
+      typeof document !== "undefined" && (document.visibilityState === "hidden" || document.hidden === true);
+    const isSseOpen = () =>
+      typeof window !== "undefined" &&
+      typeof window.EventSource !== "undefined" &&
+      typeof window.EventSource.OPEN === "number" &&
+      eventSource !== null &&
+      eventSource.readyState === window.EventSource.OPEN;
+
+    let onVisibilityChange: (() => void) | null = null;
 
     const stop = () => {
       stopped = true;
       clearTimeout(timeoutId);
       clearTimeout(deadlineId);
+      if (onVisibilityChange && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        onVisibilityChange = null;
+      }
       eventSource?.close();
       controller.abort();
     };
@@ -167,13 +182,24 @@ export function useJobPoller<TData = any>({
       }
     }
 
-    const getBackoffDelay = (attempts: number) => listening ? listenIntervalMs : attempts < 5 ? 3000 : attempts < 15 ? 5000 : 10000;
+    const getBackoffDelay = (attempts: number) => {
+      const baseDelay = listening ? listenIntervalMs : attempts < 5 ? 3000 : attempts < 15 ? 5000 : 10000;
+      return isSseOpen() ? Math.max(baseDelay, 30_000) : baseDelay;
+    };
+
+    const scheduleNextPoll = () => {
+      if (stopped || isTabHidden()) return;
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(poll, getBackoffDelay(++attempt));
+    };
+
     const poll = async () => {
-      if (stopped) return;
+      if (stopped || inFlight || isTabHidden()) return;
       if ((!listening && attempt >= maxAttempts) || Date.now() - pollStart >= maxElapsedMs) {
         finish("unavailable", `${toolName} prediction timed out (poll limit reached)`);
         return;
       }
+      inFlight = true;
       try {
         const query = buildQueryParamsRef.current?.()?.toString();
         const url = endpointRef.current(jobId) + (query ? "?" + query : "");
@@ -199,10 +225,41 @@ export function useJobPoller<TData = any>({
       } catch (error: any) {
         if (stopped) return;
         if (++consecutiveTransientErrors >= 3 && enterListening(`${toolName} job polling failed: ${error?.message || "Network error"}.`)) return;
+      } finally {
+        inFlight = false;
       }
-      if (!stopped) timeoutId = setTimeout(poll, getBackoffDelay(++attempt));
+      scheduleNextPoll();
     };
-    void poll();
+
+    if (eventSource) {
+      const prevOnError = eventSource.onerror;
+      eventSource.onerror = event => {
+        prevOnError?.call(eventSource!, event);
+        if (!stopped && !inFlight && !isTabHidden()) {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(poll, getBackoffDelay(attempt));
+        }
+      };
+    }
+
+    if (typeof document !== "undefined") {
+      onVisibilityChange = () => {
+        if (stopped) return;
+        if (isTabHidden()) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+          return;
+        }
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+        if (!inFlight) void poll();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+
+    if (!isTabHidden()) {
+      void poll();
+    }
     return stop;
   }, [jobId, status, toolName, maxAttempts, maxElapsedMs, listenWindowMs, listenIntervalMs]);
 }

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useStructuralFolding, StructuralFoldingSink } from "../useStructuralFolding";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
 describe("useStructuralFolding Hook", () => {
   let mockSink: StructuralFoldingSink;
@@ -27,6 +28,11 @@ describe("useStructuralFolding Hook", () => {
     };
 
     mockAddNotification = vi.fn();
+  });
+
+  afterEach(() => {
+    useVariantAnalysisStore.setState({ esmAlignmentScope: "local" });
+    vi.restoreAllMocks();
   });
 
   it("synchronizes loading and error state with sink when folding fails with length limit", async () => {
@@ -102,5 +108,82 @@ describe("useStructuralFolding Hook", () => {
     });
 
     expect(mockSink.resetEsmFoldState).toHaveBeenCalled();
+  });
+
+  it("separates cache entries by esmAlignmentScope", async () => {
+    mockApiClient.foldSequence.mockResolvedValue({
+      wtPdb: "ATOM WT",
+      mutPdb: "ATOM MUT"
+    });
+    mockApiClient.structuralAlign
+      .mockResolvedValueOnce({
+        alignedPdb: "ALIGNED_LOCAL",
+        metrics: { rmsd: 0.25, tmScore: 0.99 }
+      })
+      .mockResolvedValueOnce({
+        alignedPdb: "ALIGNED_GLOBAL",
+        metrics: { rmsd: 1.15, tmScore: 0.91 }
+      });
+
+    useVariantAnalysisStore.setState({ esmAlignmentScope: "local" });
+    const { result } = renderHook(() => useStructuralFolding(mockSink));
+
+    await act(async () => {
+      await result.current.fetchEsmFold(mockApiClient, mockAddNotification, "P04637", "p.Arg175His", "MSEQ", "MSEQ");
+    });
+    expect(mockApiClient.structuralAlign).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alignmentScope: "local" }),
+      expect.any(AbortSignal)
+    );
+    expect(result.current.esmFoldAlignedPdb).toBe("ALIGNED_LOCAL");
+
+    useVariantAnalysisStore.setState({ esmAlignmentScope: "global" });
+    await act(async () => {
+      await result.current.fetchEsmFold(mockApiClient, mockAddNotification, "P04637", "p.Arg175His", "MSEQ", "MSEQ");
+    });
+    expect(mockApiClient.foldSequence).toHaveBeenCalledTimes(2);
+    expect(mockApiClient.structuralAlign).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alignmentScope: "global" }),
+      expect.any(AbortSignal)
+    );
+    expect(result.current.esmFoldAlignedPdb).toBe("ALIGNED_GLOBAL");
+
+    useVariantAnalysisStore.setState({ esmAlignmentScope: "local" });
+    await act(async () => {
+      await result.current.fetchEsmFold(mockApiClient, mockAddNotification, "P04637", "p.Arg175His", "MSEQ", "MSEQ");
+    });
+    expect(mockApiClient.foldSequence).toHaveBeenCalledTimes(2);
+    expect(result.current.esmFoldAlignedPdb).toBe("ALIGNED_LOCAL");
+  });
+
+  it("ignores in-flight fold resolution after resetEsmFoldState", async () => {
+    let resolveFold!: (val: { wtPdb: string; mutPdb: string }) => void;
+    mockApiClient.foldSequence.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveFold = resolve;
+      })
+    );
+
+    const { result } = renderHook(() => useStructuralFolding(mockSink));
+
+    let foldPromise!: Promise<void>;
+    act(() => {
+      foldPromise = result.current.fetchEsmFold(mockApiClient, mockAddNotification, "Q9Y6K9", "p.Leu10Arg", "MSEQ", "MSEQ");
+    });
+
+    act(() => {
+      result.current.resetEsmFoldState();
+    });
+
+    await act(async () => {
+      resolveFold({ wtPdb: "STALE_WT", mutPdb: "STALE_MUT" });
+      await foldPromise;
+    });
+
+    expect(mockApiClient.structuralAlign).not.toHaveBeenCalled();
+    expect(mockSink.setEsmFoldWtPdb).not.toHaveBeenCalled();
+    expect(mockSink.setEsmFoldMutPdb).not.toHaveBeenCalled();
+    expect(result.current.esmFoldWtPdb).toBeNull();
+    expect(result.current.esmFoldMutPdb).toBeNull();
   });
 });

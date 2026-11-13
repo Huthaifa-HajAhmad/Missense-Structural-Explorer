@@ -283,4 +283,40 @@ describe("SettingsDrawer (settings revamp)", () => {
       expect(row).toHaveClass("settings-flash");
     });
   });
+
+  it("marks .app-shell inert while open and pulls escaped focus back into the drawer", async () => {
+    function ShellWithDrawer() {
+      const { openSettingsTab } = useSettings();
+      return (
+        <>
+          <div className="app-shell">
+            <button onClick={() => openSettingsTab("appearance")}>open-shell-settings</button>
+            <button data-testid="outside-btn">outside-btn</button>
+          </div>
+          <SettingsDrawer />
+        </>
+      );
+    }
+    render(
+      <SettingsProvider>
+        <ShellWithDrawer />
+      </SettingsProvider>
+    );
+    const shell = document.querySelector<HTMLElement>(".app-shell")!;
+    expect(shell.hasAttribute("inert")).toBe(false);
+
+    fireEvent.click(screen.getByText("open-shell-settings"));
+    await act(async () => {});
+
+    const dialog = screen.getByRole("dialog");
+    expect(shell.hasAttribute("inert")).toBe(true);
+
+    const outside = screen.getByTestId("outside-btn");
+    fireEvent.focusIn(outside);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 3000 });
+    expect(shell.hasAttribute("inert")).toBe(false);
+  });
 });

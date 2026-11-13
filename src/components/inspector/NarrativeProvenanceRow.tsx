@@ -4,10 +4,14 @@ import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { deriveAiStatus } from "../report/reportStatus";
-import { narrativeFreshness, readNarrativeEvidenceStamp, narrativeDeepEvidenceStatus } from "../../shared/narrativeEvidence";
+import {
+  narrativeFreshness,
+  hasStampedNarrative,
+  narrativeAuthorshipOfResult,
+  narrativeDeepEvidenceStatus,
+} from "../../shared/narrativeEvidence";
 import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import { NARRATIVE_SYNTHESIS, describeSampling } from "../../shared/narrativeSynthesis";
-import { deriveNarrativeAuthorship } from "../../shared/narrativeAuthorship";
 
 interface NarrativeProvenanceRowProps {
   analysisResult: AnalysisResult | null;
@@ -58,7 +62,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         providerDetail: analysisResult?.providerDetail,
         attemptedModels: analysisResult?.attemptedModels,
         isKeyActive,
-        hasNarrative: Boolean(narrative && (!analysisResult?.metadata?.pipelineRunId || readNarrativeEvidenceStamp(analysisResult))),
+        hasNarrative: Boolean(narrative && hasStampedNarrative(analysisResult)),
         isNarrativeLoading,
         narrativeMode: settings?.narrativeMode,
         narrativeOutdated: narrativeFreshness(analysisResult, narrativeContext) === "outdated",
@@ -92,9 +96,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
    * and the report's synthesis chip render (see `shared/narrativeAuthorship.ts` for why a degraded run
    * can never be AI-authored whatever the payload field says).
    */
-  const declaredSource = (analysisResult?.insights as { source?: string } | undefined)?.source;
-  const authorship = analysisResult?.metadata?.pipelineRunId && !readNarrativeEvidenceStamp(analysisResult)
-    ? "none" : deriveNarrativeAuthorship({ analysis: narrative, isDegraded, declaredSource });
+  const authorship = narrativeAuthorshipOfResult(analysisResult, isDegraded);
   const proseIsAi = authorship === "ai";
 
   const StatusIcon = isNarrativeLoading
@@ -114,7 +116,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         { label: "Response format", value: NARRATIVE_SYNTHESIS.responseFormat },
         { label: "Sampling", value: describeSampling(NARRATIVE_SYNTHESIS.temperature) },
       ]
-    : [{ label: "Prose source", value: narrative ? "Rule-based" : "No narrative" }];
+    : [{ label: "Prose source", value: authorship === "rule-based" ? "Rule-based" : "No narrative" }];
 
   return (
     <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-workbench-header-surface space-y-2">

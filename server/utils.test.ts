@@ -472,7 +472,7 @@ describe("Input Validation Patterns & Functions", () => {
   });
 
   describe("getClientIp & Rate Limiting Hardening", () => {
-    it("should accept valid encrypted session tokens and return session bucket", () => {
+    it("should ignore X-Gemini-Session-ID and fall back to IP so session refreshes cannot rotate buckets", () => {
       const secret = process.env.APP_SESSION_SECRET || "test-session-secret-key-123";
       process.env.APP_SESSION_SECRET = secret;
       const validSession = encryptSession(
@@ -483,18 +483,18 @@ describe("Input Validation Patterns & Functions", () => {
         headers: { "x-gemini-session-id": validSession },
         ip: "192.168.1.100"
       };
-      const key = getClientIp(req);
-      expect(key.startsWith("session_")).toBe(true);
-      expect(key).not.toBe("192.168.1.100");
+      // Corrected rule (server/middleware.ts getClientIp): BYOK session tokens may be refreshed
+      // with fresh IVs indefinitely, so anonymous callers share their IP bucket rather than session_.
+      expect(getClientIp(req)).toBe("192.168.1.100");
     });
 
-    it("should reject arbitrary unencrypted/fake session IDs and fall back to IP", () => {
+    it("should key signed-in user principals by userId rather than shared NAT IP", () => {
       const req: any = {
-        headers: { "x-gemini-session-id": "fake_unauthenticated_random_session_123" },
-        ip: "192.168.1.100"
+        headers: {},
+        ip: "192.168.1.100",
+        principal: { kind: "user", userId: "user-42" }
       };
-      const key = getClientIp(req);
-      expect(key).toBe("192.168.1.100");
+      expect(getClientIp(req)).toBe("user_user-42");
     });
 
     it("should fallback to socket remoteAddress if req.ip is absent", () => {

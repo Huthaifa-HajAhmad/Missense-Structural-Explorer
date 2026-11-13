@@ -71,7 +71,8 @@ it('links Energetics records to the inspector, retains plot controls, and resets
 async function openStructure(ui: ReturnType<typeof render>) {
   fireEvent.click(ui.getByRole('tab', { name: 'Focus residue' }));
   fireEvent.click(ui.getByRole('button', { name: 'Inspect in 3D' }));
-  return ui.findByTestId('canvas-instance');
+  // MolstarViewer is lazy-loaded; under a loaded full-suite worker it needs more than 1s.
+  return ui.findByTestId('canvas-instance', undefined, { timeout: 6000 });
 }
 
 it('defers the canvas, then keeps its identity, family and the Landscape tab across navigation', async () => {

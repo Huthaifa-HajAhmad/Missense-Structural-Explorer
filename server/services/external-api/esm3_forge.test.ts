@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import * as sasaRunner from "../structure/sasa-runner.ts";
 import { fetchEsm3StructureEval } from "./esm3_forge.ts";
+
+vi.mock("../structure/sasa-runner.ts", { spy: true });
 
 /**
  * These tests lock the two properties behind the RGS9 (674 aa) ESM3 failure:
@@ -105,5 +108,25 @@ describe("fetchEsm3StructureEval coverage and caching", () => {
     answer("ESM3-Medium (Remote)", [0.5, 0.6, 0.7, 0.8]);
     const again = await fetchEsm3StructureEval("CACHE_STAND_IN", 1, "A", "V", null, null, "AAAA") as any;
     expect(again.provenance).toBe("ESM3-Medium (Remote)");
+  });
+
+  it("keys cache by template context and avoids fabricating low confidence or loop SSE when unmeasured", async () => {
+    vi.spyOn(sasaRunner, "executeSasaEval").mockResolvedValue({ status: "error", message: "SASA unavailable" });
+    const expPdb = [
+      "ATOM      1  CA  ALA B   2       1.000   1.000   1.000  1.00 88.00           C",
+      "ENDMDL",
+      "ATOM      2  CA  ALA B   2       1.000   1.000   1.000  1.00 12.00           C"
+    ].join("\n");
+    answer("ESM3-Medium (Remote)", [0.1, 0.2, 0.3, 0.4]);
+    const expRes = await fetchEsm3StructureEval("CTX_CACHE", 2, "A", "V", expPdb, null, "AAAA", "experimental") as any;
+    expect(expRes.confidence.level).toBeNull();
+    expect(expRes.confidence.plddt).toBeNull();
+    expect(expRes.microenvironments).toContain("Secondary structure not measured");
+    expect(expRes.microenvironments).not.toContain("Loop / Flexible Turn");
+
+    answer("ESM3-Medium (Remote)", [0.2, 0.3, 0.4, 0.5]);
+    const afRes = await fetchEsm3StructureEval("CTX_CACHE", 2, "A", "V", expPdb, null, "AAAA", "alphafold") as any;
+    expect(afRes.confidence.level).toBe("high");
+    expect(afRes.confidence.plddt).toBe(88);
   });
 });

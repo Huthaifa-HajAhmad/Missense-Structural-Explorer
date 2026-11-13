@@ -79,7 +79,8 @@ export function healCachedAnalysisIfPossible(
   // 1. Genos & Conservation healing
   if (genosCache?.data) {
     const g = genosCache.data;
-    payload.conservationData = {
+    const prevStatus = payload.serviceStatus?.conservationData;
+    const nextConservation = {
       ...payload.conservationData,
       revel: g.revel ?? payload.conservationData?.revel ?? null,
       gerp: g.gerp ?? payload.conservationData?.gerp ?? null,
@@ -97,6 +98,26 @@ export function healCachedAnalysisIfPossible(
       // Keep existing exact-local AoU evidence only; never heal counts from this protein row.
       aouFrequency: payload.conservationData?.aouFrequency ?? null
     };
+    const hasAnyConservationMetric = [
+      nextConservation.revel,
+      nextConservation.gerp,
+      nextConservation.phylop,
+      nextConservation.bayesdel,
+      nextConservation.metarnn,
+      nextConservation.clinpred,
+      nextConservation.eigenPhred,
+      nextConservation.dann,
+      nextConservation.esm1b,
+      nextConservation.popeve,
+      nextConservation.spliceai,
+      nextConservation.dbscsnv,
+      (nextConservation as Record<string, unknown>).consurf,
+      (nextConservation as Record<string, unknown>).gpnStar,
+      (nextConservation as Record<string, unknown>).alphagenome
+    ].some(v => v != null);
+    if (hasAnyConservationMetric || payload.conservationData != null) {
+      payload.conservationData = nextConservation;
+    }
     /**
      * Heal the LIFECYCLE with the values. A salvaged composite carries `modelStatus`; the Genos row
      * answers the dbNSFP ensemble, PopEVE and SpliceAI only, so those entries settle when the row
@@ -105,14 +126,31 @@ export function healCachedAnalysisIfPossible(
      * and the ACMG engine could not tell the ensemble is still incomplete.
      */
     const healedStatus = payload.conservationData?.modelStatus as Record<string, string> | undefined;
+    let statusChanged = false;
     if (healedStatus) {
-      healedStatus.base = "settled";
-      if (g.popeve != null) healedStatus.popeve = "settled";
-      if (g.spliceai) healedStatus.spliceai = "settled";
-      if (Object.values(healedStatus).every(state => state === "settled")) delete payload.conservationData.modelStatus;
+      if (healedStatus.base !== "settled") {
+        healedStatus.base = "settled";
+        statusChanged = true;
+      }
+      if (g.popeve != null && healedStatus.popeve !== "settled") {
+        healedStatus.popeve = "settled";
+        statusChanged = true;
+      }
+      if (g.spliceai && healedStatus.spliceai !== "settled") {
+        healedStatus.spliceai = "settled";
+        statusChanged = true;
+      }
+      if (Object.values(healedStatus).every(state => state === "settled")) {
+        delete payload.conservationData.modelStatus;
+        statusChanged = true;
+      }
     }
-    if (payload.serviceStatus && !payload.conservationData?.modelStatus) payload.serviceStatus.conservationData = "ok";
-    didHeal = true;
+    if (payload.serviceStatus && !payload.conservationData?.modelStatus && hasAnyConservationMetric) {
+      payload.serviceStatus.conservationData = "ok";
+    }
+    if (hasAnyConservationMetric || statusChanged || payload.serviceStatus?.conservationData !== prevStatus) {
+      didHeal = true;
+    }
   }
 
   // 2. ClinVar healing

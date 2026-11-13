@@ -91,8 +91,12 @@ export function useStructureWorkspace(masterView: MasterView) {
 
   const [lastFamily, setLastFamily] = useState<ModelFamily | null>(null);
   const activeFamily: ModelFamily = masterView === "structure_esmfold" ? "esmfold" : "alphafold";
-  if (isActive && lastFamily !== activeFamily) setLastFamily(activeFamily);
-  const family: ModelFamily = lastFamily ?? (settings.defaultStructureModel === "esmfold" ? "esmfold" : "alphafold");
+  useEffect(() => {
+    if (isActive && lastFamily !== activeFamily) setLastFamily(activeFamily);
+  }, [isActive, lastFamily, activeFamily]);
+  const family: ModelFamily = isActive
+    ? activeFamily
+    : (lastFamily ?? (settings.defaultStructureModel === "esmfold" ? "esmfold" : "alphafold"));
 
   // The model decides which modes exist and falls back when one is not available. The coordinates follow
   // `model.viewMode`, not the stored mode, so the canvas never draws a mode the model has ruled out.

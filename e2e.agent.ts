@@ -11,7 +11,7 @@ try {
 const gemini = createGoogleGenerativeAI({ apiKey: process.env.GEMINI_API_KEY });
 
 /** Model behind every agent.* step and `e2e explore`. Tests under tests/ stay deterministic. */
-export const agentModel = gemini(process.env.GEMINI_MODEL ?? 'gemini-3.7-flash');
+export const agentModel = gemini(process.env.GEMINI_MODEL ?? 'gemini-3.6-flash');
 
 export const agentSystem =
   'You are a QA agent for a clinical variant-interpretation web app (Missense & Fold). ' +

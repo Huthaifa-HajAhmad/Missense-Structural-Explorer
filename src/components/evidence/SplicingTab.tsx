@@ -357,6 +357,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
   const identity = spliceRequestIdentity(result);
   const variantKey = `${result?.metadata?.gene ?? ""}|${result?.metadata?.variant ?? ""}`;
   const firstVariant = useRef(variantKey);
+  const { enabled: workspaceEnabled, initialized: workspaceInitialized, view: workspaceView, setOptions: setWorkspaceOptions, setView: setWorkspaceView } = workspace;
   const loaded = base?.geometry.transcriptId ?? null;
   const hasMapSettings = mapView.halfWidth !== null || mapView.focusedScore || mapView.showSmallSignals;
   useEffect(() => {
@@ -368,37 +369,45 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
     if (firstVariant.current === variantKey) return;
     firstVariant.current = variantKey;
     setLocalSmallSignals(false);
-    workspace.setOptions({ spliceMap: undefined });
-    workspace.setView("comparison");
-  }, [variantKey]);
+    setWorkspaceOptions({ spliceMap: undefined });
+    setWorkspaceView("comparison");
+  }, [variantKey, setWorkspaceOptions, setWorkspaceView]);
   useEffect(() => {
     // Seeded once per allele, after the analysis has settled so the loaded transcript is known. A URL
     // transcript that is not the loaded one leaves the map settings at their defaults; the view still applies.
-    if (!workspace.enabled || workspace.initialized || loading) return;
+    if (!workspaceEnabled || workspaceInitialized || loading) return;
     const seed = urlClaim.claimedBy === identity ? urlClaim.seed : null;
     const matches = seed !== null && seed.transcript !== null && seed.transcript === loaded;
-    workspace.setOptions({
+    setWorkspaceOptions({
       initialized: true,
       spliceMap: matches && seed ? { transcript: loaded, halfWidth: seed.halfWidth, focusedScore: seed.focusedScore, showSmallSignals: seed.showSmallSignals } : undefined,
     });
-    workspace.setView(seed?.view ?? "comparison");
-  }, [workspace.enabled, workspace.initialized, loading, loaded, identity, urlClaim]);
+    setWorkspaceView(seed?.view ?? "comparison");
+  }, [workspaceEnabled, workspaceInitialized, loading, loaded, identity, urlClaim, setWorkspaceOptions, setWorkspaceView]);
   useEffect(() => {
-    if (typeof window === "undefined" || !workspace.enabled || !workspace.initialized) return;
-    const next = withSplicingParams(window.location.href, {
-      transcript: hasMapSettings ? mapView.transcript : null,
-      halfWidth: mapView.halfWidth,
-      focusedScore: mapView.focusedScore,
-      showSmallSignals: mapView.showSmallSignals,
-      view: parseSpliceView(workspace.view),
-    });
-    if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
-  }, [hasMapSettings, mapView.transcript, mapView.halfWidth, mapView.focusedScore, mapView.showSmallSignals, workspace.view, workspace.initialized, workspace.enabled]);
+    if (typeof window === "undefined" || !workspaceEnabled || !workspaceInitialized) return;
+    try {
+      const next = withSplicingParams(window.location.href, {
+        transcript: hasMapSettings ? mapView.transcript : null,
+        halfWidth: mapView.halfWidth,
+        focusedScore: mapView.focusedScore,
+        showSmallSignals: mapView.showSmallSignals,
+        view: parseSpliceView(workspaceView),
+      });
+      if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+    } catch {
+      // A sandboxed frame can refuse replaceState; the share link is a convenience, never load-bearing.
+    }
+  }, [hasMapSettings, mapView.transcript, mapView.halfWidth, mapView.focusedScore, mapView.showSmallSignals, workspaceView, workspaceInitialized, workspaceEnabled]);
   useEffect(() => () => {
     // Leaving the tab removes its parameters; the variant identity parameters are not this tab's to touch.
     if (typeof window === "undefined") return;
-    const next = withSplicingParams(window.location.href, SPLICE_URL_DEFAULTS);
-    if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+    try {
+      const next = withSplicingParams(window.location.href, SPLICE_URL_DEFAULTS);
+      if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+    } catch {
+      // Sandboxed frame
+    }
   }, []);
   if (!result || !ev || !readings) return null;
   // The composite is still streaming: a re-score now would be overwritten by its next snapshot.
@@ -476,19 +485,19 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
                   "Not resolved"
                 )}
               </dd>
-              <span className="spl-fact__sub">{g.exonLabel}{g.regionType ? ` · ${g.regionType}` : ""}</span>
+              <dd className="spl-fact__sub">{g.exonLabel}{g.regionType ? ` · ${g.regionType}` : ""}</dd>
             </div>
             <div className="spl-fact">
               <dt>SpliceAI source</dt>
               <dd>{rule.maxDs !== null ? ev.spliceai.provenance?.computedLive === false ? "Precomputed table" : ev.spliceai.provenance?.source === "broad-lookup" ? "Broad Lookup · live" : "Source not stated" : ev.spliceai.availability.label ?? ENGINE_STATE_LABELS["no-result"]}</dd>
-              <span className="spl-fact__sub">
+              <dd className="spl-fact__sub">
                 {rule.maxDs !== null ? `${ev.spliceai.windowText} window · ${ev.spliceai.maskText.toLowerCase()} scores` : "No score to attribute"}
-              </span>
+              </dd>
             </div>
             <div className="spl-fact">
               <dt>Engine record</dt>
               <dd><EngineFact ev={ev} /></dd>
-              <span className="spl-fact__sub">Missense vote · splicing not read</span>
+              <dd className="spl-fact__sub">Missense vote · splicing not read</dd>
             </div>
           </dl>
         </div>

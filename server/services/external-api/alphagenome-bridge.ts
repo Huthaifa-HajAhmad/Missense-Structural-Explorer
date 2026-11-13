@@ -163,7 +163,7 @@ export async function fetchAlphaGenome(
   const assembly = !(signalOrOptions instanceof AbortSignal) ? (signalOrOptions?.assembly ?? null) : null;
   const cacheKey = buildAlphaGenomeKey(normChrom, pos, normRef, normAlt, assembly);
 
-  const cached = alphagenomeCache.get(cacheKey);
+  const cached = customEndpoint ? undefined : alphagenomeCache.get(cacheKey);
   const isNegativeCached = Boolean(cached?.message?.includes("not indexed"));
   if (cached && (!hasCredentials || cached.status === "live" || isNegativeCached)) {
     return cached;
@@ -177,7 +177,7 @@ export async function fetchAlphaGenome(
   const flightKey = customEndpoint ? `${cacheKey}|endpoint:${endpoint}` : cacheKey;
 
   return defaultCacheRegistry.singleFlight(flightKey, async () => {
-    const doubleChecked = alphagenomeCache.get(cacheKey);
+    const doubleChecked = customEndpoint ? undefined : alphagenomeCache.get(cacheKey);
     const isDoubleNegative = Boolean(doubleChecked?.message?.includes("not indexed"));
     if (doubleChecked && (!hasCredentials || doubleChecked.status === "live" || isDoubleNegative)) {
       return doubleChecked;
@@ -296,7 +296,8 @@ export async function fetchAlphaGenome(
           ref: normRef,
           alt: normAlt
         }),
-        signal: combinedSignal
+        signal: combinedSignal,
+        ...(customEndpoint ? { rejectRedirects: true } : {}),
       });
 
     if (!res.ok) {
@@ -407,15 +408,16 @@ export async function fetchAlphaGenomeRegionSaturation(
 
   const { chrom, start, end, strand, transcriptId, exonNumber, exonStart, exonEnd } = parsed.data;
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom : `chr${chrom}`;
+  const assembly = !(signalOrOptions instanceof AbortSignal) ? (signalOrOptions?.assembly ?? null) : null;
   const exonKey = exonNumber !== undefined || exonStart !== undefined || exonEnd !== undefined
     ? `:ex:${exonNumber ?? ""}_${exonStart ?? ""}-${exonEnd ?? ""}`
     : "";
-  const cacheKey = `alphagenome:region:${normChrom}:${start}-${end}:${transcriptId || "all"}${exonKey}`;
+  const cacheKey = `alphagenome:region:${assembly ?? "unknown"}:${normChrom}:${start}-${end}:${strand || "unstranded"}:${transcriptId || "all"}${exonKey}`;
 
   const { apiKey: effectiveApiKey, endpoint: baseEndpoint, customEndpoint } = resolveAlphaGenomeAccess(apiKey, apiUrl);
   const hasCredentials = Boolean(effectiveApiKey || baseEndpoint);
 
-  const cached = alphagenomeRegionCache.get(cacheKey);
+  const cached = customEndpoint ? undefined : alphagenomeRegionCache.get(cacheKey);
   const isNegativeCached = Boolean(cached?.message?.includes("not indexed"));
   if (cached && (!hasCredentials || cached.status === "live" || isNegativeCached)) {
     return cached;
@@ -429,7 +431,7 @@ export async function fetchAlphaGenomeRegionSaturation(
   const flightKey = customEndpoint ? `${cacheKey}|endpoint:${baseEndpoint}` : cacheKey;
 
   return defaultCacheRegistry.singleFlight(flightKey, async () => {
-    const doubleChecked = alphagenomeRegionCache.get(cacheKey);
+    const doubleChecked = customEndpoint ? undefined : alphagenomeRegionCache.get(cacheKey);
     const isDoubleNegative = Boolean(doubleChecked?.message?.includes("not indexed"));
     if (doubleChecked && (!hasCredentials || doubleChecked.status === "live" || isDoubleNegative)) {
       return doubleChecked;
@@ -553,7 +555,8 @@ export async function fetchAlphaGenomeRegionSaturation(
           exonStart,
           exonEnd
         }),
-        signal: combinedSignal
+        signal: combinedSignal,
+        ...(customEndpoint ? { rejectRedirects: true } : {}),
       });
 
       if (!res.ok) {

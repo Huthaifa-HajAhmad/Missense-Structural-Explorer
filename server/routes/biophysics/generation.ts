@@ -65,7 +65,9 @@ const generateMutantSchema = z.object({
   uniprotId: z.string().max(50).optional(),
   pH: z.union([z.number(), z.string()]).optional(),
   temperature: z.union([z.number(), z.string()]).optional(),
-  ionicStrength: z.union([z.number(), z.string()]).optional()
+  ionicStrength: z.union([z.number(), z.string()]).optional(),
+  seed: z.union([z.number(), z.string()]).optional(),
+  tamarindApiKey: z.string().optional()
 });
 
 /**
@@ -142,11 +144,20 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let removeDisconnect = () => {};
     const timedOut = new Promise<null>(resolve => {
       timer = setTimeout(() => resolve(null), REMOTE_SUBMISSION_WAIT_MS);
+      removeDisconnect = onClientDisconnect(res, () => {
+        if (timer) clearTimeout(timer);
+        resolve(null);
+      });
     });
     const outcome = await Promise.race([entry.promise, timedOut]);
     if (timer) clearTimeout(timer);
+    removeDisconnect();
+    if ((res as any).writableEnded || (res as any).destroyed) {
+      return;
+    }
     if (!outcome) {
       res.json({ settled: false });
       return;
@@ -254,7 +265,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       return;
     }
     try {
-      const { wtPdb, mutation, uniprotId } = req.body;
+      const {
+        wtPdb,
+        mutation,
+        uniprotId,
+        pH,
+        temperature,
+        ionicStrength,
+        seed,
+        tamarindApiKey: bodyTamarindKey
+      } = parseResult.data;
 
       if (!mutation || typeof mutation !== "string" || !MUTATION_FOLDX_PATTERN.test(mutation.trim())) {
         sendError(res, 400, "BAD_REQUEST", "Invalid mutation code: must match FoldX format (e.g., RA215W).");
@@ -278,21 +298,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       const posNum = parseInt(mutMatch[3], 10);
 
       let resolvedChain = chainParam;
-      let pdbResidues: any[] | null = null;
-      if (wtPdb) {
-        try {
-          pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
-          const targetRes = pdbResidues.find(r => r.resSeq === posNum && r.chain === chainParam);
-          if (targetRes) {
-            resolvedChain = targetRes.chain;
-          } else {
-            sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum} on chain ${chainParam} is not found in the PDB structure.`);
-            return;
-          }
-        } catch (pdbErr) {
-          console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
-        }
-      }
       let resolvedChainUpper = resolvedChain.toUpperCase() || "A";
 
       const jobId = crypto.randomUUID();
@@ -330,12 +335,12 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let stabilityoracleVal: number | null = null;
 
         // Only what the request brought; ThermoMPNN resolves saved and team keys when it submits (WP-I4).
-        const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || undefined;
+        const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || bodyTamarindKey || undefined;
 
-      const pHVal = req.body.pH !== undefined ? parseFloat(String(req.body.pH)) : undefined;
-      const tempVal = req.body.temperature !== undefined ? parseFloat(String(req.body.temperature)) : undefined;
-      const ionVal = req.body.ionicStrength !== undefined ? parseFloat(String(req.body.ionicStrength)) : undefined;
-      const seedVal = req.body.seed !== undefined ? parseInt(String(req.body.seed), 10) : undefined;
+      const pHVal = pH !== undefined ? parseFloat(String(pH)) : undefined;
+      const tempVal = temperature !== undefined ? parseFloat(String(temperature)) : undefined;
+      const ionVal = ionicStrength !== undefined ? parseFloat(String(ionicStrength)) : undefined;
+      const seedVal = seed !== undefined ? parseInt(String(seed), 10) : undefined;
 
       const wt1 = mutTrimmed[0].toUpperCase();
       const mut1 = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
@@ -353,11 +358,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           const targetRes = residues.find(r => r.resSeq === posNum && r.chain.toUpperCase() === chainParam);
           if (targetRes && (!expectedWt3 || targetRes.resName3.toUpperCase() === expectedWt3.toUpperCase())) {
             clientPdbValid = true;
+            resolvedChain = targetRes.chain;
+            resolvedChainUpper = resolvedChain.toUpperCase() || "A";
           }
         } catch (_) {}
       }
 
-      if (!clientPdbValid) {
+      if (!clientPdbValid && uniprotId?.trim()) {
         // Resolve structure from PDBe / AlphaFold
         try {
           /**
@@ -460,11 +467,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           ionicStrength: isNaN(ionVal as number) ? undefined : ionVal,
           seed: isNaN(seedVal as number) ? undefined : seedVal
         };
-
-        const clientAbortController = new AbortController();
-        // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.
-        onClientDisconnect(res, () => clientAbortController.abort());
-        const combinedSignal = anySignal([clientAbortController.signal, AbortSignal.timeout(240000)]);
 
         // 1. Calculate cache key for FoldX mutant (one derivation, shared with the pre-warm registry)
         const foldxCacheKey = buildFoldxCacheKey(effectiveWtPdb, actualMutation, foldxOptions);

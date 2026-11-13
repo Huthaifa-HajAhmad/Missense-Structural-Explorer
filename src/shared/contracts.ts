@@ -1921,7 +1921,7 @@ export const analyzeVariantResponseSchema = z.object({
       microenvironments: z.array(z.string()).optional(),
       putativeStructuralChanges: z.array(z.string()).optional(),
       confidence: z.object({
-        level: z.enum(["high", "moderate", "low"]),
+        level: z.enum(["high", "moderate", "low"]).nullable().optional(),
         plddt: z.number().nullable().optional(),
         sequenceCoverage: z.number().nullable().optional()
       }).optional(),
@@ -2282,7 +2282,7 @@ export interface Esm3EvalResult {
   microenvironments: string[];
   putativeStructuralChanges: string[];
   confidence: {
-    level: "high" | "moderate" | "low";
+    level: "high" | "moderate" | "low" | null;
     plddt?: number | null;
     sequenceCoverage?: number | null;
   };

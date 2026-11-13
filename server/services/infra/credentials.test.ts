@@ -197,6 +197,16 @@ describe("governor buckets", () => {
     const text = JSON.stringify({ lines, policy: credentialPolicyHealth() });
     for (const secret of [OWN, TEAM, sha(OWN), sha(OWN).slice(0, 16), sha(TEAM).slice(0, 16)]) expect(text).not.toContain(secret);
   });
+
+  it("isolates overflowing own tokens into one per-owner bucket instead of spilling into the team bucket", () => {
+    const owner = person();
+    runWithEgressOwner(owner, () => {
+      const buckets = [1, 2, 3, 4, 5].map((i) => credentialForCall("biohub", `own-token-${i}-xxxxxxxxxxxx`).bucket);
+      expect(buckets.every((b) => typeof b === "string" && b.length > 0)).toBe(true);
+      expect(buckets[3]).toBe(buckets[4]);
+      expect(buckets[3]).not.toBe(buckets[0]);
+    });
+  });
 });
 
 function sha(v: string): string {

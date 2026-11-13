@@ -80,6 +80,10 @@ function getDb(): DatabaseSync {
       }
     }
     dbInstance = new DatabaseSync(targetDbPath);
+    if (targetDbPath !== ":memory:") {
+      dbInstance.exec("PRAGMA journal_mode = WAL;");
+      dbInstance.exec("PRAGMA busy_timeout = 5000;");
+    }
     dbInstance.exec(`
       CREATE TABLE IF NOT EXISTS literature_abstracts (
         id TEXT PRIMARY KEY,
@@ -252,6 +256,14 @@ function replaceLiteratureMembership(cacheKey: string, paperIds: string[]): void
 }
 
 export function resetDbForTesting(): void {
+  dbInstance = null;
+}
+
+/** Closes the literature RAG SQLite handle during server shutdown. */
+export function closeLiteratureDb(): void {
+  try {
+    dbInstance?.close();
+  } catch (_) {}
   dbInstance = null;
 }
 

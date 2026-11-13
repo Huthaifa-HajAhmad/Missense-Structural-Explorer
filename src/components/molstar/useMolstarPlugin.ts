@@ -8,6 +8,7 @@ import { Vec3 } from "molstar/lib/mol-math/linear-algebra/3d/vec3";
 import { StructureElement, StructureProperties } from "molstar/lib/mol-model/structure";
 import { Color } from "molstar/lib/mol-util/color";
 import { STRUCTURE_THEME_PROVIDERS } from "./molstarThemes";
+import { downloadBlob } from "../../lib/download";
 
 /** `rgb(r, g, b)` / `rgba(…)` → a Mol* colour; null when the string is not an opaque colour. */
 function cssColorToMolstar(css: string): number | null {
@@ -308,12 +309,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     }
     const blob = await captureCanvasBlob();
     if (blob) {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.download = fileName;
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(fileName, blob.type || 'image/png', blob);
     }
   };
 

@@ -20,7 +20,7 @@ export async function queryDbnsfpOrg(
     }
   }
   if (!variantQuery) {
-    const formattedVariant = variant.startsWith('p.') ? variant : `p.${variant}`;
+    const formattedVariant = cleanVar.startsWith('p.') ? cleanVar : `p.${cleanVar}`;
     variantQuery = `${normGene}:${formattedVariant}`;
   }
 
@@ -55,7 +55,11 @@ export async function queryDbnsfpOrg(
     const esm1b = safeParseFloat(allTrans.ESM1b ?? allTrans.ESM1b_score ?? fPred.ESM1b_score);
     const popeve = safeParseFloat(allTrans.popEVE ?? allTrans.popEVE_score ?? fPred.popEVE_score);
 
-    if (revel === null && gerp === null && phylop === null && metarnn === null && dann === null) {
+    if (
+      revel === null && gerp === null && phylop === null && bayesdel === null &&
+      metarnn === null && clinpred === null && eigenPhred === null && eigenRaw === null &&
+      dann === null && esm1b === null && popeve === null
+    ) {
       return null;
     }
 

@@ -114,6 +114,18 @@ async function readMutantFromCache(cacheKey: string): Promise<any | null> {
   return null;
 }
 
+const pendingCacheWrites = new Map<string, Promise<void>>();
+
+function queueCacheFileWrite(filename: string, writer: () => Promise<void>): Promise<void> {
+  const previous = pendingCacheWrites.get(filename) ?? Promise.resolve();
+  const next = previous.then(writer, writer);
+  const settled = next.finally(() => {
+    if (pendingCacheWrites.get(filename) === settled) pendingCacheWrites.delete(filename);
+  });
+  pendingCacheWrites.set(filename, settled);
+  return settled;
+}
+
 export function writeMutantToCache(cacheKey: string, result: any) {
   try {
     // Never cache results where RepairPDB failed, ddG is null, or status is not success
@@ -141,16 +153,17 @@ export function writeMutantToCache(cacheKey: string, result: any) {
       cachedAt: Date.now()
     };
     const filename = getCacheFilename(cacheKey);
-    const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
-    fs.promises.mkdir(getFoldxCacheDir(), { recursive: true })
-      .then(async () => {
+    void queueCacheFileWrite(filename, async () => {
+      const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
+      try {
+        await fs.promises.mkdir(getFoldxCacheDir(), { recursive: true });
         await fs.promises.writeFile(tmpFilename, JSON.stringify(entry), "utf-8");
         await fs.promises.rename(tmpFilename, filename);
-      })
-      .catch(err => {
+      } catch (err: any) {
         fs.promises.unlink(tmpFilename).catch(() => {});
         console.error("[FoldX Cache Write Error]", err.message);
-      });
+      }
+    });
   } catch (err: any) {
     console.error("[FoldX Cache Set Error]", err.message);
   }
@@ -388,16 +401,17 @@ export function writeRepairedStructureToCache(cacheKey: string, pdb: string): Pr
     repairCacheMisses.delete(getCacheFilename(cacheKey));
     repairedStructureCache.set(cacheKey, { pdb });
     const filename = getCacheFilename(cacheKey);
-    const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
-    return fs.promises.mkdir(getFoldxCacheDir(), { recursive: true })
-      .then(async () => {
+    return queueCacheFileWrite(filename, async () => {
+      const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
+      try {
+        await fs.promises.mkdir(getFoldxCacheDir(), { recursive: true });
         await fs.promises.writeFile(tmpFilename, JSON.stringify({ pdb, cachedAt: Date.now() }), "utf-8");
         await fs.promises.rename(tmpFilename, filename);
-      })
-      .catch(err => {
+      } catch (err: any) {
         fs.promises.unlink(tmpFilename).catch(() => {});
         console.error("[FoldX Repair Cache Write Error]", err.message);
-      });
+      }
+    });
   } catch (err: any) {
     console.error("[FoldX Repair Cache Set Error]", err.message);
     return Promise.resolve();

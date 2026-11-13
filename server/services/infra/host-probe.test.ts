@@ -151,6 +151,26 @@ describe("tool self-tests", () => {
     await new Promise((r) => setTimeout(r, 80)); // the background refresh completes
     expect((await serverToolsCached(11 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(true);
   });
+
+  it("stops serving a clean FoldX entry once its build date rolls past midnight", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foldx-rollover-"));
+    try {
+      const expiring = path.join(dir, "foldx_20261231");
+      fs.writeFileSync(expiring, "");
+      foldxBin.value = expiring;
+      const beforeMidnight = Date.parse("2026-12-31T23:59:00Z");
+      expect((await serverTools(beforeMidnight)).find((t) => t.name === "foldx")?.verified).toBe(true);
+
+      const afterMidnight = Date.parse("2027-01-01T00:00:01Z");
+      expect((await serverToolsCached(afterMidnight)).find((t) => t.name === "foldx")?.verified).toBe(false);
+      expect((await serverTools(afterMidnight)).find((t) => t.name === "foldx")?.verified).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("version parsing", () => {

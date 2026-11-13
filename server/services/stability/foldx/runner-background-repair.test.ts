@@ -44,7 +44,7 @@ vi.mock("./budget.ts", async importOriginal => {
   return { ...original, repairFitsBudget: (...args: Parameters<typeof original.repairFitsBudget>) => repairFitsInJob && original.repairFitsBudget(...args) };
 });
 
-const { generateMutantPdb, repairTemplateOnly, biophysicalSemaphore } = await import("./runner.ts");
+const { generateMutantPdb, repairTemplateOnly, biophysicalSemaphore, deferFoldxJobDirCleanup } = await import("./runner.ts");
 const { announceInflightRepair, resetInflightRepairsForTests } = await import("./inflight-repairs.ts");
 const { getRepairCacheKey, getRepairedStructureFromCache, repairedStructureCache, mutantCache } = await import("./cache.ts");
 const { cleanPdbForFoldX } = await import("./pdb-utils.ts");
@@ -269,5 +269,68 @@ describe("a job joining the background repair of its structure", () => {
     const result = await runSkippingRepair(makeWildTypePdb("JOIN-NONE"), []);
     expect(result.energetics.foldxRepairSkippedReason).toBe("repair-exceeds-budget");
     expect(foldxLog).toEqual(["BuildModel"]);
+  });
+
+  it("does not wait behind or hold the FoldX semaphore while joining a background repair", async () => {
+    const slots = resolveFoldxConcurrency();
+    for (let i = 0; i < slots; i++) await biophysicalSemaphore.acquire(1000);
+    const pdb = makeWildTypePdb("JOIN-NO-SEMAPHORE");
+    const key = keyFor(pdb);
+    const settle = announceInflightRepair(key, Date.now() - 600_000, Date.now() + 1_000);
+    repairFitsInJob = false;
+    let enteredRepairPhase = false;
+    try {
+      const pending = generateMutantPdb(pdb, "AA5W", "P00439", path.join(workspace, "job-sem"), undefined, { seed: 12345 }, async phase => {
+        if (phase === "repairing") {
+          enteredRepairPhase = true;
+          const { writeRepairedStructureToCache } = await import("./cache.ts");
+          await writeRepairedStructureToCache(key, cleanPdbForFoldX(pdb) + "\nREMARK  99 REPAIRED\n");
+          settle();
+        }
+      });
+      // Wait until joinInflightRepair enters while every semaphore slot is busy
+      await vi.waitFor(() => expect(enteredRepairPhase).toBe(true), { timeout: 2000 });
+      for (let i = 0; i < slots; i++) biophysicalSemaphore.release();
+      const result = await pending;
+      expect(result.energetics.foldxRepairCached).toBe(true);
+    } catch (err) {
+      for (let i = 0; i < slots; i++) {
+        try { biophysicalSemaphore.release(); } catch {}
+      }
+      settle();
+      throw err;
+    }
+  });
+
+  it("ref-counts in-flight FoldX deduplication aborts and defers jobDir cleanup while another waiter remains", async () => {
+    const slots = resolveFoldxConcurrency();
+    for (let i = 0; i < slots; i++) await biophysicalSemaphore.acquire(1000);
+    const pdb = makeWildTypePdb("DEDUP-ABORT");
+    const dirA = path.join(workspace, "dedup-a");
+    const dirB = path.join(workspace, "dedup-b");
+    fs.mkdirSync(dirA, { recursive: true });
+    fs.mkdirSync(dirB, { recursive: true });
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+    try {
+      const promiseA = generateMutantPdb(pdb, "AA5W", "P00439", dirA, controllerA.signal, { seed: 12345 });
+      const promiseB = generateMutantPdb(pdb, "AA5W", "P00439", dirB, controllerB.signal, { seed: 12345 });
+      await new Promise(resolve => setTimeout(resolve, 25));
+
+      controllerA.abort();
+      await expect(promiseA).rejects.toThrow("Aborted");
+      expect(deferFoldxJobDirCleanup(dirA)).toBe(true);
+
+      for (let i = 0; i < slots; i++) biophysicalSemaphore.release();
+      const resultB = await promiseB;
+      expect(resultB.status).toBe("success");
+      // Allow deferred finally cleanup on dirA to complete
+      await vi.waitFor(() => expect(fs.existsSync(dirA)).toBe(false), { timeout: 2000 });
+    } catch (err) {
+      for (let i = 0; i < slots; i++) {
+        try { biophysicalSemaphore.release(); } catch {}
+      }
+      throw err;
+    }
   });
 });

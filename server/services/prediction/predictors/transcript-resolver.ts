@@ -32,11 +32,11 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
 
   try {
     const isUniprot = UNIPROT_ACCESSION_REGEX.test(cleanInput);
-    const url = isUniprot 
+    const url = isUniprot
       ? `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(cleanInput)}.json`
-      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&format=json`;
+      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606+AND+reviewed:true&format=json`;
 
-    const res = await fetchWithRetry(url, { timeout: 10000 }, 2);
+    let res = await fetchWithRetry(url, { timeout: 10000 }, 2);
     if (!res.ok) {
       const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
       // Only a definitive "no such entry" is remembered. A 429, a 5xx or any other refusal is
@@ -44,7 +44,14 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
       if (res.status === 404) transcriptMappingCache.set(cleanInput, fallback);
       return fallback;
     }
-    const data = await res.json() as any;
+    let data = await res.json() as any;
+    if (!isUniprot && (!data.results || data.results.length === 0)) {
+      const unreviewedUrl = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&format=json`;
+      const fallbackRes = await fetchWithRetry(unreviewedUrl, { timeout: 10000 }, 2);
+      if (fallbackRes.ok) {
+        data = await fallbackRes.json() as any;
+      }
+    }
     let dbXrefs: any[] = [];
     let primaryAccession: string | null = null;
     if (isUniprot) {

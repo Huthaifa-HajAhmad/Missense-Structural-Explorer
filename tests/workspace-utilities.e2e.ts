@@ -47,8 +47,8 @@ test('compact Console keeps every stream reachable', { tags: ['shell'] }, async 
     for (const stream of [/^Errors/, /^Live events/, /^Waterfall/]) {
       await screen.getByRole('tab', stream).tap();
       expect(await browser.evaluate(() => {
-        const root = document.querySelector('.cx-root')!;
-        const main = document.querySelector('.cx-main')!;
+        const root = document.querySelector('.dc-root')!;
+        const main = document.querySelector('.dc-main')!;
         main.scrollIntoView({ block: 'end' });
         const r = main.getBoundingClientRect();
         const frame = root.getBoundingClientRect();

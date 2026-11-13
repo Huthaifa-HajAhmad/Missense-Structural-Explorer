@@ -314,35 +314,42 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   // The window the reader chose and the row they opened go in the address bar while the tab is mounted.
   const evLength = ev?.length ?? 0;
   const variantKey = ev ? `${ev.uniprotId}:${ev.residue}:${ev.variantShort}` : "";
+  const canLockKey = Boolean(ev?.uniprotId) || !analysisState.isLoading;
   const seededUrl = useRef(false);
   useEffect(() => {
-    if (!ev || seededUrl.current) return;
+    if (ev && firstKey.current === null && canLockKey) {
+      firstKey.current = variantKey;
+    }
+  }, [ev, canLockKey, variantKey]);
+  useEffect(() => {
+    if (!ev || seededUrl.current || !canLockKey) return;
     seededUrl.current = true;
     if (!workspace.enabled) return;
     if (fromUrl.fsel && !workspace.selected && ev.groups.some(g => g.rows.some(r => r.key === fromUrl.fsel))) workspace.select(fromUrl.fsel);
     const linkedWindow = parseFndView(fromUrl.fnd, ev.length);
     if (linkedWindow && !workspace.window) workspace.setOptions({ window: linkedWindow });
-  }, [ev, workspace.enabled]);
+  }, [ev, canLockKey, workspace.enabled]);
   useEffect(() => {
     if (typeof window === "undefined" || !evLength) return;
     try {
       // The window written is the one the drawing shows: a choice made on the previous variant is not this variant's
       // (a 40-100 window carried from SOD1 into a link for NAE1 opened the recipient on the wrong stretch).
       const mine = workspace.window ?? (zoomChoice && zoomChoice.key === variantKey ? zoomChoice.view : null);
-      const fromLink = variantKey === firstKey.current ? parseFndView(fromUrl.fnd, evLength) : null;
+      const activeFirst = firstKey.current ?? (canLockKey ? variantKey : null);
+      const fromLink = variantKey === activeFirst ? parseFndView(fromUrl.fnd, evLength) : null;
       const next = withFndParams(window.location.href, mine ?? fromLink, selectedKey);
       if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
     } catch {
       // A sandboxed frame can refuse replaceState; the link is a convenience, never load-bearing.
     }
-  }, [zoomChoice, selectedKey, evLength, fromUrl.fnd, variantKey, workspace.window]);
+  }, [zoomChoice, selectedKey, evLength, fromUrl.fnd, variantKey, canLockKey, workspace.window]);
   // An open row belongs to one variant's table: a new variant starts with none.
   const lastVariant = useRef<string | null>(null);
   useEffect(() => {
-    if (!variantKey) return;
+    if (!variantKey || !canLockKey) return;
     if (lastVariant.current !== null && lastVariant.current !== variantKey) setSelectedKey(null);
     lastVariant.current = variantKey;
-  }, [variantKey]);
+  }, [variantKey, canLockKey]);
   useEffect(
     () => () => {
       try {
@@ -374,9 +381,9 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   if (!result || !ev) return null;
 
   const zoomKey = `${ev.uniprotId}:${ev.residue}:${ev.variantShort}`;
-  if (firstKey.current === null) firstKey.current = zoomKey;
+  const activeFirstKey = firstKey.current ?? (canLockKey ? zoomKey : null);
   const defaultZoom: Zoom = ev.length > OPEN_NEAR_ABOVE && Number.isFinite(ev.residue) ? "near" : "whole";
-  const urlView = zoomKey === firstKey.current ? parseFndView(fromUrl.fnd, ev.length) : null;
+  const urlView = zoomKey === activeFirstKey ? parseFndView(fromUrl.fnd, ev.length) : null;
   const view: FndView = workspace.window ?? (zoomChoice && zoomChoice.key === zoomKey ? zoomChoice.view : urlView ?? defaultZoom);
   const setZoom = (z: FndView) => { setZoomChoice({ key: zoomKey, view: z }); workspace.setOptions({ window: z }); };
 
@@ -494,7 +501,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
             <div key={f.label} className="fnd-fact">
               <dt>{f.label}</dt>
               <dd className={f.mono ? "fnd-mono" : undefined}>{f.value}</dd>
-              <span className="fnd-fact__sub">{f.sub}</span>
+              <dd className="fnd-fact__sub">{f.sub}</dd>
             </div>
           ))}
         </dl>

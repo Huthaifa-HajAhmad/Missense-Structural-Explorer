@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import tempfile
+import threading
 import asyncio
 import logging
 from pathlib import Path
@@ -255,6 +256,7 @@ def dict_to_config(d):
 _official_model: "TransferModel | None" = None
 _model_loaded: bool = False
 _model_load_error: str | None = None
+_thermompnn_lock = threading.Lock()
 
 def get_official_model():
     """Loads the official Kuhlman Lab ThermoMPNN model using genuine pre-trained weights."""
@@ -262,86 +264,90 @@ def get_official_model():
     if _model_loaded:
         return _official_model
 
-    if not HAS_TORCH:
-        _model_load_error = f"PyTorch or ThermoMPNN dependencies missing: {_import_err}"
-        print(f"[ThermoMPNN Guard] {_model_load_error}")
-        return None
+    with _thermompnn_lock:
+        if _model_loaded:
+            return _official_model
 
-    checkpoint_path = THERMOMPNN_DIR / "models" / "thermoMPNN_default.pt"
-    vanilla_path = THERMOMPNN_DIR / "vanilla_model_weights" / "v_48_020.pt"
-
-    if not checkpoint_path.exists() or not vanilla_path.exists():
-        _model_load_error = f"Official weight files not found at {checkpoint_path} or {vanilla_path}"
-        print(f"[ThermoMPNN Guard] {_model_load_error}")
-        return None
-
-    cfg_dict = {
-        'training': {
-            'num_workers': 1,
-            'learn_rate': 0.001,
-            'epochs': 100,
-            'lr_schedule': True,
-        },
-        'model': {
-            'hidden_dims': [64, 32],
-            'subtract_mut': True,
-            'num_final_layers': 2,
-            'freeze_weights': True,
-            'load_pretrained': True,
-            # The published model has this attention layer: upstream's config.yaml and custom_inference.py set it,
-            # and its checkpoint holds its weights. Without it the model runs with a layer missing and gives
-            # near-constant values (SD 0.19 kcal/mol on S669).
-            'lightattn': True,
-            'lr_schedule': True,
-        },
-        'platform': {
-            'thermompnn_dir': str(THERMOMPNN_DIR)
-        }
-    }
-    cfg = dict_to_config(cfg_dict)
-
-    try:
-        model = TransferModel(cfg)
-        checkpoint = torch.load(str(checkpoint_path), map_location="cpu")
-        ckpt_state = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
-
-        # Strip Lightning 'model.' prefix if present
-        clean_state = {}
-        for k, v in ckpt_state.items():
-            clean_k = k.replace("model.", "") if k.startswith("model.") else k
-            clean_state[clean_k] = v
-
-        # Every tensor must match, both ways. A partial match here once dropped a whole layer without any error.
-        model_dict = model.state_dict()
-        matched = sum(
-            1 for k in clean_state.keys()
-            if k in model_dict and model_dict[k].shape == clean_state[k].shape
-        )
-        if matched != len(model_dict) or matched != len(clean_state):
-            unused = sorted(set(clean_state) - set(model_dict))[:3]
-            absent = sorted(set(model_dict) - set(clean_state))[:3]
-            _model_load_error = (
-                f"Official checkpoint does not match the model: {matched} tensors matched of "
-                f"{len(model_dict)} in the model and {len(clean_state)} in the checkpoint "
-                f"(not in the model: {unused}; not in the checkpoint: {absent})."
-            )
+        if not HAS_TORCH:
+            _model_load_error = f"PyTorch or ThermoMPNN dependencies missing: {_import_err}"
             print(f"[ThermoMPNN Guard] {_model_load_error}")
             return None
 
-        model.load_state_dict(clean_state, strict=True)
-        model.eval()
-        for param in model.parameters():
-            param.requires_grad = False
+        checkpoint_path = THERMOMPNN_DIR / "models" / "thermoMPNN_default.pt"
+        vanilla_path = THERMOMPNN_DIR / "vanilla_model_weights" / "v_48_020.pt"
 
-        _official_model = model
-        _model_loaded = True
-        _model_load_error = None
-        print(f"[ThermoMPNN] Successfully loaded official Kuhlman-Lab ThermoMPNN model ({matched}/{len(model_dict)} tensors verified).")
-        return _official_model
-    except Exception as e:
-        _model_load_error = f"Failed to instantiate official ThermoMPNN model: {e}"
-        print(f"[ThermoMPNN Error] {_model_load_error}")
-        return None
+        if not checkpoint_path.exists() or not vanilla_path.exists():
+            _model_load_error = f"Official weight files not found at {checkpoint_path} or {vanilla_path}"
+            print(f"[ThermoMPNN Guard] {_model_load_error}")
+            return None
+
+        cfg_dict = {
+            'training': {
+                'num_workers': 1,
+                'learn_rate': 0.001,
+                'epochs': 100,
+                'lr_schedule': True,
+            },
+            'model': {
+                'hidden_dims': [64, 32],
+                'subtract_mut': True,
+                'num_final_layers': 2,
+                'freeze_weights': True,
+                'load_pretrained': True,
+                # The published model has this attention layer: upstream's config.yaml and custom_inference.py set it,
+                # and its checkpoint holds its weights. Without it the model runs with a layer missing and gives
+                # near-constant values (SD 0.19 kcal/mol on S669).
+                'lightattn': True,
+                'lr_schedule': True,
+            },
+            'platform': {
+                'thermompnn_dir': str(THERMOMPNN_DIR)
+            }
+        }
+        cfg = dict_to_config(cfg_dict)
+
+        try:
+            model = TransferModel(cfg)
+            checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=True)
+            ckpt_state = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+
+            # Strip Lightning 'model.' prefix if present
+            clean_state = {}
+            for k, v in ckpt_state.items():
+                clean_k = k.replace("model.", "") if k.startswith("model.") else k
+                clean_state[clean_k] = v
+
+            # Every tensor must match, both ways. A partial match here once dropped a whole layer without any error.
+            model_dict = model.state_dict()
+            matched = sum(
+                1 for k in clean_state.keys()
+                if k in model_dict and model_dict[k].shape == clean_state[k].shape
+            )
+            if matched != len(model_dict) or matched != len(clean_state):
+                unused = sorted(set(clean_state) - set(model_dict))[:3]
+                absent = sorted(set(model_dict) - set(clean_state))[:3]
+                _model_load_error = (
+                    f"Official checkpoint does not match the model: {matched} tensors matched of "
+                    f"{len(model_dict)} in the model and {len(clean_state)} in the checkpoint "
+                    f"(not in the model: {unused}; not in the checkpoint: {absent})."
+                )
+                print(f"[ThermoMPNN Guard] {_model_load_error}")
+                return None
+
+            model.load_state_dict(clean_state, strict=True)
+            model.eval()
+            for param in model.parameters():
+                param.requires_grad = False
+
+            _official_model = model
+            _model_loaded = True
+            _model_load_error = None
+            print(f"[ThermoMPNN] Successfully loaded official Kuhlman-Lab ThermoMPNN model ({matched}/{len(model_dict)} tensors verified).")
+            return _official_model
+        except Exception as e:
+            _model_load_error = f"Failed to instantiate official ThermoMPNN model: {e}"
+            print(f"[ThermoMPNN Error] {_model_load_error}")
+            return None
 
 def predict_thermompnn_sync(req: ThermoMpnnRequest):
     """

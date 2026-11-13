@@ -139,7 +139,7 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
   })) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
-    if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
+    if (cons.dann === undefined || cons.bayesdel === undefined || cons.clinpred === undefined || cons.eigenPhred === undefined) {
       return true;
     }
     // A live SpliceAI score carries the window it was computed under. A reader who has since chosen a
@@ -154,12 +154,6 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
     if (hasGpnToken) {
       const gpnMissing = cons.gpnStar === null && (cons.gpnStarStatus === "token_required" || cons.gpnStarStatus === "unavailable" || !cons.gpnStarStatus);
       if (gpnMissing) return true;
-    }
-    // Invalidate stale cache if Biohub token is provided but cached payload lacks ESM3
-    const hasBiohubToken = credentialAvailable("biohub", context?.biohubToken);
-    if (hasBiohubToken && payload.structuralModels) {
-      const esm3Missing = payload.structuralModels.esm3?.score === null && (payload.structuralModels.esm3?.status === "token_required" || !payload.structuralModels.esm3?.status);
-      if (esm3Missing) return true;
     }
     // Invalidate stale cache if AlphaGenome key or endpoint is configured but cached payload lacks live AlphaGenome AVI score
     const hasAlphaGenomeKey = Boolean(
@@ -179,7 +173,9 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
       const refusalIsRecent = updatedWithin(recordUpdatedAt, REFUSAL_RETRY_WINDOW_MS);
       const isBuildRefused = refusalIsRecent &&
         Boolean(cons.assemblyRefusals?.some((r: { source: string }) => r.source === "alphagenome"));
-      const alphaMissing = !isBuildRefused && !isAlreadyQueriedUnindexed &&
+      const isRecentTransientOutage = refusalIsRecent &&
+        Boolean(cons.alphagenome?.status && (["unavailable", "error"] as readonly string[]).includes(cons.alphagenome.status));
+      const alphaMissing = !isBuildRefused && !isRecentTransientOutage && !isAlreadyQueriedUnindexed &&
         (!cons.alphagenome || (cons.alphagenome.status !== "live" || cons.alphagenome.aviPhred === null));
       if (alphaMissing) return true;
     }

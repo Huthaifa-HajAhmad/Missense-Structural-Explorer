@@ -331,6 +331,7 @@ export function extractSequenceFromPdb(wtPdb: string, resolvedChain: string): { 
   let maxPos = -Infinity;
 
   for (const line of lines) {
+    if (line.startsWith("ENDMDL")) break;
     if (line.startsWith("ATOM")) {
       const atomName = line.slice(12, 16).trim();
       if (atomName === "CA") {

@@ -5,7 +5,6 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
-import { createServer as createViteServer } from "vite";
 
 import { requestLogger, validateContentType } from "./middleware.ts";
 import { apiRouter } from "./routes.ts";
@@ -159,6 +158,7 @@ export async function createExpressApp(): Promise<express.Express> {
 
   // Vite middleware for development / Static assets serving for production
   if (!isProd) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -181,7 +181,7 @@ export async function createExpressApp(): Promise<express.Express> {
       res.status(404).type("text/plain").send("Asset not found");
     });
     app.all("/api/*", (_req, res) => {
-      res.status(404).json({ error: "API endpoint not found" });
+      sendError(res, 404, "NOT_FOUND", "API endpoint not found");
     });
 
     app.get("*", spaShell);

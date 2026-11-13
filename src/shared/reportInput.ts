@@ -8,7 +8,7 @@
  */
 import type { DeepEvidenceContext } from "./deepModelEvidence.ts";
 import type { AnalysisResult } from "./contracts.ts";
-import { deriveNarrativeAuthorship } from "./narrativeAuthorship.ts";
+import { narrativeAuthorshipOfResult } from "./narrativeEvidence.ts";
 import { isFallbackNarrative } from "./narrativeFallback.ts";
 import { insightsEvidenceFor } from "./insightsSnapshot.ts";
 import {
@@ -27,11 +27,9 @@ export interface ReportDraft {
 
 export function reportNarrativeFrom(result: AnalysisResult | null): ReportDocumentInput["narrative"] {
   const text = result?.analysis ?? "";
-  const authorship = deriveNarrativeAuthorship({
-    analysis: text,
-    isDegraded: isFallbackNarrative(text, result?.isFallback, result?.fallbackReason),
-    declaredSource: (result?.insights as { source?: string } | undefined)?.source,
-  });
+  const authorship = result
+    ? narrativeAuthorshipOfResult(result, isFallbackNarrative(text, result?.isFallback, result?.fallbackReason))
+    : "none";
   return {
     text: authorship === "none" ? "" : text,
     authorship,

@@ -41,7 +41,11 @@ export function anonymizeGenomicCoordinate(val: string): string {
   return `${prefix}:[HASH_${hash}]`;
 }
 
-const AUDIT_IP_SALT = process.env.AUDIT_IP_SALT || "missense-audit-salt-2026";
+const AUDIT_IP_SALT =
+  process.env.AUDIT_IP_SALT ||
+  (process.env.APP_SESSION_SECRET
+    ? crypto.createHmac("sha256", process.env.APP_SESSION_SECRET).update("audit-ip-salt").digest("hex")
+    : crypto.randomBytes(32).toString("hex"));
 
 export function hashClientIp(ip: string, salt: string = AUDIT_IP_SALT): string {
   if (!ip || typeof ip !== "string") return ip;

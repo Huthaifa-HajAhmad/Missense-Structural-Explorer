@@ -264,4 +264,22 @@ describe("self-healer service", () => {
     expect(healed.serviceStatus.predictorData).toBe("ok");
     expect(healed.gnomadFrequency).toEqual({ genomeAF: 0.001 });
   });
+
+  it("does not flip conservationData status to ok when genos cache has only null conservation metrics", () => {
+    const payload: any = {
+      serviceStatus: { conservationData: "timeout" },
+      conservationData: null,
+      predictorData: { gnomadVariantId: null }
+    };
+    mockGetExternalCache.mockImplementation((key: string) =>
+      key.startsWith("genos_")
+        ? { data: { revel: null, gerp: null, phylop: null, aou_ac: 3 } }
+        : null
+    );
+
+    const healed = healCachedAnalysisIfPossible(payload, dummyContext);
+
+    expect(healed.serviceStatus.conservationData).toBe("timeout");
+    expect(mockPersistVariantAnalysisPayload).not.toHaveBeenCalled();
+  });
 });

@@ -7,8 +7,6 @@ import EnergeticsView from "./EnergeticsView";
 import SequenceVisualizer from "./SequenceVisualizer";
 import ClinicalInsightsCard from "./ClinicalInsightsCard";
 import ClinicalReportBar from "./ClinicalReportBar";
-import DevConsolePanel from "./DevConsolePanel";
-import AboutView from "./AboutView";
 import { WorkspaceLayout } from "./ui/WorkspaceLayout";
 import { EvidenceWorkspaceProvider } from './evidence/EvidenceWorkspace';
 import { WorkspaceSelection } from "./ui/WorkspaceSelection";
@@ -21,7 +19,6 @@ import type { ResidueFocus } from "../shared/residueFocus";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
-import LiteratureView from "./LiteratureView";
 import type { LiteratureEvidence } from "../shared/literatureEvidence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
@@ -30,6 +27,16 @@ import { lazyWithRetry } from "../lib/utils";
 import { useReportDraftPersistence } from "./report/useReportDocument";
 
 const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "MolstarViewer");
+const LiteratureViewLazy = lazyWithRetry(() => import("./LiteratureView"), "LiteratureView");
+const DevConsolePanelLazy = lazyWithRetry(() => import("./DevConsolePanel"), "DevConsolePanel");
+const AboutViewLazy = lazyWithRetry(() => import("./AboutView"), "AboutView");
+
+const VIEW_SUSPENSE_FALLBACK = (
+  // Tokens only: matches outer Suspense fallback without Tailwind palette colours.
+  <div role="status" className="flex flex-col items-center justify-center h-full gap-3 bg-cs-surface">
+    <span className="text-xs text-cs-text-muted">Loading view…</span>
+  </div>
+);
 
 interface AppViewsProps {
   masterView: MasterView;
@@ -86,7 +93,6 @@ export function AppViews({
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const selectedResidueIndex = useVariantAnalysisStore(s => s.selectedResidueIndex);
   const foldedResidueIndex = useVariantAnalysisStore(s => s.foldedResidueIndex);
-  const hoveredResidueIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
   const viewMode = useVariantAnalysisStore(s => s.viewMode);
   const history = useVariantAnalysisStore(s => s.history);
   const analysisState = useVariantAnalysisStore(s => s.analysisState);
@@ -193,13 +199,16 @@ export function AppViews({
     };
   }, [pushErrorEntry]);
 
+  const handleSearchError = useMemo(() => createErrorHandler("Variant Search"), [createErrorHandler]);
   const handleEvidenceError = useMemo(() => createErrorHandler("Evidence Dashboard"), [createErrorHandler]);
   const handleEnergeticsError = useMemo(() => createErrorHandler("Energetics View"), [createErrorHandler]);
   const handleStructureError = useMemo(() => createErrorHandler("3D Structure"), [createErrorHandler]);
+  const handleLandscapeError = useMemo(() => createErrorHandler("Sequence Landscape"), [createErrorHandler]);
   const handleInsightsError = useMemo(() => createErrorHandler("Variant Insights"), [createErrorHandler]);
   const handleReportError = useMemo(() => createErrorHandler("Clinical Report"), [createErrorHandler]);
   const handleLiteratureError = useMemo(() => createErrorHandler("Literature View"), [createErrorHandler]);
   const handleConsoleError = useMemo(() => createErrorHandler("Developer Console"), [createErrorHandler]);
+  const handleInspectorError = useMemo(() => createErrorHandler("Inspector Rail"), [createErrorHandler]);
 
   // The queried residue as the pipeline resolved it; the Landscape target never follows the selection.
   const landscapeMetadata = analysisState.result?.metadata;
@@ -294,23 +303,28 @@ export function AppViews({
           <div className="data-screen-primary">
             {/* VARIANT QUERY VIEW - high-density structured workspace */}
             {masterView === "search" && (
-              <div 
-                className="search-workspace"
+              <ErrorBoundary
+                name="Variant Search"
+                onError={handleSearchError}
               >
-                <div className="w-full" style={{ maxWidth: "var(--cs-search-max-width)" }}>
-                  <VariantSearchPanel
-                    analysisState={analysisState}
-                    handleSearchSubmit={handleSearchSubmitAndOpen}
-                    gene={gene}
-                    variant={variant}
-                    uniprotId={uniprotId}
-                    history={history}
-                    clearHistory={clearHistory}
-                    handleSelectHistoryItem={handleSelectHistoryItemMemo}
-                    onViewChange={setMasterView}
-                  />
+                <div 
+                  className="search-workspace"
+                >
+                  <div className="w-full" style={{ maxWidth: "var(--cs-search-max-width)" }}>
+                    <VariantSearchPanel
+                      analysisState={analysisState}
+                      handleSearchSubmit={handleSearchSubmitAndOpen}
+                      gene={gene}
+                      variant={variant}
+                      uniprotId={uniprotId}
+                      history={history}
+                      clearHistory={clearHistory}
+                      handleSelectHistoryItem={handleSelectHistoryItemMemo}
+                      onViewChange={setMasterView}
+                    />
+                  </div>
                 </div>
-              </div>
+              </ErrorBoundary>
             )}
 
             {/* EVIDENCE VIEW */}
@@ -441,24 +455,28 @@ export function AppViews({
                   onNavigate={() => navigateWorkspace(isEsm ? "structure_esmfold" : "structure_alphafold")}
                   onReset={handleReturnToVariant} />
               </div>
-              <SequenceVisualizer
-                uniprotId={uniprotId}
-                gene={gene}
-                variant={variant}
-                residueIndex={selectedResidueIndex}
-                targetResidue={landscapeTarget}
-                hoveredResidueIndex={hoveredResidueIndex}
-                predictorData={analysisState.result?.predictorData}
-                conservationData={analysisState.result?.conservationData}
-                landscapeData={analysisState.result?.landscapeData}
-                landscapeMeta={analysisState.result?.landscapeMeta}
-                uniprotFeatures={analysisState.result?.uniprotFeatures?.features}
-                metricMode={metricMode}
-                setMetricMode={setMetricMode}
-                windowSize={windowSize}
-                setWindowSize={setWindowSize}
-                onResidueClick={handleResidueClickMemo}
-              />
+              <ErrorBoundary
+                name="Sequence Landscape"
+                onError={handleLandscapeError}
+              >
+                <SequenceVisualizer
+                  uniprotId={uniprotId}
+                  gene={gene}
+                  variant={variant}
+                  residueIndex={selectedResidueIndex}
+                  targetResidue={landscapeTarget}
+                  predictorData={analysisState.result?.predictorData}
+                  conservationData={analysisState.result?.conservationData}
+                  landscapeData={analysisState.result?.landscapeData}
+                  landscapeMeta={analysisState.result?.landscapeMeta}
+                  uniprotFeatures={analysisState.result?.uniprotFeatures?.features}
+                  metricMode={metricMode}
+                  setMetricMode={setMetricMode}
+                  windowSize={windowSize}
+                  setWindowSize={setWindowSize}
+                  onResidueClick={handleResidueClickMemo}
+                />
+              </ErrorBoundary>
             </div>
 
             {/*
@@ -536,16 +554,18 @@ export function AppViews({
                 name="Literature View"
                 onError={handleLiteratureError}
               >
-                <LiteratureView 
-                  gene={gene}
-                  variant={variant}
-                    uniprotId={uniprotId ?? undefined}
-                    verifiedAliases={analysisState.result?.literatureAliases}
-                  searchQuery={literatureSearchQuery}
-                  onSearchQueryChange={setLiteratureSearchQuery}
-                  onEvidenceChange={setLiteratureEvidence}
-                  searchVersion={literatureSearchVersion}
-                />
+                <Suspense fallback={VIEW_SUSPENSE_FALLBACK}>
+                  <LiteratureViewLazy
+                    gene={gene}
+                    variant={variant}
+                      uniprotId={uniprotId ?? undefined}
+                      verifiedAliases={analysisState.result?.literatureAliases}
+                    searchQuery={literatureSearchQuery}
+                    onSearchQueryChange={setLiteratureSearchQuery}
+                    onEvidenceChange={setLiteratureEvidence}
+                    searchVersion={literatureSearchVersion}
+                  />
+                </Suspense>
               </ErrorBoundary>
             </div>
 
@@ -555,7 +575,9 @@ export function AppViews({
                 name="Developer Console"
                 onError={handleConsoleError}
               >
-                <DevConsolePanel />
+                <Suspense fallback={VIEW_SUSPENSE_FALLBACK}>
+                  <DevConsolePanelLazy />
+                </Suspense>
               </ErrorBoundary>
             )}
 
@@ -565,62 +587,69 @@ export function AppViews({
                 name="About View"
                 onError={createErrorHandler("About View")}
               >
-                <AboutView onOpenOnboarding={onOpenOnboarding} onNavigateToView={setMasterView} />
+                <Suspense fallback={VIEW_SUSPENSE_FALLBACK}>
+                  <AboutViewLazy onOpenOnboarding={onOpenOnboarding} onNavigateToView={setMasterView} />
+                </Suspense>
               </ErrorBoundary>
             )}
           </div>
 
           {/* DYNAMIC CONTEXT & PROVENANCE INSPECTOR (HIDDEN ON SEARCH, CONSOLE & ABOUT VIEWS) */}
           {masterView !== "search" && masterView !== "console" && masterView !== "about" && (
-            <ViewInspector
-              selectedEnergyEngine={selectedEnergyEngine}
-              activeView={masterView}
-              structureSelection={structure.railSelection}
-              onViewChange={setMasterView}
-              analysisResult={analysisState.result}
-              isFolding={isFolding}
-              foldingProgress={storeFoldingProgress}
-              foldingStatus={foldingStatus as any}
-              foldingError={foldingError}
-              foldingDdG={foldingDdG}
-              foldingEnergetics={foldingEnergetics}
-              isBiophysicalLoading={isBiophysicalLoading}
-              isClinicalLoading={isClinicalLoading}
-              isNarrativeLoading={isNarrativeLoading}
-              gene={gene}
-              variant={variant}
-              uniprotId={uniprotId}
-              homologs={homologs}
-              isHomologsLoading={isHomologsLoading}
-              customPdbUrl={customPdbUrl}
-              setCustomPdbUrl={setCustomPdbUrl}
-              dynamut2Status={dynamut2Status}
-              ddmutStatus={ddmutStatus}
-              thermompnnStatus={thermompnnStatus}
-              thermompnnError={thermompnnError}
-              disruptionPredictor={disruptionPredictor}
-              literatureSearchQuery={literatureSearchQuery}
-              onLiteratureSearch={handleLiteratureSearch}
-              literatureEvidence={literatureEvidence}
-              metricMode={metricMode}
-              setMetricMode={setMetricMode}
-              windowSize={windowSize}
-              setWindowSize={setWindowSize}
-              viewMode={viewMode}
-              setViewMode={setViewMode}
-              activeEvidenceTab={activeEvidenceTab}
-              onSelectEvidenceTab={setActiveEvidenceTab}
-              onSelectResidueIndex={setSelectedResidueIndex}
-              metrics={isEsm ? esmFoldMetrics : foldxMetrics}
-              active3dModelTab={isEsm ? "esmfold2" : "alphafold2"}
-              computedPocket={computedPocket}
-              isPocketLoading={isPocketLoading}
-              pocketError={pocketError}
-              onRetryPocket={handleRetryPocket}
-              onRetryNarrative={handleRetryNarrative}
-              onReturnToVariant={handleReturnToVariant}
-              onSelectResidue={handleResidueClickMemo}
-            />
+            <ErrorBoundary
+              name="Inspector Rail"
+              onError={handleInspectorError}
+            >
+              <ViewInspector
+                selectedEnergyEngine={selectedEnergyEngine}
+                activeView={masterView}
+                structureSelection={structure.railSelection}
+                onViewChange={setMasterView}
+                analysisResult={analysisState.result}
+                isFolding={isFolding}
+                foldingProgress={storeFoldingProgress}
+                foldingStatus={foldingStatus as any}
+                foldingError={foldingError}
+                foldingDdG={foldingDdG}
+                foldingEnergetics={foldingEnergetics}
+                isBiophysicalLoading={isBiophysicalLoading}
+                isClinicalLoading={isClinicalLoading}
+                isNarrativeLoading={isNarrativeLoading}
+                gene={gene}
+                variant={variant}
+                uniprotId={uniprotId}
+                homologs={homologs}
+                isHomologsLoading={isHomologsLoading}
+                customPdbUrl={customPdbUrl}
+                setCustomPdbUrl={setCustomPdbUrl}
+                dynamut2Status={dynamut2Status}
+                ddmutStatus={ddmutStatus}
+                thermompnnStatus={thermompnnStatus}
+                thermompnnError={thermompnnError}
+                disruptionPredictor={disruptionPredictor}
+                literatureSearchQuery={literatureSearchQuery}
+                onLiteratureSearch={handleLiteratureSearch}
+                literatureEvidence={literatureEvidence}
+                metricMode={metricMode}
+                setMetricMode={setMetricMode}
+                windowSize={windowSize}
+                setWindowSize={setWindowSize}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+                activeEvidenceTab={activeEvidenceTab}
+                onSelectEvidenceTab={setActiveEvidenceTab}
+                onSelectResidueIndex={setSelectedResidueIndex}
+                metrics={isEsm ? esmFoldMetrics : foldxMetrics}
+                active3dModelTab={isEsm ? "esmfold2" : "alphafold2"}
+                computedPocket={computedPocket}
+                isPocketLoading={isPocketLoading}
+                pocketError={pocketError}
+                onRetryPocket={handleRetryPocket}
+                onRetryNarrative={handleRetryNarrative}
+                onReturnToVariant={handleReturnToVariant}
+                onSelectResidue={handleResidueClickMemo}
+              />
+            </ErrorBoundary>
           )}
         </WorkspaceLayout>
         </EvidenceWorkspaceProvider>}

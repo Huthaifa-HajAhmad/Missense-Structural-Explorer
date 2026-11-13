@@ -94,7 +94,7 @@ function japanFoldReachability(): Promise<boolean> {
   if (japanFoldProbe && Date.now() - japanFoldProbe.at < JAPANFOLD_PROBE_TTL_MS) return japanFoldProbe.value;
   const value = (async () => {
     try {
-      const jfUrl = process.env.JAPANFOLD_API_URL || "https://api.japanfold.aiand.com/v1/predictions";
+      const jfUrl = process.env.JAPANFOLD_API_URL || `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
       const jfHeaders = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0" };
       const jfRes = await fetch(jfUrl, {
         method: "OPTIONS",
@@ -243,6 +243,10 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     const tamarindConfigured = Boolean(teamToken("tamarind"));
     const hfConfigured = Boolean(teamToken("huggingface"));
 
+    const exposeHostDetails =
+      !CONFIG.server.isProduction ||
+      (req.principal?.kind === "user" && req.principal.user?.role === "admin");
+
     const engines: EngineCapability[] = [
       {
         id: "foldx_linux_elf",
@@ -252,7 +256,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         details: {
           installed: Boolean(foldxLinuxPath),
           ...(process.platform === "linux" ? { runnableHere: foldxHere.ready, missing: foldxMissing } : {}),
-          path: foldxLinuxPath,
+          ...(exposeHostDetails ? { path: foldxLinuxPath } : {}),
           sizeMb: foldxLinuxSize > 0 ? (foldxLinuxSize / (1024 * 1024)).toFixed(1) : null,
           platformSupported: process.platform === "linux" || hasBox64,
           requiresEmulation: process.arch === "arm64"
@@ -266,7 +270,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         details: {
           installed: Boolean(foldxWinPath),
           ...(process.platform === "win32" ? { runnableHere: foldxHere.ready, missing: foldxMissing } : {}),
-          path: foldxWinPath,
+          ...(exposeHostDetails ? { path: foldxWinPath } : {}),
           sizeMb: foldxWinSize > 0 ? (foldxWinSize / (1024 * 1024)).toFixed(1) : null,
           platformSupported: process.platform === "win32"
         }
@@ -298,7 +302,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         status: raspReady ? "ready" : raspVerdict.usable ? "unverified" : "unavailable",
         details: {
           databaseIndexed: raspReady,
-          sqlitePath: raspDbPath,
+          ...(exposeHostDetails ? { sqlitePath: raspDbPath } : {}),
           sizeMb: raspSizeBytes > 0 ? (raspSizeBytes / (1024 * 1024)).toFixed(1) : null,
           storage: "SQLite (indexed O(log n))",
           // Real coverage, so the diagnostics screen can tell a curated dataset from a broken
@@ -373,9 +377,8 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         status: p2rankCap.status,
         details: {
           ready: p2rankCap.ready,
-          binaryPath: p2rankCap.path,
-          javaVersionCompatible: p2rankCap.javaVersionCompatible,
-          javaHome: p2rankCap.javaHome
+          ...(exposeHostDetails ? { binaryPath: p2rankCap.path, javaHome: p2rankCap.javaHome } : {}),
+          javaVersionCompatible: p2rankCap.javaVersionCompatible
         }
       },
       (() => {
@@ -396,8 +399,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
       timestamp: new Date().toISOString(),
       system: {
         platform: process.platform,
-        arch: process.arch,
-        nodeVersion: process.version,
+        ...(exposeHostDetails ? { arch: process.arch, nodeVersion: process.version } : {}),
         sidecarReachable,
         sidecarLatencyMs
       },

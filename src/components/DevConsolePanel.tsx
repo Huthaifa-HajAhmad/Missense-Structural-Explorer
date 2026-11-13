@@ -45,21 +45,21 @@ interface TileProps {
 function Tile({ label, value, sub, tone, pressed, onClick, ariaLabel }: TileProps) {
   const inner = (
     <>
-      <span className="cx-tile-label">{label}</span>
-      <span className="cx-tile-value" data-tone={tone}>
+      <span className="dc-tile-label">{label}</span>
+      <span className="dc-tile-value" data-tone={tone}>
         {value}
       </span>
-      <span className="cx-tile-sub">{sub ?? " "}</span>
+      <span className="dc-tile-sub">{sub ?? " "}</span>
     </>
   );
   if (onClick) {
     return (
-      <button type="button" className="cx-tile" aria-pressed={pressed} aria-label={ariaLabel} onClick={onClick}>
+      <button type="button" className="dc-tile" aria-pressed={pressed} aria-label={ariaLabel} onClick={onClick}>
         {inner}
       </button>
     );
   }
-  return <div className="cx-tile">{inner}</div>;
+  return <div className="dc-tile">{inner}</div>;
 }
 
 export default function DevConsolePanel() {
@@ -230,20 +230,20 @@ export default function DevConsolePanel() {
 
   return (
     // Focusable (tabIndex -1) so a click on blank page space still routes "/" to the filter field.
-    <div className="cx-page" tabIndex={-1} onKeyDown={handleRootKeyDown}>
+    <div className="dc-page" tabIndex={-1} onKeyDown={handleRootKeyDown}>
       {/* ── Page heading: the same framing as "Analyse a variant." — session state and the one
           destructive action sit beside it, outside the stream panel they act on as a whole. ── */}
-      <header className="cx-masthead">
+      <header className="dc-masthead">
         <div className="min-w-0">
-          <h1 className="cx-title">
+          <h1 className="dc-title">
             Console<span aria-hidden="true">.</span>
           </h1>
-          <p className="cx-lede">Inspect errors, follow requests, and trace each analysis.</p>
+          <p className="dc-lede">Inspect errors, follow requests, and trace each analysis.</p>
         </div>
-        <div className="cx-masthead-actions">
-          <div className="cx-session" aria-label="Session">
-            <span className="cx-dot" data-tone={online ? undefined : "danger"} aria-hidden />
-            <span className="cx-session-variant">
+        <div className="dc-masthead-actions">
+          <div className="dc-session" aria-label="Session">
+            <span className="dc-dot" data-tone={online ? undefined : "danger"} aria-hidden />
+            <span className="dc-session-variant">
               {session.gene ? (
                 <>
                   <b>{session.gene}</b> {session.variant}
@@ -252,7 +252,7 @@ export default function DevConsolePanel() {
                 "No variant loaded"
               )}
             </span>
-            <span className="cx-mono cx-session-meta">
+            <span className="dc-mono dc-session-meta">
               {online ? "online" : "offline"}
               {session.memoryMB ? ` · ${session.memoryMB} MB` : ""}
             </span>
@@ -261,7 +261,7 @@ export default function DevConsolePanel() {
             type="button"
             onClick={handleClearAll}
             disabled={totalConsoleItems === 0}
-            className="cx-btn"
+            className="dc-btn"
             data-tone={confirmingClearAll ? "danger" : undefined}
             aria-label={confirmingClearAll ? "Confirm clear all" : "Clear all console data — error stream, live stream, and pipeline traces"}
           >
@@ -271,16 +271,16 @@ export default function DevConsolePanel() {
         </div>
       </header>
 
-      <section className="cx-root" aria-labelledby="console-streams-title">
+      <section className="dc-root" aria-labelledby="console-streams-title">
         <h2 id="console-streams-title" className="sr-only">Console streams</h2>
         {/* ── Stream switch: the panel's header strip ── */}
-        <div className="cx-head">
-          <div role="tablist" aria-label="Console streams" onKeyDown={handleStreamNav} className="cx-tabs">
+        <div className="dc-head">
+          <div role="tablist" aria-label="Console streams" onKeyDown={handleStreamNav} className="dc-tabs">
             <button
               type="button"
               id="console-tab-error"
               role="tab"
-              className="cx-tab"
+              className="dc-tab"
               aria-selected={activeTab === "error"}
               aria-controls="console-stream-panel"
               tabIndex={activeTab === "error" ? 0 : -1}
@@ -289,7 +289,7 @@ export default function DevConsolePanel() {
               <ShieldAlert aria-hidden style={impacts.fatal > 0 ? { color: "var(--cs-danger)" } : undefined} />
               <span>Errors</span>
               {errorTotal > 0 && (
-                <span className="cx-count" data-tone={impacts.fatal > 0 ? "danger" : "warn"}>
+                <span className="dc-count" data-tone={impacts.fatal > 0 ? "danger" : "warn"}>
                   {errorTotal}
                 </span>
               )}
@@ -298,7 +298,7 @@ export default function DevConsolePanel() {
               type="button"
               id="console-tab-live"
               role="tab"
-              className="cx-tab"
+              className="dc-tab"
               aria-selected={activeTab === "live"}
               aria-controls="console-stream-panel"
               tabIndex={activeTab === "live" ? 0 : -1}
@@ -306,13 +306,13 @@ export default function DevConsolePanel() {
             >
               <Activity aria-hidden />
               <span>Live events</span>
-              <span className="cx-count">{state.liveState.entries.length}</span>
+              <span className="dc-count">{state.liveState.entries.length}</span>
             </button>
             <button
               type="button"
               id="console-tab-tracing"
               role="tab"
-              className="cx-tab"
+              className="dc-tab"
               aria-selected={activeTab === "tracing"}
               aria-controls="console-stream-panel"
               tabIndex={activeTab === "tracing" ? 0 : -1}
@@ -321,19 +321,19 @@ export default function DevConsolePanel() {
               <Layers aria-hidden />
               <span>Waterfall</span>
               {pipelineProblems > 0 ? (
-                <span className="cx-count" data-tone="danger" title="Failed or unavailable operations in the latest run">
+                <span className="dc-count" data-tone="danger" title="Failed or unavailable operations in the latest run">
                   {pipelineProblems}
                 </span>
               ) : (
-                activeTrace && <span className="cx-count">{formatDuration(activeTrace.totalDurationMs)}</span>
+                activeTrace && <span className="dc-count">{formatDuration(activeTrace.totalDurationMs)}</span>
               )}
             </button>
           </div>
         </div>
 
-        <div id="console-stream-panel" className="cx-stream-panel" role="tabpanel" aria-labelledby={`console-tab-${activeTab}`} tabIndex={-1}>
+        <div id="console-stream-panel" className="dc-stream-panel" role="tabpanel" aria-labelledby={`console-tab-${activeTab}`} tabIndex={-1}>
           {/* ── Metrics strip (fixed height, so switching tabs never shifts the page) ── */}
-          <section className="cx-kpis" aria-label="Console metrics">
+          <section className="dc-kpis" aria-label="Console metrics">
             {activeTab === "error" && (
               <>
                 <Tile
@@ -416,32 +416,32 @@ export default function DevConsolePanel() {
           {isLogTab ? (
             <>
               {/* ── Filter toolbar ── */}
-              <div className="cx-toolbar">
-                <div className="cx-pills" role="group" aria-label="Filter by level">
+              <div className="dc-toolbar">
+                <div className="dc-pills" role="group" aria-label="Filter by level">
                   {LEVEL_OPTIONS.map((opt) => {
                     const count = levelCounts[opt.id] || 0;
                     return (
                       <button
                         key={opt.id}
                         type="button"
-                        className="cx-pill"
+                        className="dc-pill"
                         aria-pressed={streamState.levelFilter === opt.id}
                         aria-label={`${opt.label}${count > 0 ? ` ${count}` : ""}`}
                         onClick={() => dispatch({ type: "SET_LEVEL_FILTER", stream, level: opt.id })}
                       >
                         {opt.label}
-                        {count > 0 && <span className="cx-pill-count">{count}</span>}
+                        {count > 0 && <span className="dc-pill-count">{count}</span>}
                       </button>
                     );
                   })}
                 </div>
 
-                <span className="cx-divider" aria-hidden />
+                <span className="dc-divider" aria-hidden />
 
                 {stream === "error" && (
                   <select
                     aria-label="Filter by error impact"
-                    className="cx-select"
+                    className="dc-select"
                     value={streamState.impactFilter}
                     onChange={(e) => dispatch({ type: "SET_IMPACT_FILTER", stream, impact: e.target.value as ErrorImpact | "all" })}
                   >
@@ -455,7 +455,7 @@ export default function DevConsolePanel() {
 
                 <select
                   aria-label="Filter by subsystem"
-                  className="cx-select"
+                  className="dc-select"
                   value={streamState.sourceFilter}
                   onChange={(e) => dispatch({ type: "SET_SOURCE_FILTER", stream, source: e.target.value as LogSource | "all" })}
                 >
@@ -466,7 +466,7 @@ export default function DevConsolePanel() {
                   ))}
                 </select>
 
-                <div className="cx-search">
+                <div className="dc-search">
                   <Search aria-hidden />
                   <input
                     ref={searchInputRef}
@@ -476,15 +476,15 @@ export default function DevConsolePanel() {
                     value={streamState.searchQuery}
                     onChange={(e) => dispatch({ type: "SET_SEARCH", stream, query: e.target.value })}
                   />
-                  {!streamState.searchQuery && <kbd className="cx-kbd">/</kbd>}
+                  {!streamState.searchQuery && <kbd className="dc-kbd">/</kbd>}
                 </div>
 
-                <span className="cx-spacer" />
+                <span className="dc-spacer" />
 
-                <div className="cx-tools">
+                <div className="dc-tools">
                   <button
                     type="button"
-                    className="cx-icon-btn"
+                    className="dc-icon-btn"
                     aria-pressed={!streamState.isCapturing}
                     onClick={() => dispatch({ type: "TOGGLE_CAPTURE", stream })}
                     aria-label={streamState.isCapturing ? `Pause ${stream} capture` : `Resume ${stream} capture`}
@@ -494,7 +494,7 @@ export default function DevConsolePanel() {
                   </button>
                   <button
                     type="button"
-                    className="cx-icon-btn"
+                    className="dc-icon-btn"
                     disabled={filteredEntries.length === 0}
                     onClick={handleCopyMarkdown}
                     aria-label={copiedAll ? "Copied markdown report" : "Copy filtered entries as markdown"}
@@ -504,7 +504,7 @@ export default function DevConsolePanel() {
                   </button>
                   <button
                     type="button"
-                    className="cx-icon-btn"
+                    className="dc-icon-btn"
                     disabled={filteredEntries.length === 0}
                     onClick={() => downloadJson(`${stream}-console-log`, filteredEntries)}
                     aria-label={`Download ${filtersActive ? "filtered " : ""}${stream} logs as JSON`}
@@ -514,7 +514,7 @@ export default function DevConsolePanel() {
                   </button>
                   <button
                     type="button"
-                    className="cx-icon-btn"
+                    className="dc-icon-btn"
                     disabled={streamState.entries.length === 0}
                     onClick={() => dispatch({ type: "CLEAR_STREAM", stream })}
                     aria-label={`Clear ${stream} stream`}
@@ -524,7 +524,7 @@ export default function DevConsolePanel() {
                   </button>
                   <button
                     type="button"
-                    className="cx-icon-btn"
+                    className="dc-icon-btn"
                     aria-pressed={compact}
                     onClick={() => setCompact((c) => !c)}
                     aria-label={compact ? "Switch to comfortable density" : "Switch to compact density"}
@@ -532,21 +532,21 @@ export default function DevConsolePanel() {
                   >
                     <Rows3 />
                   </button>
-                  <span className="cx-result-count cx-mono">
+                  <span className="dc-result-count dc-mono">
                     {filtersActive ? `${filteredEntries.length} of ${streamState.entries.length}` : `${streamState.entries.length} entries`}
                   </span>
                 </div>
               </div>
 
               {/* ── Preset filter chips ── */}
-              <div className="cx-presets-bar" role="group" aria-label="Quick filters">
-                <span className="cx-presets-label">Quick filters</span>
+              <div className="dc-presets-bar" role="group" aria-label="Quick filters">
+                <span className="dc-presets-label">Quick filters</span>
                 {stream === "error" ? (
                   <>
                     {/* Impact presets live on the metric tiles above; these narrow by subsystem. */}
                     <button
                       type="button"
-                      className="cx-preset-chip"
+                      className="dc-preset-chip"
                       data-active={streamState.sourceFilter === "biophysics"}
                       aria-pressed={streamState.sourceFilter === "biophysics"}
                       onClick={() =>
@@ -561,7 +561,7 @@ export default function DevConsolePanel() {
                     </button>
                     <button
                       type="button"
-                      className="cx-preset-chip"
+                      className="dc-preset-chip"
                       data-active={streamState.sourceFilter === "genomics"}
                       aria-pressed={streamState.sourceFilter === "genomics"}
                       onClick={() =>
@@ -579,7 +579,7 @@ export default function DevConsolePanel() {
                   <>
                     <button
                       type="button"
-                      className="cx-preset-chip"
+                      className="dc-preset-chip"
                       data-active={streamState.searchQuery.toLowerCase() === "http"}
                       aria-pressed={streamState.searchQuery.toLowerCase() === "http"}
                       onClick={() =>
@@ -594,7 +594,7 @@ export default function DevConsolePanel() {
                     </button>
                     <button
                       type="button"
-                      className="cx-preset-chip"
+                      className="dc-preset-chip"
                       data-active={streamState.searchQuery.toLowerCase() === "[cache hit]"}
                       aria-pressed={streamState.searchQuery.toLowerCase() === "[cache hit]"}
                       onClick={() =>
@@ -609,7 +609,7 @@ export default function DevConsolePanel() {
                     </button>
                     <button
                       type="button"
-                      className="cx-preset-chip"
+                      className="dc-preset-chip"
                       data-active={streamState.sourceFilter === "biophysics"}
                       aria-pressed={streamState.sourceFilter === "biophysics"}
                       onClick={() =>
@@ -624,7 +624,7 @@ export default function DevConsolePanel() {
                     </button>
                     <button
                       type="button"
-                      className="cx-preset-chip"
+                      className="dc-preset-chip"
                       data-active={streamState.sourceFilter === "structure-3d"}
                       aria-pressed={streamState.sourceFilter === "structure-3d"}
                       onClick={() =>
@@ -642,7 +642,7 @@ export default function DevConsolePanel() {
                 {filtersActive && (
                   <button
                     type="button"
-                    className="cx-preset-chip cx-preset-chip-clear"
+                    className="dc-preset-chip dc-preset-chip-clear"
                     onClick={resetFilters}
                     title="Clear all active filters"
                   >
@@ -652,10 +652,10 @@ export default function DevConsolePanel() {
               </div>
 
               {!streamState.isCapturing && (
-                <div className="cx-banner" role="status">
+                <div className="dc-banner" role="status">
                   <Pause style={{ width: 13, height: 13 }} aria-hidden />
                   Capture paused — new {stream} events are being discarded, not buffered.
-                  <button type="button" className="cx-btn" onClick={() => dispatch({ type: "TOGGLE_CAPTURE", stream })}>
+                  <button type="button" className="dc-btn" onClick={() => dispatch({ type: "TOGGLE_CAPTURE", stream })}>
                     <Play aria-hidden />
                     Resume
                   </button>

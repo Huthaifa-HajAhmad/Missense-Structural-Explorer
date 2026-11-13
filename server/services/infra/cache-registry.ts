@@ -251,7 +251,12 @@ export class CacheRegistry {
           // caller) but is NOT promoted or returned: the fetcher below decides the outcome.
           if (!isUsable || isUsable(sqliteEntry.data)) {
             if (l1Cache) {
-              l1Cache.set(key, sqliteEntry.data);
+              const remainingMs = sqliteEntry.expiresAt ? Date.parse(sqliteEntry.expiresAt) - Date.now() : null;
+              if (remainingMs === null) {
+                l1Cache.set(key, sqliteEntry.data);
+              } else if (remainingMs > 0) {
+                l1Cache.set(key, sqliteEntry.data, { ttl: remainingMs });
+              }
             }
             return sqliteEntry.data;
           }

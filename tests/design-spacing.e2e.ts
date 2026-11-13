@@ -55,7 +55,7 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     const rail = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail');
     const recent = await box(screen.getByRole('region', /recent analyses/i), 'recent analyses card');
 
-    expect(Math.abs(form.y - rail.y) <= 1, 'query and monitor headings share a starting line');
+    expect(Math.abs(form.y - rail.y) <= 1, 'query and monitor headings share a starting line').toBe(true);
     expect(await browser.evaluate(() => { const list = document.querySelector('.telemetry-scroll')!; const rows = list.querySelectorAll('.telemetry-service'); return rows.length === 10 && list.scrollHeight <= list.clientHeight + 1; }), 'all ten service rows fit without being hidden below FoldX').toBe(true);
     await screen.getByText('Optional refinements').tap();
     // The strip's fields animate (field-sizing on the textarea); wait out the transition so the
@@ -71,8 +71,8 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     expect(Math.abs(railPipeline.height - railOpen.height) <= 1, `switching tabs changes the monitor not at all (${railOpen.height.toFixed(1)} vs ${railPipeline.height.toFixed(1)})`).toBe(true);
 
     // The recent card is its own row, not the form column's tail.
-    expect(recent.y > form.y + form.height, 'Recent analyses should start below the form card');
-    expect(Math.abs(recent.x - form.x) <= 1, 'the cards share the left edge');
+    expect(recent.y > form.y + form.height, 'Recent analyses should start below the form card').toBe(true);
+    expect(Math.abs(recent.x - form.x) <= 1, 'the cards share the left edge').toBe(true);
 
     await app.screenshot('02-deck');
   });
@@ -86,8 +86,8 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     const rail = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail');
 
     // Form, then the recents, then the rail: the order the old nesting produced, kept.
-    expect(form.y + form.height < recent.y, 'the form closes above Recent analyses');
-    expect(recent.y + recent.height < rail.y, 'Recent analyses closes above the rail');
+    expect(form.y + form.height < recent.y, 'the form closes above Recent analyses').toBe(true);
+    expect(recent.y + recent.height < rail.y, 'Recent analyses closes above the rail').toBe(true);
   });
 
   test('the UniProt state sits in the label-row slot, above the field it describes', async ({ screen, app }) => {
@@ -104,8 +104,8 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     expect(
       status.y + status.height <= inputBox.y + 1,
       `the state badge sits ${(status.y + status.height - inputBox.y).toFixed(1)}px into the field (should be above it)`
-    );
-    expect(status.y > 0, 'the badge is laid out');
+    ).toBe(true);
+    expect(status.y > 0, 'the badge is laid out').toBe(true);
 
     // And the slot's old occupant is gone.
     await expect(screen.getByRole('button', 'Set UniProt accession')).toHaveCount(0);
@@ -207,16 +207,16 @@ describe('first-run tray design', { tags: ['search'] }, () => {
     expect(
       new Set(surface.radii).size === 1 && parseFloat(surface.radii[0]) >= 6,
       `corner radii are ${surface.radii.join(' ')} (must be one value, at least 6px)`
-    );
+    ).toBe(true);
     expect(
       surface.background !== 'rgba(0, 0, 0, 0)' && surface.background !== 'transparent',
       'hovering the run action paints its surface'
-    );
+    ).toBe(true);
     // Room between the surface's left edge and the text it holds (was 1px).
     expect(
       surface.textInset >= 8,
       `the gene sits ${surface.textInset.toFixed(1)}px from the surface's left edge`
-    );
+    ).toBe(true);
 
     await app.screenshot('06-benchmark-hover');
   });

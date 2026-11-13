@@ -171,6 +171,19 @@ export interface CorePrefetchOptions {
   predictorStartedAt?: number;
 }
 
+/** A score of 0 is a reading. Only null/undefined is the absence of one. */
+const isAbsent = (value: unknown): boolean => value === null || value === undefined;
+
+/**
+ * Every field of the conservation/ensemble record that carries a model's answer. The record is "not
+ * found" only when none of them has one: judging it by REVEL, GERP and phyloP alone called a record
+ * with BayesDel, ClinPred, PopEVE or SpliceAI values "not found".
+ */
+const CONSERVATION_SCORE_FIELDS = [
+  "revel", "gerp", "phylop", "consurf", "bayesdel", "metarnn", "clinpred", "eigenPhred", "dann",
+  "esm1b", "popeve", "gpnStar", "spliceai", "alphagenome"
+] as const;
+
 /**
  * Executes parallel fetching of external databases and quick predictor pipelines with timeout racing.
  *
@@ -721,12 +734,12 @@ async function runCoreFetch(
       prefetched?.predictorStatus ??
       (raw === TIMEOUT_FLAG ? "timeout"
         : predictorHasError ? "error"
-        : !raw || (!(raw as PredictorData).amPathogenicity && !(raw as PredictorData).caddPhred) ? "not_found"
+        : !raw || (isAbsent((raw as PredictorData).amPathogenicity) && isAbsent((raw as PredictorData).caddPhred)) ? "not_found"
         : "ok"),
     conservationData: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout"
         : conservationHasError ? "error"
-        : !raw || ((raw as ConservationData).revel === null && (raw as ConservationData).gerp === null && (raw as ConservationData).phylop === null) ? "not_found"
+        : !raw || CONSERVATION_SCORE_FIELDS.every(field => isAbsent((raw as Record<string, unknown>)[field])) ? "not_found"
         : "ok",
     stringInteractions: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout"

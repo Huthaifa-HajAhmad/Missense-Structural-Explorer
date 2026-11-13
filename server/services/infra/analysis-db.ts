@@ -74,6 +74,16 @@ export class AnalysisDatabase {
     return AnalysisDatabase.instance;
   }
 
+  /** Closes the main-thread singleton SQLite connection during server shutdown. */
+  public static closeInstance(): void {
+    if (AnalysisDatabase.instance) {
+      try {
+        closeSqliteDb(AnalysisDatabase.instance.targetPath);
+      } catch (_) {}
+      AnalysisDatabase.instance = null;
+    }
+  }
+
   public saveVariantAnalysis(params: {
     gene: string;
     variant: string;
