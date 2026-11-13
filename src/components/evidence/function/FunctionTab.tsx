@@ -8,7 +8,6 @@ import { drawingMode, layerOf, LAYER_KEYS, SECONDARY_MAX_SPAN, type LayerKey } f
 import { FND_SELECTION_PARAM, FND_WINDOW_PARAM, parseFndView, withFndParams, type FndView } from "./viewUrlState";
 import { Prose } from "../../ui/Prose";
 import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from '../EvidenceWorkspace';
-import { domainRowKeyResolver } from './architectureLayout';
 import { safeExternalHref } from '../../../shared/externalLink';
 import { disulfideSelection } from '../../../shared/residueFocus';
 import { FunctionWindowControl } from './FunctionWindowControl';
@@ -156,6 +155,7 @@ function Legend({
       {!off("sites") && has((r) => below(r) && ["experimental", "structure", "proteomics"].includes(r.evidence)) && <li><i className="fnd-key" data-kind="experimental" />Experimental</li>}
       {!off("sites") && has((r) => below(r) && ["similarity", "predicted", "curated"].includes(r.evidence)) && <li><i className="fnd-key" data-kind="inferred" />Inferred</li>}
       {!off("sites") && has((r) => (below(r) || r.lane === "region") && r.evidence === "none") && <li><i className="fnd-key" data-kind="uncited" />No evidence cited</li>}
+      {ev.domainUnits.some((u) => u.core.start !== u.start || u.core.end !== u.end) && <li><i className="fnd-key" data-kind="partial" />Pale end: only some databases</li>}
       {ev.structuralDomains.length > 0 && <li><i className="fnd-key" data-kind="structural" />Gene3D segment</li>}
     </ul>
   );
@@ -304,8 +304,12 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   const hotspotGene = result?.metadata?.gene || storeGene || null;
   const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(hotspotGene, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
   const hotspots = useMemo(() => ev && result ? buildHotspotEvidence(hotspotInputFrom(result, ev, hotspotLoad, fndInput?.engineCriteria)) : null, [ev, hotspotLoad, result, fndInput]);
-  /** One row-key index for the domain-name disclosure, shared with the drawing's own resolver. */
-  const domainKeyFor = useMemo(() => domainRowKeyResolver(ev?.rows ?? []), [ev]);
+  /** The domain-name disclosure lists entries, each with its units and the databases behind it. */
+  const domainEntries = useMemo(() => {
+    const byEntry = new Map<string, NonNullable<typeof ev>["domainUnits"]>();
+    for (const u of ev?.domainUnits ?? []) byEntry.set(u.entryKey, [...(byEntry.get(u.entryKey) ?? []), u]);
+    return Array.from(byEntry.values());
+  }, [ev]);
 
   // The window the reader chose and the row they opened go in the address bar while the tab is mounted.
   const evLength = ev?.length ?? 0;
@@ -429,7 +433,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
 
         {ok && (!workspace.enabled || workspace.comparison) && (
           <figure className="fnd-figure-block">
-            <figcaption className="mol-map-title"><h2>Which annotations cover this position?</h2><p>Read along the protein sequence. Separate tracks retain overlapping source annotations; they are not independent evidence.</p></figcaption>
+            <figcaption className="mol-map-title"><h2>Which annotations cover this position?</h2><p>Read along the protein sequence. Each box is one domain: matches from Pfam, SMART and PROSITE for the same InterPro entry are drawn as one box, because they are one piece of evidence, not several.</p></figcaption>
             <div className="fnd-figure-block__bar">
               <Legend ev={ev} win={win} hidden={hidden} onToggle={toggleLayer} />
               <div className="fnd-seg cs-seg-control" role="group" aria-label="Zoom the schematic">
@@ -465,12 +469,22 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
             <details className="mol-guide mol-read-guide">
               <summary>How to read this map</summary>
               <p>The clay line marks {ev.variantShort}. Read left to right along the sequence; select a domain or site to inspect its evidence.</p>
-              <span>Overlapping annotations use separate tracks. Track height separates sources, not physical layers.</span>
+              <p>A box is solid where every database agrees on the domain, and pale at an end that only some databases include. Two different domains that overlap sit on separate rows. A square end means the domain continues outside this window. A red line above the domains is a disease variant that changes a whole stretch of residues.</p>
             </details>
-            {ev.domains.length > 0 && <details className="mol-domain-key"><summary>Domain names and sources · {ev.domains.length}</summary><ul>
-              {ev.domains.map(d => <li key={d.key}><button type="button" aria-pressed={selectedKey === domainKeyFor(d)} onClick={() => toggle(domainKeyFor(d))}>
-                <strong>{d.name}</strong><span>{d.source} {d.accession} · {d.segments.map(s => `${s.start}–${s.end}`).join(', ')}</span>
-              </button></li>)}
+            {domainEntries.length > 0 && <details className="mol-domain-key"><summary>Domains and their sources · {domainEntries.length}</summary><ul>
+              {domainEntries.map(units => {
+                const first = units[0];
+                const dbs = Array.from(new Set(units.flatMap(u => u.sources.map(s => `${s.source} ${s.accession}`))));
+                return <li key={first.entryKey}>
+                  <div className="mol-domain-key__entry"><strong>{first.entryName}{units.length > 1 ? ` ×${units.length}` : ''}</strong>
+                    <span>{first.entryKey.startsWith('IPR') ? `InterPro ${first.entryKey} · ` : ''}{dbs.join(' · ')}</span></div>
+                  <ul className="mol-domain-key__units">
+                    {units.map(u => <li key={u.key}><button type="button" aria-pressed={!!selectedKey && u.memberKeys.includes(selectedKey)} onClick={() => toggle(u.rowKey)} data-covers={u.covers || undefined}>
+                      <span>{u.name}{u.covers ? ' · this variant' : ''}</span><span className="fnd-mono">{u.start}–{u.end}</span>
+                    </button></li>)}
+                  </ul>
+                </li>;
+              })}
             </ul></details>}
           </figure>
         )}
@@ -506,10 +520,11 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       )}
 
       {/* ── 2. What is annotated ────────────────────────────────────────────────────────── */}
-      {ok && workspace.comparison && <div className="mol-guide mol-selection">
-        <strong>{selectedKey ? ev.groups.flatMap(g => g.rows).find(r => r.key === selectedKey)?.name ?? 'The pinned annotation is no longer available' : 'Pin an annotation to follow its evidence'}</strong>
-        <span>{selectedKey ? 'The inspector holds the pinned record. Open Annotation details for its exact bounds and citations.' : 'Click a domain or site, or use the drawing’s arrow keys. Full domain names remain available above.'}</span>
-        {selectedKey && <button className="viz-action" type="button" onClick={() => { focusRowRef.current = selectedKey; workspace.setView('records'); }}>View selected record</button>}
+      {/* Only once something is pinned: an empty "Pin an annotation" card repeated the inspector's own prompt. */}
+      {ok && workspace.comparison && selectedKey && <div className="mol-guide mol-selection">
+        <strong>{ev.groups.flatMap(g => g.rows).find(r => r.key === selectedKey)?.name ?? 'The pinned annotation is no longer available'}</strong>
+        <span>The inspector holds the pinned record. Open Annotation details for its exact bounds and citations.</span>
+        <button className="viz-action" type="button" onClick={() => { focusRowRef.current = selectedKey; workspace.setView('records'); }}>View selected record</button>
       </div>}
       {hotspots && (!workspace.enabled || workspace.view === 'hotspots') && (
         <HotspotsView ev={hotspots} read={hotspotGene ? { gene: hotspotGene, uniprot: result?.metadata?.uniprotId ?? null, transcript: result?.transcriptId ?? null } : null} onShow3d={onSelectResidue && onNavigateToView ? (index, focus) => {

@@ -27,6 +27,7 @@
 import type { DomainMatch, SecondaryStructureElement, UniprotFeaturesData, UniprotFeatureItem } from "./contracts.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "./aminoAcids.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { buildDomainUnits, overlapsMostly, sourceList, type DomainUnit } from "./domainUnits.ts";
 import {
   assessPm1,
   EVIDENCE_LEVEL_LABEL,
@@ -54,7 +55,7 @@ export const ANNOTATION_GROUP_LABEL: Record<AnnotationGroup, string> = {
 const GROUP_ORDER: AnnotationGroup[] = ["domains", "variants", "sites", "mutagenesis", "modifications", "topology", "composition"];
 
 /** Where a row is drawn on the schematic. `none` rows are listed, not drawn. */
-export type SchematicLane = "domain" | "region" | "membrane" | "above" | "below" | "none";
+export type SchematicLane = "domain" | "region" | "membrane" | "above" | "span" | "below" | "none";
 
 export interface AnnotationRow {
   key: string;
@@ -128,8 +129,10 @@ export interface TraceStep {
 export interface VariantDensity {
   /** UniProt disease variants (one per substitution). */
   total: number;
-  /** Distinct residues carrying one. */
+  /** Distinct residues carrying a single-residue one. */
   residues: number;
+  /** Disease variants over a stretch of residues (UniProt lists 289–711 for a GZF1 truncation). */
+  spans: number;
   /** Disease variants at the query residue (all substitutions). */
   atResidue: number;
   // A ±10 "near" count and a 15-residue "densest" stretch used to sit here; no source set either window.
@@ -145,6 +148,8 @@ export interface FunctionEvidence {
   uniprotId: string;
   availability: { state: "ok" | "running" | "error"; label: string; reason: string };
   domains: DomainBox[];
+  /** The drawn domains: one unit per InterPro entry and location, every database that reported it inside. */
+  domainUnits: DomainUnit[];
   structuralDomains: DomainBox[];
   /** Short conserved-site signatures (PROSITE patterns, InterPro binding or active site entries): ticks, not boxes. */
   motifs: DomainBox[];
@@ -221,7 +226,9 @@ const isDisorderRegion = (f: UniprotFeatureItem) => lower(f.type) === "region" &
 
 function groupOf(f: UniprotFeatureItem): AnnotationGroup {
   const t = lower(f.type);
-  if (t === "domain") return "domains";
+  // A zinc finger is a domain-class feature (UniProt ZN_FING), not a site: filed under sites, GZF1's
+  // "C2H2-type 10" was read as "one annotation at residue 591" and drawn a second time over its own domain box.
+  if (t === "domain" || t === "zinc finger") return "domains";
   if (t === "natural variant") return "variants";
   if (t === "mutagenesis") return "mutagenesis";
   if (["modified residue", "glycosylation", "cross-link", "lipidation"].includes(t)) return "modifications";
@@ -234,7 +241,8 @@ function groupOf(f: UniprotFeatureItem): AnnotationGroup {
 const BROAD_SPAN = 0.3;
 /** True for a topological span or region that wide: shown as context, never as "a site at" a residue. */
 export function isBroadAnnotation(r: Pick<AnnotationRow, "group" | "isPair" | "start" | "end">, length: number): boolean {
-  return r.group !== "domains" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
+  // A long natural variant (a deletion) is a variant, not a region the residue sits in.
+  return r.group !== "domains" && r.group !== "variants" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
 }
 /** Longest unassigned gap still described as a link between two secondary-structure elements. */
 const MAX_LINK = 8;
@@ -371,7 +379,7 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
       name = Array.from(from).map((a, i) => `${title3(a)}${f.start + i}${title3(to[i])}`).join(", ");
       shortLabel = `${from}${f.start}${to}`;
     } else {
-      name = `Residue ${f.start}${f.end !== f.start ? `–${f.end}` : ""}`;
+      name = f.end !== f.start ? `Residues ${f.start}–${f.end}` : `Residue ${f.start}`;
       shortLabel = `${f.start}`;
     }
     if (group === "variants") {
@@ -379,7 +387,8 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
       note = v.note;
       detail = v.detail;
       disease = v.disease;
-      lane = v.disease ? "above" : "none";
+      // A disease variant over a stretch is drawn as that stretch, not as a pin at its first residue.
+      lane = v.disease ? (f.end > f.start ? "span" : "above") : "none";
     } else {
       const effect = (f.description || "").replace(/^[A-Z]+(?:->|→)[A-Z]+:\s*/i, "").replace(/\.$/, "");
       note = effect ? effect.charAt(0).toUpperCase() + effect.slice(1) : null;
@@ -391,7 +400,7 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
     if (t === "cross-link") name = tidyCrosslink(f.description || "") || name;
   } else if (group === "domains") {
     lane = "domain";
-    note = "UniProtKB domain";
+    note = t === "domain" ? "UniProtKB domain" : f.type;
   } else if (group === "sites") {
     if (f.end !== f.start && !pair) {
       lane = "region";
@@ -465,15 +474,16 @@ const MOTIF_ENTRY_TYPES = ["conserved_site", "binding_site", "active_site", "ptm
 
 export function kindOfMatch(m: Pick<DomainMatch, "database" | "accession" | "entryType">): MatchKind {
   if (STRUCTURAL_DATABASES.includes(m.database)) return "structural";
+  // PROSITE patterns are PS00xxx, profiles PS50xxx. A pattern is a short signature whatever entry it sits in:
+  // `entryType` is the InterPro entry's type, so GZF1's zinc-finger pattern PS00028 inherited "domain" from
+  // IPR013087 and was drawn as a fourth row of domain boxes.
+  if (m.database === "PROSITE" && /^PS00\d{3}$/.test(m.accession)) return "motif";
   if (m.entryType) {
     if (MOTIF_ENTRY_TYPES.includes(m.entryType)) return "motif";
     // Only a member database that models a domain is drawn as one, and only when InterPro agrees it is a domain:
     // CDD, SUPFAM and PRINTS carry the same InterPro entry as Pfam and would draw it again.
     return DOMAIN_DATABASES.includes(m.database) && (m.entryType === "domain" || m.entryType === "repeat") ? "domain" : "family";
   }
-  // No entry type (InterPro unread): PROSITE patterns are PS00xxx, profiles PS50xxx. A pattern is a short signature,
-  // and was drawn as a domain box nested inside the Pfam box.
-  if (m.database === "PROSITE" && /^PS00\d{3}$/.test(m.accession)) return "motif";
   return DOMAIN_DATABASES.includes(m.database) ? "domain" : "family";
 }
 
@@ -614,6 +624,23 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const structuralDrawn = structural.filter((b) => !b.segments.some((seg) => length > 0 && (seg.end - seg.start + 1) / length >= 0.8));
   // Draw InterPro domain boxes when there are any; else UniProt's. Both are listed in the table.
   const domains = drawnDomains(uniprot, residue, length);
+  // A UniProt zinc finger no InterPro domain models is still a domain: drawn as UniProt's own box, never dropped.
+  const zincFingers: DomainBox[] = features
+    .filter((f) => lower(f.type) === "zinc finger" && !domains.some((d) => d.segments.some((s) => overlapsMostly(s, f))))
+    .map((f, i) => ({
+      key: `uniprot-zf-${i}`,
+      name: f.description || "Zinc finger",
+      source: "UniProtKB",
+      accession: "",
+      interpro: null,
+      entryType: null,
+      segments: [{ start: f.start, end: f.end }],
+      covers: featureCoversResidue(f, residue),
+      coverage: (f.end - f.start + 1) / length,
+      url: null,
+    }));
+  const curated = rows.filter((r) => ["domain", "zinc finger", "repeat"].includes(lower(r.type))).map((r) => ({ key: r.key, name: lower(r.type) === "zinc finger" ? `${r.name} zinc finger` : r.name, start: r.start, end: r.end }));
+  const domainUnits = buildDomainUnits([...domains, ...zincFingers], curated, residue);
 
   const domainRows: AnnotationRow[] = [...domainBoxes, ...structural, ...motifs].map((b) => {
     const nearest = b.segments.reduce((best, s) => {
@@ -715,7 +742,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const secondaryStructure = uniprot?.secondaryStructure ?? [];
   const ssContext = structureContext(secondaryStructure, residue);
 
-  const diseaseRows = rows.filter((r) => r.disease && r.start !== residue);
+  // A disease variant that spans the residue (a deletion) is at the residue, so it is never "nearest, 0 away".
+  const spanningDisease = rows.filter((r) => r.group === "variants" && r.disease && r.covers && r.start !== r.end);
+  const diseaseRows = rows.filter((r) => r.disease && r.start !== residue && !r.covers);
   const nearestDiseaseVariant = diseaseRows.length
     ? diseaseRows.reduce((a, b) => (Math.abs(b.distance) < Math.abs(a.distance) ? b : a))
     : null;
@@ -731,10 +760,12 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
 
   // Density, so the reader sees a distribution rather than N identical marks.
   const perResidue = new Map<number, number>();
-  for (const r of rows) if (r.disease) perResidue.set(r.start, (perResidue.get(r.start) ?? 0) + 1);
+  for (const r of rows) if (r.disease && r.lane === "above") perResidue.set(r.start, (perResidue.get(r.start) ?? 0) + 1);
+  const diseaseSpans = rows.filter((r) => r.disease && r.lane === "span");
   const density: VariantDensity = {
     total: rows.filter((r) => r.disease).length,
     residues: perResidue.size,
+    spans: diseaseSpans.length,
     atResidue: perResidue.get(residue) ?? 0,
   };
   const variantGroup = groups.find((g) => g.group === "variants");
@@ -789,12 +820,16 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // The finding. A broad fold-level match (a family or repeat covering most of the chain) says
   // little about one position and is never counted as the residue's domain — the same policy the
   // inspector states — so it surfaces as broad coverage instead of inflating this count.
-  const coveringDomains = domains.filter(d => d.covers && !broad(d));
+  // Read from the units, not the raw matches: three databases modelling one zinc finger are one domain, and the
+  // fact cell used to quote a PROSITE match's ten locations as "the" domain of residue 591.
+  const unitShare = (u: DomainUnit) => (length > 0 ? (u.end - u.start + 1) / length : 0);
+  const unitWhere = (u: DomainUnit) => `${sourceList(u)}, ${u.start}–${u.end}`;
+  const coveringDomains = domainUnits.filter((u) => u.covers && unitShare(u) < 0.8);
   /** The broad fold-level match over this residue, if any: never the residue's domain, but it is still where the residue sits. */
-  const coveringBroad = domains.find(d => d.covers && broad(d)) ?? null;
+  const coveringBroad = domainUnits.find((u) => u.covers && unitShare(u) >= 0.8) ?? null;
   const coveringDomain = coveringDomains[0] ?? null;
   const domainPhrase = coveringDomain
-    ? coveringDomains.length > 1 ? `within ${coveringDomains.length} covering domain annotations, including ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})` : `inside the ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})`
+    ? coveringDomains.length > 1 ? `within ${coveringDomains.length} overlapping domains, including ${coveringDomain.name} (${unitWhere(coveringDomain)})` : `inside the ${coveringDomain.name} (${unitWhere(coveringDomain)})`
     : null;
   let lead: string;
   let sub: string;
@@ -816,14 +851,14 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   } else if (coveringBroad) {
     // Only a broad fold-level match covers the residue: name it as what it is, without counting it
     // as the residue's domain or implying a specific annotation exists here.
-    lead = `Residue ${residue} lies inside the ${coveringBroad.name} (${coveringBroad.source}, ${segText(coveringBroad)}) — a broad fold-level match that says little about one position — and no site, region or modification is annotated at it.`;
+    lead = `Residue ${residue} lies inside the ${coveringBroad.name} (${unitWhere(coveringBroad)}) — a broad fold-level match that says little about one position — and no site, region or modification is annotated at it.`;
     sub = "inside a broad fold-level match, nothing annotated at the residue";
   } else if (variantsHere.length) {
     lead = `No site, region or modification is annotated at residue ${residue}.`;
     sub = "natural variants only";
   } else {
     lead = `UniProtKB annotates nothing at residue ${residue}.`;
-    sub = domains.some(d => d.covers) ? "only broad fold-level coverage" : domains.length ? "outside every annotated domain" : "no domain, site or modification annotated here";
+    sub = domainUnits.some((u) => u.covers) ? "only broad fold-level coverage" : domainUnits.length ? "outside every annotated domain" : "no domain, site or modification annotated here";
   }
   const restParts: string[] = [];
   if (uniprot && contextAtResidue.length) {
@@ -850,6 +885,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     }
   } else if (sameResidueDisease.length) {
     restParts.push(`UniProt lists a different disease variant at this residue (${sameResidueDisease.map((o) => o.name).join(", ")}, ${sameResidueDisease[0].note}); this exact change is not listed.`);
+  } else if (spanningDisease.length) {
+    const s = spanningDisease[0];
+    restParts.push(`UniProt lists a disease variant that spans this residue: ${s.name.toLowerCase()}${s.note ? `, ${lowerFirst(s.note)}` : ""}.`);
   } else if (nearestDiseaseVariant)
     restParts.push(
       `The nearest known disease variant, ${nearestDiseaseVariant.name}, is ${Math.abs(nearestDiseaseVariant.distance)} residues ${nearestDiseaseVariant.distance < 0 ? "upstream" : "downstream"}.`
@@ -860,14 +898,20 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // Facts: domain, structure, nearest disease variant, engine record.
   const facts: FunctionFact[] = [
     coveringDomain
-      ? { label: "Domain", value: shortDomainName(coveringDomain.name), sub: `${coveringDomain.source} ${segText(coveringDomain)}, ${Math.round(coveringDomain.coverage * 100)}% of the protein` }
+      ? {
+          label: "Domain",
+          value: shortDomainName(coveringDomain.name),
+          sub: `${coveringDomain.name === coveringDomain.entryName ? "" : `${coveringDomain.entryName} · `}${coveringDomain.start}–${coveringDomain.end} · ${
+            coveringDomain.ofEntry > 1 ? `${coveringDomain.index} of ${coveringDomain.ofEntry}` : `${Math.round(unitShare(coveringDomain) * 100)}% of the protein`
+          } · ${sourceList(coveringDomain)}`,
+        }
       : {
           label: "Domain",
-          value: uniprot ? (coveringBroad ? `Broad ${coveringBroad.source} match` : "None at this residue") : "—",
+          value: uniprot ? (coveringBroad ? `Broad ${sourceList(coveringBroad)} match` : "None at this residue") : "—",
           sub: uniprot
             ? [
-                domains.length ? `${domains.length} annotated elsewhere` : null,
-                coveringBroad ? `${shortDomainName(coveringBroad.name)}, ${Math.round(coveringBroad.coverage * 100)}% coverage — the residue's siting, not its domain` : null,
+                domainUnits.length ? `${domainUnits.length} annotated elsewhere` : null,
+                coveringBroad ? `${shortDomainName(coveringBroad.name)}, ${Math.round(unitShare(coveringBroad) * 100)}% coverage — the residue's siting, not its domain` : null,
                 structural.find((b) => b.covers && b.coverage >= 0.8) ? `only a whole-chain ${structural.find((b) => b.covers && b.coverage >= 0.8)!.source} segment covers it` : null,
               ]
                 .filter(Boolean)
@@ -877,7 +921,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     ssContext
       ? { label: "Structure", value: ssContext.value, sub: ssContext.sub }
       : { label: "Structure", value: "Not annotated", sub: "no PDB-derived secondary structure" },
-    nearestDiseaseVariant || sameResidueDisease.length
+    nearestDiseaseVariant || sameResidueDisease.length || spanningDisease.length
       ? exactVariant?.disease
         ? {
             label: "Disease variant here",
@@ -885,6 +929,8 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
             sub: `${exactVariant.note ?? "UniProtKB"}${otherVariantsHere.length ? ` · ${otherVariantsHere.length} ${otherVariantsHere.length === 1 ? "other" : "others"} at ${residue}` : ""}`,
             mono: true,
           }
+        : !sameResidueDisease.length && spanningDisease.length
+        ? { label: "Disease variant over it", value: spanningDisease[0].residuesText, sub: spanningDisease[0].note ?? "UniProtKB", mono: true }
         : sameResidueDisease.length
         ? { label: "Same residue", value: sameResidueDisease.map((r) => r.shortLabel).join(", "), sub: `other changes, ${sameResidueDisease[0].note ?? "UniProtKB"}`, mono: true }
         : {
@@ -916,7 +962,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const caveats: FunctionEvidence["caveats"] = [];
   if (coveringBroad) {
     caveats.push({
-      lead: `A domain that spans ${Math.round(coveringBroad.coverage * 100)}% of the protein says little about this position.`,
+      lead: `A domain that spans ${Math.round(unitShare(coveringBroad) * 100)}% of the protein says little about this position.`,
       rest: "Being inside it is not a PM1 critical domain on its own, and not annotated is not the same as not functional.",
     });
   } else if (uniprot) {
@@ -945,7 +991,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // ≥10 trigger it used to wait for had no source.
   if (uniprot && density.total > 0) {
     caveats.push({
-      lead: `UniProtKB lists ${density.total} disease variant${density.total === 1 ? "" : "s"} across ${density.residues} residue${density.residues === 1 ? "" : "s"}.`,
+      lead: `UniProtKB lists ${density.total} disease variant${density.total === 1 ? "" : "s"}${
+        density.residues ? ` across ${density.residues} residue${density.residues === 1 ? "" : "s"}` : ""
+      }${density.spans ? `${density.residues ? ", plus" : ":"} ${density.spans === 1 ? "one" : density.spans} over a stretch (${diseaseSpans.map((r) => r.residuesText).join(", ")})` : ""}.`,
       rest: "PM1's hot-spot reading, a cluster of pathogenic variants with no benign variation, is not tested by the engine. The Hotspots view lays out each published definition for this protein.",
       anchor: "hotspots",
     });
@@ -1011,9 +1059,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
         ? { text: `${specificAtResidue.map((r) => r.name).join(", ")} cover${specificAtResidue.length === 1 ? "s" : ""} residue ${residue}.`, strong: "" }
         : {
             text: coveringDomains.length > 1
-              ? `${coveringDomains.length} domain annotations cover residue ${residue}: ${coveringDomains.map(d => `${d.name} (${d.source})`).join('; ')}.${broadCover ? ` A broad ${broadCover.type.toLowerCase()} spans it too.` : ' No site or region does.'}`
+              ? `${coveringDomains.length} domains cover residue ${residue}: ${coveringDomains.map((u) => `${u.name} (${sourceList(u)})`).join('; ')}.${broadCover ? ` A broad ${broadCover.type.toLowerCase()} spans it too.` : ' No site or region does.'}`
               : coveringDomain
-                ? `Only the ${coveringDomain.name} covers residue ${residue}; ${broadCover ? `a broad ${broadCover.type.toLowerCase()} spans it too.` : 'no site or region does.'}`
+                ? `Only the ${coveringDomain.name} (${sourceList(coveringDomain)}) covers residue ${residue}; ${broadCover ? `a broad ${broadCover.type.toLowerCase()} spans it too.` : 'no site or region does.'}`
                 : broadCover
                   ? `No specific site is annotated at residue ${residue}; a broad ${broadCover.type.toLowerCase()} (${broadCover.residuesText}) spans it.`
                   : `No site, region or specific domain covers residue ${residue}.`,
@@ -1054,6 +1102,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     uniprotId: input.uniprotId ?? "",
     availability,
     domains,
+    domainUnits,
     structuralDomains: structuralDrawn,
     motifs,
     interproMissing,

@@ -48,18 +48,37 @@
 .mol-domain-key button[aria-pressed="true"] { color: var(--cs-text-accent); }
 .mol-domain-key button span { font-size: 12px; font-variant-numeric: tabular-nums; }
 .mol-window { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-top: 1px solid var(--cs-border-subtle); font-size: 12px; color: var(--cs-text-secondary); }
-.mol-window > span:first-child { margin-right: auto; }
+.mol-window__error { flex-basis: 100%; color: var(--cs-text-muted); }
+.mol-domain-key__entry { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; padding: 10px 4px 4px; color: var(--cs-text-primary); }
+.mol-domain-key__entry > span { font-size: 12px; color: var(--cs-text-muted); }
+.mol-domain-key ul.mol-domain-key__units { margin: 0 0 6px; padding-left: 12px; }
+.mol-domain-key__units button { padding: 6px 4px; }
+.mol-domain-key__units button[data-covers] { color: var(--cs-text-primary); font-weight: 600; }
 .mol-window label { display: flex; align-items: center; gap: 7px; }
 .mol-window input { width: 80px; min-height: 32px; padding: 4px 8px; border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-surface); color: var(--cs-text-primary); font-variant-numeric: tabular-nums; }
 .mol-window input:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .mol-property:focus-visible, .mol-domain-key button:focus-visible, .mol-domain-key summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .fnd-arch__domain { cursor: pointer; }
-.fnd-arch__domain > rect { fill: color-mix(in srgb, var(--cs-text-muted) 10%, var(--cs-surface)); stroke: var(--cs-text-muted); }
+/* One box per domain unit. Its solid fill is where every database agrees; a pale end is where only some
+   databases extend. The unit the variant sits in carries a darker outline. */
+.fnd-arch__domain > .fnd-arch__box { fill: color-mix(in srgb, var(--cs-text-muted) 14%, var(--cs-surface)); stroke: var(--cs-text-muted); stroke-width: 1; }
+.fnd-arch__domain > .fnd-arch__box[data-partial] { fill: color-mix(in srgb, var(--cs-text-muted) 5%, var(--cs-surface)); }
+.fnd-arch__domain > .fnd-arch__core { fill: color-mix(in srgb, var(--cs-text-muted) 14%, var(--cs-surface)); stroke: none; pointer-events: none; }
+.fnd-arch__domain[data-covers] > .fnd-arch__box { stroke: var(--cs-text-secondary); stroke-width: 1.5; }
 .fnd-arch__domain > .fnd-domain-hit { fill: transparent !important; stroke: none !important; }
 /* Hover-lit and selected are different states: a hover preview is a lighter outline, a pin is a
    heavier one with a stronger tint, so a hover is never mistaken for a committed selection. */
-.fnd-arch__domain[data-lit] > rect { stroke: var(--cs-accent-clay); stroke-width: 1.5; fill: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface)); }
-.fnd-arch__domain[data-selected] > rect { stroke: var(--cs-accent-clay); stroke-width: 2.5; fill: color-mix(in srgb, var(--cs-accent-clay) 18%, var(--cs-surface)); }
+.fnd-arch__domain[data-lit] > .fnd-arch__box { stroke: var(--cs-accent-clay); stroke-width: 1.5; }
+.fnd-arch__domain[data-lit] > .fnd-arch__core { fill: color-mix(in srgb, var(--cs-accent-clay) 8%, var(--cs-surface)); }
+.fnd-arch__domain[data-selected] > .fnd-arch__box { stroke: var(--cs-accent-clay); stroke-width: 2.5; }
+.fnd-arch__domain[data-selected] > .fnd-arch__core,
+.fnd-arch__domain[data-selected] > .fnd-arch__box:not([data-partial]) { fill: color-mix(in srgb, var(--cs-accent-clay) 18%, var(--cs-surface)); }
+.fnd-arch__span { cursor: pointer; }
+.fnd-arch__span > line { stroke: var(--cs-text-danger); stroke-width: 2; stroke-linecap: round; }
+.fnd-arch__span-label { paint-order: stroke; stroke: var(--cs-surface); stroke-width: 4px; stroke-linejoin: round; }
+.fnd-arch__span[data-lit] > line { stroke-width: 3; }
+.fnd-arch__span[data-selected] > line { stroke: var(--cs-accent-clay); stroke-width: 3; }
+.fnd-arch__span:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; border-radius: 4px; }
 .fnd-arch__domain:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: 6px; }
 .fnd-arch__motif[data-lit] > rect { fill: var(--cs-accent-clay); fill-opacity: .5; }
 .fnd-arch__motif[data-selected] > rect { fill: var(--cs-accent-clay); }

@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { BookOpen, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { buildFunctionEvidence } from "../../shared/functionEvidence";
-import { EVIDENCE_LEVEL_CODES, EVIDENCE_LEVEL_LABEL, PM1_EVIDENCE_LEVELS } from "../../shared/functionalSites";
+import { EVIDENCE_LEVEL_CODES, EVIDENCE_LEVEL_LABEL, EVIDENCE_LEVEL_MEANING, PM1_EVIDENCE_LEVELS } from "../../shared/functionalSites";
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { functionReadings } from '../../shared/molecularWorkspace';
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
@@ -41,7 +41,11 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
   const ev = useMemo(() => buildFunctionEvidence(fndInput), [fndInput]);
   // Natural variants are left out: ECO:0000269 on a variant is a publication reporting it, not an observation
   // of a site, and listing it as "Experimental, counts for PM1" implied the variant rows were evidence for PM1.
-  const levelsHere = useMemo(() => new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence)), [ev]);
+  const levelCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of ev.rows) if (r.evidence !== "match" && r.group !== "variants") counts.set(r.evidence, (counts.get(r.evidence) ?? 0) + 1);
+    return counts;
+  }, [ev]);
   // The Hotspots view's trace: each definition with its grade and source, read from the same slot the view reads.
   const workspace = useEvidenceWorkspace("function");
   // The loader forms its slot from the result's gene or the store's (useEvidenceContext) — the rail uses
@@ -55,6 +59,11 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
     [analysisResult, ev, hotspotLoad, fndInput.engineCriteria]
   );
   const readings = useMemo(() => functionReadings(ev, hotspotEv), [ev, hotspotEv]);
+  const familyBySource = useMemo(() => {
+    const by = new Map<string, typeof ev.familyMatches>();
+    for (const m of ev.familyMatches) by.set(m.source, [...(by.get(m.source) ?? []), m]);
+    return Array.from(by.entries());
+  }, [ev]);
   const hotspots = useMemo(() => {
     if (workspace.enabled && workspace.view !== "hotspots") return null;
     const context = hotspotLoad?.status === "ready" ? hotspotLoad.data : null;
@@ -126,16 +135,27 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
           <Ruler className="w-3.5 h-3.5" />
           Evidence levels · in this entry
         </h3>
-        <ul className="fnd-cuts" data-testid="evidence-levels">
-          {EVIDENCE_LEVEL_CODES.filter((l) => levelsHere.size === 0 || levelsHere.has(l.level)).map((l) => (
-            <li key={l.level} className="fnd-cut" data-present={levelsHere.has(l.level) || undefined}>
-              <span className="fnd-cut__label">{EVIDENCE_LEVEL_LABEL[l.level]}</span>
-              <span className="fnd-cut__rule">{l.codes}</span>
-              <span className="fnd-cut__here">{PM1_EVIDENCE_LEVELS.has(l.level) ? "counts for PM1" : ""}</span>
-            </li>
-          ))}
+        {/* One row per level: its name and how many annotations in this entry carry it, then what it means and
+            whether PM1 counts it. The label, a "counts for PM1" line wrapped under it and a separate paragraph
+            explaining two of the levels used to be three places for one fact. */}
+        <ul className="rail-cuts" data-testid="evidence-levels">
+          {EVIDENCE_LEVEL_CODES.filter((l) => levelCounts.size === 0 || levelCounts.has(l.level)).map((l) => {
+            const n = levelCounts.get(l.level) ?? 0;
+            return (
+              <li key={l.level} className="rail-cut" data-active={n > 0 || undefined}>
+                <span className="rail-cut__rule">{EVIDENCE_LEVEL_LABEL[l.level]}</span>
+                <span className="rail-cut__meaning">
+                  {EVIDENCE_LEVEL_MEANING[l.level]}
+                  <span className="fnd-level__codes">{l.codes}</span>
+                </span>
+                <span className="rail-cut__here">
+                  {PM1_EVIDENCE_LEVELS.has(l.level) ? "counts for PM1" : "not counted for PM1"}
+                  {n > 0 ? ` · ${n} in this entry` : ""}
+                </span>
+              </li>
+            );
+          })}
         </ul>
-        <p className="fnd-rail__note">A site by similarity is transferred from another protein; sequence analysis is a prediction. Neither is counted as a critical site here.</p>
       </section>
 
       <section className="fnd-rsec" aria-labelledby="fnd-rail-notes">
@@ -176,15 +196,37 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
             <Layers className="w-3.5 h-3.5" />
             Family signatures · not drawn
           </h3>
+          {/* Grouped by database: GZF1 lists thirteen FunFam families, one per zinc-finger stretch, which buried the
+              sources below them. A database with more than two matches folds into one line that opens to the list. */}
           <dl className="fnd-kv" data-testid="family-matches">
-            {ev.familyMatches.map((m) => (
-              <div key={m.key}>
-                <dt>
-                  {m.source} <span className="fnd-mono">{m.accession}</span>
-                </dt>
-                <dd className="fnd-mono">{m.segments.map((s) => `${s.start}–${s.end}`).join(", ")}</dd>
-              </div>
-            ))}
+            {familyBySource.map(([source, matches]) =>
+              matches.length > 2 ? (
+                <div key={source} className="fnd-kv__group">
+                  <details className="fnd-notes">
+                    <summary>
+                      {source} · {matches.length} matches
+                    </summary>
+                    <dl className="fnd-kv">
+                      {matches.map((m) => (
+                        <div key={m.key}>
+                          <dt className="fnd-mono">{m.accession}</dt>
+                          <dd className="fnd-mono">{m.segments.map((s) => `${s.start}–${s.end}`).join(", ")}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                </div>
+              ) : (
+                matches.map((m) => (
+                  <div key={m.key}>
+                    <dt>
+                      {m.source} <span className="fnd-mono">{m.accession}</span>
+                    </dt>
+                    <dd className="fnd-mono">{m.segments.map((s) => `${s.start}–${s.end}`).join(", ")}</dd>
+                  </div>
+                ))
+              )
+            )}
           </dl>
         </section>
       )}

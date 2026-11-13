@@ -46,10 +46,17 @@ function Label({ l, className }: { l: ArchLabel; className?: string }) {
   );
 }
 
+/** A rounded box whose cut sides (where the window ends inside the domain) stay square. */
+function boxPath(x: number, y: number, w: number, h: number, r: number, clip: { left: boolean; right: boolean }): string {
+  const rl = clip.left ? 0 : Math.min(r, w / 2);
+  const rr = clip.right ? 0 : Math.min(r, w / 2);
+  return `M${x + rl} ${y}H${x + w - rr}${rr ? `Q${x + w} ${y} ${x + w} ${y + rr}` : ""}V${y + h - rr}${rr ? `Q${x + w} ${y + h} ${x + w - rr} ${y + h}` : ""}H${x + rl}${rl ? `Q${x} ${y + h} ${x} ${y + h - rl}` : ""}V${y + rl}${rl ? `Q${x} ${y} ${x + rl} ${y}` : ""}Z`;
+}
+
 function describe(ev: FunctionEvidence, hidden?: ReadonlySet<LayerKey>): string {
   const parts: string[] = [`Domain architecture of ${ev.gene || "the protein"}, ${ev.length} residues.`];
-  if (ev.domains.length) {
-    parts.push(ev.domains.map((d) => `${d.name} (${d.source}) ${d.segments.map((s) => `${s.start} to ${s.end}`).join(" and ")}`).join(". ") + ".");
+  if (ev.domainUnits.length) {
+    parts.push(ev.domainUnits.map((u) => `${u.name} ${u.start} to ${u.end}`).join(". ") + ".");
   } else parts.push("No domain annotated.");
   const regions = ev.rows.filter((r) => r.lane === "region");
   if (regions.length) parts.push(regions.map((r) => `${r.name} ${r.start} to ${r.end}`).join(". ") + ".");
@@ -127,7 +134,7 @@ export function DomainArchitecture({
     [ev, width, win.start, win.end, selectedKey, hidden]
   );
   const bbTop = L.backbone.y - L.backbone.h / 2;
-  const lit = (rowKey: string) => (hoverKey !== null && rowKey === hoverKey) || undefined;
+  const lit = (rowKey: string, members?: string[]) => (hoverKey !== null && (rowKey === hoverKey || !!members?.includes(hoverKey))) || undefined;
   const hoverProps = (rowKey: string) => ({
     onMouseEnter: () => onHover?.(rowKey),
     onMouseLeave: () => onHover?.(null),
@@ -170,6 +177,10 @@ export function DomainArchitecture({
     };
     for (const p of L.pins) add(p.rowKey, p.residue, p.title);
     for (const d of L.domains) add(d.rowKey, d.start, d.title);
+    for (const s of L.spans) {
+      const row = ev.rows.find((q) => q.rowKey === s.rowKey);
+      add(s.rowKey, row ? row.start : 0, s.title);
+    }
     for (const m of L.motifs) add(m.rowKey, m.start, m.title);
     for (const b of L.density?.bars ?? []) add(b.rowKey, b.start, b.title);
     for (const r of L.regions) {
@@ -288,16 +299,22 @@ export function DomainArchitecture({
         ))}
         {L.domains.map((d) => (
           <g key={d.key} className="fnd-arch__domain" {...markProps(d.rowKey, d.title, d.selected)}
-            data-selected={d.selected || undefined} data-lit={lit(d.rowKey)}
-            data-covers={d.covers || undefined} data-start={d.start} data-end={d.end} data-lane={d.lane} data-testid="arch-domain">
+            data-selected={d.selected || undefined} data-lit={lit(d.rowKey, d.memberKeys)}
+            data-covers={d.covers || undefined} data-start={d.start} data-end={d.end} data-lane={d.lane}
+            data-clip={d.clip.left || d.clip.right ? `${d.clip.left ? "left" : ""}${d.clip.right ? "right" : ""}` : undefined} data-testid="arch-domain">
             <title>{d.title}</title>
-            <rect x={d.x} y={d.y} width={d.width} height={30} rx={6} />
+            {/* Pale where only some databases extend; the core is where all of them agree. */}
+            <path d={boxPath(d.x, d.y, d.width, 30, 6, d.clip)} className="fnd-arch__box" data-partial={d.core ? true : undefined} />
+            {d.core && <rect x={d.core.x} y={d.y + 1} width={d.core.width} height={28} className="fnd-arch__core" data-testid="arch-domain-core" />}
             {d.width < 24 && <rect x={d.x - (24 - d.width) / 2} y={d.y} width={24} height={30} className="fnd-domain-hit" />}
             {d.label && <Label l={d.label} />}
             {d.ends.map((e) => (
               <Label key={e.text + e.anchor} l={e} />
             ))}
           </g>
+        ))}
+        {L.entryLabels.map((l) => (
+          <Label key={`entry-${l.text}-${l.x}`} l={l} className="fnd-arch__entry" />
         ))}
         {L.regions.map((r) => (
           <g key={r.key} className="fnd-arch__region" {...markProps(r.key, regionLabel(r.key), r.selected)} data-selected={r.selected || undefined} data-lit={lit(r.key)} data-testid="arch-region">
@@ -371,6 +388,18 @@ export function DomainArchitecture({
             )}
           </g>
         )}
+
+        {/* Disease variants over a stretch: a line over the residues they change, square where the window cuts it. */}
+        {L.spans.map((s) => (
+          <g key={s.key} className="fnd-arch__span" {...markProps(s.rowKey, s.title, s.selected)} data-selected={s.selected || undefined} data-lit={lit(s.rowKey)} data-testid="arch-span">
+            <title>{s.title}</title>
+            <line x1={s.x1} x2={s.x2} y1={s.y} y2={s.y} />
+            {!s.clip.left && <line x1={s.x1} x2={s.x1} y1={s.y - 5} y2={s.y + 5} />}
+            {!s.clip.right && <line x1={s.x2} x2={s.x2} y1={s.y - 5} y2={s.y + 5} />}
+            <rect x={s.x1} y={s.y - 8} width={Math.max(24, s.x2 - s.x1)} height={16} className="fnd-arch__hit" />
+            {s.label && <Label l={s.label} className="fnd-arch__span-label" />}
+          </g>
+        ))}
 
         {/* Disulfide brackets (lane mode). */}
         {L.bonds.map((b) => (
