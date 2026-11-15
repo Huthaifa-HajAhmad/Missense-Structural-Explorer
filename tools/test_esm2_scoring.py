@@ -114,6 +114,16 @@ class LocalEsm2Tests(unittest.TestCase):
         predict_esm2_3b_sync(Esm2Request(sequence=SEQUENCE, position=6, wt="S", mut="A"))
         self.assertEqual(len(self.model.calls), 1)
 
+    def test_gate_deadline_exceeded_propagates_without_vesm_fallback(self):
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded
+        from tools.model_server_app.routers import esm2 as esm2_router
+
+        with patch.object(self.model, "__call__", side_effect=GateDeadlineExceeded("busy")), \
+             patch.object(esm2_router, "predict_vesm_sync") as vesm_mock:
+            with self.assertRaises(GateDeadlineExceeded):
+                predict_esm2_3b_sync(Esm2Request(sequence=SEQUENCE, position=6, wt="S", mut="C"))
+        vesm_mock.assert_not_called()
+
     def test_positions_are_in_full_protein_numbering_after_a_crop(self):
         long_sequence = "A" * 1500 + SEQUENCE
         result = predict_esm2_3b_sync(Esm2Request(sequence=long_sequence, position=1506, wt="S", mut="C"))

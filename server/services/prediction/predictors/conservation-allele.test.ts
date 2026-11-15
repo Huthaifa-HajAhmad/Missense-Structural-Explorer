@@ -176,4 +176,29 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(unmatched.available).toBe(false);
     expect(unmatched.revel).toBeNull();
   });
+
+  it("withholds non-GRCh38 coordinates from Genos and dbNSFP.org on direct calls and resolves ConSurf position from variant string", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
+
+    const seenUrls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const s = String(url);
+      seenUrls.push(s);
+      if (s.includes("consurfdb.tau.ac.il")) {
+        return new Response('<option value="A hash123">Chain A</option>', { status: 200 });
+      }
+      if (s.includes("myvariant.info")) {
+        return new Response(JSON.stringify({
+          hits: [{ dbnsfp: { hgvsp: ["p.Arg273His"], revel: { score: 0.91 } } }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+
+    await fetchConservationData("TP53", "p.Arg273His", "1TUP", "A", null, "17-7577120-C-T", null, null, null, null, "GRCh37");
+    expect(mocks.genos).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
+    expect(mocks.dbnsfpOrg).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
+    expect(seenUrls.some(u => u.includes("consurfdb.tau.ac.il"))).toBe(true);
+  });
 });

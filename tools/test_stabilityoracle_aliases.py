@@ -31,6 +31,14 @@ class CanonicalResidueNameTest(unittest.TestCase):
         for target in set(stabilityoracle._PROTONATION_ALIASES.values()):
             self.assertIn(target, prefixes)
 
+    def test_read_chain_atoms_canonicalizes_protonation_aliases(self):
+        from tools.model_server_app.routers.stabilityoracle import _read_chain_atoms
+
+        pdb_line = "ATOM      1  CA  HSD A  42       1.000   2.000   3.000  1.00  0.00           C"
+        atoms = _read_chain_atoms(pdb_line, "A")
+        self.assertEqual(len(atoms), 1)
+        self.assertEqual(atoms[0]["res_name"], "HIS")
+
 
 if __name__ == "__main__":
     unittest.main()

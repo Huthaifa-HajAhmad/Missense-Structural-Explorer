@@ -2,7 +2,7 @@ import { LRUCache } from "lru-cache";
 import { TabixIndexedFile } from "@gmod/tabix";
 import { getCachedOrFetch } from "../infra/cache.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
-import { sanitizeErrorMessage } from "../../utils/security.ts";
+import { sanitizeErrorMessage, validateSafeCustomEndpointUrl } from "../../utils/security.ts";
 import { governedFetch } from "../infra/http-client.ts";
 import { credentialForCall, resolveCredential, teamToken } from "../infra/credentials.ts";
 
@@ -81,8 +81,20 @@ export async function fetchGpnStarByCoordinate(
     };
   }
 
-  // 1. If researcher configured a dedicated local GPN sidecar, prioritize it
-  const sidecarUrl = (customEndpoint || process.env.GPN_API_URL)?.replace(/\/+$/, "");
+  // 1. If researcher configured a dedicated local GPN sidecar, prioritize it.
+  // Only validate & restrict redirects on caller-chosen overrides, not the operator's GPN_API_URL.
+  const access = resolveGpnAccess(null, customEndpoint);
+  if (access.customEndpoint && access.endpoint) {
+    const check = validateSafeCustomEndpointUrl(access.endpoint);
+    if (!check.valid) {
+      return {
+        score: null,
+        status: "unavailable",
+        message: `Custom GPN-Star endpoint rejected: ${check.reason}`
+      };
+    }
+  }
+  const sidecarUrl = (access.customEndpoint ? access.endpoint : process.env.GPN_API_URL)?.replace(/\/+$/, "");
   if (sidecarUrl) {
     try {
       const combinedSignal = signal
@@ -94,7 +106,7 @@ export async function fetchGpnStarByCoordinate(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chrom, pos, ref, alt }),
         signal: combinedSignal,
-        ...(customEndpoint ? { rejectRedirects: true } : {}),
+        ...(access.customEndpoint ? { rejectRedirects: true } : {}),
       });
 
       if (res.ok) {
@@ -109,7 +121,15 @@ export async function fetchGpnStarByCoordinate(
           return { score: s, status: "live" };
         }
       }
-    } catch (_) {}
+    } catch (err: any) {
+      if (access.customEndpoint && /redirect/i.test(String(err?.message ?? ""))) {
+        return {
+          score: null,
+          status: "unavailable",
+          message: "Custom GPN-Star endpoint blocked: redirects are disallowed"
+        };
+      }
+    }
   }
 
   // 2. On-demand remote HTTP Range Tabix query against Song Lab whole-genome index
@@ -261,8 +281,18 @@ export async function fetchGpnStarScore(
     };
   }
 
-  // If a custom dedicated endpoint was provided, query it
-  const sidecarUrl = (customEndpoint || process.env.GPN_API_URL)?.replace(/\/+$/, "");
+  const access = resolveGpnAccess(token, customEndpoint);
+  if (access.customEndpoint && access.endpoint) {
+    const check = validateSafeCustomEndpointUrl(access.endpoint);
+    if (!check.valid) {
+      return {
+        score: null,
+        status: "unavailable",
+        message: `Custom GPN-Star endpoint rejected: ${check.reason}`
+      };
+    }
+  }
+  const sidecarUrl = access.endpoint?.replace(/\/+$/, "");
   if (sidecarUrl) {
     try {
       const combinedSignal = signal
@@ -270,14 +300,15 @@ export async function fetchGpnStarScore(
         : AbortSignal.timeout(15000);
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Bearer ${token}`;
+      if (access.token) headers["Authorization"] = `Bearer ${access.token}`;
 
       const res = await governedFetch(sidecarUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({ sequence, pos, wt: wt.toUpperCase(), mut: mut.toUpperCase() }),
         signal: combinedSignal,
-        ...(token ? { credential: credentialForCall("huggingface", token) } : {})
+        ...(access.token ? { credential: credentialForCall("huggingface", access.token) } : {}),
+        ...(access.customEndpoint ? { rejectRedirects: true } : {})
       });
 
       if (res.ok) {
@@ -292,7 +323,15 @@ export async function fetchGpnStarScore(
           return { score: s, status: "live" };
         }
       }
-    } catch (_) {}
+    } catch (err: any) {
+      if (access.customEndpoint && /redirect/i.test(String(err?.message ?? ""))) {
+        return {
+          score: null,
+          status: "unavailable",
+          message: "Custom GPN-Star endpoint blocked: redirects are disallowed"
+        };
+      }
+    }
   }
 
   // GPN-Star is an alignment-based nucleotide model; when called with sequence alone without coordinates,

@@ -69,6 +69,7 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | (none) | `queued` | submit | `addJob` |
 | `queued` | `running` | the server picks the job | `processQueue` |
 | `queued` | `running` | a paired computer claims it | `claimForAgent` |
+| `queued` | `failed` | corrupt job payload JSON | `processQueue`, `claimForAgent` |
 | `queued` | `failed` | a learned memory ceiling refuses it | `processQueue` |
 | `queued` | `failed` | waited longer than `foldxQueuedLeaseMs` (30 min) | `reapStaleJobs` |
 | `queued`, `running` | `failed` | a person or an admin cancels | `cancelFor` → `stopJob` |
@@ -82,7 +83,8 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | final | deleted | older than the retention period | `pruneHistory` |
 
 Every update names the state it expects, so a move that lost a race changes nothing and is reported as
-"not yours". A cancelled server job keeps its slot until its worker stops; the abort makes it stop.
+"not yours". A cancelled or timed-out server job aborts its worker (`abortJob`) and waits briefly (up to
+2 s on timeout) for the child process to unwind before releasing the concurrency slot.
 `abortJobsEndedElsewhere` delivers that abort when the cancel arrived through another process.
 
 ### 1b. The Redis (BullMQ) backend

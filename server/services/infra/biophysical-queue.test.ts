@@ -240,4 +240,23 @@ describe("BiophysicalJobQueue Unit Tests", () => {
     release();
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
+
+  it("marks corrupt-JSON queued payloads as failed and continues processing subsequent jobs", async () => {
+    const queue = BiophysicalJobQueue.initialize(1, async (type, data) => `done:${type}:${data.val}`);
+    const sqliteQueue = (queue as any).sqliteQueue;
+    const now = Date.now();
+    sqliteQueue.db.prepare(`
+      INSERT INTO biophysical_jobs (id, type, data, status, created_at)
+      VALUES (?, 'foldx', ?, 'queued', ?)
+    `).run("corrupt-job-1", "{not valid json", now - 10);
+
+    const healthyId = await queue.pushJob("foldx", { val: 42 });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const corruptStatus = await queue.getJobStatus("corrupt-job-1");
+    expect(corruptStatus).toMatchObject({ status: "failed", error: "Corrupt job payload JSON" });
+
+    const healthyStatus = await queue.getJobStatus(healthyId);
+    expect(healthyStatus).toMatchObject({ status: "completed", result: "done:foldx:42" });
+  });
 });

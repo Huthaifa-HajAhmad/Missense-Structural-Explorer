@@ -83,7 +83,8 @@ _PROTONATION_ALIASES = {
 
 def canonical_residue_name(name: str) -> str:
     """The standard three-letter name for a residue name PDB2PQR may have rewritten for its protonation state."""
-    return _PROTONATION_ALIASES.get(name.upper(), name)
+    normalized = name.strip().upper()
+    return _PROTONATION_ALIASES.get(normalized, normalized)
 
 
 @functools.lru_cache(maxsize=1)
@@ -156,7 +157,7 @@ def _read_chain_atoms(pdb_content: str, chain: str | None):
         element = line[76:78].strip() if len(line) >= 78 and line[76:78].strip() else name.lstrip("0123456789")[0]
         if element.upper() == "H":
             continue
-        atoms.append({"line": line, "chain": (line[21].strip() or "A").upper(), "res_seq": int(line[22:26]), "res_name": line[17:20].strip().upper(), "name": name})
+        atoms.append({"line": line, "chain": (line[21].strip() or "A").upper(), "res_seq": int(line[22:26]), "res_name": canonical_residue_name(line[17:20].strip().upper()), "name": name})
     return atoms
 
 
@@ -313,7 +314,9 @@ def featurize_pdb_for_stability_oracle(
 
     xyz, res_seqs, atom_chains = prepared["xyz"], prepared["res_seqs"], prepared["chains"]
     in_variant_residue = (res_seqs == position) & (atom_chains == target_chain)
-    alpha = next(i for i in np.flatnonzero(in_variant_residue) if prepared["names"][i] == "CA")
+    alpha = next((i for i in np.flatnonzero(in_variant_residue) if prepared["names"][i] == "CA"), None)
+    if alpha is None:
+        raise ValueError(f"Alpha carbon (CA) for position {position} on chain {target_chain} not found after hydrogen preparation.")
     distance = np.linalg.norm(xyz - xyz[alpha], axis=1)
     keep = [i for i in np.argsort(distance, kind="stable") if distance[i] < ENVIRONMENT_RADIUS_A and not in_variant_residue[i]][:max_atoms]
 

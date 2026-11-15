@@ -175,5 +175,24 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
         global.fetch = origFetch;
       }
     });
+
+    it("withholds non-GRCh38 coordinates and falls back to protein query while accepting GRCh38 coordinates", async () => {
+      const origFetch = global.fetch;
+      const seenBodies: any[] = [];
+      global.fetch = vi.fn().mockImplementation(async (_url: any, init: any) => {
+        seenBodies.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({
+          tabs: { all_transcripts: { rows: [{ BayesDel_noAF_score: "0.42" }] } }
+        }), { status: 200 });
+      });
+      try {
+        await queryDbnsfpOrg("BRAF", "V600E", "7-140453136-A-T", "GRCh37");
+        await queryDbnsfpOrg("BRAF", "V600E", "7-140753336-A-T", "GRCh38");
+        expect(seenBodies[0].variants).toEqual(["BRAF:p.Val600Glu"]);
+        expect(seenBodies[1].variants).toEqual(["7-140753336-A-T"]);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
   });
 });

@@ -110,3 +110,82 @@ export function sendError(res: express.Response, status: number, code: string, m
     }
   });
 }
+
+const BLOCKED_CUSTOM_HOST_REGEX = /^(169\.254\.\d+\.\d+|metadata\.google\.internal|metadata|instance-data|0\.0\.0\.0|localhost|::1|\[::1\]|::|\[::\])$/i;
+
+function parseIpv4Octets(host: string): [number, number, number, number] | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return null;
+  const o = m.slice(1).map(Number);
+  return o.every(n => n <= 255) ? [o[0], o[1], o[2], o[3]] : null;
+}
+
+function parseIpv6Groups(host: string): number[] | null {
+  if (!host.includes(":")) return null;
+  const halves = host.split("::");
+  if (halves.length > 2) return null;
+  const parse = (s: string) => (s === "" ? [] : s.split(":").map(g => (/^[0-9a-f]{1,4}$/i.test(g) ? parseInt(g, 16) : NaN)));
+  const head = parse(halves[0]);
+  const tail = halves.length === 2 ? parse(halves[1]) : [];
+  if ([...head, ...tail].some(Number.isNaN)) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 1) return null;
+  return [...head, ...Array<number>(fill).fill(0), ...tail];
+}
+
+function parseMappedIpv4Octets(host: string): [number, number, number, number] | null {
+  const dotted = /^(?:0{0,4}:){0,5}:?ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
+  if (dotted) return parseIpv4Octets(dotted[1]);
+  const g = parseIpv6Groups(host);
+  if (!g || g.slice(0, 5).some(x => x !== 0) || g[5] !== 0xffff) return null;
+  return [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255];
+}
+
+/**
+ * Validates a caller-supplied custom endpoint URL against SSRF-prone schemes and IP ranges
+ * (non-HTTP(S), cloud metadata 169.254.0.0/16, loopback, IPv6 link-local fe80::/10, ULA fc00::/7,
+ * and plaintext HTTP / RFC1918 in production) while preserving hostname endpoints in non-prod.
+ */
+export function validateSafeCustomEndpointUrl(rawUrl: string): { valid: true; url: string } | { valid: false; reason: string } {
+  const trimmed = rawUrl.trim();
+  if (!trimmed || trimmed.length > 512) {
+    return { valid: false, reason: "Invalid custom endpoint URL length" };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { valid: false, reason: "Only http(s) URLs are allowed" };
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    const cleanHost = hostname.replace(/^\[|\]$/g, "");
+    const isProd = process.env.NODE_ENV === "production";
+
+    const v4 = parseIpv4Octets(cleanHost) ?? parseMappedIpv4Octets(cleanHost);
+    const v6 = v4 ? null : parseIpv6Groups(cleanHost);
+    if (v6) {
+      const isLoopbackOrUnspecified = v6.slice(0, 7).every(g => g === 0) && (v6[7] === 0 || v6[7] === 1);
+      if (isLoopbackOrUnspecified || (v6[0] & 0xffc0) === 0xfe80 || (v6[0] & 0xfe00) === 0xfc00) {
+        return { valid: false, reason: "Loopback, link-local, or unique-local IPv6 host is not permitted" };
+      }
+    }
+    if (v4) {
+      const [a, b] = v4;
+      if (a === 127 || a === 0 || (a === 169 && b === 254)) {
+        return { valid: false, reason: "Loopback, unspecified, or link-local metadata IP host is not permitted" };
+      }
+      if (isProd && (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127))) {
+        return { valid: false, reason: "Private network IP host is not permitted in production" };
+      }
+    }
+    if (BLOCKED_CUSTOM_HOST_REGEX.test(hostname)) {
+      return { valid: false, reason: "Metadata or loopback hostname is not permitted" };
+    }
+    if (isProd && parsed.protocol !== "https:") {
+      return { valid: false, reason: "HTTPS is required for custom endpoints in production" };
+    }
+    return { valid: true, url: parsed.toString().replace(/\/+$/, "") };
+  } catch {
+    return { valid: false, reason: "Malformed custom endpoint URL" };
+  }
+}

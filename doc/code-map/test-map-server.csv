@@ -121,7 +121,7 @@ server/services/external-api/lmShiftWindow.ts,server,server/services/external-ap
 server/services/external-api/pdbe-entries.ts,server,
 server/services/external-api/pdbe-interfaces.ts,server,server/services/external-api/pdbe-interfaces.test.ts;server/services/external-api/ppi.test.ts;server/services/structure/multimer.test.ts
 server/services/external-api/ppi.ts,server,server/services/external-api/ppi.test.ts
-server/services/external-api/protvar.ts,server,server/services/external-api/protvar-mapping.test.ts;server/services/external-api/protvar.test.ts
+server/services/external-api/protvar.ts,server,server/routes/biophysics.test.ts;server/services/external-api/protvar-mapping.test.ts;server/services/external-api/protvar.test.ts
 server/services/external-api/remoteFailure.ts,server,server/services/external-api/esm2.test.ts
 server/services/external-api/saprot.ts,server,server/services/external-api/saprot.test.ts
 server/services/external-api/spliceai_broad.ts,server,server/routes/variant/spliceai.test.ts;server/services/external-api/spliceai_broad.live.test.ts;server/services/external-api/spliceai_broad.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/prediction/predictors.test.ts

@@ -13,6 +13,7 @@ import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
 import { StructureSelectionCard } from "./StructureSelectionCard";
 import { StructureFoldTrack } from "./StructureFoldTrack";
 import { StructureExperimentalEntries } from "./StructureExperimentalEntries";
+import { safeExternalHref } from "../../shared/externalLink";
 
 function Step({ step }: { step: TraceStep }) {
   return (
@@ -41,7 +42,10 @@ function IdentityRow({ role, identity, withGuide }: { role: string; identity: Co
     <div className="s3d-canvas-card__row">
       <span className="s3d-canvas-card__role">{role}</span>
       <span className="s3d-canvas-card__name">
-        {identity.href ? <a href={identity.href} target="_blank" rel="noreferrer">{identity.name}</a> : identity.name}
+        {(() => {
+          const href = safeExternalHref(identity.href);
+          return href ? <a href={href} target="_blank" rel="noopener noreferrer">{identity.name}<span className="sr-only"> (opens in a new tab)</span></a> : identity.name;
+        })()}
         <span className="s3d-canvas-card__sub">{[identity.kind, identity.detail].filter(Boolean).join(" · ")}</span>
         <span className="s3d-canvas-card__sub">
           {identity.channel.note}
@@ -239,9 +243,12 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
         <details className="s3d-disclosure">
           <summary>Sources · {model.sources.length}</summary>
           <ul className="s3d-refs" data-testid="structure-sources">
-            {model.sources.map(source => (
-              <li key={source.doi}>{source.citation}<br /><a href={`https://doi.org/${source.doi}`} target="_blank" rel="noreferrer">doi:{source.doi}</a></li>
-            ))}
+            {model.sources.map(source => {
+              const doiHref = safeExternalHref(`https://doi.org/${encodeURIComponent(source.doi).replace(/%2F/gi, "/")}`);
+              return (
+                <li key={source.doi}>{source.citation}<br />{doiHref ? <a href={doiHref} target="_blank" rel="noopener noreferrer">doi:{source.doi}<span className="sr-only"> (opens in a new tab)</span></a> : `doi:${source.doi}`}</li>
+              );
+            })}
           </ul>
         </details>
       </section>

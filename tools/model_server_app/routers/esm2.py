@@ -17,10 +17,12 @@ from tools.model_server_app.utils import (
 from tools.model_server_app import models
 from tools.model_server_app.routers.vesm import RemoteFailure, VesmRequest, predict_vesm_sync, remote_failures
 from tools.model_server_app.engine_resilience import (
+    GateDeadlineExceeded,
     InvalidProviderResponse,
     SingleFlightCache,
     account_level_refusal,
     classify_remote_failure,
+    request_deadline,
     run_with_deadline,
     to_full_coordinates,
 )
@@ -327,6 +329,8 @@ def predict_esm2_3b_sync(req: Esm2Request, deadline: float | None = None):
             result["remoteEngineNote"] = remote_engine_note
             result["remoteFailure"] = remote_failure
             return result
+        except (HTTPException, GateDeadlineExceeded):
+            raise
         except Exception as e:
             local_error = f"{local_model.split('/')[-1]}: {type(e).__name__}: {e}"
             print(f"[Model Server] ESM-2 local run failed: {local_error}. Falling back to VESM-150M.")
@@ -362,5 +366,8 @@ def _get_inference_semaphore() -> asyncio.Semaphore:
 async def predict_esm2_3b(req: Esm2Request):
     # Counted from arrival, so time spent queued behind another ESM-2 request comes out of the budget.
     deadline = time.monotonic() + EMBEDDING_BUDGET_S
+    caller_deadline = request_deadline.get()
+    if caller_deadline is not None:
+        deadline = min(deadline, caller_deadline)
     async with _get_inference_semaphore():
         return await asyncio.to_thread(predict_esm2_3b_sync, req, deadline)

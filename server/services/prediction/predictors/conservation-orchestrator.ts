@@ -217,6 +217,8 @@ export async function fetchConservationData(
        * overlaid on the merged result there, so every provider path benefits from one request.
        */
       const enrichCoordinateHere = !options?.coordinateEnrichmentByCaller;
+      const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
+        assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
       const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
       const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
       const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
@@ -270,11 +272,9 @@ export async function fetchConservationData(
              * the progressive call site would leave this one free to score the wrong locus the
              * moment anyone passes a coordinate in.
              */
-            const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
-              assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
-
-            const coordinateUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("gpn-star");
-            const popEVEPromise = coordinateUsable
+            const gpnUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("gpn-star");
+            const popEVEUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("popEVE");
+            const popEVEPromise = popEVEUsable
               ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
@@ -282,7 +282,7 @@ export async function fetchConservationData(
               ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
               : Promise.resolve(null);
 
-            const gpnTabixPromise = coordinateUsable
+            const gpnTabixPromise = gpnUsable
               ? fetchGpnStarByCoordinate(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
@@ -367,7 +367,8 @@ export async function fetchConservationData(
 
       // 2. Try Genos Web Query service (Academic Tier 2 for SpliceAI, popEVE, BayesDel, ClinPred)
       try {
-        const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, gnomadVariantId);
+        const genosCoord = usableBy("genos") ? gnomadVariantId : null;
+        const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, genosCoord);
         if (activeGenosRec) {
           const consurfPromise = (pdbId && chainId && resolvedPos !== null)
             ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
@@ -432,7 +433,8 @@ export async function fetchConservationData(
 
       // 3. Fast Tier 1 Baseline via Public query.dbnsfp.org (~900ms)
       try {
-        const pubDbnsfp = await queryDbnsfpOrg(gene, variant, gnomadVariantId);
+        const dbnsfpOrgCoord = usableBy("dbnsfpOrg") ? gnomadVariantId : null;
+        const pubDbnsfp = await queryDbnsfpOrg(gene, variant, dbnsfpOrgCoord);
         if (pubDbnsfp && (pubDbnsfp.revel !== null || pubDbnsfp.gerp !== null || pubDbnsfp.phylop !== null)) {
           const consurfPromise = (pdbId && chainId && resolvedPos !== null)
             ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
@@ -492,11 +494,11 @@ export async function fetchConservationData(
           timeout: 15000
         });
 
-        const consurfPromise = (pdbId && chainId && pos)
-          ? fetchRealConsurfData(pdbId, chainId, pos)
+        const consurfPromise = (pdbId && chainId && resolvedPos !== null)
+          ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
           : Promise.resolve(null);
 
-        const popEVEPromise = gnomadVariantId && enrichCoordinateHere
+        const popEVEPromise = gnomadVariantId && enrichCoordinateHere && usableBy("popEVE")
           ? (async () => {
               const parsed = parseGenomicCoordinateString(gnomadVariantId);
               if (parsed) {

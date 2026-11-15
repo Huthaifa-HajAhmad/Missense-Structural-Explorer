@@ -54,7 +54,7 @@ export interface StructuralFoldingSink {
   setFoldxMetrics?: (metrics: StructuralMetrics | null) => void;
   setIsEsmFolding?: (loading: boolean) => void;
   setEsmFoldingError?: (error: string | null) => void;
-  setActive3dModelTab?: (tab: "alphafold2" | "esm3") => void;
+  setActive3dModelTab?: (tab: "alphafold2" | "esmfold2" | "esm3") => void;
   resetEsmFoldState?: () => void;
   /** Which engine folded each structure; null when the server did not say. */
   setEsmFoldEngines?: (engines: DeNovoEngines) => void;

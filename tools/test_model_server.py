@@ -715,6 +715,53 @@ class TestRefusedPassAnswersBusy(unittest.TestCase):
         self.assertTrue(body["retryable"])
         self.assertIn("queued", body["message"])
 
+    def test_saprot_re_raises_gate_deadline_exceeded_without_vesm_fallback(self):
+        from unittest import mock
+        from model_server_app.engine_resilience import GateDeadlineExceeded
+        from model_server_app.routers import saprot as saprot_router
+
+        req = saprot_router.SaprotRequest(sequence="MKTAY", position=5, wt="Y", mut="W", engine="saprot-35m")
+        with mock.patch.object(
+            saprot_router.models, "get_saprot_model", side_effect=GateDeadlineExceeded("gate deadline exceeded")
+        ), mock.patch.object(saprot_router, "predict_vesm_sync") as vesm_mock:
+            with self.assertRaises(GateDeadlineExceeded):
+                saprot_router.predict_saprot_sync(req)
+        vesm_mock.assert_not_called()
+
+    def test_thermompnn_disambiguates_heteromer_chains_by_wildtype_residue(self):
+        from model_server_app.routers.thermompnn import (
+            parse_mutation_code,
+            select_thermompnn_target_chain,
+            parse_pdb_chains_for_thermompnn,
+            predict_thermompnn_sync,
+            ThermoMpnnRequest,
+        )
+
+        # Unchained standard notation must leave chain=None so heteromer disambiguation runs.
+        wt, chain, pos, mut = parse_mutation_code("R3W")
+        self.assertEqual((wt, chain, pos, mut), ("R", None, 3, "W"))
+
+        chains = {
+            "A": {"seq": ["MAAAA"], "resn_index": {"3": 2}},
+            "B": {"seq": ["MKRST"], "resn_index": {"3": 2}},
+        }
+        chosen = select_thermompnn_target_chain(chains, ["A", "B"], chain, pos, wt=wt)
+        self.assertEqual(chosen, "B")
+
+        # Missing CA atom must return 422 rather than sending NaN coordinates to the model.
+        pdb_missing_ca = (
+            "ATOM      1  N   ALA A   1      10.000  10.000  10.000  1.00 50.00           N\n"
+            "ATOM      2  C   ALA A   1      11.000  10.000  10.000  1.00 50.00           C\n"
+            "ATOM      3  O   ALA A   1      12.000  10.000  10.000  1.00 50.00           O\n"
+            "END\n"
+        )
+        req = ThermoMpnnRequest(pdb=pdb_missing_ca, mutation="A1G")
+        with patch("model_server_app.routers.thermompnn.get_official_model", return_value=Mock()):
+            with self.assertRaises(HTTPException) as ctx:
+                predict_thermompnn_sync(req)
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("CA", ctx.exception.detail)
+
 
 if __name__ == "__main__":
     unittest.main()

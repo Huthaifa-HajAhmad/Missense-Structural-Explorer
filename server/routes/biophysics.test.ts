@@ -839,6 +839,72 @@ END`;
       cacheSpy.mockRestore();
     });
 
+    it("does not mutate the live cached record or persist transient companion outages during cache-hit backfills", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      if (!route?.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const protvarModule = await import("../services/external-api/protvar.ts");
+      const biophysicsModule = await import("../services/biophysics.ts");
+
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("1");
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("2");
+      const liveCachedEntry: any = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          rasp: null,
+          raspReason: undefined,
+          thermompnn: 0.8,
+          stabilityoracle: 0.4,
+          dynamut2: -0.5,
+          ddmut: -0.4
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(liveCachedEntry);
+      const writeSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
+      const raspSpy = vi.spyOn(biophysicsModule, "runRaspLocal").mockResolvedValue({
+        score: null,
+        reason: biophysicsModule.RASP_STORE_UNAVAILABLE_REASON
+      });
+      const protvarSpy = vi.spyOn(protvarModule, "fetchProtVarFoldx").mockResolvedValue({
+        status: "found",
+        ddg: 0.9,
+        plddt: 92,
+        model: "AF-Q9H116-F1",
+      } as any);
+
+      let body: any = null;
+      await handler({
+        body: { wtPdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", mutation: "SA489C", uniprotId: "Q9H116" },
+        headers: {}
+      } as any, { status() { return this; }, json(b: any) { body = b; return this; } } as any, () => {});
+
+      expect(body.energetics.raspError).toBe(biophysicsModule.RASP_STORE_UNAVAILABLE_REASON);
+      expect(body.energetics.protvar).toBe(0.9);
+      // Live in-memory cache object must remain untouched
+      expect(liveCachedEntry.energetics.raspError).toBeUndefined();
+      expect(liveCachedEntry.energetics.protvar).toBeUndefined();
+      // Persistent cache backfill for ProtVar must not carry the transient RaSP outage
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const persistedArg = writeSpy.mock.calls[0][1] as any;
+      expect(persistedArg.energetics.protvar).toBe(0.9);
+      expect(persistedArg.energetics.raspError).toBeUndefined();
+      expect(persistedArg.energetics.raspStatus).toBeUndefined();
+
+      protvarSpy.mockRestore();
+      raspSpy.mockRestore();
+      writeSpy.mockRestore();
+      cacheSpy.mockRestore();
+      ddmutSpy.mockRestore();
+      d2Spy.mockRestore();
+    });
+
     it("should gracefully handle external submission failures without crashing", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       expect(route).toBeDefined();

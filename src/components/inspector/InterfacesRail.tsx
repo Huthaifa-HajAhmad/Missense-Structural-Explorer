@@ -17,6 +17,7 @@ import {
   type IptmBand,
 } from "../../shared/interfacesEvidence";
 import { useInterfacesLive } from "../evidence/interfaces/interfacesLive";
+import { safeExternalHref } from "../../shared/externalLink";
 
 /**
  * InterfacesRail — the Evidence Lineage inspector for the Interfaces & PPI tab.
@@ -236,15 +237,24 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
           </dl>
         )}
         <ul className="ifc-refs">
-          {INTERFACES_SOURCES.map(s => (
-            <li key={s.citation}>
-              {s.citation}{" "}
-              <a href={s.doi ? `https://doi.org/${s.doi}` : s.url} target="_blank" rel="noopener noreferrer">
-                {s.doi ? `doi:${s.doi}` : "link"}
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-            </li>
-          ))}
+          {INTERFACES_SOURCES.map(s => {
+            const rawUrl = s.doi ? `https://doi.org/${encodeURIComponent(s.doi).replace(/%2F/gi, "/")}` : s.url;
+            const href = safeExternalHref(rawUrl);
+            const label = s.doi ? `doi:${s.doi}` : "link";
+            return (
+              <li key={s.citation}>
+                {s.citation}{" "}
+                {href ? (
+                  <a href={href} target="_blank" rel="noopener noreferrer">
+                    {label}
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                ) : (
+                  label
+                )}
+              </li>
+            );
+          })}
         </ul>
       </section>
     </div>

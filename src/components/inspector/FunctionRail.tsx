@@ -11,6 +11,7 @@ import { hotspotInputFrom } from "../../shared/hotspotInput";
 import { hotspotsSlot } from "../../shared/evidenceKeys";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import type { ContextLoad } from "../../stores/slices/evidenceContextSlice";
+import { safeExternalHref } from "../../shared/externalLink";
 import { useEvidenceWorkspace } from "../evidence/EvidenceWorkspace";
 
 /**
@@ -96,7 +97,13 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
           <dl className="fnd-kv">
             <div><dt>Variants</dt><dd>{hotspots.context.clinvarSource}{hotspots.context.transcript ? `, ${hotspots.context.transcript}` : ""}</dd></div>
             <div><dt>Numbering</dt><dd>{hotspots.context.numbering.status === "verified" ? `Verified: ${hotspots.context.numbering.checked} HGVSp reference residues match the model` : hotspots.context.numbering.status === "mismatch" ? `${hotspots.context.numbering.mismatches} of ${hotspots.context.numbering.checked} reference residues differ from the model` : "Not checked (no model)"}</dd></div>
-            {hotspots.context.spatial.model && <div><dt>Model</dt><dd className="fnd-mono"><a href={hotspots.context.spatial.model.url} target="_blank" rel="noopener noreferrer">{hotspots.context.spatial.model.entryId}{hotspots.context.spatial.model.version ? ` ${hotspots.context.spatial.model.version}` : ""}<span className="sr-only"> (opens in a new tab)</span></a></dd></div>}
+            {hotspots.context.spatial.model && (() => {
+              const modelHref = safeExternalHref(hotspots.context.spatial.model.url);
+              const modelLabel = `${hotspots.context.spatial.model.entryId}${hotspots.context.spatial.model.version ? ` ${hotspots.context.spatial.model.version}` : ""}`;
+              return (
+                <div><dt>Model</dt><dd className="fnd-mono">{modelHref ? <a href={modelHref} target="_blank" rel="noopener noreferrer">{modelLabel}<span className="sr-only"> (opens in a new tab)</span></a> : modelLabel}</dd></div>
+              );
+            })()}
             {hotspots.context.cspec.retrievedAt && <div><dt>ClinGen CSpec</dt><dd>Read {hotspots.context.cspec.retrievedAt.slice(0, 10)}</dd></div>}
             <div><dt>Published PER</dt><dd>Pérez-Palma et al. 2020; data of 2019 (dlal-group/PERs)</dd></div>
             <div><dt>3D benchmark</dt><dd>doc/HOTSPOT_3D_DECISION.md (pre-registered)</dd></div>
@@ -248,14 +255,17 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
             <div key={s.label}>
               <dt>{s.label}</dt>
               <dd className="fnd-mono">
-                {s.url ? (
-                  <a href={s.url} target="_blank" rel="noopener noreferrer">
-                    {s.value}
-                    <span className="sr-only"> (opens in a new tab)</span>
-                  </a>
-                ) : (
-                  s.value
-                )}
+                {(() => {
+                  const href = safeExternalHref(s.url);
+                  return href ? (
+                    <a href={href} target="_blank" rel="noopener noreferrer">
+                      {s.value}
+                      <span className="sr-only"> (opens in a new tab)</span>
+                    </a>
+                  ) : (
+                    s.value
+                  );
+                })()}
               </dd>
             </div>
           ))}

@@ -617,25 +617,19 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const handleWindowError = (
-      message: string | Event,
-      source?: string,
-      lineno?: number,
-      colno?: number,
-      error?: Error
-    ) => {
+    const handleWindowError = (event: ErrorEvent) => {
       if (!isInternalCapturingRef.current) {
         pushErrorEntry({
           level: "error",
           source: "runtime",
           impact: "fatal",
-          message: typeof message === "string" ? message : "Runtime Exception",
-          detail: error?.stack,
-          meta: { file: source, line: lineno, col: colno },
+          message: event.message || "Runtime Exception",
+          detail: event.error instanceof Error ? event.error.stack : undefined,
+          meta: { file: event.filename, line: event.lineno, col: event.colno },
         });
       }
     };
-    window.onerror = handleWindowError;
+    window.addEventListener("error", handleWindowError);
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       if (!isInternalCapturingRef.current) {
@@ -787,7 +781,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       console.error = origError;
       console.warn = origWarn;
       window.fetch = origFetch;
-      window.onerror = null;
+      window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
       window.removeEventListener("webglcontextlost", handleContextLost, true);
     };

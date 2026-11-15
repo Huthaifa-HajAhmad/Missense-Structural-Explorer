@@ -86,6 +86,18 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       expect(json.cacheDiagnostics).toBeDefined();
     });
 
+    it("GET /api/v1/docs and GET /api/v1/openapi.json should bypass authCheck", async () => {
+      const docsRes = await fetch(`${baseUrl}/api/v1/docs`);
+      expect(docsRes.status).toBe(200);
+      const html = await docsRes.text();
+      expect(html.toLowerCase()).toContain("<!doctype html>");
+
+      const specRes = await fetch(`${baseUrl}/api/v1/openapi.json`);
+      expect(specRes.status).toBe(200);
+      const spec = await specRes.json();
+      expect(spec.openapi).toBe("3.1.0");
+    });
+
     it("POST /api/v1/session/keys should bypass authCheck and reach handler (returning 400 for empty body)", async () => {
       const res = await fetch(`${baseUrl}/api/v1/session/keys`, {
         method: "POST",
@@ -127,6 +139,14 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       expect(typeof json.totalEstimatedBytes).toBe("number");
       expect(typeof json.budgetWarning).toBe("boolean");
       expect(json.caches).toBeDefined();
+    });
+
+    it("GET /api/v1/remote-submissions/:token and /remote-submissions/:token should not require auth", async () => {
+      const missingUuid = "00000000-0000-4000-8000-000000000000";
+      const v1Res = await fetch(`${baseUrl}/api/v1/remote-submissions/${missingUuid}`);
+      expect(v1Res.status).toBe(404);
+      const legacyRes = await fetch(`${baseUrl}/remote-submissions/${missingUuid}`);
+      expect(legacyRes.status).toBe(404);
     });
   });
 
@@ -189,6 +209,11 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/health");
       expect(PUBLIC_ENDPOINTS).toContain("/diagnostics");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/diagnostics");
+      expect(PUBLIC_ENDPOINTS).toContain("/docs");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/docs");
+      expect(PUBLIC_ENDPOINTS).toContain("/openapi.json");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/openapi.json");
+      expect(PUBLIC_ENDPOINTS).not.toContain("/api/docs");
       expect(PUBLIC_ENDPOINTS).toContain("/debug/cache-stats");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/debug/cache-stats");
       expect(PUBLIC_ENDPOINTS).toContain("/sidecar-health");

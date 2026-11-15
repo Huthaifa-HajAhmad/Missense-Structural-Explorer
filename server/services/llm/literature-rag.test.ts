@@ -430,4 +430,51 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
       }
     });
   });
+
+  describe("retrieveRelevantLiterature stale cache refresh", () => {
+    it("re-syncs stale gene cache even when older papers already exist", async () => {
+      const originalFetch = global.fetch;
+      let tNow = 1_700_000_000_000;
+      const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => tNow);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          hitCount: 1,
+          resultList: {
+            result: [{
+              id: "9001",
+              pmid: "9001",
+              source: "MED",
+              title: "STALEREFRESH pathogenic mechanism",
+              abstractText: "Pathogenic STALEREFRESH study.",
+              authorString: "Doe J",
+              journalTitle: "J Biol",
+              pubYear: "2024"
+            }]
+          }
+        })
+      } as unknown as Response);
+      global.fetch = fetchMock;
+      try {
+        // First call syncs 1 paper when cache is empty.
+        const first = await retrieveRelevantLiterature("STALEREFRESH", "STALEREFRESH pathogenic", undefined, undefined, 5);
+        expect(first.length).toBeGreaterThanOrEqual(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // Within TTL, cached papers are returned without refetching.
+        const fresh = await retrieveRelevantLiterature("STALEREFRESH", "STALEREFRESH pathogenic", undefined, undefined, 5);
+        expect(fresh.length).toBeGreaterThanOrEqual(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // Past the 7-day TTL, retrieveRelevantLiterature must re-sync even though count > 0.
+        tNow += 8 * 24 * 60 * 60 * 1000;
+        const refreshed = await retrieveRelevantLiterature("STALEREFRESH", "STALEREFRESH pathogenic", undefined, undefined, 5);
+        expect(refreshed.length).toBeGreaterThanOrEqual(1);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        nowSpy.mockRestore();
+        global.fetch = originalFetch;
+      }
+    });
+  });
 });

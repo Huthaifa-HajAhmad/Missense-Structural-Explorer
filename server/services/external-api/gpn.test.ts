@@ -72,6 +72,37 @@ describe("GPN-Star Foundation Model Service", () => {
     expect(res.score).toBe(-1.75);
   });
 
+  it("should strip the server HF_TOKEN and disable redirects when fetchGpnStarScore calls a custom endpoint", async () => {
+    process.env.HF_TOKEN = "hf_server_secret";
+    process.env.GPN_API_URL = "https://gpn.hf.space/score";
+    let capturedHeaders: Record<string, string> = {};
+    let capturedRedirect: RequestRedirect | undefined;
+
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      capturedHeaders = (init?.headers as Record<string, string>) || {};
+      capturedRedirect = init?.redirect;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ delta_llr: -1.25 })
+      };
+    });
+
+    const res = await fetchGpnStarScore(
+      "MKWVTFISLLFLFSSAYS",
+      2,
+      "K",
+      "R",
+      "hf_server_secret",
+      undefined,
+      "https://evil-proxy.example/gpn"
+    );
+
+    expect(res.status).toBe("live");
+    expect(capturedHeaders["Authorization"]).toBeUndefined();
+    expect(capturedRedirect).toBe("manual");
+  });
+
   it("should parse score from Tabix query correctly", async () => {
     const mockTabix = {
       getLines: vi.fn(async (_chrom: string, _start: number, _end: number, opts: any) => {
@@ -153,5 +184,106 @@ describe("resolveGpnAccess — who may be called with the server's HF token", ()
   it("sends nothing when no token is configured anywhere", () => {
     delete process.env.HF_TOKEN;
     expect(resolveGpnAccess(null, null).token).toBeNull();
+  });
+
+  it("blocks unsafe custom endpoints (SSRF metadata, file scheme, IPv6 link-local) without fetching", async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    for (const unsafeUrl of [
+      "http://169.254.169.254/latest/meta-data/",
+      "file:///etc/passwd",
+      "http://[fe80::1]/gpn",
+      "http://localhost:8000/gpn",
+      "http://127.0.0.1:8000/gpn"
+    ]) {
+      clearGpnCache();
+      const seqRes = await fetchGpnStarScore("MKWVTFISLLFLFSSAYS", 2, "K", "R", null, undefined, unsafeUrl);
+      expect(seqRes.status).toBe("unavailable");
+      expect(seqRes.score).toBeNull();
+      expect(seqRes.message).toMatch(/Custom GPN-Star endpoint rejected/);
+
+      clearGpnCache();
+      const coordRes = await fetchGpnStarByCoordinate("chr12", 103234218, "C", "T", undefined, unsafeUrl);
+      expect(coordRes.status).toBe("unavailable");
+      expect(coordRes.score).toBeNull();
+      expect(coordRes.message).toMatch(/Custom GPN-Star endpoint rejected/);
+    }
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks HTTP 302 redirects from custom endpoints via governedFetch rejectRedirects", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 302,
+      headers: new Headers({ location: "http://169.254.169.254/latest/meta-data/" }),
+      json: async () => ({})
+    });
+    global.fetch = fetchSpy as any;
+
+    const seqRes = await fetchGpnStarScore(
+      "MKWVTFISLLFLFSSAYS",
+      2,
+      "K",
+      "R",
+      null,
+      undefined,
+      "https://lab-proxy.example/gpn"
+    );
+    expect(seqRes.status).toBe("unavailable");
+    expect(seqRes.score).toBeNull();
+    expect(seqRes.message).toBe("Custom GPN-Star endpoint blocked: redirects are disallowed");
+
+    clearGpnCache();
+    const coordRes = await fetchGpnStarByCoordinate(
+      "chr12",
+      103234218,
+      "C",
+      "T",
+      undefined,
+      "https://lab-proxy.example/gpn"
+    );
+    expect(coordRes.status).toBe("unavailable");
+    expect(coordRes.score).toBeNull();
+    expect(coordRes.message).toBe("Custom GPN-Star endpoint blocked: redirects are disallowed");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("https://lab-proxy.example/gpn"),
+      expect.objectContaining({ redirect: "manual" })
+    );
+  });
+
+  it("allows operator-configured local GPN_API_URL when passed back as endpoint", async () => {
+    process.env.GPN_API_URL = "http://127.0.0.1:8000/predict/gpn";
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ delta_llr: -1.25 })
+    });
+    global.fetch = fetchSpy as any;
+
+    const seqRes = await fetchGpnStarScore(
+      "MKWVTFISLLFLFSSAYS",
+      2,
+      "K",
+      "R",
+      null,
+      undefined,
+      process.env.GPN_API_URL
+    );
+    expect(seqRes.status).toBe("live");
+    expect(seqRes.score).toBe(-1.25);
+
+    clearGpnCache();
+    const coordRes = await fetchGpnStarByCoordinate(
+      "chr12",
+      103234218,
+      "C",
+      "T",
+      undefined,
+      process.env.GPN_API_URL
+    );
+    expect(coordRes.status).toBe("live");
+    expect(coordRes.score).toBe(-1.25);
   });
 });

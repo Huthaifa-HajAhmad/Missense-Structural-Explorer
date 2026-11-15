@@ -91,6 +91,7 @@
 
   /* 2. Color adjustment and light paper theme flattening */
   :root,
+  .dark,
   [data-theme="dark"],
   body.dark,
   body {
@@ -119,10 +120,14 @@
     --cs-accent-wash: #F8EEF0 !important;
     --cs-border: #C8CDD6 !important;
     --cs-border-subtle: #DBDFE5 !important;
+    --cs-border-strong: #9CA3AF !important;
     --cs-text-primary: #111827 !important;
     --cs-text-secondary: #374151 !important;
     --cs-text-muted: #6B7280 !important;
     --cs-accent-clay: #92400E !important;
+    --cs-accent: #92400E !important;
+    --cs-accent-solid: #7C2D12 !important;
+    --cs-accent-mag-soft: #FDF2F9 !important;
     --cs-text-accent: #92400E !important;
 
     /* Semantic verdict tokens, flattened to their light values.

@@ -602,30 +602,45 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 (joinedJobIsPrewarm ? " (speculative pre-warm; this request owns the remote engines)" : "")
             );
 
+            let claimedPrewarm = false;
             if (joinedJobIsPrewarm) {
               /**
                * The pre-warm was submitted with no reader context, so its record carries no
-               * structure provenance. This request's structure IS the run's structure — the cache
-               * keys matched — so it supplies the provenance the reader's export cites. Written
-               * through `mutateJobData` so it cannot race the worker's own phase writes.
+               * structure provenance. Atomically flip `prewarm: false` inside `mutateJobData` so at
+               * most one concurrent reader claims ownership of remote-engine submissions and writes
+               * provenance/remoteJobs; any competing reader picks up recorded remoteJobs instead.
                */
-              await queue.mutateJobData(submission.queueJobId, (data: any) =>
-                data ? { ...data, structureProvenance } : data
-              );
+              await queue.mutateJobData(submission.queueJobId, (data: any) => {
+                if (!data) return data;
+                if (data.prewarm === true) {
+                  claimedPrewarm = true;
+                  return { ...data, prewarm: false, structureProvenance };
+                }
+                if (data.remoteJobs) {
+                  dynamut2JobId = data.remoteJobs.dynamut2JobId ?? dynamut2JobId;
+                  dynamut2Status = data.remoteJobs.dynamut2Status ?? dynamut2Status;
+                  ddmutJobId = data.remoteJobs.ddmutJobId ?? ddmutJobId;
+                  ddmutStatus = data.remoteJobs.ddmutStatus ?? ddmutStatus;
+                  thermompnnJobId = data.remoteJobs.thermompnnJobId ?? thermompnnJobId;
+                  thermompnnStatus = data.remoteJobs.thermompnnStatus ?? thermompnnStatus;
+                  thermompnnError = data.remoteJobs.thermompnnError ?? thermompnnError;
+                }
+                return data;
+              });
+              joinedJobIsPrewarm = claimedPrewarm;
             }
           }
         }
 
         /**
-         * A pre-warm job carries no remote-engine submissions, so a request that joins one must make
-         * them itself — and must be allowed to write them to the job record, which the
-         * `isExistingActiveJob` guard otherwise forbids (it exists to stop two READER requests from
-         * fighting over one record; the pre-warm is not a competing writer).
+         * A pre-warm job carries no remote-engine submissions, so the single reader that claims it
+         * makes them itself — and is allowed to write them to the job record, which the
+         * `isExistingActiveJob` guard otherwise forbids for competing readers.
          */
         const ownsRemoteSubmissions = !isExistingActiveJob || joinedJobIsPrewarm;
 
         async function updateQueueJobRemoteData(updates: any) {
-          if (!queueJobId || (isExistingActiveJob && !joinedJobIsPrewarm)) return;
+          if (!queueJobId || !ownsRemoteSubmissions) return;
           try {
             const queue = BiophysicalJobQueue.getInstance();
             /**
@@ -700,7 +715,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   if (current && !current.dynamut2Promise && !current.ddmutPromise) {
                     inFlightRemoteSubmissions.delete(foldxCacheKey);
                   }
-                }, 60000);
+                }, 60000).unref?.();
               });
             inFlight.dynamut2Promise = createdD2Promise;
           }
@@ -744,7 +759,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 if (current && !current.dynamut2Promise && !current.ddmutPromise) {
                   inFlightRemoteSubmissions.delete(foldxCacheKey);
                 }
-              }, 60000);
+              }, 60000).unref?.();
             });
             inFlight.ddmutPromise = createdDdmutPromise;
           }
@@ -774,9 +789,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               if (resObj.status === "done" && resObj.prediction !== null) {
                 thermompnnVal = resObj.prediction;
                 thermompnnStatus = "done";
-                if (cachedFoldx?.energetics) {
-                  cachedFoldx.energetics.thermompnn = resObj.prediction;
-                  writeMutantToCache(foldxCacheKey, cachedFoldx);
+                // Clone latest cached record instead of mutating live LRU `cachedFoldx` in place.
+                const latestCached = (await getMutantFromCache(foldxCacheKey, submitterId(req) ?? null)) ?? cachedFoldx;
+                if (latestCached?.energetics) {
+                  writeMutantToCache(foldxCacheKey, {
+                    ...latestCached,
+                    energetics: {
+                      ...latestCached.energetics,
+                      thermompnn: resObj.prediction
+                    }
+                  });
                 }
               } else if (resObj.jobId && resObj.status === "pending") {
                 thermompnnJobId = resObj.jobId;
@@ -814,11 +836,21 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         ]);
 
         if (cachedFoldx) {
-          // Cache hit: return full result synchronously
+          // Cache hit: return full result synchronously.
+          // Clone before attaching transient response-only statuses/errors so we never mutate the
+          // live LRU `mutantCache` entry in place across requests, and persist successful backfills
+          // strictly against the non-transient `persistedRecord`.
           console.log(`[Cache Hit] Serving cached mutant simulation for ${foldxCacheKey}`);
           isCacheHit = true;
 
-          let finalStabilityoracleVal = stabilityoracleVal ?? cachedFoldx?.energetics?.stabilityoracle ?? null;
+          const cloneCachedRecord = (rec: typeof cachedFoldx): typeof cachedFoldx => ({
+            ...rec,
+            energetics: rec.energetics ? { ...rec.energetics } : rec.energetics
+          });
+          const persistedRecord = cloneCachedRecord(cachedFoldx);
+          const responseRecord = cloneCachedRecord(cachedFoldx);
+
+          let finalStabilityoracleVal = stabilityoracleVal ?? responseRecord?.energetics?.stabilityoracle ?? null;
           let finalStabilityoracleStatus: string | null =
             typeof finalStabilityoracleVal === "number" ? "done" : null;
           let finalStabilityoracleError: string | null = null;
@@ -836,14 +868,18 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               if (soOutcome.kind === "value" && typeof soOutcome.result.ddG === "number" && Number.isFinite(soOutcome.result.ddG)) {
                 finalStabilityoracleVal = soOutcome.result.ddG;
                 finalStabilityoracleStatus = "done";
-                if (cachedFoldx.energetics) {
+                if (responseRecord.energetics && persistedRecord.energetics) {
                   // Only a value goes to the long-lived cache. A transient outage's status,
                   // persisted here, fossilised for a day: later readers inherited "unavailable"
                   // or "error" for an engine the next lookup would happily answer.
-                  cachedFoldx.energetics.stabilityoracle = finalStabilityoracleVal;
-                  cachedFoldx.energetics.stabilityoracleStatus = "done";
-                  cachedFoldx.energetics.stabilityoracleError = null;
-                  writeMutantToCache(foldxCacheKey, cachedFoldx);
+                  const patch = {
+                    stabilityoracle: finalStabilityoracleVal,
+                    stabilityoracleStatus: "done",
+                    stabilityoracleError: null
+                  };
+                  Object.assign(persistedRecord.energetics, patch);
+                  Object.assign(responseRecord.energetics, patch);
+                  writeMutantToCache(foldxCacheKey, cloneCachedRecord(persistedRecord));
                 }
               } else if (soOutcome.kind === "error") {
                 // A live sidecar REJECTING this query is not "not installed": say the rejection.
@@ -860,22 +896,23 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             }
           } else if (typeof finalStabilityoracleVal === "number") {
             finalStabilityoracleStatus = "done";
-            if (cachedFoldx.energetics) {
-              cachedFoldx.energetics.stabilityoracleStatus = "done";
+            if (responseRecord.energetics) {
+              responseRecord.energetics.stabilityoracleStatus = "done";
             }
           } else {
             finalStabilityoracleStatus = "unavailable";
-            if (cachedFoldx.energetics) {
-              cachedFoldx.energetics.stabilityoracleStatus = "unavailable";
+            if (responseRecord.energetics) {
+              responseRecord.energetics.stabilityoracleStatus = "unavailable";
             }
           }
 
-          let finalThermompnnVal = thermompnnVal ?? cachedFoldx?.energetics?.thermompnn ?? null;
+          let finalThermompnnVal = thermompnnVal ?? responseRecord?.energetics?.thermompnn ?? null;
           if (typeof finalThermompnnVal === "number") {
             thermompnnStatus = "done";
-            if (cachedFoldx.energetics && cachedFoldx.energetics.thermompnn !== finalThermompnnVal) {
-              cachedFoldx.energetics.thermompnn = finalThermompnnVal;
-              writeMutantToCache(foldxCacheKey, cachedFoldx);
+            if (responseRecord.energetics && persistedRecord.energetics && persistedRecord.energetics.thermompnn !== finalThermompnnVal) {
+              persistedRecord.energetics.thermompnn = finalThermompnnVal;
+              responseRecord.energetics.thermompnn = finalThermompnnVal;
+              writeMutantToCache(foldxCacheKey, cloneCachedRecord(persistedRecord));
             }
           }
 
@@ -888,31 +925,37 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
            * reason — reported "Not covered", a statement about the protein that nothing had checked.
            * It is one indexed SQLite read, so it is done here on every hit that lacks a score.
            */
-          if (cachedFoldx.energetics && typeof cachedFoldx.energetics.rasp !== "number" && uniprotId) {
+          if (responseRecord.energetics && typeof responseRecord.energetics.rasp !== "number" && uniprotId) {
             try {
               const raspRes = await runRaspLocal("", "", resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
               if (raspRes && typeof raspRes.score === "number") {
-                cachedFoldx.energetics.rasp = raspRes.score;
-                cachedFoldx.energetics.raspReason = raspRes.reason;
-                cachedFoldx.energetics.raspSource = raspRes.source;
-                cachedFoldx.energetics.raspCoverage = getRaspCoverage() ?? undefined;
-                cachedFoldx.energetics.raspStatus = "done";
-                cachedFoldx.energetics.raspError = null;
-                writeMutantToCache(foldxCacheKey, cachedFoldx);
+                const patch = {
+                  rasp: raspRes.score,
+                  raspReason: raspRes.reason,
+                  raspSource: raspRes.source,
+                  raspCoverage: getRaspCoverage() ?? undefined,
+                  raspStatus: "done",
+                  raspError: null
+                };
+                if (persistedRecord.energetics) {
+                  Object.assign(persistedRecord.energetics, patch);
+                  writeMutantToCache(foldxCacheKey, cloneCachedRecord(persistedRecord));
+                }
+                Object.assign(responseRecord.energetics, patch);
               } else if (raspRes && raspRes.reason === RASP_STORE_UNAVAILABLE_REASON) {
                 // A store the deployment cannot read is not a coverage fact and not a completed
                 // lookup; and persisting either would freeze the state until the next value
                 // arrives. Keep the answer in this response only — reason included, so the
                 // client classifies it as an operator-fixable fault, not about the protein.
-                cachedFoldx.energetics.raspStatus = "unavailable";
-                cachedFoldx.energetics.raspError = RASP_STORE_UNAVAILABLE_REASON;
-                cachedFoldx.energetics.raspReason = RASP_STORE_UNAVAILABLE_REASON;
+                responseRecord.energetics.raspStatus = "unavailable";
+                responseRecord.energetics.raspError = RASP_STORE_UNAVAILABLE_REASON;
+                responseRecord.energetics.raspReason = RASP_STORE_UNAVAILABLE_REASON;
               } else if (raspRes) {
                 // A genuine coverage miss: keep the lookup's own sentence as the reason (only in
                 // this response), so the client renders "Not covered" rather than a failure.
-                cachedFoldx.energetics.raspStatus = "unavailable";
-                cachedFoldx.energetics.raspError = null;
-                cachedFoldx.energetics.raspReason = raspRes.reason;
+                responseRecord.energetics.raspStatus = "unavailable";
+                responseRecord.energetics.raspError = null;
+                responseRecord.energetics.raspReason = raspRes.reason;
               }
             } catch (raspErr: any) {
               console.warn("[RaSP Cache-Hit Lookup Warning]:", raspErr.message);
@@ -923,28 +966,30 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
            * ProtVar on a cache hit, for the same reason as RaSP above: the companion lookup lands after
            * FoldX wrote its cache entry, so a revisit would otherwise never show it. One cached read.
            */
-          if (cachedFoldx.energetics && cachedFoldx.energetics.protvarStatus !== "done" && uniprotId) {
+          if (responseRecord.energetics && responseRecord.energetics.protvarStatus !== "done" && uniprotId) {
             try {
               // `protvarVal` is the job-record name; on the energetics payload the value is `protvar`.
               const { protvarVal, ...protvarRest } = protvarJobFields(
                 await fetchProtVarFoldx(uniprotId, posNum, wtLetter, mutLetter)
               );
-              Object.assign(cachedFoldx.energetics, protvarRest, { protvar: protvarVal });
-              // A ProtVar answer (value or definitive absence) is reference data: keep it with the entry,
-              // as RaSP does, so a restart does not re-ask EBI.
-              writeMutantToCache(foldxCacheKey, cachedFoldx);
+              const patch = { ...protvarRest, protvar: protvarVal };
+              if (persistedRecord.energetics) {
+                Object.assign(persistedRecord.energetics, patch);
+                writeMutantToCache(foldxCacheKey, cloneCachedRecord(persistedRecord));
+              }
+              Object.assign(responseRecord.energetics, patch);
             } catch (protvarErr: any) {
               console.warn("[ProtVar Cache-Hit Lookup Warning]:", protvarErr.message);
               // Said, not silent — and not persisted, so the next visit retries an outage.
               const { protvarVal, ...protvarRest } = protvarErrorFields(protvarErr);
-              Object.assign(cachedFoldx.energetics, protvarRest, { protvar: protvarVal });
+              Object.assign(responseRecord.energetics, protvarRest, { protvar: protvarVal });
             }
           }
 
           let finalDynamut2Val = typeof existingDynamut2 === "number" ? existingDynamut2 : null;
           let finalDdmutVal = typeof existingDdmut === "number" ? existingDdmut : null;
 
-          const enriched = enrichBiophysicalResult(cachedFoldx, {
+          const enriched = enrichBiophysicalResult(responseRecord, {
             dynamut2JobId,
             dynamut2Status,
             dynamut2Val: finalDynamut2Val,
@@ -959,12 +1004,12 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             stabilityoracleStatus: finalStabilityoracleStatus,
             stabilityoracleError: finalStabilityoracleError,
             // Passed explicitly like every other engine, rather than relying on the in-place update above.
-            protvarStatus: cachedFoldx.energetics?.protvarStatus ?? null,
-            protvarVal: cachedFoldx.energetics?.protvar ?? null,
-            protvarPlddt: cachedFoldx.energetics?.protvarPlddt ?? null,
-            protvarModel: cachedFoldx.energetics?.protvarModel ?? null,
-            protvarReason: cachedFoldx.energetics?.protvarReason ?? null,
-            protvarError: cachedFoldx.energetics?.protvarError ?? null
+            protvarStatus: responseRecord.energetics?.protvarStatus ?? null,
+            protvarVal: responseRecord.energetics?.protvar ?? null,
+            protvarPlddt: responseRecord.energetics?.protvarPlddt ?? null,
+            protvarModel: responseRecord.energetics?.protvarModel ?? null,
+            protvarReason: responseRecord.energetics?.protvarReason ?? null,
+            protvarError: responseRecord.energetics?.protvarError ?? null
           }, structureProvenance, posNum);
 
           /**

@@ -98,6 +98,8 @@ describe("Frontier Genomic Models Service (GPN-Star)", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
+    // Caller-chosen overrides are checked by `validateSafeCustomEndpointUrl` (matching route `sanitizeUrl`),
+    // which blocks loopback hosts; operator `GPN_API_URL` loopback sidecars remain permitted above.
     const result = await fetchGpnStarScore(
       "MVKV",
       2,
@@ -105,12 +107,12 @@ describe("Frontier Genomic Models Service (GPN-Star)", () => {
       "E",
       "test-token",
       undefined,
-      "http://127.0.0.1:8000/predict/gpn"
+      "https://gpn-custom.example/predict/gpn"
     );
     expect(result.status).toBe("live");
     expect(result.score).toBe(-2.85);
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/predict/gpn",
+      "https://gpn-custom.example/predict/gpn",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({

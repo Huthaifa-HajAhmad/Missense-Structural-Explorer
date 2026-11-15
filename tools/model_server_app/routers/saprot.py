@@ -19,6 +19,7 @@ from tools.model_server_app.utils import (
 from tools.model_server_app import models
 from tools.model_server_app.routers.vesm import RemoteFailure, VesmRequest, predict_vesm_sync, remote_failures
 from tools.model_server_app.engine_resilience import (
+    GateDeadlineExceeded,
     InvalidProviderResponse,
     PERMANENT_STATUSES,
     account_level_refusal,
@@ -436,6 +437,8 @@ def predict_saprot_sync(req: SaprotRequest):
                     "hfError": hf_error_detail,
                     "remoteEngineNote": remote_engine_note
                 }
+            except (HTTPException, GateDeadlineExceeded):
+                raise
             except Exception as local_err:
                 print(f"[Model Server] SaProt candidate {model_candidate} failed: {local_err}")
                 last_local_err = local_err

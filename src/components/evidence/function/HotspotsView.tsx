@@ -132,8 +132,8 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
                   <ul>{r.details.map((d) => <li key={d}>{d}</li>)}</ul>
                   <div className="hsp-rung__links">
                     {r.source.url && safeExternalHref(r.source.url) && (
-                      <a href={safeExternalHref(r.source.url)!} target="_blank" rel="noreferrer">
-                        {r.source.label} <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                      <a href={safeExternalHref(r.source.url)!} target="_blank" rel="noopener noreferrer">
+                        {r.source.label} <ExternalLink className="w-3 h-3" aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
                       </a>
                     )}
                     <ResearchGuideButton topic={r.explain} label={`How to read: ${r.name}`} className="rgd-trigger hsp-guide" />
@@ -317,20 +317,32 @@ function HotspotMap({
         >
           <span>{ev.residueLabel}</span>
         </div>
-        <div className="hsp-map__row hsp-map__row--up" aria-hidden="true">
+        <div className="hsp-map__row hsp-map__row--up">
           <span className="hsp-map__label" title="ClinVar P/LP missense per residue (germline)">ClinVar P/LP</span>
-          <div className="hsp-map__lane">
+          <div className="hsp-map__lane" role="group" aria-label="ClinVar P/LP missense counts per residue">
             {d?.plp.map((p) => {
               const rowKey = hotspotRowKey(p.pos);
               return (
                 <i
                   key={p.pos}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedKey === rowKey}
                   data-pos={p.pos}
                   data-selected={selectedKey === rowKey || undefined}
                   data-lit={hoverResidue === p.pos || undefined}
+                  aria-label={`Residue ${p.pos}: ${p.n} ClinVar P/LP`}
                   onMouseEnter={() => onHoverResidue(p.pos)}
                   onMouseLeave={() => onHoverResidue(null)}
+                  onFocus={() => onHoverResidue(p.pos)}
+                  onBlur={() => onHoverResidue(null)}
                   onClick={() => onSelectKey(rowKey)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectKey(rowKey);
+                    }
+                  }}
                   style={{ left: `${barLeft(p.pos)}%`, width: `${w}%`, height: `${(p.n / maxPlp) * 100}%` }}
                   title={`${p.pos}: ${p.n} P/LP`}
                 />
@@ -357,6 +369,7 @@ function HotspotMap({
                       key={`${b.start}-${b.end}`}
                       type="button"
                       className="hsp-map__band"
+                      aria-pressed={selectedKey === rungKey}
                       data-hit={b.hit || undefined}
                       onClick={() => onSelectKey(rungKey)}
                       style={{ left: `${left}%`, width: `${width}%` }}
@@ -378,6 +391,7 @@ function HotspotMap({
                   key={s.residue}
                   role="button"
                   tabIndex={0}
+                  aria-pressed={selectedKey === s.key}
                   data-pos={s.residue}
                   data-sign={s.pathprox! >= 0 ? "pos" : "neg"}
                   data-selected={selectedKey === s.key || undefined}

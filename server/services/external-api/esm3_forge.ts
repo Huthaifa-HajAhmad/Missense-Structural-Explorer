@@ -38,7 +38,7 @@ export interface ESM3StructureEvalResult {
   putativeStructuralChanges: string[];
   confidence: {
     level: "high" | "moderate" | "low" | null;
-    plddt: number;
+    plddt: number | null;
     sequenceCoverage: number;
   };
   provenance?: string;
@@ -154,72 +154,81 @@ export async function fetchEsm3StructureEval(
     } catch (_) {}
   }
 
-  // If still no sequence could be extracted, generate minimal sequence
-  if (!sequence) {
-    sequence = "M" + "A".repeat(Math.max(10, position + 20));
-  }
-
-  // The caller's token, else this person's saved one, else the team's under the lending policy (WP-I4).
-  const tokenToUse = resolveCredential("biohub", biohubToken).token;
-  const sidecarSecret = process.env.SIDECAR_SECRET || "";
   let provenance = "ESM3-Medium (Remote)";
-  const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
+  if (!sequence) {
+    esm3Error = "No amino-acid sequence available for ESM-3 evaluation.";
+    esm3Status = "error";
+  } else {
+    // The caller's token, else this person's saved one, else the team's under the lending policy (WP-I4).
+    const tokenToUse = resolveCredential("biohub", biohubToken).token;
+    const sidecarSecret = process.env.SIDECAR_SECRET || "";
+    const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
 
-  try {
-    // With a token the sidecar calls Biohub, so the call is governed (and counted) as Biohub (WP-I4).
-    const sidecarRes = await governedForCredential("biohub", tokenToUse, () => fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret,
-        [SIDECAR_BUDGET_HEADER]: String(sidecarBudgetMs)
-      },
-      body: JSON.stringify({
-        sequence,
-        position,
-        wt: wt1,
-        mut: mut1,
-        biohubToken: tokenToUse,
-        refine: false
-      }),
-      signal: AbortSignal.timeout(sidecarBudgetMs)
-    }), { lane: "compute", deadlineAt: Date.now() + sidecarBudgetMs });
+    try {
+      // With a token the sidecar calls Biohub, so the call is governed (and counted) as Biohub (WP-I4).
+      const sidecarRes = await governedForCredential("biohub", tokenToUse, () => fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Sidecar-Secret": sidecarSecret,
+          [SIDECAR_BUDGET_HEADER]: String(sidecarBudgetMs)
+        },
+        body: JSON.stringify({
+          sequence,
+          position,
+          wt: wt1,
+          mut: mut1,
+          biohubToken: tokenToUse,
+          refine: false
+        }),
+        signal: AbortSignal.timeout(sidecarBudgetMs)
+      }), { lane: "compute", deadlineAt: Date.now() + sidecarBudgetMs });
 
-    if (sidecarRes.ok) {
-      const sidecarData = await sidecarRes.json() as any;
-      if (sidecarData.status === "success" && Array.isArray(sidecarData.perturbationScores)) {
-        perturbationScores = sidecarData.perturbationScores;
-        if (sidecarData.refinedPdb) {
-          pdbText = sidecarData.refinedPdb;
+      if (sidecarRes.ok) {
+        const sidecarData = await sidecarRes.json() as any;
+        if (sidecarData?.status === "success" && Array.isArray(sidecarData.perturbationScores)) {
+          perturbationScores = sidecarData.perturbationScores;
+          if (sidecarData.refinedPdb) {
+            pdbText = sidecarData.refinedPdb;
+          }
+          if (typeof sidecarData.provenance === "string") {
+            provenance = sidecarData.provenance;
+          }
+          if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
+            remoteEngineNote = sidecarData.remoteEngineNote.trim();
+            remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
+          }
+        } else {
+          esm3Error = typeof sidecarData?.error === "string" && sidecarData.error.trim()
+            ? sidecarData.error.trim()
+            : "ESM3 sidecar returned non-success status.";
+          esm3Status = sidecarData?.status === "timeout" ? "timeout" : "error";
+          if (typeof sidecarData?.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
+            remoteEngineNote = sidecarData.remoteEngineNote.trim();
+            remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
+          }
         }
-        if (typeof sidecarData.provenance === "string") {
-          provenance = sidecarData.provenance;
-        }
-        if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
-          remoteEngineNote = sidecarData.remoteEngineNote.trim();
-          remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
-        }
+      } else {
+        const txt = await sidecarRes.text();
+        console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
+        /**
+         * A refused pass (503) is the model server telling us it was too busy to start; that is a timeout,
+         * not a broken engine, and the reader is told to retry rather than to check their install.
+         */
+        const refusal = sidecarFailure("ESM3", sidecarRes.status);
+        esm3Error = `${refusal.error} (${txt.trim().slice(0, 200) || "no detail"})`;
+        esm3Status = refusal.status === "timeout" ? "timeout" : "error";
       }
-    } else {
-      const txt = await sidecarRes.text();
-      console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
-      /**
-       * A refused pass (503) is the model server telling us it was too busy to start; that is a timeout,
-       * not a broken engine, and the reader is told to retry rather than to check their install.
-       */
-      const refusal = sidecarFailure("ESM3", sidecarRes.status);
-      esm3Error = `${refusal.error} (${txt.trim().slice(0, 200) || "no detail"})`;
-      esm3Status = refusal.status === "timeout" ? "timeout" : "error";
+    } catch (err: any) {
+      // A timeout is retryable and must not read as a generic failure. `AbortSignal.timeout` rejects
+      // with a `TimeoutError` DOMException; older runtimes report `AbortError`.
+      const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+      console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
+      esm3Error = timedOut
+        ? `ESM3 structural perturbation timed out after ${Math.round(sidecarBudgetMs / 1000)}s (sidecar /predict/esm3)`
+        : err.message;
+      esm3Status = timedOut ? "timeout" : "error";
     }
-  } catch (err: any) {
-    // A timeout is retryable and must not read as a generic failure. `AbortSignal.timeout` rejects
-    // with a `TimeoutError` DOMException; older runtimes report `AbortError`.
-    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
-    console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
-    esm3Error = timedOut
-      ? `ESM3 structural perturbation timed out after ${Math.round(sidecarBudgetMs / 1000)}s (sidecar /predict/esm3)`
-      : err.message;
-    esm3Status = timedOut ? "timeout" : "error";
   }
 
 
@@ -405,7 +414,7 @@ export async function fetchEsm3StructureEval(
     putativeStructuralChanges,
     confidence: {
       level: confLevel,
-      plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : (null as any),
+      plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : null,
       // Residues that have a score, of the residues asked about (the VESM stand-in leaves −1 outside its window).
       sequenceCoverage: perturbationScores.length
         ? Math.round((100 * perturbationScores.filter(v => v >= 0).length) / perturbationScores.length)

@@ -122,7 +122,6 @@ NODE_ENV,server/config.ts
 NODE_ENV,server/routes/biophysics/generation.ts
 NODE_ENV,server/routes/health.ts
 NODE_ENV,server/routes/variant/translation.ts
-NODE_ENV,server/routes/variant/variant-parser.ts
 NODE_ENV,server/services/evidence-context/perRegions.ts
 NODE_ENV,server/services/evidence-context/snapshotInstall.ts
 NODE_ENV,server/services/external-api/constraint-snapshot.ts
@@ -138,6 +137,7 @@ NODE_ENV,server/services/stability/foldx/runner.ts
 NODE_ENV,server/services/structure/pocket/runner.ts
 NODE_ENV,server/services/structure/structural-diff/evaluator.ts
 NODE_ENV,server/services/translation/shadow-tiers.ts
+NODE_ENV,server/utils/security.ts
 NODE_ENV,src/test/setup.ts
 OMP_NUM_THREADS,server/sidecar-supervisor.ts
 P2RANK_CONFIG_PROFILE,server/services/structure/pocket/runner.ts

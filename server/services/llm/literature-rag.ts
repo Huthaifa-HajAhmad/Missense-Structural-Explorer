@@ -294,8 +294,13 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-// In-flight sync de-duplication map
-const inFlightSyncs = new Map<string, Promise<number>>();
+// In-flight sync de-duplication map with per-waiter abort tracking so one cancelled
+// request never aborts a shared background sync for other active callers.
+interface InFlightSyncEntry {
+  promise: Promise<number>;
+  attachSignal: (signal?: AbortSignal) => Promise<number>;
+}
+const inFlightSyncs = new Map<string, InFlightSyncEntry>();
 
 // Europe PMC Circuit Breaker state
 let pmcFailureCount = 0;
@@ -340,6 +345,8 @@ export async function getEmbedding(
       abortSignal: signal,
     }
   });
+  // Prevent unhandled rejection if the SDK rejects after Promise.race has already timed out or aborted.
+  embedPromise.catch(() => {});
 
   const timeoutMs = 15000;
   let timeoutId: any;
@@ -661,38 +668,28 @@ export async function syncLiteratureForGene(
   signal?: AbortSignal,
   customQuery?: string
 ): Promise<number> {
+  if (signal?.aborted) {
+    return 0;
+  }
+
   const cleanGene = gene.trim().toUpperCase();
   const cacheKey = literatureCacheKey(cleanGene, customQuery);
 
   if (inFlightSyncs.has(cacheKey)) {
     console.log(`[RAG] Reusing in-flight literature sync for key: ${cacheKey}`);
-    return inFlightSyncs.get(cacheKey)!;
+    return inFlightSyncs.get(cacheKey)!.attachSignal(signal);
   }
+
+  // Set a timeout of 30 seconds for the entire sync process
+  const timeoutController = new AbortController();
+  const syncTimeoutId = setTimeout(() => timeoutController.abort(), 30000);
+  let activeWaiters = 0;
 
   const syncPromise = (async () => {
     const formattedQuery = formatQueryForEuropePmc(customQuery, cleanGene);
     console.log(`[RAG] Querying Europe PMC literature for: ${safeLog(formattedQuery)}...`);
     
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
-    
-    // Set a timeout of 30 seconds for the entire sync process
-    const timeoutController = new AbortController();
-    const syncTimeoutId = setTimeout(() => timeoutController.abort(), 30000);
-
-    const onAbort = () => {
-      timeoutController.abort();
-    };
-
-    if (signal) {
-      if (signal.aborted) {
-        // Return a benign result rather than throwing: this runs inside a detached async IIFE
-        // whose rejection, when combined with the `.finally()` bookkeeping below, used to escape
-        // as an unhandled rejection and terminate the Node process.
-        clearTimeout(syncTimeoutId);
-        return 0;
-      }
-      signal.addEventListener("abort", onAbort);
-    }
 
     try {
       checkPmcCircuit();
@@ -760,11 +757,19 @@ export async function syncLiteratureForGene(
           const embedding = await getEmbedding(textToEmbed, customApiKey, timeoutController.signal);
           buffer = vectorToBuffer(embedding);
         } catch (embedErr: any) {
+          if (timeoutController.signal.aborted || embedErr?.message === "Aborted") {
+            console.warn(`[RAG Warning] Literature sync timed out or aborted while embedding PMID ${citation.id}.`);
+            break;
+          }
           console.warn(`[RAG Warning] Failed to embed abstract for PMID ${citation.id}:`, embedErr.message);
           // Store a zero vector and record that the row is unscorable, so RAG can skip it
           // rather than ranking it as a genuine similarity-0 match.
           buffer = vectorToBuffer(new Float32Array(768));
           hasEmbedding = false;
+        }
+
+        if (timeoutController.signal.aborted) {
+          break;
         }
 
         try {
@@ -794,26 +799,71 @@ export async function syncLiteratureForGene(
       return 0;
     } finally {
       clearTimeout(syncTimeoutId);
-      if (signal) {
-        signal.removeEventListener("abort", onAbort);
-      }
     }
   })();
 
-  inFlightSyncs.set(cacheKey, syncPromise);
-  
+  const attachSignal = (waiterSignal?: AbortSignal): Promise<number> => {
+    if (!waiterSignal) {
+      activeWaiters++;
+      return syncPromise.then((count) => {
+        activeWaiters = Math.max(0, activeWaiters - 1);
+        return count;
+      });
+    }
+    if (waiterSignal.aborted) {
+      return Promise.resolve(0);
+    }
+    activeWaiters++;
+    return new Promise<number>((resolve) => {
+      let settled = false;
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        waiterSignal.removeEventListener("abort", onAbort);
+        activeWaiters = Math.max(0, activeWaiters - 1);
+        if (activeWaiters === 0) {
+          releaseSync();
+          timeoutController.abort();
+        }
+        resolve(0);
+      };
+      waiterSignal.addEventListener("abort", onAbort, { once: true });
+      syncPromise.then(
+        (count) => {
+          if (settled) return;
+          settled = true;
+          waiterSignal.removeEventListener("abort", onAbort);
+          activeWaiters = Math.max(0, activeWaiters - 1);
+          resolve(count);
+        },
+        () => {
+          if (settled) return;
+          settled = true;
+          waiterSignal.removeEventListener("abort", onAbort);
+          activeWaiters = Math.max(0, activeWaiters - 1);
+          resolve(0);
+        }
+      );
+    });
+  };
+
+  const entry = { promise: syncPromise, attachSignal };
+  inFlightSyncs.set(cacheKey, entry);
+
   // Cleanup map when completed.
   //
   // Must be `.then(onFulfilled, onRejected)` and NOT `.finally(...)`: `.finally()` returns a
   // *derived* promise that rejects whenever `syncPromise` rejects, and nothing handles that
   // derived promise — which is an unhandled rejection, and Node 22 terminates the process on
   // those. That is how an aborted literature sync used to take the whole server down mid-request.
-  const releaseSync = () => {
-    inFlightSyncs.delete(cacheKey);
-  };
+  function releaseSync() {
+    if (inFlightSyncs.get(cacheKey) === entry) {
+      inFlightSyncs.delete(cacheKey);
+    }
+  }
   syncPromise.then(releaseSync, releaseSync);
 
-  return syncPromise;
+  return attachSignal(signal);
 }
 
 // Main RAG Retrieval logic
@@ -897,18 +947,11 @@ export async function retrieveRelevantLiterature(
   const cleanGene = gene.trim().toUpperCase();
   const cacheKey = literatureCacheKey(cleanGene);
 
-  // 1. Check if we have records cached for this gene's default query
-  const countRow = db
-    .prepare("SELECT COUNT(*) as count FROM literature_query_members WHERE cache_key = ?")
-    .get(cacheKey) as { count: number } | undefined;
-  const count = countRow ? countRow.count : 0;
-
-  // Sync only on a genuine miss: never fetched, or fetched so long ago the entry has
-  // aged out. The old `count === 0` test alone re-queried Europe PMC on every retrieval
-  // for a gene whose sweep had legitimately recorded zero hits — membership stays empty,
-  // so "no rows" was true forever. A fresh empty sync is an answer, not a miss.
-  if (count === 0 && isLiteratureCacheStale(cacheKey)) {
-    console.log(`[RAG] Cache miss for gene ${cleanGene}. Triggering sync...`);
+  // 1. Refresh whenever the gene's default cache is missing, partial (interrupted sync without a
+  // completion stamp) or aged past the TTL. A fresh empty sync records a completion stamp, so
+  // `isLiteratureCacheStale` returns false without re-querying.
+  if (isLiteratureCacheStale(cacheKey)) {
+    console.log(`[RAG] Cache miss or stale for gene ${cleanGene}. Triggering sync...`);
     await syncLiteratureForGene(cleanGene, customApiKey, signal).catch(() => {});
   }
   

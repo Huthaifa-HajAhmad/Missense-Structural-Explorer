@@ -241,5 +241,19 @@ describe("HotspotsView — map geometry and linked pinning", () => {
     ala5Dot.focus();
     fireEvent.keyDown(ala5Dot, { key: "Enter" });
     expect(ala5Dot.hasAttribute("data-selected")).toBe(true);
+
+    const ala5PlpBar = screen.getByRole("button", { name: /Residue 5:.*ClinVar P\/LP/i });
+    expect(ala5PlpBar).toHaveAttribute("tabindex", "0");
+    expect(ala5PlpBar.closest('[aria-hidden="true"]')).toBeNull();
+    // Both PathProx and ClinVar P/LP share residue key hs:5; Enter toggles off, Space selects again.
+    expect(ala5PlpBar.hasAttribute("data-selected")).toBe(true);
+    fireEvent.focus(ala5PlpBar);
+    expect(ala5PlpBar.hasAttribute("data-lit")).toBe(true);
+    fireEvent.keyDown(ala5PlpBar, { key: "Enter" });
+    expect(ala5PlpBar.hasAttribute("data-selected")).toBe(false);
+    fireEvent.keyDown(ala5PlpBar, { key: " " });
+    expect(ala5PlpBar.hasAttribute("data-selected")).toBe(true);
+    fireEvent.blur(ala5PlpBar);
+    expect(ala5PlpBar.hasAttribute("data-lit")).toBe(false);
   });
 });

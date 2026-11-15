@@ -48,9 +48,12 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
     if (!isUniprot && (!data.results || data.results.length === 0)) {
       const unreviewedUrl = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(cleanInput)}+AND+organism_id:9606&format=json`;
       const fallbackRes = await fetchWithRetry(unreviewedUrl, { timeout: 10000 }, 2);
-      if (fallbackRes.ok) {
-        data = await fallbackRes.json() as any;
+      if (!fallbackRes.ok) {
+        const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
+        if (fallbackRes.status === 404) transcriptMappingCache.set(cleanInput, fallback);
+        return fallback;
       }
+      data = await fallbackRes.json() as any;
     }
     let dbXrefs: any[] = [];
     let primaryAccession: string | null = null;

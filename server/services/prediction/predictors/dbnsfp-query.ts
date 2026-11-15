@@ -1,19 +1,29 @@
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { safeParseFloat } from "./normalizer.ts";
 import { type ConservationData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
+import { sourceSupportsAssembly } from "../../../../src/shared/assembly.ts";
+import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 
 /**
  * Fast Tier 1 baseline querying the public, unauthenticated query.dbnsfp.org API (~900ms).
+ *
+ * `query.dbnsfp.org` indexes `hg38` only: when a caller supplies `assembly`, coordinates from any
+ * non-GRCh38 build are withheld so a coordinate from GRCh37 never hits an hg38 locus.
  */
 export async function queryDbnsfpOrg(
   gene: string,
   variant: string,
-  gnomadVariantId?: string | null
+  gnomadVariantId?: string | null,
+  assembly?: string | null
 ): Promise<Partial<ConservationData> | null> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   let variantQuery = '';
-  if (gnomadVariantId) {
+  const coordinateBuildAllowed =
+    assembly === undefined
+      ? true
+      : assembly !== null && sourceSupportsAssembly("dbnsfpOrg", assembly as GenomeAssembly);
+  if (gnomadVariantId && coordinateBuildAllowed) {
     const parsed = parseGenomicCoordinateString(gnomadVariantId);
     if (parsed) {
       variantQuery = `${parsed.chrom}-${parsed.pos}-${parsed.ref}-${parsed.alt}`;

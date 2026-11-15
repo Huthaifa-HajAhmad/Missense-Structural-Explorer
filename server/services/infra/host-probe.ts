@@ -26,6 +26,7 @@ import type { ComputeProvenance } from "../../../src/shared/computeProvenance.ts
 import { CONFIG } from "../../config.ts";
 import { killProcessTree } from "../../utils/process-tree.ts";
 import { detectFoldxBinaryAndDir, getFoldxExecutionTarget } from "../stability/foldx/detector.ts";
+import { resolveFoldxRotabasePresent } from "../stability/foldx/readiness.ts";
 import { foldxRunsEmulated } from "../stability/foldx/estimate.ts";
 import { checkP2RankCapability, discoverJavaHome } from "../structure/pocket/java-detector.ts";
 
@@ -198,6 +199,11 @@ async function checkFoldx(now: number): Promise<ToolCheck> {
   const run = await toolRunner(target.file, target.args, { cwd: foldxDir || undefined, timeoutMs: SELF_TEST_TIMEOUT_MS });
   const check = judgeSelfTest("foldx", run, parseFoldxBanner(run.output), foldxRanNormally(run));
   if (!check.tool) return check;
+  if (foldxDir && !resolveFoldxRotabasePresent(foldxDir)) {
+    check.tool = { ...check.tool, verified: false, selfTest: "failed" };
+    check.clean = false;
+    check.detail += ". Missing rotabase.txt parameter file for FoldX";
+  }
   const expiry = foldxBuildExpiry(foldxBin);
   if (!expiry) {
     // The runbook tells the owner to watch this line as the renewal trigger, so say when it is unarmed.
@@ -240,6 +246,7 @@ async function checkP2Rank(): Promise<ToolCheck> {
 }
 
 let probing: Promise<HostTool[]> | null = null;
+let probingNow: Promise<{ foldx: ToolCheck; p2rank: ToolCheck }> | null = null;
 
 function startProbe(now: number): Promise<HostTool[]> {
   // One probe at a time: a burst of callers must not start one self-test each.
@@ -273,24 +280,30 @@ export async function serverToolsCached(now = Date.now()): Promise<HostTool[]> {
 
 let lastReport = "";
 
-async function probeTools(now: number): Promise<HostTool[]> {
+async function runToolChecks(now: number): Promise<{ foldx: ToolCheck; p2rank: ToolCheck; tools: HostTool[] }> {
   const failed = (label: string) => (err: unknown): ToolCheck => ({
     tool: null,
     detail: `${label}'s self-test could not run (${(err as Error)?.message ?? err})`,
     clean: false,
   });
-  const checks = await Promise.all([checkFoldx(now).catch(failed("FoldX")), checkP2Rank().catch(failed("P2Rank"))]);
+  const [foldx, p2rank] = await Promise.all([checkFoldx(now).catch(failed("FoldX")), checkP2Rank().catch(failed("P2Rank"))]);
+  const checks = [foldx, p2rank];
   const tools = checks.flatMap((c) => (c.tool ? [c.tool] : []));
   toolCache = {
     at: now,
     tools,
     clean: checks.every((c) => c.clean),
-    foldxExpiry: checks[0].foldxExpiry ?? null,
+    foldxExpiry: foldx.foldxExpiry ?? null,
   };
   // One line whenever the answer changes, so `docker logs` shows what the server can run, and why not.
   const report = checks.map((c) => c.detail).join("; ");
   if (report !== lastReport && process.env.NODE_ENV !== "test") console.log(`[host-probe] ${report}.`);
   lastReport = report;
+  return { foldx, p2rank, tools };
+}
+
+async function probeTools(now: number): Promise<HostTool[]> {
+  const { tools } = await runToolChecks(now);
   return tools;
 }
 
@@ -310,16 +323,28 @@ export function serverToolVersion(type: JobType): string | null {
  * tests the server applies to itself.
  */
 export async function probeToolsNow(now = Date.now()): Promise<{ foldx: ToolCheck; p2rank: ToolCheck }> {
-  toolCache = null;
-  const failed = (label: string) => (err: unknown): ToolCheck => ({ tool: null, detail: `${label}'s self-test could not run (${(err as Error)?.message ?? err})`, clean: false });
-  const [foldx, p2rank] = await Promise.all([checkFoldx(now).catch(failed("FoldX")), checkP2Rank().catch(failed("P2Rank"))]);
-  toolCache = {
-    at: now,
-    tools: [foldx, p2rank].flatMap((c) => (c.tool ? [c.tool] : [])),
-    clean: foldx.clean && p2rank.clean,
-    foldxExpiry: foldx.foldxExpiry ?? null,
-  };
-  return { foldx, p2rank };
+  if (probingNow) return probingNow;
+  let run: Promise<{ foldx: ToolCheck; p2rank: ToolCheck }> | null = null;
+  run = (async () => {
+    try {
+      while (probing) await probing.catch(() => {});
+      toolCache = null;
+      const checksPromise = runToolChecks(now);
+      const toolsPromise = checksPromise.then((r) => r.tools);
+      probing = toolsPromise;
+      try {
+        const { foldx, p2rank } = await checksPromise;
+        await toolsPromise.catch(() => {});
+        return { foldx, p2rank };
+      } finally {
+        if (probing === toolsPromise) probing = null;
+      }
+    } finally {
+      if (run && probingNow === run) probingNow = null;
+    }
+  })();
+  probingNow = run;
+  return probingNow;
 }
 
 /** Probe in the background at start-up, so the first submission does not wait for the self-tests. */
@@ -330,6 +355,8 @@ export function warmServerTools(): void {
 /** For tests: forget the cached tool list, or pin it (so a test does not depend on this machine's tools). */
 export function _resetHostProbe(pinned?: HostTool[]): void {
   toolCache = pinned ? { at: 0, tools: pinned, clean: true, foldxExpiry: null } : null;
+  probing = null;
+  probingNow = null;
   hostFacts = null;
   lastReport = "";
 }

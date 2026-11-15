@@ -249,9 +249,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       },
       biophysicalEnergetics: {
         foldx: {
-          ddG: foldingEnergetics?.foldx ?? analysisState.result.foldingEnergetics?.foldx ?? null,
-          mean: foldingEnergetics?.foldxMean ?? null,
-          sd: foldingEnergetics?.foldxSd ?? null,
+          ddG: foldingEnergetics?.foldx ?? analysisState.result.foldingEnergetics?.foldx ?? foldingDdG ?? null,
+          mean: foldingEnergetics?.foldxMean ?? analysisState.result.foldingEnergetics?.foldxMean ?? foldingDdG ?? null,
+          sd: foldingEnergetics?.foldxSd ?? analysisState.result.foldingEnergetics?.foldxSd ?? null,
           vdwClashDelta: foldingEnergetics?.vdw ?? null,
           electrostatics: foldingEnergetics?.electrostatics ?? null,
           stericClashWarning: foldingEnergetics?.stericClashWarning ?? false,
@@ -285,12 +285,23 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
          */
         signConvention: "canonicalDdg: kcal/mol, positive = destabilizing for every engine",
         canonicalDdg: {
-          foldx: toCanonicalDdg("foldx", foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx ?? null),
+          foldx: toCanonicalDdg(
+            "foldx",
+            foldingEnergetics?.foldxMean ??
+              foldingEnergetics?.foldx ??
+              analysisState.result.foldingEnergetics?.foldxMean ??
+              analysisState.result.foldingEnergetics?.foldx ??
+              foldingDdG ??
+              null
+          ),
           dynamut2: toCanonicalDdg("dynamut2", foldingEnergetics?.dynamut2 ?? analysisState.result.dynamut2 ?? null),
           ddmut: toCanonicalDdg("ddmut", foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null),
           rasp: toCanonicalDdg("rasp", foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null),
           thermompnn: toCanonicalDdg("thermompnn", foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null),
-          stabilityoracle: toCanonicalDdg("stabilityoracle", foldingEnergetics?.stabilityoracle ?? null)
+          stabilityoracle: toCanonicalDdg(
+            "stabilityoracle",
+            foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null
+          )
         }
       },
       acmgCriteriaSuggestions: {

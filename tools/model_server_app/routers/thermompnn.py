@@ -176,12 +176,19 @@ def parse_pdb_chains_for_thermompnn(
     return chains, chain_order
 
 
-def select_thermompnn_target_chain(chains: dict, chain_order: list[str], chain: Optional[str], target_pos: Optional[int]) -> Optional[str]:
+def select_thermompnn_target_chain(
+    chains: dict,
+    chain_order: list[str],
+    chain: Optional[str],
+    target_pos: Optional[int],
+    wt: Optional[str] = None,
+) -> Optional[str]:
     """
     Chooses the chain holding the mutation. An explicitly requested chain wins when present;
     without one (or when the requested letter does not exist in this file), the chain that
-    actually carries the residue decides, and the first chain is the last resort — the same
-    precedence ``stabilityoracle.py`` uses, so the two sidecars never disagree on "the chain".
+    actually carries the residue (and matches wild-type identity when heteromeric chains share
+    numbering) decides, and the first chain is the last resort — the same precedence
+    ``stabilityoracle.py`` uses, so the two sidecars never disagree on "the chain".
     """
     explicit = (chain or "").strip().upper()
     if explicit and explicit in chains:
@@ -191,6 +198,14 @@ def select_thermompnn_target_chain(chains: dict, chain_order: list[str], chain: 
         if len(matching) == 1:
             return matching[0]
         if len(matching) > 1:
+            if wt:
+                wt_upper = wt.upper()
+                wt_matching = [
+                    ch for ch in matching
+                    if chains[ch]["seq"][0][chains[ch]["resn_index"][str(target_pos)]] == wt_upper
+                ]
+                if wt_matching:
+                    return wt_matching[0]
             return matching[0]
     if chain_order:
         return chain_order[0]
@@ -215,7 +230,7 @@ class ThermoMpnnResponse(BaseModel):
 
 ALPHABET = 'ACDEFGHIKLMNPQRSTVWYX'
 
-def parse_mutation_code(mutation: str, default_chain: str = "A"):
+def parse_mutation_code(mutation: str, default_chain: Optional[str] = None):
     """Extracts (wt, chain, pos, mut) from diverse mutation formats."""
     clean = mutation.replace("p.", "").strip()
     
@@ -232,7 +247,8 @@ def parse_mutation_code(mutation: str, default_chain: str = "A"):
     # Format: R408W (Standard 1-letter)
     m = re.match(r"^([a-zA-Z])(\d+)([a-zA-Z])$", clean)
     if m:
-        return m.group(1).upper(), default_chain.upper(), int(m.group(2)), m.group(3).upper()
+        chain_upper = default_chain.strip().upper() if default_chain and default_chain.strip() else None
+        return m.group(1).upper(), chain_upper, int(m.group(2)), m.group(3).upper()
 
     return None, None, None, None
 
@@ -358,7 +374,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
     if not pdb_raw.strip():
         raise HTTPException(status_code=400, detail="Missing PDB structural content in request")
 
-    wt, chain, pos, mut = parse_mutation_code(req.mutation, req.chain or "A")
+    wt, chain, pos, mut = parse_mutation_code(req.mutation, req.chain)
     if not wt or not mut or pos is None:
         raise HTTPException(status_code=400, detail=f"Invalid mutation format: '{req.mutation}'")
 
@@ -380,7 +396,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
         if not chains:
             raise HTTPException(status_code=400, detail="Could not extract coordinates from PDB structure")
 
-        resolved_chain = select_thermompnn_target_chain(chains, chain_order, chain, pos)
+        resolved_chain = select_thermompnn_target_chain(chains, chain_order, chain, pos, wt=wt)
         if resolved_chain is None:
             raise HTTPException(status_code=400, detail="Could not extract coordinates from PDB structure")
 
@@ -409,6 +425,14 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
                 status_code=422,
                 detail=f"Wild-type residue mismatch at position {pos} on chain {resolved_chain or chain or 'A'}: structure has {parsed_wt}, expected {wt}"
             )
+
+        for atom_name in backbone_atoms:
+            atom_xyz = np.asarray(target_chain["xyz"][atom_name][target_seq_idx], dtype=float)
+            if not np.all(np.isfinite(atom_xyz)):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Residue position {pos} on chain {resolved_chain or chain or 'A'} is missing backbone atom {atom_name} coordinates"
+                )
 
         model = get_official_model()
         if model is None:

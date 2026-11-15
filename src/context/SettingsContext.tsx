@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState, useEffect, useLayoutEffect, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { UserSettings } from "../types";
 import {
   DEFAULT_USER_SETTINGS,
@@ -73,6 +73,75 @@ function readTransientCredentials(): Partial<TransientCredentials> {
   }
 }
 
+function serializePersistedSettingsPayload(target: UserSettings): string {
+  const toSave = {
+    ...target,
+    __autoZoomMigrated: true
+  } as Partial<Record<TransientSettingKey, unknown>> & UserSettings & { __autoZoomMigrated: boolean };
+  // Credentials live only in sessionStorage for the tab lifetime — never
+  // in localStorage, which persists across sessions on disk.
+  for (const transientKey of TRANSIENT_SETTING_KEYS) {
+    delete toSave[transientKey];
+  }
+  return JSON.stringify(toSave);
+}
+
+function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersistOnMount: boolean } {
+  try {
+    const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) : {};
+
+    // Scrub any credential that an older release may have persisted in
+    // plaintext (tamarindApiKey and hfToken were leaked here historically).
+    let needsPersistOnMount = false;
+    for (const key of TRANSIENT_SETTING_KEYS) {
+      if (parsed[key] !== undefined) {
+        delete parsed[key];
+        if (saved) needsPersistOnMount = true;
+      }
+    }
+
+    const transient = readTransientCredentials();
+    // Legacy settings migration: ensure autoZoomOnSelect defaults to false
+    // unless explicitly enabled by the user in this version.
+    const legacyAutoZoomMigrated = parsed.__autoZoomMigrated === true;
+    delete parsed.__autoZoomMigrated;
+    let effectiveAutoZoom = DEFAULT_USER_SETTINGS.autoZoomOnSelect;
+    if (legacyAutoZoomMigrated && parsed.autoZoomOnSelect !== undefined) {
+      effectiveAutoZoom = !!parsed.autoZoomOnSelect;
+    } else if (!legacyAutoZoomMigrated && parsed.autoZoomOnSelect !== undefined) {
+      parsed.autoZoomOnSelect = false;
+      needsPersistOnMount = true;
+      effectiveAutoZoom = false;
+    }
+
+    const merged: UserSettings = {
+      ...DEFAULT_USER_SETTINGS,
+      ...parsed,
+      autoZoomOnSelect: effectiveAutoZoom,
+      geminiApiKey: transient.geminiApiKey || "",
+      geminiSessionId: transient.geminiSessionId || "",
+      geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
+      appApiToken: transient.appApiToken || "",
+      biohubApiToken: transient.biohubApiToken || "",
+      hfToken: transient.hfToken || "",
+      tamarindApiKey: transient.tamarindApiKey || "",
+      gpnApiUrl: transient.gpnApiUrl || "",
+      alphagenomeApiKey: transient.alphagenomeApiKey || "",
+      alphagenomeApiUrl: transient.alphagenomeApiUrl || "",
+      show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
+      reducedMotion: parsed.reducedMotion !== undefined ? !!parsed.reducedMotion : prefersReducedMotion(),
+      biophysicsConditions: {
+        ...DEFAULT_USER_SETTINGS.biophysicsConditions,
+        ...(parsed.biophysicsConditions || {})
+      }
+    };
+    return { initialSettings: merged, needsPersistOnMount };
+  } catch {
+    return { initialSettings: { ...DEFAULT_USER_SETTINGS }, needsPersistOnMount: false };
+  }
+}
+
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
 
@@ -116,14 +185,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const isDark = theme === "system" ? systemPrefersDark : theme === "dark";
 
   useEffect(() => {
-    setTheme((prev) => {
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, prev);
-      } catch (e) {
-        console.warn("[Settings] Could not save the theme preference:", e);
-      }
-      return prev;
-    });
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch (e) {
+      console.warn("[Settings] Could not save the theme preference:", e);
+    }
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
@@ -164,68 +230,28 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     return true;
   });
 
-  const [settings, setSettings] = useState<UserSettings>(() => {
-    try {
-      const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : {};
+  const initialSettingsMetaRef = useRef<{ initialSettings: UserSettings; needsPersistOnMount: boolean } | null>(null);
+  if (initialSettingsMetaRef.current === null) {
+    initialSettingsMetaRef.current = loadInitialSettingsState();
+  }
 
-      // Scrub any credential that an older release may have persisted in
-      // plaintext (tamarindApiKey and hfToken were leaked here historically).
-      let modified = false;
-      for (const key of TRANSIENT_SETTING_KEYS) {
-        if (parsed[key] !== undefined) {
-          delete parsed[key];
-          modified = true;
-        }
-      }
-      if (modified && saved) {
-        try {
-          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed));
-        } catch (e) {}
-      }
+  const [settings, setSettings] = useState<UserSettings>(() => initialSettingsMetaRef.current!.initialSettings);
 
-      const transient = readTransientCredentials();
-      // Legacy settings migration: ensure autoZoomOnSelect defaults to false
-      // unless explicitly enabled by the user in this version.
-      const legacyAutoZoomMigrated = parsed.__autoZoomMigrated === true;
-      let effectiveAutoZoom = DEFAULT_USER_SETTINGS.autoZoomOnSelect;
-      if (legacyAutoZoomMigrated && parsed.autoZoomOnSelect !== undefined) {
-        effectiveAutoZoom = !!parsed.autoZoomOnSelect;
-      } else if (!legacyAutoZoomMigrated && parsed.autoZoomOnSelect !== undefined) {
-        parsed.autoZoomOnSelect = false;
-        parsed.__autoZoomMigrated = true;
-        try {
-          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed));
-        } catch (_) {}
-        effectiveAutoZoom = false;
-      }
-
-      const merged: UserSettings = {
-        ...DEFAULT_USER_SETTINGS,
-        ...parsed,
-        autoZoomOnSelect: effectiveAutoZoom,
-        geminiApiKey: transient.geminiApiKey || "",
-        geminiSessionId: transient.geminiSessionId || "",
-        geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
-        appApiToken: transient.appApiToken || "",
-        biohubApiToken: transient.biohubApiToken || "",
-        hfToken: transient.hfToken || "",
-        tamarindApiKey: transient.tamarindApiKey || "",
-        gpnApiUrl: transient.gpnApiUrl || "",
-        alphagenomeApiKey: transient.alphagenomeApiKey || "",
-        alphagenomeApiUrl: transient.alphagenomeApiUrl || "",
-        show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
-        reducedMotion: parsed.reducedMotion !== undefined ? !!parsed.reducedMotion : prefersReducedMotion(),
-        biophysicsConditions: {
-          ...DEFAULT_USER_SETTINGS.biophysicsConditions,
-          ...(parsed.biophysicsConditions || {})
-        }
-      };
-      return merged;
-    } catch {
-      return DEFAULT_USER_SETTINGS;
+  useEffect(() => {
+    const meta = initialSettingsMetaRef.current;
+    const isInitialState = meta !== null && settings === meta.initialSettings;
+    if (isInitialState && !meta.needsPersistOnMount) {
+      return;
     }
-  });
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, serializePersistedSettingsPayload(settings));
+      if (isInitialState && meta) {
+        meta.needsPersistOnMount = false;
+      }
+    } catch (e) {
+      console.warn("[Settings] Could not save settings:", e);
+    }
+  }, [settings]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-accent", settings.primaryAccent || "clay");
@@ -259,49 +285,27 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // memo and re-ran each context-loading effect whenever any settings state changed — even
   // opening the settings panel. The setters used below are stable `useState` dispatchers.
   const updateSetting = useCallback(<K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
-    setSettings((prev) => {
-      const updated = { ...prev, [key]: value };
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key as string)) {
       try {
-        const toSave = { ...updated, __autoZoomMigrated: true } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
-        // Credentials live only in sessionStorage for the tab lifetime — never
-        // in localStorage, which persists across sessions on disk.
-        for (const transientKey of TRANSIENT_SETTING_KEYS) {
-          delete toSave[transientKey];
-        }
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
+        const transient = readTransientCredentials();
+        (transient as Record<string, unknown>)[key as string] = value;
+        sessionStorage.setItem(TRANSIENT_STORAGE_KEY, JSON.stringify(transient));
       } catch (e) {
-        console.warn("[Settings] Could not save settings:", e);
+        console.error("[Settings] sessionStorage write error:", e);
       }
-
-      if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key as string)) {
-        try {
-          const transient = readTransientCredentials();
-          (transient as Record<string, unknown>)[key as string] = value;
-          sessionStorage.setItem(TRANSIENT_STORAGE_KEY, JSON.stringify(transient));
-        } catch (e) {
-          console.error("[Settings] sessionStorage write error:", e);
-        }
-      }
-
-      return updated;
-    });
+    }
     if (key === "showAtomInteractions") {
       setShowPolarContacts(value as boolean);
     }
   }, []);
 
   const resetSettingsToDefault = useCallback(() => {
-    setSettings(DEFAULT_USER_SETTINGS);
+    setSettings({
+      ...DEFAULT_USER_SETTINGS,
+      biophysicsConditions: { ...DEFAULT_USER_SETTINGS.biophysicsConditions }
+    });
     setShowPolarContacts(true);
-    try {
-      const toSave = { ...DEFAULT_USER_SETTINGS } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
-      for (const transientKey of TRANSIENT_SETTING_KEYS) {
-        delete toSave[transientKey];
-      }
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
-    } catch (e) {
-      console.warn("[Settings] Could not save settings:", e);
-    }
     try {
       sessionStorage.removeItem(TRANSIENT_STORAGE_KEY);
     } catch (e) {}
@@ -309,34 +313,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const applySettings = useCallback((partial: Partial<UserSettings>) => {
     const safe: Partial<UserSettings> = { ...partial };
+    delete (safe as Record<string, unknown>).__autoZoomMigrated;
     // Imported files must never inject credentials into persisted storage.
     for (const transientKey of TRANSIENT_SETTING_KEYS) {
       delete safe[transientKey];
     }
-    setSettings((prev) => {
-      const updated: UserSettings = {
-        ...prev,
-        ...safe,
-        biophysicsConditions: {
-          ...DEFAULT_USER_SETTINGS.biophysicsConditions,
-          ...(prev.biophysicsConditions || {}),
-          ...(safe.biophysicsConditions || {})
-        }
-      };
-      try {
-        const toSave = { ...updated } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
-        for (const transientKey of TRANSIENT_SETTING_KEYS) {
-          delete toSave[transientKey];
-        }
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
-      } catch (e) {
-        console.warn("[Settings] Could not save settings:", e);
+    setSettings((prev) => ({
+      ...prev,
+      ...safe,
+      biophysicsConditions: {
+        ...DEFAULT_USER_SETTINGS.biophysicsConditions,
+        ...(prev.biophysicsConditions || {}),
+        ...(safe.biophysicsConditions || {})
       }
-      if (safe.showAtomInteractions !== undefined) {
-        setShowPolarContacts(safe.showAtomInteractions);
-      }
-      return updated;
-    });
+    }));
+    if (safe.showAtomInteractions !== undefined) {
+      setShowPolarContacts(safe.showAtomInteractions);
+    }
   }, []);
 
   const serverGeminiReady = Boolean(useDiagnostics({ geminiReadyOnly: true }).diagnostics?.geminiReady);

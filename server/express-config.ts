@@ -107,9 +107,10 @@ export async function createExpressApp(): Promise<express.Express> {
               "'unsafe-inline'",
               "'unsafe-eval'"
             ],
-        // Note on styleSrc: 'unsafe-inline' is required for Mol* 3D WebGL viewer canvas CSS and dynamic chart tooltips
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        fontSrc: ["'self'", "data:"],
+        // Note on styleSrc: 'unsafe-inline' is required for Mol* 3D WebGL viewer canvas CSS and dynamic chart tooltips;
+        // cdn.jsdelivr.net is required by the Scalar API docs page (/api/v1/docs).
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        fontSrc: ["'self'", "data:", "https://cdn.jsdelivr.net"],
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: isProd
           ? [

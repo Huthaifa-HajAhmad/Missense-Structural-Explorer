@@ -215,6 +215,71 @@ describe("ClinicalInsightsCard export handlers", () => {
       (URL as any).createObjectURL = originalCreate;
     }
   });
+
+  it("aligns canonicalDdg fallbacks with raw foldx and stabilityoracle snapshot values", async () => {
+    const blobs: Blob[] = [];
+    const originalCreate = (URL as any).createObjectURL;
+    (URL as any).createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return "blob:mock";
+    };
+
+    try {
+      const result = {
+        ...baseResult(),
+        foldingEnergetics: { foldx: 2.1, stabilityoracle: -1.4 }
+      };
+      renderCard(result, { foldingEnergetics: null });
+
+      fireEvent.click(screen.getByRole("button", { name: /Export JSON/i }));
+
+      expect(blobs).toHaveLength(1);
+      const json = JSON.parse(await blobs[0].text());
+      expect(json.biophysicalEnergetics.foldx.ddG).toBe(2.1);
+      expect(json.biophysicalEnergetics.canonicalDdg.foldx).toBe(2.1);
+      expect(json.biophysicalEnergetics.stabilityoracle).toBe(-1.4);
+      expect(json.biophysicalEnergetics.canonicalDdg.stabilityoracle).toBe(-1.4);
+    } finally {
+      (URL as any).createObjectURL = originalCreate;
+    }
+  });
+
+  it("falls back to result.foldingEnergetics.foldxMean/Sd and foldingDdG in Export JSON", async () => {
+    const blobs: Blob[] = [];
+    const originalCreate = (URL as any).createObjectURL;
+    (URL as any).createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return "blob:mock";
+    };
+
+    try {
+      const resultWithMeanSd = {
+        ...baseResult(),
+        foldingEnergetics: { foldxMean: 2.65, foldxSd: 0.35 }
+      };
+      const firstView = renderCard(resultWithMeanSd, { foldingEnergetics: null, foldingDdG: 1.9 });
+      fireEvent.click(screen.getByRole("button", { name: /Export JSON/i }));
+      expect(blobs).toHaveLength(1);
+      const firstJson = JSON.parse(await blobs[0].text());
+      expect(firstJson.biophysicalEnergetics.foldx.ddG).toBe(1.9);
+      expect(firstJson.biophysicalEnergetics.foldx.mean).toBe(2.65);
+      expect(firstJson.biophysicalEnergetics.foldx.sd).toBe(0.35);
+      expect(firstJson.biophysicalEnergetics.canonicalDdg.foldx).toBe(2.65);
+      firstView.unmount();
+
+      const secondView = renderCard(baseResult(), { foldingEnergetics: null, foldingDdG: 1.9 });
+      fireEvent.click(screen.getByRole("button", { name: /Export JSON/i }));
+      expect(blobs).toHaveLength(2);
+      const secondJson = JSON.parse(await blobs[1].text());
+      expect(secondJson.biophysicalEnergetics.foldx.ddG).toBe(1.9);
+      expect(secondJson.biophysicalEnergetics.foldx.mean).toBe(1.9);
+      expect(secondJson.biophysicalEnergetics.foldx.sd).toBeNull();
+      expect(secondJson.biophysicalEnergetics.canonicalDdg.foldx).toBe(1.9);
+      secondView.unmount();
+    } finally {
+      (URL as any).createObjectURL = originalCreate;
+    }
+  });
 });
 
 describe("ClinicalInsightsCard consolidated case", () => {

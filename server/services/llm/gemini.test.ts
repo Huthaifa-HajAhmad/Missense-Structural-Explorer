@@ -477,4 +477,89 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       });
     });
   });
+
+  describe("performGeminiBiophysicalAnalysis resilience & BYOK isolation", () => {
+    it("should not fall back to the server GEMINI_API_KEY when customApiKey fails auth", async () => {
+      const geminiService = await import("./gemini.ts");
+      const oldEnvKey = process.env.GEMINI_API_KEY;
+      process.env.GEMINI_API_KEY = "AIzaSySystemTeamFallbackKey1234567890";
+      mockGenerateContent.mockRejectedValue({
+        status: 403,
+        message: "API key not valid"
+      });
+
+      try {
+        await expect(
+          geminiService.performGeminiBiophysicalAnalysis(
+            "PAH",
+            "p.Arg408Trp",
+            "P00439",
+            "408",
+            "R",
+            "W",
+            "AIzaSyCallerOwnBadKey1234567890",
+            new AbortController().signal
+          )
+        ).rejects.toMatchObject({ status: 403 });
+        // Only the caller key was attempted; never retried using the server team key
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      } finally {
+        if (oldEnvKey === undefined) delete process.env.GEMINI_API_KEY;
+        else process.env.GEMINI_API_KEY = oldEnvKey;
+      }
+    });
+
+    it("should handle undefined response.text safely and map cancelled signal to REQUEST_CANCELLED (499)", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent
+        .mockResolvedValueOnce({ text: undefined, candidates: [] })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            biochemicalShift: "Charge swap handled cleanly.",
+            structuralImpact: "Fallback model recovered."
+          })
+        });
+      const res = await geminiService.performGeminiBiophysicalAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", new AbortController().signal
+      );
+      expect(res.biochemicalShift).toBe("Charge swap handled cleanly.");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        geminiService.performGeminiBiophysicalAnalysis("PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", controller.signal)
+      ).rejects.toMatchObject({ code: "REQUEST_CANCELLED", status: 499 });
+    });
+
+    it("retries transient 503 failures with backoff and throws classified GeminiError when all models fail", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent
+        .mockRejectedValueOnce({ status: 503, message: "503 Service Unavailable" })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            biochemicalShift: "Aromatic steric increase.",
+            structuralImpact: "Recovered after transient 503."
+          })
+        });
+
+      const recovered = await geminiService.performGeminiBiophysicalAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", new AbortController().signal
+      );
+      expect(recovered.structuralImpact).toBe("Recovered after transient 503.");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+
+      // Exhaust all models with 429 quota errors -> must throw classified GeminiError instead of synthetic text
+      mockGenerateContent.mockReset();
+      mockGenerateContent.mockRejectedValue({
+        status: 429,
+        message: "Resource has been exhausted (e.g. check quota)."
+      });
+      await expect(
+        geminiService.performGeminiBiophysicalAnalysis(
+          "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", new AbortController().signal
+        )
+      ).rejects.toMatchObject({ code: "QUOTA_EXHAUSTED", status: 429 });
+    });
+  });
 });

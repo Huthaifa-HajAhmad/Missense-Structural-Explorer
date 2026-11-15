@@ -11,6 +11,7 @@ app.tamarind.bio,server/services/stability/energy-models.ts
 biohub.ai,server/routes/structure.ts
 biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts
 biosig.lab.uq.edu.au,server/services/stability/dynamut.ts
+cdn.jsdelivr.net,server/express-config.ts
 cdn.jsdelivr.net,server/routes/docs.ts
 consurfdb.tau.ac.il,server/services/prediction/predictors/consurf-resolver.ts
 data.evemodel.org,server/services/prediction/predictors/popeve-resolver.ts

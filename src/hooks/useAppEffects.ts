@@ -38,19 +38,15 @@ export function useAppEffects({
   const storeVariant = useVariantAnalysisStore(s => s.variant);
   const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const storeEsmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
-  const storeIsEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
   const storeEsmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
   const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
-  const storeCustomPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
 
   const gene = state?.gene ?? storeGene;
   const variant = state?.variant ?? storeVariant;
   const uniprotId = state?.uniprotId ?? storeUniprotId;
   const esmFoldWtPdb = state?.esmFoldWtPdb ?? storeEsmFoldWtPdb;
-  const isEsmFolding = state?.isEsmFolding ?? storeIsEsmFolding;
   const esmFoldingError = state?.esmFoldingError ?? storeEsmFoldingError;
   const analysisState = state?.analysisState ?? storeAnalysisState;
-  const customPdbUrl = state?.customPdbUrl ?? storeCustomPdbUrl;
 
   const fetchEsmFold = propsFetchEsmFold || actions?.fetchEsmFold;
   const executeAnalysis = propsExecuteAnalysis || actions?.executeAnalysis;
@@ -96,9 +92,18 @@ export function useAppEffects({
     }
   }, [gene, variant, uniprotId, analysisState.result, analysisState.isLoading]);
 
-  // Synchronize active 3D model tab
+  // Synchronize active 3D model tab when entering a 3D view and clear custom experimental overlay for ESMFold.
+  // Avoid resetting active3dModelTab on non-3D tabs (evidence, landscape) so sticky ESMFold selection survives.
   useEffect(() => {
-    useVariantAnalysisStore.getState().setActive3dModelTab(masterView === "structure_esmfold" ? "esm3" : "alphafold2");
+    const store = useVariantAnalysisStore.getState();
+    if (masterView === "structure_esmfold") {
+      store.setActive3dModelTab("esmfold2");
+      if (store.customPdbUrl !== null) {
+        store.setCustomPdbUrl(null);
+      }
+    } else if (masterView === "structure" || masterView === "structure_alphafold") {
+      store.setActive3dModelTab("alphafold2");
+    }
   }, [masterView]);
 
   // Trigger ESMFold folding when masterView is "structure_esmfold"
@@ -115,11 +120,8 @@ export function useAppEffects({
       // Prevent redundant fetches / folding routines if we already fold this variant
       if (lastFoldedKeyRef.current === foldKey) return;
 
-      if (customPdbUrl !== null) {
-        useVariantAnalysisStore.getState().setCustomPdbUrl(null);
-      }
-
-      if (esmFoldWtPdb || isEsmFolding || esmFoldingError) {
+      const currentlyFolding = state?.isEsmFolding ?? useVariantAnalysisStore.getState().isEsmFolding;
+      if (esmFoldWtPdb || currentlyFolding || esmFoldingError) {
         return;
       }
 
@@ -177,10 +179,8 @@ export function useAppEffects({
     masterView,
     analysisState.result?.metadata,
     esmFoldWtPdb,
-    isEsmFolding,
     esmFoldingError,
     uniprotId,
-    customPdbUrl,
     variant
   ]);
 

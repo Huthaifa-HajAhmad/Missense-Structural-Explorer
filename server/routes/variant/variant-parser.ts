@@ -7,6 +7,7 @@ import {
   sendError,
   filterPII,
   formatZodError,
+  validateSafeCustomEndpointUrl,
 } from "../../utils.ts";
 import {
   fetchUniprotSequence,
@@ -96,8 +97,6 @@ export const analyzeVariantSchema = z.object({
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
-const BLOCKED_HOST_REGEX = /^(169\.254\.\d+\.\d+|metadata\.google\.internal|metadata|instance-data|0\.0\.0\.0|localhost|::1|\[::1\]|::|\[::\])$/i;
-
 export const sanitizeToken = (val: unknown): string | null => {
   if (!val) return null;
   const raw = Array.isArray(val) ? val[0] : val;
@@ -114,86 +113,9 @@ export const sanitizeUrl = (val: unknown): string | null => {
   if (!val) return null;
   const raw = Array.isArray(val) ? val[0] : val;
   if (typeof raw !== "string") return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.length > 512) {
-    return null;
-  }
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    if (BLOCKED_HOST_REGEX.test(hostname)) {
-      return null;
-    }
-
-    const cleanHost = hostname.replace(/^\[|\]$/g, "");
-
-    /*
-     * Addresses are classified by value, not by string prefix. WHATWG `new URL()` rewrites an
-     * IPv4-mapped IPv6 host to hex (`[::ffff:127.0.0.1]` -> `[::ffff:7f00:1]`), so the old
-     * "::ffff:127." prefix tests never matched anything.
-     */
-    const v4 = ipv4Octets(cleanHost) ?? mappedIpv4Octets(cleanHost);
-    const v6 = v4 ? null : ipv6Groups(cleanHost);
-    if (v6) {
-      // Loopback/unspecified, link-local fe80::/10, unique-local fc00::/7.
-      const isLoopbackOrUnspecified = v6.slice(0, 7).every(g => g === 0) && (v6[7] === 0 || v6[7] === 1);
-      if (isLoopbackOrUnspecified || (v6[0] & 0xffc0) === 0xfe80 || (v6[0] & 0xfe00) === 0xfc00) return null;
-    }
-    if (v4) {
-      const [a, b] = v4;
-      // Loopback, "this network", link-local/metadata: refused everywhere.
-      if (a === 127 || a === 0 || (a === 169 && b === 254)) return null;
-      if (process.env.NODE_ENV === "production") {
-        if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)) {
-          return null;
-        }
-      }
-    }
-
-    if (process.env.NODE_ENV === "production") {
-      if (hostname === "localhost") return null;
-      // Plain http would also carry the caller's key in the clear.
-      if (parsed.protocol !== "https:") return null;
-    }
-    return parsed.toString().replace(/\/+$/, "");
-  } catch {
-    return null;
-  }
+  const result = validateSafeCustomEndpointUrl(raw);
+  return result.valid ? result.url : null;
 };
-
-function ipv4Octets(host: string): [number, number, number, number] | null {
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return null;
-  const o = m.slice(1).map(Number);
-  return o.every(n => n <= 255) ? [o[0], o[1], o[2], o[3]] : null;
-}
-
-/** Eight 16-bit groups of an IPv6 literal (already canonical from `URL.hostname`), or null. */
-function ipv6Groups(host: string): number[] | null {
-  if (!host.includes(":")) return null;
-  const halves = host.split("::");
-  if (halves.length > 2) return null;
-  const parse = (s: string) => (s === "" ? [] : s.split(":").map(g => (/^[0-9a-f]{1,4}$/i.test(g) ? parseInt(g, 16) : NaN)));
-  const head = parse(halves[0]);
-  const tail = halves.length === 2 ? parse(halves[1]) : [];
-  if ([...head, ...tail].some(Number.isNaN)) return null;
-  if (halves.length === 1) return head.length === 8 ? head : null;
-  const fill = 8 - head.length - tail.length;
-  if (fill < 1) return null;
-  return [...head, ...Array<number>(fill).fill(0), ...tail];
-}
-
-/** The IPv4 address inside `::ffff:a.b.c.d` (hex or dotted), if that is what the host is. */
-function mappedIpv4Octets(host: string): [number, number, number, number] | null {
-  const dotted = /^(?:0{0,4}:){0,5}:?ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
-  if (dotted) return ipv4Octets(dotted[1]);
-  const g = ipv6Groups(host);
-  if (!g || g.slice(0, 5).some(x => x !== 0) || g[5] !== 0xffff) return null;
-  return [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255];
-}
 
 export const getEngine = (val: unknown): string | undefined => {
   if (!val) return undefined;

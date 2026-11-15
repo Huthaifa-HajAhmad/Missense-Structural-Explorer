@@ -101,6 +101,7 @@ export class CacheRegistry {
   private readonly staleLoggedAt = new Map<string, number>();
   private readonly customCaches = new Map<string, CustomCacheMetadata>();
   private readonly clearHooks: Array<() => void> = [];
+  private clearEpoch = 0;
 
   constructor() {
     this.pdbCache = new LRUCache<string, string>({
@@ -273,7 +274,8 @@ export class CacheRegistry {
     const flightKey = options.serveStale === false ? `${key}\u0000fresh-only` : key;
     let fill = this.inFlightFills.get(flightKey) as Promise<FillOutcome<T>> | undefined;
     if (!fill) {
-      const started = this.fill(options);
+      const epoch = this.clearEpoch;
+      const started = this.fill(options, epoch);
       fill = started;
       this.inFlightFills.set(flightKey, started);
       // Only this fill's own entry: `clearAll` may have let a newer fill take the key meanwhile.
@@ -288,7 +290,7 @@ export class CacheRegistry {
     return outcome.value;
   }
 
-  private async fill<T>(options: CachedFetchOptions<T>): Promise<FillOutcome<T>> {
+  private async fill<T>(options: CachedFetchOptions<T>, epoch: number): Promise<FillOutcome<T>> {
     const { key, source, l1Cache, ttlSeconds, fetcher, bypassSqlite, shouldCache } = options;
     const scope = newCacheScope();
     let result: T | undefined;
@@ -306,9 +308,15 @@ export class CacheRegistry {
     }
     // Built from an expired entry somewhere below: correct to return, wrong to store as fresh.
     if (scope.stale.length > 0) return { ok: true, value: result as T, scope };
+    // `clearAll` ran while this fetch was in flight; return cleanly without repopulating caches.
+    if (this.clearEpoch !== epoch) return { ok: true, value: result as T, scope };
 
     if (l1Cache) {
-      l1Cache.set(key, result);
+      if (ttlSeconds && ttlSeconds > 0) {
+        l1Cache.set(key, result, { ttl: ttlSeconds * 1000 });
+      } else {
+        l1Cache.set(key, result);
+      }
     }
     if (!bypassSqlite) {
       try {
@@ -477,6 +485,7 @@ export class CacheRegistry {
    * Flushes 100% of registered in-memory caches, in-flight promises, and optionally L2 SQLite.
    */
   public clearAll(includeSqlite = false): void {
+    this.clearEpoch++;
     this.pdbCache.clear();
     this.bestPdbCache.clear();
     this.uniprotCache.clear();

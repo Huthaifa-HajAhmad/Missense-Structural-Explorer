@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import os from "os";
 import { DatabaseSync } from "node:sqlite";
 import { Queue, Worker } from "bullmq";
 import { CONFIG, resolveFoldxConcurrency } from "../../config.ts";
@@ -14,7 +13,7 @@ import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
 import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, placementOf, routingMode, type AdmissionInput } from "./admission.ts";
-import { probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
+import { freeRamBytes, probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
 import { foldxRepairApplies, hostClassOf, type CostModels, type Decision, type HostFeatures, type JobType, type PlacementPref } from "../../../src/shared/computeRouting.ts";
 import { parseRoutingRecord, runsOnFor, serverRecordAfter, type JobRunsOn, type RoutingRecord } from "../../../src/shared/jobPlacement.ts";
 import type { AgentRecentWork } from "../../../src/shared/agentProtocol.ts";
@@ -461,12 +460,28 @@ export class SQLiteQueue {
   async getJob(id: string): Promise<QueueJob | null> {
     const row = this.db.prepare("SELECT * FROM biophysical_jobs WHERE id = ?").get(id) as any;
     if (!row) return null;
+    let parsedData: any = {};
+    if (typeof row.data === "string" && row.data.length > 0) {
+      try {
+        parsedData = JSON.parse(row.data);
+      } catch {
+        parsedData = {};
+      }
+    }
+    let parsedResult: any = undefined;
+    if (typeof row.result === "string" && row.result.length > 0) {
+      try {
+        parsedResult = JSON.parse(row.result);
+      } catch {
+        parsedResult = undefined;
+      }
+    }
     return {
       id: row.id,
       type: row.type as any,
-      data: JSON.parse(row.data),
+      data: parsedData,
       status: row.status as any,
-      result: row.result ? JSON.parse(row.result) : undefined,
+      result: parsedResult,
       error: row.error || undefined,
       createdAt: row.created_at,
       startedAt: row.started_at ?? null,
@@ -922,6 +937,20 @@ export class SQLiteQueue {
       LIMIT 25
     `).all(agent.userId, ...types, claimant, claimant) as any[];
     for (const row of candidates) {
+      let data: any;
+      try {
+        data = JSON.parse(row.data);
+      } catch (parseErr: any) {
+        console.error(`[Queue] Corrupt JSON payload for queued job ${row.id}:`, parseErr?.message ?? parseErr);
+        const failed = this.db.prepare(`
+          UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
+          WHERE id = ? AND status = 'queued'
+        `).run("Corrupt job payload JSON", now, row.id);
+        if (Number(failed.changes ?? 0) > 0) {
+          this.recordEnding(row.id, "failed", "corrupt-payload");
+        }
+        continue;
+      }
       const repaired = row.repaired == null ? null : row.repaired === 1;
       const othersWatching = Boolean(this.db.prepare("SELECT 1 FROM job_watchers WHERE job_id = ? AND user_id != ? LIMIT 1").get(row.id, agent.userId));
       if (!accept({ id: row.id, type: row.type, residues: row.residues ?? null, repaired, othersWatching })) continue;
@@ -942,8 +971,6 @@ export class SQLiteQueue {
           reasons: [], decidedAt: now, note: "taken_from_backlog",
         });
       }
-      let data: any = {};
-      try { data = JSON.parse(row.data); } catch { /* the payload builder reports what is missing */ }
       return { id: row.id, type: row.type, data, ownerId: row.owner_id, residues: row.residues ?? null, repaired, leaseExpiresAt };
     }
     return null;
@@ -1206,8 +1233,8 @@ export class SQLiteQueue {
     while (this.runningCount < this.concurrency) {
       if (this.isShutdown || this.processingPaused) return;
 
-      // Check system memory (backpressure protection)
-      const freeMem = os.freemem();
+      // Check container-aware memory pressure (backpressure protection)
+      const freeMem = freeRamBytes();
       const memoryLimit = CONFIG.memory.minFreeBytes;
       if (freeMem < memoryLimit) {
         console.warn(`[Queue] High memory pressure (${(freeMem / 1024 / 1024).toFixed(0)} MB free). Stalling job scheduling.`);
@@ -1225,6 +1252,19 @@ export class SQLiteQueue {
 
       const jobId = row.id;
       const type = row.type;
+
+      let data: any;
+      try {
+        data = JSON.parse(row.data);
+      } catch (parseErr: any) {
+        console.error(`[Queue] Corrupt JSON payload for queued job ${jobId}:`, parseErr?.message ?? parseErr);
+        this.db.prepare(`
+          UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
+          WHERE id = ? AND status = 'queued'
+        `).run("Corrupt job payload JSON", Date.now(), jobId);
+        this.recordEnding(jobId, "failed", "corrupt-payload");
+        continue;
+      }
 
       // A ceiling learned after this job was queued (another job of this size or smaller ran out of
       // memory) stops it here, with the reason, instead of running it into the same death.
@@ -1247,8 +1287,6 @@ export class SQLiteQueue {
           continue;
         }
       }
-
-      const data = JSON.parse(row.data);
 
       // Atomically set status to running. Start times strictly increase within this process, so the
       // scheduler's "served least recently" term never ties for jobs claimed in the same millisecond,
@@ -1281,6 +1319,8 @@ export class SQLiteQueue {
       activeEntry.promise = (async () => {
         let isAccounted = true;
         let timeoutId: NodeJS.Timeout | null = null;
+        let jobSettled = false;
+        let jobPromise: Promise<any> | null = null;
         try {
           const timeoutMs = type === "foldx" ? CONFIG.timeouts.foldxSec * 1000 : CONFIG.timeouts.p2rankSec * 1000;
           
@@ -1294,10 +1334,14 @@ export class SQLiteQueue {
           // providers fairly between people and serves `system` (prewarm) jobs last (WP-I1). The job
           // gets a cache scope of its own: it may start inside the submitting request, and what its
           // fetches see (rate limits, stale entries) is not that request's (WP-I2).
-          const jobPromise = runWithEgressOwner(row.owner_id || LEGACY_OWNER, () =>
+          jobPromise = runWithEgressOwner(row.owner_id || LEGACY_OWNER, () =>
             runInCacheScope(newCacheScope(), () =>
               runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId))
             )
+          );
+          jobPromise.then(
+            () => { jobSettled = true; },
+            () => { jobSettled = true; }
           );
           const resData = await Promise.race([jobPromise, timeoutPromise]);
 
@@ -1350,6 +1394,16 @@ export class SQLiteQueue {
           if (this.isShutdown) return;
 
           this.abortJob(jobId);
+
+          if (!jobSettled && jobPromise) {
+            await Promise.race([
+              jobPromise.catch(() => {}),
+              new Promise<void>((resolve) => {
+                const grace = setTimeout(resolve, 2000);
+                grace.unref();
+              }),
+            ]);
+          }
 
           if (!this.activeJobs.has(jobId)) {
             isAccounted = false;
@@ -1647,7 +1701,7 @@ export class BiophysicalJobQueue {
           "biophysical_jobs",
           async (job) => {
             // Memory check before starting job
-            const freeMem = os.freemem();
+            const freeMem = freeRamBytes();
             if (freeMem < CONFIG.memory.minFreeBytes) {
               throw new Error("Job execution stalled: server out of memory");
             }

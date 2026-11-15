@@ -129,4 +129,28 @@ describe("fetchEsm3StructureEval coverage and caching", () => {
     expect(afRes.confidence.level).toBe("high");
     expect(afRes.confidence.plddt).toBe(88);
   });
+
+  it("refuses synthetic poly-A fallback when no sequence can be resolved and preserves sidecar JSON errors", async () => {
+    const fetchMock = vi.fn(async (_url?: unknown) => ({
+      ok: false,
+      status: 404,
+      text: async () => "Not Found",
+    }));
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const noSeq = await fetchEsm3StructureEval("NO_UNIPROT_SEQ", 5, "A", "V", null, null, null) as any;
+    expect(noSeq.status).toBe("error");
+    expect(noSeq.error).toMatch(/No amino-acid sequence/i);
+    // Never invokes /predict/esm3 with a fabricated "MAAAAA..." string
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/predict/esm3"))).toBe(false);
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ status: "error", error: "ESM3 weights not installed", remoteEngineNote: "HTTP 401" })
+    })) as any);
+    const jsonErr = await fetchEsm3StructureEval("JSON_ERR", 2, "A", "V", null, null, "AAAA") as any;
+    expect(jsonErr.status).toBe("error");
+    expect(jsonErr.error).toBe("ESM3 weights not installed");
+    expect(jsonErr.remoteEngineNote).toBe("HTTP 401");
+  });
 });

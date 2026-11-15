@@ -45,4 +45,22 @@ describe("Async & Sync PDB Parsers", () => {
     expect(result.sequence).toContain("D");
     expect(result.minPos).toBe(1);
   });
+
+  it("parses HETATM CA residues consistently across sync and async paths and stops at ENDMDL", async () => {
+    const hetatmLine = "HETATM    1  CA  MSE A   1       1.000   2.000   3.000  1.00 50.00           C";
+    const model2Atom = "ATOM      2  CA  ALA A   2       4.000   5.000   6.000  1.00 50.00           C";
+    const padding = new Array(1000)
+      .fill("REMARK   0 PADDING LINE TO FORCE ASYNC PARSER OVER 64KB THRESHOLD........")
+      .join("\n");
+    const multiModelPdb = `${padding}\nMODEL        1\n${hetatmLine}\nENDMDL\nMODEL        2\n${model2Atom}\nENDMDL\n`;
+
+    const syncRes = parseResiduesFromPdb(multiModelPdb);
+    const asyncRes = await parseResiduesFromPdbMaybeAsync(multiModelPdb);
+    const asyncAtoms = await parseAtomsFromPdbMaybeAsync(multiModelPdb);
+
+    expect(syncRes).toEqual([{ chain: "A", insCode: "", resName3: "MSE", resSeq: 1, x: 1, y: 2, z: 3 }]);
+    expect(asyncRes).toEqual(syncRes);
+    expect(asyncAtoms).toHaveLength(1);
+    expect(asyncAtoms[0].resSeq).toBe(1);
+  });
 });

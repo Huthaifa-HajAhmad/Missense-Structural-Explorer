@@ -38,6 +38,7 @@ describe("SidecarSupervisor", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
