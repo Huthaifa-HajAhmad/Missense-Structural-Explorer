@@ -395,7 +395,7 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
       const { LOCUS_POLICY_VERSION } = await import("../../../src/shared/locusResolution.ts");
       const candidate = (alt: string) => ({ grch37Id: `4-1806119-G-${alt}`, id: `4-1804392-G-${alt}`, canonicalBy: "ensembl-lift" as const, retryable: false });
-      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValue(true); // the store stays installed for the whole run
       vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({
         gnomad: { maxAF: 0.05, genomeAC: 50, genomeAN: 1000, dataset: "gnomad_r4_local" },
         aou: null,
@@ -415,6 +415,7 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       ]);
       expect(result.gnomadFrequency?.candidates?.map(c => c.outcome)).toEqual(["not-found", "not-found"]);
       expect(result.gnomadFrequency?.candidates?.map(c => c.allOfUs?.localTable)).toEqual(["absent", "absent"]);
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValue(false);
       expect(result.gnomadFrequency?.standIn).toBeUndefined();
       expect(result.serviceStatus.gnomadFrequency).toBe("ok");
       // Absent for every candidate, so PM2 holds whichever allele the person carries.

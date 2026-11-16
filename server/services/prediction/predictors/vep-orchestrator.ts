@@ -7,7 +7,7 @@ import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
-import { candidatesFromProtVar, liftAlleleCandidates, withinOneCodon, withLocalCadd, type MyVariantCandidate } from "./allele-candidates.ts";
+import { candidatesFromProtVar, liftAlleleCandidates, proteinChangeOf, withinOneCodon, withLocalCadd, type MyVariantCandidate } from "./allele-candidates.ts";
 import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38, ucscGrch38Base } from "./locus-resolver.ts";
 import { LOCUS_POLICY_VERSION, type AlleleCandidate, type LocusResolution, type LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
@@ -694,16 +694,17 @@ export async function fetchPredictorsFallback(
   let gnomadVariantAssembly: GenomeAssembly | null = null;
   let canonicalBy: LocusResolution["canonicalBy"] = null;
   let candidates: AlleleCandidate[] = [];
-  // ProtVar reads the GRCh38 codon itself: it confirms the MyVariant candidates, replaces a partial
-  // list, or names the candidates when Ensembl already proved the change ambiguous.
-  const aa = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
-  if (uniprotId && aa && !coordinateOnly &&
-      (failureKind === "multiple-candidates" || failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence")) {
-    const check = await candidatesFromProtVar(
-      { accession: uniprotId, position: Number(aa[2]), wt: toSingleAa(aa[1]), mut: toSingleAa(aa[3]) }, myvariantComplete, steps);
+  // ProtVar reads the GRCh38 codon itself. It is asked on every protein-only run, so that a single
+  // MyVariant allele cannot hide a second one: it confirms, completes or contradicts that list.
+  const proteinChange = proteinChangeOf(variant, toSingleAa);
+  if (uniprotId && proteinChange && !coordinateOnly) {
+    const check = await candidatesFromProtVar({ accession: uniprotId, ...proteinChange }, myvariantComplete, steps);
     if (check.kind !== "unchanged") candidateLoci = [];
     if (check.kind === "candidates") { failureKind = "multiple-candidates"; candidates = check.candidates; }
-    if (check.kind === "disagree") failureKind = "incomplete-evidence";
+    if (check.kind === "disagree") {
+      failureKind = "incomplete-evidence";
+      gnomadVariantId = null; dbnsfpGrch38 = null; caddPhred = null;
+    }
   }
   if (knownAmbiguity || failureKind === "ambiguous-allele" || failureKind === "multiple-candidates" || coordinateOnly) {
     gnomadVariantId = null;

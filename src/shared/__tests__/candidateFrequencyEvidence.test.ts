@@ -164,6 +164,17 @@ describe("population comparison chart for several candidate alleles", () => {
   });
 });
 
+describe("cDNA change for each candidate allele", () => {
+  it("carries each allele's cDNA change onto its row and its chart inspector", async () => {
+    const { buildPopulationComparison } = await import("../evidenceComparison");
+    const reading = evidence([{ ...absent("A"), cdna: "ENST00000440486.8:c.1138G>A" }, absent("C")]);
+    expect(reading.candidates?.map(r => r.cdna)).toEqual(["ENST00000440486.8:c.1138G>A", null]);
+    const rows = buildPopulationComparison(reading).rows.filter(r => r.group === "gnomad-candidate");
+    expect(rows[0].facts).toContainEqual({ label: "cDNA change", value: "ENST00000440486.8:c.1138G>A" });
+    expect(rows[1].facts.some(f => f.label === "cDNA change")).toBe(false);
+  });
+});
+
 describe("All of Us for each candidate allele", () => {
   it("gives each allele its own All of Us figure, or names which absence it is", () => {
     const counts = { aouAC: 4, aouAN: 400000, aouHet: 4, aouHom: 0 };
@@ -177,6 +188,11 @@ describe("All of Us for each candidate allele", () => {
     ]);
     const aou = reading.observations.find(o => o.id === "all-of-us")!;
     expect(aou.availability.reason).toBe("All of Us is read for each candidate allele; see the candidate rows.");
+  });
+
+  it("names a rejected All of Us row instead of calling it absent", () => {
+    const reading = evidence([{ ...absent("A"), allOfUs: { localTable: "invalid", frequency: null } }, absent("C")]);
+    expect(reading.candidates?.[0].allOfUs?.note).toBe("The local All of Us row has counts that fail validation, so none is shown.");
   });
 
   it("says the table is not installed rather than implying an absence", () => {

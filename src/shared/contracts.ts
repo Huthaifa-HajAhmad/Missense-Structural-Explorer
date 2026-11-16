@@ -1720,8 +1720,9 @@ const gnomadCandidateReadingSchema = z.object({
   outcome: z.enum(["found", "not-found", "not-lifted", "failed"]),
   frequency: gnomadFrequencyRecordSchema.omit({ standIn: true }).nullable(),
   detail: z.string().nullable().optional(),
+  cdna: z.string().nullable().optional(),
   allOfUs: z.object({
-    localTable: z.enum(["found", "absent", "not-installed", "failed"]),
+    localTable: z.enum(["found", "absent", "not-installed", "failed", "invalid"]),
     frequency: z.object({
       aouAC: z.number().nullable(), aouAN: z.number().nullable(), aouHet: z.number().nullable(), aouHom: z.number().nullable(),
     }).nullable(),
@@ -2830,11 +2831,13 @@ export interface GnomadCandidateReading {
   detail?: string | null;
   /** All of Us counts for this allele from the local dbNSFP store; display only, feeds no criterion. */
   allOfUs?: CandidateAllOfUs | null;
+  /** The nucleotide change on its transcript, "ENST…:c.1138G>C", when it is known. */
+  cdna?: string | null;
 }
 
 /** One candidate allele's All of Us reading, or which absence it is (the `AouLookup` vocabulary). */
 export interface CandidateAllOfUs {
-  localTable: "found" | "absent" | "not-installed" | "failed";
+  localTable: "found" | "absent" | "not-installed" | "failed" | "invalid";
   frequency: AouFrequencyData | null;
 }
 

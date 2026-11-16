@@ -4,6 +4,8 @@ import { LOCUS_POLICY_VERSION, type AlleleCandidate } from "../../../src/shared/
 
 const fetchFrequency = vi.hoisted(() => vi.fn());
 const fetchLocal = vi.hoisted(() => vi.fn());
+const storeAvailable = vi.hoisted(() => vi.fn(() => true));
+vi.mock("../prediction/dbnsfp_local.ts", () => ({ isLocalDbnsfpAvailable: storeAvailable }));
 vi.mock("./gnomad.ts", () => ({ fetchGnomadVariantFrequency: fetchFrequency }));
 vi.mock("../prediction/landscape.ts", () => ({ fetchLocalPopulationFrequencies: fetchLocal }));
 
@@ -17,7 +19,7 @@ const pred = (candidates: AlleleCandidate[], overrides: Partial<NonNullable<Pred
   locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", policyVersion: LOCUS_POLICY_VERSION, steps: [], candidates, ...overrides },
 });
 
-beforeEach(() => { fetchFrequency.mockReset(); fetchLocal.mockReset(); });
+beforeEach(() => { fetchFrequency.mockReset(); fetchLocal.mockReset(); storeAvailable.mockReturnValue(true); });
 
 describe("alleleCandidatesToQuery", () => {
   it("returns the candidates of a current multiple-candidate trail", () => {
@@ -38,9 +40,17 @@ describe("fetchCandidateFrequencies", () => {
     expect(fetchFrequency).toHaveBeenCalledTimes(2);
     expect(fetchFrequency).toHaveBeenCalledWith("4-1804392-G-A", expect.objectContaining({ assembly: "GRCh38", deadlineAt: 1 }));
     expect(readings).toEqual([
-      { id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "found", frequency: record, allOfUs: { localTable: "not-installed", frequency: null } },
-      { id: "4-1804392-G-C", grch37Id: "4-1806119-G-C", outcome: "not-found", frequency: null, allOfUs: { localTable: "not-installed", frequency: null } },
+      { id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "found", frequency: record, allOfUs: { localTable: "not-installed", frequency: null }, cdna: null },
+      { id: "4-1804392-G-C", grch37Id: "4-1806119-G-C", outcome: "not-found", frequency: null, allOfUs: { localTable: "not-installed", frequency: null }, cdna: null },
     ]);
+  });
+
+  it("carries each candidate's cDNA change onto its reading, lifted or not", async () => {
+    fetchFrequency.mockResolvedValue(null);
+    const named = { ...lifted("A"), cdna: "ENST00000440486.8:c.1138G>A" };
+    const unlifted: AlleleCandidate = { grch37Id: "4-1806119-G-T", id: null, canonicalBy: null, retryable: false, cdna: "ENST00000440486.8:c.1138G>T" };
+    const readings = await fetchCandidateFrequencies([named, unlifted], {}, null);
+    expect(readings.map(r => r.cdna)).toEqual(["ENST00000440486.8:c.1138G>A", "ENST00000440486.8:c.1138G>T"]);
   });
 
   it("names a candidate whose query failed, and never queries one that was not lifted", async () => {
@@ -66,6 +76,17 @@ describe("All of Us for each candidate allele", () => {
       { localTable: "found", frequency: counts },
       { localTable: "absent", frequency: null },
     ]);
+  });
+
+  it("does not call a row absent when the store went away, or when its counts were rejected", async () => {
+    fetchFrequency.mockResolvedValue(null);
+    fetchLocal.mockResolvedValue(null);
+    storeAvailable.mockReturnValue(false);
+    expect((await fetchCandidateFrequencies([lifted("A")], {}, local))[0].allOfUs).toEqual({ localTable: "failed", frequency: null });
+    storeAvailable.mockReturnValue(true);
+    expect((await fetchCandidateFrequencies([lifted("A")], {}, local))[0].allOfUs).toEqual({ localTable: "absent", frequency: null });
+    fetchLocal.mockResolvedValue({ gnomad: null, aou: null, aouInvalidCounts: true });
+    expect((await fetchCandidateFrequencies([lifted("A")], {}, local))[0].allOfUs).toEqual({ localTable: "invalid", frequency: null });
   });
 
   it("says the table is not installed instead of reporting an absence, and records a failed read", async () => {

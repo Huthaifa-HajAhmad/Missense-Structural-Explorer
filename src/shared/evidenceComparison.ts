@@ -77,6 +77,7 @@ function candidateChartRow(allele: CandidateAlleleRow): EvidenceChartRow {
     contextText: allele.counts ? `AC / AN ${allele.counts}` : undefined,
     facts: [
       { label: allele.lifted ? 'Candidate allele (GRCh38)' : 'Candidate allele', value: allele.id },
+      ...(allele.cdna ? [{ label: 'cDNA change', value: allele.cdna }] : []),
       { label: 'AC / AN (exomes + genomes)', value: allele.counts ?? 'Not reported' },
       ...(faf95Differs ? [{ label: 'FAF95 (BA1/BS1 input)', value: formatFrequencyPercent(allele.benignAf as number) }] : []),
       { label: 'Homozygotes', value: formatCount(allele.homozygotes) },

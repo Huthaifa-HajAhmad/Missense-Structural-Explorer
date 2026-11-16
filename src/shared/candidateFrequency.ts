@@ -26,7 +26,10 @@ export interface CandidateDecision {
 export type CandidateVerdict =
   /** At least one candidate has no reading, so no criterion can hold for all of them. */
   | { kind: "failed"; failed: GnomadCandidateReading[]; readings: CandidateDecision[] }
-  /** Every candidate reached the same decision ("none" included). */
+  /**
+   * One decision holds for every candidate: they all reached it, or (benign side only) every
+   * candidate is above the BS1 cut-point, which is the weaker of the two benign decisions.
+   */
   | { kind: "agree"; decision: FrequencyDecision; readings: CandidateDecision[] }
   /** The candidates reached different decisions, so no criterion applies. */
   | { kind: "mixed"; readings: CandidateDecision[] };
@@ -43,10 +46,12 @@ export function decideCandidateFrequency(
   });
   const failed = readings.filter(r => r.decision === null).map(r => r.candidate);
   if (failed.length > 0 || readings.length === 0) return { kind: "failed", failed, readings };
-  const decisions = new Set(readings.map(r => r.decision));
-  return decisions.size === 1
-    ? { kind: "agree", decision: readings[0].decision!, readings }
-    : { kind: "mixed", readings };
+  const decisions = new Set(readings.map(r => r.decision!));
+  if (decisions.size === 1) return { kind: "agree", decision: readings[0].decision!, readings };
+  // BA1 is above BS1, so a candidate that meets BA1 also meets BS1: BS1 then holds for whichever
+  // allele the person carries. Anything else (PM2, or no criterion, beside a benign decision) does not.
+  const allBenign = [...decisions].every(d => d === "BA1" || d === "BS1");
+  return allBenign ? { kind: "agree", decision: "BS1", readings } : { kind: "mixed", readings };
 }
 
 /** BS2's homozygote test, held only when every candidate has at least `minimum` homozygotes. */

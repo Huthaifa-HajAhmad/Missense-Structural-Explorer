@@ -32,7 +32,7 @@ import { CANONICAL_ASSEMBLY, ASSEMBLY_LABELS } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
 
 /** Increment only when previously cached fallback allele identity is no longer safe to reuse. */
-export const LOCUS_POLICY_VERSION = 3;
+export const LOCUS_POLICY_VERSION = 4;
 
 /** Additive wire vocabulary: old payloads without a failure kind still parse. */
 export const locusFailureKindSchema = z.enum([
@@ -86,6 +86,8 @@ export const alleleCandidateSchema = z.object({
   /** This allele's own CADD PHRED score, and where it was read. Never copied to the run's single CADD. */
   caddPhred: z.number().nullable().optional(),
   caddSource: z.string().nullable().optional(),
+  /** The nucleotide change on its transcript, "ENST…:c.1138G>C", when ProtVar named it. */
+  cdna: z.string().nullable().optional(),
 });
 export type AlleleCandidate = z.infer<typeof alleleCandidateSchema>;
 

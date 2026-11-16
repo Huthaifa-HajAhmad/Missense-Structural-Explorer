@@ -11,6 +11,7 @@
 import type { CandidateAllOfUs, GnomadCandidateReading, PredictorData } from "../../../src/shared/contracts.ts";
 import { LOCUS_POLICY_VERSION, type AlleleCandidate } from "../../../src/shared/locusResolution.ts";
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
+import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { fetchGnomadVariantFrequency, type FetchGnomadFrequencyOptions } from "./gnomad.ts";
 
 /** The candidates to query, or null when this run is not a current multiple-candidate run. */
@@ -29,7 +30,13 @@ async function readAllOfUs(id: string, local: LocalStoreQuery | null): Promise<C
   const [chrom, pos, ref, alt] = id.split("-");
   const coordinate = { chrom, pos: Number(pos), ref, alt, assembly: "GRCh38" as const };
   return fetchLocalPopulationFrequencies(local.gene, local.pos, local.variant, coordinate).then(
-    (rows): CandidateAllOfUs => rows?.aou ? { localTable: "found", frequency: rows.aou } : { localTable: "absent", frequency: null },
+    (rows): CandidateAllOfUs => {
+      if (rows?.aou) return { localTable: "found", frequency: rows.aou };
+      // A rejected row is not an absence: the table holds it, and its counts were refused.
+      if (rows?.aouInvalidCounts) return { localTable: "invalid", frequency: null };
+      // `null` also means the store stopped being readable; only a readable store can say "no row".
+      return { localTable: isLocalDbnsfpAvailable() ? "absent" : "failed", frequency: null };
+    },
     (): CandidateAllOfUs => ({ localTable: "failed", frequency: null }),
   );
 }
@@ -60,11 +67,11 @@ export async function fetchCandidateFrequencies(
   options: Pick<FetchGnomadFrequencyOptions, "deadlineAt" | "cappedByCaller">,
   local: LocalStoreQuery | null = null,
 ): Promise<GnomadCandidateReading[]> {
-  return Promise.all(candidates.map(async ({ id, grch37Id }): Promise<GnomadCandidateReading> => {
+  return Promise.all(candidates.map(async ({ id, grch37Id, cdna }): Promise<GnomadCandidateReading> => {
     if (!id) {
-      return { id: null, grch37Id, outcome: "not-lifted", frequency: null, detail: "no verified GRCh38 position, so gnomAD r4 was not queried for this allele" };
+      return { id: null, grch37Id, outcome: "not-lifted", frequency: null, detail: "no verified GRCh38 position, so gnomAD r4 was not queried for this allele", cdna: cdna ?? null };
     }
     const [gnomad, allOfUs] = await Promise.all([readGnomad(id, grch37Id, options), readAllOfUs(id, local)]);
-    return { ...gnomad, allOfUs };
+    return { ...gnomad, allOfUs, cdna: cdna ?? null };
   }));
 }

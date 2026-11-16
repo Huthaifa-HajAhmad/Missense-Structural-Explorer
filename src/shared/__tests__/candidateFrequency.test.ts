@@ -36,6 +36,22 @@ describe("decideCandidateFrequency", () => {
     expect(verdict.readings.map(r => r.decision)).toEqual(["BS1", "PM2"]);
   });
 
+  it("applies BS1 when every candidate is above the BS1 cut-point, even if one is also above the BA1 cut-point", () => {
+    // Whichever allele the person carries, it is above the BS1 cut-point; only one is also above BA1.
+    const verdict = decideCandidateFrequency([found("4-1804392-G-A", 0.06), found("4-1804392-G-C", 0.03)], CUT);
+    expect(verdict).toMatchObject({ kind: "agree", decision: "BS1" });
+    expect(verdict.readings.map(r => r.decision)).toEqual(["BA1", "BS1"]);
+  });
+
+  it("applies BA1 only when every candidate is above the BA1 cut-point", () => {
+    expect(decideCandidateFrequency([found("4-1804392-G-A", 0.06), found("4-1804392-G-C", 0.07)], CUT)).toMatchObject({ kind: "agree", decision: "BA1" });
+  });
+
+  it("applies nothing when a benign-side candidate meets a PM2 or a no-criterion candidate", () => {
+    expect(decideCandidateFrequency([found("4-1804392-G-A", 0.06), absent("4-1804392-G-C")], CUT).kind).toBe("mixed");
+    expect(decideCandidateFrequency([found("4-1804392-G-A", 0.03), found("4-1804392-G-C", 0.005)], CUT).kind).toBe("mixed");
+  });
+
   it("does not sum frequencies: two candidates each below BS1 stay below it", () => {
     const verdict = decideCandidateFrequency([found("4-1804392-G-A", 0.006), found("4-1804392-G-C", 0.006)], CUT);
     expect(verdict).toMatchObject({ kind: "agree", decision: "none" });

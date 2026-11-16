@@ -119,6 +119,37 @@ describe("Population rail — several candidate alleles", () => {
   });
 });
 
+describe("candidate table details", () => {
+  it("shows each allele's cDNA change beside its GRCh38 id", () => {
+    const r = result([{ ...absent("A"), cdna: "ENST00000440486.8:c.1138G>A" }, absent("C")]);
+    render(<ClinicalTab {...({ analysisState: { result: r } } as any)} />);
+    const rows = within(screen.getByTestId("candidate-alleles")).getAllByRole("row").slice(1);
+    expect(rows[0]).toHaveTextContent("ENST00000440486.8:c.1138G>A");
+  });
+
+  it("describes every column in readable text, not only in a hover title", () => {
+    render(<ClinicalTab {...({ analysisState: { result: result([absent("A"), absent("C")]) } } as any)} />);
+    const headers = within(screen.getByTestId("candidate-alleles")).getAllByRole("columnheader");
+    expect(headers.map(h => h.textContent)).toEqual([
+      expect.stringContaining("Candidate allele"),
+      expect.stringMatching(/gnomAD AC \/ AN.*allele count over allele number/),
+      expect.stringMatching(/gnomAD AF.*frequency PM2 reads/),
+      expect.stringMatching(/Supports.*this allele's own reading/),
+    ]);
+  });
+
+  it("states a missing All of Us table once under the table, with no column of repeated notes", () => {
+    const r = result([
+      { ...absent("A"), allOfUs: { localTable: "not-installed", frequency: null } },
+      { ...absent("C"), allOfUs: { localTable: "not-installed", frequency: null } },
+    ]);
+    render(<ClinicalTab {...({ analysisState: { result: r } } as any)} />);
+    const table = screen.getByTestId("candidate-alleles");
+    expect(within(table).queryByRole("columnheader", { name: /All of Us/ })).toBeNull();
+    expect(screen.getAllByText(/No local All of Us table in this deployment\./)).toHaveLength(1);
+  });
+});
+
 describe("All of Us for each candidate allele", () => {
   const counts = { aouAC: 4, aouAN: 400000, aouHet: 4, aouHom: 0 };
   const withAou = () => result([
@@ -129,7 +160,7 @@ describe("All of Us for each candidate allele", () => {
   it("adds an All of Us column to the Population table", () => {
     render(<ClinicalTab {...({ analysisState: { result: withAou() } } as any)} />);
     const table = screen.getByTestId("candidate-alleles");
-    expect(within(table).getAllByRole("columnheader").map(h => h.textContent)).toContain("All of Us AF");
+    expect(within(table).getByRole("columnheader", { name: /All of Us AF/ })).toBeInTheDocument();
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows[0]).toHaveTextContent("1.00e-5");
     expect(rows[1]).toHaveTextContent("Not in the local All of Us table.");
