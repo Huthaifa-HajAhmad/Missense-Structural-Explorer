@@ -1164,7 +1164,9 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   /** A lookup that did not finish is a fault with a remedy, not an absence. */
   let aouFault = false;
   if (!aouHasEntry && candidateRun) {
-    aouReason = `All of Us frequency was not assessed: ${fallbackCause(assembly, false, "multiple-candidates")}`;
+    aouReason = candidateRows?.some(r => r.allOfUs)
+      ? "All of Us is read for each candidate allele; see the candidate rows."
+      : `All of Us frequency was not assessed: ${fallbackCause(assembly, false, "multiple-candidates")}`;
   } else if (!aouHasEntry) {
     const said = aouAbsenceReason(aouLookup);
     aouFault = said.fault;

@@ -163,3 +163,36 @@ describe("population comparison chart for several candidate alleles", () => {
     expect(ruleRow.facts).toContainEqual({ label: "Statistic", value: "Filtering allele frequency (FAF95)" });
   });
 });
+
+describe("All of Us for each candidate allele", () => {
+  it("gives each allele its own All of Us figure, or names which absence it is", () => {
+    const counts = { aouAC: 4, aouAN: 400000, aouHet: 4, aouHom: 0 };
+    const reading = evidence([
+      { ...absent("A"), allOfUs: { localTable: "found", frequency: counts } },
+      { ...absent("C"), allOfUs: { localTable: "absent", frequency: null } },
+    ]);
+    expect(reading.candidates?.map(r => r.allOfUs)).toEqual([
+      { af: 0.00001, counts: "4 / 400,000", note: null },
+      { af: null, counts: null, note: "Not in the local All of Us table." },
+    ]);
+    const aou = reading.observations.find(o => o.id === "all-of-us")!;
+    expect(aou.availability.reason).toBe("All of Us is read for each candidate allele; see the candidate rows.");
+  });
+
+  it("says the table is not installed rather than implying an absence", () => {
+    const reading = evidence([{ ...absent("A"), allOfUs: { localTable: "not-installed", frequency: null } }, absent("C")]);
+    expect(reading.candidates?.[0].allOfUs?.note).toBe("No local All of Us table in this deployment.");
+    expect(reading.candidates?.[1].allOfUs).toBeNull();
+  });
+});
+
+describe("chart rows carry each allele's All of Us figure", () => {
+  it("adds an All of Us fact to the candidate's inspector", async () => {
+    const { buildPopulationComparison } = await import("../evidenceComparison");
+    const counts = { aouAC: 4, aouAN: 400000, aouHet: 4, aouHom: 0 };
+    const model = buildPopulationComparison(evidence([{ ...absent("A"), allOfUs: { localTable: "found", frequency: counts } }, absent("C")]));
+    const rows = model.rows.filter(r => r.group === "gnomad-candidate");
+    expect(rows[0].facts).toContainEqual({ label: "All of Us AC / AN", value: "4 / 400,000" });
+    expect(rows[1].facts.some(f => f.label.startsWith("All of Us"))).toBe(false);
+  });
+});

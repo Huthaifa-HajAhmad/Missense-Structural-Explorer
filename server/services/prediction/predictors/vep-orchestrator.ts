@@ -7,7 +7,7 @@ import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
-import { liftAlleleCandidates, withinOneCodon } from "./allele-candidates.ts";
+import { candidatesFromProtVar, liftAlleleCandidates, withinOneCodon, withLocalCadd, type MyVariantCandidate } from "./allele-candidates.ts";
 import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38, ucscGrch38Base } from "./locus-resolver.ts";
 import { LOCUS_POLICY_VERSION, type AlleleCandidate, type LocusResolution, type LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
@@ -532,7 +532,9 @@ export async function fetchPredictorsFallback(
   /** dbNSFP's own GRCh38 position for the matched record — the independent recovery route. */
   let dbnsfpGrch38: DbnsfpGrch38 | null = null;
   /** Every allele of a complete list that can produce this change at one codon; none is selected. */
-  let candidateLoci: Array<[string, DbnsfpGrch38 | null]> = [];
+  let candidateLoci: Array<[string, MyVariantCandidate]> = [];
+  /** Every allele a COMPLETE MyVariant answer matched; null when the answer was partial or missing. */
+  let myvariantComplete: Map<string, MyVariantCandidate> | null = null;
 
   // 1. Check local dbNSFP first if available
   if (pos !== null) {
@@ -581,7 +583,7 @@ export async function fetchPredictorsFallback(
            * AMBIGUOUS_PROTEIN_NUMBERING policy of the translate route.
            */
           /** GRCh37 id → that record's own GRCh38 position, for every matching allele. */
-          const matchedLoci = new Map<string, DbnsfpGrch38 | null>();
+          const matchedLoci = new Map<string, MyVariantCandidate>();
           for (const hit of data.hits) {
             const hgvsp = Array.isArray(hit.dbnsfp?.hgvsp) ? hit.dbnsfp.hgvsp : [hit.dbnsfp?.hgvsp];
             const matchesVar = hgvsp.some((h: any) => {
@@ -609,7 +611,11 @@ export async function fetchPredictorsFallback(
                 const m = hit._id.match(/chr([0-9XYM]+):g\.(\d+)([A-Z]+)>([A-Z]+)/i);
                 if (m) {
                   const locusId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
-                  if (!matchedLoci.has(locusId)) matchedLoci.set(locusId, readDbnsfpGrch38(hit));
+                  if (!matchedLoci.has(locusId)) {
+                    const rawCadd = Array.isArray(caddData) ? caddData[0] : caddData;
+                    const cadd = rawCadd ? safeParseFloat(rawCadd.phred ?? rawCadd.cadd_phred ?? hit.cadd_phred) : null;
+                    matchedLoci.set(locusId, { own: readDbnsfpGrch38(hit), cadd });
+                  }
                   if (gnomadVariantId === null) {
                     gnomadVariantId = locusId;
                     dbnsfpGrch38 = readDbnsfpGrch38(hit);
@@ -624,6 +630,7 @@ export async function fetchPredictorsFallback(
             data.next != null || data.next_page != null ||
             (data.total != null && (typeof data.total !== "number" || !Number.isInteger(data.total) || data.total < 0 || data.total !== data.hits.length)) ||
             (data.total == null && data.hits.length >= 50);
+          if (!incomplete) myvariantComplete = matchedLoci;
           if (coordinateOnly) {
             gnomadVariantId = null;
             dbnsfpGrch38 = null;
@@ -687,6 +694,17 @@ export async function fetchPredictorsFallback(
   let gnomadVariantAssembly: GenomeAssembly | null = null;
   let canonicalBy: LocusResolution["canonicalBy"] = null;
   let candidates: AlleleCandidate[] = [];
+  // ProtVar reads the GRCh38 codon itself: it confirms the MyVariant candidates, replaces a partial
+  // list, or names the candidates when Ensembl already proved the change ambiguous.
+  const aa = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+  if (uniprotId && aa && !coordinateOnly &&
+      (failureKind === "multiple-candidates" || failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence")) {
+    const check = await candidatesFromProtVar(
+      { accession: uniprotId, position: Number(aa[2]), wt: toSingleAa(aa[1]), mut: toSingleAa(aa[3]) }, myvariantComplete, steps);
+    if (check.kind !== "unchanged") candidateLoci = [];
+    if (check.kind === "candidates") { failureKind = "multiple-candidates"; candidates = check.candidates; }
+    if (check.kind === "disagree") failureKind = "incomplete-evidence";
+  }
   if (knownAmbiguity || failureKind === "ambiguous-allele" || failureKind === "multiple-candidates" || coordinateOnly) {
     gnomadVariantId = null;
     dbnsfpGrch38 = null;
@@ -707,6 +725,7 @@ export async function fetchPredictorsFallback(
   } else if (candidateLoci.length > 0) {
     candidates = await liftAlleleCandidates(candidateLoci, steps);
   }
+  if (candidates.length > 0) candidates = await withLocalCadd(candidates, normGene);
   if (!gnomadVariantId) caddPhred = null;
   const multiple = failureKind === "multiple-candidates";
   const definitive = failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence";

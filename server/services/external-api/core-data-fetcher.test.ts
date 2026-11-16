@@ -408,8 +408,13 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       vi.mocked(fetchGnomadVariantFrequency).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
       const result = await fetchCoreVariantData({ ...baseContext, gene: "FGFR3", variant: "p.Gly380Arg", pos: 380 }, 2000);
       expect(vi.mocked(fetchGnomadVariantFrequency).mock.calls.map(c => c[0])).toEqual(["4-1804392-G-A", "4-1804392-G-C"]);
-      expect(fetchLocalPopulationFrequencies).not.toHaveBeenCalled();
+      // The local store is read once per candidate for All of Us; its single-allele gnomAD row is never used.
+      expect(vi.mocked(fetchLocalPopulationFrequencies).mock.calls.map(c => c[3])).toEqual([
+        { chrom: "4", pos: 1804392, ref: "G", alt: "A", assembly: "GRCh38" },
+        { chrom: "4", pos: 1804392, ref: "G", alt: "C", assembly: "GRCh38" },
+      ]);
       expect(result.gnomadFrequency?.candidates?.map(c => c.outcome)).toEqual(["not-found", "not-found"]);
+      expect(result.gnomadFrequency?.candidates?.map(c => c.allOfUs?.localTable)).toEqual(["absent", "absent"]);
       expect(result.gnomadFrequency?.standIn).toBeUndefined();
       expect(result.serviceStatus.gnomadFrequency).toBe("ok");
       // Absent for every candidate, so PM2 holds whichever allele the person carries.

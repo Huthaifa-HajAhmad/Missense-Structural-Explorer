@@ -118,3 +118,27 @@ describe("Population rail — several candidate alleles", () => {
     expect(screen.getByTestId("rule-trace")).toHaveTextContent("gnomAD, read for each of 2 candidate alleles · v4");
   });
 });
+
+describe("All of Us for each candidate allele", () => {
+  const counts = { aouAC: 4, aouAN: 400000, aouHet: 4, aouHom: 0 };
+  const withAou = () => result([
+    { ...absent("A"), allOfUs: { localTable: "found", frequency: counts } },
+    { ...absent("C"), allOfUs: { localTable: "absent", frequency: null } },
+  ]);
+
+  it("adds an All of Us column to the Population table", () => {
+    render(<ClinicalTab {...({ analysisState: { result: withAou() } } as any)} />);
+    const table = screen.getByTestId("candidate-alleles");
+    expect(within(table).getAllByRole("columnheader").map(h => h.textContent)).toContain("All of Us AF");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows[0]).toHaveTextContent("1.00e-5");
+    expect(rows[1]).toHaveTextContent("Not in the local All of Us table.");
+  });
+
+  it("names each allele's All of Us figure in the rail", () => {
+    render(<PopulationRail analysisResult={withAou()} />);
+    const items = within(screen.getByTestId("rail-candidate-alleles")).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent(/All of Us 1\.00e-5/);
+    expect(items[1]).not.toHaveTextContent(/All of Us/);
+  });
+});

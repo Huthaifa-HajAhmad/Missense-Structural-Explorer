@@ -9,7 +9,7 @@
  *
  * Pure. Imports only `src/shared/`.
  */
-import type { GnomadCandidateReading } from "./contracts.ts";
+import type { CandidateAllOfUs, GnomadCandidateReading } from "./contracts.ts";
 import type { FrequencyCriterion } from "./frequencyEvidence.ts";
 import type { FrequencyDecision, FrequencyStatistic } from "./frequencyRule.ts";
 import { candidateAlleleLabel, candidateNucleotideChange, decideCandidateFrequency, type CandidateDecision } from "./candidateFrequency.ts";
@@ -41,6 +41,24 @@ export interface CandidateAlleleRow {
   decision: FrequencyDecision | null;
   /** Why the allele has no figure, or that gnomAD holds no record of it. */
   note: string | null;
+  /** This allele's All of Us reading (display only); null when the allele was not read there. */
+  allOfUs: { af: number | null; counts: string | null; note: string | null } | null;
+}
+
+const ALL_OF_US_ABSENCE: Record<Exclude<CandidateAllOfUs["localTable"], "found">, string> = {
+  absent: "Not in the local All of Us table.",
+  "not-installed": "No local All of Us table in this deployment.",
+  failed: "The local All of Us lookup failed on this run.",
+};
+
+function allOfUsFor(reading: CandidateAllOfUs | null | undefined): CandidateAlleleRow["allOfUs"] {
+  if (!reading) return null;
+  const ac = reading.frequency?.aouAC ?? null;
+  const an = reading.frequency?.aouAN ?? null;
+  if (reading.localTable !== "found" || ac === null || an === null || an <= 0) {
+    return { af: null, counts: null, note: reading.localTable === "found" ? "All of Us reports no usable allele count." : ALL_OF_US_ABSENCE[reading.localTable] };
+  }
+  return { af: ac / an, counts: `${formatCount(ac)} / ${formatCount(an)}`, note: null };
 }
 
 type CandidateCriterion = Pick<FrequencyCriterion,
@@ -59,7 +77,7 @@ function rowFor({ candidate, inputs, decision }: CandidateDecision): CandidateAl
       ? (decision === null ? "No reading: gnomAD returned a record without an allele frequency." : null)
     : `No reading: ${candidate.detail ?? "this allele was not read"}.`;
   return {
-    key: candidate.id ?? candidate.grch37Id,
+    key: candidateAlleleLabel(candidate),
     id: candidateAlleleLabel(candidate),
     lifted: candidate.id !== null,
     absent: candidate.outcome === "not-found",
@@ -71,6 +89,7 @@ function rowFor({ candidate, inputs, decision }: CandidateDecision): CandidateAl
     homozygotes: f?.nHomozygous ?? null,
     decision,
     note,
+    allOfUs: allOfUsFor(candidate.allOfUs),
   };
 }
 

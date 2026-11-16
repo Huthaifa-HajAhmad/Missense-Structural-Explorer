@@ -21,6 +21,7 @@
  *   • A cut-point is drawn only with its provenance: ClinGen-calibrated, the authors' own, local, or
  *     none. An uncalibrated cut-point is never presented as a calibrated one.
  */
+import { candidateCaddNote } from "./candidateScores.ts";
 import type { AnalysisResult } from "./contracts.ts";
 import {
   CALIBRATION_SOURCES,
@@ -437,6 +438,8 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     scale: { min: 0, max: 50 },
     source: vepSource,
     knowledgeKey: "cadd",
+    // A candidate run has no single CADD; each allele's own score is named instead.
+    note: candidateCaddNote(pd?.locusResolution?.failureKind === "multiple-candidates" ? pd.locusResolution.candidates : null),
   });
 
   // ── Voting tools with the authors' own cut-points ──

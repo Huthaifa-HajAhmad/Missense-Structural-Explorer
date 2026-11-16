@@ -80,6 +80,7 @@ function candidateChartRow(allele: CandidateAlleleRow): EvidenceChartRow {
       { label: 'AC / AN (exomes + genomes)', value: allele.counts ?? 'Not reported' },
       ...(faf95Differs ? [{ label: 'FAF95 (BA1/BS1 input)', value: formatFrequencyPercent(allele.benignAf as number) }] : []),
       { label: 'Homozygotes', value: formatCount(allele.homozygotes) },
+      ...(allele.allOfUs?.counts ? [{ label: 'All of Us AC / AN', value: allele.allOfUs.counts }] : []),
       { label: 'Supports', value: allele.decision === null ? 'No reading' : allele.decision === 'none' ? 'No criterion' : allele.decision },
     ],
     notes: ['The person carries one of the candidate alleles, and the input does not say which. A frequency criterion applies only when every candidate supports it; frequencies are not added together.'],

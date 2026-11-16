@@ -329,6 +329,7 @@ src/shared/biophysicsConditions.ts,client,src/services/pipeline/__tests__/analys
 src/shared/burialEvidence.ts,client,src/components/evidence/__tests__/burialBandsSingleSource.test.ts;src/shared/__tests__/burialEvidence.test.ts
 src/shared/candidateFrequency.ts,client,src/shared/__tests__/candidateFrequency.test.ts
 src/shared/candidateFrequencyEvidence.ts,client,
+src/shared/candidateScores.ts,client,src/shared/__tests__/candidateScores.test.ts
 src/shared/clinvarClassification.ts,client,
 src/shared/clinvarPresence.ts,client,src/shared/__tests__/clinvarPresence.test.ts
 src/shared/colorHex.ts,client,
@@ -396,7 +397,7 @@ src/shared/literatureAliases.ts,client,src/shared/__tests__/literatureAliases.te
 src/shared/literatureEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts;src/components/literature/__tests__/PaperTable.security.test.tsx;src/shared/__tests__/curatedLiterature.test.ts;src/shared/__tests__/literatureEvidence.test.ts;src/shared/__tests__/literatureScreening.test.ts;src/shared/__tests__/reviewPresentation.test.ts
 src/shared/literatureScreening.ts,client,src/shared/__tests__/curatedLiterature.test.ts;src/shared/__tests__/literatureScreening.test.ts
 src/shared/literatureSummary.ts,client,server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;src/shared/__tests__/literatureSummary.test.ts
-src/shared/locusResolution.ts,client,server/services/external-api/core-data-fetcher.test.ts;server/services/external-api/gnomad-candidates.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/self-healer.test.ts;server/services/prediction/predictors/allele-identity.test.ts;server/services/prediction/predictors/speculative-locus.test.ts;server/services/prediction/predictors/vep-orchestrator.test.ts;src/shared/__tests__/locusCandidates.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusRecoveryPolicy.test.ts
+src/shared/locusResolution.ts,client,server/services/external-api/candidate-frequencies.test.ts;server/services/external-api/core-data-fetcher.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/self-healer.test.ts;server/services/prediction/predictors/allele-identity.test.ts;server/services/prediction/predictors/speculative-locus.test.ts;server/services/prediction/predictors/vep-orchestrator.test.ts;src/shared/__tests__/locusCandidates.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusRecoveryPolicy.test.ts
 src/shared/lofMechanismBasis.ts,client,src/shared/__tests__/lofMechanismBasis.test.ts
 src/shared/mechanismContext.ts,client,server/services/evidence-context/g2p.test.ts
 src/shared/mechanismWorkspace.ts,client,src/shared/__tests__/mechanismWorkspace.test.ts
@@ -421,7 +422,7 @@ src/shared/perturbationSummary.ts,client,src/shared/__tests__/perturbationSummar
 src/shared/pext.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/evidenceContext.test.ts;src/stores/slices/evidenceContextSlice.test.ts
 src/shared/platform.ts,client,
-src/shared/predictorEvidence.ts,client,src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/predictorEvidence.ts,client,src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/predictorRecovery.ts,client,src/shared/__tests__/predictorRecovery.test.ts
 src/shared/proteinAlleleIdentity.ts,client,src/shared/__tests__/proteinAlleleIdentity.test.ts
 src/shared/provenance.ts,client,src/components/__tests__/AboutView.test.tsx;src/components/__tests__/clinicalExportVerdict.test.ts;src/shared/__tests__/provenance.test.ts
