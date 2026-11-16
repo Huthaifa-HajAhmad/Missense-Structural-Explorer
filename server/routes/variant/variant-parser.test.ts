@@ -196,6 +196,18 @@ describe("analysis path — protein notation handling", () => {
     expect(malformed.context?.genomicCoordinates).toBeUndefined();
   });
 
+  it("reports no build for a protein-only request, because the reader never chose one", async () => {
+    fetchSpy = installFetch();
+
+    const proteinOnly = await parse({ gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305" });
+    expect(proteinOnly.statusCode).toBe(200);
+    expect(proteinOnly.context?.assembly).toBeUndefined();
+
+    // A GRCh38 the caller stated is still reported, even without a coordinate.
+    const stated = await parse({ gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305", assembly: "GRCh38" });
+    expect(stated.context?.assembly).toBe("GRCh38");
+  });
+
   /**
    * The canonical pair the translation step verified travels BESIDE the submitted pair.
    *
