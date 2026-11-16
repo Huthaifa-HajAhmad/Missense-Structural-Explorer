@@ -61,7 +61,7 @@ export interface RegionHit {
   evidence: string;
 }
 
-function kindOf(f: RegionFeature): RegionKind | null {
+export function regionKindOf(f: Pick<RegionFeature, "type" | "description">): RegionKind | null {
   const kind = TYPE_TO_KIND[f.type.trim().toLowerCase()];
   if (kind !== "region") return kind ?? null;
   const d = (f.description ?? "").toLowerCase();
@@ -84,7 +84,7 @@ export function regionsAt(features: readonly RegionFeature[] | null | undefined,
   if (!features || position === null) return [];
   const hits: RegionHit[] = [];
   for (const f of features) {
-    const kind = kindOf(f);
+    const kind = regionKindOf(f);
     if (!kind || !featureCoversResidue(f, position)) continue;
     hits.push({
       kind,
@@ -109,7 +109,7 @@ export interface BetweenDomains {
 export function betweenDomainsAt(features: readonly RegionFeature[] | null | undefined, position: number | null): BetweenDomains | null {
   if (!features || position === null) return null;
   const domains = features
-    .filter(f => kindOf(f) === "domain")
+    .filter(f => regionKindOf(f) === "domain")
     .map(f => ({ label: (f.description ?? "").trim() || "Domain", start: f.start, end: f.end }));
   if (domains.some(d => position >= d.start && position <= d.end)) return null;
   const before = domains.filter(d => d.end < position).sort((a, b) => b.end - a.end)[0];
@@ -123,7 +123,7 @@ export function trackRegions(features: readonly RegionFeature[] | null | undefin
   if (!features) return [];
   const out: Array<{ kind: RegionKind; label: string; start: number; end: number }> = [];
   for (const f of features) {
-    const kind = kindOf(f);
+    const kind = regionKindOf(f);
     if (kind === "domain" || kind === "linker" || kind === "disordered" || kind === "zinc-finger" || kind === "dna-binding") {
       out.push({ kind, label: (f.description ?? "").trim() || f.type, start: f.start, end: f.end });
     }

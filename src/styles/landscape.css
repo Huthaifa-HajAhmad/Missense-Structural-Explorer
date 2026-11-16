@@ -104,12 +104,7 @@
   flex-shrink: 0;
 }
 
-.ls-domain {
-  height: 10px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--cs-accent-clay) 28%, var(--cs-surface));
-  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 45%, transparent);
-}
+
 
 .ls-finding {
   border: 1px solid var(--cs-border);
@@ -472,6 +467,25 @@
 .ls-overview__empty-class { fill: var(--cs-text-muted); font: 11px 'Source Sans 3 Variable', sans-serif; }
 
 .ls-overview__readout { flex-basis: 100%; min-height: 18px; }
+
+.ls-span-track { min-inline-size: 0; }
+.ls-span-track__axis { position: relative; }
+.ls-span-track__span { position: absolute; block-size: 28px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--cs-text-primary); font-size: 12px; cursor: pointer; }
+.ls-span-track__visual { position: absolute; inset-block: 0; display: grid; place-items: center; border: 1px solid var(--cs-border); border-radius: 4px; overflow: clip; background: var(--ls-indeterminate); }
+.ls-span-track__span[data-tone="low"] .ls-span-track__visual { background: var(--cs-text-secondary); color: var(--cs-surface); }
+.ls-span-track__span[data-tone="missing"] .ls-span-track__visual { background: repeating-linear-gradient(135deg, var(--cs-surface) 0 4px, var(--cs-border) 4px 6px); border-style: dashed; }
+.ls-span-track__span[data-tone="disordered"] .ls-span-track__visual { background: var(--cs-surface); border-style: dashed; }
+.ls-span-track__span:focus-visible, .lsr-domain-navigation button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; z-index: 1; }
+.ls-span-track__span:active, .lsr-domain-navigation button:active { opacity: .75; }
+.ls-span-track__detail { margin-block: 4px 8px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: var(--cs-text-secondary); }
+.lsr-domain-navigation { display: grid; gap: 6px; margin-block-start: 8px; }
+.lsr-domain-navigation button { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px; min-block-size: 36px; text-align: start; border: 1px solid var(--cs-border-subtle); border-radius: 6px; cursor: pointer; }
+.lsr-domain-navigation button span:first-child { overflow-wrap: anywhere; }
+.lsr-domain-navigation button span:last-child { flex: none; font-variant-numeric: tabular-nums; }
+.lsr-selection-heading { flex-wrap: wrap; }
+@media (hover: hover) and (pointer: fine) {
+  .ls-span-track__span:hover .ls-span-track__visual, .lsr-domain-navigation button:hover { border-color: var(--cs-accent-clay); }
+}
 
 /* The inspector already shows the selected residue. */
 .landscape-workspace__selection { display: none; }

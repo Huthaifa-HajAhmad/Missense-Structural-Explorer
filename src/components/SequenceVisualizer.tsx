@@ -7,7 +7,7 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useApiClient } from "../apiClient";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
 import { landscapeFinding, landscapeKey, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
-import { isRegionFeatureType } from "../shared/residueRegions";
+import { isRegionFeatureType, regionKindOf } from "../shared/residueRegions";
 import { AMINO_ACID_MAP_3_TO_1, toOneLetter } from "./sequence/sequenceConstants";
 import { LandscapeLegend } from "./sequence/LandscapeLegend";
 import { LandscapeToolbar } from "./sequence/LandscapeToolbar";
@@ -340,7 +340,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     () =>
       (uniprotFeatures ?? [])
         .filter((f) => isRegionFeatureType(f.type) && Number.isFinite(f.start) && Number.isFinite(f.end))
-        .map((f) => ({ name: f.description || f.type || "Region", start: f.start, end: f.end })),
+        .map((f) => ({ name: f.description || f.type || "Region", start: f.start, end: f.end, kind: regionKindOf({ type: f.type ?? "", description: f.description }) ?? "region" })),
     [uniprotFeatures]
   );
 

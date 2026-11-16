@@ -12,6 +12,8 @@ import type { LandscapeViewState } from "../../stores/slices/searchSlice";
 import type { DomainSpan } from "./types";
 import { useMeasuredWidth } from "./useMeasuredWidth";
 import { useRovingGrid } from "./useRovingGrid";
+import { LandscapeDomainTracks } from "./LandscapeDomainTracks";
+import { LandscapeSpanTrack } from "./LandscapeSpanTrack";
 import { overviewBins, proteinTicks } from "./overviewBins";
 
 interface Props {
@@ -526,28 +528,7 @@ export function LandscapeOverview({
           </svg>
         ),
       )}
-      {domains.length > 0 &&
-        track(
-          "Domains",
-          <div className="relative h-7">
-            {domains.map((d, i) => (
-              <div
-                key={i}
-                className="ls-domain absolute overflow-hidden"
-                style={{
-                  left: x(d.start),
-                  width: Math.max(2, (d.end - d.start + 1) * unit),
-                  height: 22,
-                }}
-                title={`${d.name} (${d.start}–${d.end})`}
-              >
-                <span className="text-[11px] px-1 truncate block">
-                  {d.name}
-                </span>
-              </div>
-            ))}
-          </div>,
-        )}
+      <LandscapeDomainTracks domains={domains} start={1} end={length} width={width} onPick={onPick} />
       {lanes.clinvar && (
         <div
           className="ls-overview__group"
@@ -675,31 +656,14 @@ export function LandscapeOverview({
             </p>
           ) : (
             <>
-            <div className="relative h-7">
-              {context?.regions?.map((r, i) => (
-                <div
-                  key={i}
-                  className="absolute h-6 rounded text-[11px] px-1 overflow-hidden"
-                  style={{
-                    left: x(r.start),
-                    width: Math.max(2, (r.end - r.start + 1) * unit),
-                    background:
-                      r.oe !== null && r.oe < 0.6
-                        ? "var(--cs-text-secondary)"
-                        : "var(--ls-indeterminate)",
-                    color:
-                      r.oe !== null && r.oe < 0.6
-                        ? "var(--cs-surface)"
-                        : "var(--cs-text-primary)",
-                  }}
-                  title={`Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})${r.pValue != null ? `, p ${r.pValue}` : ""}`}
-                >
-                  O/E {r.oe ?? "—"}
-                </div>
-              ))}
-            </div>
+            <LandscapeSpanTrack start={1} end={length} width={width} onPick={onPick}
+              spans={context.regions.map(r => ({ ...r,
+                label: r.oe === null ? "Not reported" : `O/E ${r.oe < 0.6 && Number(r.oe.toPrecision(2)) >= 0.6 ? "<0.6" : Number(r.oe.toPrecision(2))}`,
+                tone: r.oe === null ? "missing" : r.oe < 0.6 ? "low" : "measured",
+                detail: `Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})${r.pValue != null ? `, p ${r.pValue}` : ""}`
+              }))} />
             <p className="ls-overview__missing">
-              solid bar = fewer missense observed than expected (O/E &lt; 0.6); light bar = O/E ≥ 0.6 or not reported.
+              solid bar = fewer missense observed than expected (O/E &lt; 0.6); light bar = measured O/E ≥ 0.6; hatched bar = O/E not reported. Select a bar for the full interval reading.
               Basis: {context?.regionsBasis}
             </p>
             </>

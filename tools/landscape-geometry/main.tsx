@@ -17,7 +17,7 @@ import type { AlphaGenomeSaturationPosition, LandscapeResidueItem } from "../../
  * Geometry + behaviour assertions for the Landscape tab and its inspector rail.
  *
  * WHY A BROWSER: every promise made here is live-layout fact — letter chips that must not
- * overlap (they did: S/V drew on top of each other on SOD1 residue 5), the 'Reads as' lead box
+ * overlap (they did: S/V drew on top of each other on SOD1 residue 5), the selection heading
  * that must precede the evidence, pill tabs and their hit targets, focus-grid cells at ≥24px,
  * contrast of chip text, one tab stop per grid. jsdom has none of it.
  *
@@ -157,7 +157,8 @@ function mountTab(host: HTMLElement): void {
     mode: "mean",
     colorBy: "alphaMissense",
     variantScores: { revel: SOD1_VARIANT_SCORES.revel, am: SOD1_VARIANT_SCORES.am, gerp: 3.21, phylop: 6.73 },
-    domains: [{ name: "Cu/Zn superoxide dismutase", start: 1, end: 153 }],
+    domains: [{ name: "Cu/Zn superoxide dismutase", start: 1, end: 153, kind: "domain" },
+      { name: "Illustrative overlapping focus domain", start: 10, end: 20, kind: "domain" }],
     selected: { key: KEY, kind: "substitution", pos: 5, alt: "V" },
     hoveredPos: null,
     loadingWindow: false,
@@ -171,8 +172,18 @@ function mountTab(host: HTMLElement): void {
     status: "ready",
     error: null,
     positions: [],
-    context: SOD1_LANDSCAPE_CONTEXT,
-    domains: [{ name: "Cu/Zn superoxide dismutase", start: 1, end: 153 }],
+    // Illustrative intervals exercise presentation states, not biological claims about SOD1.
+    context: { ...SOD1_LANDSCAPE_CONTEXT, regions: [
+      { start: 1, end: 50, oe: 0.414141, pValue: 0.001 },
+      { start: 51, end: 100, oe: null, pValue: null },
+      { start: 101, end: 154, oe: 0.734567, pValue: 0.02 },
+    ], regionsStatus: "available", regionsBasis: "Illustrative geometry fixture" },
+    domains: [
+      { name: "Cu/Zn superoxide dismutase", start: 1, end: 153, kind: "domain" },
+      { name: "Illustrative overlapping annotation with a deliberately long name", start: 70, end: 80, kind: "domain" },
+      { name: "Illustrative one-residue annotation", start: 81, end: 81, kind: "domain" },
+      { name: "Illustrative disorder", start: 60, end: 90, kind: "disordered" },
+    ],
     domainsLoaded: true,
     window: { start: 1, end: 31 },
     targetPos: 5,
@@ -244,7 +255,7 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
   /* Summary tab: the lead box, then the verdict */
   const readsAs = host.querySelector(".lsr-readsas");
   const verdict = host.querySelector(".lsr-verdict");
-  out.push({ name: "summary: the 'Reads as' lead box precedes the per-tool verdict", pass: Boolean(readsAs && verdict && readsAs.compareDocumentPosition(verdict as Node) & Node.DOCUMENT_POSITION_FOLLOWING), detail: readsAs && verdict ? "ordered" : "missing box or verdict" });
+  out.push({ name: "summary: the selection heading precedes the per-tool verdict", pass: Boolean(readsAs && verdict && readsAs.compareDocumentPosition(verdict as Node) & Node.DOCUMENT_POSITION_FOLLOWING), detail: readsAs && verdict ? "ordered" : "missing box or verdict" });
   const verdictText = verdict?.textContent ?? "";
   out.push({ name: "summary: the verdict carries both tools' score and band", pass: verdictText.includes("REVEL 0.853") && verdictText.includes("PP3 Moderate") && verdictText.includes("AlphaMissense 0.840") && verdictText.includes("The queried variant"), detail: verdictText.slice(0, 90) });
   const kv = host.querySelector(".lsr-kv");
@@ -319,7 +330,7 @@ function tabChecks(host: HTMLElement): Check[] {
   const shortCells = cells.filter((c) => c.getBoundingClientRect().height < 23.5);
   out.push({ name: "targets: every focus-grid cell is ≥ 24px tall (route A, all pointers)", pass: cells.length > 0 && shortCells.length === 0, detail: shortCells.length ? `${shortCells.length} of ${cells.length} under 24px` : `${cells.length} cells ≥ 24px` });
 
-  const panel = host.querySelector<HTMLElement>(".ls-panel");
+  const panel = host.querySelector<HTMLElement>('[aria-label="Focus window"]');
   const h = panel ? panel.getBoundingClientRect().height : Infinity;
   out.push({ name: "layout: the focus grid stays within ~800px so the window keeps its overview", pass: h <= 800, detail: `${Number.isFinite(h) ? h.toFixed(0) : "∞"}px` });
 

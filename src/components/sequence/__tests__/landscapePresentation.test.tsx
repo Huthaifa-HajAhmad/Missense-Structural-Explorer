@@ -136,7 +136,7 @@ describe("rows that only said they were empty are not drawn", () => {
 
   it("draws the domain row when one does", () => {
     focus({ domains: [{ name: "Cu/Zn", start: 1, end: 10 }] });
-    expect(screen.getByText("DOMAIN")).toBeTruthy();
+    expect(screen.getByText("Domains")).toBeTruthy();
   });
 });
 
@@ -238,6 +238,71 @@ describe("LandscapeOverview", () => {
     render(<LandscapeOverview {...props(ctx([], [{ start: 1, end: 10, oe: 0.4, pValue: 0.01 }]))} />);
     expect(screen.getByText(/solid bar = fewer missense observed than expected \(O\/E < 0\.6\)/)).toBeTruthy();
     expect(screen.getByText(/gnomAD v4\.1\.1 genomic intervals/)).toBeTruthy();
+  });
+
+  it("distinguishes measured zero, measured high and missing O/E and selects the interval", () => {
+    const p = props(ctx([], [
+      { start: 1, end: 10, oe: 0, pValue: 0.0000123 },
+      { start: 11, end: 20, oe: 0.712345, pValue: 0.02 },
+      { start: 21, end: 30, oe: null, pValue: null },
+    ]));
+    render(<LandscapeOverview {...p} />);
+    const zero = screen.getByRole("button", { name: /Residues 1–10: O\/E 0 / });
+    const measured = screen.getByRole("button", { name: /O\/E 0.712345/ });
+    const missing = screen.getByRole("button", { name: /Residues 21–30: O\/E not reported/ });
+    expect(zero.getAttribute("data-tone")).toBe("low");
+    expect(measured.getAttribute("data-tone")).toBe("measured");
+    expect(missing.getAttribute("data-tone")).toBe("missing");
+    fireEvent.focus(measured);
+    expect(screen.getByText(/Residues 11.20: O\/E 0.712345/)).toBeTruthy();
+    fireEvent.click(measured);
+    expect(p.onPick).toHaveBeenCalledWith(11);
+  });
+
+  it("keeps overlapping domains and disorder in separate rows and exposes full long names", () => {
+    const p = props(ctx([]));
+    render(<LandscapeOverview {...p} domains={[
+      { name: "A very long domain annotation that cannot fit in its span", start: 2, end: 12, kind: "domain" },
+      { name: "Overlapping domain", start: 8, end: 18, kind: "domain" },
+      { name: "Disordered", start: 5, end: 20, kind: "disordered" },
+    ]} />);
+    const first = screen.getByRole("button", { name: /^A very long domain annotation/ });
+    const second = screen.getByRole("button", { name: /^Overlapping domain/ });
+    const disorder = screen.getByRole("button", { name: /^Disordered/ });
+    expect(first.style.insetBlockStart).not.toBe(second.style.insetBlockStart);
+    expect(first.closest(".ls-overview__track")).not.toBe(disorder.closest(".ls-overview__track"));
+    fireEvent.focus(first);
+    expect(screen.getByText(/A very long domain annotation.*UniProt/).textContent).toContain("A very long domain annotation that cannot fit in its span");
+    fireEvent.click(first);
+    expect(p.onPick).toHaveBeenCalledWith(2);
+  });
+
+
+  it("clears preview details when hover ends and preserves focused details until blur", () => {
+    const p = props(ctx([]));
+    render(<LandscapeOverview {...p} domains={[{ name: "Kinase", start: 2, end: 12, kind: "domain" }]} />);
+    const span = screen.getByRole("button", { name: /^Kinase/ });
+    fireEvent.mouseEnter(span);
+    expect(screen.getByText(/Kinase \(2.12\).*UniProt/)).toBeTruthy();
+    fireEvent.mouseLeave(span);
+    expect(screen.queryByText(/Kinase \(2.12\).*UniProt/)).toBeNull();
+    fireEvent.focus(span);
+    fireEvent.mouseEnter(span);
+    fireEvent.mouseLeave(span);
+    expect(screen.getByText(/Kinase \(2.12\).*UniProt/)).toBeTruthy();
+    fireEvent.blur(span);
+    expect(screen.queryByText(/Kinase \(2.12\).*UniProt/)).toBeNull();
+  });
+
+  it("keeps the rounded 0.599 label below the 0.6 category boundary", () => {
+    const measure = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, width: 1540, top: 0, height: 44, right: 1540, bottom: 44, x: 0, y: 0, toJSON: () => ({}) });
+    render(<LandscapeOverview {...props(ctx([], [{ start: 1, end: 154, oe: 0.599, pValue: null }]))} />);
+    const span = screen.getByRole("button", { name: /O\/E 0.599/ });
+    expect(span.textContent).toBe("O/E <0.6");
+    expect(span.getAttribute("data-tone")).toBe("low");
+    fireEvent.focus(span);
+    expect(screen.getByText(/Residues 1.154: O\/E 0.599/)).toBeTruthy();
+    measure.mockRestore();
   });
 
   it("says ClinVar and gnomAD are not loaded, not pending, when the overview request failed", () => {

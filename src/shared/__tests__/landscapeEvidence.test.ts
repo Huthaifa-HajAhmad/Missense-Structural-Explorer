@@ -12,7 +12,6 @@ import {
   landscapeKey,
   landscapeVerdict,
   clinvarIsQuery,
-  readsAsSentence,
   snvReachableAminoAcids,
   translateCodon,
   legendSteps,
@@ -249,42 +248,31 @@ describe("bandTone", () => {
   });
 });
 
-describe("readsAsSentence", () => {
-  it("names the queried substitution and both tools' bands in one plain sentence", () => {
-    expect(
-      readsAsSentence({
-        kind: "variant", label: "A5V", scope: "x", stat: "mean", isQuery: true,
-        calls: [
-          { tool: "revel", score: 0.853, band: "PP3 Moderate" },
-          { tool: "alphaMissense", score: 0.8401, band: "PP3" }
-        ]
-      })
-    ).toBe("The queried substitution A5V reads in the PP3 range for REVEL (0.853 · PP3 Moderate) and in the PP3 range for AlphaMissense (0.840 · PP3).");
-  });
-
-  it("says 'indeterminate' and 'no score' in words, never as a number or a blank", () => {
-    expect(
-      readsAsSentence({
-        kind: "variant", label: "D116G", scope: "x", stat: "mean", isQuery: true,
-        calls: [
-          { tool: "revel", score: 0.231, band: "BP4" },
-          { tool: "alphaMissense", score: 0.362, band: "Indeterminate" }
-        ]
-      })
-    ).toBe("The queried substitution D116G reads in the BP4 range for REVEL (0.231 · BP4) and indeterminate for AlphaMissense (0.362).");
-    expect(
-      readsAsSentence({
-        kind: "residue", label: "A5", scope: "x", stat: "mean", isQuery: false,
-        calls: [
-          { tool: "revel", score: 0.831, band: "PP3 Moderate" },
-          { tool: "alphaMissense", score: null, band: null }
-        ]
-      })
-    ).toBe("Residue A5's mean (orientation only) reads in the PP3 range for REVEL (0.831 · PP3 Moderate) and no AlphaMissense score.");
-  });
-});
-
 describe("landscapeVerdict", () => {
+  it.each([116, 115])("keeps an unscored inspected substitution at residue %s separate from query scores", (residx) => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx,
+      row: undefined, selectedAlt: "V", variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
+    expect(v.kind).toBe("substitution");
+    expect(v.calls.map(c => [c.score, c.band])).toEqual([[null, null], [null, null]]);
+    expect(v.scope).toContain("absence of data");
+    expect(v.scope).not.toContain("its band applies");
+  });
+
+  it("reads a picked query with no table record on its own pipeline scores", () => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 116,
+      row: undefined, selectedAlt: "G", variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
+    expect(v.kind).toBe("variant");
+    expect(v.isQuery).toBe(true);
+    expect(v.calls.map(c => c.score)).toEqual([0.231, 0.362]);
+  });
+
+  it("does not assign a band to an unscored picked query", () => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 116,
+      row: undefined, selectedAlt: "G", variantRevel: null, variantAm: null, mode: "mean" });
+    expect(v.calls.every(c => c.band === null)).toBe(true);
+    expect(v.scope).toContain("absence of data");
+  });
+
   const row116 = {
     residx: 116,
     amMean: 0.47, amMin: 0.1, amMax: 0.95, amCount: 3,
@@ -317,10 +305,9 @@ describe("landscapeVerdict", () => {
     const picked = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean", selectedAlt: "V" });
     expect(picked.label).toBe("K115V");
     const residue = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
-    expect(readsAsSentence(residue)).toMatch(/^Residue K115's mean/);
+    expect(residue.label).toBe("K115");
     const noRef = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: { ...row116, residx: 115 }, variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
-    expect(readsAsSentence(noRef)).toMatch(/^Residue 115's mean/);
-    expect(readsAsSentence(noRef)).not.toMatch(/Residue Residue/);
+    expect(noRef.label).toBe("Residue 115");
   });
 
   it("reads the queried variant on the pipeline score when the table's differs", () => {

@@ -68,7 +68,7 @@ describe("LandscapeInspector", () => {
       predictorData: { amPathogenicity: 0.108 } };
     render(<LandscapeInspector analysisResult={conflicting} />);
     expect(screen.getByRole("button", { name: "Query D116G" })).toBeTruthy();
-    expect(screen.getByText(/queried substitution D116G reads/)).toBeTruthy();
+    expect(screen.getByText("Queried substitution")).toBeTruthy();
     const note = screen.getByText("Score disagreement — read with caution").closest("details")!;
     expect(note.open).toBe(false);
     fireEvent.click(screen.getByText("Score disagreement — read with caution"));
@@ -130,7 +130,7 @@ describe("LandscapeInspector", () => {
     expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ pos: 116, kind: 'substitution', alt: 'G' });
   });
 
-  it("leads with the verdict on the Summary tab: the 'Reads as' box, then the per-tool rows", () => {
+  it("puts the selected substitution before its per-tool scores", () => {
     act(() => useVariantAnalysisStore.setState({ landscapeSelection: { key: KEY, kind: "substitution", pos: 116, alt: "G" } } as any));
     render(<LandscapeInspector analysisResult={result} />);
     const verdict = screen.getByRole("list", { name: "What the scores are read on" });
@@ -139,10 +139,10 @@ describe("LandscapeInspector", () => {
     expect(verdict.textContent).toContain("REVEL 0.231");
     expect(verdict.textContent).toContain("BP4");
     // The lead box precedes the per-tool rows in the reading order.
-    const readsAs = screen.getByText(/reads in the BP4 range for REVEL \(0\.231 · BP4\)/).closest(".lsr-readsas")!;
+    const readsAs = screen.getByText("Queried substitution").closest(".lsr-readsas")!;
     const pos = readsAs.compareDocumentPosition(verdict);
     expect((pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
-    expect(readsAs.textContent).toContain("Reads as");
+    expect(readsAs.textContent).toContain("D116G");
     expect(screen.getByText(/Ranks 2 of 3 scored substitutions here/)).toBeTruthy();
     expect(screen.getByText(/The queried variant/)).toBeTruthy();
   });
@@ -238,6 +238,47 @@ describe("LandscapeInspector", () => {
     const d = container.querySelector<HTMLDetailsElement>("details.lsr-sources")!;
     expect(d.open).toBe(false);
     expect(d.textContent).toContain("Pejaver et al.");
+  });
+
+  it("shows all domain memberships and keeps domain navigation collapsed after the methods", () => {
+    const withDomains = { ...result, uniprotFeatures: { features: [
+      { type: "Domain", description: "Long overlapping domain", start: 90, end: 130 },
+      { type: "Region", description: "Disordered", start: 110, end: 140 },
+    ] } };
+    const { container } = render(<LandscapeInspector analysisResult={withDomains} />);
+    const local = screen.getByRole("region", { name: "Local evidence for selected residue" });
+    expect(local.textContent).toContain("Domain: Long overlapping domain (90–130)");
+    expect(local.textContent).toContain("Disordered: Disordered (110–140)");
+    expect(local.textContent).toContain("verified genomic locus");
+    const navigation = screen.getByText(/Go to domain or region/).closest("details")!;
+    expect(navigation.open).toBe(false);
+    const methods = container.querySelector("details.lsr-sources")!;
+    expect(methods.compareDocumentPosition(navigation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("states outside displayed domains without inferring disorder, and navigation preserves query identity", () => {
+    const onPick = vi.fn();
+    const withDomains = { ...result, uniprotFeatures: { features: [
+      { type: "Domain", description: "Other domain", start: 10, end: 30 },
+    ] } };
+    render(<LandscapeInspector analysisResult={withDomains} onSelectResidueIndex={onPick} />);
+    expect(screen.getByText(/Outside displayed UniProt domains/)).toBeTruthy();
+    fireEvent.click(screen.getByText(/Go to domain or region/));
+    fireEvent.click(screen.getByRole("button", { name: /Other domain/ }));
+    expect(onPick).toHaveBeenCalledWith(10);
+    expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ kind: "residue", pos: 10 });
+    expect(useVariantAnalysisStore.getState().variant).toBe("p.Asp116Gly");
+  });
+
+  it("does not replace an unscored inspected substitution with the queried variant's scores", () => {
+    act(() => useVariantAnalysisStore.setState({ landscapeSelection: { key: KEY, kind: "substitution", pos: 116, alt: "V" } }));
+    render(<LandscapeInspector analysisResult={{ ...result, landscapeData: [] }} />);
+    const verdict = screen.getByRole("list", { name: "What the scores are read on" });
+    expect(screen.getByText("Inspected substitution")).toBeTruthy();
+    expect(verdict.textContent).toContain("no score");
+    expect(verdict.textContent).not.toContain("0.231");
+    expect(screen.getByText(/absence of data/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Query D116G" })).toBeTruthy();
   });
 });
 

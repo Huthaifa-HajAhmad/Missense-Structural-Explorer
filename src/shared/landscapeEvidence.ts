@@ -361,38 +361,7 @@ export interface LandscapeVerdictCall {
   band: string | null;
 }
 
-/** One plain clause for a tool's band, as the 'Reads as' lead box states it. */
-function bandPhrase(tool: LandscapeTool, call: LandscapeVerdictCall | undefined): string {
-  if (!call || call.score === null) return `no ${TOOL_DISPLAY[tool]} score`;
-  if (!call.band || call.band === "Indeterminate") return `indeterminate for ${TOOL_DISPLAY[tool]} (${call.score.toFixed(3)})`;
-  const side = call.band.startsWith("PP3") ? "the PP3 range" : "the BP4 range";
-  return `in ${side} for ${TOOL_DISPLAY[tool]} (${call.score.toFixed(3)} · ${call.band})`;
-}
-
 export const TOOL_DISPLAY: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
-
-/**
- * The verdict as one plain sentence for the rail's tinted lead box — the first thing a reader
- * meets. Names what the reading applies to, then each tool's band. Same precedence as
- * `landscapeVerdict` (picked substitution → queried variant → residue summary, orientation only).
- */
-export function readsAsSentence(verdict: {
-  kind: "variant" | "substitution" | "residue";
-  label: string;
-  scope: string;
-  stat: "mean" | "max";
-  isQuery: boolean;
-  calls: Array<LandscapeVerdictCall>;
-}): string {
-  const clauses = verdict.calls.map((c) => bandPhrase(c.tool, c)).join(" and ");
-  const what =
-    verdict.kind === "variant" && verdict.isQuery
-      ? `The queried substitution ${verdict.label} reads`
-      : verdict.kind === "substitution"
-        ? `Substitution ${verdict.label} reads`
-        : `${/^Residue\b/.test(verdict.label) ? verdict.label : `Residue ${verdict.label}`}'s ${verdict.stat} (orientation only) reads`;
-  return `${what} ${clauses}.`;
-}
 
 /**
  * What the rail's verdict chips are read on, decided in one place so the chips can never show a
@@ -436,7 +405,7 @@ export function landscapeVerdict(input: {
   // A picked substitution — the reader clicked a letter. Its own dbNSFP scores; the queried
   // variant's pipeline score stands in when the picked letter is the query itself.
   const alt = selectedAlt ?? (isTargetResidue ? target!.mut : null);
-  if (alt && hasRecord) {
+  if (alt && (hasRecord || selectedAlt)) {
     const hit = row?.substitutions?.find((x) => x.alt === alt) ?? null;
     const own = isTargetResidue && alt === target!.mut;
     // The queried variant is read on the pipeline's variant-level score (the one the rest of the
@@ -451,7 +420,9 @@ export function landscapeVerdict(input: {
     return {
       kind: own ? "variant" : "substitution",
       label: wtLetter ? `${aaName}${alt}` : `${alt} at ${aaName}`,
-      scope: own
+      scope: revel === null && am === null
+        ? "No REVEL or AlphaMissense score is available for this substitution. This is absence of data, not a benign reading; no band is assigned."
+        : own
         ? "The queried substitution's own scores — a variant-level score, so its band applies to the variant."
         : `One substitution at residue ${residx} — a variant-level score, so its band applies to it.`,
       stat: mode,
