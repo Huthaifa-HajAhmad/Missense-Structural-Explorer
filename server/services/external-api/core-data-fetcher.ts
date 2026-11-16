@@ -51,7 +51,7 @@ import {
 } from "../orchestration/timeout-scope.ts";
 import { CONFIG } from "../../config.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
-import { alleleCandidatesToQuery, fetchCandidateFrequencies } from "./gnomad-candidates.ts";
+import { alleleCandidatesToQuery, fetchCandidateFrequencies } from "./candidate-frequencies.ts";
 import { makeLocusRunner, speculativeCoordinateLocus, speculativeLocusMode } from "../prediction/predictors/speculative-locus.ts";
 
 /** The single-allele fields of a candidate run's gnomAD payload: empty, because no allele was selected. */
@@ -522,7 +522,7 @@ async function runCoreFetch(
       // A protein change several alleles can produce: one gnomAD reading per candidate, none selected.
       const candidates = alleleCandidatesToQuery(pred);
       if (candidates) {
-        return { refused: false, value: { ...NO_SINGLE_ALLELE_FREQUENCY, candidates: await fetchCandidateFrequencies(candidates, deadline) } };
+        return { refused: false, value: { ...NO_SINGLE_ALLELE_FREQUENCY, candidates: await fetchCandidateFrequencies(candidates, deadline, localTableInstalled ? { gene, pos: pos!, variant } : null) } };
       }
       const coordinate = verifiedPopulationCoordinate(pred);
       if (!coordinate) return { refused: true, value: null };

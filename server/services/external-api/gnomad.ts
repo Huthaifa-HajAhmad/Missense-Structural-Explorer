@@ -76,7 +76,7 @@ export interface GnomadVariantFrequency {
   standIn?: "grace" | "fault" | null;
   /**
    * Set by the core fetch, never by gnomAD: one reading per candidate allele when the protein change
-   * can come from several nucleotide alleles (`gnomad-candidates.ts`). The fields above stay empty then.
+   * can come from several nucleotide alleles (`candidate-frequencies.ts`). The fields above stay empty then.
    */
   candidates?: GnomadCandidateReading[] | null;
 }

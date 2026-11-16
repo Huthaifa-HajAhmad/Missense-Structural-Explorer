@@ -543,7 +543,7 @@ describe("protein change with several candidate alleles", () => {
       : { id: id.replace("-100-", "-200-"), assembly: "GRCh38", canonicalBy: "ensembl-lift", retryable: false, steps: [] });
     const result = await fetchPredictorsFallback("TEST", "G380R");
     expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: true });
-    expect(result.locusResolution?.candidates?.[1]).toEqual({ grch37Id: "1-100-G-C", id: null, canonicalBy: null, retryable: true });
+    expect(result.locusResolution?.candidates?.[1]).toMatchObject({ grch37Id: "1-100-G-C", id: null, canonicalBy: null, retryable: true });
     expect(result.locusResolution?.steps.some(s => s.detail?.includes("1-100-G-C"))).toBe(true);
     expect(isUsablePredictorResult(result, "G380R")).toBe(false);
   });
@@ -564,5 +564,68 @@ describe("protein change with several candidate alleles", () => {
     const result = await fetchPredictorData("TEST", "G380R", "P1");
     expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: false });
     expect(result.locusResolution?.candidates?.map(c => c.id)).toEqual(["1-200-G-A", "1-200-G-C"]);
+  });
+});
+
+describe("candidate alleles cross-checked with ProtVar", () => {
+  const candidate = (alt: string, pos = 100) => ({
+    _id: `chr1:g.${pos}G>${alt}`,
+    dbnsfp: { hgvsp: ["p.G380R", "p.Gly380Arg"], alphamissense: { am_pathogenicity: 0.9 }, cadd: { phred: alt === "A" ? 28 : 27 } },
+  });
+  /** ProtVar's mapping answer: GRCh38 alleles on the canonical isoform P1, each with its CADD. */
+  const protvar = (alts: string[]) => ({ content: { last: true, inputs: [{ derivedGenomicVariants: alts.map(alt => ({
+    chromosome: "1", position: 200, refBase: "G", altBase: alt,
+    genes: [{ geneName: "TEST", caddScore: alt === "A" ? 25.7 : 24.5, isoforms: [{ accession: "P1", canonical: true, isoformPosition: 380, refAA: "Gly", variantAA: "Arg" }] }],
+  })) }] } });
+  const route = (myvariant: unknown, protvarBody: unknown | null) => mocks.fetch.mockImplementation(async (url: string) =>
+    url.includes("myvariant") ? json(myvariant)
+      : url.includes("ProtVar") ? (protvarBody ? json(protvarBody) : json({}, 503))
+      : json({}, 503));
+
+  it("takes GRCh38 candidates from ProtVar when it agrees with MyVariant, with no lift", async () => {
+    route({ total: 2, hits: [candidate("A"), candidate("C")] }, protvar(["C", "A"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(mocks.recover).not.toHaveBeenCalled();
+    expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: false });
+    expect(result.locusResolution?.candidates).toEqual([
+      { grch37Id: "1-100-G-C", id: "1-200-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar" },
+      { grch37Id: "1-100-G-A", id: "1-200-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+    ]);
+  });
+
+  it("refuses when ProtVar and MyVariant name different alleles", async () => {
+    route({ total: 2, hits: [candidate("A"), candidate("C")] }, protvar(["A", "T"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.locusResolution).toMatchObject({ failureKind: "incomplete-evidence", retryable: false });
+    expect(result.locusResolution?.candidates).toBeUndefined();
+    expect(result.locusResolution?.steps.some(s => /ProtVar/.test(s.detail ?? "") && /disagree/.test(s.detail ?? ""))).toBe(true);
+  });
+
+  it("lets ProtVar's codon-derived list stand in for an incomplete MyVariant list", async () => {
+    route({ total: 60, hits: [candidate("A")] }, protvar(["A", "C"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates" });
+    expect(result.locusResolution?.candidates?.map(c => [c.id, c.grch37Id])).toEqual([["1-200-G-A", null], ["1-200-G-C", null]]);
+  });
+
+  it("falls back to MyVariant and the verified lift when ProtVar is unreachable, keeping each record's CADD", async () => {
+    route({ total: 2, hits: [candidate("A"), candidate("C")] }, null);
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(mocks.recover).toHaveBeenCalledTimes(2);
+    expect(result.locusResolution?.candidates?.map(c => [c.canonicalBy, c.caddPhred, c.caddSource])).toEqual([
+      ["dbnsfp-grch38", 28, "myvariant.info dbNSFP (release not stated)"],
+      ["dbnsfp-grch38", 27, "myvariant.info dbNSFP (release not stated)"],
+    ]);
+  });
+
+  it("prefers the local dbNSFP store's CADD for each candidate when it holds that exact allele", async () => {
+    route({ total: 2, hits: [candidate("A"), candidate("C")] }, protvar(["A", "C"]));
+    mocks.localGenomic.mockImplementation(async (_chrom: string, _pos: number, _ref: string, alt: string) => alt === "A" ? { cadd: 31 } : null);
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.locusResolution?.candidates?.map(c => [c.id, c.caddPhred, c.caddSource])).toEqual([
+      ["1-200-G-A", 31, "dbNSFP 5.3a (local)"],
+      ["1-200-G-C", 24.5, "ProtVar"],
+    ]);
+    expect(result.caddPhred).toBeNull();
   });
 });

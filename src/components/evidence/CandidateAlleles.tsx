@@ -18,16 +18,28 @@ function DecisionChip({ decision }: { decision: CandidateAlleleRow["decision"] }
   );
 }
 
-/** The Population tab's readings: allele, counts, the frequency PM2 reads, and the allele's verdict. */
+/** One allele's All of Us frequency, or which absence it is. Display only: it feeds no criterion. */
+function AllOfUsCell({ reading }: { reading: CandidateAlleleRow["allOfUs"] }) {
+  if (!reading) return <span className="pop-dim">—</span>;
+  if (reading.af !== null) return <span title={reading.counts ? `AC / AN ${reading.counts}` : undefined}>{formatAlleleFrequency(reading.af)}</span>;
+  return <span className="pop-dim">{reading.note}</span>;
+}
+
+/**
+ * The Population tab's readings: allele, gnomAD counts, the frequency PM2 reads, All of Us (when the
+ * local store was read), and the allele's verdict.
+ */
 export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
+  const showAllOfUs = rows.some(r => r.allOfUs);
   return (
     <div className="pop-table-wrap" data-testid="candidate-alleles">
       <table className="pop-table">
         <thead>
           <tr>
             <th scope="col">Candidate allele</th>
-            <th scope="col" className="pop-num" title="Allele count / allele number over gnomAD exomes and genomes">AC / AN</th>
-            <th scope="col" className="pop-num" title="The frequency PM2 reads for this allele: gnomAD's grouped maximum">AF</th>
+            <th scope="col" className="pop-num" title="Allele count / allele number over gnomAD exomes and genomes">gnomAD AC / AN</th>
+            <th scope="col" className="pop-num" title="The frequency PM2 reads for this allele: gnomAD's grouped maximum">gnomAD AF</th>
+            {showAllOfUs && <th scope="col" className="pop-num" title="All of Us frequency for this allele, from the local store. It feeds no criterion">All of Us AF</th>}
             <th scope="col" title="What this allele's own reading supports">Supports</th>
           </tr>
         </thead>
@@ -47,6 +59,7 @@ export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
               </th>
               <td className="pop-num">{row.counts ?? <span className="pop-dim">—</span>}</td>
               <td className="pop-num pop-num--af">{row.af !== null ? formatAlleleFrequency(row.af) : <span className="pop-dim">—</span>}</td>
+              {showAllOfUs && <td className="pop-num"><AllOfUsCell reading={row.allOfUs} /></td>}
               <td><DecisionChip decision={row.decision} /></td>
             </tr>
           ))}
@@ -66,6 +79,7 @@ export function CandidateAlleleList({ rows }: { rows: CandidateAlleleRow[] }) {
           {row.change && <span className="pop-dim"> {row.change}</span>}
           {" · "}
           <span className="pop-mono">{row.af === null ? "no reading" : row.af === 0 ? "no record" : formatAlleleFrequency(row.af)}</span>
+          {row.allOfUs?.af != null && <> · All of Us <span className="pop-mono">{formatAlleleFrequency(row.allOfUs.af)}</span></>}
           {" "}
           <DecisionChip decision={row.decision} />
         </li>

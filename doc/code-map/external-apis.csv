@@ -88,6 +88,7 @@ www.ebi.ac.uk,server/services/external-api/adapters/service-adapters.ts
 www.ebi.ac.uk,server/services/external-api/intact.ts
 www.ebi.ac.uk,server/services/external-api/pdbe-entries.ts
 www.ebi.ac.uk,server/services/external-api/pdbe-interfaces.ts
+www.ebi.ac.uk,server/services/external-api/protvar-protein.ts
 www.ebi.ac.uk,server/services/external-api/protvar.ts
 www.ebi.ac.uk,server/services/external-api/uniprot.ts
 www.ebi.ac.uk,server/services/llm/literature-rag.ts

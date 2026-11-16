@@ -62,6 +62,6 @@ export function candidateAlleleLabel(candidate: Pick<GnomadCandidateReading, "id
 
 /** The nucleotide change, "G>A", read from a gnomAD-style id "4-1804392-G-A". */
 export function candidateNucleotideChange(candidate: Pick<GnomadCandidateReading, "id" | "grch37Id">): string | null {
-  const parts = (candidate.id ?? candidate.grch37Id).split("-");
+  const parts = (candidate.id ?? candidate.grch37Id ?? "").split("-");
   return parts.length === 4 ? `${parts[2]}>${parts[3]}` : null;
 }

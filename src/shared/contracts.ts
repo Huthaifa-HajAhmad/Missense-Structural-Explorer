@@ -1716,10 +1716,16 @@ const gnomadFrequencyRecordSchema = z.object({
 
 const gnomadCandidateReadingSchema = z.object({
   id: z.string().nullable(),
-  grch37Id: z.string(),
+  grch37Id: z.string().nullable(),
   outcome: z.enum(["found", "not-found", "not-lifted", "failed"]),
   frequency: gnomadFrequencyRecordSchema.omit({ standIn: true }).nullable(),
   detail: z.string().nullable().optional(),
+  allOfUs: z.object({
+    localTable: z.enum(["found", "absent", "not-installed", "failed"]),
+    frequency: z.object({
+      aouAC: z.number().nullable(), aouAN: z.number().nullable(), aouHet: z.number().nullable(), aouHom: z.number().nullable(),
+    }).nullable(),
+  }).nullable().optional(),
 });
 
 export const analyzeVariantResponseSchema = z.object({
@@ -2811,8 +2817,8 @@ export interface GnomadFrequencyData {
 export interface GnomadCandidateReading {
   /** The candidate's GRCh38 gnomAD id, or null when its GRCh38 position could not be verified. */
   id: string | null;
-  /** The GRCh37 id the candidate was found under (MyVariant.info / dbNSFP). */
-  grch37Id: string;
+  /** The GRCh37 id the candidate was found under (MyVariant.info / dbNSFP); null when only ProtVar named it. */
+  grch37Id: string | null;
   /**
    * `found` — gnomAD holds a record; `not-found` — gnomAD answered "variant not found";
    * `not-lifted` — no verified GRCh38 position, so gnomAD was not asked; `failed` — the query failed.
@@ -2822,6 +2828,14 @@ export interface GnomadCandidateReading {
   frequency: Omit<GnomadFrequencyData, "candidates" | "standIn"> | null;
   /** Why the candidate has no reading, for `not-lifted` and `failed`. */
   detail?: string | null;
+  /** All of Us counts for this allele from the local dbNSFP store; display only, feeds no criterion. */
+  allOfUs?: CandidateAllOfUs | null;
+}
+
+/** One candidate allele's All of Us reading, or which absence it is (the `AouLookup` vocabulary). */
+export interface CandidateAllOfUs {
+  localTable: "found" | "absent" | "not-installed" | "failed";
+  frequency: AouFrequencyData | null;
 }
 
 export interface AouFrequencyData {

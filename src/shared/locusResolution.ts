@@ -59,6 +59,8 @@ export const locusResolutionStepSchema = z.object({
     "vep-hgvs",
     /** MyVariant.info / dbNSFP lookup by gene and protein change. Its ids are GRCh37. */
     "myvariant",
+    /** ProtVar: every GRCh38 allele that gives the protein change, read from the reference codon. */
+    "protvar",
     /** Ensembl assembly map: forward map, reverse map and reference base, all three verified. */
     "ensembl-lift",
     /** dbNSFP's own GRCh38 position, verified against the UCSC hg38 reference base. */
@@ -70,16 +72,20 @@ export const locusResolutionStepSchema = z.object({
 });
 
 /**
- * One nucleotide allele that can produce the submitted protein change, found by MyVariant.info
- * (whose ids are GRCh37) and lifted to GRCh38 on its own.
+ * One nucleotide allele that can produce the submitted protein change. ProtVar names it on GRCh38
+ * directly; MyVariant.info names it on GRCh37, and it is then lifted to GRCh38 on its own.
  */
 export const alleleCandidateSchema = z.object({
-  grch37Id: z.string(),
+  /** The GRCh37 id MyVariant.info listed it under; null when only ProtVar named it. */
+  grch37Id: z.string().nullable(),
   /** GRCh38 gnomAD-style id, or null when no lift was verified. */
   id: z.string().nullable(),
-  canonicalBy: z.enum(["ensembl-lift", "dbnsfp-grch38"]).nullable(),
+  canonicalBy: z.enum(["protvar", "ensembl-lift", "dbnsfp-grch38"]).nullable(),
   /** True when the lift failed for a reason another run could change. */
   retryable: z.boolean(),
+  /** This allele's own CADD PHRED score, and where it was read. Never copied to the run's single CADD. */
+  caddPhred: z.number().nullable().optional(),
+  caddSource: z.string().nullable().optional(),
 });
 export type AlleleCandidate = z.infer<typeof alleleCandidateSchema>;
 

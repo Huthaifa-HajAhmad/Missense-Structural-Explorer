@@ -3,7 +3,7 @@ import { computeRuleBasedACMG } from "../prediction/acmg.ts";
 import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
 import { isUsablePredictorResult } from "../prediction/predictors/vep-orchestrator.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
-import { alleleCandidatesToQuery } from "../external-api/gnomad-candidates.ts";
+import { alleleCandidatesToQuery } from "../external-api/candidate-frequencies.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import type { ClinVarData } from "../external-api/clinvar.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
