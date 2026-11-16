@@ -324,11 +324,20 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
   apiRouter.get("/pdb/:uniprotId", handlePdbProxy);
 
-  apiRouter.get("/sidecar-health", async (_req, res) => {
+  apiRouter.get("/sidecar-health", async (req, res) => {
     const startTime = Date.now();
     const sidecarUrl = CONFIG.services.sidecarBaseUrl;
     const timeoutMs = CONFIG.timeouts.sidecarHealthCheckMs || 3000;
-    const safeBaseUrl = CONFIG.server.isProduction ? undefined : sidecarUrl;
+    const exposeInternals =
+      !CONFIG.server.isProduction ||
+      (req.principal?.kind === "user" && req.principal.user?.role === "admin");
+    const safeBaseUrl = exposeInternals ? sidecarUrl : undefined;
+    const remediation = exposeInternals
+      ? {
+          local: "python -m uv run --project tools python tools/model_server.py",
+          oci: "export SIDECAR_URL=http://<oci-private-or-public-ip>:8000"
+        }
+      : undefined;
     try {
       const response = await fetch(`${sidecarUrl}/health`, {
         signal: AbortSignal.timeout(timeoutMs)
@@ -351,23 +360,17 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         baseUrl: safeBaseUrl,
         latencyMs,
         error: `Sidecar returned HTTP ${response.status}`,
-        remediation: {
-          local: "python -m uv run --project tools python tools/model_server.py",
-          oci: "export SIDECAR_URL=http://<oci-private-or-public-ip>:8000"
-        }
+        ...(remediation ? { remediation } : {})
       });
     } catch (err: any) {
       res.json({
         reachable: false,
         baseUrl: safeBaseUrl,
         latencyMs: Date.now() - startTime,
-        error: CONFIG.server.isProduction
-          ? "Model server sidecar connection unavailable"
-          : (err.message || "Connection refused"),
-        remediation: {
-          local: "python -m uv run --project tools python tools/model_server.py",
-          oci: "export SIDECAR_URL=http://<oci-private-or-public-ip>:8000"
-        }
+        error: exposeInternals
+          ? (err.message || "Connection refused")
+          : "Model server sidecar connection unavailable",
+        ...(remediation ? { remediation } : {})
       });
     }
   });

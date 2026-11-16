@@ -1,5 +1,6 @@
 import { CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
 import type { CuratedInheritance } from "../../../src/shared/inheritanceBasis.ts";
+import type { CuratedLofMechanism } from "../../../src/shared/lofMechanismBasis.ts";
 import { generateAltVariants } from "../../routes/shared.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
@@ -59,6 +60,8 @@ export interface CoreAnalysisData {
   aouLookup?: AouLookup | null;
   /** Curated GenCC inheritance for the frequency rules. Optional: older records lack it. */
   curatedInheritance?: CuratedInheritance | null;
+  /** Curated G2P/ClinGen LOF mechanism summary for PVS1. Optional: older records lack it. */
+  curatedLofMechanism?: CuratedLofMechanism | null;
   resolvedPdbId: string | null;
   resolvedPdbSource: PdbSource;
   ruleBasedInsights: RuleBasedInsights | null;
@@ -195,6 +198,7 @@ export function assembleCoreResponsePayload(
     aouFrequency: coreData.aouFrequency ?? null,
     aouLookup: coreData.aouLookup ?? null,
     curatedInheritance: coreData.curatedInheritance ?? null,
+    curatedLofMechanism: coreData.curatedLofMechanism ?? null,
     esm2: coreData.esm2 ?? null,
     esm3Eval: null,
     esmcEval: null,

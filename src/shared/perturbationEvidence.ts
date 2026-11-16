@@ -58,7 +58,7 @@ import { embeddingSource } from "./embeddingSource";
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
 import { THRESHOLDS, LOCAL_STRUCTURAL_WINDOW, STRUCTURE_COLOUR_BANDS } from "./thresholds/constants";
-import { UNMEASURED_BURIAL_ENVIRONMENT } from "./burialEvidence";
+import { UNMEASURED_BURIAL_ENVIRONMENT, UNMEASURED_SSE_ENVIRONMENT } from "./burialEvidence";
 import {
   ENTROPY_MARKS,
   EVEN_ODDS_LLR,
@@ -754,8 +754,10 @@ function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   const t = THRESHOLDS.esm3Drift;
   const driftBand = drift === null ? null : drift < t.none ? "none" : drift < t.minor ? "minor" : drift < t.moderate ? "moderate" : "major";
   const envs: string[] = Array.isArray(e.microenvironments) ? e.microenvironments : [];
-  const ss = envs.find(x => /helix|sheet|loop/i.test(x)) ?? null;
-  const burialRaw = envs.find(x => !/helix|sheet|loop/i.test(x)) ?? null;
+  const isSseEntry = (x: string) => /helix|sheet|loop/i.test(x) || x === UNMEASURED_SSE_ENVIRONMENT;
+  const ssRaw = envs.find(isSseEntry) ?? null;
+  const ss = ssRaw && ssRaw !== UNMEASURED_SSE_ENVIRONMENT ? ssRaw : null;
+  const burialRaw = envs.find(x => !isSseEntry(x)) ?? null;
   return {
     availability: drift !== null ? computed() : absent(`${source.label}: no per-residue scores were returned.`),
     perPosition,

@@ -75,7 +75,7 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/diagnostics",
   "/api/v1/debug/cache-stats",
   "/api/v1/openapi.json",
-  "/api/docs",
+  "/api/v1/docs",
   "/sidecar-health",
   "/api/v1/sidecar-health",
   "/capabilities",
@@ -110,6 +110,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/nearest-residues",
   "/generate-mutant",
   "/api/v1/generate-mutant",
+  "/remote-submissions",
+  "/api/v1/remote-submissions",
   "/foldx-job",
   "/api/v1/foldx-job",
   "/analyze-variant-biophysical",
@@ -431,6 +433,13 @@ class SqliteInFlightPrewarms {
       return this.releaseInMemory(key, token, now);
     }
   }
+
+  close(): void {
+    try {
+      this.db?.close();
+    } catch (_) {}
+    this.db = null;
+  }
 }
 
 const sqlitePrewarms = new SqliteInFlightPrewarms();
@@ -456,7 +465,7 @@ class RedisInFlightPrewarms {
     if (redisClient) {
       try {
         const val = await redisClient.get(`prewarm:${key}`);
-        return !!val;
+        if (val !== null) return true;
       } catch (err: any) {
         console.error("[Redis] Error checking prewarm lock:", err.message);
       }
@@ -486,7 +495,8 @@ class RedisInFlightPrewarms {
       try {
         if (token === undefined) {
           const res = await redisClient.del(`prewarm:${key}`);
-          return res > 0;
+          const releasedFallback = sqlitePrewarms.delete(key);
+          return res > 0 || releasedFallback;
         }
         const res = await redisClient.eval(
           RedisInFlightPrewarms.RELEASE_IF_OWNER_SCRIPT,
@@ -505,3 +515,24 @@ class RedisInFlightPrewarms {
 }
 
 export const inFlightPrewarms = new RedisInFlightPrewarms();
+
+/** Closes shared-state SQLite and optional Redis clients on server shutdown. */
+export async function closeStateStores(): Promise<void> {
+  sqlitePrewarms.close();
+  const clients = [redisClient, redisPub, redisSub];
+  redisClient = null;
+  redisPub = null;
+  redisSub = null;
+  await Promise.allSettled(
+    clients.map(async (client) => {
+      if (!client) return;
+      try {
+        await client.quit();
+      } catch {
+        try {
+          client.disconnect();
+        } catch {}
+      }
+    }),
+  );
+}

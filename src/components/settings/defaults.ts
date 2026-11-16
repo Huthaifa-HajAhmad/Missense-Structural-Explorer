@@ -12,7 +12,7 @@ import { DEFAULT_UI_BIOPHYSICS_CONDITIONS } from "../../shared/biophysicsConditi
  */
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   residueColor: "#F97316",
-  primaryAccent: "indigo",
+  primaryAccent: "clay",
   geminiApiKey: "",
   geminiSessionId: "",
   geminiSessionExpiresAt: 0,

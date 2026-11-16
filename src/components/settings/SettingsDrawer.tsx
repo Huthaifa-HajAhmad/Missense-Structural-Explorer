@@ -209,6 +209,12 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
     openerRef.current = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const appShell = document.querySelector<HTMLElement>(".app-shell");
+    const prevInert = Boolean(appShell?.inert || appShell?.hasAttribute("inert"));
+    if (appShell) {
+      appShell.inert = true;
+      appShell.setAttribute("inert", "");
+    }
 
     const focusActive = () => {
       const current = drawerRef.current;
@@ -218,6 +224,13 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
     };
     focusActive();
     const frame = requestAnimationFrame(focusActive);
+
+    const handleFocusIn = (e: FocusEvent) => {
+      const current = drawerRef.current;
+      if (!current || (e.target instanceof Node && current.contains(e.target))) return;
+      focusActive();
+    };
+    document.addEventListener("focusin", handleFocusIn);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -267,8 +280,16 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
       cancelAnimationFrame(frame);
       window.clearTimeout(autofillSweep);
       window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("focusin", handleFocusIn);
       document.body.style.overflow = previousOverflow;
-      openerRef.current?.focus?.();
+      if (appShell) {
+        appShell.inert = prevInert;
+        if (prevInert) appShell.setAttribute("inert", "");
+        else appShell.removeAttribute("inert");
+      }
+      if (openerRef.current?.isConnected) {
+        openerRef.current.focus?.();
+      }
     };
   }, [isSettingsOpen, setIsSettingsOpen]);
 

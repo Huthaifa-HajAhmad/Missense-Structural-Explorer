@@ -67,6 +67,7 @@ export function useJobPoller<TData = any>({
 
     let attempt = 0;
     let stopped = false;
+    let inFlight = false;
     let consecutiveTransientErrors = 0;
     let listening = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -74,14 +75,32 @@ export function useJobPoller<TData = any>({
     let eventSource: EventSource | null = null;
     const controller = new AbortController();
     const pollStart = Date.now();
+    const isTabHidden = () =>
+      typeof document !== "undefined" && (document.visibilityState === "hidden" || document.hidden === true);
+    const isSseOpen = () =>
+      typeof window !== "undefined" &&
+      typeof window.EventSource !== "undefined" &&
+      typeof window.EventSource.OPEN === "number" &&
+      eventSource !== null &&
+      eventSource.readyState === window.EventSource.OPEN;
+
+    let onVisibilityChange: (() => void) | null = null;
 
     const stop = () => {
       stopped = true;
       clearTimeout(timeoutId);
       clearTimeout(deadlineId);
+      if (onVisibilityChange && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        onVisibilityChange = null;
+      }
       eventSource?.close();
       controller.abort();
     };
+    const formatWindowDuration = (ms: number): string =>
+      ms >= 60_000 && ms % 60_000 === 0
+        ? `${ms / 60_000}-minute`
+        : `${Math.max(1, Math.round(ms / 1000))}-second`;
     const finish = (nextStatus: "done" | "error" | "unavailable", error?: string) => {
       if (stopped) return false;
       if (currentJobRef.current !== jobId || currentStatusRef.current !== "pending") {
@@ -95,8 +114,15 @@ export function useJobPoller<TData = any>({
       }
       onStatusChangeRef.current(nextStatus);
       if (nextStatus !== "done") onToolFailedRef.current?.(toolName);
-      notifyOnceRef.current?.(`${toolName}_${jobId}_${nextStatus === "done" ? "done" : nextStatus === "unavailable" ? "unavailable" : "failed"}`, nextStatus === "done" ? "success" : "error",
-        nextStatus === "done" ? `${toolName} prediction completed.` : `${toolName} prediction failed: ${error || "No result returned"}`);
+      notifyOnceRef.current?.(
+        `${toolName}_${jobId}_${nextStatus === "done" ? "done" : nextStatus === "unavailable" ? "unavailable" : "failed"}`,
+        nextStatus === "done" ? "success" : "error",
+        nextStatus === "done"
+          ? `${toolName} prediction completed.`
+          : nextStatus === "unavailable"
+            ? `${toolName} temporarily unavailable: ${error || "Provider timed out — retry to check again."}`
+            : `${toolName} prediction failed: ${error || "No result returned"}`
+      );
       return true;
     };
     /**
@@ -107,15 +133,19 @@ export function useJobPoller<TData = any>({
     const enterListening = (reason: string, notice?: string): boolean => {
       if (stopped) return true;
       if (listening) return false;
+      const windowLabel = formatWindowDuration(listenWindowMs);
       const remaining = Math.min(maxElapsedMs, listenWindowMs) - (Date.now() - pollStart);
       if (remaining <= 0) {
-        finish("unavailable", `${toolName} did not recover: ${reason}`);
+        finish("unavailable", `${toolName} did not recover within the ${windowLabel} window (${reason}). You can retry this engine.`);
         return true;
       }
       listening = true;
       consecutiveTransientErrors = 0;
       clearTimeout(deadlineId);
-      deadlineId = setTimeout(() => finish("unavailable", `${toolName} did not recover within the listening window: ${reason}`), remaining);
+      deadlineId = setTimeout(
+        () => finish("unavailable", `${toolName} timed out after the ${windowLabel} listening window (${reason}). Retry to try again.`),
+        remaining
+      );
       onListeningRef.current?.(reason);
       notifyOnceRef.current?.(`${toolName}_${jobId}_listening`, "info",
         notice ?? `${toolName} did not answer in time — still listening; the value will appear if it arrives.`);
@@ -147,7 +177,10 @@ export function useJobPoller<TData = any>({
       }
       return false;
     };
-    deadlineId = setTimeout(() => finish("unavailable", `${toolName} prediction timed out after ${Math.round(maxElapsedMs / 1000)} seconds`), maxElapsedMs);
+    deadlineId = setTimeout(
+      () => finish("unavailable", `${toolName} prediction timed out after ${formatWindowDuration(maxElapsedMs)}. You can retry this engine.`),
+      maxElapsedMs
+    );
 
     if (typeof window !== "undefined" && typeof window.EventSource !== "undefined") {
       try {
@@ -167,13 +200,24 @@ export function useJobPoller<TData = any>({
       }
     }
 
-    const getBackoffDelay = (attempts: number) => listening ? listenIntervalMs : attempts < 5 ? 3000 : attempts < 15 ? 5000 : 10000;
+    const getBackoffDelay = (attempts: number) => {
+      const baseDelay = listening ? listenIntervalMs : attempts < 5 ? 3000 : attempts < 15 ? 5000 : 10000;
+      return isSseOpen() ? Math.max(baseDelay, 30_000) : baseDelay;
+    };
+
+    const scheduleNextPoll = () => {
+      if (stopped || isTabHidden()) return;
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(poll, getBackoffDelay(++attempt));
+    };
+
     const poll = async () => {
-      if (stopped) return;
+      if (stopped || inFlight || isTabHidden()) return;
       if ((!listening && attempt >= maxAttempts) || Date.now() - pollStart >= maxElapsedMs) {
-        finish("unavailable", `${toolName} prediction timed out (poll limit reached)`);
+        finish("unavailable", `${toolName} prediction timed out (poll limit reached). You can retry this engine.`);
         return;
       }
+      inFlight = true;
       try {
         const query = buildQueryParamsRef.current?.()?.toString();
         const url = endpointRef.current(jobId) + (query ? "?" + query : "");
@@ -199,10 +243,41 @@ export function useJobPoller<TData = any>({
       } catch (error: any) {
         if (stopped) return;
         if (++consecutiveTransientErrors >= 3 && enterListening(`${toolName} job polling failed: ${error?.message || "Network error"}.`)) return;
+      } finally {
+        inFlight = false;
       }
-      if (!stopped) timeoutId = setTimeout(poll, getBackoffDelay(++attempt));
+      scheduleNextPoll();
     };
-    void poll();
+
+    if (eventSource) {
+      const prevOnError = eventSource.onerror;
+      eventSource.onerror = event => {
+        prevOnError?.call(eventSource!, event);
+        if (!stopped && !inFlight && !isTabHidden()) {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(poll, getBackoffDelay(attempt));
+        }
+      };
+    }
+
+    if (typeof document !== "undefined") {
+      onVisibilityChange = () => {
+        if (stopped) return;
+        if (isTabHidden()) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+          return;
+        }
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+        if (!inFlight) void poll();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+
+    if (!isTabHidden()) {
+      void poll();
+    }
     return stop;
   }, [jobId, status, toolName, maxAttempts, maxElapsedMs, listenWindowMs, listenIntervalMs]);
 }

@@ -65,23 +65,16 @@
   .vcs-card,
   .vcs-runstate-action,
   /*
-   * The two `aside` selectors here used to be `aside.app-sidebar` and
-   * `aside.inspector-panel`, neither of which matches any element in the DOM —
-   * so Ctrl+P from any screen other than the Report view printed the fixed-width
-   * sidebar and inspector chrome alongside the content. The panels carry utility
-   * classes only, and their `aria-label` is the one stable hook they expose:
-   * MasterSidebar (`Main navigation`) and ViewInspector
-   * (`Context & Provenance Inspector`). `.ev-sidebar` is the Evidence view's own
-   * navigation rail.
+   * MasterSidebar (`Main navigation`), ViewInspector (`Context & Provenance Inspector`),
+   * and DevConsole span/entry inspector (`aside.dc-aside`) carry panel chrome that should
+   * stay off paper exports alongside live notification toasts.
    */
   aside[aria-label="Main navigation"],
   aside[aria-label="Context & Provenance Inspector"],
-  aside.ev-sidebar,
+  aside.dc-aside,
   .toast-container,
-  .notification-toast,
   nav,
-  .report-press,
-  .app-navigation {
+  .report-press {
     display: none !important;
   }
 
@@ -98,6 +91,7 @@
 
   /* 2. Color adjustment and light paper theme flattening */
   :root,
+  .dark,
   [data-theme="dark"],
   body.dark,
   body {
@@ -126,10 +120,14 @@
     --cs-accent-wash: #F8EEF0 !important;
     --cs-border: #C8CDD6 !important;
     --cs-border-subtle: #DBDFE5 !important;
+    --cs-border-strong: #9CA3AF !important;
     --cs-text-primary: #111827 !important;
     --cs-text-secondary: #374151 !important;
     --cs-text-muted: #6B7280 !important;
     --cs-accent-clay: #92400E !important;
+    --cs-accent: #92400E !important;
+    --cs-accent-solid: #7C2D12 !important;
+    --cs-accent-mag-soft: #FDF2F9 !important;
     --cs-text-accent: #92400E !important;
 
     /* Semantic verdict tokens, flattened to their light values.
@@ -190,15 +188,18 @@
     margin: 0 !important;
   }
 
-  /* 5. Force all report disclosures to render expanded */
+  /* 5. Force all report disclosures and native details to render expanded */
   details,
+  details::details-content,
   .report-disclosure,
   .report-disclosure[data-open="false"] {
     display: block !important;
+    content-visibility: visible !important;
     grid-template-rows: 1fr !important;
     opacity: 1 !important;
     max-height: none !important;
     height: auto !important;
+    block-size: auto !important;
     overflow: visible !important;
   }
 

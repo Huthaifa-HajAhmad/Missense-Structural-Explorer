@@ -390,4 +390,44 @@ describe("local informational agreement", () => {
     });
     expect(settled.readings.find(r => r.key === "metarnn")!.availability.label).toBe("No result");
   });
+
+  it("distinctly labels VESM-150M fallback across ESM-2, ESMC/VESM, and SaProt", () => {
+    const base = gzf1();
+    const evidence = buildPredictorEvidence({
+      result: gzf1({
+        esm2Eval: { ...base.esm2Eval, llr: -4.2, provenance: "VESM-150M (Local Fallback)" },
+        esmcEval: {
+          ...base.esmcEval,
+          llr: -4.2,
+          provenance: "VESM-150M (Local Fallback - ESMC remote failed)",
+          remoteEngineNote: "HTTP 451",
+        },
+        saprotEval: {
+          ...base.saprotEval,
+          llr: -4.2,
+          provenance: "VESM-150M (Local Fallback - SaProt unavailable)",
+          fallbackReason: "weights missing",
+        },
+      }),
+    });
+    const esm2 = evidence.readings.find(r => r.key === "esm2_3b")!;
+    expect(esm2.name).toBe("VESM (ESM-2 fallback)");
+    expect(esm2.caveats).toContain("fallback-model");
+    expect(esm2.knowledgeKey).toBe("vesm");
+    expect(esm2.note).toContain("VESM-150M");
+
+    const vesm = evidence.readings.find(r => r.key === "vesm")!;
+    expect(vesm.name).toBe("VESM");
+    expect(vesm.caveats).toContain("fallback-model");
+    expect(vesm.note).toContain("ESMC remote unavailable: HTTP 451");
+
+    const saprot = evidence.readings.find(r => r.key === "saprot")!;
+    expect(saprot.name).toBe("VESM (SaProt fallback)");
+    expect(saprot.caveats).toContain("fallback-model");
+    expect(saprot.knowledgeKey).toBe("vesm");
+
+    const agreement = localPredictorAgreement(evidence);
+    expect(agreement.preference.map(x => x.reading.name)).toContain("VESM (ESM-2 fallback)");
+    expect(agreement.preference.map(x => x.reading.name)).toContain("VESM (SaProt fallback)");
+  });
 });

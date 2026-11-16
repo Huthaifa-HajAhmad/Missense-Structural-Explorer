@@ -374,7 +374,7 @@ export function checksum(input: string): string {
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
 
 const PATHOGENIC_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
-const BENIGN_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Supporting" };
+const BENIGN_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Moderate", 1: "Supporting" };
 
 /** The strength the engine's combining rule gives a code, in words. Same weights the tier used. */
 export function strengthWord(code: string): string {

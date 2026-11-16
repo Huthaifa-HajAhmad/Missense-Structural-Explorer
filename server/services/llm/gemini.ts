@@ -695,6 +695,81 @@ export function withTimeout<T>(
   });
 }
 
+// Short jittered pause between attempts. With retries the wait also covers re-trying one
+// that just 503'd, and it stays deliberately short because the budget is the scarce resource.
+async function interModelWait(attempt: number, timeoutSignal?: AbortSignal): Promise<void> {
+  const waitMs = interModelDelayMs(attempt);
+  await new Promise<void>((resolve, reject) => {
+    /*
+     * `once: true` only removes the listener when it fires, so the success path used to
+     * leave one registered per attempt. Bounded and harmless (Node does not warn for
+     * AbortSignal), but the cleanup is a line.
+     */
+    const onAbort = () => { clearTimeout(timer); reject(new Error("Aborted during backoff")); };
+    const timer = setTimeout(() => {
+      timeoutSignal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, waitMs);
+    if (timeoutSignal) {
+      if (timeoutSignal.aborted) {
+        clearTimeout(timer);
+        reject(new Error("Aborted during backoff"));
+        return;
+      }
+      timeoutSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
+function throwClassifiedGeminiError(
+  lastError: any,
+  attemptedModels: readonly string[],
+  customApiKey?: string
+): never {
+  const kind = classifyGeminiFailure(lastError);
+  const providerDetail = sanitizeProviderError(lastError);
+  const attempted = [...attemptedModels];
+
+  /*
+   * Every error below carries the verdict (`kind`) it was derived from, so the route can
+   * build the client's `fallbackReason` from the engine's decision instead of re-deriving
+   * it. The default branch is the one place where the two derivations visibly disagreed:
+   * kind "unknown" with status 503 was re-read as "overload" from the status, so an
+   * unclassified failure was presented as "AI service busy / retry shortly" — a retry that
+   * the engine had already decided was not the answer. It now reports the unclassified
+   * failure it actually was.
+   */
+  if (/placeholder|must not be a placeholder|is required/.test(String(lastError?.message || ""))) {
+    throw new GeminiError("API_KEY_MISSING", "No Gemini API key is configured.", 401, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
+  }
+  if (customApiKey && kind === "auth") {
+    throw new GeminiError("API_KEY_INVALID", "The provided Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
+  }
+
+  switch (kind) {
+    case "auth":
+      throw new GeminiError("API_KEY_INVALID", "The Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
+    case "quota":
+      throw new GeminiError("QUOTA_EXHAUSTED", "Gemini API quota is exhausted.", 429, { providerDetail, attemptedModels: attempted, failureKind: "quota" });
+    case "overload":
+      throw new GeminiError("PROVIDER_OVERLOADED", "Gemini reports that the requested models are overloaded.", 503, { providerDetail, attemptedModels: attempted, failureKind: "overload" });
+    case "timeout":
+      throw new GeminiError("DEADLINE_EXCEEDED", "No Gemini model responded within the synthesis time budget.", 504, { providerDetail, attemptedModels: attempted, failureKind: "timeout" });
+    case "network":
+      throw new GeminiError("NETWORK_ERROR", "The Gemini endpoint could not be reached from the server.", 502, { providerDetail, attemptedModels: attempted, failureKind: "network" });
+    default:
+      /*
+       * `kind` — not a literal — because `default` is reached by two different verdicts:
+       * `not_found` (the provider answered 404, e.g. a retired model or a stale configured
+       * ladder) and `unknown`. Hard-coding "unknown" here discarded the `not_found` verdict
+       * and reported a retired model as an unclassified failure, which hides MODEL_UNAVAILABLE's
+       * "check the model configuration" from the reader and leaves
+       * `failureKindToFallbackReason("not_found")` reachable from no throw site at all.
+       */
+      throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted, failureKind: kind });
+  }
+}
+
 export async function performGeminiAnalysis(
   gene: string,
   variant: string,
@@ -825,12 +900,45 @@ Please use this database grounding to inform your pathogenicity assessment and A
   }
 
   let conservationEvidence = "";
-  if (conservationData && conservationData.available) {
+  const hasSuppliedConservationMetric = Boolean(
+    conservationData && (
+      conservationData.available ||
+      [
+        conservationData.revel,
+        conservationData.gerp,
+        conservationData.phylop,
+        conservationData.bayesdel,
+        conservationData.metarnn,
+        conservationData.clinpred,
+        conservationData.eigenPhred,
+        conservationData.dann,
+        conservationData.esm1b,
+        conservationData.popeve,
+        conservationData.gpnStar,
+        conservationData.spliceai?.max_ds,
+        conservationData.alphagenome?.aviPhred
+      ].some(v => v != null)
+    )
+  );
+  if (conservationData && hasSuppliedConservationMetric) {
+    const agSummary = conservationData.alphagenome?.aviPhred != null
+      ? `${conservationData.alphagenome.aviPhred}${conservationData.alphagenome.topModality ? ` (top modality: ${conservationData.alphagenome.topModality})` : ""}`
+      : "not measured";
     conservationEvidence = `
 [EVOLUTIONARY CONSERVATION SCORES]:
 - REVEL Score: ${conservationData.revel ?? "not measured"}
 - GERP++ Score: ${conservationData.gerp ?? "not measured"}
 - phyloP Vertebrate Score: ${conservationData.phylop ?? "not measured"}
+- BayesDel Score: ${conservationData.bayesdel ?? "not measured"}
+- MetaRNN Score: ${conservationData.metarnn ?? "not measured"}
+- ClinPred Score: ${conservationData.clinpred ?? "not measured"}
+- Eigen Phred Score: ${conservationData.eigenPhred ?? "not measured"}
+- DANN Score: ${conservationData.dann ?? "not measured"}
+- ESM-1b LLR Score: ${conservationData.esm1b ?? "not measured"}
+- PopEVE Score: ${conservationData.popeve ?? "not measured"}
+- GPN-Star Score: ${conservationData.gpnStar ?? "not measured"}
+- SpliceAI Max Delta Score: ${conservationData.spliceai?.max_ds ?? "not measured"}
+- AlphaGenome AVI Phred: ${agSummary}
 `;
   } else {
     conservationEvidence = `
@@ -980,33 +1088,6 @@ Never derive a criterion from the deep-model observations above: a predicted Δ�
     const attemptCounts = new Map<string, number>();
     /** Candidates still worth trying; a quota or 404 failure removes one. */
     const pool = [...modelsToTry];
-
-    // Short jittered pause between attempts. The previous version only waited when it was
-    // about to switch model; with retries the wait also covers re-trying one that just 503'd,
-    // and it stays deliberately short because the budget is the scarce resource.
-    const interModelWait = async (attempt: number) => {
-      const waitMs = interModelDelayMs(attempt);
-      await new Promise<void>((resolve, reject) => {
-        /*
-         * `once: true` only removes the listener when it fires, so the success path used to
-         * leave one registered per attempt. Bounded and harmless (Node does not warn for
-         * AbortSignal), but the cleanup is a line.
-         */
-        const onAbort = () => { clearTimeout(timer); reject(new Error("Aborted during backoff")); };
-        const timer = setTimeout(() => {
-          timeoutSignal?.removeEventListener("abort", onAbort);
-          resolve();
-        }, waitMs);
-        if (timeoutSignal) {
-          if (timeoutSignal.aborted) {
-            clearTimeout(timer);
-            reject(new Error("Aborted during backoff"));
-            return;
-          }
-          timeoutSignal.addEventListener("abort", onAbort, { once: true });
-        }
-      });
-    };
 
     for (let attemptIndex = 0; attemptIndex < MAX_ATTEMPTS_PER_REQUEST; attemptIndex++) {
       const modelName = pickModelForAttempt(pool, attemptCounts, Date.now());
@@ -1196,7 +1277,7 @@ Never derive a criterion from the deep-model observations above: a predicted Δ�
          */
         if (isTransientFailure(kind) && attemptIndex < MAX_ATTEMPTS_PER_REQUEST - 1) {
           try {
-            await interModelWait(attemptIndex + 1);
+            await interModelWait(attemptIndex + 1, timeoutSignal);
           } catch {
             // aborted during wait — the outer deadline check will handle it
           }
@@ -1220,48 +1301,7 @@ Never derive a criterion from the deep-model observations above: a predicted Δ�
   }
 
   if (lastError) {
-    const kind = classifyGeminiFailure(lastError);
-    const providerDetail = sanitizeProviderError(lastError);
-    const attempted = [...attemptedModels];
-
-    /*
-     * Every error below carries the verdict (`kind`) it was derived from, so the route can
-     * build the client's `fallbackReason` from the engine's decision instead of re-deriving
-     * it. The default branch is the one place where the two derivations visibly disagreed:
-     * kind "unknown" with status 503 was re-read as "overload" from the status, so an
-     * unclassified failure was presented as "AI service busy / retry shortly" — a retry that
-     * the engine had already decided was not the answer. It now reports the unclassified
-     * failure it actually was.
-     */
-    if (/placeholder|must not be a placeholder|is required/.test(String(lastError?.message || ""))) {
-      throw new GeminiError("API_KEY_MISSING", "No Gemini API key is configured.", 401, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
-    }
-    if (customApiKey && kind === "auth") {
-      throw new GeminiError("API_KEY_INVALID", "The provided Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
-    }
-
-    switch (kind) {
-      case "auth":
-        throw new GeminiError("API_KEY_INVALID", "The Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
-      case "quota":
-        throw new GeminiError("QUOTA_EXHAUSTED", "Gemini API quota is exhausted.", 429, { providerDetail, attemptedModels: attempted, failureKind: "quota" });
-      case "overload":
-        throw new GeminiError("PROVIDER_OVERLOADED", "Gemini reports that the requested models are overloaded.", 503, { providerDetail, attemptedModels: attempted, failureKind: "overload" });
-      case "timeout":
-        throw new GeminiError("DEADLINE_EXCEEDED", "No Gemini model responded within the synthesis time budget.", 504, { providerDetail, attemptedModels: attempted, failureKind: "timeout" });
-      case "network":
-        throw new GeminiError("NETWORK_ERROR", "The Gemini endpoint could not be reached from the server.", 502, { providerDetail, attemptedModels: attempted, failureKind: "network" });
-      default:
-        /*
-         * `kind` — not a literal — because `default` is reached by two different verdicts:
-         * `not_found` (the provider answered 404, e.g. a retired model or a stale configured
-         * ladder) and `unknown`. Hard-coding "unknown" here discarded the `not_found` verdict
-         * and reported a retired model as an unclassified failure, which hides MODEL_UNAVAILABLE's
-         * "check the model configuration" from the reader and leaves
-         * `failureKindToFallbackReason("not_found")` reachable from no throw site at all.
-         */
-        throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted, failureKind: kind });
-    }
+    throwClassifiedGeminiError(lastError, attemptedModels, customApiKey);
   }
 
   let parsed: any = null;
@@ -1403,15 +1443,13 @@ Generate a JSON object with:
     `[Gemini Biophysical Entry] budget=${BIOPHYSICAL_SYNTHESIS_BUDGET_MS}ms candidates=[${modelsToTry.join(", ")}]`
   );
 
-  // Do not replace a valid BYOK failure with a misleading missing-system-key error.
-  // Only try the system key when it is actually configured and usable.
-  const keysToTry = customApiKey && !isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
-    ? [customApiKey, undefined]
-    : [customApiKey];
+  // When customApiKey is provided, evaluate only the custom key to ensure authentic BYOK diagnostics.
+  const keysToTry = customApiKey ? [customApiKey] : [undefined];
 
   let lastError: any = null;
   let parsed: any = null;
   let success = false;
+  const attemptedModels: string[] = [];
 
   for (const apiKey of keysToTry) {
     let client;
@@ -1440,7 +1478,16 @@ Generate a JSON object with:
         break;
       }
       if (timeoutSignal?.aborted) {
-        throw new GeminiError("DEADLINE_EXCEEDED", `Biophysical synthesis was cancelled after ${attemptIndex} attempt(s).`, 504);
+        throw new GeminiError(
+          "REQUEST_CANCELLED",
+          `Biophysical synthesis was cancelled after ${attemptedModels.length} model attempt(s).`,
+          499,
+          {
+            providerDetail: lastError ? sanitizeProviderError(lastError) : "request cancelled by client",
+            attemptedModels: [...attemptedModels],
+            failureKind: "cancelled",
+          }
+        );
       }
 
       const attemptTimeoutMs = planAttemptTimeout(remainingMs, BIOPHYSICAL_SYNTHESIS_BUDGET_MS);
@@ -1449,6 +1496,7 @@ Generate a JSON object with:
         break;
       }
       attemptCounts.set(modelName, (attemptCounts.get(modelName) ?? 0) + 1);
+      attemptedModels.push(modelName);
 
       try {
         console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${MAX_ATTEMPTS_PER_REQUEST}, slice ${attemptTimeoutMs}ms)`);
@@ -1473,11 +1521,11 @@ Generate a JSON object with:
                 properties: {
                   biochemicalShift: {
                     type: Type.STRING,
-                    description: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
+                    description: "Compact biophysical report on the chemical change of properties (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.')"
                   },
                   structuralImpact: {
                     type: Type.STRING,
-                    description: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
+                    description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Loss of positive charge may affect local interactions; no contact geometry was supplied to test this hypothesis.')"
                   }
                 },
                 required: ["biochemicalShift", "structuralImpact"]
@@ -1490,7 +1538,16 @@ Generate a JSON object with:
           () => attemptController.abort()
         );
 
-        const cleanedText = response.text.trim();
+        const rawText = response?.text || response?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const cleanedText = rawText.trim();
+        if (!cleanedText) {
+          recordModelFailure(modelName, true);
+          lastError = new Error(`${modelName} returned an empty completion.`);
+          const index = pool.indexOf(modelName);
+          if (index >= 0) pool.splice(index, 1);
+          if (pool.length === 0) break;
+          continue;
+        }
         try {
           parsed = JSON.parse(cleanedText);
         } catch (err: any) {
@@ -1516,6 +1573,7 @@ Generate a JSON object with:
 
         if (parsed) {
           recordModelSuccess(modelName);
+          lastError = null;
           success = true;
           break;
         }
@@ -1533,6 +1591,18 @@ Generate a JSON object with:
         const kind = classifyGeminiFailure(err);
         console.warn(`[Gemini Biophysical Analysis] model=${modelName} kind=${kind} failed: ${sanitizeProviderError(err)}`);
         lastError = err;
+        if (timeoutSignal?.aborted) {
+          throw new GeminiError(
+            "REQUEST_CANCELLED",
+            `Biophysical synthesis was cancelled after ${attemptedModels.length} model attempt(s).`,
+            499,
+            {
+              providerDetail: sanitizeProviderError(err),
+              attemptedModels: [...attemptedModels],
+              failureKind: "cancelled",
+            }
+          );
+        }
         if (kind === "auth") break;
         recordModelFailure(modelName, isTransientFailure(kind), err);
         // Same policy as the narrative loop: a quota or retired model is dropped from the
@@ -1541,6 +1611,13 @@ Generate a JSON object with:
           const index = pool.indexOf(modelName);
           if (index >= 0) pool.splice(index, 1);
           if (pool.length === 0) break;
+        }
+        if (isTransientFailure(kind) && attemptIndex < MAX_ATTEMPTS_PER_REQUEST - 1) {
+          try {
+            await interModelWait(attemptIndex + 1, timeoutSignal);
+          } catch {
+            // aborted during wait — the outer deadline check will handle it
+          }
         }
         continue;
       }
@@ -1551,13 +1628,11 @@ Generate a JSON object with:
   }
 
   if (!parsed) {
-    if (lastError) {
-      throw lastError;
-    }
-    return {
-      biochemicalShift: "Biochemical shift details unavailable due to output decoding error.",
-      structuralImpact: "Structural impact details unavailable due to output decoding error."
-    };
+    throwClassifiedGeminiError(
+      lastError ?? new Error("No configured model produced a usable biophysical analysis for this request."),
+      attemptedModels,
+      customApiKey
+    );
   }
 
   return parsed;

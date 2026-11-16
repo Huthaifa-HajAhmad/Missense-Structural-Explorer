@@ -286,6 +286,11 @@ describe("checkDockerfileGateSafety — the real repository", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8"));
     expect(expandScripts(pkg.scripts, VERIFY_ENTRY).has("lint")).toBe(true);
     expect(IMAGE_UNSAFE_GATES.has("lint")).toBe(true);
+    for (const scriptName of Object.keys(pkg.scripts)) {
+      if (scriptName.startsWith("test:geometry")) {
+        expect(IMAGE_UNSAFE_GATES.has(scriptName)).toBe(true);
+      }
+    }
   });
 });
 

@@ -8,6 +8,8 @@ export const THRESHOLDS_METADATA = {
     alphaMissense: "Cheng et al. Science (2023); PP3/BP4 bands: Bergquist et al. Genet Med (2025)",
     cadd: "Rentzsch et al. Nucleic Acids Res (2019); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005) — force field only; the 0.5 / 1.5 kcal/mol marks are local (FoldX publishes no threshold)",
+    thermompnn: "Dieckhaus et al. PNAS (2024) — app-defined +0.5 / +1.0 kcal/mol display marks are placeholders pending held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol)",
+    stabilityoracle: "Diaz et al. Nat Commun (2024) — app-defined ±0.5 / +1.0 kcal/mol marks and PDB2PQR-reconstructed inputs (-pred/2) are placeholders pending held-out recalibration (sidecar raw isStabilizing uses < -0.5 kcal/mol)",
     popEVE: "Orenbuch et al. Nat Genet (2025)",
     dbscsnv: "Jian et al. Nucleic Acids Res (2014) — authors' cut-point 0.6, not ClinGen-calibrated",
     spliceai: "Jaganathan et al. Cell (2019); splicing PP3/BP4 bands: Walker et al. Am J Hum Genet (2023), ClinGen SVI Splicing Subgroup",
@@ -104,14 +106,14 @@ export const THRESHOLDS = {
 
 
   foldxDdG: {
-    /** ΔΔG > 1.5 kcal/mol: strong destabilization */
+    /** ΔΔG ≥ 1.5 kcal/mol: strong destabilization */
     destabilizingStrong: 1.5,
-    /** ΔΔG > 0.5 kcal/mol: supporting destabilization */
+    /** ΔΔG ≥ 0.5 kcal/mol: supporting destabilization */
     destabilizingSupporting: 0.5,
     /** ΔΔG within ±0.5: neutral / well-tolerated */
     neutralLow: -0.5,
     neutralHigh: 0.5,
-    /** ΔΔG < -0.5: stabilizing variant */
+    /** ΔΔG ≤ -0.5: stabilizing variant */
     stabilizing: -0.5,
   },
 
@@ -467,7 +469,9 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   ddmut:
     "DDMut (Zhou et al. Nucleic Acids Res 2023). Local mark: native ΔΔG ≤ −1.0 kcal/mol read as destabilizing (DDMut's sign is negative = destabilizing). No published clinical cut-point.",
   thermompnn:
-    "ThermoMPNN (Dieckhaus et al. PNAS 2024). Local mark: ΔΔG ≥ +1.0 kcal/mol read as destabilising (canonical sign, positive = destabilising). No published clinical cut-point.",
+    "ThermoMPNN (Dieckhaus et al. PNAS 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising, canonical positive = destabilising) are local placeholders pending held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol). No published clinical cut-point.",
+  stabilityoracle:
+    "StabilityOracle (Diaz et al. Nat Commun 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising; stabilizing ≤ −0.5 kcal/mol) and reconstructed PDB2PQR inputs (−pred/2) are local placeholders pending held-out recalibration (sidecar raw isStabilizing uses < −0.5 kcal/mol). No published clinical cut-point.",
   bayesdel:
     "BayesDel without allele frequency (Feng 2017). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.13, moderate ≥ 0.27, strong ≥ 0.50; " +
     "BP4 supporting ≤ −0.18, moderate ≤ −0.36.",

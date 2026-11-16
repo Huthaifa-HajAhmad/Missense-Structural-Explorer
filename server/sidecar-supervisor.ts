@@ -191,6 +191,7 @@ export class SidecarSupervisor {
       AuditLogger.log("SIDECAR_ERROR", { message: err.message });
       this.modelServerProcess = null;
       this.isSpawning = false;
+      this.scheduleRestart({ code: null, signal: null });
     });
 
     this.modelServerProcess.on("exit", (code, signal) => {
@@ -199,29 +200,35 @@ export class SidecarSupervisor {
       console.warn(`[Sidecar Supervisor] Sidecar exited with code ${code} and signal ${signal}.`);
       this.modelServerProcess = null;
       this.isSpawning = false;
-
-      if (this.stableTimer) {
-        clearTimeout(this.stableTimer);
-        this.stableTimer = null;
-      }
-
-      // Exponential backoff recovery (up to 10 attempts, max 60s)
-      if (this.restartAttempts < 10) {
-        this.restartAttempts++;
-        const backoffDelay = Math.min(2000 * Math.pow(2, this.restartAttempts - 1), 60000);
-        console.log(`[Sidecar Supervisor] Restarting sidecar process (attempt ${this.restartAttempts}/10) in ${backoffDelay / 1000} seconds...`);
-        AuditLogger.log("SIDECAR_RESTART", { attempt: this.restartAttempts, code, signal });
-
-        if (this.restartTimer) clearTimeout(this.restartTimer);
-        this.restartTimer = setTimeout(() => {
-          this.restartTimer = null;
-          this.spawnModelServer();
-        }, backoffDelay);
-      } else {
-        console.error("[Sidecar Supervisor] Max restart attempts reached. Sidecar will remain offline until health check recovery.");
-        AuditLogger.log("SIDECAR_FATAL_OFFLINE", { restartAttempts: this.restartAttempts, code, signal });
-      }
+      this.scheduleRestart({ code, signal });
     });
+  }
+
+  private scheduleRestart(context: { code: number | null; signal: NodeJS.Signals | null }): void {
+    if (this.isShuttingDown) return;
+
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+
+    if (this.restartTimer) return;
+
+    // Exponential backoff recovery (up to 10 attempts, max 60s)
+    if (this.restartAttempts < 10) {
+      this.restartAttempts++;
+      const backoffDelay = Math.min(2000 * Math.pow(2, this.restartAttempts - 1), 60000);
+      console.log(`[Sidecar Supervisor] Restarting sidecar process (attempt ${this.restartAttempts}/10) in ${backoffDelay / 1000} seconds...`);
+      AuditLogger.log("SIDECAR_RESTART", { attempt: this.restartAttempts, code: context.code, signal: context.signal });
+
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        this.spawnModelServer();
+      }, backoffDelay);
+    } else {
+      console.error("[Sidecar Supervisor] Max restart attempts reached. Sidecar will remain offline until health check recovery.");
+      AuditLogger.log("SIDECAR_FATAL_OFFLINE", { restartAttempts: this.restartAttempts, code: context.code, signal: context.signal });
+    }
   }
 
   private startHealthCheckLoop(): void {

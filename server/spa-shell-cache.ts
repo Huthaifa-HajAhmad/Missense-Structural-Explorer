@@ -33,9 +33,21 @@ export function setStaticShellHeaders(res: Response, filePath: string): void {
  */
 export function createSpaShellHandler(distPath: string): RequestHandler {
   const htmlPath = path.join(distPath, "index.html");
+  let cachedShell: { mtimeMs: number; size: number; html: string } | null = null;
+
+  const readShellHtml = async (): Promise<string> => {
+    const stat = await fs.promises.stat(htmlPath);
+    if (cachedShell && cachedShell.mtimeMs === stat.mtimeMs && cachedShell.size === stat.size) {
+      return cachedShell.html;
+    }
+    const html = await fs.promises.readFile(htmlPath, "utf8");
+    cachedShell = { mtimeMs: stat.mtimeMs, size: stat.size, html };
+    return html;
+  };
+
   return async (_req, res) => {
     try {
-      let html = await fs.promises.readFile(htmlPath, "utf8");
+      let html = await readShellHtml();
       const nonce = res.locals.nonce;
       if (nonce) {
         html = html.replace(/<script/g, `<script nonce="${nonce}"`);
@@ -43,6 +55,7 @@ export function createSpaShellHandler(distPath: string): RequestHandler {
       setSpaShellHeaders(res);
       res.type("html").send(html);
     } catch (err: any) {
+      cachedShell = null;
       console.error("[SPA Fallback Warning] Failed to inject CSP nonce into index.html:", err.message);
       setSpaShellHeaders(res);
       res.sendFile(htmlPath);

@@ -57,87 +57,164 @@ export function useEvidenceContext(result: EvidenceContextInput, options: Eviden
   const pextLoad = useVariantAnalysisStore(s => s.extraContexts[extraContextKey('pext', gene)]) as ContextLoad<z.infer<typeof pextResponseSchema>> | undefined;
   const selection = useVariantAnalysisStore(s => s.phenotypeSelections[key] ?? EMPTY_SELECTION);
   const actions = useVariantAnalysisStore.getState();
-  const loadDisease = async () => {
-    if (!gene || useVariantAnalysisStore.getState().diseaseContexts[gene]?.status === 'loading') return;
+  const isAborted = (error: unknown, signal?: AbortSignal) =>
+    Boolean(signal?.aborted || (error instanceof Error && error.name === 'AbortError'));
+  const clearLoadingExtra = (slot: string) => {
+    useVariantAnalysisStore.setState((s) => {
+      if (s.extraContexts[slot]?.status !== 'loading') return s;
+      const { [slot]: _dropped, ...rest } = s.extraContexts;
+      return { extraContexts: rest };
+    });
+  };
+  const loadDisease = async (signal?: AbortSignal) => {
+    if (!gene || signal?.aborted || useVariantAnalysisStore.getState().diseaseContexts[gene]?.status === 'loading') return;
     actions.setDiseaseContext(gene, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}`, { timeout: 20000 });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}`, signal ? { timeout: 20000, signal } : { timeout: 20000 });
+      if (signal?.aborted) { await response.body?.cancel(); return; }
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = geneDiseaseResponseSchema.parse(await response.json());
+      if (signal?.aborted) return;
       if (data.gene !== gene) throw new Error('Context identity mismatch');
       actions.setDiseaseContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch (error) { actions.setDiseaseContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+    } catch (error) {
+      if (isAborted(error, signal)) {
+        useVariantAnalysisStore.setState((s) => {
+          if (s.diseaseContexts[gene]?.status !== 'loading') return s;
+          const { [gene]: _dropped, ...rest } = s.diseaseContexts;
+          return { diseaseContexts: rest };
+        });
+        return;
+      }
+      actions.setDiseaseContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) });
+    }
   };
-  const loadDosage = async () => {
-    if (!gene || useVariantAnalysisStore.getState().dosageContexts[gene]?.status === 'loading') return;
+  const loadDosage = async (signal?: AbortSignal) => {
+    if (!gene || signal?.aborted || useVariantAnalysisStore.getState().dosageContexts[gene]?.status === 'loading') return;
     actions.setDosageContext(gene, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/dosage`, { timeout: 40000 });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/dosage`, signal ? { timeout: 40000, signal } : { timeout: 40000 });
+      if (signal?.aborted) { await response.body?.cancel(); return; }
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = dosageResponseSchema.parse(await response.json());
+      if (signal?.aborted) return;
       if (data.gene !== gene) throw new Error('Dosage identity mismatch');
       actions.setDosageContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch (error) { actions.setDosageContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+    } catch (error) {
+      if (isAborted(error, signal)) {
+        useVariantAnalysisStore.setState((s) => {
+          if (s.dosageContexts[gene]?.status !== 'loading') return s;
+          const { [gene]: _dropped, ...rest } = s.dosageContexts;
+          return { dosageContexts: rest };
+        });
+        return;
+      }
+      actions.setDosageContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) });
+    }
   };
-  const loadExpression = async () => {
-    if (!gene || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'loading') return;
+  const loadExpression = async (signal?: AbortSignal) => {
+    if (!gene || signal?.aborted || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'loading') return;
     actions.setExpressionContext(gene, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/expression`, { timeout: 40000 });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/expression`, signal ? { timeout: 40000, signal } : { timeout: 40000 });
+      if (signal?.aborted) { await response.body?.cancel(); return; }
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = adultExpressionResponseSchema.parse(await response.json());
+      if (signal?.aborted) return;
       if (data.gene !== gene) throw new Error('Expression identity mismatch');
       actions.setExpressionContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch (error) { actions.setExpressionContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+    } catch (error) {
+      if (isAborted(error, signal)) {
+        useVariantAnalysisStore.setState((s) => {
+          if (s.expressionContexts[gene]?.status !== 'loading') return s;
+          const { [gene]: _dropped, ...rest } = s.expressionContexts;
+          return { expressionContexts: rest };
+        });
+        return;
+      }
+      actions.setExpressionContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) });
+    }
   };
-  const loadModels = async () => {
-    if (!gene || useVariantAnalysisStore.getState().modelContexts[gene]?.status === 'loading') return;
+  const loadModels = async (signal?: AbortSignal) => {
+    if (!gene || signal?.aborted || useVariantAnalysisStore.getState().modelContexts[gene]?.status === 'loading') return;
     actions.setModelContext(gene, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/models`, { timeout: 60000 });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/models`, signal ? { timeout: 60000, signal } : { timeout: 60000 });
+      if (signal?.aborted) { await response.body?.cancel(); return; }
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = modelOrganismResponseSchema.parse(await response.json());
+      if (signal?.aborted) return;
       if (data.gene !== gene) throw new Error('Model-organism identity mismatch');
       actions.setModelContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch (error) { actions.setModelContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+    } catch (error) {
+      if (isAborted(error, signal)) {
+        useVariantAnalysisStore.setState((s) => {
+          if (s.modelContexts[gene]?.status !== 'loading') return s;
+          const { [gene]: _dropped, ...rest } = s.modelContexts;
+          return { modelContexts: rest };
+        });
+        return;
+      }
+      actions.setModelContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) });
+    }
   };
   /** One loader for the newer sources: path suffix, schema, and the same identity and failure rules. */
-  const loadExtra = async (kind: ExtraContextKind, schema: z.ZodType<{ gene: string; status: string }>, timeout: number, query = '', search = query ? `?disease=${encodeURIComponent(query)}` : '') => {
+  const loadExtra = async (kind: ExtraContextKind, schema: z.ZodType<{ gene: string; status: string }>, timeout: number, query = '', search = query ? `?disease=${encodeURIComponent(query)}` : '', signal?: AbortSignal) => {
     const slot = extraContextKey(kind, gene, query);
-    if (!gene || useVariantAnalysisStore.getState().extraContexts[slot]?.status === 'loading') return;
+    if (!gene || signal?.aborted || useVariantAnalysisStore.getState().extraContexts[slot]?.status === 'loading') return;
     actions.setExtraContext(slot, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/${kind}${search}`, { timeout });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/${kind}${search}`, signal ? { timeout, signal } : { timeout });
+      if (signal?.aborted) { await response.body?.cancel(); return; }
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = schema.parse(await response.json());
+      if (signal?.aborted) return;
       if (data.gene !== gene) throw new Error('Context identity mismatch');
       actions.setExtraContext(slot, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch (error) { actions.setExtraContext(slot, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+    } catch (error) {
+      if (isAborted(error, signal)) {
+        clearLoadingExtra(slot);
+        return;
+      }
+      actions.setExtraContext(slot, { status: 'error', data: null, error: contextRequestFailure(error) });
+    }
   };
-  const loadAlignment = () => loadExtra('alignment', alignmentResponseSchema, 60000);
-  const loadPhenotypes = () => loadExtra('phenotypes', modelPhenotypesResponseSchema, 120000);
-  const loadHpa = () => loadExtra('hpa', hpaResponseSchema, 60000);
-  const loadPext = () => loadExtra('pext', pextResponseSchema, 40000);
+  const loadAlignment = (signal?: AbortSignal) => loadExtra('alignment', alignmentResponseSchema, 60000, '', '', signal);
+  const loadPhenotypes = (signal?: AbortSignal) => loadExtra('phenotypes', modelPhenotypesResponseSchema, 120000, '', '', signal);
+  const loadHpa = (signal?: AbortSignal) => loadExtra('hpa', hpaResponseSchema, 60000, '', '', signal);
+  const loadPext = (signal?: AbortSignal) => loadExtra('pext', pextResponseSchema, 40000, '', '', signal);
   const hpoIds = hpoQueryIds(buildGeneDiseaseEvidence(diseaseLoad?.data ?? null, selection.diseaseKey).selected?.xrefs ?? []).join(',');
   const hpoSlot = extraContextKey('hpo', gene, hpoIds);
   const hpoLoad = useVariantAnalysisStore(s => s.extraContexts[hpoSlot]) as ContextLoad<z.infer<typeof hpoResponseSchema>> | undefined;
-  const loadHpo = () => loadExtra('hpo', hpoResponseSchema, 30000, hpoIds);
+  const loadHpo = (signal?: AbortSignal) => loadExtra('hpo', hpoResponseSchema, 30000, hpoIds, hpoIds ? `?disease=${encodeURIComponent(hpoIds)}` : '', signal);
   // Hot spots are read per protein and transcript (numbering is checked against the model), up front
   // with the other Evidence context so the Functional domains view never opens on a spinner.
   const uniprot = result.metadata?.uniprotId ?? '';
   const hotspotSlot = hotspotsSlot(gene, uniprot, result.transcriptId);
   const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotSlot]) as ContextLoad<HotspotContext> | undefined;
-  const loadHotspots = () => readHotspots(fetchWithAuth, gene, uniprot, result.transcriptId);
-  const loadDevelopment = async () => {
-    if (!gene || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'loading') return;
+  const loadHotspots = (signal?: AbortSignal) => readHotspots(fetchWithAuth, gene, uniprot, result.transcriptId, signal);
+  const loadDevelopment = async (signal?: AbortSignal) => {
+    if (!gene || signal?.aborted || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'loading') return;
     actions.setDevelopmentalContext(gene, { status: 'loading', data: null });
     try {
-      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/development`, { timeout: 20000 });
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/development`, signal ? { timeout: 20000, signal } : { timeout: 20000 });
+      if (signal?.aborted) { await response.body?.cancel(); return; }
       if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = developmentalExpressionResponseSchema.parse(await response.json());
+      if (signal?.aborted) return;
       if (data.gene !== gene) throw new Error('Context identity mismatch');
       actions.setDevelopmentalContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch (error) { actions.setDevelopmentalContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+    } catch (error) {
+      if (isAborted(error, signal)) {
+        useVariantAnalysisStore.setState((s) => {
+          if (s.developmentalContexts[gene]?.status !== 'loading') return s;
+          const { [gene]: _dropped, ...rest } = s.developmentalContexts;
+          return { developmentalContexts: rest };
+        });
+        return;
+      }
+      actions.setDevelopmentalContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) });
+    }
   };
   useEffect(() => { actions.loadPhenotypeSelection(key); }, [key]);
   useEffect(() => {
@@ -150,6 +227,7 @@ export function useEvidenceContext(result: EvidenceContextInput, options: Eviden
     previousKey.current = key;
   }, [key]);
   useEffect(() => {
+    if (!gene) return;
     // A cached "not installed" or failed read is not a fact about the gene: the snapshot can be
     // installed (or the server recovered) mid-session. Background prefetch owns recovery;
     // visiting a tab joins its cached outcome instead of starting another read.

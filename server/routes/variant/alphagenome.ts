@@ -9,7 +9,7 @@ import {
 import {
   verifyAlphaGenomeConnection
 } from "../../services/alphagenome-client.ts";
-import { sendError, formatZodError } from "../../utils.ts";
+import { sendError, formatZodError, validateSafeCustomEndpointUrlAsync } from "../../utils.ts";
 import { sanitizeToken, sanitizeUrl } from "./variant-parser.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 
@@ -29,13 +29,14 @@ function resolveRequestAccess(req: Request) {
   const access = resolveAlphaGenomeAccess(requestKey, requestUrl);
   return {
     apiKey: sanitizeToken(access.apiKey),
-    endpoint: requestUrl || sanitizeUrl(access.endpoint),
+    endpoint: requestUrl || (access.customEndpoint ? sanitizeUrl(access.endpoint) : access.endpoint),
+    customEndpoint: access.customEndpoint,
   };
 }
 
 export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: any): void {
   apiRouter.post("/alphagenome/verify-connection", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
-    const { apiKey: userApiKey, endpoint: userApiUrl } = resolveRequestAccess(req);
+    const { apiKey: userApiKey, endpoint: userApiUrl, customEndpoint } = resolveRequestAccess(req);
 
     if (!userApiKey && !userApiUrl) {
       sendError(res, 400, "BAD_REQUEST", "AlphaGenome API Key is required to test connection");
@@ -45,17 +46,27 @@ export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: 
     if (userApiUrl) {
       const startTime = Date.now();
       try {
+        if (customEndpoint) {
+          const dnsCheck = await validateSafeCustomEndpointUrlAsync(userApiUrl);
+          if (!dnsCheck.valid) {
+            res.json({ ok: false, latencyMs: Date.now() - startTime, mode: "custom-proxy", error: dnsCheck.reason });
+            return;
+          }
+        }
         const pingUrl = `${userApiUrl.replace(/\/+$/, "")}/health`;
         const abortCtrl = new AbortController();
         const timeout = setTimeout(() => abortCtrl.abort(), 4000);
         const pingRes = await fetch(pingUrl, {
           method: "GET",
+          redirect: "manual",
           signal: abortCtrl.signal,
           headers: userApiKey ? { Authorization: `Bearer ${userApiKey}` } : {}
         }).finally(() => clearTimeout(timeout));
 
         const latencyMs = Date.now() - startTime;
-        if (pingRes.ok) {
+        if (pingRes.status >= 300 && pingRes.status < 400) {
+          res.json({ ok: false, latencyMs, mode: "custom-proxy", error: `Proxy returned HTTP ${pingRes.status} redirect (redirects disabled)` });
+        } else if (pingRes.ok) {
           res.json({ ok: true, latencyMs, mode: "custom-proxy", url: userApiUrl });
         } else {
           res.json({ ok: false, latencyMs, mode: "custom-proxy", error: `Proxy returned HTTP ${pingRes.status}` });

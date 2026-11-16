@@ -21,49 +21,34 @@ export interface PdbResidue {
   z?: number;
 }
 
-export function parseResiduesFromPdb(pdbText: string): PdbResidue[] {
-  const residuesMap = new Map<string, PdbResidue>();
-  const lines = pdbText.split(/\r?\n/);
-  for (const line of lines) {
-    if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
-      const altLoc = line.charAt(16);
-      if (altLoc === " " || altLoc === "" || altLoc === "A") {
-        const atomName = line.slice(12, 16).trim();
-        if (atomName === "CA") {
-          const resName3 = line.slice(17, 20).trim().toUpperCase();
-          const chain = line.slice(21, 22).trim();
-          const resSeqStr = line.slice(22, 26).trim();
-          const resSeq = parseInt(resSeqStr, 10);
-          const insCode = line.charAt(26).trim();
-          if (!isNaN(resSeq)) {
-            const key = `${chain}_${resSeq}_${insCode}`;
-            if (!residuesMap.has(key)) {
-              let x: number | undefined;
-              let y: number | undefined;
-              let z: number | undefined;
-              try {
-                const xStr = line.slice(30, 38).trim();
-                const yStr = line.slice(38, 46).trim();
-                const zStr = line.slice(46, 54).trim();
-                x = parseFloat(xStr);
-                y = parseFloat(yStr);
-                z = parseFloat(zStr);
-              } catch (e) {}
-              residuesMap.set(key, {
-                resSeq,
-                insCode,
-                resName3,
-                chain,
-                x: isNaN(x as any) ? undefined : x,
-                y: isNaN(y as any) ? undefined : y,
-                z: isNaN(z as any) ? undefined : z
-              });
-            }
-          }
-        }
-      }
-    }
-  }
+function collectResidueFromLine(line: string, residuesMap: Map<string, PdbResidue>): void {
+  if (!line.startsWith("ATOM") && !line.startsWith("HETATM")) return;
+  const altLoc = line.charAt(16);
+  if (altLoc !== " " && altLoc !== "" && altLoc !== "A") return;
+  const atomName = line.slice(12, 16).trim();
+  if (atomName !== "CA") return;
+  const resName3 = line.slice(17, 20).trim().toUpperCase();
+  const chain = line.slice(21, 22).trim();
+  const resSeq = parseInt(line.slice(22, 26).trim(), 10);
+  const insCode = line.charAt(26).trim();
+  if (isNaN(resSeq)) return;
+  const key = `${chain}_${resSeq}_${insCode}`;
+  if (residuesMap.has(key)) return;
+  const x = parseFloat(line.slice(30, 38).trim());
+  const y = parseFloat(line.slice(38, 46).trim());
+  const z = parseFloat(line.slice(46, 54).trim());
+  residuesMap.set(key, {
+    resSeq,
+    insCode,
+    resName3,
+    chain,
+    x: isNaN(x) ? undefined : x,
+    y: isNaN(y) ? undefined : y,
+    z: isNaN(z) ? undefined : z
+  });
+}
+
+function sortResiduesMap(residuesMap: Map<string, PdbResidue>): PdbResidue[] {
   return Array.from(residuesMap.values()).sort((a, b) => {
     if (a.chain !== b.chain) {
       return a.chain.localeCompare(b.chain);
@@ -75,6 +60,16 @@ export function parseResiduesFromPdb(pdbText: string): PdbResidue[] {
   });
 }
 
+export function parseResiduesFromPdb(pdbText: string): PdbResidue[] {
+  const residuesMap = new Map<string, PdbResidue>();
+  const lines = pdbText.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.startsWith("ENDMDL")) break;
+    collectResidueFromLine(line, residuesMap);
+  }
+  return sortResiduesMap(residuesMap);
+}
+
 export async function parseResiduesFromPdbAsync(pdbText: string): Promise<PdbResidue[]> {
   const residuesMap = new Map<string, PdbResidue>();
   const lines = pdbText.split(/\r?\n/);
@@ -83,56 +78,14 @@ export async function parseResiduesFromPdbAsync(pdbText: string): Promise<PdbRes
     const end = Math.min(i + chunkSize, lines.length);
     for (let j = i; j < end; j++) {
       const line = lines[j];
-      if (line.startsWith("ATOM")) {
-        const altLoc = line.charAt(16);
-        if (altLoc === " " || altLoc === "" || altLoc === "A") {
-          const atomName = line.slice(12, 16).trim();
-          if (atomName === "CA") {
-            const resName3 = line.slice(17, 20).trim().toUpperCase();
-            const chain = line.slice(21, 22).trim();
-            const resSeqStr = line.slice(22, 26).trim();
-            const resSeq = parseInt(resSeqStr, 10);
-            const insCode = line.charAt(26).trim();
-            if (!isNaN(resSeq)) {
-              const key = `${chain}_${resSeq}_${insCode}`;
-              if (!residuesMap.has(key)) {
-                let x: number | undefined;
-                let y: number | undefined;
-                let z: number | undefined;
-                try {
-                  const xStr = line.slice(30, 38).trim();
-                  const yStr = line.slice(38, 46).trim();
-                  const zStr = line.slice(46, 54).trim();
-                  x = parseFloat(xStr);
-                  y = parseFloat(yStr);
-                  z = parseFloat(zStr);
-                } catch (e) {}
-                residuesMap.set(key, {
-                  resSeq,
-                  insCode,
-                  resName3,
-                  chain,
-                  x: isNaN(x as any) ? undefined : x,
-                  y: isNaN(y as any) ? undefined : y,
-                  z: isNaN(z as any) ? undefined : z
-                });
-              }
-            }
-          }
-        }
+      if (line.startsWith("ENDMDL")) {
+        return sortResiduesMap(residuesMap);
       }
+      collectResidueFromLine(line, residuesMap);
     }
     await new Promise<void>(resolve => setImmediate(resolve));
   }
-  return Array.from(residuesMap.values()).sort((a, b) => {
-    if (a.chain !== b.chain) {
-      return a.chain.localeCompare(b.chain);
-    }
-    if (a.resSeq !== b.resSeq) {
-      return a.resSeq - b.resSeq;
-    }
-    return a.insCode.localeCompare(b.insCode);
-  });
+  return sortResiduesMap(residuesMap);
 }
 
 export async function parseResiduesFromPdbMaybeAsync(pdbText: string): Promise<PdbResidue[]> {
@@ -181,6 +134,7 @@ export function parseAtomsFromPdb(pdbText: string): PdbAtom[] {
   const lines = pdbText.split(/\r?\n/);
   const atoms: PdbAtom[] = [];
   for (const line of lines) {
+    if (line.startsWith("ENDMDL")) break;
     const parsed = parsePdbLine(line);
     if (parsed) {
       atoms.push(parsed);
@@ -196,7 +150,9 @@ export async function parseAtomsFromPdbAsync(pdbText: string): Promise<PdbAtom[]
   for (let i = 0; i < lines.length; i += chunkSize) {
     const end = Math.min(i + chunkSize, lines.length);
     for (let j = i; j < end; j++) {
-      const parsed = parsePdbLine(lines[j]);
+      const line = lines[j];
+      if (line.startsWith("ENDMDL")) return atoms;
+      const parsed = parsePdbLine(line);
       if (parsed) {
         atoms.push(parsed);
       }
@@ -331,6 +287,7 @@ export function extractSequenceFromPdb(wtPdb: string, resolvedChain: string): { 
   let maxPos = -Infinity;
 
   for (const line of lines) {
+    if (line.startsWith("ENDMDL")) break;
     if (line.startsWith("ATOM")) {
       const atomName = line.slice(12, 16).trim();
       if (atomName === "CA") {

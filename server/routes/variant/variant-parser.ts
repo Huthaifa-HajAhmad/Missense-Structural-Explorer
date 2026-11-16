@@ -7,6 +7,7 @@ import {
   sendError,
   filterPII,
   formatZodError,
+  validateSafeCustomEndpointUrl,
 } from "../../utils.ts";
 import {
   fetchUniprotSequence,
@@ -96,8 +97,6 @@ export const analyzeVariantSchema = z.object({
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
-const BLOCKED_HOST_REGEX = /^(169\.254\.\d+\.\d+|metadata\.google\.internal|metadata|instance-data|0\.0\.0\.0|localhost|::1|\[::1\]|::|\[::\])$/i;
-
 export const sanitizeToken = (val: unknown): string | null => {
   if (!val) return null;
   const raw = Array.isArray(val) ? val[0] : val;
@@ -114,52 +113,8 @@ export const sanitizeUrl = (val: unknown): string | null => {
   if (!val) return null;
   const raw = Array.isArray(val) ? val[0] : val;
   if (typeof raw !== "string") return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.length > 512) {
-    return null;
-  }
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    if (BLOCKED_HOST_REGEX.test(hostname)) {
-      return null;
-    }
-
-    const cleanHost = hostname.replace(/^\[|\]$/g, "");
-    if (
-      cleanHost === "::1" ||
-      cleanHost === "::" ||
-      cleanHost.startsWith("fe80:") ||
-      cleanHost.startsWith("fc00:") ||
-      cleanHost.startsWith("fd00:") ||
-      cleanHost.startsWith("::ffff:127.") ||
-      cleanHost.startsWith("::ffff:169.254.")
-    ) {
-      return null;
-    }
-
-    if (process.env.NODE_ENV === "production") {
-      // Disallow localhost and RFC1918 private subnets in production environments
-      if (
-        hostname === "localhost" ||
-        hostname.startsWith("127.") ||
-        hostname.startsWith("10.") ||
-        hostname.startsWith("192.168.") ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-        cleanHost.startsWith("::ffff:10.") ||
-        cleanHost.startsWith("::ffff:192.168.") ||
-        /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(cleanHost)
-      ) {
-        return null;
-      }
-    }
-    return parsed.toString().replace(/\/+$/, "");
-  } catch {
-    return null;
-  }
+  const result = validateSafeCustomEndpointUrl(raw);
+  return result.valid ? result.url : null;
 };
 
 export const getEngine = (val: unknown): string | undefined => {
@@ -653,7 +608,8 @@ export async function validateAndParseVariantRequest(
       );
       return {
         alphagenomeApiKey: sanitizeToken(access.apiKey),
-        alphagenomeApiUrl: requestUrl || sanitizeUrl(process.env.ALPHAGENOME_API_URL),
+        // The operator's own URL is trusted configuration; the SSRF filter is for URLs a request chose.
+        alphagenomeApiUrl: requestUrl || (process.env.ALPHAGENOME_API_URL?.trim() || null),
       };
     })(),
     spliceaiDistance: normaliseSpliceAiDistance(req.headers["x-spliceai-distance"]) ?? normaliseSpliceAiDistance(req.body?.spliceaiDistance),

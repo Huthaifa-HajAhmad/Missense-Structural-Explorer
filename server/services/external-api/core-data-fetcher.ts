@@ -1,6 +1,8 @@
 import { fetchClinVarData, type ClinVarData } from "./clinvar.ts";
 import { readCuratedInheritance } from "../evidence-context/curatedInheritance.ts";
+import { readCuratedLofMechanism } from "../evidence-context/curatedLofMechanism.ts";
 import type { CuratedInheritance } from "../../../src/shared/inheritanceBasis.ts";
+import type { CuratedLofMechanism } from "../../../src/shared/lofMechanismBasis.ts";
 import {
   fetchAlphafoldPdb,
   fetchBestPdbStructure,
@@ -170,6 +172,19 @@ export interface CorePrefetchOptions {
   clinvarStartedAt?: number;
   predictorStartedAt?: number;
 }
+
+/** A score of 0 is a reading. Only null/undefined is the absence of one. */
+const isAbsent = (value: unknown): boolean => value === null || value === undefined;
+
+/**
+ * Every field of the conservation/ensemble record that carries a model's answer. The record is "not
+ * found" only when none of them has one: judging it by REVEL, GERP and phyloP alone called a record
+ * with BayesDel, ClinPred, PopEVE or SpliceAI values "not found".
+ */
+const CONSERVATION_SCORE_FIELDS = [
+  "revel", "gerp", "phylop", "consurf", "bayesdel", "metarnn", "clinpred", "eigenPhred", "dann",
+  "esm1b", "popeve", "gpnStar", "spliceai", "alphagenome"
+] as const;
 
 /**
  * Executes parallel fetching of external databases and quick predictor pipelines with timeout racing.
@@ -361,6 +376,9 @@ async function runCoreFetch(
   /** Curated GenCC inheritance for PM2's ceiling and BS2 (null without a snapshot). Settles fast; read once. */
   let curatedInheritance: CuratedInheritance | null = null;
   const curatedInheritancePromise = readCuratedInheritance(gene).then(v => (curatedInheritance = v)).catch(() => null);
+  /** Curated G2P/ClinGen LOF mechanism for PVS1 (null without installed records). Settles fast; read once. */
+  let curatedLofMechanism: CuratedLofMechanism | null = null;
+  const curatedLofMechanismPromise = readCuratedLofMechanism(gene).then(v => (curatedLofMechanism = v)).catch(() => null);
 
   let gnomadConstraintHasError = false;
   /**
@@ -721,12 +739,12 @@ async function runCoreFetch(
       prefetched?.predictorStatus ??
       (raw === TIMEOUT_FLAG ? "timeout"
         : predictorHasError ? "error"
-        : !raw || (!(raw as PredictorData).amPathogenicity && !(raw as PredictorData).caddPhred) ? "not_found"
+        : !raw || (isAbsent((raw as PredictorData).amPathogenicity) && isAbsent((raw as PredictorData).caddPhred)) ? "not_found"
         : "ok"),
     conservationData: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout"
         : conservationHasError ? "error"
-        : !raw || ((raw as ConservationData).revel === null && (raw as ConservationData).gerp === null && (raw as ConservationData).phylop === null) ? "not_found"
+        : !raw || CONSERVATION_SCORE_FIELDS.every(field => isAbsent((raw as Record<string, unknown>)[field])) ? "not_found"
         : "ok",
     stringInteractions: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout"
@@ -816,7 +834,8 @@ async function runCoreFetch(
         uniprotFeatures: (partialData.uniprotFeatures as UniprotFeaturesResult | null) ?? null,
         sequence,
         serviceStatus: runningStatus,
-        curatedInheritance
+        curatedInheritance,
+        curatedLofMechanism
       });
     } catch (err: any) {
       // A preview is advisory: a failure here must not abort a run whose evidence is still arriving.
@@ -1092,9 +1111,10 @@ async function runCoreFetch(
     pdbMapping: pdbMappingStatus
   };
 
-  await curatedInheritancePromise;
+  await Promise.all([curatedInheritancePromise, curatedLofMechanismPromise]);
   const ruleBasedInsights = computeRuleBasedACMG({
     curatedInheritance,
+    curatedLofMechanism,
     gene,
     variant,
     residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
@@ -1178,6 +1198,7 @@ async function runCoreFetch(
     aouFrequency,
     aouLookup,
     curatedInheritance,
+    curatedLofMechanism,
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,

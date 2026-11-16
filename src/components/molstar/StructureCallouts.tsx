@@ -137,7 +137,7 @@ export function StructureCallouts({ plugin, readyVersion, anchorOf, callouts, ri
   const dotRefs = useRef(new Map<string, SVGCircleElement>());
   const frameRefs = useRef(new Map<string, HTMLButtonElement>());
   const anchorsRef = useRef(new Map<string, Vec3 | null>());
-  const sizesRef = useRef(new Map<string, { key: string; width: number; height: number }>());
+  const sizesRef = useRef(new Map<string, { key: string; width: number; height: number; titleMid: number | null }>());
   const contentKey = callouts.map(c => `${c.key}:${c.kicker}:${c.title}:${c.facts.map(f => `${f.label}=${f.value}${f.note ?? ""}`).join(",")}`).join("|");
   const signature = callouts.map(c => `${c.key}:${c.on}:${c.position}:${c.chain ?? ""}`).join("|");
 
@@ -206,7 +206,9 @@ export function StructureCallouts({ plugin, readyVersion, anchorOf, callouts, ri
         const cached = sizesRef.current.get(c.key);
         if (cached?.key === key) continue;
         card.style.width = `${width}px`;
-        sizesRef.current.set(c.key, { key, width, height: card.offsetHeight });
+        const title = card.querySelector<HTMLElement>(".s3d-callout__title");
+        const titleMid = title && title.offsetHeight > 0 ? title.offsetTop + title.offsetHeight / 2 : null;
+        sizesRef.current.set(c.key, { key, width, height: card.offsetHeight, titleMid });
       }
       // The structure's visible bounding sphere, projected: its horizontal extent on the stage.
       const sphere = canvas3d.boundingSphereVisible;
@@ -247,10 +249,10 @@ export function StructureCallouts({ plugin, readyVersion, anchorOf, callouts, ri
         if (halo) halo.style.display = show ? "" : "none";
         dot.style.display = show ? "" : "none";
         if (!p) continue;
-        // Meet the card at the title's vertical centre when it can be measured; a wrapped kicker then
-        // cannot leave the line pointing at whitespace. A 14 px elbow keeps the last segment readable.
-        const title = card.querySelector<HTMLElement>(".s3d-callout__title");
-        const lineY = title && title.offsetHeight > 0 ? placed.top + title.offsetTop + title.offsetHeight / 2 : placed.lineY;
+        // Meet the card at the title's cached vertical centre when measurable; reading layout
+        // properties here after DOM writes would flush styles on every camera frame.
+        const cachedSize = sizesRef.current.get(placed.key);
+        const lineY = cachedSize?.titleMid != null ? placed.top + cachedSize.titleMid : placed.lineY;
         const elbowX = placed.lineX + (placed.side === "left" ? 14 : -14);
         const d = `M ${placed.lineX} ${lineY} L ${elbowX} ${lineY} L ${p.x} ${p.y}`;
         line.setAttribute("d", d);

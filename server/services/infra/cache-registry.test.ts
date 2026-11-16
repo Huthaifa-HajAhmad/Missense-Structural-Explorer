@@ -258,4 +258,69 @@ describe("getCachedOrFetch — isUsable read gate", () => {
     expect(calls).toBe(0);
     expect(result).toEqual({ any: "value" });
   });
+
+  it("preserves remaining L2 SQLite TTL when promoting an entry into L1", async () => {
+    const { AnalysisDatabase } = await import("./analysis-db.ts");
+    const db = AnalysisDatabase.resetInstance(":memory:");
+    const registry = createCacheRegistry();
+    const l1Cache = new LRUCache<string, any>({ max: 50, ttl: 24 * 60 * 60 * 1000 });
+    await db.saveExternalCacheAsync("ttl-key", { ok: true }, "test", 5);
+
+    const value = await registry.getCachedOrFetch({
+      key: "ttl-key",
+      source: "test",
+      l1Cache,
+      ttlSeconds: 86_400,
+      fetcher: async () => ({ ok: false }),
+    });
+
+    expect(value).toEqual({ ok: true });
+    const remaining = l1Cache.getRemainingTTL("ttl-key");
+    expect(remaining).toBeGreaterThan(0);
+    expect(remaining).toBeLessThanOrEqual(5_000);
+  });
+
+  it("applies per-entry ttlSeconds on L1 cache writes and discards in-flight fills after clearAll()", async () => {
+    const { AnalysisDatabase } = await import("./analysis-db.ts");
+    AnalysisDatabase.resetInstance(":memory:");
+    const registry = createCacheRegistry();
+    const l1Cache = new LRUCache<string, any>({ max: 50, ttl: 24 * 60 * 60 * 1000 });
+
+    await registry.getCachedOrFetch({
+      key: "short-ttl",
+      source: "test",
+      l1Cache,
+      ttlSeconds: 3,
+      bypassSqlite: true,
+      fetcher: async () => ({ fresh: true }),
+    });
+    const ttl = l1Cache.getRemainingTTL("short-ttl");
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(3_000);
+
+    let releaseFetch!: () => void;
+    let markStarted!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const inflightPromise = registry.getCachedOrFetch({
+      key: "stale-inflight",
+      source: "test",
+      l1Cache,
+      ttlSeconds: 60,
+      fetcher: () => {
+        markStarted();
+        return new Promise((resolve) => {
+          releaseFetch = () => resolve({ stale: true });
+        });
+      },
+    });
+
+    await startedPromise;
+    registry.clearAll();
+    releaseFetch();
+    const returned = await inflightPromise;
+    expect(returned).toEqual({ stale: true });
+    expect(l1Cache.has("stale-inflight")).toBe(false);
+  });
 });

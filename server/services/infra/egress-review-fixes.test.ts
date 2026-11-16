@@ -307,6 +307,7 @@ describe("attribution (review: untested)", () => {
     const app = express();
     app.use((req: any, _res, next) => {
       if (req.headers["x-test-user"]) req.principal = { kind: "user", userId: String(req.headers["x-test-user"]) };
+      else if (req.headers["x-test-service"]) req.principal = { kind: "service", userId: "service" };
       next();
     });
     app.use(attributeEgressOwner);
@@ -318,8 +319,10 @@ describe("attribution (review: untested)", () => {
     try {
       const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       const signedIn = await (await fetch(`${base}/who`, { headers: { "x-test-user": "u-42" } })).json();
+      const service = await (await fetch(`${base}/who`, { headers: { "x-test-service": "1" } })).json();
       const anonymous = await (await fetch(`${base}/who`)).json();
       expect(signedIn.owner).toBe("u-42");
+      expect(service.owner).toBe("service");
       expect(anonymous.owner).toBe("legacy");
     } finally {
       server.close();

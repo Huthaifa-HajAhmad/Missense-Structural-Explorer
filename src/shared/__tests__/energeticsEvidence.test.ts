@@ -617,3 +617,22 @@ describe("formatDdgValue — the figure without its unit", () => {
     expect(formatDdgValue(Number.NaN)).toBe("—");
   });
 });
+
+describe("learned ΔΔG placeholder disclosures", () => {
+  it("discloses pending held-out recalibration on ThermoMPNN and StabilityOracle notes", async () => {
+    const { THRESHOLDS_METADATA, THRESHOLD_NOTES } = await import("../thresholds");
+    expect(THRESHOLDS_METADATA.citations.thermompnn).toMatch(/recalibration/i);
+    expect(THRESHOLDS_METADATA.citations.stabilityoracle).toMatch(/recalibration/i);
+    expect(THRESHOLD_NOTES.thermompnn).toMatch(/recalibration/i);
+    expect(THRESHOLD_NOTES.stabilityoracle).toMatch(/recalibration/i);
+
+    const ev = buildEnergeticsEvidence({
+      foldingStatus: "success",
+      foldingEnergetics: { foldx: 0.6, thermompnn: 1.2, stabilityoracle: -0.6 },
+    });
+    const thermo = ev.readings.find(r => r.key === "thermompnn")!;
+    const oracle = ev.readings.find(r => r.key === "stabilityoracle")!;
+    expect(thermo.note).toMatch(/recalibration/i);
+    expect(oracle.note).toMatch(/recalibration/i);
+  });
+});

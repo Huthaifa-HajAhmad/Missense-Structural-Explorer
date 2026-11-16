@@ -11,11 +11,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - APP_API_TOKEN=${APP_API_TOKEN:-a_secure_production_api_token_32_bytes}
-      - APP_SESSION_SECRET=${APP_SESSION_SECRET:-a_secure_session_secret_32_bytes_long}
-      - SIDECAR_SECRET=${SIDECAR_SECRET:-a_secure_sidecar_internal_secret_token}
+      - APP_API_TOKEN=${APP_API_TOKEN:?Set APP_API_TOKEN}
+      - APP_SESSION_SECRET=${APP_SESSION_SECRET:?Set APP_SESSION_SECRET}
+      - SIDECAR_SECRET=${SIDECAR_SECRET:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - BIOHUB_TOKEN=${BIOHUB_TOKEN}
+      - BIOHUB_API_TOKEN=${BIOHUB_API_TOKEN:-}
       - HF_TOKEN=${HF_TOKEN}
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     volumes:

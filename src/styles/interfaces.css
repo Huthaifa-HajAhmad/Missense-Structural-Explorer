@@ -111,7 +111,7 @@
 .ifc-fact:first-child { padding-left: 20px; border-left: 0; }
 .ifc-fact dt { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .ifc-fact dd { margin: 0; min-height: 22px; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); overflow-wrap: anywhere; }
-.ifc-fact__sub { font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); line-height: 1.4; overflow-wrap: anywhere; }
+.ifc-fact dd.ifc-fact__sub { display: block; min-height: 0; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); line-height: 1.4; overflow-wrap: anywhere; }
 
 @container (max-width: 720px) {
   .ifc-hero__body { grid-template-columns: 1fr; }

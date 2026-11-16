@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 /**
  * The server's self-description for the placement engine (WP-0 acceptance: "the probe, with mocked
@@ -6,11 +9,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
  * machine has installed.
  */
 
-const foldxBin = { value: "foldx" as string };
+const foldxBin = { value: "foldx" as string, dir: "" as string };
 const p2rankReady = { value: true, calls: 0 };
 
 vi.mock("../stability/foldx/detector.ts", () => ({
-  detectFoldxBinaryAndDir: () => ({ foldxBin: foldxBin.value, foldxDir: "" }),
+  detectFoldxBinaryAndDir: () => ({ foldxBin: foldxBin.value, foldxDir: foldxBin.dir }),
   getFoldxExecutionTarget: (bin: string, args: string[]) => ({ file: bin, args }),
 }));
 vi.mock("../structure/pocket/java-detector.ts", () => ({
@@ -23,7 +26,7 @@ vi.mock("../structure/pocket/java-detector.ts", () => ({
 }));
 
 const {
-  probeServerHost, serverTools, serverToolsCached, serverToolVersion, serverProvenance, _resetHostProbe, _setToolRunner,
+  probeServerHost, serverTools, serverToolsCached, serverToolVersion, serverProvenance, probeToolsNow, _resetHostProbe, _setToolRunner,
   _lastHostProbeReport, SERVER_HOST_ID,
   parseFoldxBanner, parseP2RankVersion, foldxBuildExpiry, foldxExpiryNote, foldxBuildExpired, foldxRanNormally, judgeSelfTest,
   freeRamBytes,
@@ -50,6 +53,7 @@ const started: string[] = [];
 beforeEach(() => {
   _resetHostProbe();
   foldxBin.value = "foldx";
+  foldxBin.dir = "";
   p2rankReady.value = true;
   p2rankReady.calls = 0;
   runs.foldx = foldxRun(FOLDX_BANNER);
@@ -126,20 +130,24 @@ describe("tool self-tests", () => {
     const os = await import("node:os");
     const path = await import("node:path");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foldx-exp-"));
-    const expired = path.join(dir, "foldx_20200101");
-    fs.writeFileSync(expired, "");
-    foldxBin.value = expired;
-    const now = Date.parse("2026-06-01T12:00:00Z"); // after the 2020 build date, before the dateless check
-    // The name's date is authoritative: even though the tool starts and prints a banner, it is not usable.
-    expect((await serverTools(now)).find((t) => t.name === "foldx")?.verified).toBe(false);
-    expect(_lastHostProbeReport()).toMatch(/stopped working on 2020-01-01/);
+    try {
+      const expired = path.join(dir, "foldx_20200101");
+      fs.writeFileSync(expired, "");
+      foldxBin.value = expired;
+      const now = Date.parse("2026-06-01T12:00:00Z"); // after the 2020 build date, before the dateless check
+      // The name's date is authoritative: even though the tool starts and prints a banner, it is not usable.
+      expect((await serverTools(now)).find((t) => t.name === "foldx")?.verified).toBe(false);
+      expect(_lastHostProbeReport()).toMatch(/stopped working on 2020-01-01/);
 
-    _resetHostProbe();
-    const undated = path.join(dir, "foldx");
-    fs.writeFileSync(undated, "");
-    foldxBin.value = undated;
-    expect((await serverTools(now)).find((t) => t.name === "foldx")?.verified).toBe(true);
-    expect(_lastHostProbeReport()).toMatch(/carries no build date/);
+      _resetHostProbe();
+      const undated = path.join(dir, "foldx");
+      fs.writeFileSync(undated, "");
+      foldxBin.value = undated;
+      expect((await serverTools(now)).find((t) => t.name === "foldx")?.verified).toBe(true);
+      expect(_lastHostProbeReport()).toMatch(/carries no build date/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("serves a stale tool list to a request path without waiting for the re-probe", async () => {
@@ -150,6 +158,26 @@ describe("tool self-tests", () => {
     expect((await serverToolsCached(11 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(false);
     await new Promise((r) => setTimeout(r, 80)); // the background refresh completes
     expect((await serverToolsCached(11 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(true);
+  });
+
+  it("stops serving a clean FoldX entry once its build date rolls past midnight", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foldx-rollover-"));
+    try {
+      const expiring = path.join(dir, "foldx_20261231");
+      fs.writeFileSync(expiring, "");
+      foldxBin.value = expiring;
+      const beforeMidnight = Date.parse("2026-12-31T23:59:00Z");
+      expect((await serverTools(beforeMidnight)).find((t) => t.name === "foldx")?.verified).toBe(true);
+
+      const afterMidnight = Date.parse("2027-01-01T00:00:01Z");
+      expect((await serverToolsCached(afterMidnight)).find((t) => t.name === "foldx")?.verified).toBe(false);
+      expect((await serverTools(afterMidnight)).find((t) => t.name === "foldx")?.verified).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -232,5 +260,48 @@ describe("COMPUTE_ROUTING", () => {
     expect(routingMode()).toBe("off");
     process.env.NODE_ENV = "production";
     expect(routingMode()).toBe("shadow");
+  });
+});
+
+describe("rotabase validation and probe serialization", () => {
+  it("marks FoldX unverified when foldxDir exists without rotabase.txt", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "foldx-probe-test-"));
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
+    try {
+      foldxBin.dir = tmpDir;
+      const result = await probeToolsNow();
+      expect(result.foldx.tool).toEqual({
+        name: "foldx",
+        version: "5.1",
+        verified: false,
+        selfTest: "failed",
+      });
+      expect(result.foldx.detail).toContain("rotabase.txt");
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes concurrent serverTools and probeToolsNow calls without overlapping self-tests", async () => {
+    // When probeToolsNow leads, serverTools shares its in-flight probe (one run total).
+    await Promise.all([probeToolsNow(), serverTools()]);
+    expect(p2rankReady.calls).toBe(1);
+
+    // When serverTools is already mid-flight, probeToolsNow waits before running its forced check.
+    _resetHostProbe();
+    p2rankReady.calls = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    _setToolRunner(async (file) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 10));
+      inFlight -= 1;
+      return /prank/.test(file) ? runs.p2rank : runs.foldx;
+    });
+    await Promise.all([serverTools(), probeToolsNow()]);
+    expect(p2rankReady.calls).toBe(2);
+    expect(maxInFlight).toBeLessThanOrEqual(2); // FoldX + P2Rank run in parallel inside ONE check, never two checks at once
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 export * from "./variantAnalysisUtils";
 import { VariantPreset } from "./types";
 import { useSettings } from "./context/SettingsContext";
@@ -64,10 +64,20 @@ export default function useVariantAnalysis() {
    * See `retryStructuralAnalysisWrapper` for why sharing it orphaned an in-flight FoldX run.
    */
   const structuralRetryIdRef = useRef(0);
+  const structuralRetryControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      structuralRetryControllerRef.current?.abort();
+      structuralRetryControllerRef.current = null;
+    };
+  }, []);
 
   const variantStyles = getVariantStyles(isDark);
 
   const resetViewerState = useCallback(() => {
+    structuralRetryControllerRef.current?.abort();
+    structuralRetryControllerRef.current = null;
     biophysical.clearDynaMutPoll();
     biophysical.clearDdmutPoll();
     biophysical.clearThermoMpnnPoll();
@@ -312,6 +322,10 @@ export default function useVariantAnalysis() {
      * counter keeps re-evaluations ordered without invalidating work that is still legitimately
      * owned by the run.
      */
+    structuralRetryControllerRef.current?.abort();
+    const retryController = new AbortController();
+    structuralRetryControllerRef.current = retryController;
+
     const requestId = ++structuralRetryIdRef.current;
     return await fetchProgressiveStructuralAssessments(
       {
@@ -322,7 +336,7 @@ export default function useVariantAnalysis() {
         saprotEngine
       },
       apiClient,
-      new AbortController().signal,
+      retryController.signal,
       currentStore.setAnalysisState,
       requestId,
       () => structuralRetryIdRef.current,

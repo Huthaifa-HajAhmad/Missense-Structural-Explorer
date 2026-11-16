@@ -2,7 +2,7 @@
 import React from "react";
 import { render, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DevConsoleProvider, useDevConsole } from "../../../context/DevConsoleContext";
+import { DevConsoleProvider, useDevConsole, useDevConsoleActions } from "../../../context/DevConsoleContext";
 import { usePipelineTelemetry } from "../usePipelineTelemetry";
 import type { DevConsoleState, TraceRunFinishStatus } from "../../../types/devConsole";
 
@@ -109,5 +109,32 @@ describe("usePipelineTelemetry lifecycle", () => {
     // The unmount cleanup's cancellation is a no-op against a terminal run — status and ending time.
     expect(latest.current?.traceRuns[0]?.status).toBe("completed");
     expect(latest.current?.traceRuns[0]?.totalDurationMs).toBe(endedAt);
+  });
+
+  it("does not re-render usePipelineTelemetry or useDevConsoleActions consumers on console log entries", () => {
+    let actionRenders = 0;
+    let pushLive!: ReturnType<typeof useDevConsoleActions>["pushLiveEntry"];
+
+    function ActionsObserver() {
+      actionRenders += 1;
+      usePipelineTelemetry();
+      pushLive = useDevConsoleActions().pushLiveEntry;
+      return null;
+    }
+
+    render(
+      <DevConsoleProvider>
+        <ActionsObserver />
+      </DevConsoleProvider>
+    );
+
+    expect(actionRenders).toBe(1);
+
+    act(() => {
+      pushLive({ level: "info", source: "network", message: "Noise log 1" });
+      pushLive({ level: "info", source: "network", message: "Noise log 2" });
+    });
+
+    expect(actionRenders).toBe(1);
   });
 });

@@ -222,4 +222,38 @@ describe("HotspotsView — map geometry and linked pinning", () => {
     expect(screen.getByTestId("hotspot-rung-spatial").hasAttribute("data-selected")).toBe(true);
     expect(container.querySelector('.hsp-map__row[data-lane="spatial"]')?.hasAttribute("data-selected")).toBe(true);
   });
+
+  it("supports keyboard activation for map bands and PathProx markers", () => {
+    const bandCtx = {
+      ...sod1,
+      perRerun: { ...sod1.perRerun, regions: [{ start: 140, end: 154, minAdjP: 0.001 }] },
+    };
+    const bandEv = buildHotspotEvidence({ context: bandCtx, loadState: "ready", residue: 5, residueLabel: "Ala5" });
+    const { container } = render(<HotspotsView ev={bandEv} onShow3d={null} />);
+    const band = container.querySelector<HTMLButtonElement>("button.hsp-map__band")!;
+    expect(band).not.toBeNull();
+    band.focus();
+    fireEvent.click(band);
+    expect(screen.getByTestId("hotspot-rung-per-rerun").hasAttribute("data-selected")).toBe(true);
+
+    const ala5Dot = screen.getByRole("button", { name: /^Ala5: PathProx/i });
+    expect(ala5Dot).toHaveAttribute("tabindex", "0");
+    ala5Dot.focus();
+    fireEvent.keyDown(ala5Dot, { key: "Enter" });
+    expect(ala5Dot.hasAttribute("data-selected")).toBe(true);
+
+    const ala5PlpBar = screen.getByRole("button", { name: /Residue 5:.*ClinVar P\/LP/i });
+    expect(ala5PlpBar).toHaveAttribute("tabindex", "0");
+    expect(ala5PlpBar.closest('[aria-hidden="true"]')).toBeNull();
+    // Both PathProx and ClinVar P/LP share residue key hs:5; Enter toggles off, Space selects again.
+    expect(ala5PlpBar.hasAttribute("data-selected")).toBe(true);
+    fireEvent.focus(ala5PlpBar);
+    expect(ala5PlpBar.hasAttribute("data-lit")).toBe(true);
+    fireEvent.keyDown(ala5PlpBar, { key: "Enter" });
+    expect(ala5PlpBar.hasAttribute("data-selected")).toBe(false);
+    fireEvent.keyDown(ala5PlpBar, { key: " " });
+    expect(ala5PlpBar.hasAttribute("data-selected")).toBe(true);
+    fireEvent.blur(ala5PlpBar);
+    expect(ala5PlpBar.hasAttribute("data-lit")).toBe(false);
+  });
 });

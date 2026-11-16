@@ -8,6 +8,7 @@ import { useReviewWorkspace } from '../review/ReviewWorkspace';
 import { tagsByQuote } from "../literature/ScreeningChips";
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 import { safeExternalHref } from '../../shared/externalLink';
+import { downloadBlob } from '../../lib/download';
 
 interface LiteratureInspectorProps {
   gene: string;
@@ -285,15 +286,12 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
       ext = "csv";
     }
 
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${gene || "gene"}_literature_${shortlistOnly ? "shortlist" : "export"}.${ext}`;
-    a.click();
-    // Deferred: revoking synchronously can tear the URL down before the browser has
-    // started reading it, aborting the download.
-    window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+    downloadBlob(
+      `${gene || "gene"}_literature_${shortlistOnly ? "shortlist" : "export"}.${ext}`,
+      mime,
+      content,
+      4000
+    );
   };
 
   return (
@@ -389,8 +387,8 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
               type="button"
               className="lit-btn lit-btn--quiet"
               onClick={() => handleExportCitations(fmt)}
-              disabled={citationCount === 0}
-              title={citationCount === 0 ? "Load papers first" : `Download ${fmt.toUpperCase()} of the shown papers`}
+              disabled={workspace.view !== 'map' || citationCount === 0}
+              title={workspace.view !== 'map' ? "Open the reading desk to export papers" : citationCount === 0 ? "Load papers first" : `Download ${fmt.toUpperCase()} of the shown papers`}
             >
               <Download aria-hidden="true" />
               {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}

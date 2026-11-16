@@ -22,14 +22,20 @@ const output = path.join(root, 'scratch/review-preview');
 await fs.mkdir(output, { recursive: true });
 // Start an isolated fixture server unless the caller provides one.
 let server;
+let browser;
 let previewUrl = process.env.REVIEW_PREVIEW_URL;
-if (!previewUrl) {
- const { createServer } = await import('vite');
- server = await createServer({ root, server: { host: '127.0.0.1', port: 5189, fs: { allow: [root, realpathSync(path.join(root, 'node_modules'))] } } });
- await server.listen();
- previewUrl = server.resolvedUrls.local[0] + 'tools/review-preview/index.html';
+try {
+ if (!previewUrl) {
+  const { createServer } = await import('vite');
+  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, fs: { allow: [root, realpathSync(path.join(root, 'node_modules'))] } } });
+  await server.listen();
+  previewUrl = server.resolvedUrls.local[0] + 'tools/review-preview/index.html';
+ }
+ browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true });
+} catch (error) {
+ await server?.close();
+ throw error;
 }
-const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true });
 const checks = [], errors = [];
 const check = (name, pass) => { checks.push({ name, pass }); if (!pass) console.log('FAIL', name); };
 // Use actual wheel input: scrollIntoView would make hidden-overflow panes look reachable.

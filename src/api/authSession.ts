@@ -402,7 +402,7 @@ export function useAuthSession() {
       }, options.timeout);
     }
 
-    const isRelativeOrSameOrigin = !url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("//");
+    const isRelativeOrSameOrigin = !/^https?:\/\//i.test(url) && !url.startsWith("//");
     const targetRequiresGemini = isGeminiSessionEndpoint(url);
 
     try {

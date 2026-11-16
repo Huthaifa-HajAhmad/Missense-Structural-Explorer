@@ -36,7 +36,8 @@ import { buildSplicingEvidence } from "./splicingEvidence.ts";
 import { buildFunctionEvidence, type FunctionEvidenceInput } from "./functionEvidence.ts";
 import { buildInterfacesEvidence, isStaleAssembly } from "./interfacesEvidence.ts";
 import { THRESHOLDS, formatEvidenceCode } from "./thresholds.ts";
-import { deriveNarrativeAuthorship, type NarrativeAuthorship } from "./narrativeAuthorship.ts";
+import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
+import { narrativeAuthorshipOfResult } from "./narrativeEvidence.ts";
 import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
 
 export type LaneKey =
@@ -180,7 +181,7 @@ export function criterionForLane(evidence: InsightsEvidence, lane: Pick<Lane, 'c
 // ── Strength vocabulary ──────────────────────────────────────────────────────────────────────────
 
 const STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
-const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Supporting" };
+const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Moderate", 1: "Supporting" };
 
 function recordedLength(code: string | null): 1 | 2 | 3 {
   if (!code) return 1;
@@ -585,11 +586,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   };
 
   const narrative: NarrativeFacts = {
-    authorship: deriveNarrativeAuthorship({
-      analysis: result.analysis,
-      isDegraded: Boolean(input.narrativeDegraded),
-      declaredSource: (result.insights as { source?: string } | undefined)?.source,
-    }),
+    authorship: narrativeAuthorshipOfResult(result, Boolean(input.narrativeDegraded)),
     model: (result.insights as { model?: string } | undefined)?.model ?? null,
     sent: NARRATIVE_PROMPT_EVIDENCE.sent,
     notSent: NARRATIVE_PROMPT_EVIDENCE.notSent,

@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
-import { UNMEASURED_BURIAL_ENVIRONMENT, classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
+import { UNMEASURED_BURIAL_ENVIRONMENT, UNMEASURED_SSE_ENVIRONMENT, classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
 import { THRESHOLDS } from "../../../src/shared/thresholds/constants.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
@@ -36,8 +37,8 @@ export interface ESM3StructureEvalResult {
   microenvironments: string[];
   putativeStructuralChanges: string[];
   confidence: {
-    level: "high" | "moderate" | "low";
-    plddt: number;
+    level: "high" | "moderate" | "low" | null;
+    plddt: number | null;
     sequenceCoverage: number;
   };
   provenance?: string;
@@ -74,6 +75,22 @@ const ESM3_SIDECAR_BUDGET_MS = (sequenceLength: number): number =>
     ? Math.min(100000, Math.max(20000, CONFIG.timeouts.structuralModelsMs - 10000))
     : 40000;
 
+function resolvePdbChain(pdbText: string, preferredChain?: string | null): string {
+  const preferred = preferredChain?.trim().toUpperCase() || "A";
+  let firstChain = "";
+  for (const line of pdbText.split(/\r?\n/)) {
+    const record = line.slice(0, 6).trim();
+    if (record === "ENDMDL") break;
+    if (record === "ATOM" && line.slice(12, 16).trim() === "CA") {
+      const chainId = line.slice(21, 22).trim().toUpperCase();
+      if (!chainId) continue;
+      if (!firstChain) firstChain = chainId;
+      if (chainId === preferred) return preferred;
+    }
+  }
+  return firstChain || preferred;
+}
+
 export async function fetchEsm3StructureEval(
   uniprotId: string,
   position: number,
@@ -87,9 +104,20 @@ export async function fetchEsm3StructureEval(
    * model; for an experimental entry it is a temperature factor, and the Perturbation tab was showing
    * it as "input confidence". Omitted: treated as before (older callers pass AlphaFold text).
    */
-  wtStructureSource?: "alphafold" | "experimental" | null
+  wtStructureSource?: "alphafold" | "experimental" | null,
+  chain?: string | null
 ): Promise<ESM3StructureEvalResult | null> {
-  const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}`;
+  const contextHash = createHash("sha256")
+    .update(wtStructureSource ?? "")
+    .update("\0")
+    .update(chain ?? "")
+    .update("\0")
+    .update(sequenceOverride ?? "")
+    .update("\0")
+    .update(wtPdbText ?? "")
+    .digest("hex")
+    .slice(0, 12);
+  const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}:${contextHash}`;
   const cached = esm3StructureCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
@@ -110,10 +138,11 @@ export async function fetchEsm3StructureEval(
   /** Set only when the sidecar failed, so a timeout is not reported as a generic error. */
   let esm3Status: "error" | "timeout" | undefined;
 
+  const targetChain = wtPdbText ? resolvePdbChain(wtPdbText, chain) : "A";
   let sequence = sequenceOverride || "";
   if (!sequence && wtPdbText) {
     try {
-      const parsed = extractSequenceFromPdb(wtPdbText, "A");
+      const parsed = extractSequenceFromPdb(wtPdbText, targetChain);
       sequence = parsed.sequence;
     } catch (_) {}
   }
@@ -125,72 +154,84 @@ export async function fetchEsm3StructureEval(
     } catch (_) {}
   }
 
-  // If still no sequence could be extracted, generate minimal sequence
+  let provenance: string | undefined = undefined;
   if (!sequence) {
-    sequence = "M" + "A".repeat(Math.max(10, position + 20));
-  }
+    esm3Error = "No amino-acid sequence available for ESM-3 evaluation.";
+    esm3Status = "error";
+  } else {
+    // The caller's token, else this person's saved one, else the team's under the lending policy (WP-I4).
+    const tokenToUse = resolveCredential("biohub", biohubToken).token;
+    const sidecarSecret = process.env.SIDECAR_SECRET || "";
+    const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
 
-  // The caller's token, else this person's saved one, else the team's under the lending policy (WP-I4).
-  const tokenToUse = resolveCredential("biohub", biohubToken).token;
-  const sidecarSecret = process.env.SIDECAR_SECRET || "";
-  let provenance = "ESM3-Medium (Remote)";
-  const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
+    try {
+      // With a token the sidecar calls Biohub, so the call is governed (and counted) as Biohub (WP-I4).
+      const sidecarRes = await governedForCredential("biohub", tokenToUse, () => fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Sidecar-Secret": sidecarSecret,
+          [SIDECAR_BUDGET_HEADER]: String(sidecarBudgetMs)
+        },
+        body: JSON.stringify({
+          sequence,
+          position,
+          wt: wt1,
+          mut: mut1,
+          biohubToken: tokenToUse,
+          refine: false
+        }),
+        signal: AbortSignal.timeout(sidecarBudgetMs)
+      }), { lane: "compute", deadlineAt: Date.now() + sidecarBudgetMs });
 
-  try {
-    // With a token the sidecar calls Biohub, so the call is governed (and counted) as Biohub (WP-I4).
-    const sidecarRes = await governedForCredential("biohub", tokenToUse, () => fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret,
-        [SIDECAR_BUDGET_HEADER]: String(sidecarBudgetMs)
-      },
-      body: JSON.stringify({
-        sequence,
-        position,
-        wt: wt1,
-        mut: mut1,
-        biohubToken: tokenToUse,
-        refine: false
-      }),
-      signal: AbortSignal.timeout(sidecarBudgetMs)
-    }), { lane: "compute", deadlineAt: Date.now() + sidecarBudgetMs });
-
-    if (sidecarRes.ok) {
-      const sidecarData = await sidecarRes.json() as any;
-      if (sidecarData.status === "success" && Array.isArray(sidecarData.perturbationScores)) {
-        perturbationScores = sidecarData.perturbationScores;
-        if (sidecarData.refinedPdb) {
-          pdbText = sidecarData.refinedPdb;
+      if (sidecarRes.ok) {
+        const sidecarData = await sidecarRes.json() as any;
+        if (sidecarData?.status === "success" && Array.isArray(sidecarData.perturbationScores)) {
+          perturbationScores = sidecarData.perturbationScores;
+          if (sidecarData.refinedPdb) {
+            pdbText = sidecarData.refinedPdb;
+          }
+          if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
+            remoteEngineNote = sidecarData.remoteEngineNote.trim();
+            remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
+          }
+          const rawProvenance = typeof sidecarData.provenance === "string" ? sidecarData.provenance.trim() : "";
+          if (rawProvenance) {
+            provenance = rawProvenance;
+          } else if (remoteEngineNote) {
+            provenance = "VESM-150M (Local Fallback - ESM-3 remote failed)";
+          }
+        } else {
+          esm3Error = typeof sidecarData?.error === "string" && sidecarData.error.trim()
+            ? sidecarData.error.trim()
+            : "ESM3 sidecar returned non-success status.";
+          esm3Status = sidecarData?.status === "timeout" ? "timeout" : "error";
+          if (typeof sidecarData?.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
+            remoteEngineNote = sidecarData.remoteEngineNote.trim();
+            remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
+          }
         }
-        if (typeof sidecarData.provenance === "string") {
-          provenance = sidecarData.provenance;
-        }
-        if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
-          remoteEngineNote = sidecarData.remoteEngineNote.trim();
-          remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
-        }
+      } else {
+        const txt = await sidecarRes.text();
+        console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
+        /**
+         * A refused pass (503) is the model server telling us it was too busy to start; that is a timeout,
+         * not a broken engine, and the reader is told to retry rather than to check their install.
+         */
+        const refusal = sidecarFailure("ESM3", sidecarRes.status);
+        esm3Error = `${refusal.error} (${txt.trim().slice(0, 200) || "no detail"})`;
+        esm3Status = refusal.status === "timeout" ? "timeout" : "error";
       }
-    } else {
-      const txt = await sidecarRes.text();
-      console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
-      /**
-       * A refused pass (503) is the model server telling us it was too busy to start; that is a timeout,
-       * not a broken engine, and the reader is told to retry rather than to check their install.
-       */
-      const refusal = sidecarFailure("ESM3", sidecarRes.status);
-      esm3Error = `${refusal.error} (${txt.trim().slice(0, 200) || "no detail"})`;
-      esm3Status = refusal.status === "timeout" ? "timeout" : "error";
+    } catch (err: any) {
+      // A timeout is retryable and must not read as a generic failure. `AbortSignal.timeout` rejects
+      // with a `TimeoutError` DOMException; older runtimes report `AbortError`.
+      const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+      console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
+      esm3Error = timedOut
+        ? `ESM3 structural perturbation timed out after ${Math.round(sidecarBudgetMs / 1000)}s (sidecar /predict/esm3)`
+        : err.message;
+      esm3Status = timedOut ? "timeout" : "error";
     }
-  } catch (err: any) {
-    // A timeout is retryable and must not read as a generic failure. `AbortSignal.timeout` rejects
-    // with a `TimeoutError` DOMException; older runtimes report `AbortError`.
-    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
-    console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
-    esm3Error = timedOut
-      ? `ESM3 structural perturbation timed out after ${Math.round(sidecarBudgetMs / 1000)}s (sidecar /predict/esm3)`
-      : err.message;
-    esm3Status = timedOut ? "timeout" : "error";
   }
 
 
@@ -204,8 +245,11 @@ export async function fetchEsm3StructureEval(
   let hasMeasuredRsa = false;
   let rsa = 0.12; // placeholder only; not a measurement until the sidecar answers
 
+  let hasSseHeaders = false;
+  let sasaRes: { rsa: number; sse: string; sasa: number } | null = null;
+
   if (wtPdbText) {
-    const sasaRes = await runSasaEval(wtPdbText, "A", position);
+    sasaRes = await runSasaEval(wtPdbText, targetChain, position);
     if (sasaRes) {
       rsa = sasaRes.rsa;
       hasMeasuredRsa = true;
@@ -221,32 +265,45 @@ export async function fetchEsm3StructureEval(
 
     for (const line of lines) {
       const record = line.slice(0, 6).trim();
+      if (record === "ENDMDL") break;
       if (record === "ATOM") {
+        const atomChain = line.slice(21, 22).trim().toUpperCase();
+        if (atomChain && atomChain !== targetChain) continue;
         const resNum = parseInt(line.slice(22, 26).trim(), 10);
         const atomName = line.slice(12, 16).trim();
         const bFactor = parseFloat(line.slice(60, 66).trim());
 
-        if (atomName === "CA") {
-          totalAtomB += bFactor;
-          atomCount++;
-          if (resNum === position) {
-            targetB += bFactor;
-            targetAtomCount++;
+        if (atomName === "CA" && !Number.isNaN(resNum)) {
+          if (!Number.isNaN(bFactor)) {
+            totalAtomB += bFactor;
+            atomCount++;
+            if (resNum === position) {
+              targetB += bFactor;
+              targetAtomCount++;
+            }
           }
         }
-        if (resNum > seqLen) seqLen = resNum;
+        if (!Number.isNaN(resNum) && resNum > seqLen) seqLen = resNum;
       }
-      
+
       // Fallback geometric parsing if Python SASA execution failed
       if (!sasaRes) {
         if (line.startsWith("HELIX")) {
-          const start = parseInt(line.substring(21, 25).trim());
-          const end = parseInt(line.substring(33, 37).trim());
-          if (position >= start && position <= end) isHelix = true;
+          hasSseHeaders = true;
+          const helixChain = line.slice(19, 20).trim().toUpperCase();
+          const start = parseInt(line.substring(21, 25).trim(), 10);
+          const end = parseInt(line.substring(33, 37).trim(), 10);
+          if ((!helixChain || helixChain === targetChain) && !Number.isNaN(start) && !Number.isNaN(end) && position >= start && position <= end) {
+            isHelix = true;
+          }
         } else if (line.startsWith("SHEET")) {
-          const start = parseInt(line.substring(22, 26).trim());
-          const end = parseInt(line.substring(33, 37).trim());
-          if (position >= start && position <= end) isSheet = true;
+          hasSseHeaders = true;
+          const sheetChain = line.slice(21, 22).trim().toUpperCase();
+          const start = parseInt(line.substring(22, 26).trim(), 10);
+          const end = parseInt(line.substring(33, 37).trim(), 10);
+          if ((!sheetChain || sheetChain === targetChain) && !Number.isNaN(start) && !Number.isNaN(end) && position >= start && position <= end) {
+            isSheet = true;
+          }
         }
       }
     }
@@ -303,9 +360,11 @@ export async function fetchEsm3StructureEval(
   // absence, not a finding" styling off it.
   else microenvironments.push(UNMEASURED_BURIAL_ENVIRONMENT);
 
+  const hasMeasuredSse = Boolean(sasaRes || hasSseHeaders);
   if (isHelix) microenvironments.push("Alpha-Helix");
   else if (isSheet) microenvironments.push("Beta-Sheet");
-  else microenvironments.push("Loop / Flexible Turn");
+  else if (hasMeasuredSse) microenvironments.push("Loop / Flexible Turn");
+  else microenvironments.push(UNMEASURED_SSE_ENVIRONMENT);
 
   // 3. Putative Structural Changes
   const putativeStructuralChanges: string[] = [];
@@ -338,10 +397,12 @@ export async function fetchEsm3StructureEval(
   // honest result when no rule applies.
 
   // 4. Confidence
-  let confLevel: "high" | "moderate" | "low" = "high";
-  if (targetPlddt === null || targetPlddt === undefined) confLevel = "low";
-  else if (targetPlddt < 50) confLevel = "low";
-  else if (targetPlddt < 75) confLevel = "moderate";
+  let confLevel: "high" | "moderate" | "low" | null = null;
+  if (targetPlddt !== null && targetPlddt !== undefined) {
+    if (targetPlddt < 50) confLevel = "low";
+    else if (targetPlddt < 75) confLevel = "moderate";
+    else confLevel = "high";
+  }
 
   const result: ESM3StructureEvalResult = {
     uniprotId,
@@ -356,19 +417,19 @@ export async function fetchEsm3StructureEval(
     putativeStructuralChanges,
     confidence: {
       level: confLevel,
-      plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : (null as any),
+      plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : null,
       // Residues that have a score, of the residues asked about (the VESM stand-in leaves −1 outside its window).
       sequenceCoverage: perturbationScores.length
         ? Math.round((100 * perturbationScores.filter(v => v >= 0).length) / perturbationScores.length)
         : 0
     },
-    provenance,
+    ...(provenance ? { provenance } : {}),
     ...(remoteEngineNote ? { remoteEngineNote } : {}),
     ...(remoteFailure ? { remoteFailure } : {})
   };
 
   // A stand-in's numbers are not kept: the key does not change when the token or the provider does, so
   // keeping them would hide a fixed token for a day.
-  if (!/vesm/i.test(provenance)) esm3StructureCache.set(cacheKey, result);
+  if (provenance && !/vesm/i.test(provenance)) esm3StructureCache.set(cacheKey, result);
   return result;
 }

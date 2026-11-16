@@ -86,13 +86,13 @@ export default function ConsoleLogView({
     body =
       stream === "error" ? (
         <div className="dev-console-empty">
-          <ShieldCheck className="cx-empty-icon-good" aria-hidden />
+          <ShieldCheck className="dc-empty-icon-good" aria-hidden />
           <h3>No errors captured</h3>
           <p>
             Intercepted exceptions, failed network calls and fallback events stream here automatically.
           </p>
           {pipelineProblems > 0 && (
-            <button type="button" className="cx-btn" data-tone="danger" onClick={onOpenWaterfall}>
+            <button type="button" className="dc-btn" data-tone="danger" onClick={onOpenWaterfall}>
               <Layers aria-hidden />
               {pipelineProblems} pipeline operation{pipelineProblems === 1 ? "" : "s"} failed or unavailable in the latest run
             </button>
@@ -110,7 +110,7 @@ export default function ConsoleLogView({
       <div className="dev-console-empty">
         <Filter aria-hidden />
         <h3>No entries match your filters</h3>
-        <button type="button" className="cx-btn" onClick={onResetFilters}>
+        <button type="button" className="dc-btn" onClick={onResetFilters}>
           Reset all filters
         </button>
       </div>
@@ -130,23 +130,23 @@ export default function ConsoleLogView({
           onClick={() => setSelectedId(entry.id === selectedId ? null : entry.id)}
           className="dev-console-entry"
         >
-          <span className="cx-time" title={new Date(entry.timestamp).toLocaleString()}>
+          <span className="dc-time" title={new Date(entry.timestamp).toLocaleString()}>
             {formatRelativeTime(entry.timestamp, now)}
           </span>
-          <span className="cx-level" data-level={entry.level} aria-label={entry.level} role="img" />
+          <span className="dc-level" data-level={entry.level} aria-label={entry.level} role="img" />
           <span className="dev-console-source-tag" data-source={entry.source}>
             [{entry.source}]
           </span>
           <span className="dev-console-message">{highlightText(entry.message, searchQuery)}</span>
-          <span className="cx-row-badges">
+          <span className="dc-row-badges">
             <ImpactBadge entry={entry} />
             {http && (http.status !== undefined) && (
-              <span className="cx-badge" data-tone={statusTone}>
+              <span className="dc-badge" data-tone={statusTone}>
                 {http.method} {http.status || "ERR"}
               </span>
             )}
             {entry.count > 1 && (
-              <span className="cx-badge" data-tone="warn">
+              <span className="dc-badge" data-tone="warn">
                 ×{entry.count}
               </span>
             )}
@@ -157,11 +157,11 @@ export default function ConsoleLogView({
   }
 
   return (
-    <div className="cx-body" data-inspector={selected ? "open" : "closed"} onKeyDown={handleKeyDown}>
+    <div className="dc-body" data-inspector={selected ? "open" : "closed"} onKeyDown={handleKeyDown}>
       <div
         role="log"
         aria-label={`${stream} entries`}
-        className={`cx-main ${compact ? "dev-console-list-compact" : ""}`}
+        className={`dc-main ${compact ? "dev-console-list-compact" : ""}`}
       >
         {body}
       </div>

@@ -91,8 +91,8 @@ export interface CapabilitiesData {
   timestamp: string;
   system?: {
     platform: string;
-    arch: string;
-    nodeVersion: string;
+    arch?: string;
+    nodeVersion?: string;
     sidecarLatencyMs: number;
   };
   engines?: Array<{

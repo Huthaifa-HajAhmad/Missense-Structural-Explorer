@@ -70,7 +70,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     await screen.getByRole('button', 'Hide details for Ensembl VEP').tap();
     const monitor = await screen.getByRole('complementary', 'Services and pipeline').boundingBox();
     const recents = await screen.getByRole('region', /Recent analyses/).boundingBox();
-    expect(Boolean(monitor && recents && Math.abs(monitor.y + monitor.height - recents.y - recents.height) <= 1), 'monitor and populated recents share a bottom edge');
+    expect(Boolean(monitor && recents && Math.abs(monitor.y + monitor.height - recents.y - recents.height) <= 1), 'monitor and populated recents share a bottom edge').toBe(true);
     await app.screenshot('services-and-recents');
     await screen.getByRole('tab', 'Pipeline').tap();
     await expect(screen.getByText('Pipeline ready', { exact: true })).toBeVisible();
@@ -80,7 +80,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     await browser.setViewport({ width: 390, height: 844 });
     await screen.getByRole('region', /Recent analyses/).scrollIntoView();
     await app.screenshot('recents-mobile-dark');
-    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no horizontal page overflow');
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no horizontal page overflow').toBe(true);
     await screen.getByRole('tab', 'Services').tap();
     await screen.getByRole('button', 'Show details for Ensembl VEP').tap();
     await expect(screen.getByRole('button', 'Hide details for Ensembl VEP')).toBeExpanded();
@@ -123,7 +123,7 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(layout.gap <= 20, 'Recents starts directly below the query form').toBe(true);
     expect(layout.fieldsOpen, 'parsed fields are available immediately').toBe(true);
     expect(layout.recentsHeight >= 200, 'history reserves room for three entries').toBe(true);
-    expect(layout.queryHeight - layout.bodyHeight < 150, 'the form has no stretched empty band');
+    expect(layout.queryHeight - layout.bodyHeight < 150, 'the form has no stretched empty band').toBe(true);
     /* With the monitor at its full telemetry height, a one-entry tray stretches rather than
        shrinking it — deliberate (2026-11-06), so the tray is checked on order, not on standing taller. */
     expect(layout.gap >= 0, 'the tray reads below the form, whatever its stretched height').toBe(true);

@@ -1,6 +1,8 @@
 import os
 import time
 import hashlib
+import threading
+import weakref
 import torch
 import asyncio
 import numpy as np
@@ -15,10 +17,12 @@ from tools.model_server_app.utils import (
 from tools.model_server_app import models
 from tools.model_server_app.routers.vesm import RemoteFailure, VesmRequest, predict_vesm_sync, remote_failures
 from tools.model_server_app.engine_resilience import (
+    GateDeadlineExceeded,
     InvalidProviderResponse,
     SingleFlightCache,
     account_level_refusal,
     classify_remote_failure,
+    request_deadline,
     run_with_deadline,
     to_full_coordinates,
 )
@@ -325,6 +329,8 @@ def predict_esm2_3b_sync(req: Esm2Request, deadline: float | None = None):
             result["remoteEngineNote"] = remote_engine_note
             result["remoteFailure"] = remote_failure
             return result
+        except (HTTPException, GateDeadlineExceeded):
+            raise
         except Exception as e:
             local_error = f"{local_model.split('/')[-1]}: {type(e).__name__}: {e}"
             print(f"[Model Server] ESM-2 local run failed: {local_error}. Falling back to VESM-150M.")
@@ -341,12 +347,27 @@ def predict_esm2_3b_sync(req: Esm2Request, deadline: float | None = None):
     vesm_res["fallbackReason"] = local_error
     return vesm_res
 
-_inference_semaphore = asyncio.Semaphore(1)
+_loop_semaphores: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_semaphore_lock = threading.Lock()
+
+
+def _get_inference_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    with _semaphore_lock:
+        sem = _loop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(1)
+            _loop_semaphores[loop] = sem
+        return sem
+
 
 @router.post("/predict/esm2", response_model=Esm2Response)
 @router.post("/predict/esm2_3b", response_model=Esm2Response)
 async def predict_esm2_3b(req: Esm2Request):
     # Counted from arrival, so time spent queued behind another ESM-2 request comes out of the budget.
     deadline = time.monotonic() + EMBEDDING_BUDGET_S
-    async with _inference_semaphore:
+    caller_deadline = request_deadline.get()
+    if caller_deadline is not None:
+        deadline = min(deadline, caller_deadline)
+    async with _get_inference_semaphore():
         return await asyncio.to_thread(predict_esm2_3b_sync, req, deadline)

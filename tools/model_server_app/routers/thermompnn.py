@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import tempfile
+import threading
 import asyncio
 import logging
 from pathlib import Path
@@ -175,12 +176,19 @@ def parse_pdb_chains_for_thermompnn(
     return chains, chain_order
 
 
-def select_thermompnn_target_chain(chains: dict, chain_order: list[str], chain: Optional[str], target_pos: Optional[int]) -> Optional[str]:
+def select_thermompnn_target_chain(
+    chains: dict,
+    chain_order: list[str],
+    chain: Optional[str],
+    target_pos: Optional[int],
+    wt: Optional[str] = None,
+) -> Optional[str]:
     """
     Chooses the chain holding the mutation. An explicitly requested chain wins when present;
     without one (or when the requested letter does not exist in this file), the chain that
-    actually carries the residue decides, and the first chain is the last resort — the same
-    precedence ``stabilityoracle.py`` uses, so the two sidecars never disagree on "the chain".
+    actually carries the residue (and matches wild-type identity when heteromeric chains share
+    numbering) decides, and the first chain is the last resort — the same precedence
+    ``stabilityoracle.py`` uses, so the two sidecars never disagree on "the chain".
     """
     explicit = (chain or "").strip().upper()
     if explicit and explicit in chains:
@@ -190,6 +198,14 @@ def select_thermompnn_target_chain(chains: dict, chain_order: list[str], chain: 
         if len(matching) == 1:
             return matching[0]
         if len(matching) > 1:
+            if wt:
+                wt_upper = wt.upper()
+                wt_matching = [
+                    ch for ch in matching
+                    if chains[ch]["seq"][0][chains[ch]["resn_index"][str(target_pos)]] == wt_upper
+                ]
+                if wt_matching:
+                    return wt_matching[0]
             return matching[0]
     if chain_order:
         return chain_order[0]
@@ -214,7 +230,7 @@ class ThermoMpnnResponse(BaseModel):
 
 ALPHABET = 'ACDEFGHIKLMNPQRSTVWYX'
 
-def parse_mutation_code(mutation: str, default_chain: str = "A"):
+def parse_mutation_code(mutation: str, default_chain: Optional[str] = None):
     """Extracts (wt, chain, pos, mut) from diverse mutation formats."""
     clean = mutation.replace("p.", "").strip()
     
@@ -231,7 +247,8 @@ def parse_mutation_code(mutation: str, default_chain: str = "A"):
     # Format: R408W (Standard 1-letter)
     m = re.match(r"^([a-zA-Z])(\d+)([a-zA-Z])$", clean)
     if m:
-        return m.group(1).upper(), default_chain.upper(), int(m.group(2)), m.group(3).upper()
+        chain_upper = default_chain.strip().upper() if default_chain and default_chain.strip() else None
+        return m.group(1).upper(), chain_upper, int(m.group(2)), m.group(3).upper()
 
     return None, None, None, None
 
@@ -255,6 +272,7 @@ def dict_to_config(d):
 _official_model: "TransferModel | None" = None
 _model_loaded: bool = False
 _model_load_error: str | None = None
+_thermompnn_lock = threading.Lock()
 
 def get_official_model():
     """Loads the official Kuhlman Lab ThermoMPNN model using genuine pre-trained weights."""
@@ -262,86 +280,90 @@ def get_official_model():
     if _model_loaded:
         return _official_model
 
-    if not HAS_TORCH:
-        _model_load_error = f"PyTorch or ThermoMPNN dependencies missing: {_import_err}"
-        print(f"[ThermoMPNN Guard] {_model_load_error}")
-        return None
+    with _thermompnn_lock:
+        if _model_loaded:
+            return _official_model
 
-    checkpoint_path = THERMOMPNN_DIR / "models" / "thermoMPNN_default.pt"
-    vanilla_path = THERMOMPNN_DIR / "vanilla_model_weights" / "v_48_020.pt"
-
-    if not checkpoint_path.exists() or not vanilla_path.exists():
-        _model_load_error = f"Official weight files not found at {checkpoint_path} or {vanilla_path}"
-        print(f"[ThermoMPNN Guard] {_model_load_error}")
-        return None
-
-    cfg_dict = {
-        'training': {
-            'num_workers': 1,
-            'learn_rate': 0.001,
-            'epochs': 100,
-            'lr_schedule': True,
-        },
-        'model': {
-            'hidden_dims': [64, 32],
-            'subtract_mut': True,
-            'num_final_layers': 2,
-            'freeze_weights': True,
-            'load_pretrained': True,
-            # The published model has this attention layer: upstream's config.yaml and custom_inference.py set it,
-            # and its checkpoint holds its weights. Without it the model runs with a layer missing and gives
-            # near-constant values (SD 0.19 kcal/mol on S669).
-            'lightattn': True,
-            'lr_schedule': True,
-        },
-        'platform': {
-            'thermompnn_dir': str(THERMOMPNN_DIR)
-        }
-    }
-    cfg = dict_to_config(cfg_dict)
-
-    try:
-        model = TransferModel(cfg)
-        checkpoint = torch.load(str(checkpoint_path), map_location="cpu")
-        ckpt_state = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
-
-        # Strip Lightning 'model.' prefix if present
-        clean_state = {}
-        for k, v in ckpt_state.items():
-            clean_k = k.replace("model.", "") if k.startswith("model.") else k
-            clean_state[clean_k] = v
-
-        # Every tensor must match, both ways. A partial match here once dropped a whole layer without any error.
-        model_dict = model.state_dict()
-        matched = sum(
-            1 for k in clean_state.keys()
-            if k in model_dict and model_dict[k].shape == clean_state[k].shape
-        )
-        if matched != len(model_dict) or matched != len(clean_state):
-            unused = sorted(set(clean_state) - set(model_dict))[:3]
-            absent = sorted(set(model_dict) - set(clean_state))[:3]
-            _model_load_error = (
-                f"Official checkpoint does not match the model: {matched} tensors matched of "
-                f"{len(model_dict)} in the model and {len(clean_state)} in the checkpoint "
-                f"(not in the model: {unused}; not in the checkpoint: {absent})."
-            )
+        if not HAS_TORCH:
+            _model_load_error = f"PyTorch or ThermoMPNN dependencies missing: {_import_err}"
             print(f"[ThermoMPNN Guard] {_model_load_error}")
             return None
 
-        model.load_state_dict(clean_state, strict=True)
-        model.eval()
-        for param in model.parameters():
-            param.requires_grad = False
+        checkpoint_path = THERMOMPNN_DIR / "models" / "thermoMPNN_default.pt"
+        vanilla_path = THERMOMPNN_DIR / "vanilla_model_weights" / "v_48_020.pt"
 
-        _official_model = model
-        _model_loaded = True
-        _model_load_error = None
-        print(f"[ThermoMPNN] Successfully loaded official Kuhlman-Lab ThermoMPNN model ({matched}/{len(model_dict)} tensors verified).")
-        return _official_model
-    except Exception as e:
-        _model_load_error = f"Failed to instantiate official ThermoMPNN model: {e}"
-        print(f"[ThermoMPNN Error] {_model_load_error}")
-        return None
+        if not checkpoint_path.exists() or not vanilla_path.exists():
+            _model_load_error = f"Official weight files not found at {checkpoint_path} or {vanilla_path}"
+            print(f"[ThermoMPNN Guard] {_model_load_error}")
+            return None
+
+        cfg_dict = {
+            'training': {
+                'num_workers': 1,
+                'learn_rate': 0.001,
+                'epochs': 100,
+                'lr_schedule': True,
+            },
+            'model': {
+                'hidden_dims': [64, 32],
+                'subtract_mut': True,
+                'num_final_layers': 2,
+                'freeze_weights': True,
+                'load_pretrained': True,
+                # The published model has this attention layer: upstream's config.yaml and custom_inference.py set it,
+                # and its checkpoint holds its weights. Without it the model runs with a layer missing and gives
+                # near-constant values (SD 0.19 kcal/mol on S669).
+                'lightattn': True,
+                'lr_schedule': True,
+            },
+            'platform': {
+                'thermompnn_dir': str(THERMOMPNN_DIR)
+            }
+        }
+        cfg = dict_to_config(cfg_dict)
+
+        try:
+            model = TransferModel(cfg)
+            checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=True)
+            ckpt_state = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+
+            # Strip Lightning 'model.' prefix if present
+            clean_state = {}
+            for k, v in ckpt_state.items():
+                clean_k = k.replace("model.", "") if k.startswith("model.") else k
+                clean_state[clean_k] = v
+
+            # Every tensor must match, both ways. A partial match here once dropped a whole layer without any error.
+            model_dict = model.state_dict()
+            matched = sum(
+                1 for k in clean_state.keys()
+                if k in model_dict and model_dict[k].shape == clean_state[k].shape
+            )
+            if matched != len(model_dict) or matched != len(clean_state):
+                unused = sorted(set(clean_state) - set(model_dict))[:3]
+                absent = sorted(set(model_dict) - set(clean_state))[:3]
+                _model_load_error = (
+                    f"Official checkpoint does not match the model: {matched} tensors matched of "
+                    f"{len(model_dict)} in the model and {len(clean_state)} in the checkpoint "
+                    f"(not in the model: {unused}; not in the checkpoint: {absent})."
+                )
+                print(f"[ThermoMPNN Guard] {_model_load_error}")
+                return None
+
+            model.load_state_dict(clean_state, strict=True)
+            model.eval()
+            for param in model.parameters():
+                param.requires_grad = False
+
+            _official_model = model
+            _model_loaded = True
+            _model_load_error = None
+            print(f"[ThermoMPNN] Successfully loaded official Kuhlman-Lab ThermoMPNN model ({matched}/{len(model_dict)} tensors verified).")
+            return _official_model
+        except Exception as e:
+            _model_load_error = f"Failed to instantiate official ThermoMPNN model: {e}"
+            print(f"[ThermoMPNN Error] {_model_load_error}")
+            return None
 
 def predict_thermompnn_sync(req: ThermoMpnnRequest):
     """
@@ -352,7 +374,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
     if not pdb_raw.strip():
         raise HTTPException(status_code=400, detail="Missing PDB structural content in request")
 
-    wt, chain, pos, mut = parse_mutation_code(req.mutation, req.chain or "A")
+    wt, chain, pos, mut = parse_mutation_code(req.mutation, req.chain)
     if not wt or not mut or pos is None:
         raise HTTPException(status_code=400, detail=f"Invalid mutation format: '{req.mutation}'")
 
@@ -374,7 +396,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
         if not chains:
             raise HTTPException(status_code=400, detail="Could not extract coordinates from PDB structure")
 
-        resolved_chain = select_thermompnn_target_chain(chains, chain_order, chain, pos)
+        resolved_chain = select_thermompnn_target_chain(chains, chain_order, chain, pos, wt=wt)
         if resolved_chain is None:
             raise HTTPException(status_code=400, detail="Could not extract coordinates from PDB structure")
 
@@ -403,6 +425,14 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
                 status_code=422,
                 detail=f"Wild-type residue mismatch at position {pos} on chain {resolved_chain or chain or 'A'}: structure has {parsed_wt}, expected {wt}"
             )
+
+        for atom_name in backbone_atoms:
+            atom_xyz = np.asarray(target_chain["xyz"][atom_name][target_seq_idx], dtype=float)
+            if not np.all(np.isfinite(atom_xyz)):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Residue position {pos} on chain {resolved_chain or chain or 'A'} is missing backbone atom {atom_name} coordinates"
+                )
 
         model = get_official_model()
         if model is None:
@@ -461,6 +491,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
         return {
             "status": "success",
             "ddG": round(raw_ddg, 3),
+            # Raw sign threshold (< 0.0) reported alongside canonical ddG; app display marks (+0.5/+1.0 kcal/mol) await held-out recalibration.
             "isStabilizing": raw_ddg < 0.0,
             "mutation": req.mutation,
             "contactsAnalyzed": sum(chains[c]["length"] for c in chain_order),

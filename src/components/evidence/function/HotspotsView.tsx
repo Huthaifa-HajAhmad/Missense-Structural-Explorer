@@ -132,8 +132,8 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
                   <ul>{r.details.map((d) => <li key={d}>{d}</li>)}</ul>
                   <div className="hsp-rung__links">
                     {r.source.url && safeExternalHref(r.source.url) && (
-                      <a href={safeExternalHref(r.source.url)!} target="_blank" rel="noreferrer">
-                        {r.source.label} <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                      <a href={safeExternalHref(r.source.url)!} target="_blank" rel="noopener noreferrer">
+                        {r.source.label} <ExternalLink className="w-3 h-3" aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
                       </a>
                     )}
                     <ResearchGuideButton topic={r.explain} label={`How to read: ${r.name}`} className="rgd-trigger hsp-guide" />
@@ -317,20 +317,32 @@ function HotspotMap({
         >
           <span>{ev.residueLabel}</span>
         </div>
-        <div className="hsp-map__row hsp-map__row--up" aria-hidden="true">
+        <div className="hsp-map__row hsp-map__row--up">
           <span className="hsp-map__label" title="ClinVar P/LP missense per residue (germline)">ClinVar P/LP</span>
-          <div className="hsp-map__lane">
+          <div className="hsp-map__lane" role="group" aria-label="ClinVar P/LP missense counts per residue">
             {d?.plp.map((p) => {
               const rowKey = hotspotRowKey(p.pos);
               return (
                 <i
                   key={p.pos}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedKey === rowKey}
                   data-pos={p.pos}
                   data-selected={selectedKey === rowKey || undefined}
                   data-lit={hoverResidue === p.pos || undefined}
+                  aria-label={`Residue ${p.pos}: ${p.n} ClinVar P/LP`}
                   onMouseEnter={() => onHoverResidue(p.pos)}
                   onMouseLeave={() => onHoverResidue(null)}
+                  onFocus={() => onHoverResidue(p.pos)}
+                  onBlur={() => onHoverResidue(null)}
                   onClick={() => onSelectKey(rowKey)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectKey(rowKey);
+                    }
+                  }}
                   style={{ left: `${barLeft(p.pos)}%`, width: `${w}%`, height: `${(p.n / maxPlp) * 100}%` }}
                   title={`${p.pos}: ${p.n} P/LP`}
                 />
@@ -347,19 +359,22 @@ function HotspotMap({
           return (
             <div key={r.key} className="hsp-map__row" data-lane={r.key} data-selected={selectedKey === rungKey || undefined}>
               <span className="hsp-map__label" title={LANE_TITLE[r.key] ?? HOTSPOT_LANE_LABEL[r.key]}>{HOTSPOT_LANE_LABEL[r.key]}</span>
-              <div className="hsp-map__lane" role="img" aria-label={`${HOTSPOT_LANE_LABEL[r.key]} (${HOTSPOT_GRADE_LABEL[r.grade]}${r.grade === "method-unvalidated" ? ", not validated here" : ""}): ${r.bands.map((b) => `${b.start}–${b.end}`).join(", ")}`}>
+              <div className="hsp-map__lane" role="group" aria-label={`${HOTSPOT_LANE_LABEL[r.key]} (${HOTSPOT_GRADE_LABEL[r.grade]}${r.grade === "method-unvalidated" ? ", not validated here" : ""}): ${r.bands.map((b) => `${b.start}–${b.end}`).join(", ")}`}>
                 {r.bands.map((b) => {
                   const left = Math.min(100 - w, Math.max(0, pct(b.start)));
                   const end = Math.min(100, Math.max(left, pct(b.end + 1)));
                   const width = Math.min(100 - left, Math.max(end - left, w));
                   return (
-                    <span
+                    <button
                       key={`${b.start}-${b.end}`}
+                      type="button"
                       className="hsp-map__band"
+                      aria-pressed={selectedKey === rungKey}
                       data-hit={b.hit || undefined}
                       onClick={() => onSelectKey(rungKey)}
                       style={{ left: `${left}%`, width: `${width}%` }}
                       title={`${b.start}–${b.end} · ${b.label}`}
+                      aria-label={`${HOTSPOT_LANE_LABEL[r.key]} ${b.start}–${b.end}: ${b.label}`}
                     />
                   );
                 })}
@@ -370,17 +385,29 @@ function HotspotMap({
         {spatial && (
           <div className="hsp-map__row" data-lane="spatial" data-selected={selectedKey === hotspotRungKey("spatial") || undefined}>
             <span className="hsp-map__label" title="PathProx score at ClinVar P/LP residues; above the line favours pathogenic neighbours">PathProx</span>
-            <div className="hsp-map__lane hsp-map__lane--zero" role="img" aria-label="PathProx scores at ClinVar P/LP residues; above the line favours pathogenic neighbours">
+            <div className="hsp-map__lane hsp-map__lane--zero" role="group" aria-label="PathProx scores at ClinVar P/LP residues; above the line favours pathogenic neighbours">
               {scores.filter((s) => s.pathprox !== null).map((s) => (
                 <i
                   key={s.residue}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedKey === s.key}
                   data-pos={s.residue}
                   data-sign={s.pathprox! >= 0 ? "pos" : "neg"}
                   data-selected={selectedKey === s.key || undefined}
                   data-lit={hoverResidue === s.residue || undefined}
+                  aria-label={`${s.label}: PathProx ${s.pathprox!.toFixed(2)}`}
                   onMouseEnter={() => onHoverResidue(s.residue)}
                   onMouseLeave={() => onHoverResidue(null)}
+                  onFocus={() => onHoverResidue(s.residue)}
+                  onBlur={() => onHoverResidue(null)}
                   onClick={() => onSelectKey(s.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectKey(s.key);
+                    }
+                  }}
                   style={{ left: `${barLeft(s.residue)}%`, width: `${w}%`, height: `${Math.min(50, Math.abs(s.pathprox!) * 50)}%` }}
                   title={`${s.label}: PathProx ${s.pathprox!.toFixed(2)}`}
                 />

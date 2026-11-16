@@ -399,6 +399,55 @@ END`;
       expect(jsonVal.error.message).toContain("Query parameter 'jobs'");
     });
 
+    it("answers a bad subscription with a real 400 before any stream headers are flushed", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/jobs/events");
+      if (!route || !route.route) throw new Error("Route /jobs/events not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const tooMany = Array.from({ length: 51 }, (_, i) => `job-${i}`).join(",");
+      for (const jobs of [tooMany, "ok-1,bad id!", "a/../b"]) {
+        let statusCode = 200;
+        let jsonVal: any = null;
+        const res: any = {
+          setHeader: vi.fn(),
+          flushHeaders: vi.fn(),
+          write: vi.fn(),
+          status: (code: number) => { statusCode = code; return res; },
+          json: (data: any) => { jsonVal = data; return res; }
+        };
+        handler({ query: { jobs }, on: vi.fn() } as any, res, () => {});
+        expect(statusCode).toBe(400);
+        expect(jsonVal.error.code).toBe("BAD_REQUEST");
+        expect(res.flushHeaders).not.toHaveBeenCalled();
+        expect(res.write).not.toHaveBeenCalled();
+      }
+    });
+
+    it("refuses non-admin cancellation of SYSTEM_OWNER prewarm jobs", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/jobs/:jobId/cancel");
+      if (!route || !route.route) throw new Error("Route /jobs/:jobId/cancel not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const { BiophysicalJobQueue } = await import("../services/biophysical-queue.ts");
+      const queue = BiophysicalJobQueue.getInstance();
+      const ownerSpy = vi.spyOn(queue, "getJobOwner").mockResolvedValueOnce("__system__" as any);
+      const cancelSpy = vi.spyOn(queue, "cancelFor");
+
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status: (code: number) => { statusCode = code; return res; },
+        json: (data: any) => { jsonVal = data; return res; }
+      };
+      await handler({ params: { jobId: "sys-prewarm-1" }, principal: { kind: "service", userId: "service" } } as any, res, () => {});
+      expect(statusCode).toBe(403);
+      expect(jsonVal.error.code).toBe("FORBIDDEN");
+      expect(cancelSpy).not.toHaveBeenCalled();
+
+      ownerSpy.mockRestore();
+      cancelSpy.mockRestore();
+    });
+
     it("should resolve pdbRef from cache in /pocket-detect", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/pocket-detect");
       expect(route).toBeDefined();
@@ -788,6 +837,72 @@ END`;
       d2Spy.mockRestore();
       ddmutSpy.mockRestore();
       cacheSpy.mockRestore();
+    });
+
+    it("does not mutate the live cached record or persist transient companion outages during cache-hit backfills", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      if (!route?.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const protvarModule = await import("../services/external-api/protvar.ts");
+      const biophysicsModule = await import("../services/biophysics.ts");
+
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("1");
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("2");
+      const liveCachedEntry: any = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          rasp: null,
+          raspReason: undefined,
+          thermompnn: 0.8,
+          stabilityoracle: 0.4,
+          dynamut2: -0.5,
+          ddmut: -0.4
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(liveCachedEntry);
+      const writeSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
+      const raspSpy = vi.spyOn(biophysicsModule, "runRaspLocal").mockResolvedValue({
+        score: null,
+        reason: biophysicsModule.RASP_STORE_UNAVAILABLE_REASON
+      });
+      const protvarSpy = vi.spyOn(protvarModule, "fetchProtVarFoldx").mockResolvedValue({
+        status: "found",
+        ddg: 0.9,
+        plddt: 92,
+        model: "AF-Q9H116-F1",
+      } as any);
+
+      let body: any = null;
+      await handler({
+        body: { wtPdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", mutation: "SA489C", uniprotId: "Q9H116" },
+        headers: {}
+      } as any, { status() { return this; }, json(b: any) { body = b; return this; } } as any, () => {});
+
+      expect(body.energetics.raspError).toBe(biophysicsModule.RASP_STORE_UNAVAILABLE_REASON);
+      expect(body.energetics.protvar).toBe(0.9);
+      // Live in-memory cache object must remain untouched
+      expect(liveCachedEntry.energetics.raspError).toBeUndefined();
+      expect(liveCachedEntry.energetics.protvar).toBeUndefined();
+      // Persistent cache backfill for ProtVar must not carry the transient RaSP outage
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const persistedArg = writeSpy.mock.calls[0][1] as any;
+      expect(persistedArg.energetics.protvar).toBe(0.9);
+      expect(persistedArg.energetics.raspError).toBeUndefined();
+      expect(persistedArg.energetics.raspStatus).toBeUndefined();
+
+      protvarSpy.mockRestore();
+      raspSpy.mockRestore();
+      writeSpy.mockRestore();
+      cacheSpy.mockRestore();
+      ddmutSpy.mockRestore();
+      d2Spy.mockRestore();
     });
 
     it("should gracefully handle external submission failures without crashing", async () => {

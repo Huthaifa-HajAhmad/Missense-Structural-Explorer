@@ -2,6 +2,7 @@ import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Box, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Upload, Waypoints, X, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
+import { downloadBlob } from "../../lib/download";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { STRING_CONFIDENCE_CUTS } from "../../shared/thresholds";
 import {
@@ -62,24 +63,12 @@ import { LOCALFOLD_EGRESS_NOTE, LOCALFOLD_MAX_RESIDUES, LOCALFOLD_MAX_UPLOAD_BYT
  */
 
 function downloadModel(pdb: string, name: string) {
-  const blob = new Blob([pdb], { type: "chemical/x-pdb" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(name, "chemical/x-pdb", pdb);
 }
 
 /** Save the hand-off job. Same mechanism as the model download: a Blob and a synthetic link. */
 function downloadJob(text: string, name: string) {
-  const blob = new Blob([text], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(name, "application/json", text);
 }
 
 /**
@@ -530,7 +519,7 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
             <div key={f.label} className="ifc-fact">
               <dt>{f.label}</dt>
               <dd className={f.mono ? "ifc-mono" : undefined}>{f.value}</dd>
-              <span className="ifc-fact__sub">{f.sub}</span>
+              <dd className="ifc-fact__sub">{f.sub}</dd>
             </div>
           ))}
         </dl>

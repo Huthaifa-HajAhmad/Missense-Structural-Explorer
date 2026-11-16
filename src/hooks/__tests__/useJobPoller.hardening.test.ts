@@ -84,6 +84,7 @@ describe("remote job terminal-state safety", () => {
     expect(options.onStatusChange).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
     expect(options.onStatusChange).toHaveBeenCalledExactlyOnceWith("unavailable");
+    expect(options.onError).toHaveBeenCalledWith(expect.stringMatching(/5-minute listening window.*Retry/i));
   });
   it("does not apply a decoded old-job response after switching jobs", async () => {
     const body = deferred<any>();

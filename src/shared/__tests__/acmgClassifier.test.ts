@@ -83,3 +83,24 @@ describe("classifyVariant — PM2 is applied at Supporting strength", () => {
     expect(classifyVariant(c("PM2", "PP3"))).toBe("Variant of Uncertain Significance (VUS)");
   });
 });
+
+describe("classifyVariant — benign Pejaver/Tavtigian Moderate & Strong weights", () => {
+  it("weights BP4_Moderate as Moderate (-2), BP4_Strong as Strong (-4), and Supporting BP as -1", () => {
+    expect(codeWeight("BA1")).toBe(WEIGHT.BA1);
+    expect(codeWeight("BS1")).toBe(WEIGHT.BS);
+    expect(codeWeight("BP4_Strong")).toBe(WEIGHT.BS);
+    expect(codeWeight("BP4_Moderate")).toBe(WEIGHT.BM);
+    expect(codeWeight("BP4")).toBe(WEIGHT.BP);
+    expect(codeWeight("BP4_Supporting")).toBe(WEIGHT.BP);
+  });
+
+  it("keeps single Supporting BP4 in VUS while treating BS1 + BP4_Moderate as Likely Benign (-6, not Benign)", () => {
+    expect(classifyVariant(c("BP4"))).toBe("Variant of Uncertain Significance (VUS)");
+    expect(classifyVariant(c("BP4", "BP3"))).toBe("Likely Benign");
+    expect(classifyVariant(c("BP4_Moderate"))).toBe("Likely Benign");
+    expect(classifyVariant(c("BS1", "BP4"))).toBe("Likely Benign");
+    expect(classifyVariant(c("BS1", "BP4_Moderate"))).toBe("Likely Benign");
+    expect(classifyVariant(c("BS1", "BP4_Moderate", "BP3"))).toBe("Benign");
+    expect(classifyVariant(c("BS1", "BP4_Strong"))).toBe("Benign");
+  });
+});

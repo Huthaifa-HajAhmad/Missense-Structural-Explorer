@@ -24,7 +24,7 @@ function renderProbe(onContext: (ctx: ReturnType<typeof useSettings>) => void) {
     onContext(useSettings());
     return null;
   }
-  render(
+  return render(
     <SettingsProvider>
       <Probe />
     </SettingsProvider>
@@ -186,5 +186,38 @@ describe("SettingsContext (settings revamp)", () => {
     expect(ctx.settings.biophysicsConditions.ph).toBe(8);
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
     expect(persisted.appApiToken).toBeUndefined();
+    expect(persisted.__autoZoomMigrated).toBe(true);
+  });
+
+  it("preserves imported autoZoomOnSelect and showAtomInteractions across remounts", () => {
+    let ctx!: ReturnType<typeof useSettings>;
+    const first = renderProbe((c) => (ctx = c));
+
+    act(() => {
+      ctx.applySettings({ autoZoomOnSelect: true, showAtomInteractions: false });
+    });
+
+    expect(ctx.settings.autoZoomOnSelect).toBe(true);
+    expect(ctx.showPolarContacts).toBe(false);
+    first.unmount();
+
+    // Remount from persisted storage: imported autoZoomOnSelect must not be re-migrated back to false
+    let remounted!: ReturnType<typeof useSettings>;
+    const second = renderProbe((c) => (remounted = c));
+    expect(remounted.settings.autoZoomOnSelect).toBe(true);
+    expect(remounted.showPolarContacts).toBe(false);
+    second.unmount();
+  });
+
+  it("migrates legacy autoZoomOnSelect once and strips internal migration marker from state", () => {
+    localStorage.setItem("missenseUserSettings", JSON.stringify({ autoZoomOnSelect: true }));
+    let ctx!: ReturnType<typeof useSettings>;
+    const view = renderProbe((c) => (ctx = c));
+    expect(ctx.settings.autoZoomOnSelect).toBe(false);
+    expect((ctx.settings as unknown as Record<string, unknown>).__autoZoomMigrated).toBeUndefined();
+    const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
+    expect(persisted.__autoZoomMigrated).toBe(true);
+    expect(persisted.autoZoomOnSelect).toBe(false);
+    view.unmount();
   });
 });

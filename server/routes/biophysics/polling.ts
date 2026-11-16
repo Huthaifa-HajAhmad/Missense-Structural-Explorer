@@ -26,7 +26,7 @@ import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 // NOTE: the consensus is deliberately NOT computed in this file. Its one authoritative computation
 // is `enrichBiophysicalResult`, which sees all six engines; recomputing it per remote-engine poll
 // from a five-engine subset produced a verdict that disagreed with the one on screen.
-import { recordJobInRegistry, getRegistryPath, type RegistryJob } from "../shared.ts";
+import { findJobInRegistry, recordJobInRegistry } from "../shared.ts";
 import { requireUser, noStore } from "../../auth/middleware.ts";
 import { submitterId } from "../../auth/principal.ts";
 import { withProvenanceFor } from "../../../src/shared/computeProvenance.ts";
@@ -156,6 +156,12 @@ import { EventEmitter } from "events";
 export const jobEventEmitter = new EventEmitter();
 jobEventEmitter.setMaxListeners(250);
 
+/** A subscription names the jobs it is waiting for; more than this is not a progress bar. */
+const MAX_SSE_JOB_IDS = 50;
+/** Open streams one address may hold, so idle sockets cannot exhaust file descriptors. */
+const MAX_SSE_PER_CLIENT = 20;
+const sseConnectionsByClient = new Map<string, number>();
+
 export function broadcastJobUpdate(update: {
   jobId: string;
   tool: "foldx" | "dynamut2" | "ddmut" | "thermompnn" | "p2rank";
@@ -171,25 +177,35 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
   // Server-Sent Events (SSE) stream for biophysics job progress/completion (A1)
   apiRouter.get("/jobs/events", (req, res) => {
+    // Validate before the stream starts: once headers are flushed, sendError drops its body and the
+    // client is left holding an open 200 event-stream.
+    const jobsParam = typeof req.query.jobs === "string" ? req.query.jobs : "";
+    const requestedIds = jobsParam.split(",").map(s => s.trim()).filter(Boolean);
+    if (requestedIds.length === 0) {
+      return sendError(res, 400, "BAD_REQUEST", "Query parameter 'jobs' specifying one or more job IDs is required for SSE subscription.");
+    }
+    if (requestedIds.length > MAX_SSE_JOB_IDS || requestedIds.some(id => !/^[a-zA-Z0-9_\-]{1,100}$/.test(id))) {
+      return sendError(res, 400, "BAD_REQUEST", `'jobs' takes at most ${MAX_SSE_JOB_IDS} job IDs, each made of letters, digits, '_' or '-'.`);
+    }
+    const subscribedJobIds = new Set(requestedIds);
+
+    const clientKey = req.ip ?? "unknown";
+    if ((sseConnectionsByClient.get(clientKey) ?? 0) >= MAX_SSE_PER_CLIENT) {
+      return sendError(res, 429, "TOO_MANY_STREAMS", "Too many open job streams from this address.");
+    }
+    sseConnectionsByClient.set(clientKey, (sseConnectionsByClient.get(clientKey) ?? 0) + 1);
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    const jobsParam = (req.query.jobs as string) || "";
-    const subscribedJobIds = new Set(jobsParam.split(",").map(s => s.trim()).filter(Boolean));
-
-    if (subscribedJobIds.size === 0) {
-      sendError(res, 400, "BAD_REQUEST", "Query parameter 'jobs' specifying one or more job IDs is required for SSE subscription.");
-      return;
-    }
-
     // Send initial connected handshake
     res.write(`data: ${JSON.stringify({ type: "connected", timestamp: new Date().toISOString() })}\n\n`);
 
     const listener = (update: any) => {
-      if (subscribedJobIds.has(update.jobId)) {
+      if (subscribedJobIds.has(update.jobId) && !res.writableEnded && !res.destroyed) {
         res.write(`data: ${JSON.stringify({ type: "job_update", ...update })}\n\n`);
       }
     };
@@ -209,6 +225,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     onClientDisconnect(res, () => {
       clearInterval(pingInterval);
       jobEventEmitter.off("job_update", listener);
+      const left = (sseConnectionsByClient.get(clientKey) ?? 1) - 1;
+      if (left <= 0) sseConnectionsByClient.delete(clientKey);
+      else sseConnectionsByClient.set(clientKey, left);
     });
   });
 
@@ -245,10 +264,12 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       if (p?.kind === "user") {
         outcome = await queue.cancelFor(jobId, p.userId, p.user.role === "admin");
       } else {
+        // Not an admin: the shared-token caller acts as LEGACY_OWNER, so it can withdraw from
+        // legacy jobs but not stop SYSTEM_OWNER pre-warm jobs (only a signed-in admin can).
         const owner = await queue.getJobOwner(jobId);
-        outcome = owner && owner !== LEGACY_OWNER && owner !== SYSTEM_OWNER
+        outcome = owner && owner !== LEGACY_OWNER
           ? ({ ok: false, reason: "forbidden" } as const)
-          : await queue.cancelFor(jobId, LEGACY_OWNER, true);
+          : await queue.cancelFor(jobId, LEGACY_OWNER, false);
       }
       if (!outcome.ok) {
         if (outcome.reason === "not_found") return sendError(res, 404, "NOT_FOUND", `Job ${jobId} not found.`);
@@ -461,16 +482,12 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
  
   async function checkBioSigJobStaleness(jobId: string, tool: "dynamut2" | "ddmut"): Promise<boolean> {
     try {
-      if (fs.existsSync(getRegistryPath())) {
-        const content = await fs.promises.readFile(getRegistryPath(), "utf-8");
-        const registry: RegistryJob[] = JSON.parse(content);
-        const entry = registry.find(j => j.jobId === jobId && j.type === tool);
-        if (entry) {
-          const ageMs = Date.now() - new Date(entry.timestamp).getTime();
-          if (ageMs > BIOSIG_MAX_AGE_MS) {
-            console.warn(`[BioSig Staleness] ${tool} job ${jobId} is ${Math.round(ageMs / 1000)}s old (>300s timeout).`);
-            return true;
-          }
+      const entry = await findJobInRegistry(jobId, tool);
+      if (entry) {
+        const ageMs = Date.now() - new Date(entry.timestamp).getTime();
+        if (ageMs > BIOSIG_MAX_AGE_MS) {
+          console.warn(`[BioSig Staleness] ${tool} job ${jobId} is ${Math.round(ageMs / 1000)}s old (>300s timeout).`);
+          return true;
         }
       }
     } catch (err: any) {
@@ -489,28 +506,24 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
    */
   async function backfillRemotePredictionToCache(jobId: string, tool: "dynamut2" | "ddmut" | "thermompnn", prediction: number): Promise<void> {
     try {
-      if (fs.existsSync(getRegistryPath())) {
-        const registryContent = await fs.promises.readFile(getRegistryPath(), "utf-8");
-        const registry: RegistryJob[] = JSON.parse(registryContent);
-        const entry = registry.find(j => j.jobId === jobId && j.type === tool);
-        if (entry && entry.foldxCacheKey) {
-          const { getMutantFromCacheForBackfill, writeMutantToCache } = await import("../../services/biophysics.ts");
-          const cached = await getMutantFromCacheForBackfill(entry.foldxCacheKey);
-          if (cached && cached.energetics) {
-            let updated = false;
-            if (tool === "dynamut2" && cached.energetics.dynamut2 !== prediction) {
-              cached.energetics.dynamut2 = prediction;
-              updated = true;
-            } else if (tool === "ddmut" && cached.energetics.ddmut !== prediction) {
-              cached.energetics.ddmut = prediction;
-              updated = true;
-            } else if (tool === "thermompnn" && cached.energetics.thermompnn !== prediction) {
-              cached.energetics.thermompnn = prediction;
-              updated = true;
-            }
-            if (updated) {
-              writeMutantToCache(entry.foldxCacheKey, cached);
-            }
+      const entry = await findJobInRegistry(jobId, tool);
+      if (entry && entry.foldxCacheKey) {
+        const { getMutantFromCacheForBackfill, writeMutantToCache } = await import("../../services/biophysics.ts");
+        const cached = await getMutantFromCacheForBackfill(entry.foldxCacheKey);
+        if (cached && cached.energetics) {
+          let updated = false;
+          if (tool === "dynamut2" && cached.energetics.dynamut2 !== prediction) {
+            cached.energetics.dynamut2 = prediction;
+            updated = true;
+          } else if (tool === "ddmut" && cached.energetics.ddmut !== prediction) {
+            cached.energetics.ddmut = prediction;
+            updated = true;
+          } else if (tool === "thermompnn" && cached.energetics.thermompnn !== prediction) {
+            cached.energetics.thermompnn = prediction;
+            updated = true;
+          }
+          if (updated) {
+            writeMutantToCache(entry.foldxCacheKey, cached);
           }
         }
       }

@@ -51,11 +51,33 @@ const clinvarSummaryResponseSchema = z.object({
         source: z.string().optional(),
         value: z.any().optional()
       })).optional(),
+      genes: z.array(z.object({
+        symbol: z.string().optional(),
+        geneid: z.string().optional()
+      })).optional(),
       /** An id ClinVar does not hold: esummary answers 200 with `{"uid", "error": "…"}`. */
       error: z.string().optional()
     }).optional()
   ).optional()
 });
+
+function entryMatchesQueriedGene(
+  entry: { title?: string; genes?: Array<{ symbol?: string }> },
+  normGene: string
+): boolean {
+  if (!normGene) return true;
+  const symbols = (entry.genes ?? [])
+    .map(g => (g.symbol ? normalizeGeneSymbol(g.symbol) : ""))
+    .filter(Boolean);
+  if (symbols.length > 0) {
+    return symbols.includes(normGene);
+  }
+  const titleGeneMatch = (entry.title || "").match(/\(([A-Za-z0-9_-]+)\):/);
+  if (titleGeneMatch) {
+    return normalizeGeneSymbol(titleGeneMatch[1]) === normGene;
+  }
+  return true;
+}
 
 function getCodingNotation(title: string): string | null {
   const match = title.match(/(c\.[^\s(]+)/i);
@@ -110,6 +132,7 @@ export async function fetchClinVarData(
     // VCV000123456 or 123456 → its numeric id. Leading zeros are not part of the id E-utilities
     // summaries key on, so they are stripped here, not at the summary step.
     const varId = cleanVar.replace(/^VCV/i, "").replace(/^0+/, "");
+    if (!varId) return defaultRes;
     idList = [varId];
   } else {
     term = `${normGene}[gene] AND (${variant}[variant name] OR ${cleanVar}[variant name])`;
@@ -183,11 +206,12 @@ export async function fetchClinVarData(
      * never a record with a `uid` but no classification, which a screen could read as evidence.
      */
     if (entry.error) continue;
+    if (!entryMatchesQueriedGene(entry, normGene)) continue;
     
     const title = (entry.title || "").toLowerCase();
     let isMatch = isDirectIdSearch;
     if (!isMatch && queryNorm) {
-      const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}/g);
+      const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}(?![a-z0-9*]|fs)/gi);
       if (pChangeMatches) {
         for (const pMatch of pChangeMatches) {
           const cleanMatch = pMatch.replace(/^p\./i, "").trim().toLowerCase();
@@ -215,7 +239,7 @@ export async function fetchClinVarData(
       if (!isMatch) {
         const cleanVariant = variant.replace(/^p\./i, "").toLowerCase();
         const escaped = cleanVariant.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+        const regex = new RegExp(`(?:^|[^a-z0-9])${escaped}(?![a-z0-9*]|fs)`, 'i');
         if (regex.test(title)) {
           isMatch = true;
         }
@@ -235,7 +259,12 @@ export async function fetchClinVarData(
   let matchedIdx = 0;
   if (options.originalNotation) {
     const cleanNotation = options.originalNotation.trim().toLowerCase();
-    const idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+    const escapedNotation = cleanNotation.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const exactRegex = new RegExp(`(?:^|[^a-z0-9])${escapedNotation}(?![a-z0-9*]|fs)`, 'i');
+    let idx = matchingEntries.findIndex(m => exactRegex.test(m.cleanTitle));
+    if (idx === -1) {
+      idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+    }
     if (idx !== -1) {
       matchedIdx = idx;
     }
@@ -252,7 +281,7 @@ export async function fetchClinVarData(
     // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
     if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
       const otherC = getCodingNotation(matchingEntries[i].cleanTitle);
-      if (!matchedC || !otherC || matchedC !== otherC) {
+      if (matchedC && otherC && matchedC !== otherC) {
         hasOtherPathogenicVariantSameAA = true;
         break;
       }

@@ -477,3 +477,38 @@ describe("startup validation", () => {
     expect(authEnvironmentProblems()).toEqual([]);
   });
 });
+
+describe("admin sign-out and compute ceilings", () => {
+  it("revokes active user sessions via POST /admin/users/:id/sign-out and 404s unknown ids", async () => {
+    process.env.AUTH_MODE = "accounts";
+    await seedUser("admin@lab.org", "admin");
+    const member = await seedUser("member@lab.org", "member");
+    const adminCookie = await signIn("admin@lab.org");
+    const memberCookie = await signIn("member@lab.org");
+
+    expect((await call("GET", "/auth/me", { cookie: memberCookie })).status).toBe(200);
+    expect((await call("POST", `/admin/users/${member.id}/sign-out`, { cookie: memberCookie, body: {} })).status).toBe(403);
+    expect((await call("POST", "/admin/users/nonexistent-user/sign-out", { cookie: adminCookie, body: {} })).status).toBe(404);
+    expect((await call("POST", `/admin/users/${member.id}/sign-out`, { cookie: adminCookie, body: {} })).status).toBe(204);
+    expect((await call("GET", "/auth/me", { cookie: memberCookie })).status).toBe(401);
+  });
+
+  it("exposes and resets compute OOM ceilings only for admins", async () => {
+    process.env.AUTH_MODE = "accounts";
+    await seedUser("admin@lab.org", "admin");
+    await seedUser("member@lab.org", "member");
+    const adminCookie = await signIn("admin@lab.org");
+    const memberCookie = await signIn("member@lab.org");
+
+    expect((await call("GET", "/admin/compute/ceilings", { cookie: memberCookie })).status).toBe(403);
+    expect((await call("DELETE", "/admin/compute/ceilings", { cookie: memberCookie })).status).toBe(403);
+
+    const getRes = await call("GET", "/admin/compute/ceilings", { cookie: adminCookie });
+    expect(getRes.status).toBe(200);
+    expect(getRes.body).toEqual({ enforced: false, ceilings: [] });
+
+    const delRes = await call("DELETE", "/admin/compute/ceilings", { cookie: adminCookie });
+    expect(delRes.status).toBe(200);
+    expect(typeof delRes.body.removed).toBe("number");
+  });
+});

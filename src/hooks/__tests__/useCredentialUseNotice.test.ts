@@ -36,6 +36,7 @@ describe("X-MSE-Credentials", () => {
       /^Tamarind was not run: you have used your share of the team token this hour\./
     );
     expect(credentialUseSentence({ kind: "biohub", source: "none", refusal: "team-token-off" })).toMatch(/does not lend its team token/);
+    expect(credentialUseSentence({ kind: "biohub", source: "none", refusal: "team-signin-required" })).toMatch(/sign in or add your own token/);
     expect(credentialUseSentence({ kind: "biohub", source: "none" })).toBeNull();
   });
 });

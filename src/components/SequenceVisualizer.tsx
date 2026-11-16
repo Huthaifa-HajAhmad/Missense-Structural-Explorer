@@ -245,7 +245,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   }, [setOverview]);
   useEffect(() => {
     if (!gene || !uniprotId || !variant || !hasLandscape) return;
-    if (useVariantAnalysisStore.getState().landscapeOverview?.key === key) {
+    const existing = useVariantAnalysisStore.getState().landscapeOverview;
+    if (existing?.key === key && existing.status !== "error") {
       return;
     }
     setOverview({ key, status: "loading", contextStatus: "loading", data: null, error: null });
@@ -268,6 +269,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
               }
             })
             .catch((ctxErr: any) => {
+              if (ctxErr?.name === "AbortError") return;
               console.warn("[Landscape] Context fetch failed:", ctxErr?.message || ctxErr);
               if (stillCurrent()) {
                 const current = useVariantAnalysisStore.getState().landscapeOverview;
@@ -281,6 +283,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         }
       })
       .catch((err: any) => {
+        if (err?.name === "AbortError") {
+          if (stillCurrent()) setOverview(null);
+          return;
+        }
         if (stillCurrent()) {
           setOverview({ key, status: "error", contextStatus: "error", data: null, error: err?.message ?? "request failed" });
         }

@@ -92,6 +92,9 @@ export const IMAGE_UNSAFE_GATES = new Map<string, string>([
   ["test:coverage", "it runs the same suite as `test`"],
   ["test:geometry", "it renders in headless Chromium, which no build stage installs"],
   ["test:geometry:function-track", "it renders in headless Chromium, which no build stage installs"],
+  ["test:geometry:landscape", "it renders in headless Chromium, which no build stage installs"],
+  ["test:geometry:review", "it renders in headless Chromium, which no build stage installs"],
+  ["test:geometry:focus", "it renders in headless Chromium, which no build stage installs"],
 ]);
 
 /**
@@ -266,7 +269,9 @@ export function checkVerifyParity(options: CheckVerifyParityOptions = {}): Verif
 const DOCKERFILE_WALK_SKIP = new Set([
   ".git",
   ".antigravity",
+  ".e2e",
   ".kilo",
+  ".venv",
   ".zvec-grep",
   "coverage",
   "data",
@@ -275,6 +280,7 @@ const DOCKERFILE_WALK_SKIP = new Set([
   "logs",
   "node_modules",
   "scratch",
+  "temp_jobs",
 ]);
 
 /**

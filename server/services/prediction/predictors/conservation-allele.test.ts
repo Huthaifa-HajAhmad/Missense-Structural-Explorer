@@ -111,4 +111,94 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(mocks.alphagenome).toHaveBeenCalledTimes(1);
     expect(mocks.gpnByCoordinate).toHaveBeenCalledTimes(1);
   });
+
+  it("omits aouFrequency when local dbNSFP record has only null AoU fields", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.mocked(local.queryLocalDbnsfpVariant).mockResolvedValueOnce({
+      revel: 0.85,
+      gerp: 4.5,
+      phylop: 6.2,
+      popeve: null,
+      aou_ac: null,
+      aou_an: null,
+      aou_het: null,
+      aou_hom: null,
+    } as any);
+    const result = await fetchConservationData("TP53", "p.Arg273His", null, null, 273);
+    expect(result.available).toBe(true);
+    expect(result.aouFrequency).toBeNull();
+  });
+
+  it("unwraps array-valued clinpred and eigen fields from MyVariant and rejects unmatched codon neighbors", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const s = String(url);
+      if (s.includes("myvariant.info")) {
+        return new Response(JSON.stringify({
+          hits: [{
+            dbnsfp: {
+              hgvsp: ["p.Arg273His"],
+              clinpred: [{ score: ["0.91", "0.88"], pred: ["D"] }],
+              eigen: { phred_coding: ["12.34"], raw_coding: ["0.78"] },
+            },
+          }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+
+    const exact = await fetchConservationData("TP53", "p.Arg273His", null, null, 273);
+    expect(exact.available).toBe(true);
+    expect(exact.clinpred).toBe(0.91);
+    expect(exact.clinpredPred).toBe("D");
+    expect(exact.eigenPhred).toBe(12.34);
+    expect(exact.eigenRaw).toBe(0.78);
+
+    clearAllCaches(true);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const s = String(url);
+      if (s.includes("myvariant.info")) {
+        return new Response(JSON.stringify({
+          hits: [{
+            dbnsfp: {
+              hgvsp: ["p.Arg273Cys"],
+              revel: { score: 0.99 },
+            },
+          }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+
+    const unmatched = await fetchConservationData("TP53", "p.Arg273His", null, null, 273);
+    expect(unmatched.available).toBe(false);
+    expect(unmatched.revel).toBeNull();
+  });
+
+  it("withholds non-GRCh38 coordinates from Genos and dbNSFP.org on direct calls and resolves ConSurf position from variant string", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
+
+    const seenUrls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const s = String(url);
+      seenUrls.push(s);
+      if (s.includes("consurfdb.tau.ac.il")) {
+        return new Response('<option value="A hash123">Chain A</option>', { status: 200 });
+      }
+      if (s.includes("myvariant.info")) {
+        return new Response(JSON.stringify({
+          hits: [{ dbnsfp: { hgvsp: ["p.Arg273His"], revel: { score: 0.91 } } }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+
+    await fetchConservationData("TP53", "p.Arg273His", "1TUP", "A", null, "17-7577120-C-T", null, null, null, null, "GRCh37");
+    expect(mocks.genos).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
+    expect(mocks.dbnsfpOrg).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
+    expect(seenUrls.some(u => u.includes("consurfdb.tau.ac.il"))).toBe(true);
+  });
 });

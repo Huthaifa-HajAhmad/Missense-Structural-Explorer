@@ -4,6 +4,7 @@ import type { LandscapeResidueItem } from '../../shared/contracts';
 import { agreementClass, residueSummary, type Agreement, type SummaryMode } from '../../shared/landscapeEvidence';
 import LandscapeAgreementPlot from '../LandscapeAgreementPlot';
 import { VisualizationPanel } from '../ui/VisualizationPanel';
+import { downloadBlob } from '../../lib/download';
 
 const GROUPS: { id: Agreement | 'all'; label: string }[] = [
   { id: 'all', label: 'All paired scores' }, { id: 'discordant', label: 'Discordant' },
@@ -51,9 +52,11 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
   const exportCsv = () => {
     const csv = [`residue,summary,REVEL,AlphaMissense,agreement`, ...filtered.map(p =>
       `${p.row.residx},${mode},${p.revel},${p.am},${p.group}`)].join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = `landscape-agreement-${(label ?? 'protein').replace(/[^\w.-]+/g, '-')}-${mode}.csv`; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(
+      `landscape-agreement-${(label ?? 'protein').replace(/[^\w.-]+/g, '-')}-${mode}.csv`,
+      'text/csv;charset=utf-8',
+      csv
+    );
   };
   return <VisualizationPanel title="Where do the predictors disagree?"
     description={`REVEL × AlphaMissense · residue ${mode}s · loaded residues only: ${covered || 'none'}`}

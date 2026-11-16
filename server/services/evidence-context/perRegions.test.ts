@@ -57,6 +57,9 @@ describe("bundled PER regions", () => {
       { analysis: "family", family: ["MAFB", "MAF"], tag: "PER2", start: 248, end: 256, sequence: "NRGYAQSCR", or: 36.7492245340519, ciLow: 4.60347357037112, adjP: 0.0418151425101322 },
     ]);
   });
+  it("resolves lowercase gene symbols cleanly via uppercasing", () => {
+    expect(loadPerRegions("mafb").regions).toEqual(loadPerRegions("MAFB").regions);
+  });
   it("has no PER for SOD1, VHL or NAE1 in the published data", () => {
     for (const gene of ["SOD1", "VHL", "NAE1"]) expect(loadPerRegions(gene).regions).toEqual([]);
   });

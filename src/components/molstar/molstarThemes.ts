@@ -201,11 +201,14 @@ export function isValidPdbUrl(url: string): boolean {
   // Protocol-relative ("//host/…") is an external origin, and `fetchWithAuth` would send it the
   // session credentials; it used to pass as a "local" path because it starts with "/".
   if (url.startsWith("//") || url.startsWith("\\")) return false;
-  if (url.startsWith("/") || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+  if (url.startsWith("/") || !/^[a-z][a-z0-9+.-]*:/i.test(url)) {
     return true;
   }
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
     const allowedDomains = ["alphafold.ebi.ac.uk", "files.rcsb.org", "pdbe.org", "www.ebi.ac.uk"];
     return allowedDomains.some(domain => parsed.hostname === domain || parsed.hostname.endsWith("." + domain));
   } catch {

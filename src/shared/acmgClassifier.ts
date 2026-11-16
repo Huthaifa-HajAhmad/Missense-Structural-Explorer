@@ -18,12 +18,11 @@ export interface RuleBasedInsights {
 }
 
 /**
- * Evidence weights used ONLY to sort criteria into pathogenic (> 0) and benign (< 0) sides; the
- * verdict comes from the Richards et al. 2015 combining rules below, not from a points total.
- * Richards 2015 defines no points (its Table 4 lists criteria). These are not Tavtigian 2020's
- * point scale either (there, benign Supporting is −1, not −2), so never sum them into a score.
+ * Evidence weights used to classify pathogenic (> 0) vs benign (< 0) criteria strengths and align
+ * downstream strength labels with the ClinGen / Tavtigian 2020 (Hum Mutat 41:1734) & Pejaver 2022
+ * point scale:
  *   PVS1 = 8   PS = 4   PM = 2   PP = 1
- *   BA1  = -8  BS = -4  BP = -2
+ *   BA1  = -8  BS = -4  BM = -2  BP = -1
  *
  * PM2 is weighed as Supporting (PP = 1), not Moderate: the ClinGen SVI recommendation for PM2
  * (version 1.0, September 2020) reduces absence from population databases to PM2_Supporting. The
@@ -32,7 +31,7 @@ export interface RuleBasedInsights {
  */
 export const WEIGHT = {
   PVS1: 8, PS: 4, PM: 2, PP: 1,
-  BA1: -8, BS: -4, BP: -2,
+  BA1: -8, BS: -4, BM: -2, BP: -1,
 } as const;
 
 export type WeightKey = keyof typeof WEIGHT;
@@ -49,13 +48,15 @@ export function codeWeight(code: string): number {
   if (code.startsWith("PM")) return WEIGHT.PM;
   if (code.startsWith("PP")) return WEIGHT.PP;
   if (code === "BA1") return WEIGHT.BA1;
-  if (code.startsWith("BS") || code === "BP4_Moderate") return WEIGHT.BS;
+  if (code.startsWith("BS") || code === "BP4_Strong") return WEIGHT.BS;
+  if (code === "BP4_Moderate") return WEIGHT.BM;
   if (code.startsWith("BP")) return WEIGHT.BP;
   return 0;
 }
 
 /**
- * Executes Richards 2015 five-tier combinatorial rules against an array of triggered ACMG criteria.
+ * Executes Richards 2015 combinatorial rules (with ClinGen SVI PM2 Supporting and Pejaver/Tavtigian
+ * benign Moderate/Strong point calibration) against an array of triggered ACMG criteria.
  */
 export function classifyVariant(criteria: ACMGItem[]): string {
   // Standalone benign override
@@ -69,8 +70,11 @@ export function classifyVariant(criteria: ACMGItem[]): string {
   const nPS = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong" || c.code === "PP3_Strong").length;
   const nPM = pathogenic.filter(c => (c.code.startsWith("PM") && !isSupportingPm(c.code)) || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate" || c.code === "PP2_Moderate").length;
   const nPP = pathogenic.filter(c => isSupportingPm(c.code) || (c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate" && c.code !== "PP2_Moderate")).length;
-  const nBS = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Moderate").length;
-  const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Moderate").length;
+  const nBS = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Strong").length;
+  const nBM = benign.filter(c => c.code === "BP4_Moderate").length;
+  const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Strong" && c.code !== "BP4_Moderate").length;
+  // Benign point magnitude on the Tavtigian 2020 / Pejaver 2022 scale: Strong=4, Moderate=2, Supporting=1.
+  const benignPoints = nBS * 4 + nBM * 2 + nBP;
 
   // ---- Pathogenic (Richards 2015 Table 5) ----
   // (i) PVS1 AND one of: ≥1 PS, ≥2 PM, 1 PM + 1 PP, ≥2 PP.
@@ -96,11 +100,13 @@ export function classifyVariant(criteria: ACMGItem[]): string {
     );
 
   // ---- Benign ----
-  const isBenign = nBS >= 2;
+  // ≥2 Strong (−8) or combined Strong+Moderate/Supporting reaching ≤ −7 on the Tavtigian/Pejaver scale.
+  const isBenign = nBS >= 2 || benignPoints >= 7;
 
   // ---- Likely Benign ----
-  const isLikelyBenign =
-    !isBenign && ((nBS >= 1 && nBP >= 1) || nBP >= 2);
+  // At least 2 Supporting-equivalent benign points (≤ −2, e.g., ≥2 BP, BP4_Moderate, or ≥1 BS + corroboration)
+  // while withholding a single uncorroborated Supporting (−1) criterion in VUS.
+  const isLikelyBenign = !isBenign && benignPoints >= 2;
 
   const hasPathogenic = isPathogenic || isLikelyPathogenic;
   const hasBenign = isBenign || isLikelyBenign;

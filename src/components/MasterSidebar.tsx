@@ -428,10 +428,14 @@ function MasterSidebar({
 
   /* Pointer events (not mouse events) so pen and touch can resize too; pointer capture keeps the
      drag alive when the cursor outruns the 12px handle. Commits to storage once, on release. */
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanupRef.current?.(), []);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (collapsed || isDrawerMode || e.button !== 0) return;
       e.preventDefault();
+      dragCleanupRef.current?.();
       const handle = e.currentTarget;
       handle.setPointerCapture?.(e.pointerId);
       const startX = e.clientX;
@@ -445,15 +449,20 @@ function MasterSidebar({
         lastWidth = clampSidebarWidth(startWidth + me.clientX - startX);
         setSidebarWidth(lastWidth);
       };
-      const onUp = () => {
+      const cleanupDrag = () => {
         handle.removeEventListener("pointermove", onMove);
         handle.removeEventListener("pointerup", onUp);
         handle.removeEventListener("pointercancel", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         setIsResizing(false);
+        dragCleanupRef.current = null;
+      };
+      const onUp = () => {
+        cleanupDrag();
         persist(SIDEBAR_WIDTH_STORAGE_KEY, String(lastWidth));
       };
+      dragCleanupRef.current = cleanupDrag;
       handle.addEventListener("pointermove", onMove);
       handle.addEventListener("pointerup", onUp);
       handle.addEventListener("pointercancel", onUp);

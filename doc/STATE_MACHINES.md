@@ -26,7 +26,7 @@ Every fix has a test that failed before the fix and passes after it.
 | [1](#issue-1-the-browser-gave-up-on-a-foldx-job-that-went-back-to-the-queue) | "FoldX timed out" while the server was still running the job | Client FoldX poller (14) | Fixed |
 | [2](#issue-2-a-cancel-that-reached-the-other-process-did-not-stop-the-work) | A cancelled job kept running; a deploy stalled for up to 15 min | Job queue across two processes (1, 10) | Fixed |
 | [3](#issue-3-the-circuit-breaker-let-every-caller-through-after-the-cooldown) | Every request to a host that was still down waited for its own timeout | Circuit breaker (8) | Fixed |
-| [4](#issue-4-the-redis-backend-deleted-a-finished-job-before-the-reader-saw-it) | "FoldX job not found" instead of the result (Redis backend only) | Redis job queue (1b) | Fixed |
+| ~~4~~ | *"FoldX job not found" instead of the result (removed BullMQ backend)* | *Retired* | *Retired* |
 | [5](#issue-5-the-computer-lifecycle-lost-a-code-kept-a-job-and-took-one-after-disconnect) | A pairing code that stopped working; a job stuck for up to 90 s | Pairing code, computer token, claim (2, 11) | Fixed |
 | [6](#issue-6-a-computers-finished-result-was-lost-on-one-network-failure) | Minutes of a computer's work redone by the server | Agent loop, result delivery (2, 12) | Fixed |
 | [7](#issue-7-a-stage-that-never-reported-was-shown-as-complete) | An Evidence section marked done with nothing in it, and no retry | Client pipeline stages (15) | Fixed |
@@ -69,6 +69,7 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | (none) | `queued` | submit | `addJob` |
 | `queued` | `running` | the server picks the job | `processQueue` |
 | `queued` | `running` | a paired computer claims it | `claimForAgent` |
+| `queued` | `failed` | corrupt job payload JSON | `processQueue`, `claimForAgent` |
 | `queued` | `failed` | a learned memory ceiling refuses it | `processQueue` |
 | `queued` | `failed` | waited longer than `foldxQueuedLeaseMs` (30 min) | `reapStaleJobs` |
 | `queued`, `running` | `failed` | a person or an admin cancels | `cancelFor` → `stopJob` |
@@ -82,18 +83,13 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | final | deleted | older than the retention period | `pruneHistory` |
 
 Every update names the state it expects, so a move that lost a race changes nothing and is reported as
-"not yours". A cancelled server job keeps its slot until its worker stops; the abort makes it stop.
+"not yours". A cancelled or timed-out server job aborts its worker (`abortJob`) and waits briefly (up to
+2 s on timeout) for the child process to unwind before releasing the concurrency slot.
 `abortJobsEndedElsewhere` delivers that abort when the cancel arrived through another process.
 
-### 1b. The Redis (BullMQ) backend
+### 1b. Retired Redis (BullMQ) job-queue backend
 
-Used only when `REDIS_URL` is set; production uses SQLite. **Read**, plus
-`biophysical-queue.redis-retention.test.ts`. BullMQ's states (`waiting`, `delayed`, `active`, `completed`,
-`failed`) are mapped to the four above by `getJobStatus`. This backend has no owners, watchers, leases,
-placements, cancel, job timeout or abort signal: `cancelFor` answers "not found", and `abortJob` only
-stops retries. A failed job is retried 3 times with backoff. Finished jobs are kept for the retention
-period ([Issue 4](#issue-4-the-redis-backend-deleted-a-finished-job-before-the-reader-saw-it)). A standby
-deployment refuses to start on Redis.
+`BiophysicalJobQueue` (`server/services/infra/biophysical-queue.ts`) now uses `SQLiteQueue` exclusively. The former BullMQ job-queue backend (which lacked ownership, leases, cancellation, abort signals, fairness rotation, and OOM ceilings) has been retired; when `REDIS_URL` is set, it is used solely by `server/routes/state.ts` for cross-worker pub/sub and pre-warm coordination.
 
 ## 2. Paired-computer claim and lease (`agent_claims`, `lease_expires_at`)
 
@@ -113,8 +109,9 @@ A claim is open until it gets one outcome:
 | `cancelled` | a person cancelled the job |
 
 Lease: renewed by each heartbeat (about every 20 s, lease 60 s), never shortened. While the server
-finishes a delivered FoldX result it holds the lease for 15 minutes, and the reaper does not apply the job
-cap then. A heartbeat or result for a job that is no longer the computer's gets 410 or 409.
+finishes a delivered FoldX result it holds the lease for 15 minutes, and `reapAgentLeases` spares the
+job from both the job cap and disconnect hand-backs then. A heartbeat or result for a job that is no
+longer the computer's gets 410 or 409.
 
 Result delivery is safe to repeat: the same computer delivering an accepted result again is told
 "accepted" and nothing is applied twice (`completedBy`), and two deliveries in flight at once share one run.
@@ -241,7 +238,7 @@ Code: `deployment-role.ts`, `deployment-control.ts`, `graceful-shutdown.ts`, `de
 | --- | --- | --- |
 | Role (file `.deployment-role`) | `active`, `paused` | `/internal/deployment/pause` and `/resume`; the file is written first, then the queue changes. A bad file stops start-up. |
 | Queue processing | running, paused | `pauseProcessing` stops the timers and reapers; running jobs finish. `resumeProcessing` restarts them. A closed queue cannot resume. |
-| Process | serving → closing → exited | `SIGTERM` or `SIGINT`: stop accepting connections, run the hooks (sidecar, background tasks, queue, pools, temp files), close the connections still open, exit 0. A 10 s watchdog forces exit 1. |
+| Process | serving → closing → exited | `SIGTERM` or `SIGINT`: stop accepting connections, run the hooks (sidecar, background tasks, queue awaiting a bounded worker drain before closing SQLite, pools, temp files), close the connections still open, exit 0. A `gracefulShutdownWatchdogMs` (default 10 s) watchdog forces exit 1. |
 
 Handover (`rollout.py`): start the new generation paused → wait until ready → pause the old one → wait
 until it has no requests, jobs or background tasks → resume the new one → stop the old one. Rollback is
@@ -292,9 +289,9 @@ Code: `server/sidecar-supervisor.ts`. **Read**.
 | State | Entered | Left when |
 | --- | --- | --- |
 | `stopped` | start, or after `stop()` | `start()` |
-| `running` | spawned; a 180 s start-up grace begins | the process exits |
-| `backoff` | exit while not shutting down | after 2 s × 2^(n−1), at most 60 s |
-| `offline` | 10 restarts in a row, or a failed spawn | the health loop sees 3 failed probes with no process and no timer, and respawns |
+| `running` | spawned; a 180 s start-up grace begins | the process exits or emits a spawn error |
+| `backoff` | exit or spawn error (`scheduleRestart`) while not shutting down | after 2 s × 2^(n−1), at most 60 s |
+| `offline` | 10 restarts in a row | the health loop sees 3 failed probes with no process and no timer, and respawns |
 
 The restart counter resets after 30 s of stable running or one healthy probe. An unresponsive process
 (3 failed probes, one per minute after the grace) is killed and restarted.
@@ -347,7 +344,8 @@ variant and conditions. An abandoned or reloaded run records nothing, because se
 running server job (section 4) or reads the server's cache.
 
 The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own suites) follows remote
-engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min) → `done`,
+engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min; HTTP polling
+pauses while the tab is hidden, resumes on focus, and backs off while the SSE channel is `OPEN`) → `done`,
 `error` or `unavailable`, with exactly one final callback. `shouldRunBiophysics` allows a re-run 15 min
 after an attempt, unless FoldX cannot run here and no remote engine failed.
 
@@ -397,10 +395,7 @@ already treat this error as "provider unavailable" and use their fallback.
 
 ### Issue 4: The Redis backend deleted a finished job before the reader saw it
 
-**Cause:** `removeOnComplete: true`, so the next poll got 404 "not found" and the browser reported an
-error after three tries. Failed jobs were never removed. **Fix:** both are kept for
-`JOB_RETENTION_DAYS`, like the SQLite backend (`jobRetentionMs`). **Test:**
-`biophysical-queue.redis-retention.test.ts`.
+**Cause:** BullMQ's former `removeOnComplete: true` deleted completed jobs immediately. **Resolution:** The incomplete BullMQ job-queue backend has been retired; `BiophysicalJobQueue` now runs exclusively on `SQLiteQueue`, which retains finished rows for `JOB_RETENTION_DAYS` (`jobRetentionMs`) and enforces ownership, leases, cancellation, abort signals, and standby handovers consistently.
 
 ### Issue 5: The computer lifecycle lost a code, kept a job, and took one after disconnect
 

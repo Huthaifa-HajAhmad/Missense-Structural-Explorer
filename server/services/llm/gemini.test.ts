@@ -29,15 +29,44 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
   it('grounds both narrative routes in supplied evidence without presupposing structural damage', async () => {
     const service = await import('./gemini.ts');
     mockGenerateContent.mockResolvedValue({ text: JSON.stringify({ analysis: 'Conditional hypothesis.', biochemicalShift: 'Charge change.', structuralImpact: 'Unassessed.', acmgCriteria: [] }) });
-    await service.performGeminiAnalysis('PAH', 'p.Arg408Trp', 'P00439', '408', 'R', 'W', undefined, null, 'standard', 'dummy-key', AbortSignal.timeout(5000));
+    await service.performGeminiAnalysis('PAH', 'p.Arg408Trp', 'P00439', '408', 'R', 'W', undefined, null, 'standard', 'dummy-key', AbortSignal.timeout(5000), null, {
+      available: true,
+      revel: 0.91,
+      gerp: 4.5,
+      phylop: 6.2,
+      bayesdel: 0.42,
+      metarnn: 0.88,
+      clinpred: 0.95,
+      eigenPhred: 14.2,
+      dann: 0.99,
+      esm1b: -12.4,
+      popeve: -6.1,
+      gpnStar: -3.2,
+      consurf: 8,
+      spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.02, max_ds: 0.02 },
+      alphagenome: { status: 'live', aviPhred: 19.4, topModality: 'RNA_SEQ', acmgStrength: 'PP3_Supporting' }
+    });
     await service.performGeminiBiophysicalAnalysis('PAH', 'p.Arg408Trp', 'P00439', '408', 'R', 'W', 'dummy-key', AbortSignal.timeout(5000));
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    const analysisPrompt = JSON.stringify(mockGenerateContent.mock.calls[0][0].contents);
+    expect(analysisPrompt).toContain('BayesDel Score: 0.42');
+    expect(analysisPrompt).toContain('MetaRNN Score: 0.88');
+    expect(analysisPrompt).toContain('ClinPred Score: 0.95');
+    expect(analysisPrompt).toContain('Eigen Phred Score: 14.2');
+    expect(analysisPrompt).toContain('DANN Score: 0.99');
+    expect(analysisPrompt).toContain('ESM-1b LLR Score: -12.4');
+    expect(analysisPrompt).toContain('PopEVE Score: -6.1');
+    expect(analysisPrompt).toContain('GPN-Star Score: -3.2');
+    expect(analysisPrompt).toContain('SpliceAI Max Delta Score: 0.02');
+    expect(analysisPrompt).toContain('AlphaGenome AVI Phred: 19.4 (top modality: RNA_SEQ)');
     for (const [request] of mockGenerateContent.mock.calls) {
       const prompt = JSON.stringify(request.contents);
+      const schemaText = JSON.stringify(request.config?.responseSchema ?? {});
       expect(prompt).toContain('TRANSLATIONAL CLARITY RULE');
       expect(prompt).toContain('Missing, failed and unsupported results are unassessed');
       expect(prompt).toContain('model that actually supplied a result');
       expect(prompt).not.toMatch(/Explain how this substitution disrupts|Disrupts salt bridge at interface|55|predicted delta-delta G destabilization/);
+      expect(schemaText).not.toMatch(/Explain how this substitution disrupts|Disrupts salt bridge at interface|55|predicted delta-delta G destabilization|Steric packing clashes/);
     }
   });
   beforeEach(async () => {
@@ -99,8 +128,10 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       expect(result.insights?.pathogenicity).toBe("(Clinician Assigned)");
       expect(result.insights?.plausibility).toBe("Plausibly pathogenic because of something");
     } finally {
-      process.env.GEMINI_MODEL = oldModel;
-      process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
     }
   });
 
@@ -446,6 +477,91 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
         code: "TIMEOUT",
         status: 504
       });
+    });
+  });
+
+  describe("performGeminiBiophysicalAnalysis resilience & BYOK isolation", () => {
+    it("should not fall back to the server GEMINI_API_KEY when customApiKey fails auth", async () => {
+      const geminiService = await import("./gemini.ts");
+      const oldEnvKey = process.env.GEMINI_API_KEY;
+      process.env.GEMINI_API_KEY = "AIzaSySystemTeamFallbackKey1234567890";
+      mockGenerateContent.mockRejectedValue({
+        status: 403,
+        message: "API key not valid"
+      });
+
+      try {
+        await expect(
+          geminiService.performGeminiBiophysicalAnalysis(
+            "PAH",
+            "p.Arg408Trp",
+            "P00439",
+            "408",
+            "R",
+            "W",
+            "AIzaSyCallerOwnBadKey1234567890",
+            new AbortController().signal
+          )
+        ).rejects.toMatchObject({ status: 403 });
+        // Only the caller key was attempted; never retried using the server team key
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      } finally {
+        if (oldEnvKey === undefined) delete process.env.GEMINI_API_KEY;
+        else process.env.GEMINI_API_KEY = oldEnvKey;
+      }
+    });
+
+    it("should handle undefined response.text safely and map cancelled signal to REQUEST_CANCELLED (499)", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent
+        .mockResolvedValueOnce({ text: undefined, candidates: [] })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            biochemicalShift: "Charge swap handled cleanly.",
+            structuralImpact: "Fallback model recovered."
+          })
+        });
+      const res = await geminiService.performGeminiBiophysicalAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", new AbortController().signal
+      );
+      expect(res.biochemicalShift).toBe("Charge swap handled cleanly.");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        geminiService.performGeminiBiophysicalAnalysis("PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", controller.signal)
+      ).rejects.toMatchObject({ code: "REQUEST_CANCELLED", status: 499 });
+    });
+
+    it("retries transient 503 failures with backoff and throws classified GeminiError when all models fail", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent
+        .mockRejectedValueOnce({ status: 503, message: "503 Service Unavailable" })
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            biochemicalShift: "Aromatic steric increase.",
+            structuralImpact: "Recovered after transient 503."
+          })
+        });
+
+      const recovered = await geminiService.performGeminiBiophysicalAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", new AbortController().signal
+      );
+      expect(recovered.structuralImpact).toBe("Recovered after transient 503.");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+
+      // Exhaust all models with 429 quota errors -> must throw classified GeminiError instead of synthetic text
+      mockGenerateContent.mockReset();
+      mockGenerateContent.mockRejectedValue({
+        status: 429,
+        message: "Resource has been exhausted (e.g. check quota)."
+      });
+      await expect(
+        geminiService.performGeminiBiophysicalAnalysis(
+          "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", "dummy-key", new AbortController().signal
+        )
+      ).rejects.toMatchObject({ code: "QUOTA_EXHAUSTED", status: 429 });
     });
   });
 });

@@ -51,6 +51,7 @@ import {
   type DeepModelEvidence,
 } from "./deepModelEvidence.ts";
 import { serviceStatusOf } from "./serviceStatus.ts";
+import { deriveNarrativeAuthorship, type NarrativeAuthorship } from "./narrativeAuthorship.ts";
 
 /**
  * The narrative EVIDENCE contract's version.
@@ -440,6 +441,22 @@ export function narrativeFreshness(result: any, context?: DeepEvidenceContext): 
 export function pipelineRunIdOf(result: any): string | null {
   const value = result?.metadata?.pipelineRunId ?? result?.pipelineRunId;
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+/** Whether any narrative text on `result` is backed by this run's evidence stamp (or predates pipeline runs). */
+export function hasStampedNarrative(result: any): boolean {
+  return !result?.metadata?.pipelineRunId || Boolean(readNarrativeEvidenceStamp(result));
+}
+
+/** Single shared authorship answer across card, inspector rail, provenance row, and report export. */
+export function narrativeAuthorshipOfResult(result: any, isDegraded: boolean): NarrativeAuthorship {
+  if (!result) return isDegraded ? "rule-based" : "none";
+  return deriveNarrativeAuthorship({
+    analysis: result.analysis,
+    isDegraded,
+    declaredSource: (result.insights as { source?: string } | undefined)?.source,
+    unstampedPipelineRun: !hasStampedNarrative(result),
+  });
 }
 
 // ---------------------------------------------------------------------------

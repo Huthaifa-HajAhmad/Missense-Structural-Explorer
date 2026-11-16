@@ -143,4 +143,28 @@ describe("the one health reading", () => {
     await drain();
     expect(versionLabel(result.current)).toBe("Version unavailable");
   });
+
+  it("does not re-render geminiReadyOnly readers unless geminiReady changes", async () => {
+    let renders = 0;
+    const readyReader = renderHook(() => {
+      renders += 1;
+      return useDiagnostics({ geminiReadyOnly: true });
+    });
+    const fullReader = renderHook(() => useDiagnostics());
+
+    await drain();
+    expect(readyReader.result.current.diagnostics).toBeNull();
+    const initialRenders = renders;
+
+    // Refresh updates unrelated health fields while geminiReady stays false.
+    answer = async url => jsonRes(url.includes("diagnostics") ? { ...healthy, foldxReady: false } : { engines: ["foldx"] });
+    await act(async () => { await fullReader.result.current.refresh(); });
+    expect(renders).toBe(initialRenders);
+
+    // Flipping geminiReady to true triggers a single update.
+    answer = async url => jsonRes(url.includes("diagnostics") ? { ...healthy, geminiReady: true } : { engines: ["foldx"] });
+    await act(async () => { await fullReader.result.current.refresh(); });
+    expect(renders).toBe(initialRenders + 1);
+    expect(readyReader.result.current.diagnostics?.geminiReady).toBe(true);
+  });
 });

@@ -43,6 +43,8 @@ function getSqliteDb(): DatabaseSync | null {
     const dir = path.dirname(sqliteDbPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     sqliteDb = new DatabaseSync(sqliteDbPath);
+    sqliteDb.exec("PRAGMA journal_mode = WAL;");
+    sqliteDb.exec("PRAGMA busy_timeout = 5000;");
     sqliteDb.exec(`
       CREATE TABLE IF NOT EXISTS landscape_data (
         key TEXT PRIMARY KEY,

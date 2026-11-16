@@ -50,6 +50,8 @@ describe('pext placement', () => {
     expect(locatePext(pext, { chrom: '17', pos: 110 }).index).toBe(0);
     expect(locatePext(pext, { chrom: '17', pos: 111 }).state).toBe('no-region');
     expect(locatePext(pext, { chrom: '9', pos: 105 }).state).toBe('other-chromosome');
+    expect(locatePext(null, { chrom: '17', pos: 105 }).state).toBe('no-gene-locus');
+    expect(locatePext({ ...pext, chrom: '' }, { chrom: '17', pos: 105 }).state).toBe('no-gene-locus');
     expect(locatePext(pext, null).state).toBe('no-locus');
   });
   it('keeps every tissue, leads with selected systems and keeps null as no value', () => {

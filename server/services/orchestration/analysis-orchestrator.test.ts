@@ -1057,4 +1057,49 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
     // A confirmed absence is a finished analysis; only the budget expiry is the sticky hazard.
     expect(isStaleCachedPayload(payload({ clinvar: "not_found", gnomadFrequency: "not_found", gnomadConstraint: "not_found", predictorData: "ok" }), ctx)).toBe(false);
   });
+
+  it("does not thrash core cache when dbNSFP predictor cells are explicitly null (only undefined schema keys)", () => {
+    const baseCons = {
+      available: true,
+      revel: 0.8,
+      gerp: 4.1,
+      phylop: 5.0,
+      gpnStar: -1.1,
+      gpnStarStatus: "live",
+      assemblyRefusals: [{ source: "alphagenome", reason: "No verified allele", retryable: false }]
+    };
+    const withNullCells: any = {
+      predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
+      conservationData: { ...baseCons, dann: null, bayesdel: null, clinpred: null, eigenPhred: null },
+      serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }
+    };
+    expect(isStaleCachedPayload(withNullCells, ctx)).toBe(false);
+
+    const withUndefinedSchemaKey: any = {
+      ...withNullCells,
+      conservationData: { ...baseCons, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: undefined }
+    };
+    expect(isStaleCachedPayload(withUndefinedSchemaKey, ctx)).toBe(true);
+  });
+
+  it("honors refusal retry window for recent transient AlphaGenome outages without thrashing cache", () => {
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const ctxWithAlpha: any = { ...ctx, alphagenomeApiKey: "ag_secret_key_123" };
+    const basePayload: any = {
+      predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
+      conservationData: {
+        available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0,
+        gpnStar: -1.0, gpnStarStatus: "live",
+        alphagenome: { status: "unavailable", aviPhred: null, message: "503 upstream timeout" }
+      },
+      serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }
+    };
+    expect(isStaleCachedPayload(basePayload, ctxWithAlpha, ago(60_000))).toBe(false);
+    expect(isStaleCachedPayload(basePayload, ctxWithAlpha, ago(7 * 60 * 60_000))).toBe(true);
+    const nullAlpha: any = {
+      ...basePayload,
+      conservationData: { ...basePayload.conservationData, alphagenome: null }
+    };
+    expect(isStaleCachedPayload(nullAlpha, ctxWithAlpha, ago(60_000))).toBe(true);
+  });
 });

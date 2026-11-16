@@ -1,9 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import os from "os";
 import { DatabaseSync } from "node:sqlite";
-import { Queue, Worker } from "bullmq";
 import { CONFIG, resolveFoldxConcurrency } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
 import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
@@ -14,7 +12,7 @@ import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
 import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, placementOf, routingMode, type AdmissionInput } from "./admission.ts";
-import { probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
+import { freeRamBytes, probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
 import { foldxRepairApplies, hostClassOf, type CostModels, type Decision, type HostFeatures, type JobType, type PlacementPref } from "../../../src/shared/computeRouting.ts";
 import { parseRoutingRecord, runsOnFor, serverRecordAfter, type JobRunsOn, type RoutingRecord } from "../../../src/shared/jobPlacement.ts";
 import type { AgentRecentWork } from "../../../src/shared/agentProtocol.ts";
@@ -182,7 +180,7 @@ export class SQLiteQueue {
   private db: DatabaseSync;
   private concurrency: number;
   private runningCount = 0;
-  private activeJobs = new Map<string, { abortController?: AbortController; meter?: ProcessTreeSampler }>();
+  private activeJobs = new Map<string, { abortController?: AbortController; meter?: ProcessTreeSampler; promise?: Promise<void> }>();
   private processCallback: (type: string, data: any, signal?: AbortSignal, jobId?: string) => Promise<any>;
 
   private timer: NodeJS.Timeout | null = null;
@@ -461,12 +459,28 @@ export class SQLiteQueue {
   async getJob(id: string): Promise<QueueJob | null> {
     const row = this.db.prepare("SELECT * FROM biophysical_jobs WHERE id = ?").get(id) as any;
     if (!row) return null;
+    let parsedData: any = {};
+    if (typeof row.data === "string" && row.data.length > 0) {
+      try {
+        parsedData = JSON.parse(row.data);
+      } catch {
+        parsedData = {};
+      }
+    }
+    let parsedResult: any = undefined;
+    if (typeof row.result === "string" && row.result.length > 0) {
+      try {
+        parsedResult = JSON.parse(row.result);
+      } catch {
+        parsedResult = undefined;
+      }
+    }
     return {
       id: row.id,
       type: row.type as any,
-      data: JSON.parse(row.data),
+      data: parsedData,
       status: row.status as any,
-      result: row.result ? JSON.parse(row.result) : undefined,
+      result: parsedResult,
       error: row.error || undefined,
       createdAt: row.created_at,
       startedAt: row.started_at ?? null,
@@ -489,20 +503,16 @@ export class SQLiteQueue {
   }
 
   /**
-   * Records which stage the running job is in, and when it entered it.
-   *
-   * Read-modify-write on the job's own data column, like every other remote-data update in this
-   * codebase, rather than a schema change: the column is the job record's single extension point
-   * and a new table for one string would have to be migrated on every deployment.
+   * Records which stage the running job is in, and when it entered it, using SQLite JSON1
+   * so concurrent writers to sibling keys in `data` cannot lose each other's fields.
    */
   updateJobPhase(id: string, phase: string): void {
-    const row = this.db.prepare("SELECT data FROM biophysical_jobs WHERE id = ?").get(id) as any;
-    if (!row) return;
     try {
-      const data = JSON.parse(row.data);
-      data.phase = phase;
-      data.phaseAt = Date.now();
-      this.db.prepare("UPDATE biophysical_jobs SET data = ? WHERE id = ?").run(JSON.stringify(data), id);
+      this.db.prepare(`
+        UPDATE biophysical_jobs
+        SET data = json_set(data, '$.phase', ?, '$.phaseAt', ?)
+        WHERE id = ? AND json_valid(data)
+      `).run(phase, Date.now(), id);
     } catch (err: any) {
       // A job row that cannot be annotated must not fail the job it describes.
       console.warn(`[Queue] Failed to record phase "${phase}" for ${id}:`, err.message);
@@ -926,6 +936,20 @@ export class SQLiteQueue {
       LIMIT 25
     `).all(agent.userId, ...types, claimant, claimant) as any[];
     for (const row of candidates) {
+      let data: any;
+      try {
+        data = JSON.parse(row.data);
+      } catch (parseErr: any) {
+        console.error(`[Queue] Corrupt JSON payload for queued job ${row.id}:`, parseErr?.message ?? parseErr);
+        const failed = this.db.prepare(`
+          UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
+          WHERE id = ? AND status = 'queued'
+        `).run("Corrupt job payload JSON", now, row.id);
+        if (Number(failed.changes ?? 0) > 0) {
+          this.recordEnding(row.id, "failed", "corrupt-payload");
+        }
+        continue;
+      }
       const repaired = row.repaired == null ? null : row.repaired === 1;
       const othersWatching = Boolean(this.db.prepare("SELECT 1 FROM job_watchers WHERE job_id = ? AND user_id != ? LIMIT 1").get(row.id, agent.userId));
       if (!accept({ id: row.id, type: row.type, residues: row.residues ?? null, repaired, othersWatching })) continue;
@@ -946,8 +970,6 @@ export class SQLiteQueue {
           reasons: [], decidedAt: now, note: "taken_from_backlog",
         });
       }
-      let data: any = {};
-      try { data = JSON.parse(row.data); } catch { /* the payload builder reports what is missing */ }
       return { id: row.id, type: row.type, data, ownerId: row.owner_id, residues: row.residues ?? null, repaired, leaseExpiresAt };
     }
     return null;
@@ -1131,11 +1153,12 @@ export class SQLiteQueue {
       : this.db.prepare("SELECT id, type, claimed_by, started_at, lease_expires_at FROM biophysical_jobs WHERE status = 'running' AND claimed_by LIKE 'agent:%'").all()) as any[];
     let handedBack = 0;
     for (const row of rows) {
-      const leaseLost = disconnectedAgentId != null || row.lease_expires_at == null || row.lease_expires_at < now;
       // The server itself is finishing a delivered result (agent-jobs.ts holds a long "finish" lease):
-      // the cap guards against a computer that never delivers, not against the server's own finishing.
+      // neither disconnect nor the job cap may hand the job back while the server is finishing it.
       const finishing = row.lease_expires_at != null && row.lease_expires_at - now > FINISHING_LEASE_FLOOR_MS;
-      const overCap = !finishing && row.started_at != null && now - row.started_at > agentHardCapMs(row.type);
+      if (finishing) continue;
+      const leaseLost = disconnectedAgentId != null || row.lease_expires_at == null || row.lease_expires_at < now;
+      const overCap = row.started_at != null && now - row.started_at > agentHardCapMs(row.type);
       if (!leaseLost && !overCap) continue;
       const r = this.db.prepare(`
         UPDATE biophysical_jobs
@@ -1168,13 +1191,12 @@ export class SQLiteQueue {
 
   /** A job handed back has not been repaired or modelled on its new host yet. */
   private clearPhase(jobId: string): void {
-    const row = this.db.prepare("SELECT data FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
-    if (!row) return;
     try {
-      const data = JSON.parse(row.data);
-      delete data.phase;
-      delete data.phaseAt;
-      this.db.prepare("UPDATE biophysical_jobs SET data = ? WHERE id = ?").run(JSON.stringify(data), jobId);
+      this.db.prepare(`
+        UPDATE biophysical_jobs
+        SET data = json_remove(data, '$.phase', '$.phaseAt')
+        WHERE id = ? AND json_valid(data)
+      `).run(jobId);
     } catch { /* an unparseable record keeps its data; the job is still handed back */ }
   }
 
@@ -1210,8 +1232,8 @@ export class SQLiteQueue {
     while (this.runningCount < this.concurrency) {
       if (this.isShutdown || this.processingPaused) return;
 
-      // Check system memory (backpressure protection)
-      const freeMem = os.freemem();
+      // Check container-aware memory pressure (backpressure protection)
+      const freeMem = freeRamBytes();
       const memoryLimit = CONFIG.memory.minFreeBytes;
       if (freeMem < memoryLimit) {
         console.warn(`[Queue] High memory pressure (${(freeMem / 1024 / 1024).toFixed(0)} MB free). Stalling job scheduling.`);
@@ -1229,6 +1251,19 @@ export class SQLiteQueue {
 
       const jobId = row.id;
       const type = row.type;
+
+      let data: any;
+      try {
+        data = JSON.parse(row.data);
+      } catch (parseErr: any) {
+        console.error(`[Queue] Corrupt JSON payload for queued job ${jobId}:`, parseErr?.message ?? parseErr);
+        this.db.prepare(`
+          UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
+          WHERE id = ? AND status = 'queued'
+        `).run("Corrupt job payload JSON", Date.now(), jobId);
+        this.recordEnding(jobId, "failed", "corrupt-payload");
+        continue;
+      }
 
       // A ceiling learned after this job was queued (another job of this size or smaller ran out of
       // memory) stops it here, with the reason, instead of running it into the same death.
@@ -1252,8 +1287,6 @@ export class SQLiteQueue {
         }
       }
 
-      const data = JSON.parse(row.data);
-
       // Atomically set status to running. Start times strictly increase within this process, so the
       // scheduler's "served least recently" term never ties for jobs claimed in the same millisecond,
       // and the in-memory model behind queue positions (`queuedInStartOrder`) orders them the same way.
@@ -1275,12 +1308,18 @@ export class SQLiteQueue {
       // Peak memory of the tool processes this job starts (FoldX, Java). Stored with the controller so
       // the reaper can record a lease-expiry timeout's peak as well.
       const meter = new ProcessTreeSampler();
-      this.activeJobs.set(jobId, { abortController, meter });
+      const activeEntry: { abortController?: AbortController; meter?: ProcessTreeSampler; promise?: Promise<void> } = {
+        abortController,
+        meter,
+      };
+      this.activeJobs.set(jobId, activeEntry);
 
       // Run job asynchronously in the background
-      (async () => {
+      activeEntry.promise = (async () => {
         let isAccounted = true;
         let timeoutId: NodeJS.Timeout | null = null;
+        let jobSettled = false;
+        let jobPromise: Promise<any> | null = null;
         try {
           const timeoutMs = type === "foldx" ? CONFIG.timeouts.foldxSec * 1000 : CONFIG.timeouts.p2rankSec * 1000;
           
@@ -1294,10 +1333,14 @@ export class SQLiteQueue {
           // providers fairly between people and serves `system` (prewarm) jobs last (WP-I1). The job
           // gets a cache scope of its own: it may start inside the submitting request, and what its
           // fetches see (rate limits, stale entries) is not that request's (WP-I2).
-          const jobPromise = runWithEgressOwner(row.owner_id || LEGACY_OWNER, () =>
+          jobPromise = runWithEgressOwner(row.owner_id || LEGACY_OWNER, () =>
             runInCacheScope(newCacheScope(), () =>
               runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId))
             )
+          );
+          jobPromise.then(
+            () => { jobSettled = true; },
+            () => { jobSettled = true; }
           );
           const resData = await Promise.race([jobPromise, timeoutPromise]);
 
@@ -1332,8 +1375,10 @@ export class SQLiteQueue {
             ? (resData.computeProvenance.toolVersion ?? null)
             : undefined;
           if ((written.changes ?? 0) === 0) {
-            // Cancelled while it was finishing: the cancel's ending stands, and it was not a completed run.
-            this.recordEnding(jobId, "cancelled", "cancelled", peak, resultTool);
+            const ended = this.db.prepare("SELECT status, error FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+            const expired = ended?.status === "failed" && typeof ended.error === "string" && ended.error.includes("lease expired");
+            // Cancelled or lease-expired while finishing: the prior ending stands, and it was not a completed run.
+            this.recordEnding(jobId, expired ? "timeout" : "cancelled", expired ? "lease-expired" : "cancelled", peak, resultTool);
           } else {
             // A worker can resolve with a failure instead of throwing (FoldX soft failure, P2Rank
             // "unavailable", or an fpocket "fallback" that ran a DIFFERENT tool): that is not a
@@ -1348,6 +1393,16 @@ export class SQLiteQueue {
           if (this.isShutdown) return;
 
           this.abortJob(jobId);
+
+          if (!jobSettled && jobPromise) {
+            await Promise.race([
+              jobPromise.catch(() => {}),
+              new Promise<void>((resolve) => {
+                const grace = setTimeout(resolve, 2000);
+                grace.unref();
+              }),
+            ]);
+          }
 
           if (!this.activeJobs.has(jobId)) {
             isAccounted = false;
@@ -1515,6 +1570,49 @@ export class SQLiteQueue {
     return Number(r.changes ?? 0);
   }
 
+  /**
+   * Aborts active workers, awaits a bounded drain so child-process cleanup can finish before SQLite
+   * closes, and then synchronously shuts down the database handle.
+   */
+  async drainAndShutdown(drainMs = 5000): Promise<void> {
+    if (this.isShutdown) return;
+    this.isShutdown = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.reaperInterval) {
+      clearInterval(this.reaperInterval);
+      this.reaperInterval = null;
+    }
+    if (this.endedElsewhereInterval) {
+      clearInterval(this.endedElsewhereInterval);
+      this.endedElsewhereInterval = null;
+    }
+    console.log("[Queue] Draining and aborting all active SQLite jobs...");
+    const pending: Promise<void>[] = [];
+    for (const [, active] of this.activeJobs.entries()) {
+      if (active.abortController) {
+        active.abortController.abort();
+      }
+      if (active.promise) {
+        pending.push(active.promise.catch(() => {}));
+      }
+    }
+    if (pending.length > 0 && drainMs > 0) {
+      await Promise.race([
+        Promise.allSettled(pending),
+        new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, drainMs);
+          t.unref();
+        }),
+      ]);
+    }
+    try {
+      this.db.close();
+    } catch (_) {}
+  }
+
   shutdown() {
     this.isShutdown = true;
     if (this.timer) {
@@ -1530,7 +1628,7 @@ export class SQLiteQueue {
       this.endedElsewhereInterval = null;
     }
     console.log("[Queue] Aborting all active SQLite jobs...");
-    for (const [id, active] of this.activeJobs.entries()) {
+    for (const [, active] of this.activeJobs.entries()) {
       if (active.abortController) {
         active.abortController.abort();
       }
@@ -1553,10 +1651,7 @@ function formatMinutes(seconds: number): string {
 
 export class BiophysicalJobQueue {
   private static instance: BiophysicalJobQueue | null = null;
-  private sqliteQueue: SQLiteQueue | null = null;
-  private bullQueue: Queue | null = null;
-  private bullWorker: Worker | null = null;
-  private redisUrl: string | undefined;
+  private sqliteQueue: SQLiteQueue;
 
   private concurrency: number;
   /** Global backstop on queued + running jobs; a person meets their own limits (`opts.limits`) first. */
@@ -1573,72 +1668,24 @@ export class BiophysicalJobQueue {
     processCallback: (type: string, data: any, signal?: AbortSignal, jobId?: string) => Promise<any>
   ) {
     this.concurrency = concurrency;
-    this.redisUrl = process.env.REDIS_URL;
-    if (this.redisUrl && initialDeploymentPaused()) {
-      throw new Error("Standby deployments currently require the SQLite queue");
+    if (process.env.REDIS_URL) {
+      console.info("[Queue] BullMQ job queue backend is retired; using SQLiteQueue (REDIS_URL applies to state pub/sub only).");
     }
 
-    if (this.redisUrl) {
-      try {
-        console.log(`[Queue] Initializing Redis/BullMQ connection to: ${this.redisUrl}`);
-        const connectionOpts = { url: this.redisUrl, maxRetriesPerRequest: null };
-
-        this.bullQueue = new Queue("biophysical_jobs", {
-          connection: connectionOpts,
-          defaultJobOptions: {
-            // Kept like the SQLite backend keeps them, so the reader's poll finds the result.
-            removeOnComplete: { age: Math.round(jobRetentionMs() / 1000) },
-            removeOnFail: { age: Math.round(jobRetentionMs() / 1000) },
-            attempts: 3,
-            backoff: {
-              type: "exponential",
-              delay: 5000
-            }
-          }
-        });
-
-        this.bullWorker = new Worker(
-          "biophysical_jobs",
-          async (job) => {
-            // Memory check before starting job
-            const freeMem = os.freemem();
-            if (freeMem < 500 * 1024 * 1024) {
-              throw new Error("Job execution stalled: server out of memory");
-            }
-            return await processCallback(job.name, job.data, undefined, job.id);
-          },
-          {
-            connection: connectionOpts,
-            concurrency: this.concurrency
-          }
-        );
-
-        this.bullWorker.on("failed", (job, err) => {
-          console.error(`[Queue] Redis job ${job?.id} failed:`, err.message);
-        });
-      } catch (err: any) {
-        console.warn("[Queue] BullMQ initialization failed, falling back to SQLite:", err.message);
-        this.bullQueue = null;
-        this.bullWorker = null;
-      }
-    }
-
-    if (!this.bullQueue) {
-      /**
-       * Under test the queue stays IN-MEMORY, and that ordering is deliberate.
-       *
-       * `SHARED_STATE_DB_PATH` is honoured first in production, but if it took precedence under
-       * test the queue would become file-backed: the resulting disk write per enqueue is slower
-       * and asynchronous in a way some of these tests are sensitive to (a job observed as
-       * "queued" that the old in-memory queue had already flipped to "running"). The path is
-       * still redirected by the test setup, so production state is untouched either way — this
-       * keeps the tests measuring queue behaviour rather than SQLite latency.
-       */
-      const dbPath = process.env.NODE_ENV === "test"
-        ? ":memory:"
-        : (process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite"));
-      this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback, initialDeploymentPaused());
-    }
+    /**
+     * Under test the queue stays IN-MEMORY, and that ordering is deliberate.
+     *
+     * `SHARED_STATE_DB_PATH` is honoured first in production, but if it took precedence under
+     * test the queue would become file-backed: the resulting disk write per enqueue is slower
+     * and asynchronous in a way some of these tests are sensitive to (a job observed as
+     * "queued" that the old in-memory queue had already flipped to "running"). The path is
+     * still redirected by the test setup, so production state is untouched either way — this
+     * keeps the tests measuring queue behaviour rather than SQLite latency.
+     */
+    const dbPath = process.env.NODE_ENV === "test"
+      ? ":memory:"
+      : (process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite"));
+    this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback, initialDeploymentPaused());
   }
 
   static initialize(
@@ -1667,7 +1714,7 @@ export class BiophysicalJobQueue {
 
   /**
    * `opts.ownerId` is the submitter (`req.principal.userId`); without it the job is `legacy` and
-   * shares one rotation slot with every other unowned job. The Redis backend ignores ownership.
+   * shares one rotation slot with every other unowned job.
    */
   /**
    * Submissions are serialised: every limit below is check-then-insert with `await`s in between (the
@@ -1767,20 +1814,15 @@ export class BiophysicalJobQueue {
       throw new Error("BUSY: Concurrency and queue limits reached (503)");
     }
 
-    if (this.bullQueue) {
-      await this.bullQueue.add(type, data, { jobId });
-    } else if (this.sqliteQueue) {
-      await this.sqliteQueue.addJob(jobId, type, data, { ...opts, placement, routing });
-    }
+    await this.sqliteQueue.addJob(jobId, type, data, { ...opts, placement, routing });
 
     return jobId;
   }
 
   /**
-   * The SQLite queue, for the paired-computer protocol (WP-F), or null on the Redis backend, which has
-   * no owners or leases: agents are then refused with a plain reason, and everything runs on the server.
+   * The SQLite queue, for the paired-computer protocol (WP-F).
    */
-  agentQueue(): SQLiteQueue | null {
+  agentQueue(): SQLiteQueue {
     return this.sqliteQueue;
   }
 
@@ -1805,31 +1847,28 @@ export class BiophysicalJobQueue {
     }
   }
 
-  /** Where a job runs, for one viewer (WP-G2); null on Redis or when nothing beyond the server is known. */
+  /** Where a job runs, for one viewer (WP-G2); null when nothing beyond the server is known. */
   runsOn(jobId: string, viewerId: string | null): JobRunsOn | null {
-    return this.sqliteQueue?.runsOn(jobId, viewerId) ?? null;
+    return this.sqliteQueue.runsOn(jobId, viewerId);
   }
 
-  /** The person (or `legacy`/`system`) a job belongs to; `null` when unknown or on Redis. */
+  /** The person (or `legacy`/`system`) a job belongs to; `null` when unknown. */
   async getJobOwner(id: string): Promise<string | null> {
-    if (!this.sqliteQueue) return null;
     return (await this.sqliteQueue.getJob(id))?.ownerId ?? null;
   }
 
   /** Someone else asked for the same work: they now wait on this job and may cancel their own interest. */
   addWatcher(jobId: string, userId: string): void {
-    this.sqliteQueue?.addWatcher(jobId, userId);
+    this.sqliteQueue.addWatcher(jobId, userId);
   }
 
   /** Cancel on behalf of a person. See `SQLiteQueue.cancelFor` for the watcher rule. */
   async cancelFor(jobId: string, userId: string, isAdmin: boolean): Promise<CancelOutcome> {
-    if (!this.sqliteQueue) return { ok: false, reason: "not_found" };
     return this.sqliteQueue.cancelFor(jobId, userId, isAdmin);
   }
 
   /** Server seconds this person's jobs used today (UTC) and in the last 7 days. Informational. */
   usageFor(userId: string, now = Date.now()): { todaySeconds: number; weekSeconds: number } | null {
-    if (!this.sqliteQueue) return null;
     return {
       todaySeconds: Math.round(this.sqliteQueue.serverMsSince(userId, startOfUtcDay(now), now) / 1000),
       weekSeconds: Math.round(this.sqliteQueue.serverMsSince(userId, now - 7 * 86_400_000, now) / 1000),
@@ -1838,7 +1877,7 @@ export class BiophysicalJobQueue {
 
   /** Admin action: forget learned out-of-memory ceilings (e.g. after a misclassified failure or more RAM). */
   forgetOomCeilings(): number {
-    return this.sqliteQueue ? this.sqliteQueue.forgetOomCeilings() : 0;
+    return this.sqliteQueue.forgetOomCeilings();
   }
 
   /**
@@ -1846,7 +1885,6 @@ export class BiophysicalJobQueue {
    * smallest structure size that ran out of memory there. `onServer` marks this server's own class.
    */
   learnedCeilings(): { type: JobType; hostClass: string; residues: number; onServer: boolean }[] {
-    if (!this.sqliteQueue) return [];
     const serverClass = hostClassOf(serverHostFacts());
     return Object.entries(this.sqliteQueue.getCostModels())
       .filter(([, m]) => m.oomCeilingResidues != null)
@@ -1859,32 +1897,23 @@ export class BiophysicalJobQueue {
 
   /** A disabled account stops costing the host anything: its waiting and running work is cancelled. */
   cancelAllFor(userId: string): number {
-    return this.sqliteQueue ? this.sqliteQueue.cancelAllFor(userId) : 0;
+    return this.sqliteQueue.cancelAllFor(userId);
   }
 
   async listFor(userId: string, limit?: number): Promise<JobSummary[]> {
-    return this.sqliteQueue ? this.sqliteQueue.listFor(userId, limit) : [];
+    return this.sqliteQueue.listFor(userId, limit);
   }
 
   async getEta(id: string): Promise<{ waitMs: number | null; runMs: number | null } | null> {
-    return this.sqliteQueue ? this.sqliteQueue.getEta(id) : null;
+    return this.sqliteQueue.getEta(id);
   }
 
   async addCompletedJob(id: string, type: "foldx" | "p2rank", data: any, result: any): Promise<void> {
-    if (this.sqliteQueue) {
-      this.sqliteQueue.addCompletedJob(id, type, data, result);
-    }
+    this.sqliteQueue.addCompletedJob(id, type, data, result);
   }
 
   async getQueueLength(): Promise<number> {
-    if (this.bullQueue) {
-      const counts = await this.bullQueue.getJobCounts("wait", "active");
-      return (counts.wait ?? 0) + (counts.active ?? 0);
-    }
-    if (this.sqliteQueue) {
-      return this.sqliteQueue.getJobCount();
-    }
-    return 0;
+    return this.sqliteQueue.getJobCount();
   }
 
   async getJobStatus(id: string): Promise<{
@@ -1901,52 +1930,20 @@ export class BiophysicalJobQueue {
     createdAt?: number | null;
     startedAt?: number | null;
   } | null> {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      if (!job) return null;
-      const state = await job.getState();
-      const returnval = job.returnvalue;
-      const failedReason = job.failedReason;
-
-      let status: "queued" | "running" | "completed" | "failed" = "queued";
-      if (state === "active") status = "running";
-      else if (state === "completed") status = "completed";
-      else if (state === "failed") status = "failed";
-
-      return {
-        status,
-        result: returnval,
-        error: failedReason,
-        createdAt: typeof job.timestamp === "number" ? job.timestamp : null,
-        startedAt: typeof job.processedOn === "number" ? job.processedOn : null
-      };
-    }
-
-    if (this.sqliteQueue) {
-      const job = await this.sqliteQueue.getJob(id);
-      if (!job) return null;
-      return {
-        status: job.status,
-        result: job.result,
-        error: job.error,
-        createdAt: job.createdAt ?? null,
-        startedAt: job.startedAt ?? null
-      };
-    }
-
-    return null;
+    const job = await this.sqliteQueue.getJob(id);
+    if (!job) return null;
+    return {
+      status: job.status,
+      result: job.result,
+      error: job.error,
+      createdAt: job.createdAt ?? null,
+      startedAt: job.startedAt ?? null
+    };
   }
 
   async getJobData(id: string): Promise<any | null> {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      return job ? job.data : null;
-    }
-    if (this.sqliteQueue) {
-      const job = await this.sqliteQueue.getJob(id);
-      return job ? job.data : null;
-    }
-    return null;
+    const job = await this.sqliteQueue.getJob(id);
+    return job ? job.data : null;
   }
 
   /**
@@ -1965,8 +1962,7 @@ export class BiophysicalJobQueue {
    * Two writers touch the same JSON blob while a job runs: the FoldX worker records its phase, and
    * `updateQueueJobRemoteData` records newly-resolved remote job ids. Both are read-modify-write, and
    * the remote-data writer's read and write straddle `await`s, so a phase written in that window was
-   * silently dropped by the later write (and, on the BullMQ backend, either write could lose the
-   * other). The visible symptom was a run that stopped reporting its stage mid-flight.
+   * silently dropped by the later write. The visible symptom was a run that stopped reporting its stage mid-flight.
    *
    * Serialising per job id removes the class rather than the instance: every write for a given job
    * is queued behind the previous one, so a read always sees the previous write's result.
@@ -2009,59 +2005,34 @@ export class BiophysicalJobQueue {
   }
 
   async getQueuePosition(id: string): Promise<number | null> {
-    if (this.sqliteQueue) return this.sqliteQueue.getQueuePosition(id);
-    return null;
+    return this.sqliteQueue.getQueuePosition(id);
   }
 
   async updateJobData(id: string, data: any): Promise<void> {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      if (job) {
-        await job.updateData(data);
-      }
-    } else if (this.sqliteQueue) {
-      this.sqliteQueue.updateJobData(id, data);
-    }
+    this.sqliteQueue.updateJobData(id, data);
   }
 
   async abortJob(id: string) {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      if (job) {
-        await (job as any).discard();
-      }
-    } else if (this.sqliteQueue) {
-      this.sqliteQueue.abortJob(id);
-    }
+    this.sqliteQueue.abortJob(id);
   }
 
   async shutdown() {
-    if (this.bullWorker) {
-      await this.bullWorker.close();
-    }
-    if (this.bullQueue) {
-      await this.bullQueue.close();
-    }
-    if (this.sqliteQueue) {
-      this.sqliteQueue.shutdown();
-    }
+    await this.sqliteQueue.drainAndShutdown();
   }
 
-  getDeploymentState(): { backend: "sqlite" | "redis"; paused: boolean; activeJobs: number } {
+  getDeploymentState(): { backend: "sqlite"; paused: boolean; activeJobs: number } {
     return {
-      backend: this.sqliteQueue ? "sqlite" : "redis",
-      paused: this.sqliteQueue?.paused ?? false,
-      activeJobs: this.sqliteQueue?.activeCount ?? 0,
+      backend: "sqlite",
+      paused: this.sqliteQueue.paused,
+      activeJobs: this.sqliteQueue.activeCount,
     };
   }
 
   pauseProcessing(): void {
-    if (!this.sqliteQueue) throw new Error("Deployment handover requires the SQLite queue");
     this.sqliteQueue.pauseProcessing();
   }
 
   resumeProcessing(): void {
-    if (!this.sqliteQueue) throw new Error("Deployment handover requires the SQLite queue");
     this.sqliteQueue.resumeProcessing();
   }
 }

@@ -35,14 +35,9 @@ function isFoldxProgram(file: string): boolean {
   }
 }
 
-export function resolveFoldxReadiness(): FoldxReadiness {
-  const { foldxBin, foldxDir } = detectFoldxBinaryAndDir();
-  // The detector hands back the bare name `foldx` when it found nothing. That must not be read as
-  // a file in the working directory.
-  const binaryFound = foldxBin !== "foldx" && isFoldxProgram(foldxBin);
-
+export function resolveFoldxRotabasePresent(foldxDir: string): boolean {
   // Mirrors the search in stability/foldx/runner.ts; keep the two lists in step.
-  const rotabasePresent = [
+  return [
     foldxDir ? path.join(foldxDir, "rotabase.txt") : "",
     path.join(process.cwd(), "tools", "foldx", "rotabase.txt"),
     path.join(process.cwd(), "tools", "foldx_linux", "rotabase.txt"),
@@ -50,6 +45,15 @@ export function resolveFoldxReadiness(): FoldxReadiness {
     path.join("/app/tools/foldx_linux", "rotabase.txt"),
     path.join(process.cwd(), "rotabase.txt"),
   ].some(p => p && fs.existsSync(p));
+}
+
+export function resolveFoldxReadiness(): FoldxReadiness {
+  const { foldxBin, foldxDir } = detectFoldxBinaryAndDir();
+  // The detector hands back the bare name `foldx` when it found nothing. That must not be read as
+  // a file in the working directory.
+  const binaryFound = foldxBin !== "foldx" && isFoldxProgram(foldxBin);
+
+  const rotabasePresent = resolveFoldxRotabasePresent(foldxDir);
 
   // The runner only switches to Box64 when the binary it is about to run exists at this path.
   const box64Required =

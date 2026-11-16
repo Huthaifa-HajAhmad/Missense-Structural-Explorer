@@ -217,6 +217,8 @@ export async function fetchConservationData(
        * overlaid on the merged result there, so every provider path benefits from one request.
        */
       const enrichCoordinateHere = !options?.coordinateEnrichmentByCaller;
+      const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
+        assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
       const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
       const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
       const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
@@ -270,11 +272,9 @@ export async function fetchConservationData(
              * the progressive call site would leave this one free to score the wrong locus the
              * moment anyone passes a coordinate in.
              */
-            const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
-              assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
-
-            const coordinateUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("gpn-star");
-            const popEVEPromise = coordinateUsable
+            const gpnUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("gpn-star");
+            const popEVEUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("popEVE");
+            const popEVEPromise = popEVEUsable
               ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
@@ -282,7 +282,7 @@ export async function fetchConservationData(
               ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
               : Promise.resolve(null);
 
-            const gpnTabixPromise = coordinateUsable
+            const gpnTabixPromise = gpnUsable
               ? fetchGpnStarByCoordinate(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
@@ -330,12 +330,12 @@ export async function fetchConservationData(
               gpnStar: finalGpn,
               gpnStarStatus: finalGpn !== null ? "live" : (gpnTabixRes?.status ?? "unavailable"),
               gpnStarMessage: gpnTabixRes?.message ?? null,
-              aouFrequency: {
+              aouFrequency: (rec.aou_ac != null || rec.aou_an != null || rec.aou_het != null || rec.aou_hom != null) ? {
                 aouAC: rec.aou_ac,
                 aouAN: rec.aou_an ?? null,
                 aouHet: rec.aou_het ?? null,
                 aouHom: rec.aou_hom ?? null
-              },
+              } : null,
               spliceProximity,
               spliceai: (rec as any).SpliceAI_pred_DS_AG !== undefined || (rec as any).spliceai_ds_ag !== undefined ? (() => {
                 const ag = safeParseFloat((rec as any).SpliceAI_pred_DS_AG ?? (rec as any).spliceai_ds_ag);
@@ -367,7 +367,8 @@ export async function fetchConservationData(
 
       // 2. Try Genos Web Query service (Academic Tier 2 for SpliceAI, popEVE, BayesDel, ClinPred)
       try {
-        const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, gnomadVariantId);
+        const genosCoord = usableBy("genos") ? gnomadVariantId : null;
+        const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, genosCoord);
         if (activeGenosRec) {
           const consurfPromise = (pdbId && chainId && resolvedPos !== null)
             ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
@@ -432,7 +433,8 @@ export async function fetchConservationData(
 
       // 3. Fast Tier 1 Baseline via Public query.dbnsfp.org (~900ms)
       try {
-        const pubDbnsfp = await queryDbnsfpOrg(gene, variant, gnomadVariantId);
+        const dbnsfpOrgCoord = usableBy("dbnsfpOrg") ? gnomadVariantId : null;
+        const pubDbnsfp = await queryDbnsfpOrg(gene, variant, dbnsfpOrgCoord);
         if (pubDbnsfp && (pubDbnsfp.revel !== null || pubDbnsfp.gerp !== null || pubDbnsfp.phylop !== null)) {
           const consurfPromise = (pdbId && chainId && resolvedPos !== null)
             ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
@@ -492,11 +494,11 @@ export async function fetchConservationData(
           timeout: 15000
         });
 
-        const consurfPromise = (pdbId && chainId && pos)
-          ? fetchRealConsurfData(pdbId, chainId, pos)
+        const consurfPromise = (pdbId && chainId && resolvedPos !== null)
+          ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
           : Promise.resolve(null);
 
-        const popEVEPromise = gnomadVariantId && enrichCoordinateHere
+        const popEVEPromise = gnomadVariantId && enrichCoordinateHere && usableBy("popEVE")
           ? (async () => {
               const parsed = parseGenomicCoordinateString(gnomadVariantId);
               if (parsed) {
@@ -533,13 +535,23 @@ export async function fetchConservationData(
                 return hLower.includes(matchTerm3) || (matchTerm1 && hLower.includes(matchTerm1));
               });
             });
-            const hit = matchedHit || parsedData.hits[0];
-            const isExactMatch = Boolean(matchedHit);
-
+            const hit = matchedHit;
             if (!hit) {
-              conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
-              return defaultRes;
+              let finalPopEVE = popEVEScore;
+              if (finalPopEVE === null && enrichCoordinateHere) {
+                finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+              }
+              const missedRes: ConservationData = {
+                ...defaultRes,
+                consurf: consurfVal,
+                popeve: finalPopEVE,
+              };
+              if (consurfVal === null && finalPopEVE === null) {
+                conservationCache.set(cacheKey, missedRes, { ttl: 5 * 60 * 1000 });
+              }
+              return missedRes;
             }
+            const isExactMatch = true;
 
             const dbnsfp = hit.dbnsfp;
             if (dbnsfp) {
@@ -598,15 +610,21 @@ export async function fetchConservationData(
               let clinpred: number | null = null;
               let clinpredPred: string | null = null;
               if (isExactMatch && dbnsfp.clinpred) {
-                clinpred = dbnsfp.clinpred.score != null ? safeParseFloat(dbnsfp.clinpred.score) : null;
-                clinpredPred = typeof dbnsfp.clinpred.pred === "string" ? dbnsfp.clinpred.pred : null;
+                const cp = Array.isArray(dbnsfp.clinpred) ? dbnsfp.clinpred[0] : dbnsfp.clinpred;
+                const cs = Array.isArray(cp?.score) ? cp.score[0] : cp?.score;
+                const cpred = Array.isArray(cp?.pred) ? cp.pred[0] : cp?.pred;
+                clinpred = cs != null ? safeParseFloat(cs) : null;
+                clinpredPred = typeof cpred === "string" ? cpred : null;
               }
 
               let eigenPhred: number | null = null;
               let eigenRaw: number | null = null;
               if (isExactMatch && dbnsfp.eigen) {
-                eigenPhred = dbnsfp.eigen.phred_coding != null ? safeParseFloat(dbnsfp.eigen.phred_coding) : null;
-                eigenRaw = dbnsfp.eigen.raw_coding != null ? safeParseFloat(dbnsfp.eigen.raw_coding) : null;
+                const eg = Array.isArray(dbnsfp.eigen) ? dbnsfp.eigen[0] : dbnsfp.eigen;
+                const ep = Array.isArray(eg?.phred_coding) ? eg.phred_coding[0] : eg?.phred_coding;
+                const er = Array.isArray(eg?.raw_coding) ? eg.raw_coding[0] : eg?.raw_coding;
+                eigenPhred = ep != null ? safeParseFloat(ep) : null;
+                eigenRaw = er != null ? safeParseFloat(er) : null;
               }
 
               let dann: number | null = null;

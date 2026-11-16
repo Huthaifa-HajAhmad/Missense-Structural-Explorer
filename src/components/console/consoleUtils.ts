@@ -8,6 +8,7 @@ import type {
   TraceRun,
   TraceSpan,
 } from "../../types/devConsole";
+import { downloadBlob } from "../../lib/download";
 
 export const STAGE_ORDER: PipelineStage[] = ["genomics", "structure", "biophysics", "clinical"];
 
@@ -188,13 +189,11 @@ export function stringifyPayload(payload: unknown): string {
 }
 
 export function downloadJson(prefix: string, data: unknown): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(
+    `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+    "application/json",
+    JSON.stringify(data, null, 2)
+  );
 }
 
 /* ── pipeline waterfall ─────────────────────────────────────────────────── */

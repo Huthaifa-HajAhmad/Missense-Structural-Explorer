@@ -259,14 +259,14 @@ def load_vesm():
             weights_path = download_weights(repo_id="ntranoslab/vesm", filename=f"{model_name}.pth", local_dir=local_dir)
             print(f"[Model Server] Loading VESM tokenizer from {base_model_name}...")
             model_status["vesm"] = "loading"
-            vesm_tokenizer = _safe_load_tokenizer(base_model_name, revision=base_revision)
+            loaded_tokenizer = _safe_load_tokenizer(base_model_name, revision=base_revision)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             dtype = torch.float32
-            vesm_model = _safe_load_esm_model(base_model_name, dtype=dtype, revision=base_revision)
+            loaded_model = _safe_load_esm_model(base_model_name, dtype=dtype, revision=base_revision)
             
             state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
             
-            model_keys = set(vesm_model.state_dict().keys())
+            model_keys = set(loaded_model.state_dict().keys())
             ckpt_keys = set(state_dict.keys())
             
             missing_keys = model_keys - ckpt_keys
@@ -287,16 +287,22 @@ def load_vesm():
                     
             for k in missing_keys:
                 if k not in state_dict:
-                    state_dict[k] = vesm_model.state_dict()[k]
+                    state_dict[k] = loaded_model.state_dict()[k]
                     
-            vesm_model.load_state_dict(state_dict, strict=True)
-            vesm_model.eval()
+            loaded_model.load_state_dict(state_dict, strict=True)
+            loaded_model.eval()
             
-            emb_weight = vesm_model.esm.embeddings.word_embeddings.weight
+            emb_weight = loaded_model.esm.embeddings.word_embeddings.weight
+            # Publish globals only after state_dict validation succeeds so /health and readers
+            # never observe a partially initialized base ESM-2 model on failure.
+            vesm_tokenizer = loaded_tokenizer
+            vesm_model = loaded_model
             model_status["vesm"] = "ready"
             print(f"[Model Server] VESM_150M model loaded successfully with strict=True.")
             print(f"[Model Server] Validation - word embeddings stats: mean={emb_weight.mean().item():.6f}, std={emb_weight.std().item():.6f}")
         except Exception as e:
+            vesm_tokenizer = None
+            vesm_model = None
             model_status["vesm"] = "failed"
             raise e
 

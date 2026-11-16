@@ -31,21 +31,22 @@ def all_residues(pdb_file, chain_id):
         return {"status": "error", "message": f"PDB file not found: {pdb_file}"}
     try:
         structure = PDBParser(QUIET=True).get_structure("protein", pdb_file)
-        ShrakeRupley().compute(structure, level="R")
+        if len(structure) == 0:
+            return {"status": "error", "message": "PDB file contains no models."}
+        first_model = structure[0]
+        ShrakeRupley().compute(first_model, level="R")
         out = []
-        for model in structure:
-            if chain_id in model:
-                for residue in model[chain_id]:
-                    if residue.id[0] != " ":
-                        continue  # waters and ligands
-                    sasa = getattr(residue, "sasa", None)
-                    name = residue.get_resname().upper()
-                    max_sasa = MAX_SASA.get(name)
-                    if sasa is None or max_sasa is None:
-                        continue  # a residue with no Tien maximum has no RSA; never guess one
-                    rsa = round(sasa / max_sasa, 4)
-                    out.append({"resId": residue.id[1], "resName": name, "rsa": rsa})
-                break
+        if chain_id in first_model:
+            for residue in first_model[chain_id]:
+                if residue.id[0] != " ":
+                    continue  # waters and ligands
+                sasa = getattr(residue, "sasa", None)
+                name = residue.get_resname().upper()
+                max_sasa = MAX_SASA.get(name)
+                if sasa is None or max_sasa is None:
+                    continue  # a residue with no Tien maximum has no RSA; never guess one
+                rsa = round(sasa / max_sasa, 4)
+                out.append({"resId": residue.id[1], "resName": name, "rsa": rsa})
         if not out:
             return {"status": "error", "message": f"Chain {chain_id} has no standard residues."}
         return {"status": "success", "residues": out}
@@ -75,21 +76,27 @@ def main():
     try:
         parser = PDBParser(QUIET=True)
         structure = parser.get_structure("protein", pdb_file)
+        if len(structure) == 0:
+            print(json.dumps({"status": "error", "message": "PDB file contains no models."}))
+            return
+        first_model = structure[0]
         
-        # Calculate SASA using Shrake-Rupley (pure Python numerical algorithm)
+        # Calculate SASA using Shrake-Rupley on the first model (matching Biotite [0])
         sr = ShrakeRupley()
-        sr.compute(structure, level="R")  # residue level
+        sr.compute(first_model, level="R")  # residue level
         
         target_res = None
-        for model in structure:
-            if chain_id in model:
-                chain = model[chain_id]
-                for residue in chain:
-                    if residue.id[1] == pos:
+        if chain_id in first_model:
+            chain = first_model[chain_id]
+            for residue in chain:
+                if residue.id[0] != " ":
+                    continue  # skip HETATM ligands and waters
+                if residue.id[1] == pos:
+                    if residue.id[2] == " ":
                         target_res = residue
                         break
-            if target_res:
-                break
+                    if target_res is None:
+                        target_res = residue
                 
         if not target_res:
             print(json.dumps({"status": "error", "message": f"Residue {pos} in chain {chain_id} not found."}))
@@ -102,7 +109,10 @@ def main():
             print(json.dumps({"status": "error", "message": "SASA calculation failed for target residue."}))
             return
 
-        max_sasa = MAX_SASA.get(resname, 200.0) # fallback
+        max_sasa = MAX_SASA.get(resname)
+        if max_sasa is None:
+            print(json.dumps({"status": "error", "message": f"Residue {resname} at {chain_id}:{pos} has no Tien maximum SASA."}))
+            return
         # Band the value that is actually shipped, not a more precise one: the payload carries
         # round(rsa, 4) below, and the panel bands that, so banding the unrounded fraction let
         # a true 0.15004 be "core" here and "boundary" on screen (a 5e-5 disagreement window).

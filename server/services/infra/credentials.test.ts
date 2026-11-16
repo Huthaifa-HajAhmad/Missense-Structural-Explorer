@@ -59,11 +59,22 @@ describe("resolveCredential", () => {
     expect(resolveCredential("biohub", TEAM)).toMatchObject({ token: TEAM, source: "team" });
   });
 
-  it("uses a person's saved token before the team's, and never for an anonymous caller", () => {
+  it("uses a person's saved token before the team's, and never lends the team token to an anonymous legacy caller", () => {
     const id = person();
     saveUserSecret(id, "biohub", OWN);
     expect(runWithEgressOwner(id, () => resolveCredential("biohub"))).toMatchObject({ token: OWN, source: "own" });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub"))).toMatchObject({ token: TEAM, source: "team" });
+    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub"))).toEqual({
+      kind: "biohub",
+      token: null,
+      source: "none",
+      refusal: "team-signin-required",
+    });
+    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub", OWN))).toMatchObject({ token: OWN, source: "own" });
+    expect(runWithEgressOwner("legacy", () => credentialAvailable("biohub"))).toBe(false);
+    expect(runWithEgressOwner("legacy", () => teamShareLeft("biohub"))).toBe(0);
+    // Authenticated service callers (APP_API_TOKEN) and system prewarm still use the team token.
+    expect(runWithEgressOwner("service", () => resolveCredential("biohub"))).toMatchObject({ token: TEAM, source: "team" });
+    expect(runWithEgressOwner("system", () => resolveCredential("biohub"))).toMatchObject({ token: TEAM, source: "team" });
   });
 
   it("lends the team token under on and limited, never under off", () => {
@@ -75,7 +86,7 @@ describe("resolveCredential", () => {
     expect(resolveCredential("biohub")).toMatchObject({ source: "team" });
   });
 
-  it("limited: a person may make the hourly share of team calls, then is refused; legacy is not counted", async () => {
+  it("limited: a person may make the hourly share of team calls, then is refused; legacy anonymous cannot borrow it", async () => {
     process.env.SHARED_TOKEN_SHARE_PER_HOUR = "2";
     process.env.EGRESS_GOVERNOR = "off";
     const id = person();
@@ -88,12 +99,17 @@ describe("resolveCredential", () => {
     expect(await call()).toBe("ok");
     expect(await call()).toBe("team-share-used");
     expect(runWithEgressOwner(id, () => teamShareLeft("biohub"))).toBe(0);
-    // Another person, and the anonymous legacy owner, are unaffected.
+    // Another signed-in person and authenticated service callers are unaffected; anonymous legacy is refused.
     expect(runWithEgressOwner(person(), () => resolveCredential("biohub").source)).toBe("team");
-    for (let i = 0; i < 5; i++) {
-      expect(await runWithEgressOwner("legacy", () => governedForCredential("biohub", TEAM, async () => "ok"))).toBe("ok");
-    }
-    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub").source)).toBe("team");
+    expect(runWithEgressOwner("service", () => resolveCredential("biohub").source)).toBe("team");
+    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub"))).toMatchObject({
+      source: "none",
+      refusal: "team-signin-required",
+    });
+    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub", null, { statusOnly: true }))).toMatchObject({
+      token: null,
+      source: "none",
+    });
   });
 
   it("a person with their own token is never charged to the team's share", async () => {
@@ -196,6 +212,16 @@ describe("governor buckets", () => {
     expect(lines.filter(l => l.id.includes("#own:"))).toHaveLength(0);
     const text = JSON.stringify({ lines, policy: credentialPolicyHealth() });
     for (const secret of [OWN, TEAM, sha(OWN), sha(OWN).slice(0, 16), sha(TEAM).slice(0, 16)]) expect(text).not.toContain(secret);
+  });
+
+  it("isolates overflowing own tokens into one per-owner bucket instead of spilling into the team bucket", () => {
+    const owner = person();
+    runWithEgressOwner(owner, () => {
+      const buckets = [1, 2, 3, 4, 5].map((i) => credentialForCall("biohub", `own-token-${i}-xxxxxxxxxxxx`).bucket);
+      expect(buckets.every((b) => typeof b === "string" && b.length > 0)).toBe(true);
+      expect(buckets[3]).toBe(buckets[4]);
+      expect(buckets[3]).not.toBe(buckets[0]);
+    });
   });
 });
 

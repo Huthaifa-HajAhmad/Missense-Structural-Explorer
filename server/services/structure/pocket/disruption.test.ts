@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import * as sasaRunner from "../sasa-runner.ts";
 import { predictStructuralDisruption } from "./disruption.ts";
+
+vi.mock("../sasa-runner.ts", { spy: true });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("predictStructuralDisruption (Geometric & Secondary Structure Rules)", () => {
   // Minimal synthetic PDB with HELIX and ATOM records
@@ -46,4 +53,21 @@ describe("predictStructuralDisruption (Geometric & Secondary Structure Rules)", 
     expect(result.level).toBe("unknown");
     expect(result.reason).toContain("Target residue not found in structure");
   });
+
+  it("ignores subsequent NMR models after ENDMDL and leaves unmeasured burialStatus undefined", async () => {
+    vi.spyOn(sasaRunner, "executeSasaEval").mockResolvedValueOnce({ status: "error", message: "SASA unavailable" });
+    const singleResNmrPdb = [
+      "MODEL        1",
+      "ATOM      1  CA  ALA A   2       1.000   1.000   1.000  1.00 85.00           C",
+      "ENDMDL",
+      "MODEL        2",
+      "ATOM      2  CA  ALA A   2       1.000   1.000   1.000  1.00 10.00           C",
+      "ENDMDL"
+    ].join("\n");
+    const result = await predictStructuralDisruption(singleResNmrPdb, "A", 2, "V", "A", "alphafold");
+    expect(result.plddt).toBe(85);
+    expect(result.neighborCount).toBe(0);
+    expect(result.burialStatus).toBeUndefined();
+    expect(result.level).toBe("low");
+  }, 15000);
 });

@@ -5,7 +5,6 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
-import { createServer as createViteServer } from "vite";
 
 import { requestLogger, validateContentType } from "./middleware.ts";
 import { apiRouter } from "./routes.ts";
@@ -108,9 +107,10 @@ export async function createExpressApp(): Promise<express.Express> {
               "'unsafe-inline'",
               "'unsafe-eval'"
             ],
-        // Note on styleSrc: 'unsafe-inline' is required for Mol* 3D WebGL viewer canvas CSS and dynamic chart tooltips
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        fontSrc: ["'self'", "data:"],
+        // Note on styleSrc: 'unsafe-inline' is required for Mol* 3D WebGL viewer canvas CSS and dynamic chart tooltips;
+        // cdn.jsdelivr.net is required by the Scalar API docs page (/api/v1/docs).
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        fontSrc: ["'self'", "data:", "https://cdn.jsdelivr.net"],
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: isProd
           ? [
@@ -159,6 +159,7 @@ export async function createExpressApp(): Promise<express.Express> {
 
   // Vite middleware for development / Static assets serving for production
   if (!isProd) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -181,7 +182,7 @@ export async function createExpressApp(): Promise<express.Express> {
       res.status(404).type("text/plain").send("Asset not found");
     });
     app.all("/api/*", (_req, res) => {
-      res.status(404).json({ error: "API endpoint not found" });
+      sendError(res, 404, "NOT_FOUND", "API endpoint not found");
     });
 
     app.get("*", spaShell);

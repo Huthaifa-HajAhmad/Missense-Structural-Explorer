@@ -284,13 +284,11 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
       {/* ── 5. Sources ── */}
       <section className="rsx-rsec" aria-labelledby="rsx-rail-sources">
         <details className="rsx-disclosure">
-          <summary>
-            <h3 className="eyebrow" id="rsx-rail-sources">
-              <span>
-                <Database className="w-4 h-4" aria-hidden="true" />
-                Sources ({model.sources.length})
-              </span>
-            </h3>
+          <summary className="eyebrow" id="rsx-rail-sources">
+            <span>
+              <Database className="w-4 h-4" aria-hidden="true" />
+              Sources ({model.sources.length})
+            </span>
           </summary>
           <ul className="rsx-refs" data-testid="residue-sources">
             {model.sources.map(src => (

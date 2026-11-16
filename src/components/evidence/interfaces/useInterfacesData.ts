@@ -117,6 +117,20 @@ export function useInterfacesData(result: any) {
   // Assigned in an effect, not during render: a render that never commits must not move the guard.
   const keyRef = useRef(key);
   useEffect(() => { keyRef.current = key; }, [key]);
+
+  // Shared controller aborted on variant switch or unmount for user-initiated requests (`handoff`,
+  // `import`, explicit `requestShift`), so stale network responses cannot write into the next variant.
+  const actionControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    actionControllerRef.current?.abort();
+    const next = new AbortController();
+    actionControllerRef.current = next;
+    return () => {
+      next.abort();
+      if (actionControllerRef.current === next) actionControllerRef.current = null;
+    };
+  }, [key]);
+
   const asmRef = useRef<Keyed<MultimerData> | null>(null);
   useEffect(() => { asmRef.current = asm; }, [asm]);
 
@@ -125,6 +139,7 @@ export function useInterfacesData(result: any) {
   const requestHandoff = useCallback(async (): Promise<MultimerHandoff | null> => {
     if (!gene || !variant || !uniprotId || !key) return null;
     const startedFor = key;
+    const signal = actionControllerRef.current?.signal;
     setHandoffBusy(true);
     setLocalFoldError(null);
     try {
@@ -133,15 +148,17 @@ export function useInterfacesData(result: any) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gene, variant, uniprotId, handoff: true }),
         timeout: CLIENT_LOCALFOLD_REQUEST_BUDGET_MS,
+        signal,
       });
       if (!response.ok) throw new Error(await extractErrorMessage(response, "The assembly service did not answer."));
       const data = (await response.json()) as MultimerData;
-      if (keyRef.current !== startedFor) return null;
+      if (signal?.aborted || keyRef.current !== startedFor) return null;
       if (!data.handoff) throw new Error("This assembly has no complex to fold, so there is nothing to hand over.");
       // Deliberately not written back to the store: a job file is something the reader saved, and
       // carrying it inside every cached analysis would persist a file nobody renders.
       return data.handoff;
     } catch (err: any) {
+      if (err?.name === "AbortError" || signal?.aborted) return null;
       if (keyRef.current === startedFor) setLocalFoldError(err?.message || "The job file could not be prepared.");
       return null;
     } finally {
@@ -154,6 +171,7 @@ export function useInterfacesData(result: any) {
   const importLocalFoldModel = useCallback(async (structure: string): Promise<boolean> => {
     if (!gene || !variant || !uniprotId || !key) return false;
     const startedFor = key;
+    const signal = actionControllerRef.current?.signal;
     setImportBusy(true);
     setLocalFoldError(null);
     try {
@@ -162,14 +180,15 @@ export function useInterfacesData(result: any) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gene, variant, uniprotId, structure }),
         timeout: CLIENT_LOCALFOLD_REQUEST_BUDGET_MS,
+        signal,
       });
-      if (keyRef.current !== startedFor) return false;
+      if (signal?.aborted || keyRef.current !== startedFor) return false;
       if (!response.ok) {
         setLocalFoldError(await extractErrorMessage(response, "That model could not be read."));
         return false;
       }
       const data = (await response.json()) as MultimerData;
-      if (keyRef.current !== startedFor) return false;
+      if (signal?.aborted || keyRef.current !== startedFor) return false;
       // A refusal is the reader's file to fix (wrong chains, mmCIF, not this construct). It must NOT
       // replace a model the tab already holds: one mistyped file used to cost the reader a whole fold,
       // because the refusal was stored before this check.
@@ -186,6 +205,7 @@ export function useInterfacesData(result: any) {
       patchResult(gene, variant, { multimerData: merged });
       return true;
     } catch (err: any) {
+      if (err?.name === "AbortError" || signal?.aborted) return false;
       if (keyRef.current === startedFor) setLocalFoldError(err?.message || "That model could not be read.");
       return false;
     } finally {
@@ -247,23 +267,29 @@ export function useInterfacesData(result: any) {
   const storedShiftForVariant = storedShift && storedShift.gene === gene && storedShift.variant === variant ? storedShift : null;
   const [shift, setShift] = useState<Keyed<PpiBindingShift> | null>(null);
 
-  const requestShift = useCallback(async () => {
+  const requestShift = useCallback(async (signal?: AbortSignal) => {
     if (!key || !gene || !variant || !uniprotId) return;
+    const startedFor = key;
+    const effectiveSignal = signal ?? actionControllerRef.current?.signal;
     setShift({ key, status: "loading", data: null });
     try {
       const response = await fetchWithAuth("/api/v1/ppi/binding-shift", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gene, variant, uniprotId }),
+        signal: effectiveSignal,
       });
+      if (effectiveSignal?.aborted || keyRef.current !== startedFor) return;
       if (!response.ok) {
         setShift({ key, status: "error", data: null, message: await extractErrorMessage(response, "The binding change could not be estimated.") });
         return;
       }
       const data = (await response.json()) as PpiBindingShift;
+      if (effectiveSignal?.aborted || keyRef.current !== startedFor) return;
       setShift({ key, status: "ready", data });
       patchResult(gene, variant, { ppiBindingShift: data });
     } catch (err: any) {
+      if (err?.name === "AbortError" || effectiveSignal?.aborted || keyRef.current !== startedFor) return;
       setShift({ key, status: "error", data: null, message: err?.message || "The binding change could not be estimated." });
     }
   }, [key, gene, variant, uniprotId, fetchWithAuth]);
@@ -278,13 +304,21 @@ export function useInterfacesData(result: any) {
   const timers = useRef<{ asm?: ReturnType<typeof setTimeout>; shift?: ReturnType<typeof setTimeout> }>({});
   useEffect(() => {
     if (!asmRunning) return;
-    timers.current.asm = setTimeout(() => void fetchAssembly(true), POLL_MS);
-    return () => clearTimeout(timers.current.asm);
+    const controller = new AbortController();
+    timers.current.asm = setTimeout(() => void fetchAssembly(true, controller.signal), POLL_MS);
+    return () => {
+      clearTimeout(timers.current.asm);
+      controller.abort();
+    };
   }, [asmRunning, fetchAssembly]);
   useEffect(() => {
     if (!shiftRunning) return;
-    timers.current.shift = setTimeout(() => void requestShift(), POLL_MS);
-    return () => clearTimeout(timers.current.shift);
+    const controller = new AbortController();
+    timers.current.shift = setTimeout(() => void requestShift(controller.signal), POLL_MS);
+    return () => {
+      clearTimeout(timers.current.shift);
+      controller.abort();
+    };
   }, [shiftRunning, requestShift]);
 
   const activePpi = ppi && ppi.key === key ? ppi : null;

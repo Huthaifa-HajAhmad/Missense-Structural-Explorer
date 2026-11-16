@@ -525,16 +525,23 @@ async function fetchWithRetryInner(
  */
 export async function governedFetch(
   input: string | URL | Request,
-  init: RequestInit & { deadlineAt?: number; lane?: string; credential?: GovernedCredential } = {}
+  init: RequestInit & { deadlineAt?: number; lane?: string; credential?: GovernedCredential; rejectRedirects?: boolean } = {}
 ): Promise<Response> {
-  const { deadlineAt, lane, credential, ...rest } = init;
+  const { deadlineAt, lane, credential, rejectRedirects, ...rest } = init;
+  const fetchInit: RequestInit = rejectRedirects ? { ...rest, redirect: "manual" } : rest;
+  const assertNotRedirect = (res: Response): Response => {
+    if (rejectRedirects && res.status >= 300 && res.status < 400) {
+      throw new Error(`HTTP redirect (${res.status}) blocked for security`);
+    }
+    return res;
+  };
   let hostname = "";
   try {
     hostname = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url).hostname;
   } catch (_) {}
   if (!hostname || isLocalHost(hostname)) {
     credential?.onSend?.();
-    return fetch(input, rest);
+    return assertNotRedirect(await fetch(input, fetchInit));
   }
   // A person's own token is paused and counted on its own (WP-I4).
   const pauseKey = pauseKeyFor(hostname, credential?.bucket);
@@ -543,11 +550,11 @@ export async function governedFetch(
   return governed(
     hostname,
     async () => {
-      const res = await fetch(input, rest);
+      const res = await fetch(input, fetchInit);
       const retryAfter = res.headers?.get?.("Retry-After") ?? null;
       noteEgressAnswer(hostname, res.status, retryAfter, Date.now(), lane, credential?.bucket);
       if (isRateLimitAnswer(res.status, retryAfter)) recordRateLimit(pauseKey, res.status, retryAfter);
-      return res;
+      return assertNotRedirect(res);
     },
     { deadlineAt, signal: rest.signal, lane, credential }
   );

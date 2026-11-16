@@ -21,7 +21,8 @@ export function loadPerRegions(gene: string): PerRegionsResponse {
     const base = existsSync(resolve("dist/per/per-regions.json.gz")) && process.env.NODE_ENV === "production" ? resolve("dist/per") : resolve("server/data/per");
     bundle = perRegionsFileSchema.parse(JSON.parse(gunzipSync(readFileSync(resolve(base, "per-regions.json.gz"))).toString("utf8")));
   }
-  return { source: bundle.source, regions: Object.hasOwn(bundle.genes, gene) ? bundle.genes[gene] : [] };
+  const key = gene.trim().toUpperCase();
+  return { source: bundle.source, regions: Object.hasOwn(bundle.genes, key) ? bundle.genes[key] : [] };
 }
 
 /** The app's residues must equal the bundled ones over start..end; any disagreement means the numbering differs. */

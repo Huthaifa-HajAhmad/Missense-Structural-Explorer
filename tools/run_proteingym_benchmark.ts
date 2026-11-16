@@ -11,7 +11,7 @@ async function main() {
   console.log("   ProteinGym Rare Disease DMS Substitutions Benchmark Runner");
   console.log("=====================================================================\n");
 
-  const biohubToken = process.env.BIOHUB_TOKEN || null;
+  const biohubToken = process.env.BIOHUB_API_TOKEN || process.env.BIOHUB_TOKEN || null;
   const hfToken = process.env.HF_TOKEN || null;
 
   // Choose the evaluation model. We default to ESM-C, falling back to ESM-2.

@@ -63,10 +63,11 @@ const PACKING_METER_BASE_DOMAIN = 24;
  * the failure this module exists to stop.
  */
 export const UNMEASURED_BURIAL_ENVIRONMENT = "Burial not measured";
+export const UNMEASURED_SSE_ENVIRONMENT = "Secondary structure not measured";
 
 /** True when a microenvironment entry reports the absence of a measurement, not a finding. */
 export function isUnmeasuredEnvironment(value: string): boolean {
-  return value === UNMEASURED_BURIAL_ENVIRONMENT;
+  return value === UNMEASURED_BURIAL_ENVIRONMENT || value === UNMEASURED_SSE_ENVIRONMENT;
 }
 
 export type BurialWord = "core" | "boundary" | "surface";

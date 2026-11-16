@@ -293,6 +293,10 @@ export async function runFoldxQueueJobOnServer(data: any, signal: AbortSignal | 
       (phase) => BiophysicalJobQueue.getInstance().updateJobPhase(jobId!, phase),
     );
   } catch (err: any) {
+    if (signal?.aborted) {
+      companions.catch(() => {});
+      throw err;
+    }
     foldxResult = foldxFailureResult(err);
   }
   /**

@@ -54,6 +54,16 @@ async function loadTable(): Promise<Table> {
   return flight;
 }
 
+/** Synchronous read of ClinGen haploinsufficiency score from the already-cached dosage table (never triggers network I/O). */
+export function getCachedDosageHaploScore(gene: string): number | null {
+  const table = cache.get('table');
+  if (!table) return null;
+  const matches = table.rows.filter(r => r.symbol === gene);
+  if (matches.length !== 1) return null;
+  const parsed = parseDosageScore(matches[0].haplo_assertion);
+  return parsed.state === 'scored' ? parsed.code : null;
+}
+
 export async function loadDosageContext(gene: string): Promise<DosageResponse> {
   try {
     const table = await loadTable();

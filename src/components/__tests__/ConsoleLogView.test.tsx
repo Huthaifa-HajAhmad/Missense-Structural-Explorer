@@ -41,7 +41,7 @@ describe("ConsoleLogView time column", () => {
     renderView([only]);
 
     const stamp = screen.getByText("3m ago");
-    expect(stamp).toHaveClass("cx-time");
+    expect(stamp).toHaveClass("dc-time");
     // The absolute moment stays one hover away for correlation with server logs.
     expect(stamp).toHaveAttribute("title", new Date(only.timestamp).toLocaleString());
   });

@@ -26,6 +26,7 @@
     "strict": true
   },
   "exclude": [
+    ".e2e",
     "scratch",
     "temp_jobs",
     "dist",

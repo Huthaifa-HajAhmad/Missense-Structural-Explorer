@@ -11,7 +11,7 @@ test('walk through empty analysis workspaces', { tags: ['design'] }, async ({ ap
     await expect(screen.getByRole('heading', 'No analysis loaded')).toBeVisible();
     await expect(screen.getByRole('button', 'Analyse a variant', { exact: true })).toBeVisible();
     await app.screenshot('empty-' + view.replaceAll(' ', '-'));
-    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${view} fits the page`);
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${view} fits the page`).toBe(true);
     await screen.getByRole('button', 'Switch to dark mode').tap();
     await app.screenshot('empty-' + view.replaceAll(' ', '-') + '-dark');
     await screen.getByRole('button', 'Switch to light mode').tap();
@@ -28,7 +28,7 @@ test('walk through empty analysis workspaces', { tags: ['design'] }, async ({ ap
   await expect(screen.getByRole('button', 'Open navigation')).toBeVisible();
   await browser.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))).then(() => true));
   await expect(screen.getByRole('heading', 'Interfaces & PPI')).toBeVisible();
-  expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'empty workspace fits mobile');
+  expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'empty workspace fits mobile').toBe(true);
   await app.screenshot('empty-mobile');
   await screen.getByRole('button', 'Analyse a variant', { exact: true }).tap();
   await expect(screen.getByRole('textbox', /^Variant/)).toBeFocused();
