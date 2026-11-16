@@ -18,7 +18,13 @@ import { serviceStatusOf } from "./serviceStatus.ts";
 export const APP_REPOSITORY = "https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer";
 
 export const PROVENANCE_DATA_SOURCES = {
-  dbnsfp: "4.4a",
+  /**
+   * No fixed release is claimed. The answer comes from the local store when it is present and from
+   * MyVariant.info otherwise, and those are different releases. Each predictor records the release
+   * that answered it (`revelProvenance`, `amProvenance`; for the local store it is the version its
+   * `build_meta` table holds), so the manifest points there instead of naming one.
+   */
+  dbnsfp: "Release recorded on each predictor (local build or MyVariant.info)",
   /**
    * The dataset the pipeline pins — `gnomad_r4` (`external-api/gnomad.ts:68`).
    *

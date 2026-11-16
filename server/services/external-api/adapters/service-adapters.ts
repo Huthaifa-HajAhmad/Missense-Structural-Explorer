@@ -51,6 +51,7 @@ export class ClinVarAdapter implements ExternalServiceAdapter<{ gene: string; va
 export class DbnsfpAdapter implements ExternalServiceAdapter<any, any> {
   readonly id = "dbnsfp";
   readonly name = "dbNSFP Predictors";
+  /** The adapter's cache-key version. It is not the dbNSFP release; the release comes from each answer's provenance. */
   readonly version = "4.9a";
 
   cacheKey(input: { gene: string; variant: string }): string {

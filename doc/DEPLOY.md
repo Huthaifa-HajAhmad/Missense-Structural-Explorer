@@ -76,8 +76,7 @@ ENABLE_LOCAL_DBNSFP="true"
 NODE_ENV="production"
 PORT=3000
 
-# App URL and CORS configuration
-APP_URL="https://localhost"
+# CORS configuration
 ALLOWED_ORIGINS="https://localhost"
 
 # Gemini API Key (obtain from https://aistudio.google.com/app/apikey)

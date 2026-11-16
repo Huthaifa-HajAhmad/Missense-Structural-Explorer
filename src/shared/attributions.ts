@@ -212,14 +212,12 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     role: "Precomputed per-substitution predictor columns — REVEL, CADD, AlphaMissense, MetaRNN, ClinPred, Eigen, DANN, BayesDel, ESM-1b, GERP++, phyloP — used to answer predictor lookups locally instead of over the network.",
     url: "https://sites.google.com/site/jpopgen/dbNSFP",
     /*
-     * The release is deliberately NOT stated as "4.4a", even though that is the string in
-     * `PROVENANCE_DATA_SOURCES` and the cache-key registry. The ingest writes its artefact to
-     * `data/dbnsfp_v5.sqlite` (tools/ingest_dbnsfp.ts:13), so the manifest and the artefact
-     * name disagree and the code establishes neither. A reader told "4.4a" would have no way
-     * to know that.
+     * No single release is stated. The local store records its own release in `build_meta`, and
+     * MyVariant.info serves an older one, so which release answered is a fact about each predictor,
+     * not about the app. See doc/ARCHITECTURE.md §6.
      */
     release: null,
-    releaseNote: "The manifest declares \"4.4a\", but the local ingest writes data/dbnsfp_v5.sqlite. Which release is held locally is unresolved — see doc/ARCHITECTURE.md §6.",
+    releaseNote: "The release depends on which source answered. Each predictor records its own (the local build's version, or MyVariant.info). See doc/ARCHITECTURE.md §6.",
     citation:
       "Liu, H., et al. (2020). dbNSFP v4: a comprehensive database of transcript-specific functional predictions and annotations for human nonsynonymous and splice-site SNVs. Genome Medicine 12, 103. https://doi.org/10.1186/s13073-020-00803-9",
     licence:
