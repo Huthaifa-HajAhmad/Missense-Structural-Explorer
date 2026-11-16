@@ -157,6 +157,9 @@ src/components/inspector/GeneDiseaseRail.tsx,component,
 src/components/inspector/InsightsInspector.tsx,component,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/InsightsInspector.provenance.test.tsx
 src/components/inspector/InterfacesRail.tsx,component,src/components/evidence/__tests__/InterfacesTab.sod1.test.tsx;src/components/evidence/__tests__/InterfacesTab.test.tsx;src/components/evidence/__tests__/MechanismWorkspace.test.tsx
 src/components/inspector/LandscapeInspector.tsx,component,src/components/inspector/__tests__/LandscapeInspector.test.tsx
+src/components/inspector/LandscapeLocalContext.tsx,component,
+src/components/inspector/LandscapeMethods.tsx,component,
+src/components/inspector/LandscapeSubstitutionStrip.tsx,component,
 src/components/inspector/LiteratureInspector.tsx,component,src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts
 src/components/inspector/NarrativeProvenanceRow.tsx,component,src/components/inspector/__tests__/InsightsInspector.provenance.test.tsx
 src/components/inspector/PerturbationRail.tsx,component,src/components/__tests__/PerturbationTab.test.tsx;src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx;src/components/inspector/__tests__/PerturbationRail.pinnedReading.test.tsx
@@ -211,9 +214,11 @@ src/components/review/ReviewWorkspace.tsx,component,src/components/__tests__/Rev
 src/components/sequence/DensityTrack.tsx,component,src/components/sequence/__tests__/densityTrack.test.ts
 src/components/sequence/GenomicSaturationHeatmap.tsx,component,src/components/sequence/__tests__/landscapeTab.test.tsx
 src/components/sequence/LandscapeAgreement.tsx,component,src/components/sequence/__tests__/landscapeAgreement.test.tsx
+src/components/sequence/LandscapeDomainTracks.tsx,component,
 src/components/sequence/LandscapeFocus.tsx,component,src/components/sequence/__tests__/landscapePresentation.test.tsx;src/components/sequence/__tests__/landscapeTab.test.tsx
 src/components/sequence/LandscapeLegend.tsx,component,src/components/sequence/__tests__/landscapePresentation.test.tsx
 src/components/sequence/LandscapeOverview.tsx,component,src/components/sequence/__tests__/landscapePresentation.test.tsx;src/components/sequence/__tests__/landscapeTab.test.tsx
+src/components/sequence/LandscapeSpanTrack.tsx,component,
 src/components/sequence/LandscapeToolbar.tsx,component,src/components/sequence/__tests__/LandscapeToolbar.test.tsx
 src/components/sequence/overviewBins.ts,client,src/components/sequence/__tests__/overviewBins.test.ts
 src/components/sequence/sequenceConstants.ts,client,src/components/sequence/__tests__/landscapeTab.test.tsx

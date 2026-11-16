@@ -14,6 +14,7 @@ import {
 import type { CodonNucleotide } from "./useAlphaGenomeRegion";
 import type { DomainSpan, TargetMutation, VariantScores } from "./types";
 import { useMeasuredWidth } from "./useMeasuredWidth";
+import { LandscapeDomainTracks } from "./LandscapeDomainTracks";
 import { useRovingGrid } from "./useRovingGrid";
 
 const TOOL_NAME: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
@@ -137,10 +138,6 @@ export function LandscapeFocus(props: Props) {
     return m;
   }, [codons]);
 
-  const visibleDomains = domains
-    .filter((d) => d.end >= start && d.start <= end)
-    .map((d) => ({ ...d, from: Math.max(d.start, start) - start, to: Math.min(d.end, end) - start }));
-
   const heatmapRow = (alt: string, r: number) => (
     <div key={alt} className="flex items-center">
       <span className="ls-gutter ls-aa font-semibold !text-[11px]" data-class={LETTER_CLASS[alt] ?? "hydrophobic"} style={{ width: GUTTER, background: "transparent" }} aria-hidden="true">
@@ -220,23 +217,8 @@ export function LandscapeFocus(props: Props) {
         ))}
       </div>
 
-      {visibleDomains.length > 0 && (
-        <div className="flex items-center">
-          <span className="ls-gutter" style={{ width: GUTTER }}>DOMAIN</span>
-          <div className="relative h-[14px] shrink-0" style={{ width: cols.length * colW }}>
-            {visibleDomains.map((d, i) => (
-              <div
-                key={`${d.name}-${i}`}
-                className="ls-domain absolute top-[2px] overflow-hidden"
-                style={{ left: d.from * colW + 1, width: (d.to - d.from + 1) * colW - 2 }}
-                title={`${d.name} (${d.start}–${d.end})`}
-              >
-                <span className="px-1 text-[9px] leading-[10px] font-mono text-cs-text-primary truncate block">{d.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <LandscapeDomainTracks domains={domains} start={start} end={end}
+        width={cols.length * colW} gutter={GUTTER} onPick={onPickResidue} />
 
       <div ref={residueRow.ref} onFocus={residueRow.onFocus} onKeyDown={residueRow.onKeyDown} role="group" aria-label="Residues in the focus window" className="flex items-center">
         <span className="ls-gutter" style={{ width: GUTTER }}>RESIDUE</span>

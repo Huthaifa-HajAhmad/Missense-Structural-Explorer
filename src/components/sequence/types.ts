@@ -1,3 +1,5 @@
+import type { RegionKind } from "../../shared/residueRegions";
+
 export interface TargetMutation {
   wt: string;
   pos: number;
@@ -13,6 +15,7 @@ export interface VariantScores {
 }
 
 export interface DomainSpan {
+  kind: RegionKind;
   name: string;
   start: number;
   end: number;

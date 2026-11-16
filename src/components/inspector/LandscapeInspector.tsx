@@ -1,30 +1,29 @@
 import React from "react";
-import { BookOpen, Bookmark, Crosshair } from "lucide-react";
-import { AnalysisResult, UniprotFeatureItem } from "../../types";
+import { Crosshair } from "lucide-react";
+import { AnalysisResult } from "../../types";
 import type { LandscapeResidueItem } from "../../shared/contracts";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { selectResidueLetter } from "../../stores/slices/searchSlice";
 import { AMINO_ACID_MAP_FULL, toOneLetter } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
-import { isRegionFeatureType } from "../../shared/residueRegions";
+import { LandscapeLocalContext, LandscapeDomainNavigation } from "./LandscapeLocalContext";
+import { LandscapeMethods } from "./LandscapeMethods";
+import { SubstitutionStrip } from "./LandscapeSubstitutionStrip";
+export { placeStripChips } from "./LandscapeSubstitutionStrip";
 import {
   bandLabel,
-  bandSpans,
   bandTone,
-  clinvarIsQuery,
   complementBase,
   landscapeKey,
   landscapeVerdict,
   provenanceLine,
-  readsAsSentence,
   residueCount,
   residueRange,
   TOOL_DISPLAY,
   type LandscapeTool,
   type SummaryMode
 } from "../../shared/landscapeEvidence";
-import { useMeasuredWidth } from "../sequence/useMeasuredWidth";
 
 interface LandscapeInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -39,141 +38,11 @@ interface LandscapeInspectorProps {
 
 const TOOL_NAME = TOOL_DISPLAY;
 
-const SOURCES = [
-  { label: "REVEL — Ioannidis et al., Am J Hum Genet 2016", doi: "10.1016/j.ajhg.2016.08.016" },
-  { label: "AlphaMissense — Cheng et al., Science 2023", doi: "10.1126/science.adg7492" },
-  { label: "REVEL bands — Pejaver et al., Am J Hum Genet 2022", doi: "10.1016/j.ajhg.2022.10.013" },
-  { label: "AlphaMissense bands — Bergquist et al., Genet Med 2025", doi: "10.1016/j.gim.2025.101402" },
-  { label: "GERP++ — Davydov et al., PLoS Comput Biol 2010", doi: "10.1371/journal.pcbi.1001025" },
-  { label: "phyloP — Pollard et al., Genome Res 2010", doi: "10.1101/gr.097857.109" },
-  { label: "dbNSFP — Liu et al., Genome Med 2020", doi: "10.1186/s13073-020-00803-9" }
-];
-
-interface ContextRow {
-  label: string;
-  value: string;
-  source?: string;
-  records?: string[];
-  recordsLabel?: string;
-}
-
 const finite = (v: unknown): number | null => {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
   return Number.isFinite(n) ? n : null;
 };
-
-/* ─────────────────── substitution strip ─────────────────── */
-
-export const STRIP_CHIP_W = 24;
-export const STRIP_CHIP_GAP = 4;
-
-export interface StripPlacement {
-  alt: string;
-  value: number;
-  /** Left edge (px) of the chip's true value position, clamped inside the strip. */
-  anchorLeft: number;
-  /** Left edge (px) the chip is drawn at, after the collision pass. */
-  chipLeft: number;
-}
-
-/**
- * Chip placement for the strip. The old strip put each letter at its raw value with no collision
- * pass, so on SOD1 residue 5 the S and V chips (0.88, 0.95) drew on top of each other and the strip
- * was unreadable at first sight. Sorted left to right, then: each chip wants to sit centred on its
- * value; a chip never sits closer to its left neighbour than chip+gap; if the run reaches past the
- * right edge the whole run is walked back, and the pass keeps a floor of 0 so nothing is pushed off
- * the left. When even the tight run does not fit, chips spread evenly (the assertion lives in the
- * landscape geometry harness at real widths).
- */
-export function placeStripChips(stripWidth: number, chips: Array<{ alt: string; v: number }>): StripPlacement[] {
-  const W = Math.max(120, stripWidth);
-  const n = chips.length;
-  const sorted = [...chips].sort((a, b) => a.v - b.v || a.alt.localeCompare(b.alt));
-  const anchorOf = (v: number) => Math.min(Math.max(v * W - STRIP_CHIP_W / 2, 0), W - STRIP_CHIP_W);
-  if (n === 0) return [];
-  // The tight run does not fit: spread the chips evenly edge to edge. They overlap by the same
-  // amount each, and the stems still tie every chip to its true position.
-  if (n > 1 && n * STRIP_CHIP_W + (n - 1) * STRIP_CHIP_GAP > W) {
-    const step = (W - STRIP_CHIP_W) / (n - 1);
-    return sorted.map((c, i) => ({ alt: c.alt, value: c.v, anchorLeft: anchorOf(c.v), chipLeft: i * step }));
-  }
-  const lefts = sorted.map((c) => anchorOf(c.v));
-  for (let i = 1; i < n; i++) lefts[i] = Math.max(lefts[i], lefts[i - 1] + STRIP_CHIP_W + STRIP_CHIP_GAP);
-  if (lefts[n - 1] > W - STRIP_CHIP_W) {
-    lefts[n - 1] = W - STRIP_CHIP_W;
-    for (let i = n - 2; i >= 0; i--) lefts[i] = Math.max(0, Math.min(lefts[i], lefts[i + 1] - STRIP_CHIP_W - STRIP_CHIP_GAP));
-  }
-  return sorted.map((c, i) => ({ alt: c.alt, value: c.v, anchorLeft: anchorOf(c.v), chipLeft: lefts[i] }));
-}
-
-/** A chip the collision pass moved off its true position (and so needs an anchor dot and stem). */
-const isMoved = (p: StripPlacement) => Math.abs(p.chipLeft - p.anchorLeft) > 2;
-
-/**
- * Every scored substitution at a residue as a letter chip over the calibrated bands. A chip the
- * collision pass moved is connected to its true position by a stem and an anchor dot, so a letter
- * never reads as sitting on the wrong band. Chips are buttons: picking one selects that
- * substitution on the tab too.
- */
-function SubstitutionStrip({
-  tool,
-  wt,
-  subs,
-  highlight,
-  target,
-  onPick
-}: {
-  tool: LandscapeTool;
-  wt: string;
-  subs: Array<{ alt: string; v: number }>;
-  highlight: string | null;
-  target: string | null;
-  onPick: (alt: string) => void;
-}) {
-  const [ref, measured] = useMeasuredWidth<HTMLDivElement>();
-  const placements = React.useMemo(() => placeStripChips(measured || 300, subs), [measured, subs]);
-  return (
-    <div ref={ref} className="lsr-strip">
-      <div className="lsr-strip__bands" aria-hidden="true">
-        {bandSpans(tool).map((b) => (
-          <span key={b.key} className="ls-band" data-band={b.key} style={{ left: `${b.lo * 100}%`, width: `${(b.hi - b.lo) * 100}%` }} />
-        ))}
-      </div>
-      {placements.map((p) => {
-        return isMoved(p) ? <span key={`a-${p.alt}`} className="lsr-strip__anchor" aria-hidden="true" style={{ left: `${p.anchorLeft + STRIP_CHIP_W / 2}px` }} /> : null;
-      })}
-      {placements.map((p) => {
-        const on = p.alt === highlight;
-        return (
-          <button
-            key={p.alt}
-            type="button"
-            className="lsr-strip__chip"
-            data-on={on ? "true" : undefined}
-            data-query={p.alt === target ? "true" : undefined}
-            aria-current={on ? "true" : undefined}
-            style={{ left: `${p.chipLeft + STRIP_CHIP_W / 2}px` }}
-            onClick={() => onPick(p.alt)}
-            aria-label={`${wt}→${p.alt} ${TOOL_NAME[tool]} ${p.value.toFixed(3)} (${bandLabel(tool, p.value)})`}
-            title={`${wt}→${p.alt} ${p.value.toFixed(3)} · ${bandLabel(tool, p.value)}`}
-          >
-            {p.alt}
-          </button>
-        );
-      })}
-      {placements.map((p) => {
-        return isMoved(p) ? <span key={`s-${p.alt}`} className="lsr-strip__stem" aria-hidden="true" style={{ left: `${p.chipLeft + STRIP_CHIP_W / 2}px` }} /> : null;
-      })}
-      <span className="lsr-strip__axis" aria-hidden="true">
-        <span>0</span>
-        <span>1</span>
-      </span>
-    </div>
-  );
-}
-
-/* ─────────────────── the rail ─────────────────── */
 
 export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   analysisResult,
@@ -197,15 +66,12 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const selectedGenomicVariant = selectedGenomicVariantProp ?? storeGenomicVariant;
   const residueLetter = useVariantAnalysisStore((s) => selectResidueLetter(s, activeResIndex));
 
-  const domains: UniprotFeatureItem[] = (analysisResult?.uniprotFeatures?.features || []).filter(
-    (f: any) => isRegionFeatureType(f.type)
-  );
   const meta = analysisResult?.landscapeMeta ?? null;
 
   const rows: LandscapeResidueItem[] = React.useMemo(() => {
     const map = new Map<number, LandscapeResidueItem>();
     for (const item of [...(analysisResult?.landscapeData ?? []), ...(extraRows ?? [])]) {
-      if (item && typeof item.residx === "number") map.set(item.residx, item);
+      map.set(item.residx, item);
     }
     return [...map.values()].sort((a, b) => a.residx - b.residx);
   }, [analysisResult?.landscapeData, extraRows]);
@@ -236,10 +102,6 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     alphaMissense: finite(analysisResult?.predictorData?.amPathogenicity)
   };
 
-  /*
-   * Verdict first: what the chips are read on (the picked substitution, the queried variant, or the
-   * residue summary) is decided in the shared model, never re-derived here.
-   */
   const selectedAlt = selection?.kind === "substitution" && selection.pos === activeResIndex ? selection.alt ?? null : null;
   const verdict = landscapeVerdict({
     target: target.pos && target.wt && target.mut ? { pos: target.pos, wt: target.wt, mut: target.mut } : null,
@@ -251,39 +113,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     selectedAlt,
     provenance: { am: analysisResult?.predictorData?.amProvenance, revel: analysisResult?.conservationData?.revelProvenance, table: provenanceLine(meta) }
   });
-  // The per-tool block repeats "this variant 0.853" only when the verdict row does not already
-  // carry it (it does for a variant-level verdict).
   const showVariantLine = !(verdict.kind === "variant" && verdict.isQuery);
   const noRecord = Boolean(activeRow && residueCount(activeRow, "revel") === 0 && residueCount(activeRow, "alphaMissense") === 0);
-
-  const residueContext = (() => {
-    const ctx = overview?.data?.context;
-    if (!activeResIndex || !ctx) return [] as ContextRow[];
-    const out: ContextRow[] = [];
-    const cv = ctx.clinvar?.filter((c) => c.pos === activeResIndex) ?? [];
-    if (ctx.clinvar) {
-      const own = cv.filter(c => clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null));
-      const others = cv.filter(c => !own.includes(c));
-      out.push({
-        label: "ClinVar",
-        value: own.length
-          ? own.map(c => `${c.hgvsp} ${c.significance} (queried)`).join("; ")
-          : cv.length ? `${cv.length} missense record${cv.length === 1 ? "" : "s"} at this residue` : "no missense here",
-        records: others.map(c => `${c.hgvsp} ${c.significance}`),
-        // "other" only makes sense when the queried record is already on screen.
-        recordsLabel: `${others.length}${own.length ? " other" : ""} substitution record${others.length === 1 ? "" : "s"}`
-      });
-    }
-    const gn = ctx.gnomad?.find((x) => x.pos === activeResIndex);
-    if (ctx.gnomad) out.push({ label: "gnomAD", value: gn ? `${gn.variants} missense, max AC ${gn.maxAc}` : "no missense here" });
-    const region = ctx.regions?.find((r) => activeResIndex >= r.start && activeResIndex <= r.end);
-    if (ctx.regions) out.push({
-      label: "Regional O/E",
-      value: region ? `${region.oe ?? "Not reported"} across residues ${region.start}–${region.end}` : "no constrained region",
-      source: region ? ctx.regionsBasis : undefined
-    });
-    return out;
-  })();
 
   // The picked nucleotide stays in the store after the reader moves on to a residue or substitution;
   // it is shown only while it is the current selection (or when the exon panel set it alone).
@@ -377,7 +208,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                       <div className="text-[13px] font-semibold text-cs-text-primary">
                         {aaData?.name ? `${aaData.name} ` : "Residue "}{activeResIndex}
                       </div>
-                      <div className="text-[11px] text-cs-text-muted truncate">
+                      <div className="text-[11px] text-cs-text-muted">
                         {isTarget && target.wt && target.mut
                           ? `Queried: ${AMINO_ACID_1_TO_3_TITLE[target.wt] || target.wt} → ${AMINO_ACID_1_TO_3_TITLE[target.mut] || target.mut}`
                           : aaData?.property || ""}
@@ -391,7 +222,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                     </div>
                   )}
 
-                  {noRecord ? (
+                  {noRecord && !selectedAlt ? (
                     <div className="text-[12px] text-cs-text-secondary leading-snug">
                       <span className="font-semibold text-cs-text-primary">No score to read here.</span> dbNSFP has no missense record at residue {activeResIndex}, so
                       there is no REVEL, AlphaMissense or conservation score to show. That is absence of data, not a benign reading.
@@ -402,12 +233,9 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                         </span>
                       )}
                     </div>
-                  ) : activeRow ? (
+                  ) : activeRow || selectedAlt || (isTarget && (variantScores.revel !== null || variantScores.alphaMissense !== null)) ? (
                     <>
-                      {/* The lead box: the verdict as one plain sentence, before any figure. */}
-                      <div className="lsr-readsas">
-                        <span className="font-semibold">Reads as</span> · {readsAsSentence(verdict)}
-                      </div>
+                      <div className="lsr-readsas"><span className="font-semibold">{verdict.kind === "residue" ? "Residue summary" : verdict.isQuery ? "Queried substitution" : "Inspected substitution"}</span> · {verdict.label.replace(/^Residue /, "")}</div>
                       {verdict.mismatch && (
                         <details className="lsr-mismatch">
                           <summary>Score disagreement — read with caution</summary>
@@ -440,58 +268,14 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                     <div className="text-[11px] italic text-cs-text-muted">No residue scores are loaded for residue {activeResIndex}.</div>
                   )}
 
-                  {/* Population and clinical context does not depend on a score, so it shows for unscored residues too. */}
-                  {residueContext.length > 0 && (
-                    <div className="lsr-kv">
-                      {residueContext.map((r) => (
-                        <div key={r.label} className="lsr-kv__row">
-                          <span className="lsr-kv__label">{r.label}</span>
-                          <div className="lsr-kv__value">
-                            <span>{r.value}</span>
-                            {!!r.records?.length && <details className="lsr-context-source">
-                              <summary>{r.recordsLabel}</summary>
-                              <ul>{r.records.map((record, index) => <li key={index}>{record}</li>)}</ul>
-                            </details>}
-                            {r.source && <details className="lsr-context-source">
-                              <summary>Source details</summary>
-                              <p>{r.source}</p>
-                              <p>O/E is the observed-to-expected ratio for missense variation in this region, not a score for this substitution.</p>
-                            </details>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <LandscapeLocalContext context={overview?.data?.context ?? null}
+                    features={analysisResult?.uniprotFeatures?.features}
+                    position={activeResIndex} target={target} />
                 </>
               )}
             </div>
           )}
 
-          {domains.length > 0 && (
-            <section className="flex flex-col gap-2 pt-3">
-              <div className="flex items-center justify-between">
-                <span className="lsr-eyebrow flex items-center gap-1.5">
-                  <Bookmark className="w-3.5 h-3.5 text-cs-accent-clay" />
-                  Go to domain
-                </span>
-                <span className="text-[10px] font-mono text-cs-text-muted">{domains.length}</span>
-              </div>
-              <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-0.5">
-                {domains.map((dom, i) => (
-                  <button
-                    key={`${dom.description}_${i}`}
-                    type="button"
-                    onClick={() => onSelectResidueIndex?.(dom.start)}
-                    className="p-2 rounded-lg border border-cs-border-subtle bg-cs-surface-2 hover:border-cs-accent-clay text-left cursor-pointer flex items-center justify-between gap-2"
-                    title="Centre the residue grid on this domain's first residue"
-                  >
-                    <span className="font-semibold text-[11px] text-cs-text-primary truncate">{dom.description || "Region"}</span>
-                    <span className="font-mono text-[10px] text-cs-text-secondary shrink-0">{dom.start}–{dom.end}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
       </section>
 
       {activeResIndex && activeRow && !noRecord && <section aria-label="Substitution scores" className="lsr-panelbox">
@@ -508,34 +292,11 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
             </div>
       </section>}
 
-      <details className="lsr-sources">
-        <summary>Sources & method</summary>
-          <section className="flex flex-col gap-2">
-            <span className="lsr-eyebrow flex items-center gap-1.5">
-              <BookOpen className="w-3.5 h-3.5 text-cs-accent-clay" />
-              Sources & method
-            </span>
-            <div className="text-[11px] text-cs-text-secondary leading-snug flex flex-col gap-1.5">
-              <span className="font-mono text-[10px]">{provenanceLine(meta)}</span>
-              {meta?.window && <span>Scores loaded for residues {meta.window.start}–{meta.window.end}{meta.retrievedAt ? `, retrieved ${new Date(meta.retrievedAt).toLocaleString()}` : ""}.</span>}
-                <div className="flex flex-col gap-1.5 pt-2">
-                  <span>
-                    Each SNV is counted once, on one transcript. REVEL and AlphaMissense are summarised over a residue's
-                    missense substitutions; GERP++ and phyloP are averaged over the codon's nucleotides.
-                  </span>
-                  <ul className="flex flex-col gap-0.5">
-                    {SOURCES.map((s) => (
-                      <li key={s.doi}>
-                        <a href={`https://doi.org/${s.doi}`} target="_blank" rel="noopener noreferrer" className="text-cs-accent-clay hover:underline">
-                          {s.label}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-            </div>
-          </section>
-      </details>
+      <LandscapeMethods meta={meta} />
+      <LandscapeDomainNavigation features={analysisResult?.uniprotFeatures?.features} onPick={(pos) => {
+        setSelection({ key: extraKey, kind: "residue", pos });
+        onSelectResidueIndex?.(pos);
+      }} />
     </div>
   );
 };
