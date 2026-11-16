@@ -364,14 +364,16 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : fe.applied.suppressed
         ? "The frequency supports a criterion that was not recorded."
         : popRead
-        ? "No frequency criterion applies."
+        ? (fe.criterion.candidatesDisagree ? "Candidate alleles disagree." : "No frequency criterion applies.")
         : "No frequency evidence was counted.",
     rest: popCode
       ? (fe.criterion.predicate ? `${fe.criterion.predicate[0].toUpperCase()}${fe.criterion.predicate.slice(1)}.` : "")
       : fe.applied.suppressed
         ? fe.applied.withheldByWeighting ? `The ${weighting} weighting withheld it; it does not count toward the classification.` : "Inspect Population data for the current reading. Only the engine's recorded criteria count toward the classification."
         : popRead
-        ? (fe.criterion.predicate ? `The frequency read is ${fe.criterion.predicate}, so PM2, BS1 and BA1 are all unmet.` : "The frequency read meets none of PM2, BS1 or BA1.")
+        ? (fe.candidates && fe.criterion.predicate
+            ? `${fe.criterion.predicate[0].toUpperCase()}${fe.criterion.predicate.slice(1)}.`
+            : fe.criterion.predicate ? `The frequency read is ${fe.criterion.predicate}, so PM2, BS1 and BA1 are all unmet.` : "The frequency read meets none of PM2, BS1 or BA1.")
         : fe.hasProviderFault
           ? "A source failed to answer, so rarity (PM2) was not computed."
           : "Rarity (PM2) was not computed because no frequency was read.",

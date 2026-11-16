@@ -131,6 +131,45 @@ describe("buildInsightsEvidence", () => {
     expect(none.tier).toBeNull();
     expect(none.gap).toBeNull();
   });
+
+  it("reads candidate disagreement cleanly and reports failed candidate queries as a source fault", () => {
+    const candidate = (alt: string) => ({ grch37Id: `4-1806119-G-${alt}`, id: `4-1804392-G-${alt}`, canonicalBy: "ensembl-lift", retryable: false });
+    const disagree = nae1({
+      gnomadFrequency: {
+        maxAF: null, groupMaxAF: null, genomeAF: null, exomeAF: null, genomeAC: null, exomeAC: null, genomeAN: null, exomeAN: null, nHomozygous: null, dataset: "gnomad_r4",
+        candidates: [
+          { id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "found", frequency: { maxAF: 0.03, groupMaxAF: 0.03, faf95: 0.02, dataset: "gnomad_r4" } },
+          { id: "4-1804392-G-C", grch37Id: "4-1806119-G-C", outcome: "not-found", frequency: null },
+        ],
+      },
+      serviceStatus: { gnomadFrequency: "ok" },
+      predictorData: {
+        gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [], candidates: [candidate("A"), candidate("C")] },
+      },
+    });
+    const disagreeLane = buildInsightsEvidence({ result: disagree, functionInput, stability: null }).lanes.find(l => l.key === "population")!;
+    expect(disagreeLane.lead).toBe("Candidate alleles disagree.");
+    expect(disagreeLane.rest).toMatch(/^The candidate alleles fall on different sides/);
+    expect(disagreeLane.rest).not.toContain("The frequency read is");
+
+    const failed = nae1({
+      gnomadFrequency: {
+        maxAF: null, groupMaxAF: null, genomeAF: null, exomeAF: null, genomeAC: null, exomeAC: null, genomeAN: null, exomeAN: null, nHomozygous: null, dataset: "gnomad_r4",
+        candidates: [
+          { id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "not-found", frequency: null },
+          { id: "4-1804392-G-C", grch37Id: "4-1806119-G-C", outcome: "failed", frequency: null, detail: "timeout" },
+        ],
+      },
+      serviceStatus: { gnomadFrequency: "ok" },
+      predictorData: {
+        gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [], candidates: [candidate("A"), candidate("C")] },
+      },
+    });
+    const failedLane = buildInsightsEvidence({ result: failed, functionInput, stability: null }).lanes.find(l => l.key === "population")!;
+    expect(failedLane.rest).toBe("A source failed to answer, so rarity (PM2) was not computed.");
+  });
 });
 
 describe("consolidated fields a report can reuse", () => {

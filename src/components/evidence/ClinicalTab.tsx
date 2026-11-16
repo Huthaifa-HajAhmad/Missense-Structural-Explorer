@@ -23,6 +23,7 @@ import { buildPopulationComparison } from '../../shared/evidenceComparison';
 import EvidenceComparison from './EvidenceComparison';
 import { evidenceTab } from '../../shared/evidenceTabs';
 import { clinvarMark } from '../../shared/viewMarks';
+import { CandidateAlleleTable } from './CandidateAlleles';
 
 /**
  * Population Data.
@@ -238,9 +239,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
   const aouRow = evidence.observations.find(o => o.id === "all-of-us");
   const clinvarFrequencyRows = evidence.observations.filter(o => o.id === "clinvar-submissions");
   // Only a release the payload names; "release not reported" is not worth a line of its own.
-  const gnomadRelease = gnomadRows[0]?.dataset && gnomadRows[0].dataset !== "release not reported"
-    ? gnomadRows[0].dataset
-    : null;
+  const gnomadRelease = evidence.gnomadRelease;
   const groupedMaxAf = criterion.usedGroupMax ? criterion.af : null;
   const ruleClinvarAf = criterion.sourceId === "clinvar-submissions" ? criterion.af : null;
 
@@ -256,8 +255,8 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
     : reading.ruleAf !== null ? formatAlleleFrequency(reading.ruleAf)
     : reading.mostCopies ? reading.mostCopies.counts
     : "No reading";
-  const leadLabel = criterion.absent ? "in gnomAD — no record of this variant"
-    : reading.ruleAf !== null ? "The frequency the rule read"
+  const leadLabel = criterion.absent ? (evidence.candidates ? "in gnomAD — no record of any candidate allele" : "in gnomAD — no record of this variant")
+    : reading.ruleAf !== null ? (evidence.candidates ? "The candidate allele closest to the cut-point" : "The frequency the rule read")
     : reading.mostCopies ? `${reading.mostCopies.label} · most copies in any one cohort`
     : null;
   // Where that frequency came from. gnomAD's "grouped maximum" is the highest frequency among its ancestry
@@ -278,6 +277,15 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
       label: frequencyObservationName(o),
       af: o.af as number,
     }));
+  for (const c of evidence.candidates ?? []) {
+    if (c.af !== null && c.af > 0) {
+      scaleReadings.push({
+        key: `candidate:${c.key}`,
+        label: `gnomAD ${c.change ?? "allele"} · ${c.id}`,
+        af: c.af,
+      });
+    }
+  }
   if (groupedMaxAf !== null && groupedMaxAf > 0) {
     scaleReadings.push({ key: "gnomad-group", label: "gnomAD ancestry-grouped maximum", af: groupedMaxAf });
   }
@@ -457,7 +465,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
             the standalone readings table carries it in its own foot. */}
         {workspace.enabled && evidence.gnomadHomozygotes !== null && (
           <p className="pop-hero__hom">
-            <span>gnomAD homozygotes</span>
+            <span>{evidence.candidates ? "gnomAD homozygotes (min across candidates)" : "gnomAD homozygotes"}</span>
             <span className="pop-mono pop-strong">{formatCount(evidence.gnomadHomozygotes)}</span>
             {bs2 !== null && (
               <span
@@ -489,7 +497,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
           </p>
         )}
 
-        {(evidence.hasProviderFault || evidence.hasPendingSource || evidence.recoveryAction === "provide-allele") && (
+        {(evidence.hasProviderFault || evidence.hasPendingSource || evidence.recoveryAction === "provide-allele" || evidence.recoveryAction === "retry") && (
           <div role="status" className="pop-callout pop-callout--banner" data-tone="warning">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span>
@@ -497,8 +505,10 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
                 ? "Coordinate-based evidence needs the original nucleotide allele before it can be queried."
                 : evidence.hasProviderFault
                 ? "At least one source did not deliver a reading for this run, so the figures above may be incomplete."
-                : "At least one source is still being queried, so the figures above may be incomplete."}{" "}
-              The affected rows are marked below.
+                : evidence.hasPendingSource
+                ? "At least one source is still being queried, so the figures above may be incomplete."
+                : "Locus resolution failed transiently, so coordinate-based evidence could not be queried."}{" "}
+              {evidence.candidates ? "Affected candidate alleles are marked below." : "The affected rows are marked below."}
             </span>
             {/* Offered only when another attempt could change the answer, never for a coverage fact. */}
             {evidence.recoveryAction === "provide-allele" && onNavigateToView && (
@@ -537,6 +547,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
             {gnomadRelease && <span className="pop-eyebrow-meta">gnomAD {gnomadRelease}</span>}
           </h2>
           <div className="pop-card pop-card--split pop-readings" data-testid="population-readings">
+            {evidence.candidates && <CandidateAlleleTable rows={evidence.candidates} />}
             {observedLines.length > 0 ? (
               <div className="pop-table-wrap">
                 <table className="pop-table">
@@ -552,7 +563,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
                   </tbody>
                 </table>
               </div>
-            ) : (
+            ) : !evidence.candidates && (
               <>
                 <div className="pop-card__head pop-card__head--cols">
                   <span className="pop-card__head-label">Source</span>

@@ -7,8 +7,9 @@ import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
+import { liftAlleleCandidates, withinOneCodon } from "./allele-candidates.ts";
 import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38, ucscGrch38Base } from "./locus-resolver.ts";
-import { LOCUS_POLICY_VERSION, type LocusResolution, type LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
+import { LOCUS_POLICY_VERSION, type AlleleCandidate, type LocusResolution, type LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
 export { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
@@ -530,6 +531,8 @@ export async function fetchPredictorsFallback(
   let gnomadVariantId: string | null = null;
   /** dbNSFP's own GRCh38 position for the matched record — the independent recovery route. */
   let dbnsfpGrch38: DbnsfpGrch38 | null = null;
+  /** Every allele of a complete list that can produce this change at one codon; none is selected. */
+  let candidateLoci: Array<[string, DbnsfpGrch38 | null]> = [];
 
   // 1. Check local dbNSFP first if available
   if (pos !== null) {
@@ -577,7 +580,8 @@ export async function fetchPredictorsFallback(
            * CADD and locus-keyed evidence (geometry, gnomAD, AlphaGenome) decline, mirroring the
            * AMBIGUOUS_PROTEIN_NUMBERING policy of the translate route.
            */
-          const matchedLoci = new Set<string>();
+          /** GRCh37 id → that record's own GRCh38 position, for every matching allele. */
+          const matchedLoci = new Map<string, DbnsfpGrch38 | null>();
           for (const hit of data.hits) {
             const hgvsp = Array.isArray(hit.dbnsfp?.hgvsp) ? hit.dbnsfp.hgvsp : [hit.dbnsfp?.hgvsp];
             const matchesVar = hgvsp.some((h: any) => {
@@ -605,7 +609,7 @@ export async function fetchPredictorsFallback(
                 const m = hit._id.match(/chr([0-9XYM]+):g\.(\d+)([A-Z]+)>([A-Z]+)/i);
                 if (m) {
                   const locusId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
-                  matchedLoci.add(locusId);
+                  if (!matchedLoci.has(locusId)) matchedLoci.set(locusId, readDbnsfpGrch38(hit));
                   if (gnomadVariantId === null) {
                     gnomadVariantId = locusId;
                     dbnsfpGrch38 = readDbnsfpGrch38(hit);
@@ -625,6 +629,21 @@ export async function fetchPredictorsFallback(
             dbnsfpGrch38 = null;
             caddPhred = null;
             steps.push({ step: "myvariant", outcome: "skipped", detail: "protein scores only; database alleles cannot replace the submitted coordinate" });
+          } else if (matchedLoci.size > 1 && incomplete) {
+            failureKind = "incomplete-evidence";
+            gnomadVariantId = null;
+            dbnsfpGrch38 = null;
+            caddPhred = null;
+            steps.push({ step: "myvariant", outcome: "failed", detail: `${matchedLoci.size} alleles match, but truncated MyVariant results cannot establish the complete candidate list` });
+          } else if (matchedLoci.size > 1 && withinOneCodon([...matchedLoci.keys()])) {
+            // Several alleles at one codon give this change (FGFR3 p.Gly380Arg: GGG, G>A or G>C).
+            // None is selected: each candidate is lifted and queried on its own below.
+            failureKind = "multiple-candidates";
+            candidateLoci = [...matchedLoci];
+            gnomadVariantId = null;
+            dbnsfpGrch38 = null;
+            caddPhred = null;
+            steps.push({ step: "myvariant", outcome: "ok", detail: `${matchedLoci.size} candidate alleles at one codon (GRCh37 ${[...matchedLoci.keys()].join(", ")}); none selected` });
           } else if (matchedLoci.size > 1 || knownAmbiguity) {
             failureKind = "ambiguous-allele";
             console.warn(`[VEP Fallback] ${matchedLoci.size} distinct MyVariant loci match ${normGene} ${cleanVar} by notation; refusing the coordinate as ambiguous.`);
@@ -667,7 +686,8 @@ export async function fetchPredictorsFallback(
    */
   let gnomadVariantAssembly: GenomeAssembly | null = null;
   let canonicalBy: LocusResolution["canonicalBy"] = null;
-  if (knownAmbiguity || failureKind === "ambiguous-allele" || coordinateOnly) {
+  let candidates: AlleleCandidate[] = [];
+  if (knownAmbiguity || failureKind === "ambiguous-allele" || failureKind === "multiple-candidates" || coordinateOnly) {
     gnomadVariantId = null;
     dbnsfpGrch38 = null;
     caddPhred = null;
@@ -684,17 +704,22 @@ export async function fetchPredictorsFallback(
     canonicalBy = recovered.canonicalBy;
     steps.push(...recovered.steps);
     transient ||= recovered.retryable;
+  } else if (candidateLoci.length > 0) {
+    candidates = await liftAlleleCandidates(candidateLoci, steps);
   }
   if (!gnomadVariantId) caddPhred = null;
+  const multiple = failureKind === "multiple-candidates";
   const definitive = failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence";
-  const retryable = canonicalBy === null && !definitive && transient;
+  // A candidate run is complete once every candidate is lifted; earlier VEP timeouts cannot change it.
+  const retryable = multiple ? candidates.some(c => c.retryable) : canonicalBy === null && !definitive && transient;
   const locusResolution: LocusResolution = {
     route: "fallback",
     canonicalBy,
     retryable,
-    ...(canonicalBy === null ? { failureKind: definitive ? failureKind : retryable ? "transient-provider" as const : failureKind ?? "not-found" as const } : {}),
+    ...(canonicalBy === null ? { failureKind: definitive || multiple ? failureKind : retryable ? "transient-provider" as const : failureKind ?? "not-found" as const } : {}),
     policyVersion: LOCUS_POLICY_VERSION,
     steps: steps.slice(-12),
+    ...(multiple ? { candidates } : {}),
   };
 
   const hasAnyData = amPathogenicity !== null || caddPhred !== null || Boolean(transcriptId);

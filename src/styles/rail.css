@@ -76,6 +76,8 @@
   font-size: var(--cs-font-size-caption); color: var(--cs-text-primary); text-align: right; overflow-wrap: anywhere;
 }
 .rail-kv--sources .rail-kv__row > dd { color: var(--cs-text-secondary); }
+/* One line per candidate allele of a protein-only input, right-aligned like the other values. */
+.rail-candidates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 
 /* Shared disease selector and context typography; isolated from other tabs' classes. */
 .ctx-screen, .ctx-rail { font-family: var(--cs-font-sans); font-size: var(--cs-font-size-prose); line-height: 1.5; color: var(--cs-text-secondary); }

@@ -32,11 +32,16 @@ import { CANONICAL_ASSEMBLY, ASSEMBLY_LABELS } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
 
 /** Increment only when previously cached fallback allele identity is no longer safe to reuse. */
-export const LOCUS_POLICY_VERSION = 2;
+export const LOCUS_POLICY_VERSION = 3;
 
 /** Additive wire vocabulary: old payloads without a failure kind still parse. */
 export const locusFailureKindSchema = z.enum([
   "ambiguous-allele",
+  /**
+   * The protein change can come from several nucleotide alleles, and the complete candidate list is
+   * in `candidates`. No single allele was established, but each candidate is queried on its own.
+   */
+  "multiple-candidates",
   "transient-provider",
   "incomplete-evidence",
   "not-found",
@@ -64,6 +69,20 @@ export const locusResolutionStepSchema = z.object({
   detail: z.string().max(300).optional(),
 });
 
+/**
+ * One nucleotide allele that can produce the submitted protein change, found by MyVariant.info
+ * (whose ids are GRCh37) and lifted to GRCh38 on its own.
+ */
+export const alleleCandidateSchema = z.object({
+  grch37Id: z.string(),
+  /** GRCh38 gnomAD-style id, or null when no lift was verified. */
+  id: z.string().nullable(),
+  canonicalBy: z.enum(["ensembl-lift", "dbnsfp-grch38"]).nullable(),
+  /** True when the lift failed for a reason another run could change. */
+  retryable: z.boolean(),
+});
+export type AlleleCandidate = z.infer<typeof alleleCandidateSchema>;
+
 export const locusResolutionSchema = z.object({
   /** Which branch produced the payload. */
   route: z.enum(["vep-coordinate", "vep-hgvs", "fallback"]),
@@ -80,6 +99,8 @@ export const locusResolutionSchema = z.object({
   /** Cache policy generation for fallback results; absent on legacy payloads. */
   policyVersion: z.number().int().positive().optional(),
   steps: z.array(locusResolutionStepSchema).max(12),
+  /** Every candidate allele, present only with `failureKind: "multiple-candidates"`. */
+  candidates: z.array(alleleCandidateSchema).max(12).optional(),
 });
 
 export type LocusResolutionStep = z.infer<typeof locusResolutionStepSchema>;
@@ -157,10 +178,15 @@ export function locusFailureKind(result: LocusResultLike | null | undefined): Lo
 export function locusRecoveryAction(result: LocusResultLike | null | undefined): "retry" | "provide-allele" | null {
   const kind = locusFailureKind(result);
   if (!kind) return null;
+  const trail = result?.predictorData?.locusResolution;
+  if (kind === "multiple-candidates") {
+    const unresolved = (trail?.candidates ?? []).filter(c => !c.id);
+    if (unresolved.length === 0) return null;
+    return unresolved.some(c => c.retryable) ? "retry" : "provide-allele";
+  }
   if (kind === "ambiguous-allele" || kind === "incomplete-evidence" || kind === "invalid-notation") {
     return "provide-allele";
   }
-  const trail = result?.predictorData?.locusResolution;
   return (!trail || trail.retryable) ? "retry" : null;
 }
 
@@ -195,6 +221,9 @@ export function fallbackCause(
   if (failureKind === "ambiguous-allele") {
     return "this protein change can represent more than one nucleotide allele. Provide the original transcript-qualified cDNA variant, or a genomic variant and its genome build; no allele was selected or inferred.";
   }
+  if (failureKind === "multiple-candidates") {
+    return "this protein change can come from more than one nucleotide allele. Sources that read one allele at a time were not queried, and no allele was selected; gnomAD population frequency is read for every candidate allele instead.";
+  }
   if (failureKind === "incomplete-evidence") {
     return "the lookup did not establish a unique nucleotide allele from complete evidence. Provide the original transcript-qualified cDNA variant, or a genomic variant and its genome build; no allele was selected or inferred.";
   }
@@ -217,6 +246,7 @@ export function fallbackCause(
 
 /** A short form for tight chrome (the header's run-state slot). */
 export function fallbackLocusShortLabel(assembly: GenomeAssembly | null, failureKind?: LocusFailureKind | null): string {
+  if (failureKind === "multiple-candidates") return "Several candidate alleles";
   if (failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence" || failureKind === "invalid-notation") return "Nucleotide allele needed";
   if (!assembly) return "Locus not resolved";
   return `${assembly === "GRCh37" ? "hg19" : assembly} fallback`;

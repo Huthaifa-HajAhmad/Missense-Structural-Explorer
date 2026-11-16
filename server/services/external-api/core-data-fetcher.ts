@@ -51,7 +51,14 @@ import {
 } from "../orchestration/timeout-scope.ts";
 import { CONFIG } from "../../config.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
+import { alleleCandidatesToQuery, fetchCandidateFrequencies } from "./gnomad-candidates.ts";
 import { makeLocusRunner, speculativeCoordinateLocus, speculativeLocusMode } from "../prediction/predictors/speculative-locus.ts";
+
+/** The single-allele fields of a candidate run's gnomAD payload: empty, because no allele was selected. */
+const NO_SINGLE_ALLELE_FREQUENCY = {
+  maxAF: null, groupMaxAF: null, genomeAF: null, exomeAF: null, genomeAC: null, exomeAC: null,
+  genomeAN: null, exomeAN: null, nHomozygous: null, dataset: "gnomad_r4",
+} as const;
 
 function hasPopulationObservation(value: any): boolean {
   return Boolean(value && [value.maxAF, value.groupMaxAF, value.genomeAF, value.exomeAF,
@@ -511,6 +518,12 @@ async function runCoreFetch(
        * `unsupported-build` rather than as an absence. The build is also passed into the cache key so
        * a cross-build entry can never be served.
        */
+      const deadline = { deadlineAt: Date.now() + Math.max(0, coreTimeoutMs - (performance.now() - overallStart)), cappedByCaller: true };
+      // A protein change several alleles can produce: one gnomAD reading per candidate, none selected.
+      const candidates = alleleCandidatesToQuery(pred);
+      if (candidates) {
+        return { refused: false, value: { ...NO_SINGLE_ALLELE_FREQUENCY, candidates: await fetchCandidateFrequencies(candidates, deadline) } };
+      }
       const coordinate = verifiedPopulationCoordinate(pred);
       if (!coordinate) return { refused: true, value: null };
       // The locus resolved, so `pred` is a verified record; the non-null assertions below were the
@@ -525,11 +538,7 @@ async function runCoreFetch(
       // is expressed on (Date.now(), which `fetchWithRetry` compares against).
       return {
         refused: false,
-        value: await fetchGnomadVariantFrequency(variantId, {
-          assembly: coordinate.assembly,
-          deadlineAt: Date.now() + Math.max(0, coreTimeoutMs - (performance.now() - overallStart)),
-          cappedByCaller: true,
-        }),
+        value: await fetchGnomadVariantFrequency(variantId, { assembly: coordinate.assembly, ...deadline }),
       };
     })).then(r => ({ ok: true as const, refused: r.refused, value: r.value }), (error: unknown) => ({ ok: false as const, refused: false, value: null, error }));
   /**
@@ -563,7 +572,7 @@ async function runCoreFetch(
     // and returning it here manufactured a frequency from a confirmed absence. A build refusal is
     // NOT absence — the coordinate was never queried — so `refused` keeps the stand-in order below.
     if (remote.ok && remote.value === null && !remote.refused) return null;
-    if (remote.ok && hasPopulationObservation(remote.value)) return remote.value;
+    if (remote.ok && (hasPopulationObservation(remote.value) || Boolean(remote.value?.candidates?.length))) return remote.value;
     if (hasPopulationObservation(localFreqs?.gnomad)) {
       if (graceFired) gnomadFreqStandIn = "grace";
       else if (!remote.ok) { gnomadFreqStandIn = "fault"; console.warn("[Gnomad Frequency Warning] Remote gnomAD failed; the local dbNSFP ingest stands in:", remote.error); }

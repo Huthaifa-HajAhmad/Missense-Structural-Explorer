@@ -1050,6 +1050,16 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
     expect(isStaleCachedPayload(payload(statuses), ctx, ago(30_000))).toBe(false);
     expect(isStaleCachedPayload(payload(statuses), ctx, ago(10 * 60_000))).toBe(true);
     expect(isStaleCachedPayload(payload(statuses), ctx, "not a date")).toBe(true);
+
+    const candidateFailed = {
+      ...payload({ clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }),
+      gnomadFrequency: {
+        maxAF: null, genomeAF: null, exomeAF: null, nHomozygous: null, dataset: "gnomad_r4",
+        candidates: [{ id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "failed", frequency: null }],
+      },
+    };
+    expect(isStaleCachedPayload(candidateFailed, ctx, ago(30_000))).toBe(false);
+    expect(isStaleCachedPayload(candidateFailed, ctx, ago(10 * 60_000))).toBe(true);
   });
 
   it("keeps a payload whose core statuses are not faults", () => {

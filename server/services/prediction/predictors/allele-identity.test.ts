@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { PredictorData } from "../../../../src/shared/contracts.ts";
 import { verifiedPopulationCoordinate } from "./allele-identity.ts";
+import { LOCUS_POLICY_VERSION } from "../../../../src/shared/locusResolution.ts";
 
 const healthy = { available: true, gnomadVariantId: "1-100-C-A", gnomadVariantAssembly: "GRCh38", source: "Ensembl VEP API" } as PredictorData;
 describe("verified cohort allele identity", () => {
-  it("preserves healthy legacy VEP and policy2 canonical fallback", () => {
+  it("preserves healthy legacy VEP and a current-policy canonical fallback, not an older policy's", () => {
     expect(verifiedPopulationCoordinate(healthy)).toEqual({ chrom: "1", pos: 100, ref: "C", alt: "A", assembly: "GRCh38" });
-    expect(verifiedPopulationCoordinate({ ...healthy, source: "MyVariant fallback", locusResolution: {
-      route: "fallback", canonicalBy: "dbnsfp-grch38", retryable: false, policyVersion: 2, steps: [],
-    } })).not.toBeNull();
+    const fallback = (policyVersion: number) => ({ ...healthy, source: "MyVariant fallback", locusResolution: {
+      route: "fallback" as const, canonicalBy: "dbnsfp-grch38" as const, retryable: false, policyVersion, steps: [],
+    } });
+    expect(verifiedPopulationCoordinate(fallback(LOCUS_POLICY_VERSION))).not.toBeNull();
+    expect(verifiedPopulationCoordinate(fallback(LOCUS_POLICY_VERSION - 1))).toBeNull();
   });
   it.each(["MyVariant", "dbNSFP", "VEP Fallback"])("rejects legacy source-labelled %s without a verified trail", source => {
     expect(verifiedPopulationCoordinate({ ...healthy, source })).toBeNull();

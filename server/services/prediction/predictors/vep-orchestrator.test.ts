@@ -34,6 +34,7 @@ vi.mock("../../infra/analysis-db.ts", () => ({ AnalysisDatabase: {
 import { fetchPredictorData, fetchPredictorsFallback, isUsablePredictorResult, isIntrinsicallyAmbiguousProteinChange } from "./vep-orchestrator.ts";
 import { predictorCache } from "../../infra/cache.ts";
 import { buildPredictorsKey } from "../../infra/cache-keys.ts";
+import { LOCUS_POLICY_VERSION } from "../../../../src/shared/locusResolution.ts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const hit = (alt = "A") => ({
@@ -212,16 +213,6 @@ describe("predictor locus outcome reconciliation", () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
-  it("treats two alternate alleles at the same position as ambiguity, preserving protein AlphaMissense only", async () => {
-    mocks.fetch.mockResolvedValue(json({ hits: [hit("A"), hit("G")] }));
-    const result = await fetchPredictorsFallback("TEST", "D116G");
-    expect(result.gnomadVariantId).toBeNull();
-    expect(result.caddPhred).toBeNull();
-    expect(result.amPathogenicity).toBe(0.8);
-    expect(result.locusResolution).toMatchObject({ failureKind: "ambiguous-allele", policyVersion: 2 });
-    expect(mocks.recover).not.toHaveBeenCalled();
-  });
-
   it.each([0, 1])("canonical VEP ambiguity dominates unrelated timeouts and %s database hits", async (count) => {
     mocks.fetch.mockImplementation(async (url: string) => {
       if (url.includes("myvariant")) return json({ hits: count ? [hit()] : [] });
@@ -281,7 +272,7 @@ describe("predictor locus outcome reconciliation", () => {
   it("caches new complete healthy canonical fallback results", async () => {
     mocks.fetch.mockImplementation(async (url: string) => url.includes("myvariant") ? json({ total: 1, hits: [hit()] }) : json({}, 503));
     const first = await fetchPredictorData("TEST", "D116G", "P1");
-    expect(first.locusResolution).toMatchObject({ canonicalBy: "dbnsfp-grch38", retryable: false, policyVersion: 2 });
+    expect(first.locusResolution).toMatchObject({ canonicalBy: "dbnsfp-grch38", retryable: false, policyVersion: LOCUS_POLICY_VERSION });
     expect(isUsablePredictorResult(first)).toBe(true);
     mocks.fetch.mockClear();
     expect(await fetchPredictorData("TEST", "D116G", "P1")).toEqual(first);
@@ -502,5 +493,76 @@ describe("predictor locus outcome reconciliation", () => {
         retryable: true,
       });
     });
+  });
+});
+
+describe("protein change with several candidate alleles", () => {
+  /** FGFR3 p.Gly380Arg: codon GGG, so G>A and G>C at the same base both give Arg. */
+  const candidate = (alt: string, pos = 100) => ({
+    _id: `chr1:g.${pos}G>${alt}`,
+    dbnsfp: { hgvsp: ["p.G380R", "p.Gly380Arg"], alphamissense: { am_pathogenicity: 0.9 }, cadd: { phred: 28 } },
+  });
+  const myvariant = (body: unknown) => mocks.fetch.mockImplementation(async (url: string) => url.includes("myvariant") ? json(body) : json({}, 503));
+
+  it("resolves a unique candidate from a complete list as one allele", async () => {
+    myvariant({ total: 1, hits: [candidate("A")] });
+    const result = await fetchPredictorsFallback("TEST", "G380R");
+    expect(result.gnomadVariantId).toBe("1-200-G-A");
+    expect(result.locusResolution?.candidates).toBeUndefined();
+  });
+
+  it("keeps and lifts every candidate of a complete list, selecting none", async () => {
+    myvariant({ total: 2, hits: [candidate("A"), candidate("C")] });
+    const result = await fetchPredictorsFallback("TEST", "G380R");
+    expect(result.gnomadVariantId).toBeNull();
+    expect(result.caddPhred).toBeNull();
+    expect(result.amPathogenicity).toBe(0.9);
+    expect(mocks.recover).toHaveBeenCalledTimes(2);
+    expect(result.locusResolution).toMatchObject({
+      failureKind: "multiple-candidates", retryable: false, canonicalBy: null,
+      candidates: [
+        { grch37Id: "1-100-G-A", id: "1-200-G-A", canonicalBy: "dbnsfp-grch38", retryable: false },
+        { grch37Id: "1-100-G-C", id: "1-200-G-C", canonicalBy: "dbnsfp-grch38", retryable: false },
+      ],
+    });
+    expect(isUsablePredictorResult(result, "G380R")).toBe(true);
+  });
+
+  it("refuses candidates from an incomplete list without lifting any", async () => {
+    myvariant({ total: 3, hits: [candidate("A"), candidate("C")] });
+    const result = await fetchPredictorsFallback("TEST", "G380R");
+    expect(result.locusResolution).toMatchObject({ failureKind: "incomplete-evidence" });
+    expect(result.locusResolution?.candidates).toBeUndefined();
+    expect(mocks.recover).not.toHaveBeenCalled();
+  });
+
+  it("records which candidate's lift failed, and stays retryable when that failure was transient", async () => {
+    myvariant({ total: 2, hits: [candidate("A"), candidate("C")] });
+    mocks.recover.mockImplementation(async (id: string) => id.endsWith("-C")
+      ? { id, assembly: "GRCh37", canonicalBy: null, retryable: true, steps: [] }
+      : { id: id.replace("-100-", "-200-"), assembly: "GRCh38", canonicalBy: "ensembl-lift", retryable: false, steps: [] });
+    const result = await fetchPredictorsFallback("TEST", "G380R");
+    expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: true });
+    expect(result.locusResolution?.candidates?.[1]).toEqual({ grch37Id: "1-100-G-C", id: null, canonicalBy: null, retryable: true });
+    expect(result.locusResolution?.steps.some(s => s.detail?.includes("1-100-G-C"))).toBe(true);
+    expect(isUsablePredictorResult(result, "G380R")).toBe(false);
+  });
+
+  it("still refuses matches at different codons: those are other loci, not candidate alleles", async () => {
+    myvariant({ total: 2, hits: [candidate("A", 100), candidate("C", 5000)] });
+    const result = await fetchPredictorsFallback("TEST", "G380R");
+    expect(result.locusResolution).toMatchObject({ failureKind: "ambiguous-allele" });
+    expect(result.locusResolution?.candidates).toBeUndefined();
+    expect(mocks.recover).not.toHaveBeenCalled();
+  });
+
+  it("turns Ensembl's 'could not uniquely determine' into candidates when the list is complete", async () => {
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url.includes("myvariant")) return json({ total: 2, hits: [candidate("A"), candidate("C")] });
+      return json({ error: "Could not uniquely determine nucleotide change" }, 400);
+    });
+    const result = await fetchPredictorData("TEST", "G380R", "P1");
+    expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: false });
+    expect(result.locusResolution?.candidates?.map(c => c.id)).toEqual(["1-200-G-A", "1-200-G-C"]);
   });
 });

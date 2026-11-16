@@ -228,6 +228,26 @@ describe("self-healer service", () => {
     }
   });
 
+  it("keeps per-candidate gnomAD readings of a protein change several alleles can produce", async () => {
+    const { LOCUS_POLICY_VERSION } = await import("../../../src/shared/locusResolution.ts");
+    const context = { ...dummyContext, gene: "FGFR3", variant: "p.Gly380Arg" };
+    mockGetExternalCache.mockReturnValue(null);
+    const candidates = [{ id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "not-found", frequency: null }];
+    const payload: any = {
+      serviceStatus: { conservationData: "ok", gnomadFrequency: "ok" },
+      predictorData: { gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, policyVersion: LOCUS_POLICY_VERSION, retryable: false, failureKind: "multiple-candidates", steps: [],
+          candidates: [{ grch37Id: "4-1806119-G-A", id: "4-1804392-G-A", canonicalBy: "ensembl-lift", retryable: false }] } },
+      conservationData: { spliceai: 0.1, aouFrequency: { aouAC: 2, aouAN: 1000, aouHom: 1 } },
+      aouFrequency: { aouAC: 2, aouAN: 1000, aouHom: 1 },
+      gnomadFrequency: { maxAF: null, genomeAF: null, exomeAF: null, nHomozygous: null, dataset: "gnomad_r4", candidates },
+    };
+    const healed = healCachedAnalysisIfPossible(payload, context);
+    expect(healed.gnomadFrequency?.candidates).toEqual(candidates);
+    // All of Us has no per-candidate reading: protein-keyed counts are still removed.
+    expect(healed.aouFrequency).toBeNull();
+  });
+
   it.each([
     { gnomadVariantId: "7-140753336-A-T", gnomadVariantAssembly: "GRCh37" },
     { source: "dbNSFP Fallback", gnomadVariantId: "7-140753336-A-T", gnomadVariantAssembly: "GRCh38" },
