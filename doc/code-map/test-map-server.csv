@@ -83,6 +83,7 @@ server/services/evidence-context/allianceRelease.ts,server,server/services/evide
 server/services/evidence-context/clingenDosage.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/clingenDosage.test.ts
 server/services/evidence-context/cspec.ts,server,server/services/evidence-context/cspec.test.ts
 server/services/evidence-context/curatedInheritance.ts,server,
+server/services/evidence-context/curatedLofMechanism.ts,server,
 server/services/evidence-context/dgtex.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/dgtex.test.ts
 server/services/evidence-context/g2p.ts,server,server/services/evidence-context/g2p.test.ts;server/services/evidence-context/snapshotInstall.test.ts
 server/services/evidence-context/gencc.ts,server,server/services/evidence-context/gencc.test.ts;server/services/evidence-context/snapshotInstall.test.ts;server/services/evidence-context/store.test.ts

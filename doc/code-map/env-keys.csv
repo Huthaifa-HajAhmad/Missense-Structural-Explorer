@@ -86,6 +86,7 @@ FOLDX_REAPER_LEASE_MS,server/config.ts
 FOLDX_REPAIR_TIMEOUT_MS,server/config.ts
 FOLDX_SEMAPHORE_WAIT_MS,server/config.ts
 FOLDX_TIMEOUT_S,server/config.ts
+G2P_CONTEXT_PATH,server/services/evidence-context/curatedLofMechanism.ts
 G2P_CONTEXT_PATH,server/services/evidence-context/g2p.ts
 GEMINI_API_KEY,server/routes/biophysics/generation.ts
 GEMINI_API_KEY,server/routes/health.ts

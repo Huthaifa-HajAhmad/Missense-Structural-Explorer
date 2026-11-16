@@ -393,6 +393,7 @@ src/shared/literatureEvidence.ts,client,src/components/__tests__/ReviewWorkspace
 src/shared/literatureScreening.ts,client,src/shared/__tests__/curatedLiterature.test.ts;src/shared/__tests__/literatureScreening.test.ts
 src/shared/literatureSummary.ts,client,server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;src/shared/__tests__/literatureSummary.test.ts
 src/shared/locusResolution.ts,client,server/services/orchestration/analysis-orchestrator.test.ts;server/services/prediction/predictors/speculative-locus.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusRecoveryPolicy.test.ts
+src/shared/lofMechanismBasis.ts,client,src/shared/__tests__/lofMechanismBasis.test.ts
 src/shared/mechanismContext.ts,client,server/services/evidence-context/g2p.test.ts
 src/shared/mechanismWorkspace.ts,client,src/shared/__tests__/mechanismWorkspace.test.ts
 src/shared/modelCalibration.ts,client,src/shared/__tests__/modelCalibration.test.ts
