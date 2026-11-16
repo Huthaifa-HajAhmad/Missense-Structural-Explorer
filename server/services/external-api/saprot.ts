@@ -35,17 +35,22 @@ export interface SaprotEvalResult {
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
 
-import { parseShiftWindow } from "./lmShiftWindow.ts";
-import { parseRemoteFailure, type RemoteFailure } from "./remoteFailure.ts";
+import { type RemoteFailure } from "./remoteFailure.ts";
 import { CONFIG } from "../../config.ts";
 import { querySaProt } from "./japanfold-client.ts";
-import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
-import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
+import { resolveCredential } from "../infra/credentials.ts";
+import { sidecarFailure } from "../infra/sidecar-budget.ts";
+import {
+  isSidecarEvalSuccess,
+  mapJapanFoldZeroShot,
+  parseSidecarEvalPayload,
+  parseSubstitution,
+  postSidecarPredict,
+  sidecarStandbyError,
+  tryJapanFoldZeroShot
+} from "./lmSidecar.ts";
 
-export type ModelEvalError = {
-  error: string;
-  status: "offline" | "timeout" | "error" | "invalid_input" | string;
-};
+export type { ModelEvalError } from "./lmSidecar.ts";
 
 export async function runSaprotAnalysis(
   gene: string,
@@ -57,148 +62,88 @@ export async function runSaprotAnalysis(
   modelName: string = "westlake-repl/SaProt_650M_AF2",
   saprotEngine?: string
 ): Promise<SaprotEvalResult | null> {
-  const mutMatch = variant.match(/([a-zA-Z]{3}|[a-zA-Z])\s*(\d+)\s*([a-zA-Z]{3}|[a-zA-Z])/);
-  if (!mutMatch) return null;
-
-  const rawWt = mutMatch[1];
-  const pos = parseInt(mutMatch[2], 10);
-  const rawMut = mutMatch[3];
-
-  const wtRes = rawWt.length === 3 
-    ? normalizeThreeLetterToSingle(rawWt) 
-    : (["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"].includes(rawWt.toUpperCase()) ? rawWt.toUpperCase() : null);
-
-  const mutRes = rawMut.length === 3 
-    ? normalizeThreeLetterToSingle(rawMut) 
-    : (["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"].includes(rawMut.toUpperCase()) ? rawMut.toUpperCase() : null);
-
-  if (!wtRes || !mutRes) {
-    return null;
-  }
+  const sub = parseSubstitution(variant);
+  if (!sub) return null;
+  const { pos, wt: wtRes, mut: mutRes } = sub;
 
   // 1. Attempt Tier-1: JapanFold SaProt (Tenstorrent Galaxy Superclusters)
-  try {
-    const jfResult = await querySaProt(sequence, pos, wtRes, mutRes, wtPdb);
-    if (jfResult && jfResult.status === "success") {
-      const { localShiftMap, localEmbeddingShift } = parseShiftWindow(jfResult.localShiftMap);
-      return {
-        wtProbability: jfResult.wtProbability,
-        mutProbability: jfResult.mutProbability,
-        llr: jfResult.llr,
-        preferences: jfResult.preferences || [],
-        mutRank: jfResult.mutRank,
-        positionalEntropy: jfResult.positionalEntropy,
-        embeddingShift: jfResult.embeddingShift,
-        localEmbeddingShift,
-        localShiftMap,
-        klDivergence: jfResult.klDivergence,
-        conformationState: jfResult.conformationState,
-        provenance: jfResult.provenance
-      };
-    }
-  } catch (jfErr: any) {
-    console.warn(`[JapanFold SaProt] Tier-1 call failed: ${jfErr.message}. Falling back to local sidecar...`);
+  const jfResult = await tryJapanFoldZeroShot("SaProt", () => querySaProt(sequence, pos, wtRes, mutRes, wtPdb));
+  if (jfResult) {
+    return {
+      ...mapJapanFoldZeroShot(jfResult),
+      klDivergence: jfResult.klDivergence,
+      conformationState: jfResult.conformationState
+    };
   }
 
   // 2. Fallback to Local Sidecar (runs on CPU on OCI 2 OCPU / 8GB RAM with SaProt_35M_AF2)
-  const sidecarSecret = process.env.SIDECAR_SECRET || "";
-  const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/saprot`;
+  return runSaprotSidecar({ sequence, pos, wtRes, mutRes, hfToken, wtPdb, modelName, saprotEngine });
+}
+
+interface SaprotSidecarRequest {
+  sequence: string;
+  pos: number;
+  wtRes: string;
+  mutRes: string;
+  hfToken?: string | null;
+  wtPdb?: string | null;
+  modelName: string;
+  saprotEngine?: string;
+}
+
+async function runSaprotSidecar(req: SaprotSidecarRequest): Promise<SaprotEvalResult> {
+  const { sequence, pos, wtRes, mutRes, hfToken, wtPdb, modelName, saprotEngine } = req;
   const token = resolveCredential("huggingface", hfToken).token;
   const preferRemote = saprotEngine === "remote-hf" || (Boolean(token) && saprotEngine !== "saprot-35m");
-  // The same number the route races this model against (see `esm2.ts`).
-  const budgetMs = CONFIG.timeouts.structuralModelsMs;
   // Only a remote run reaches Hugging Face; a local SaProt run spends no one's allowance (WP-I4).
+  // A local run downloads public weights: it gets no token.
+  const sidecarToken = preferRemote ? token : null;
   try {
-    const sidecarRes = await governedForCredential("huggingface", preferRemote ? token : null, () => fetch(sidecarUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Sidecar-Secret": sidecarSecret,
-        [SIDECAR_BUDGET_HEADER]: String(budgetMs)
-      },
-      body: JSON.stringify({
-        sequence: sequence,
-        position: pos,
-        wt: wtRes,
-        mut: mutRes,
-        wtPdb: wtPdb || null,
-        // A local run downloads public weights: it gets no token, so it spends no one's allowance.
-        hfToken: preferRemote ? token : null,
-        modelName: modelName,
-        preferRemote,
-        engine: saprotEngine || null
-      }),
-      signal: AbortSignal.timeout(budgetMs) // CPU inference + model load can take 1-2 min
-    }), { deadlineAt: Date.now() + budgetMs, noteRefusal: saprotEngine !== "saprot-35m" });
+    const sidecarRes = await postSidecarPredict("saprot", {
+      sequence,
+      position: pos,
+      wt: wtRes,
+      mut: mutRes,
+      wtPdb: wtPdb || null,
+      hfToken: sidecarToken,
+      modelName,
+      preferRemote,
+      engine: saprotEngine || null
+    }, {
+      kind: "huggingface",
+      token: sidecarToken,
+      // The same number the route races this model against (see `esm2.ts`).
+      budgetMs: CONFIG.timeouts.structuralModelsMs,
+      noteRefusal: saprotEngine !== "saprot-35m"
+    });
 
-    if (sidecarRes.ok) {
-      const data = await sidecarRes.json() as any;
-      if (data && data.status === "success" && typeof data.llr === "number") {
-        const llr = data.llr;
-        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : undefined;
-        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : undefined;
-        const mutRank = typeof data.mutRank === "number" ? data.mutRank : undefined;
-        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : undefined;
-        const preferences = Array.isArray(data.preferences) ? data.preferences : [];
-        /**
-         * Absence is preserved, never coerced to 0. The sidecar reports null when its engine
-         * could not produce an embedding (the serverless filler API has no feature-extraction
-         * route for SaProt's 3Di tokens), and `0.000` on the card is indistinguishable from a
-         * measured zero shift. The same applies to KL divergence, which the 3Di remote path
-         * deliberately declines to fabricate.
-         */
-        const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
-        const { localShiftMap, localEmbeddingShift } = parseShiftWindow(data.localShiftMap);
-        const klDivergence = typeof data.klDivergence === "number" ? data.klDivergence : null;
-        const conformationState = typeof data.conformationState === "string" ? data.conformationState : null;
-
-        // No default: a payload that names no model is reported as "model not named", never as the requested one.
-        const provenance = typeof data.provenance === "string" ? data.provenance : undefined;
-
-        return {
-          wtProbability: wtProb,
-          mutProbability: mutProb,
-          llr,
-          preferences,
-          mutRank,
-          positionalEntropy,
-          embeddingShift,
-          localEmbeddingShift,
-          localShiftMap,
-          klDivergence,
-          conformationState,
-          provenance,
-          checkpoint: typeof data.checkpoint === "string" ? data.checkpoint : undefined,
-          scoringMethod: typeof data.scoringMethod === "string" ? data.scoringMethod : undefined,
-          hfError: data.hfError || undefined,
-          /**
-           * Both tier reasons are carried verbatim and labelled by tier in the UI, so the card no
-           * longer presents the remote engine's failure as the reason the SaProt result is missing
-           * when it was the local candidates that actually failed.
-           */
-          remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined,
-          remoteFailure: parseRemoteFailure(data.remoteFailure),
-          fallbackReason: typeof data.fallbackReason === "string" ? data.fallbackReason : undefined
-        };
-      }
-      return { error: `SaProt sidecar returned unexpected response format`, status: "error" };
-    }
-
-    return sidecarFailure("SaProt", sidecarRes.status);
+    if (!sidecarRes.ok) return sidecarFailure("SaProt", sidecarRes.status);
+    const data = await sidecarRes.json() as any;
+    if (!isSidecarEvalSuccess(data)) return { error: `SaProt sidecar returned unexpected response format`, status: "error" };
+    return saprotResultFromSidecar(data);
   } catch (err: any) {
-    const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
-    const status = isTimeout ? "timeout" : "offline";
-    console.warn(`[Local SaProt Analysis Warning] Failed to query local SaProt sidecar: ${err.message}.`);
-    return { error: isTimeout ? "SaProt timed out waiting for the model server" : `SaProt inference in standby (local sidecar warming up or offline)`, status };
+    return sidecarStandbyError("SaProt", err);
   }
 }
 
-function normalizeThreeLetterToSingle(three: string): string | null {
-  const map: Record<string, string> = {
-    ALA: "A", ARG: "R", ASN: "N", ASP: "D", CYS: "C",
-    GLN: "Q", GLU: "E", GLY: "G", HIS: "H", ILE: "I",
-    LEU: "L", LYS: "K", MET: "M", PHE: "F", PRO: "P",
-    SER: "S", THR: "T", TRP: "W", TYR: "Y", VAL: "V"
+function saprotResultFromSidecar(data: any): SaprotEvalResult {
+  return {
+    ...parseSidecarEvalPayload(data),
+    /**
+     * Absence is preserved, never coerced to 0. The sidecar reports null when its engine
+     * could not produce an embedding (the serverless filler API has no feature-extraction
+     * route for SaProt's 3Di tokens), and `0.000` on the card is indistinguishable from a
+     * measured zero shift. The same applies to KL divergence, which the 3Di remote path
+     * deliberately declines to fabricate.
+     */
+    klDivergence: typeof data.klDivergence === "number" ? data.klDivergence : null,
+    conformationState: typeof data.conformationState === "string" ? data.conformationState : null,
+    hfError: data.hfError || undefined,
+    /**
+     * Both tier reasons are carried verbatim and labelled by tier in the UI, so the card no
+     * longer presents the remote engine's failure as the reason the SaProt result is missing
+     * when it was the local candidates that actually failed.
+     */
+    fallbackReason: typeof data.fallbackReason === "string" ? data.fallbackReason : undefined
   };
-  return map[three.toUpperCase()] || null;
 }

@@ -52,7 +52,7 @@ CACHE_IDENTITY_SALT,server/services/orchestration/core-identity.ts
 COMPUTE_ROUTING,server/services/infra/admission.ts
 CORE_TIMEOUT_MS,server/config.ts
 ComSpec,server/services/infra/host-probe.ts
-ComSpec,server/services/structure/pocket/runner.ts
+ComSpec,server/services/structure/pocket/p2rank.ts
 DBNSFP_READER_WORKERS,server/services/prediction/dbnsfp-reader-pool.ts
 DBNSFP_SQLITE_PATH,server/services/prediction/dbnsfp_local.ts
 DBNSFP_WORKER_MIN_BYTES,server/services/prediction/dbnsfp_local.ts
@@ -141,12 +141,12 @@ NODE_ENV,server/services/translation/shadow-tiers.ts
 NODE_ENV,server/utils/security.ts
 NODE_ENV,src/test/setup.ts
 OMP_NUM_THREADS,server/sidecar-supervisor.ts
-P2RANK_CONFIG_PROFILE,server/services/structure/pocket/runner.ts
+P2RANK_CONFIG_PROFILE,server/services/structure/pocket/p2rank.ts
 P2RANK_JAVA_HOME,server/agent/state.ts
 P2RANK_JAVA_HOME,server/agent/tools.ts
 P2RANK_JAVA_HOME,server/services/structure/pocket/java-detector.ts
 P2RANK_TIMEOUT_S,server/config.ts
-P2RANK_TIMEOUT_S,server/services/structure/pocket/runner.ts
+P2RANK_TIMEOUT_S,server/services/structure/pocket/p2rank.ts
 PATH,server/sidecar-supervisor.ts
 PORT,server/config.ts
 PREDICTOR_SPECULATIVE_LOCUS,server/services/prediction/predictors/speculative-locus.ts
@@ -170,10 +170,8 @@ SHARED_TOKEN_SHARE_PER_HOUR,server/services/infra/credentials.ts
 SHUTDOWN_WATCHDOG_MS,server/config.ts
 SIDECAR_HEALTH_MS,server/config.ts
 SIDECAR_SECRET,server/config.ts
-SIDECAR_SECRET,server/services/external-api/esm2.ts
 SIDECAR_SECRET,server/services/external-api/esm3_forge.ts
-SIDECAR_SECRET,server/services/external-api/esmc.ts
-SIDECAR_SECRET,server/services/external-api/saprot.ts
+SIDECAR_SECRET,server/services/external-api/lmSidecar.ts
 SIDECAR_SECRET,server/services/stability/energy-models.ts
 SIDECAR_SECRET,server/services/stability/stabilityoracle.ts
 SIDECAR_SECRET,server/services/structure/esmfold.ts
