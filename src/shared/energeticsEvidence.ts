@@ -553,6 +553,12 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
       note = src
         ? `From the ${RASP_SOURCE_LABEL[src]} table${src === "experimental" ? "; positions follow the authors' structure numbering" : ""}.`
         : null;
+    } else if (outcome.id === "thermompnn" && has) {
+      note =
+        "App-defined +0.5 / +1.0 kcal/mol display marks await held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol).";
+    } else if (outcome.id === "stabilityoracle" && has) {
+      note =
+        "App-defined ±0.5 / +1.0 kcal/mol marks and PDB2PQR-reconstructed inputs (−pred/2) await held-out recalibration (sidecar raw isStabilizing uses < −0.5 kcal/mol).";
     }
 
     const risk = outcome.risk;

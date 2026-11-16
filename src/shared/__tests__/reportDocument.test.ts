@@ -100,6 +100,8 @@ describe("classification", () => {
     expect(strengthWord("PM1")).toBe("Moderate");
     expect(strengthWord("PP3")).toBe("Supporting");
     expect(strengthWord("BP4")).toBe("Supporting");
+    expect(strengthWord("BP4_Moderate")).toBe("Moderate");
+    expect(strengthWord("BP4_Strong")).toBe("Strong");
     expect(strengthWord("BA1")).toBe("Stand-alone");
   });
 

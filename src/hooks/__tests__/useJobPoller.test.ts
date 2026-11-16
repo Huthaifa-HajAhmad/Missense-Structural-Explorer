@@ -98,7 +98,7 @@ describe("useJobPoller Hook", () => {
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
     expect(onStatusChange).toHaveBeenCalledWith("unavailable");
     expect(onToolFailed).toHaveBeenCalledWith("DDMut");
-    expect(notifyOnce).toHaveBeenCalledWith("DDMut_job-456_unavailable", "error", expect.any(String));
+    expect(notifyOnce).toHaveBeenCalledWith("DDMut_job-456_unavailable", "error", expect.stringMatching(/5-minute listening window.*Retry/i));
   });
 
   it("handles real-time SSE stream job completion immediately", async () => {

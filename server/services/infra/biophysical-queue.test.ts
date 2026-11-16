@@ -259,4 +259,14 @@ describe("BiophysicalJobQueue Unit Tests", () => {
     const healthyStatus = await queue.getJobStatus(healthyId);
     expect(healthyStatus).toMatchObject({ status: "completed", result: "done:foldx:42" });
   });
+
+  it("always uses the SQLite backend even when REDIS_URL is configured", async () => {
+    vi.stubEnv("REDIS_URL", "redis://fake:6379");
+    const queue = BiophysicalJobQueue.initialize(1, async (type, data) => `done:${type}:${data.val}`);
+    expect(queue.getDeploymentState().backend).toBe("sqlite");
+    const id = await queue.pushJob("foldx", { val: 7 });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(await queue.getJobStatus(id)).toMatchObject({ status: "completed", result: "done:foldx:7" });
+    vi.unstubAllEnvs();
+  });
 });

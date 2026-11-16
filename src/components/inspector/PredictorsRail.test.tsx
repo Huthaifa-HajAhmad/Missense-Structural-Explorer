@@ -39,4 +39,18 @@ describe("PredictorsRail", () => {
     expect(within(section).getByRole("button", { name: /ESM-2/ })).toBeInTheDocument();
     expect(within(section).getByText(/never change PP3 \/ BP4/)).toBeInTheDocument();
   });
+
+  it("displays VESM fallback names and ESM-2 source provenance in the rail", () => {
+    const fallbackResult: any = {
+      ...result,
+      esm2Eval: { llr: -4.78, provenance: "VESM-150M (Local Fallback)" },
+      esmcEval: { llr: -9.55, provenance: "VESM-150M (Local Fallback - ESMC remote failed)" },
+      saprotEval: { llr: -3.16, provenance: "VESM-150M (Local Fallback - SaProt unavailable)" },
+    };
+    render(<EvidenceWorkspaceProvider result={fallbackResult}><PredictorsRail analysisResult={fallbackResult} /></EvidenceWorkspaceProvider>);
+    const section = screen.getByRole("region", { name: "Local informational agreement" });
+    expect(within(section).getByRole("button", { name: /VESM \(ESM-2 fallback\)/ })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: /VESM \(SaProt fallback\)/ })).toBeInTheDocument();
+    expect(screen.getAllByText(/VESM-150M \(Local Fallback\)/).length).toBeGreaterThanOrEqual(1);
+  });
 });

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import dns from "node:dns";
 import {
   fetchGpnStarScore,
   fetchGpnStarByCoordinate,
@@ -285,5 +286,25 @@ describe("resolveGpnAccess — who may be called with the server's HF token", ()
     );
     expect(coordRes.status).toBe("live");
     expect(coordRes.score).toBe(-1.25);
+  });
+
+  it("blocks custom GPN endpoints whose hostname resolves to private/metadata IPs in production", async () => {
+    process.env.NODE_ENV = "production";
+    vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "169.254.169.254", family: 4 }] as any);
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    const seqRes = await fetchGpnStarScore(
+      "MKWVTFISLLFLFSSAYS",
+      2,
+      "K",
+      "R",
+      null,
+      undefined,
+      "https://rebind.attacker.example/gpn"
+    );
+    expect(seqRes.status).toBe("unavailable");
+    expect(seqRes.message).toMatch(/Custom GPN-Star endpoint rejected:.*DNS resolution blocked/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

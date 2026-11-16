@@ -51,11 +51,33 @@ const clinvarSummaryResponseSchema = z.object({
         source: z.string().optional(),
         value: z.any().optional()
       })).optional(),
+      genes: z.array(z.object({
+        symbol: z.string().optional(),
+        geneid: z.string().optional()
+      })).optional(),
       /** An id ClinVar does not hold: esummary answers 200 with `{"uid", "error": "…"}`. */
       error: z.string().optional()
     }).optional()
   ).optional()
 });
+
+function entryMatchesQueriedGene(
+  entry: { title?: string; genes?: Array<{ symbol?: string }> },
+  normGene: string
+): boolean {
+  if (!normGene) return true;
+  const symbols = (entry.genes ?? [])
+    .map(g => (g.symbol ? normalizeGeneSymbol(g.symbol) : ""))
+    .filter(Boolean);
+  if (symbols.length > 0) {
+    return symbols.includes(normGene);
+  }
+  const titleGeneMatch = (entry.title || "").match(/\(([A-Za-z0-9_-]+)\):/);
+  if (titleGeneMatch) {
+    return normalizeGeneSymbol(titleGeneMatch[1]) === normGene;
+  }
+  return true;
+}
 
 function getCodingNotation(title: string): string | null {
   const match = title.match(/(c\.[^\s(]+)/i);
@@ -184,6 +206,7 @@ export async function fetchClinVarData(
      * never a record with a `uid` but no classification, which a screen could read as evidence.
      */
     if (entry.error) continue;
+    if (!entryMatchesQueriedGene(entry, normGene)) continue;
     
     const title = (entry.title || "").toLowerCase();
     let isMatch = isDirectIdSearch;
@@ -258,7 +281,7 @@ export async function fetchClinVarData(
     // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
     if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
       const otherC = getCodingNotation(matchingEntries[i].cleanTitle);
-      if (!matchedC || !otherC || matchedC !== otherC) {
+      if (matchedC && otherC && matchedC !== otherC) {
         hasOtherPathogenicVariantSameAA = true;
         break;
       }

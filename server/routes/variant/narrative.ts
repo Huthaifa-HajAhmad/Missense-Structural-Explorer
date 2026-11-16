@@ -37,6 +37,7 @@ import {
 } from "../../services/gemini.ts";
 import { computeRuleBasedACMG } from "../../services/acmg.ts";
 import { readCuratedInheritance } from "../../services/evidence-context/curatedInheritance.ts";
+import { readCuratedLofMechanism } from "../../services/evidence-context/curatedLofMechanism.ts";
 import { type AnalysisResult, aouLookupSchema } from "../../../src/shared/contracts.ts";
 import {
   type NarrativeFallbackReason,
@@ -166,6 +167,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       // AFTER the variant validation, not before it — a request an unparseable notation is about to
       // reject gets no reference read at all.
       const curatedInheritanceRead = readCuratedInheritance(gene);
+      const curatedLofMechanismRead = readCuratedLofMechanism(gene);
 
       /**
        * The evidence contract, from the SHARED declaration.
@@ -276,7 +278,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           null,
           uniprotFeatures,
           sequence,
-          await curatedInheritanceRead
+          await curatedInheritanceRead,
+          await curatedLofMechanismRead
         );
       }
 
@@ -356,6 +359,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         });
 
         const curatedInheritance = await curatedInheritanceRead;
+        const curatedLofMechanism = await curatedLofMechanismRead;
         const ruleInsights = computeRuleBasedACMG({
           gene,
           variant,
@@ -365,6 +369,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           gnomadConstraint,
           gnomadFrequency,
           curatedInheritance,
+          curatedLofMechanism,
           acmgWeighting,
           esm2: null,
           uniprotFeatures,
@@ -517,7 +522,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         null,
         uniprotFeatures,
         sequence,
-        await curatedInheritanceRead
+        await curatedInheritanceRead,
+        await curatedLofMechanismRead
       );
     } catch (error: any) {
       console.error("Narrative endpoint failure:", error);

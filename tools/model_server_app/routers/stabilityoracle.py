@@ -379,6 +379,7 @@ def predict_stabilityoracle_sync(req: StabilityOracleRequest):
             "status": "success",
             "ddG": round(ddg, 4),
             "ddg": round(ddg, 4),
+            # Raw sidecar cutoff (< -0.5 kcal/mol on reconstructed -pred/2 scale); app display marks (±0.5/+1.0) await held-out recalibration.
             "isStabilizing": ddg < -0.5,
             "contacts": contacts,
             "contactsAnalyzed": contacts,

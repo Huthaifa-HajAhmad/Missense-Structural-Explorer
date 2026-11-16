@@ -144,11 +144,14 @@ def predict_vesm_sync(req: VesmRequest):
     cache_key = (
         seq_hash, pos, wt, mut, bool(req.includeEmbeddings), start_offset
     )
-    result = _local_vesm_results.get_or_compute(
-        cache_key, lambda: _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash=seq_hash)
+    result = dict(
+        _local_vesm_results.get_or_compute(
+            cache_key, lambda: _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash=seq_hash)
+        )
     )
     if remote_engine_note:
         result["remoteEngineNote"] = remote_engine_note
+        result["provenance"] = "VESM-150M (Local Fallback - ESMC remote failed)"
     return result
 
 

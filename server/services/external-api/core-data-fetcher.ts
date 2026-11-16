@@ -1,6 +1,8 @@
 import { fetchClinVarData, type ClinVarData } from "./clinvar.ts";
 import { readCuratedInheritance } from "../evidence-context/curatedInheritance.ts";
+import { readCuratedLofMechanism } from "../evidence-context/curatedLofMechanism.ts";
 import type { CuratedInheritance } from "../../../src/shared/inheritanceBasis.ts";
+import type { CuratedLofMechanism } from "../../../src/shared/lofMechanismBasis.ts";
 import {
   fetchAlphafoldPdb,
   fetchBestPdbStructure,
@@ -374,6 +376,9 @@ async function runCoreFetch(
   /** Curated GenCC inheritance for PM2's ceiling and BS2 (null without a snapshot). Settles fast; read once. */
   let curatedInheritance: CuratedInheritance | null = null;
   const curatedInheritancePromise = readCuratedInheritance(gene).then(v => (curatedInheritance = v)).catch(() => null);
+  /** Curated G2P/ClinGen LOF mechanism for PVS1 (null without installed records). Settles fast; read once. */
+  let curatedLofMechanism: CuratedLofMechanism | null = null;
+  const curatedLofMechanismPromise = readCuratedLofMechanism(gene).then(v => (curatedLofMechanism = v)).catch(() => null);
 
   let gnomadConstraintHasError = false;
   /**
@@ -829,7 +834,8 @@ async function runCoreFetch(
         uniprotFeatures: (partialData.uniprotFeatures as UniprotFeaturesResult | null) ?? null,
         sequence,
         serviceStatus: runningStatus,
-        curatedInheritance
+        curatedInheritance,
+        curatedLofMechanism
       });
     } catch (err: any) {
       // A preview is advisory: a failure here must not abort a run whose evidence is still arriving.
@@ -1105,9 +1111,10 @@ async function runCoreFetch(
     pdbMapping: pdbMappingStatus
   };
 
-  await curatedInheritancePromise;
+  await Promise.all([curatedInheritancePromise, curatedLofMechanismPromise]);
   const ruleBasedInsights = computeRuleBasedACMG({
     curatedInheritance,
+    curatedLofMechanism,
     gene,
     variant,
     residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
@@ -1191,6 +1198,7 @@ async function runCoreFetch(
     aouFrequency,
     aouLookup,
     curatedInheritance,
+    curatedLofMechanism,
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,

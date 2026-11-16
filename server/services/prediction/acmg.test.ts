@@ -357,7 +357,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     });
     expect(resConstrained.acmgCriteria.some(c => c.code === "BP1")).toBe(false);
 
-    // 2. Truncating / null variant in LOF gene -> Should trigger PVS1, NOT BP1
+    // 2. Truncating / null variant in curated LOF gene -> Should trigger PVS1, NOT BP1
     const resNullVar = computeRuleBasedACMG({
       gene: "SHANK3",
       variant: "p.Arg120Ter",
@@ -370,11 +370,46 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
         missense_z: 0.45,
         oe_mis: 0.92
       },
+      curatedLofMechanism: {
+        source: "Gene2Phenotype",
+        lofEstablished: true,
+        nonLofOnly: false,
+        mechanisms: ["loss of function"],
+        records: 1
+      },
       gnomadFrequency: null,
       acmgWeighting: "standard"
     });
     expect(resNullVar.acmgCriteria.some(c => c.code === "BP1")).toBe(false);
     expect(resNullVar.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
+
+    // 3. pLI >= 0.9 alone WITHOUT curated LOF mechanism must withhold PVS1
+    const resUnpaired = computeRuleBasedACMG({
+      gene: "FGFR3",
+      variant: "p.Arg120Ter",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: { pli: 0.99, isPP2Constrained: false, missense_z: 1.2, oe_mis: 0.8 },
+      curatedLofMechanism: { source: "Gene2Phenotype", lofEstablished: false, nonLofOnly: true, mechanisms: ["gain of function"], records: 2 },
+      gnomadFrequency: null,
+      acmgWeighting: "standard"
+    });
+    expect(resUnpaired.acmgCriteria.some(c => c.code === "PVS1")).toBe(false);
+    expect(resUnpaired.partialEvidence.unavailable.some(u => u.includes("gain of function"))).toBe(true);
+
+    const resPliOnly = computeRuleBasedACMG({
+      gene: "UNKNOWN_CONSTRAINED",
+      variant: "p.Arg120Ter",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: { pli: 0.99, isPP2Constrained: false, missense_z: 1.2, oe_mis: 0.8 },
+      gnomadFrequency: null,
+      acmgWeighting: "standard"
+    });
+    expect(resPliOnly.acmgCriteria.some(c => c.code === "PVS1")).toBe(false);
+    expect(resPliOnly.partialEvidence.unavailable.some(u => u.includes("without a curated"))).toBe(true);
   });
 
   it("should accept structured ACMGEvidenceInput object and correctly classify pathogenic variant", () => {
@@ -478,6 +513,13 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       predictorData: { available: true, amPathogenicity: 0.95, amClass: "pathogenic", caddPhred: 30 },
       conservationData: { available: true, revel: 0.9 },
       gnomadConstraint: { pli: 0.99, isPP2Constrained: true, pp2Code: "PP2" as const, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" }, missense_z: 2.5, oe_mis: 0.4 },
+      curatedLofMechanism: {
+        source: "ClinGen/Gene2Phenotype" as const,
+        lofEstablished: true,
+        nonLofOnly: false,
+        mechanisms: ["loss of function"],
+        records: 2,
+      },
       gnomadFrequency: null,
       acmgWeighting: "standard" as const
     };

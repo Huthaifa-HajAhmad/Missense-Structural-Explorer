@@ -11,6 +11,7 @@ import {
 } from "../../../src/shared/contracts.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 import { buildAlphaGenomeKey } from "../infra/cache-keys.ts";
+import { validateSafeCustomEndpointUrlAsync } from "../../utils/security.ts";
 import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 import { CONFIG } from "../../config.ts";
 
@@ -283,6 +284,25 @@ export async function fetchAlphaGenome(
       };
     }
 
+    if (customEndpoint) {
+      const check = await validateSafeCustomEndpointUrlAsync(endpoint);
+      if (!check.valid) {
+        return {
+          status: "unavailable",
+          aviPhred: null,
+          aviRaw: null,
+          aviQuantile: null,
+          topPercentile: null,
+          topModality: null,
+          topFeatureImportance: null,
+          featureAttributions: null,
+          acmgStrength: "indeterminate",
+          atlasUrl: urls.trackPredictionsUrl,
+          message: `Custom AlphaGenome endpoint rejected: ${check.reason}`
+        };
+      }
+    }
+
     try {
       const res = await governedFetch(endpoint, {
         method: "POST",
@@ -535,6 +555,26 @@ export async function fetchAlphaGenomeRegionSaturation(
         atlasLocusUrl: locusUrl,
         message: "AlphaGenome endpoint not configured"
       };
+    }
+
+    if (customEndpoint) {
+      const check = await validateSafeCustomEndpointUrlAsync(baseEndpoint);
+      if (!check.valid) {
+        return {
+          status: "unavailable",
+          chrom: normChrom,
+          start,
+          end,
+          strand: strand || null,
+          transcriptId: transcriptId || null,
+          exonNumber: exonNumber || null,
+          exonStart: exonStart || null,
+          exonEnd: exonEnd || null,
+          positions: [],
+          atlasLocusUrl: locusUrl,
+          message: `Custom AlphaGenome endpoint rejected: ${check.reason}`
+        };
+      }
     }
 
     try {

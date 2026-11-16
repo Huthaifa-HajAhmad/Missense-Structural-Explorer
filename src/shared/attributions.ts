@@ -821,14 +821,14 @@ const SOFTWARE_SOURCES: AttributionEntry[] = [
   },
   {
     id: "queues",
-    name: "BullMQ and Redis",
-    provider: "Taskforce.sh (BullMQ) and the Redis maintainers",
+    name: "SQLite Job Queue and Redis Pub/Sub (ioredis)",
+    provider: "SQLite / Node.js and the Redis maintainers",
     kind: "software",
-    role: "The durable biophysical job queue and its event bus, which is what lets a FoldX or remote-engine request outlive a page refresh without being run twice.",
-    url: "https://docs.bullmq.io/",
+    role: "The durable biophysical job queue (SQLiteQueue) and cross-worker state/abort pub/sub (ioredis), which let FoldX and remote-engine requests outlive a page refresh without being run twice.",
+    url: "https://github.com/redis/ioredis",
     release: null,
     citation: null,
-    usedBy: ["server/services/infra/biophysical-queue.ts", "server/services/infra/cache-registry.ts"]
+    usedBy: ["server/services/infra/biophysical-queue.ts", "server/routes/state.ts"]
   },
   {
     id: "typography",

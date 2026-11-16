@@ -5,6 +5,7 @@
  */
 import express from "express";
 import type { CuratedInheritance } from "../../src/shared/inheritanceBasis.ts";
+import type { CuratedLofMechanism } from "../../src/shared/lofMechanismBasis.ts";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
@@ -206,7 +207,8 @@ export function handleNarrativeResponse(
   esm2?: { llr: number | null; verdict: string } | null,
   uniprotFeatures?: UniprotFeaturesResult | null,
   sequence?: string | null,
-  curatedInheritance?: CuratedInheritance | null
+  curatedInheritance?: CuratedInheritance | null,
+  curatedLofMechanism?: CuratedLofMechanism | null
 ) {
   if (analysisResult.insights) {
     /**
@@ -238,6 +240,7 @@ export function handleNarrativeResponse(
     gnomadConstraint,
     gnomadFrequency,
     curatedInheritance: curatedInheritance ?? null,
+    curatedLofMechanism: curatedLofMechanism ?? null,
     acmgWeighting,
     esm2,
     uniprotFeatures,

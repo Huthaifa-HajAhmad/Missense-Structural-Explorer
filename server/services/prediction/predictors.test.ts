@@ -29,7 +29,15 @@ beforeEach(async () => {
 
 describe("MissenseResolve® Correctness & Predictors Tests", () => {
   describe("MissenseResolve® Correctness Rules", () => {
-    it("should assign PVS1 for nonsense/stop/frameshift variants in known constrained genes when NMD is predicted", () => {
+    const curatedLof = {
+      source: "Gene2Phenotype" as const,
+      lofEstablished: true,
+      nonLofOnly: false,
+      mechanisms: ["loss of function"],
+      records: 1,
+    };
+
+    it("should assign PVS1 for nonsense/stop/frameshift variants in curated LOF genes when NMD is predicted", () => {
       const res = computeRuleBasedACMG({
         gene: "PAH",
         variant: "p.Arg100*",
@@ -37,6 +45,7 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
         predictorData: { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
         conservationData: { available: false, revel: null },
         gnomadConstraint: { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        curatedLofMechanism: curatedLof,
         gnomadFrequency: null,
         acmgWeighting: "standard",
         esm2: null,
@@ -54,6 +63,7 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
         predictorData: { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
         conservationData: { available: false, revel: null },
         gnomadConstraint: { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        curatedLofMechanism: curatedLof,
         gnomadFrequency: null,
         acmgWeighting: "standard",
         esm2: null,
@@ -71,6 +81,7 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
         predictorData: { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
         conservationData: { available: false, revel: null },
         gnomadConstraint: { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        curatedLofMechanism: curatedLof,
         gnomadFrequency: null,
         acmgWeighting: "standard",
         esm2: null,

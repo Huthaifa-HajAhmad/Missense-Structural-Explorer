@@ -525,8 +525,8 @@ class TestModelServerHelpers(unittest.TestCase):
 
 class TestSaProtScoreParser(unittest.TestCase):
     def test_valid_scores_parsing(self):
-        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
-        from model_server_app.utils import AA_LIST
+        from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        from tools.model_server_app.utils import AA_LIST
         weights = {"R": 0.8, "H": 0.15, "A": 0.05}
         preds = [{"token_str": f"{aa}a", "score": weights.get(aa, 0.001)} for aa in AA_LIST]
         probs = parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
@@ -536,7 +536,7 @@ class TestSaProtScoreParser(unittest.TestCase):
         self.assertGreater(probs["A"], probs["W"])
 
     def test_missing_wt_and_mut_raises(self):
-        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
         preds = [
             {"token_str": "Aa", "score": 0.5},
             {"token_str": "Ca", "score": 0.5},
@@ -545,7 +545,7 @@ class TestSaProtScoreParser(unittest.TestCase):
             parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
 
     def test_insufficient_tokens_raises(self):
-        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
         preds = [
             {"token_str": "Ra", "score": 0.99},
         ]
@@ -559,7 +559,7 @@ class TestSaProtScoreParser(unittest.TestCase):
         3Di vocabulary — otherwise the card's only diagnostic reads like a bug in this parser, which
         is exactly how it was read from the UI.
         """
-        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
         preds = [
             {"token_str": "<mask>", "score": 0.90},
             {"token_str": "▁", "score": 0.07},
@@ -583,12 +583,12 @@ class TestSaProtFallbackDiagnostics(unittest.TestCase):
     """
 
     def _request(self):
-        from model_server_app.routers.saprot import SaprotRequest
+        from tools.model_server_app.routers.saprot import SaprotRequest
         return SaprotRequest(sequence="MKTAY", position=5, wt="Y", mut="W", engine="saprot-35m")
 
     def test_local_failure_reason_reaches_the_response(self):
         from unittest import mock
-        from model_server_app.routers import saprot as saprot_router
+        from tools.model_server_app.routers import saprot as saprot_router
 
         with mock.patch.object(
             saprot_router.models, "get_saprot_model", side_effect=RuntimeError("weights unavailable")
@@ -608,7 +608,7 @@ class TestSaProtFallbackDiagnostics(unittest.TestCase):
 
     def test_remote_and_local_failures_are_reported_separately(self):
         from unittest import mock
-        from model_server_app.routers import saprot as saprot_router
+        from tools.model_server_app.routers import saprot as saprot_router
 
         remote_error = ValueError(
             "SaProt fill_mask returned insufficient valid amino acid tokens (0/20 matched): "
@@ -651,23 +651,23 @@ class TestSaProtSequenceConstruction(unittest.TestCase):
     """
 
     def test_uppercase_3di_states_are_lowercased_into_pair_tokens(self):
-        from model_server_app.utils import build_saprot_sequence
+        from tools.model_server_app.utils import build_saprot_sequence
         self.assertEqual(build_saprot_sequence("RK", "DD"), "RdKd")
 
     def test_lowercase_states_are_left_alone(self):
-        from model_server_app.utils import build_saprot_sequence
+        from tools.model_server_app.utils import build_saprot_sequence
         self.assertEqual(build_saprot_sequence("RK", "dd"), "RdKd")
 
     def test_masked_states_keep_the_dedicated_hash_token(self):
-        from model_server_app.utils import build_saprot_sequence
+        from tools.model_server_app.utils import build_saprot_sequence
         self.assertEqual(build_saprot_sequence("RK", "##"), "R#K#")
 
     def test_mask_index_replaces_exactly_one_position(self):
-        from model_server_app.utils import build_saprot_sequence
+        from tools.model_server_app.utils import build_saprot_sequence
         self.assertEqual(build_saprot_sequence("RKD", "ddd", mask_index=1), "Rd<mask>Dd")
 
     def test_pair_tokens_are_always_lowercase_or_masked(self):
-        from model_server_app.utils import AA_LIST, to_saprot_3di
+        from tools.model_server_app.utils import AA_LIST, to_saprot_3di
         for aa in AA_LIST:
             for state in to_saprot_3di("ACDEFGHIKLMNPQRSTVWY"):
                 token = aa + state
@@ -677,7 +677,7 @@ class TestSaProtSequenceConstruction(unittest.TestCase):
                 )
 
     def test_collapsed_tokenisation_is_refused_with_its_cause(self):
-        from model_server_app.utils import validate_saprot_tokenization
+        from tools.model_server_app.utils import validate_saprot_tokenization
         validate_saprot_tokenization(512, 510)   # 510 pairs + <cls>/<eos>
         with self.assertRaises(ValueError) as ctx:
             validate_saprot_tokenization(3, 510)
@@ -698,7 +698,7 @@ class TestRefusedPassAnswersBusy(unittest.TestCase):
     def test_a_refused_pass_answers_503_with_a_readable_body(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from model_server_app.engine_resilience import GateDeadlineExceeded, register_refusal_handler
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded, register_refusal_handler
 
         app = FastAPI()
         register_refusal_handler(app)
@@ -717,8 +717,8 @@ class TestRefusedPassAnswersBusy(unittest.TestCase):
 
     def test_saprot_re_raises_gate_deadline_exceeded_without_vesm_fallback(self):
         from unittest import mock
-        from model_server_app.engine_resilience import GateDeadlineExceeded
-        from model_server_app.routers import saprot as saprot_router
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded
+        from tools.model_server_app.routers import saprot as saprot_router
 
         req = saprot_router.SaprotRequest(sequence="MKTAY", position=5, wt="Y", mut="W", engine="saprot-35m")
         with mock.patch.object(
@@ -729,7 +729,7 @@ class TestRefusedPassAnswersBusy(unittest.TestCase):
         vesm_mock.assert_not_called()
 
     def test_thermompnn_disambiguates_heteromer_chains_by_wildtype_residue(self):
-        from model_server_app.routers.thermompnn import (
+        from tools.model_server_app.routers.thermompnn import (
             parse_mutation_code,
             select_thermompnn_target_chain,
             parse_pdb_chains_for_thermompnn,

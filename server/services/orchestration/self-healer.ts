@@ -221,6 +221,7 @@ export function healCachedAnalysisIfPossible(
       gnomadConstraint: payload.gnomadConstraint,
       gnomadFrequency: payload.gnomadFrequency,
       curatedInheritance: payload.curatedInheritance ?? null,
+      curatedLofMechanism: payload.curatedLofMechanism ?? null,
       acmgWeighting: context.acmgWeighting,
       esm2: payload.esm2,
       uniprotFeatures: payload.uniprotFeatures,

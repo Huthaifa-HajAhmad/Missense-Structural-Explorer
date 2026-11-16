@@ -154,7 +154,7 @@ export async function fetchEsm3StructureEval(
     } catch (_) {}
   }
 
-  let provenance = "ESM3-Medium (Remote)";
+  let provenance: string | undefined = undefined;
   if (!sequence) {
     esm3Error = "No amino-acid sequence available for ESM-3 evaluation.";
     esm3Status = "error";
@@ -191,12 +191,15 @@ export async function fetchEsm3StructureEval(
           if (sidecarData.refinedPdb) {
             pdbText = sidecarData.refinedPdb;
           }
-          if (typeof sidecarData.provenance === "string") {
-            provenance = sidecarData.provenance;
-          }
           if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
             remoteEngineNote = sidecarData.remoteEngineNote.trim();
             remoteFailure = parseRemoteFailure(sidecarData.remoteFailure);
+          }
+          const rawProvenance = typeof sidecarData.provenance === "string" ? sidecarData.provenance.trim() : "";
+          if (rawProvenance) {
+            provenance = rawProvenance;
+          } else if (remoteEngineNote) {
+            provenance = "VESM-150M (Local Fallback - ESM-3 remote failed)";
           }
         } else {
           esm3Error = typeof sidecarData?.error === "string" && sidecarData.error.trim()
@@ -420,13 +423,13 @@ export async function fetchEsm3StructureEval(
         ? Math.round((100 * perturbationScores.filter(v => v >= 0).length) / perturbationScores.length)
         : 0
     },
-    provenance,
+    ...(provenance ? { provenance } : {}),
     ...(remoteEngineNote ? { remoteEngineNote } : {}),
     ...(remoteFailure ? { remoteFailure } : {})
   };
 
   // A stand-in's numbers are not kept: the key does not change when the token or the provider does, so
   // keeping them would hide a fixed token for a day.
-  if (!/vesm/i.test(provenance)) esm3StructureCache.set(cacheKey, result);
+  if (provenance && !/vesm/i.test(provenance)) esm3StructureCache.set(cacheKey, result);
   return result;
 }

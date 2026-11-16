@@ -16,6 +16,7 @@ import { assessPm1, featureCoversResidue } from "../../../../src/shared/function
 import { classifyClinvar } from "../../../../src/shared/clinvarClassification.ts";
 import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
+import type { CuratedLofMechanism } from "../../../../src/shared/lofMechanismBasis.ts";
 
 export interface ACMGEvidenceInput {
   gene: string;
@@ -53,6 +54,11 @@ export interface ACMGEvidenceInput {
    * qualifying record. Sets PM2's ceiling ahead of pLI, and keeps BS2 off sex-chromosome genes.
    */
   curatedInheritance?: CuratedInheritance | null;
+  /**
+   * The gene's curated LOF mechanism (`summariseCuratedLofMechanism`), or null when absent.
+   * Required before awarding PVS1 so pLI >= 0.9 alone never assigns PVS1 to non-LOF/uncurated genes.
+   */
+  curatedLofMechanism?: CuratedLofMechanism | null;
   acmgWeighting?: "standard" | "conservative" | "strict-structural";
   esm2?: { llr: number | null; verdict: string } | null;
   uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null;
@@ -90,7 +96,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     esm2Eval = null,
     saprotEval = null,
     serviceStatus = null,
-    curatedInheritance = null
+    curatedInheritance = null,
+    curatedLofMechanism = null
   } = input;
   const criteria: ACMGItem[] = [];
 
@@ -113,51 +120,65 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // PVS1 — Null variant in a gene where LOF is a known mechanism of disease
   // -------------------------------------------------------------------------
   const isLofIntolerant = gnomadConstraint?.pli !== null && gnomadConstraint?.pli !== undefined && gnomadConstraint.pli >= 0.9;
-  const isLofGene = isLofIntolerant;
-  
-  if (isNullVariant(variant) && !isInFrameIndel(variant) && isLofGene && !skipPathogenicComp) {
-    const pos = residuePos();
-    const seqLen = sequence ? sequence.length : null;
+  const isLofGene = curatedLofMechanism?.lofEstablished === true;
+  let pvs1Unavailable: string | null = null;
 
-    let nmdPredicted = true;
-    let nmdNote = "nonsense-mediated decay (NMD) is predicted to occur.";
-
-    if (pos && seqLen) {
-      // Predict NMD absence if variant falls in the last exon / last 50 aa or 10% C-terminal of the protein
-      const threshold = Math.max(50, Math.round(seqLen * 0.1));
-      if (pos >= seqLen - threshold) {
-        nmdPredicted = false;
-        nmdNote = `nonsense-mediated decay (NMD) is not predicted to occur because the variant at position ${pos}/${seqLen} falls in the C-terminal region.`;
+  if (isNullVariant(variant) && !isInFrameIndel(variant) && !skipPathogenicComp) {
+    if (!isLofGene) {
+      if (curatedLofMechanism?.nonLofOnly) {
+        pvs1Unavailable = `PVS1 (not applied: curated ${curatedLofMechanism.source} records report ${curatedLofMechanism.mechanisms.join(", ")}, not loss-of-function)`;
+      } else if (isLofIntolerant) {
+        pvs1Unavailable = `PVS1 (not applied: gnomAD pLI ${gnomadConstraint!.pli!.toFixed(2)} ≥ 0.90 without a curated ClinGen/G2P LOF disease mechanism)`;
       }
-    }
-
-    if (nmdPredicted) {
-      criteria.push({
-        code: "PVS1",
-        reason: `PVS1 (Very Strong): Null variant (${variant}) in gene ${gene} where loss-of-function is an established mechanism of disease. ${nmdNote}`
-      });
     } else {
-      // Check if variant overlaps a functional domain, active site, binding site
-      let isCriticalDomain = false;
-      if (uniprotFeatures?.features && Array.isArray(uniprotFeatures.features) && pos) {
-        isCriticalDomain = uniprotFeatures.features.some((f: any) => {
-          const type = (f.type || "").toLowerCase();
-          // `featureCoversResidue`, not `start <= pos <= end`: a disulfide bond covers its two cysteines only.
-          return (type.includes("domain") || type.includes("site") || type.includes("active") || type.includes("binding")) &&
-                 featureCoversResidue(f, pos);
-        });
+      const pos = residuePos();
+      const seqLen = sequence ? sequence.length : null;
+      const mechanismNote = `curated ${curatedLofMechanism!.source} mechanism (${curatedLofMechanism!.mechanisms.join(", ") || "loss of function"})${
+        gnomadConstraint?.pli !== null && gnomadConstraint?.pli !== undefined
+          ? `; gnomAD pLI ${gnomadConstraint.pli.toFixed(2)}`
+          : ""
+      }`;
+
+      let nmdPredicted = true;
+      let nmdNote = "nonsense-mediated decay (NMD) is predicted to occur.";
+
+      if (pos && seqLen) {
+        // Predict NMD absence if variant falls in the last exon / last 50 aa or 10% C-terminal of the protein
+        const threshold = Math.max(50, Math.round(seqLen * 0.1));
+        if (pos >= seqLen - threshold) {
+          nmdPredicted = false;
+          nmdNote = `nonsense-mediated decay (NMD) is not predicted to occur because the variant at position ${pos}/${seqLen} falls in the C-terminal region.`;
+        }
       }
 
-      if (isCriticalDomain) {
+      if (nmdPredicted) {
         criteria.push({
-          code: "PVS1_Strong",
-          reason: `PVS1_Strong (Strong): C-terminal null variant (${variant}) in gene ${gene} where NMD is not predicted to occur, but residue falls within an established functional domain/site.`
+          code: "PVS1",
+          reason: `PVS1 (Very Strong): Null variant (${variant}) in gene ${gene} where loss-of-function is an established disease mechanism via ${mechanismNote}. ${nmdNote}`
         });
       } else {
-        criteria.push({
-          code: "PVS1_Moderate",
-          reason: `PVS1_Moderate (Moderate): C-terminal null variant (${variant}) in gene ${gene} where NMD is not predicted to occur, and no critical domain overlap is confirmed.`
-        });
+        // Check if variant overlaps a functional domain, active site, binding site
+        let isCriticalDomain = false;
+        if (uniprotFeatures?.features && Array.isArray(uniprotFeatures.features) && pos) {
+          isCriticalDomain = uniprotFeatures.features.some((f: any) => {
+            const type = (f.type || "").toLowerCase();
+            // `featureCoversResidue`, not `start <= pos <= end`: a disulfide bond covers its two cysteines only.
+            return (type.includes("domain") || type.includes("site") || type.includes("active") || type.includes("binding")) &&
+                   featureCoversResidue(f, pos);
+          });
+        }
+
+        if (isCriticalDomain) {
+          criteria.push({
+            code: "PVS1_Strong",
+            reason: `PVS1_Strong (Strong): C-terminal null variant (${variant}) in gene ${gene} (${mechanismNote}) where NMD is not predicted to occur, but residue falls within an established functional domain/site.`
+          });
+        } else {
+          criteria.push({
+            code: "PVS1_Moderate",
+            reason: `PVS1_Moderate (Moderate): C-terminal null variant (${variant}) in gene ${gene} (${mechanismNote}) where NMD is not predicted to occur, and no critical domain overlap is confirmed.`
+          });
+        }
       }
     }
   }
@@ -196,9 +217,11 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       dann: conservationData?.dann,
       popeve: conservationData?.popeve,
       esm2Llr: esm2Eval?.llr ?? esm2?.llr ?? null,
+      esm2Label: typeof esm2Eval?.provenance === "string" && /vesm/i.test(esm2Eval.provenance) ? "VESM (ESM-2 fallback)" : null,
       vesmLlr: esmcEval?.llr ?? null,
       esmcLabel: typeof esmcEval?.provenance === "string" ? esmcEval.provenance : null,
       saprotLlr: saprotEval?.llr,
+      saprotLabel: typeof saprotEval?.provenance === "string" && /vesm/i.test(saprotEval.provenance) ? "VESM (SaProt fallback)" : null,
       gpnStar: conservationData?.gpnStar ?? null,
       alphagenome: conservationData?.alphagenome,
       // So a source the build gate declined is named in the consensus coverage line rather than
@@ -497,6 +520,10 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         });
       }
     }
+  }
+
+  if (pvs1Unavailable && !unavailable.includes(pvs1Unavailable)) {
+    unavailable.push(pvs1Unavailable);
   }
 
   return {

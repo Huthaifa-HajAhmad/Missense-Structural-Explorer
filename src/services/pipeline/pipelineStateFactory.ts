@@ -269,6 +269,7 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       aouLookup: resResult.aouLookup ?? null,
       // The inheritance the frequency rules read, so the tab explains the ceiling the engine used.
       curatedInheritance: resResult.curatedInheritance ?? null,
+      curatedLofMechanism: resResult.curatedLofMechanism ?? null,
       esm2: resResult.esm2 || null,
       esm3Eval: { loading: true },
       esmcEval: { loading: true },

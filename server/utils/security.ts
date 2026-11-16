@@ -1,5 +1,6 @@
 import type express from "express";
 import crypto from "crypto";
+import dns from "node:dns";
 import { isGenomicCoordinate } from "./validation.ts";
 
 export function safeCompare(a: string, b: string): boolean {
@@ -142,6 +143,31 @@ function parseMappedIpv4Octets(host: string): [number, number, number, number] |
   return [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255];
 }
 
+function isBlockedIpAddress(rawIp: string, isProd: boolean): string | null {
+  const cleanHost = rawIp.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const v4 = parseIpv4Octets(cleanHost) ?? parseMappedIpv4Octets(cleanHost);
+  const v6 = v4 ? null : parseIpv6Groups(cleanHost);
+  if (v6) {
+    const isLoopbackOrUnspecified = v6.slice(0, 7).every(g => g === 0) && (v6[7] === 0 || v6[7] === 1);
+    const isLinkLocal = (v6[0] & 0xffc0) === 0xfe80;
+    const isUniqueLocal = (v6[0] & 0xfe00) === 0xfc00;
+    const isMulticast = (v6[0] & 0xff00) === 0xff00;
+    if (isLoopbackOrUnspecified || isLinkLocal || isUniqueLocal || (isProd && isMulticast)) {
+      return "Loopback, link-local, or unique-local IPv6 host is not permitted";
+    }
+  }
+  if (v4) {
+    const [a, b] = v4;
+    if (a === 127 || a === 0 || (a === 169 && b === 254)) {
+      return "Loopback, unspecified, or link-local metadata IP host is not permitted";
+    }
+    if (isProd && (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224)) {
+      return "Private network IP host is not permitted in production";
+    }
+  }
+  return null;
+}
+
 /**
  * Validates a caller-supplied custom endpoint URL against SSRF-prone schemes and IP ranges
  * (non-HTTP(S), cloud metadata 169.254.0.0/16, loopback, IPv6 link-local fe80::/10, ULA fc00::/7,
@@ -161,22 +187,9 @@ export function validateSafeCustomEndpointUrl(rawUrl: string): { valid: true; ur
     const cleanHost = hostname.replace(/^\[|\]$/g, "");
     const isProd = process.env.NODE_ENV === "production";
 
-    const v4 = parseIpv4Octets(cleanHost) ?? parseMappedIpv4Octets(cleanHost);
-    const v6 = v4 ? null : parseIpv6Groups(cleanHost);
-    if (v6) {
-      const isLoopbackOrUnspecified = v6.slice(0, 7).every(g => g === 0) && (v6[7] === 0 || v6[7] === 1);
-      if (isLoopbackOrUnspecified || (v6[0] & 0xffc0) === 0xfe80 || (v6[0] & 0xfe00) === 0xfc00) {
-        return { valid: false, reason: "Loopback, link-local, or unique-local IPv6 host is not permitted" };
-      }
-    }
-    if (v4) {
-      const [a, b] = v4;
-      if (a === 127 || a === 0 || (a === 169 && b === 254)) {
-        return { valid: false, reason: "Loopback, unspecified, or link-local metadata IP host is not permitted" };
-      }
-      if (isProd && (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127))) {
-        return { valid: false, reason: "Private network IP host is not permitted in production" };
-      }
+    const blockedIpReason = isBlockedIpAddress(cleanHost, isProd);
+    if (blockedIpReason) {
+      return { valid: false, reason: blockedIpReason };
     }
     if (BLOCKED_CUSTOM_HOST_REGEX.test(hostname)) {
       return { valid: false, reason: "Metadata or loopback hostname is not permitted" };
@@ -188,4 +201,58 @@ export function validateSafeCustomEndpointUrl(rawUrl: string): { valid: true; ur
   } catch {
     return { valid: false, reason: "Malformed custom endpoint URL" };
   }
+}
+
+export type CustomEndpointDnsLookup = (hostname: string) => Promise<Array<{ address: string; family?: number }>>;
+
+const DNS_LOOKUP_TIMEOUT_MS = 4000;
+
+/**
+ * Validates a non-env caller-supplied custom endpoint URL and, when `NODE_ENV === "production"`,
+ * resolves its DNS A/AAAA records to reject hostnames pointing at private, loopback, link-local,
+ * ULA, or CGNAT addresses before opening an outbound connection.
+ */
+export async function validateSafeCustomEndpointUrlAsync(
+  rawUrl: string,
+  lookup?: CustomEndpointDnsLookup
+): Promise<{ valid: true; url: string; resolvedAddresses?: string[] } | { valid: false; reason: string }> {
+  const sync = validateSafeCustomEndpointUrl(rawUrl);
+  if (!sync.valid) return sync;
+  if (process.env.NODE_ENV !== "production") return sync;
+
+  const cleanHost = new URL(sync.url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (parseIpv4Octets(cleanHost) || parseMappedIpv4Octets(cleanHost) || parseIpv6Groups(cleanHost)) {
+    return sync;
+  }
+
+  const resolveHost: CustomEndpointDnsLookup = lookup ?? (host => dns.promises.lookup(host, { all: true, verbatim: true }));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let records: Array<{ address: string; family?: number }>;
+  try {
+    records = await Promise.race([
+      resolveHost(cleanHost),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("DNS resolution timed out")), DNS_LOOKUP_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } catch (err: any) {
+    return { valid: false, reason: `Custom endpoint hostname could not be resolved in production: ${err?.message || "DNS error"}` };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  if (!Array.isArray(records) || records.length === 0) {
+    return { valid: false, reason: "Custom endpoint hostname resolved to no IP addresses in production" };
+  }
+  const resolvedAddresses: string[] = [];
+  for (const record of records) {
+    const addr = typeof record?.address === "string" ? record.address : "";
+    const blocked = isBlockedIpAddress(addr, true);
+    if (blocked) {
+      return { valid: false, reason: `Custom endpoint DNS resolution blocked (${blocked})` };
+    }
+    if (addr) resolvedAddresses.push(addr);
+  }
+  return { valid: true, url: sync.url, resolvedAddresses };
 }

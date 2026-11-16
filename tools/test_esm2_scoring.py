@@ -118,7 +118,8 @@ class LocalEsm2Tests(unittest.TestCase):
         from tools.model_server_app.engine_resilience import GateDeadlineExceeded
         from tools.model_server_app.routers import esm2 as esm2_router
 
-        with patch.object(self.model, "__call__", side_effect=GateDeadlineExceeded("busy")), \
+        # Patch __call__ on the class: Python resolves special methods on type(obj), bypassing instance __dict__.
+        with patch.object(FakeLm, "__call__", side_effect=GateDeadlineExceeded("busy")), \
              patch.object(esm2_router, "predict_vesm_sync") as vesm_mock:
             with self.assertRaises(GateDeadlineExceeded):
                 predict_esm2_3b_sync(Esm2Request(sequence=SEQUENCE, position=6, wt="S", mut="C"))
@@ -331,6 +332,22 @@ class EsmcRemoteTests(unittest.TestCase):
         with_embeddings = [c[1] for c in calls if c[0] == "logits" and c[2]]
         self.assertEqual(with_embeddings, ["MKTAYSLLGW", "MKTAYCLLGW"])
         self.assertGreater(result["embeddingShift"], 0)
+
+    def test_remote_failure_labels_vesm_fallback_without_poisoning_cache(self):
+        vesm.clear_vesm_caches()
+        try:
+            with patch.object(vesm.remote_failures, "blocked_reason", return_value=None), \
+                 patch.object(vesm.remote_failures, "record", return_value="HTTP 451 - regional"), \
+                 patch.object(vesm, "_run_esmc_remote_host", side_effect=RuntimeError("451 Unavailable")), \
+                 patch.object(vesm, "_predict_vesm_local", return_value={"status": "success", "llr": -1.2, "provenance": "VESM-150M (Local)"}):
+                fallback = vesm.predict_vesm_sync(vesm.VesmRequest(sequence=SEQUENCE, position=6, wt="S", mut="C", biohubToken="t"))
+                direct = vesm.predict_vesm_sync(vesm.VesmRequest(sequence=SEQUENCE, position=6, wt="S", mut="C"))
+            self.assertEqual(fallback["provenance"], "VESM-150M (Local Fallback - ESMC remote failed)")
+            self.assertIn("451", fallback["remoteEngineNote"])
+            self.assertEqual(direct["provenance"], "VESM-150M (Local)")
+            self.assertNotIn("remoteEngineNote", direct)
+        finally:
+            vesm.clear_vesm_caches()
 
 
 class SaprotLocalTests(unittest.TestCase):

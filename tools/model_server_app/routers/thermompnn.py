@@ -491,6 +491,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
         return {
             "status": "success",
             "ddG": round(raw_ddg, 3),
+            # Raw sign threshold (< 0.0) reported alongside canonical ddG; app display marks (+0.5/+1.0 kcal/mol) await held-out recalibration.
             "isStabilizing": raw_ddg < 0.0,
             "mutation": req.mutation,
             "contactsAnalyzed": sum(chains[c]["length"] for c in chain_order),

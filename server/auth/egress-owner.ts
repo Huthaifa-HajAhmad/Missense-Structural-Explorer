@@ -6,8 +6,11 @@
  */
 import type express from "express";
 import { submitterId } from "./principal.ts";
-import { runWithEgressOwner } from "../services/infra/egress-context.ts";
+import { EGRESS_SERVICE_OWNER, runWithEgressOwner } from "../services/infra/egress-context.ts";
 import { LEGACY_OWNER } from "../services/infra/queue-owners.ts";
 
 export const attributeEgressOwner: express.RequestHandler = (req, _res, next) =>
-  runWithEgressOwner(submitterId(req) ?? LEGACY_OWNER, next);
+  runWithEgressOwner(
+    submitterId(req) ?? (req.principal?.kind === "service" ? EGRESS_SERVICE_OWNER : LEGACY_OWNER),
+    next
+  );

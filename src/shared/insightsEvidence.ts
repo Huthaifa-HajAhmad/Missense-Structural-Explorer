@@ -181,7 +181,7 @@ export function criterionForLane(evidence: InsightsEvidence, lane: Pick<Lane, 'c
 // ── Strength vocabulary ──────────────────────────────────────────────────────────────────────────
 
 const STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
-const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Supporting" };
+const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Moderate", 1: "Supporting" };
 
 function recordedLength(code: string | null): 1 | 2 | 3 {
   if (!code) return 1;

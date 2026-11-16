@@ -66,7 +66,7 @@ export function EnergeticsMethodInspector({
             <div><dt>Method family</dt><dd>{ENERGETICS_GROUP_LABEL[selected.group]}</dd></div>
             <div><dt>Structure basis</dt><dd>{structureBasisText(selected.key, selected.group, structure, evidence)}</dd></div>
             <div><dt>Sign convention</dt><dd>{getEngine(selected.key).nativeSign === 'negative-destabilizing' ? 'Provider sign reversed for comparison; positive here means less stable folding.' : 'Positive means less stable folding.'}</dd></div>
-            <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined, not a clinical cut-point.</dd></div>
+            <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined local placeholder pending held-out recalibration, not a clinical cut-point.</dd></div>
           </dl>
           {selected.note && <p>{selected.note}</p>}
           {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{ENERGETICS_CAVEAT_TEXT[c].detail}</p>)}

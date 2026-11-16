@@ -2,7 +2,7 @@ import { LRUCache } from "lru-cache";
 import { TabixIndexedFile } from "@gmod/tabix";
 import { getCachedOrFetch } from "../infra/cache.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
-import { sanitizeErrorMessage, validateSafeCustomEndpointUrl } from "../../utils/security.ts";
+import { sanitizeErrorMessage, validateSafeCustomEndpointUrlAsync } from "../../utils/security.ts";
 import { governedFetch } from "../infra/http-client.ts";
 import { credentialForCall, resolveCredential, teamToken } from "../infra/credentials.ts";
 
@@ -85,7 +85,7 @@ export async function fetchGpnStarByCoordinate(
   // Only validate & restrict redirects on caller-chosen overrides, not the operator's GPN_API_URL.
   const access = resolveGpnAccess(null, customEndpoint);
   if (access.customEndpoint && access.endpoint) {
-    const check = validateSafeCustomEndpointUrl(access.endpoint);
+    const check = await validateSafeCustomEndpointUrlAsync(access.endpoint);
     if (!check.valid) {
       return {
         score: null,
@@ -283,7 +283,7 @@ export async function fetchGpnStarScore(
 
   const access = resolveGpnAccess(token, customEndpoint);
   if (access.customEndpoint && access.endpoint) {
-    const check = validateSafeCustomEndpointUrl(access.endpoint);
+    const check = await validateSafeCustomEndpointUrlAsync(access.endpoint);
     if (!check.valid) {
       return {
         score: null,

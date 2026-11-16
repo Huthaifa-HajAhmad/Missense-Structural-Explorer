@@ -16,7 +16,7 @@ export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 export type CredentialSource = "own" | "team" | "none";
 
 /** Why no token was used although the team has one. */
-export type CredentialRefusal = "team-token-off" | "team-share-used" | "own-token-unreadable";
+export type CredentialRefusal = "team-token-off" | "team-share-used" | "own-token-unreadable" | "team-signin-required";
 
 /** `SHARED_TOKEN_FALLBACK`: how a person without a token may use the team's. */
 export type SharedTokenFallback = "on" | "limited" | "off";
@@ -42,7 +42,7 @@ export function isCredentialKind(value: unknown): value is CredentialKind {
 }
 
 const SOURCES: readonly CredentialSource[] = ["own", "team", "none"];
-const REFUSALS: readonly CredentialRefusal[] = ["team-token-off", "team-share-used", "own-token-unreadable"];
+const REFUSALS: readonly CredentialRefusal[] = ["team-token-off", "team-share-used", "own-token-unreadable", "team-signin-required"];
 
 export function encodeCredentialUse(uses: readonly CredentialUse[]): string {
   const byKind = new Map<CredentialKind, CredentialUse>();
@@ -98,6 +98,9 @@ export function credentialUseSentence(use: CredentialUse): string | null {
   }
   if (use.refusal === "own-token-unreadable") {
     return `${name} was not run: the token saved to your account can no longer be read by the server. Save it again in Settings → Connections.`;
+  }
+  if (use.refusal === "team-signin-required") {
+    return `${name} was not run: sign in or add your own token in Settings → Connections to use remote compute.`;
   }
   if (use.refusal === "team-token-off") {
     return `${name} was not run: this server does not lend its team token. Add your own token in Settings → Connections.`;

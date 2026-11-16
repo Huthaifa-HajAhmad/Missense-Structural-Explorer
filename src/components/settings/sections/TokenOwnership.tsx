@@ -42,7 +42,9 @@ export function LastCredentialUse({ kind }: { kind: CredentialKind }) {
         ? "not run: your hourly share of the team token is used"
         : use.refusal === "team-token-off"
           ? "not run: the team token is not lent on this server"
-          : "not run"
+          : use.refusal === "team-signin-required"
+            ? "not run: sign in or add your own token"
+            : "not run"
       : `ran on ${credentialSourceLabel(use.source)}`;
   return (
     <p className="px-4 mt-0.5 pb-3 text-[11px] text-cs-text-muted" data-testid={`last-credential-use-${kind}`}>

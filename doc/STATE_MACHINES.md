@@ -26,7 +26,7 @@ Every fix has a test that failed before the fix and passes after it.
 | [1](#issue-1-the-browser-gave-up-on-a-foldx-job-that-went-back-to-the-queue) | "FoldX timed out" while the server was still running the job | Client FoldX poller (14) | Fixed |
 | [2](#issue-2-a-cancel-that-reached-the-other-process-did-not-stop-the-work) | A cancelled job kept running; a deploy stalled for up to 15 min | Job queue across two processes (1, 10) | Fixed |
 | [3](#issue-3-the-circuit-breaker-let-every-caller-through-after-the-cooldown) | Every request to a host that was still down waited for its own timeout | Circuit breaker (8) | Fixed |
-| [4](#issue-4-the-redis-backend-deleted-a-finished-job-before-the-reader-saw-it) | "FoldX job not found" instead of the result (Redis backend only) | Redis job queue (1b) | Fixed |
+| ~~4~~ | *"FoldX job not found" instead of the result (removed BullMQ backend)* | *Retired* | *Retired* |
 | [5](#issue-5-the-computer-lifecycle-lost-a-code-kept-a-job-and-took-one-after-disconnect) | A pairing code that stopped working; a job stuck for up to 90 s | Pairing code, computer token, claim (2, 11) | Fixed |
 | [6](#issue-6-a-computers-finished-result-was-lost-on-one-network-failure) | Minutes of a computer's work redone by the server | Agent loop, result delivery (2, 12) | Fixed |
 | [7](#issue-7-a-stage-that-never-reported-was-shown-as-complete) | An Evidence section marked done with nothing in it, and no retry | Client pipeline stages (15) | Fixed |
@@ -87,15 +87,9 @@ Every update names the state it expects, so a move that lost a race changes noth
 2 s on timeout) for the child process to unwind before releasing the concurrency slot.
 `abortJobsEndedElsewhere` delivers that abort when the cancel arrived through another process.
 
-### 1b. The Redis (BullMQ) backend
+### 1b. Retired Redis (BullMQ) job-queue backend
 
-Used only when `REDIS_URL` is set; production uses SQLite. **Read**, plus
-`biophysical-queue.redis-retention.test.ts`. BullMQ's states (`waiting`, `delayed`, `active`, `completed`,
-`failed`) are mapped to the four above by `getJobStatus`. This backend has no owners, watchers, leases,
-placements, cancel, job timeout or abort signal: `cancelFor` answers "not found", and `abortJob` only
-stops retries. A failed job is retried 3 times with backoff. Finished jobs are kept for the retention
-period ([Issue 4](#issue-4-the-redis-backend-deleted-a-finished-job-before-the-reader-saw-it)). A standby
-deployment refuses to start on Redis.
+`BiophysicalJobQueue` (`server/services/infra/biophysical-queue.ts`) now uses `SQLiteQueue` exclusively. The former BullMQ job-queue backend (which lacked ownership, leases, cancellation, abort signals, fairness rotation, and OOM ceilings) has been retired; when `REDIS_URL` is set, it is used solely by `server/routes/state.ts` for cross-worker pub/sub and pre-warm coordination.
 
 ## 2. Paired-computer claim and lease (`agent_claims`, `lease_expires_at`)
 
@@ -401,10 +395,7 @@ already treat this error as "provider unavailable" and use their fallback.
 
 ### Issue 4: The Redis backend deleted a finished job before the reader saw it
 
-**Cause:** `removeOnComplete: true`, so the next poll got 404 "not found" and the browser reported an
-error after three tries. Failed jobs were never removed. **Fix:** both are kept for
-`JOB_RETENTION_DAYS`, like the SQLite backend (`jobRetentionMs`). **Test:**
-`biophysical-queue.redis-retention.test.ts`.
+**Cause:** BullMQ's former `removeOnComplete: true` deleted completed jobs immediately. **Resolution:** The incomplete BullMQ job-queue backend has been retired; `BiophysicalJobQueue` now runs exclusively on `SQLiteQueue`, which retains finished rows for `JOB_RETENTION_DAYS` (`jobRetentionMs`) and enforces ownership, leases, cancellation, abort signals, and standby handovers consistently.
 
 ### Issue 5: The computer lifecycle lost a code, kept a job, and took one after disconnect
 

@@ -1904,6 +1904,14 @@ export const analyzeVariantResponseSchema = z.object({
   curatedInheritance: z.object({
     source: z.literal('GenCC'), modes: z.array(z.string()), recessiveOnly: z.boolean(), sexOrMitoOnly: z.boolean(), records: z.number(),
   }).nullable().optional(),
+  /** The gene's curated G2P/ClinGen LOF mechanism summary as PVS1 reads it (`shared/lofMechanismBasis.ts`). */
+  curatedLofMechanism: z.object({
+    source: z.enum(['Gene2Phenotype', 'ClinGen', 'ClinGen/Gene2Phenotype']),
+    lofEstablished: z.boolean(),
+    nonLofOnly: z.boolean(),
+    mechanisms: z.array(z.string()),
+    records: z.number(),
+  }).nullable().optional(),
   esm2: z.object({
     llr: z.number().nullable(),
     verdict: z.string().nullable().optional()
@@ -2841,6 +2849,8 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   aouLookup?: AouLookup | null;
   /** The curated GenCC inheritance the ACMG frequency rules read; null when the gene has none. */
   curatedInheritance?: import('./inheritanceBasis.ts').CuratedInheritance | null;
+  /** The curated LOF mechanism summary PVS1 reads; null when the gene has none. */
+  curatedLofMechanism?: import('./lofMechanismBasis.ts').CuratedLofMechanism | null;
   serviceStatus?: Record<string, string>;
   inSilicoConcordance?: PredictorConcordance | null;
 }

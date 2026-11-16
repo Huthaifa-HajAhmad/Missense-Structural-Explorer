@@ -128,8 +128,10 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       expect(result.insights?.pathogenicity).toBe("(Clinician Assigned)");
       expect(result.insights?.plausibility).toBe("Plausibly pathogenic because of something");
     } finally {
-      process.env.GEMINI_MODEL = oldModel;
-      process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
     }
   });
 

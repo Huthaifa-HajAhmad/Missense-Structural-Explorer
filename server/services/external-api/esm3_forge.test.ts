@@ -153,4 +153,23 @@ describe("fetchEsm3StructureEval coverage and caching", () => {
     expect(jsonErr.error).toBe("ESM3 weights not installed");
     expect(jsonErr.remoteEngineNote).toBe("HTTP 401");
   });
+
+  it("never attributes an unnamed ESM3 response to ESM3-Medium and labels remote-failed fallbacks as VESM", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        perturbationScores: [0.1, 0.2, 0.3, 0.4],
+        remoteEngineNote: "forge: HTTP 451",
+      })
+    })) as any);
+    const fallback = await fetchEsm3StructureEval("UNNAMED_FALLBACK", 1, "A", "V", null, null, "AAAA") as any;
+    expect(fallback.provenance).toBe("VESM-150M (Local Fallback - ESM-3 remote failed)");
+
+    // Unnamed VESM-style fallback must not poison the genuine ESM3 cache.
+    answer("ESM3-Medium (Remote)", [0.8, 0.7, 0.6, 0.5]);
+    const real = await fetchEsm3StructureEval("UNNAMED_FALLBACK", 1, "A", "V", null, null, "AAAA") as any;
+    expect(real.provenance).toBe("ESM3-Medium (Remote)");
+    expect(real.perturbationScores).toEqual([0.8, 0.7, 0.6, 0.5]);
+  });
 });

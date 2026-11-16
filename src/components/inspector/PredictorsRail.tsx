@@ -117,6 +117,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   add("Missense scores", analysisResult.conservationData?.source);
   add("CADD · AlphaMissense", analysisResult.predictorData?.source);
   add("Gene constraint", analysisResult.gnomadConstraint ? constraintSourceLabel(analysisResult) : null);
+  add("ESM-2", r.esm2Eval?.provenance);
   add("ESMC / VESM", r.esmcEval?.provenance);
   add("SaProt", r.saprotEval?.provenance);
 

@@ -16,6 +16,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 /** The queue's owner for unrequested work (`queue-owners.ts` SYSTEM_OWNER); served last. */
 export const EGRESS_SYSTEM_OWNER = "system";
+/** Authenticated service caller using `APP_API_TOKEN` bearer auth. */
+export const EGRESS_SERVICE_OWNER = "service";
 /** Owner of a call made outside any request or job. */
 export const EGRESS_UNATTRIBUTED = "unattributed";
 

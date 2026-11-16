@@ -660,6 +660,7 @@ export async function runStructuralAnalysis(
     gnomadConstraint: coreData.gnomadConstraint,
     gnomadFrequency: coreData.gnomadFrequency,
     curatedInheritance: coreData.curatedInheritance ?? null,
+    curatedLofMechanism: coreData.curatedLofMechanism ?? null,
     acmgWeighting,
     esm2: coreData.esm2,
     uniprotFeatures: coreData.uniprotFeatures,

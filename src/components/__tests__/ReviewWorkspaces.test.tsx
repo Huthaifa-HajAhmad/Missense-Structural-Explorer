@@ -37,7 +37,7 @@ describe('Insights reading workspace', () => {
     expect(screen.getByRole('heading', { name: 'Still needed to decide' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Evidence direction' })).not.toBeInTheDocument();
   });
-  it.each([['PP3_Moderate', 'Moderate'], ['PP3_Strong', 'Strong'], ['BP4_Moderate', 'Strong']] as const)('shows the recorded strength of %s in both panes', (code, strength) => {
+  it.each([['PP3_Moderate', 'Moderate'], ['PP3_Strong', 'Strong'], ['BP4_Moderate', 'Moderate'], ['BP4_Strong', 'Strong']] as const)('shows the recorded strength of %s in both panes', (code, strength) => {
     const analysis = nae1Reference({ ruleBasedInsights: { acmgVerdict: 'Variant of Uncertain Significance (VUS)', acmgCriteria: [{ code, reason: 'Recorded calibrated criterion' }] }, insights: { acmgCriteria: [] } });
     const ev = buildInsightsEvidence({ result: analysis, functionInput: functionEvidenceInputFrom(analysis), stability: null });
     render(<SettingsProvider><ReviewWorkspaceProvider result={analysis}><InsightsScreen evidence={ev} narrative={null} /><InsightsInspector analysisResult={analysis} /></ReviewWorkspaceProvider></SettingsProvider>);

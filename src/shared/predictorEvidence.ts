@@ -286,11 +286,20 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
   const esm2 = finite(r.esm2Eval?.llr ?? r.esm2?.llr);
+  const esm2Provenance: string | null = typeof r.esm2Eval?.provenance === "string" ? r.esm2Eval.provenance : null;
+  const esm2IsVesmFallback = Boolean(esm2Provenance && /vesm/i.test(esm2Provenance));
+  const esm2Name = esm2IsVesmFallback ? "VESM (ESM-2 fallback)" : "ESM-2";
   const esmc = finite(r.esmcEval?.llr);
   const esmcProvenance: string | null = typeof r.esmcEval?.provenance === "string" ? r.esmcEval.provenance : null;
+  const esmcRemoteNote: string | null = typeof r.esmcEval?.remoteEngineNote === "string" ? r.esmcEval.remoteEngineNote : null;
+  const esmcIsVesm = Boolean(esmcProvenance && /vesm/i.test(esmcProvenance));
+  const esmcIsFallback = Boolean(esmcRemoteNote || (esmcProvenance && /fallback/i.test(esmcProvenance)));
   const saprot = finite(r.saprotEval?.llr);
   const saprotProvenance: string | null = typeof r.saprotEval?.provenance === "string" ? r.saprotEval.provenance : null;
   const saprotFallback: string | null = typeof r.saprotEval?.fallbackReason === "string" ? r.saprotEval.fallbackReason : null;
+  const saprotIsVesmFallback = Boolean(saprotProvenance && /vesm/i.test(saprotProvenance));
+  const saprotIsFallback = Boolean(saprotFallback || saprotIsVesmFallback || (saprotProvenance && /fallback/i.test(saprotProvenance)));
+  const saprotName = saprotIsVesmFallback ? "VESM (SaProt fallback)" : "SaProt";
 
   const concordance = countPredictorConcordance(cadd, revel, am, amClass, bayesdel, esm1b, {
     metarnn,
@@ -299,7 +308,9 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     dann,
     popeve,
     esm2Llr: esm2,
+    esm2Label: esm2IsVesmFallback ? esm2Name : null,
     saprotLlr: saprot,
+    saprotLabel: saprotIsVesmFallback ? saprotName : null,
     vesmLlr: esmc,
     esmcLabel: esmcProvenance,
     gpnStar: gpn,
@@ -575,24 +586,45 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       ...extra,
     });
   };
-  uncalibratedLm("esm2_3b", "ESM-2", esm2, {
-    description: "Protein language model masked-marginal LLR.",
-    source: "Meta FAIR ESM-2",
-    knowledgeKey: "esm2",
+  uncalibratedLm("esm2_3b", esm2Name, esm2, {
+    description: esm2IsVesmFallback
+      ? "ESM-2 could not run; served by the local VESM-150M wild-type-marginal stand-in."
+      : "Protein language model masked-marginal LLR.",
+    caveats: esm2IsVesmFallback ? ["fallback-model"] : [],
+    note: esm2IsVesmFallback
+      ? `Stand-in via ${esm2Provenance}`
+      : esm2Provenance
+        ? `Served by ${esm2Provenance}`
+        : null,
+    source: esm2Provenance ?? "Meta FAIR ESM-2",
+    knowledgeKey: esm2IsVesmFallback ? "vesm" : "esm2",
   });
-  uncalibratedLm("vesm", esmcProvenance && /vesm/i.test(esmcProvenance) ? "VESM" : esmcProvenance && /esmc/i.test(esmcProvenance) ? "ESMC" : "ESMC / VESM", esmc, {
+  uncalibratedLm("vesm", esmcIsVesm ? "VESM" : esmcProvenance && /esmc/i.test(esmcProvenance) ? "ESMC" : "ESMC / VESM", esmc, {
     description: "Protein language model LLR — ESMC when the remote tier answers, VESM when the local sidecar does.",
-    note: esmcProvenance ? `Served by ${esmcProvenance}` : null,
+    caveats: esmcIsFallback ? ["fallback-model"] : [],
+    note: esmcRemoteNote
+      ? `Stand-in (${esmcProvenance ?? "VESM-150M"}); ESMC remote unavailable: ${esmcRemoteNote}`
+      : esmcProvenance
+        ? `Served by ${esmcProvenance}`
+        : null,
     source: esmcProvenance ?? "ESMC (remote) or VESM (local sidecar)",
-    knowledgeKey: esmcProvenance && /vesm/i.test(esmcProvenance) ? "vesm" : "esmc",
+    knowledgeKey: esmcIsVesm ? "vesm" : "esmc",
   });
-  uncalibratedLm("saprot", "SaProt", saprot, {
-    description: "Structure-aware protein language model over Foldseek 3Di tokens from the predicted structure.",
+  uncalibratedLm("saprot", saprotName, saprot, {
+    description: saprotIsVesmFallback
+      ? "SaProt could not run; served by the local VESM-150M wild-type-marginal stand-in without 3Di structure tokens."
+      : "Structure-aware protein language model over Foldseek 3Di tokens from the predicted structure.",
     scale: { min: -20, max: 5 },
-    caveats: saprotFallback ? ["fallback-model"] : [],
-    note: saprotFallback ? `Fallback: ${saprotFallback}` : saprotProvenance ? `Served by ${saprotProvenance}` : null,
+    caveats: saprotIsFallback ? ["fallback-model"] : [],
+    note: saprotFallback
+      ? `Stand-in fallback: ${saprotFallback}`
+      : saprotIsVesmFallback
+        ? `Stand-in via ${saprotProvenance}`
+        : saprotProvenance
+          ? `Served by ${saprotProvenance}`
+          : null,
     source: saprotProvenance ?? "SaProt",
-    knowledgeKey: "saprot",
+    knowledgeKey: saprotIsVesmFallback ? "vesm" : "saprot",
   });
 
   // ── Genome-wide models (informational) ──

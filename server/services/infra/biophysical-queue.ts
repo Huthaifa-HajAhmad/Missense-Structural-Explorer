@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { DatabaseSync } from "node:sqlite";
-import { Queue, Worker } from "bullmq";
 import { CONFIG, resolveFoldxConcurrency } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
 import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
@@ -1652,10 +1651,7 @@ function formatMinutes(seconds: number): string {
 
 export class BiophysicalJobQueue {
   private static instance: BiophysicalJobQueue | null = null;
-  private sqliteQueue: SQLiteQueue | null = null;
-  private bullQueue: Queue | null = null;
-  private bullWorker: Worker | null = null;
-  private redisUrl: string | undefined;
+  private sqliteQueue: SQLiteQueue;
 
   private concurrency: number;
   /** Global backstop on queued + running jobs; a person meets their own limits (`opts.limits`) first. */
@@ -1672,73 +1668,24 @@ export class BiophysicalJobQueue {
     processCallback: (type: string, data: any, signal?: AbortSignal, jobId?: string) => Promise<any>
   ) {
     this.concurrency = concurrency;
-    this.redisUrl = process.env.REDIS_URL;
-    if (this.redisUrl && initialDeploymentPaused()) {
-      throw new Error("Standby deployments currently require the SQLite queue");
+    if (process.env.REDIS_URL) {
+      console.info("[Queue] BullMQ job queue backend is retired; using SQLiteQueue (REDIS_URL applies to state pub/sub only).");
     }
 
-    if (this.redisUrl) {
-      try {
-        console.warn("[Queue] SECURITY/FAIRNESS WARNING: REDIS_URL is enabled; the BullMQ backend lacks job ownership, cancellation, abort signals, fairness rotation, and OOM ceilings (use SQLite for production).");
-        console.log(`[Queue] Initializing Redis/BullMQ connection to: ${this.redisUrl}`);
-        const connectionOpts = { url: this.redisUrl, maxRetriesPerRequest: null };
-
-        this.bullQueue = new Queue("biophysical_jobs", {
-          connection: connectionOpts,
-          defaultJobOptions: {
-            // Kept like the SQLite backend keeps them, so the reader's poll finds the result.
-            removeOnComplete: { age: Math.round(jobRetentionMs() / 1000) },
-            removeOnFail: { age: Math.round(jobRetentionMs() / 1000) },
-            attempts: 3,
-            backoff: {
-              type: "exponential",
-              delay: 5000
-            }
-          }
-        });
-
-        this.bullWorker = new Worker(
-          "biophysical_jobs",
-          async (job) => {
-            // Memory check before starting job
-            const freeMem = freeRamBytes();
-            if (freeMem < CONFIG.memory.minFreeBytes) {
-              throw new Error("Job execution stalled: server out of memory");
-            }
-            return await processCallback(job.name, job.data, undefined, job.id);
-          },
-          {
-            connection: connectionOpts,
-            concurrency: this.concurrency
-          }
-        );
-
-        this.bullWorker.on("failed", (job, err) => {
-          console.error(`[Queue] Redis job ${job?.id} failed:`, err.message);
-        });
-      } catch (err: any) {
-        console.warn("[Queue] BullMQ initialization failed, falling back to SQLite:", err.message);
-        this.bullQueue = null;
-        this.bullWorker = null;
-      }
-    }
-
-    if (!this.bullQueue) {
-      /**
-       * Under test the queue stays IN-MEMORY, and that ordering is deliberate.
-       *
-       * `SHARED_STATE_DB_PATH` is honoured first in production, but if it took precedence under
-       * test the queue would become file-backed: the resulting disk write per enqueue is slower
-       * and asynchronous in a way some of these tests are sensitive to (a job observed as
-       * "queued" that the old in-memory queue had already flipped to "running"). The path is
-       * still redirected by the test setup, so production state is untouched either way — this
-       * keeps the tests measuring queue behaviour rather than SQLite latency.
-       */
-      const dbPath = process.env.NODE_ENV === "test"
-        ? ":memory:"
-        : (process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite"));
-      this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback, initialDeploymentPaused());
-    }
+    /**
+     * Under test the queue stays IN-MEMORY, and that ordering is deliberate.
+     *
+     * `SHARED_STATE_DB_PATH` is honoured first in production, but if it took precedence under
+     * test the queue would become file-backed: the resulting disk write per enqueue is slower
+     * and asynchronous in a way some of these tests are sensitive to (a job observed as
+     * "queued" that the old in-memory queue had already flipped to "running"). The path is
+     * still redirected by the test setup, so production state is untouched either way — this
+     * keeps the tests measuring queue behaviour rather than SQLite latency.
+     */
+    const dbPath = process.env.NODE_ENV === "test"
+      ? ":memory:"
+      : (process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite"));
+    this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback, initialDeploymentPaused());
   }
 
   static initialize(
@@ -1767,7 +1714,7 @@ export class BiophysicalJobQueue {
 
   /**
    * `opts.ownerId` is the submitter (`req.principal.userId`); without it the job is `legacy` and
-   * shares one rotation slot with every other unowned job. The Redis backend ignores ownership.
+   * shares one rotation slot with every other unowned job.
    */
   /**
    * Submissions are serialised: every limit below is check-then-insert with `await`s in between (the
@@ -1867,20 +1814,15 @@ export class BiophysicalJobQueue {
       throw new Error("BUSY: Concurrency and queue limits reached (503)");
     }
 
-    if (this.bullQueue) {
-      await this.bullQueue.add(type, data, { jobId });
-    } else if (this.sqliteQueue) {
-      await this.sqliteQueue.addJob(jobId, type, data, { ...opts, placement, routing });
-    }
+    await this.sqliteQueue.addJob(jobId, type, data, { ...opts, placement, routing });
 
     return jobId;
   }
 
   /**
-   * The SQLite queue, for the paired-computer protocol (WP-F), or null on the Redis backend, which has
-   * no owners or leases: agents are then refused with a plain reason, and everything runs on the server.
+   * The SQLite queue, for the paired-computer protocol (WP-F).
    */
-  agentQueue(): SQLiteQueue | null {
+  agentQueue(): SQLiteQueue {
     return this.sqliteQueue;
   }
 
@@ -1905,31 +1847,28 @@ export class BiophysicalJobQueue {
     }
   }
 
-  /** Where a job runs, for one viewer (WP-G2); null on Redis or when nothing beyond the server is known. */
+  /** Where a job runs, for one viewer (WP-G2); null when nothing beyond the server is known. */
   runsOn(jobId: string, viewerId: string | null): JobRunsOn | null {
-    return this.sqliteQueue?.runsOn(jobId, viewerId) ?? null;
+    return this.sqliteQueue.runsOn(jobId, viewerId);
   }
 
-  /** The person (or `legacy`/`system`) a job belongs to; `null` when unknown or on Redis. */
+  /** The person (or `legacy`/`system`) a job belongs to; `null` when unknown. */
   async getJobOwner(id: string): Promise<string | null> {
-    if (!this.sqliteQueue) return null;
     return (await this.sqliteQueue.getJob(id))?.ownerId ?? null;
   }
 
   /** Someone else asked for the same work: they now wait on this job and may cancel their own interest. */
   addWatcher(jobId: string, userId: string): void {
-    this.sqliteQueue?.addWatcher(jobId, userId);
+    this.sqliteQueue.addWatcher(jobId, userId);
   }
 
   /** Cancel on behalf of a person. See `SQLiteQueue.cancelFor` for the watcher rule. */
   async cancelFor(jobId: string, userId: string, isAdmin: boolean): Promise<CancelOutcome> {
-    if (!this.sqliteQueue) return { ok: false, reason: "not_found" };
     return this.sqliteQueue.cancelFor(jobId, userId, isAdmin);
   }
 
   /** Server seconds this person's jobs used today (UTC) and in the last 7 days. Informational. */
   usageFor(userId: string, now = Date.now()): { todaySeconds: number; weekSeconds: number } | null {
-    if (!this.sqliteQueue) return null;
     return {
       todaySeconds: Math.round(this.sqliteQueue.serverMsSince(userId, startOfUtcDay(now), now) / 1000),
       weekSeconds: Math.round(this.sqliteQueue.serverMsSince(userId, now - 7 * 86_400_000, now) / 1000),
@@ -1938,7 +1877,7 @@ export class BiophysicalJobQueue {
 
   /** Admin action: forget learned out-of-memory ceilings (e.g. after a misclassified failure or more RAM). */
   forgetOomCeilings(): number {
-    return this.sqliteQueue ? this.sqliteQueue.forgetOomCeilings() : 0;
+    return this.sqliteQueue.forgetOomCeilings();
   }
 
   /**
@@ -1946,7 +1885,6 @@ export class BiophysicalJobQueue {
    * smallest structure size that ran out of memory there. `onServer` marks this server's own class.
    */
   learnedCeilings(): { type: JobType; hostClass: string; residues: number; onServer: boolean }[] {
-    if (!this.sqliteQueue) return [];
     const serverClass = hostClassOf(serverHostFacts());
     return Object.entries(this.sqliteQueue.getCostModels())
       .filter(([, m]) => m.oomCeilingResidues != null)
@@ -1959,32 +1897,23 @@ export class BiophysicalJobQueue {
 
   /** A disabled account stops costing the host anything: its waiting and running work is cancelled. */
   cancelAllFor(userId: string): number {
-    return this.sqliteQueue ? this.sqliteQueue.cancelAllFor(userId) : 0;
+    return this.sqliteQueue.cancelAllFor(userId);
   }
 
   async listFor(userId: string, limit?: number): Promise<JobSummary[]> {
-    return this.sqliteQueue ? this.sqliteQueue.listFor(userId, limit) : [];
+    return this.sqliteQueue.listFor(userId, limit);
   }
 
   async getEta(id: string): Promise<{ waitMs: number | null; runMs: number | null } | null> {
-    return this.sqliteQueue ? this.sqliteQueue.getEta(id) : null;
+    return this.sqliteQueue.getEta(id);
   }
 
   async addCompletedJob(id: string, type: "foldx" | "p2rank", data: any, result: any): Promise<void> {
-    if (this.sqliteQueue) {
-      this.sqliteQueue.addCompletedJob(id, type, data, result);
-    }
+    this.sqliteQueue.addCompletedJob(id, type, data, result);
   }
 
   async getQueueLength(): Promise<number> {
-    if (this.bullQueue) {
-      const counts = await this.bullQueue.getJobCounts("wait", "active");
-      return (counts.wait ?? 0) + (counts.active ?? 0);
-    }
-    if (this.sqliteQueue) {
-      return this.sqliteQueue.getJobCount();
-    }
-    return 0;
+    return this.sqliteQueue.getJobCount();
   }
 
   async getJobStatus(id: string): Promise<{
@@ -2001,52 +1930,20 @@ export class BiophysicalJobQueue {
     createdAt?: number | null;
     startedAt?: number | null;
   } | null> {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      if (!job) return null;
-      const state = await job.getState();
-      const returnval = job.returnvalue;
-      const failedReason = job.failedReason;
-
-      let status: "queued" | "running" | "completed" | "failed" = "queued";
-      if (state === "active") status = "running";
-      else if (state === "completed") status = "completed";
-      else if (state === "failed") status = "failed";
-
-      return {
-        status,
-        result: returnval,
-        error: failedReason,
-        createdAt: typeof job.timestamp === "number" ? job.timestamp : null,
-        startedAt: typeof job.processedOn === "number" ? job.processedOn : null
-      };
-    }
-
-    if (this.sqliteQueue) {
-      const job = await this.sqliteQueue.getJob(id);
-      if (!job) return null;
-      return {
-        status: job.status,
-        result: job.result,
-        error: job.error,
-        createdAt: job.createdAt ?? null,
-        startedAt: job.startedAt ?? null
-      };
-    }
-
-    return null;
+    const job = await this.sqliteQueue.getJob(id);
+    if (!job) return null;
+    return {
+      status: job.status,
+      result: job.result,
+      error: job.error,
+      createdAt: job.createdAt ?? null,
+      startedAt: job.startedAt ?? null
+    };
   }
 
   async getJobData(id: string): Promise<any | null> {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      return job ? job.data : null;
-    }
-    if (this.sqliteQueue) {
-      const job = await this.sqliteQueue.getJob(id);
-      return job ? job.data : null;
-    }
-    return null;
+    const job = await this.sqliteQueue.getJob(id);
+    return job ? job.data : null;
   }
 
   /**
@@ -2065,8 +1962,7 @@ export class BiophysicalJobQueue {
    * Two writers touch the same JSON blob while a job runs: the FoldX worker records its phase, and
    * `updateQueueJobRemoteData` records newly-resolved remote job ids. Both are read-modify-write, and
    * the remote-data writer's read and write straddle `await`s, so a phase written in that window was
-   * silently dropped by the later write (and, on the BullMQ backend, either write could lose the
-   * other). The visible symptom was a run that stopped reporting its stage mid-flight.
+   * silently dropped by the later write. The visible symptom was a run that stopped reporting its stage mid-flight.
    *
    * Serialising per job id removes the class rather than the instance: every write for a given job
    * is queued behind the previous one, so a read always sees the previous write's result.
@@ -2109,59 +2005,34 @@ export class BiophysicalJobQueue {
   }
 
   async getQueuePosition(id: string): Promise<number | null> {
-    if (this.sqliteQueue) return this.sqliteQueue.getQueuePosition(id);
-    return null;
+    return this.sqliteQueue.getQueuePosition(id);
   }
 
   async updateJobData(id: string, data: any): Promise<void> {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      if (job) {
-        await job.updateData(data);
-      }
-    } else if (this.sqliteQueue) {
-      this.sqliteQueue.updateJobData(id, data);
-    }
+    this.sqliteQueue.updateJobData(id, data);
   }
 
   async abortJob(id: string) {
-    if (this.bullQueue) {
-      const job = await this.bullQueue.getJob(id);
-      if (job) {
-        await (job as any).discard();
-      }
-    } else if (this.sqliteQueue) {
-      this.sqliteQueue.abortJob(id);
-    }
+    this.sqliteQueue.abortJob(id);
   }
 
   async shutdown() {
-    if (this.bullWorker) {
-      await this.bullWorker.close();
-    }
-    if (this.bullQueue) {
-      await this.bullQueue.close();
-    }
-    if (this.sqliteQueue) {
-      await this.sqliteQueue.drainAndShutdown();
-    }
+    await this.sqliteQueue.drainAndShutdown();
   }
 
-  getDeploymentState(): { backend: "sqlite" | "redis"; paused: boolean; activeJobs: number } {
+  getDeploymentState(): { backend: "sqlite"; paused: boolean; activeJobs: number } {
     return {
-      backend: this.sqliteQueue ? "sqlite" : "redis",
-      paused: this.sqliteQueue?.paused ?? false,
-      activeJobs: this.sqliteQueue?.activeCount ?? 0,
+      backend: "sqlite",
+      paused: this.sqliteQueue.paused,
+      activeJobs: this.sqliteQueue.activeCount,
     };
   }
 
   pauseProcessing(): void {
-    if (!this.sqliteQueue) throw new Error("Deployment handover requires the SQLite queue");
     this.sqliteQueue.pauseProcessing();
   }
 
   resumeProcessing(): void {
-    if (!this.sqliteQueue) throw new Error("Deployment handover requires the SQLite queue");
     this.sqliteQueue.resumeProcessing();
   }
 }

@@ -57,6 +57,10 @@ export function countPredictorConcordance(
     vesmLlr?: number | null;
     /** Display name for the `esmcEval` score — the model that actually served it. */
     esmcLabel?: string | null;
+    /** Display name for the `esm2Eval` score when a stand-in (e.g. VESM) answered instead of ESM-2. */
+    esm2Label?: string | null;
+    /** Display name for the `saprotEval` score when a stand-in (e.g. VESM) answered instead of SaProt. */
+    saprotLabel?: string | null;
     gpnStar?: number | null;
     alphagenome?: AlphaGenomeAviData | null;
     /**
@@ -162,7 +166,7 @@ export function countPredictorConcordance(
     {
       key: "esm2_3b",
       // The key is historical; the model served is ESM-2 650M (esm2_t33_650M_UR50D), never 3B.
-      name: "ESM-2",
+      name: extra?.esm2Label ?? "ESM-2",
       signal: evaluateEsm(extra?.esm2Llr),
       scoreLabel: extra?.esm2Llr !== null && extra?.esm2Llr !== undefined ? `${extra.esm2Llr.toFixed(2)}` : "—",
       isInformationalOnly: true,
@@ -170,7 +174,7 @@ export function countPredictorConcordance(
     {
       key: "saprot",
       // Unsized: the remote tier falls back 650M → 35M, and the payload's provenance says which ran.
-      name: "SaProt",
+      name: extra?.saprotLabel ?? "SaProt",
       signal: evaluateEsm(extra?.saprotLlr),
       scoreLabel: extra?.saprotLlr !== null && extra?.saprotLlr !== undefined ? `${extra.saprotLlr.toFixed(2)}` : "—",
       isInformationalOnly: true,

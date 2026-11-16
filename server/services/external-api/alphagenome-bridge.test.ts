@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import dns from "node:dns";
 import {
   calculateAlphaGenomeAcmgStrength,
   generateAtlasUrls,
@@ -564,6 +565,24 @@ describe("AlphaGenome Bridge Service Tests", () => {
         expect(alphagenomeCache.size).toBe(1);
       } finally {
         global.fetch = originalFetch;
+      }
+    });
+
+    it("rejects request-chosen endpoints resolving to private IPs via DNS in production", async () => {
+      const prevEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      vi.spyOn(dns.promises, "lookup").mockResolvedValue([{ address: "10.0.0.42", family: 4 }] as any);
+      const originalFetch = global.fetch;
+      const fetchMock = vi.fn();
+      global.fetch = fetchMock as unknown as typeof fetch;
+      try {
+        const res = await fetchAlphaGenome("chr3", 3002, "A", "G", { apiUrl: "https://internal.attacker.example/ag" });
+        expect(res?.status).toBe("unavailable");
+        expect(res?.message).toMatch(/Custom AlphaGenome endpoint rejected:.*DNS resolution blocked/i);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+        process.env.NODE_ENV = prevEnv;
       }
     });
   });

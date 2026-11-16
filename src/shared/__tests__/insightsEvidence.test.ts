@@ -202,6 +202,13 @@ describe("computeTierGap uses the engine's own combining rule", () => {
     expect(gap.side).toBe("benign");
     expect(gap.target).toBe("Likely benign");
   });
+
+  it("treats BS1 + BP4_Moderate as Likely benign needing 1 Supporting or 1 Strong to reach Benign", () => {
+    const gap = computeTierGap([{ code: "BS1", reason: "" }, { code: "BP4_Moderate", reason: "" }])!;
+    expect(gap.side).toBe("benign");
+    expect(gap.target).toBe("Benign");
+    expect(gap.options).toEqual(["1 Strong", "1 Supporting"]);
+  });
 });
 
 describe("tierIndexOf", () => {

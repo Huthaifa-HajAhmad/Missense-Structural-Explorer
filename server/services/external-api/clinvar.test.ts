@@ -290,6 +290,45 @@ describe("fetchClinVarData", () => {
       const res = await run("Pathogenic/Likely pathogenic");
       expect(res.hasOtherPathogenicVariantSameAA).toBe(true);
     });
+
+    it("does NOT award PS1 when coding HGVS notation cannot be parsed (strict HGVS match required)", async () => {
+      const fetchSpy = vi.spyOn(global, "fetch");
+      fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ esearchresult: { idlist: ["1", "2"] } }) } as any);
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            uids: ["1", "2"],
+            "1": { title: "PAH p.Arg408Trp", germline_classification: { description: "Uncertain significance" } },
+            "2": { title: "NM_000277.3(PAH):c.1224C>T (p.Arg408Trp)", germline_classification: { description: "Pathogenic" } },
+          },
+        }),
+      } as any);
+      noVariantRecord(fetchSpy);
+      const res = await fetchClinVarData("PAH", "p.Arg408Trp");
+      expect(res.hasOtherPathogenicVariantSameAA).toBe(false);
+    });
+  });
+
+  it("rejects a direct Variation/VCV lookup whose ClinVar gene mismatches the queried gene", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        result: {
+          uids: ["13961"],
+          "13961": {
+            title: "NM_004333.6(BRAF):c.1799T>A (p.Val600Glu)",
+            genes: [{ symbol: "BRAF" }],
+            germline_classification: { description: "Pathogenic" },
+          },
+        },
+      }),
+    } as any);
+    const res = await fetchClinVarData("PAH", "VCV000013961");
+    expect(res.uid).toBeNull();
+    expect(res.classification).toBe("Not found in ClinVar");
+    fetchSpy.mockRestore();
   });
 
   describe("conditions from the full variant record", () => {

@@ -10,10 +10,10 @@
  *      already resolved passes the team token on, and it must still count as the team's);
  *   2. the token the signed-in person saved to their account;
  *   3. the team token, under `SHARED_TOKEN_FALLBACK`:
- *        on       lent to anyone without a token, shared fairly by the governor;
+ *        on       lent to authenticated callers without a token, shared fairly by the governor;
  *        limited  (default) the same, and each signed-in person may make `SHARED_TOKEN_SHARE_PER_HOUR`
  *                 team-token calls per provider per hour; past that, no token (they are told to add
- *                 their own). Without accounts (`legacy`) nobody is told apart, so it behaves like `on`;
+ *                 their own). Anonymous/unauthenticated callers (`legacy`) are never lent the team token;
  *        off      never lent.
  *
  * A person with their own token never falls back to the team's: once step 1 or 2 answers, step 3 is not
@@ -36,10 +36,11 @@ import {
   type CredentialUse,
   type SharedTokenFallback,
 } from "../../../src/shared/credentials.ts";
-import { EGRESS_SYSTEM_OWNER, EGRESS_UNATTRIBUTED, currentEgressOwner } from "./egress-context.ts";
+import { EGRESS_SERVICE_OWNER, EGRESS_SYSTEM_OWNER, EGRESS_UNATTRIBUTED, currentEgressOwner } from "./egress-context.ts";
 import { governed, pauseKeyFor, type GovernedCredential } from "./egress-governor.ts";
 import { awaitProviderPause } from "./provider-pause.ts";
 import { userSecretState } from "../../auth/user-secrets.ts";
+import { LEGACY_OWNER } from "./queue-owners.ts";
 
 /** The server's team token for each kind, by environment variable in order of preference. */
 const TEAM_ENV: Readonly<Record<CredentialKind, readonly string[]>> = {
@@ -58,7 +59,7 @@ export const CREDENTIAL_HOSTS: Readonly<Record<CredentialKind, string>> = {
 export const DEFAULT_SHARE_PER_HOUR = 60;
 const HOUR_MS = 60 * 60_000;
 /** Owners that are not one identifiable person: no saved tokens, no per-person share. */
-const NOT_A_PERSON = new Set(["legacy", EGRESS_SYSTEM_OWNER, EGRESS_UNATTRIBUTED]);
+const NOT_A_PERSON = new Set([LEGACY_OWNER, EGRESS_SYSTEM_OWNER, EGRESS_SERVICE_OWNER, EGRESS_UNATTRIBUTED]);
 
 export function teamToken(kind: CredentialKind): string | null {
   for (const name of TEAM_ENV[kind]) {
@@ -166,8 +167,14 @@ function recentTeamCalls(owner: string, kind: CredentialKind, now: number): numb
   return list;
 }
 
-/** Team-token calls this person may still make this hour; Infinity when no share applies. */
+/** Anonymous callers (`legacy`, including under `AUTH_MODE=legacy`) must bring their own token or sign in. */
+function canLendTeamToken(owner: string): boolean {
+  return owner !== LEGACY_OWNER;
+}
+
+/** Team-token calls this person may still make this hour; 0 for anonymous `legacy`, Infinity otherwise. */
 export function teamShareLeft(kind: CredentialKind, owner = currentEgressOwner(), now = Date.now()): number {
+  if (!canLendTeamToken(owner)) return 0;
   if (sharedTokenFallback() !== "limited" || !isPerson(owner)) return Number.POSITIVE_INFINITY;
   return Math.max(0, teamSharePerHour() - recentTeamCalls(owner, kind, now).length);
 }
@@ -202,10 +209,11 @@ function savedToken(owner: string, kind: CredentialKind): string | null {
   return state && state !== "unreadable" ? state : null;
 }
 
-/** Step 3: the team token under the lending policy and this person's hourly share. */
+/** Step 3: the team token under the lending policy, caller authentication, and hourly share. */
 function lendTeamToken(kind: CredentialKind, team: string, owner: string): ResolvedCredential {
   const policy = sharedTokenFallback();
   if (policy === "off") return { kind, token: null, source: "none", refusal: "team-token-off" };
+  if (!canLendTeamToken(owner)) return { kind, token: null, source: "none", refusal: "team-signin-required" };
   if (teamShareLeft(kind, owner) <= 0) return { kind, token: null, source: "none", refusal: "team-share-used" };
   return { kind, token: team, source: "team" };
 }
@@ -236,7 +244,7 @@ export function resolveCredential(
   if (opts.statusOnly) {
     const saved = savedToken(owner, kind);
     if (saved) return { kind, token: saved, source: "own" };
-    if (team && sharedTokenFallback() !== "off") return { kind, token: team, source: "team" };
+    if (team && canLendTeamToken(owner) && sharedTokenFallback() !== "off") return { kind, token: team, source: "team" };
     return { kind, token: null, source: "none" };
   }
 
@@ -285,7 +293,7 @@ export function credentialAvailable(kind: CredentialKind, supplied?: string | nu
   const saved = savedTokenState(owner, kind);
   if (saved === "unreadable") return false;
   if (saved) return true;
-  return Boolean(team) && sharedTokenFallback() !== "off" && teamShareLeft(kind, owner) > 0;
+  return Boolean(team) && canLendTeamToken(owner) && sharedTokenFallback() !== "off" && teamShareLeft(kind, owner) > 0;
 }
 
 /**
