@@ -135,8 +135,8 @@ export interface ParsedVariantContext {
   /**
    * Build the supplied coordinate notation was expressed in. Threaded to every
    * coordinate-consuming consumer so a single-build source can never be handed the
-   * wrong build's coordinates. Optional in the type because the parser always fills it
-   * (the request schema defaults it to GRCh38); consumers default it identically.
+   * wrong build's coordinates. Absent when the caller stated none (for example a protein-only
+   * entry); consumers that need a build default it to GRCh38 themselves.
    */
   assembly?: GenomeAssembly;
   /**
@@ -585,8 +585,9 @@ export async function validateAndParseVariantRequest(
     ...(coordinateLift ? { coordinateLift } : {}),
     userDirections,
     acmgWeighting,
-    // The schema defaults this to GRCh38, so it is always a concrete build by here.
-    assembly: (req.body.assembly ?? "GRCh38") as GenomeAssembly,
+    // Only a build the caller stated. A protein-only entry has no build control, so the schema's
+    // GRCh38 default is not something the reader chose and must not be echoed back as a fact.
+    ...(req.body.assembly ? { assembly: req.body.assembly as GenomeAssembly } : {}),
     residueIndex,
     wildType,
     mutant,

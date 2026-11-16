@@ -193,13 +193,13 @@ export function fallbackCause(
   failureKind?: LocusFailureKind | null,
 ): string {
   if (failureKind === "ambiguous-allele") {
-    return "this protein change can represent more than one nucleotide allele. Provide the original transcript-qualified cDNA variant or genomic variant with its genome build; no allele was selected or inferred.";
+    return "this protein change can represent more than one nucleotide allele. Provide the original transcript-qualified cDNA variant, or a genomic variant and its genome build; no allele was selected or inferred.";
   }
   if (failureKind === "incomplete-evidence") {
-    return "the lookup did not establish a unique nucleotide allele from complete evidence. Provide the original transcript-qualified cDNA variant or genomic variant with its genome build; no allele was selected or inferred.";
+    return "the lookup did not establish a unique nucleotide allele from complete evidence. Provide the original transcript-qualified cDNA variant, or a genomic variant and its genome build; no allele was selected or inferred.";
   }
   if (failureKind === "invalid-notation") {
-    return "the submitted notation could not establish a genomic allele. Check the original transcript-qualified cDNA variant or genomic variant and its genome build.";
+    return "the submitted notation could not establish a genomic allele. Check the original transcript-qualified cDNA variant, or the genomic variant and its genome build.";
   }
   if (!retryable) {
     return "no verified genomic allele was established from this input. This does not establish absence from a population database; no frequency criterion was applied.";
