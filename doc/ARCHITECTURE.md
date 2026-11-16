@@ -171,30 +171,20 @@ To ensure MissenseResolve® provides instant UI responsiveness (<1.5s initial lo
 - Heavy LLM narrative text generations (e.g., `POST /api/v1/analyze-variant-narrative`) MUST be invoked asynchronously by the client AFTER the initial JSON evidence payload is set, allowing UI components to render structured evidence metrics instantly while narratives stream in the background.
 - The UI MUST gracefully handle `null` or `unavailable` states from slow or timed-out sub-modules without crashing or blocking other evidence cards.
 
-## 6. Unresolved: which dbNSFP release the local ingest holds
+## 6. Which dbNSFP release answered
 
-`PROVENANCE_DATA_SOURCES.dbnsfp` and `DATA_SOURCES_VERSION.dbnsfp` both declare **"4.4a"**,
-but `tools/ingest_dbnsfp.ts` writes its artefact to `data/dbnsfp_v5.sqlite`. Nothing in the
-code resolves the conflict: the declared string is hand-maintained (it versions a cache key,
-and no code reads a version back from the dbNSFP distribution), while the file name is the
-only other signal and may reflect the ingest's own schema rather than the upstream release.
+No surface states one fixed dbNSFP release, because two sources answer and they differ: the local
+store (`data/dbnsfp_v5.sqlite`) and MyVariant.info, which serves an older 4.x release. The release is a
+fact about each answer, so it is recorded there:
 
-**This is unresolved, not documented as settled.** Until someone confirms which release the
-ingested SQLite actually contains, no surface — including the exported provenance manifest and
-the About page's credit roll — should state a dbNSFP release as fact. Both currently decline
-to (`src/shared/attributions.ts` renders it as "Not established by this code").
+- The local ingest (`tools/ingest_dbnsfp.ts --version <release>`) writes the release into the store's
+  `build_meta` table. `readLocalDbnsfpVersion()` reads it back, and each predictor that the store
+  answered carries it in its provenance (`revelProvenance`, `amProvenance`).
+- A store built before `build_meta` existed reports "local dbNSFP (version not recorded)", never a guess.
+- `PROVENANCE_DATA_SOURCES.dbnsfp` (the exported manifest) points to those per-predictor records
+  instead of naming a release. The old hand-typed "4.4a" and the unused `DATA_SOURCES_VERSION`
+  registry are gone.
+- `DbnsfpAdapter.version` is the adapter's cache-key version, not a dbNSFP release.
 
-Resolving it means: re-run the ingest, record the upstream release string the source archive
-declares, and update both registries from that.
-
-**Status: deferred.** The local ingest path is opt-in (`ENABLE_LOCAL_DBNSFP="false"` is the
-documented default — `doc/DEPLOY.md:49`, `doc/LIMITATIONS.md:98`) and this conflict only
-describes a deployment that has actually run it, so it is recorded here rather than fixed now.
-It is a *deferral*, not a resolution: nothing in the codebase agrees, and the two registries
-still carry an unsupported "4.4a" until someone re-runs the ingest. Any future change to the
-local dbNSFP path must re-open this.
-
-**The prohibition stands meanwhile:** no surface may state a dbNSFP release as fact, and the
-exported provenance manifest is the one place that still does — `PROVENANCE_DATA_SOURCES` is
-read straight into the manifest that ships with a report. Treat that as a known, dated gap in
-exported provenance rather than a settled value.
+Re-run the ingest with the right `--version` whenever the store is rebuilt. Production sets
+`LANDSCAPE_REMOTE_FALLBACK=off` so the landscape never mixes the two releases (`doc/DEPLOY.md`).

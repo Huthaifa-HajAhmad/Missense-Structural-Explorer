@@ -83,7 +83,11 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
     return;
   }
 
-  // 2. Allow valid session-authenticated requests (X-Gemini-Session-ID)
+  // 2. A valid Gemini session id passes the APP_API_TOKEN check. This is deliberate: the browser app
+  //    cannot hold APP_API_TOKEN, so in AUTH_MODE=legacy (open by design, see doc/ACCOUNTS.md) the
+  //    session is how it reaches routes behind this check. It is not a login. Step 0 above already
+  //    refuses every write in hybrid and accounts mode before this line runs, and
+  //    server/routes/auth.test.ts pins that. Do not remove it without a replacement for the browser.
   const sessionId = req.headers["x-gemini-session-id"] as string | undefined;
   if (sessionId) {
     try {

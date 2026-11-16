@@ -7,6 +7,7 @@ import { requestLogger, validateContentType } from "../middleware.ts";
 import { closeAccountsDb, createUser, getUserCredentials, updateUser } from "../auth/store.ts";
 import { hashPassword, verifyPassword } from "../auth/password.ts";
 import { authEnvironmentProblems } from "../auth/config.ts";
+import { encryptSession } from "../utils.ts";
 
 /**
  * WP-A acceptance (doc/COMPUTE_ROUTING_PLAN.md section 7): the password provider end to end, the
@@ -318,6 +319,23 @@ describe("AUTH_MODE gating", () => {
     expect((await call("GET", "/health")).status).not.toBe(401);
     const cookie = await signIn("m@lab.org");
     expect((await call("POST", WRITE, { body: {}, cookie })).status).toBe(400);
+  });
+
+  it("a Gemini session id is a key carrier, not a login: it never authorises a write once sign-in is on", async () => {
+    const sessionId = encryptSession({ apiKey: "AIza-test-key-0123456789", expiresAt: Date.now() + 60_000 }, process.env.APP_SESSION_SECRET!);
+    const headers = { "x-gemini-session-id": sessionId };
+    // A write route that is not public, so the APP_API_TOKEN check really applies to it.
+    const PROTECTED_WRITE = "/ppi/binding-shift";
+    for (const mode of ["hybrid", "accounts"]) {
+      process.env.AUTH_MODE = mode;
+      const r = await call("POST", PROTECTED_WRITE, { body: {}, headers });
+      expect(r.status, `${mode} must refuse a session-only write`).toBe(401);
+      expect(r.body.error.code).toBe("SIGN_IN_REQUIRED");
+    }
+    // legacy is the open mode by design: the browser has no APP_API_TOKEN, so the session is its pass.
+    process.env.AUTH_MODE = "legacy";
+    expect((await call("POST", PROTECTED_WRITE, { body: {} })).status).toBe(401);
+    expect((await call("POST", PROTECTED_WRITE, { body: {}, headers })).status).not.toBe(401);
   });
 
   it("a cookie-authenticated write from another site is refused", async () => {

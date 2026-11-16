@@ -31,14 +31,6 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
  */
 // v9 retires rounded v2 gene constraint and transcript-unverified regional calls.
 export const CACHE_SCHEMA_VERSION = "v9";
-export const DATA_SOURCES_VERSION = {
-  dbnsfp: "4.4a",
-  gnomad: "v4.1.1",
-  gnomadConstraint: "v4.1.2",
-  gnomadRegionalConstraint: "v4.1.1",
-  clinvar: "2024-latest",
-  foldx: "v2"
-};
 
 /**
  * Cache key for a gnomAD allele-frequency lookup.

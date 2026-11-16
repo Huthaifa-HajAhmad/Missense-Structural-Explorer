@@ -24,6 +24,11 @@ In `legacy` mode anyone who finds the address can queue FoldX and pocket jobs on
 every job belongs to "legacy", so per-person limits, **My jobs** and usage do nothing. Switching to
 `accounts` closes that.
 
+A Gemini session id (the key a visitor pastes in Settings) is not a login. In `legacy` mode the
+browser uses it to pass the `APP_API_TOKEN` check, because a browser cannot hold that token. In
+`hybrid` and `accounts` mode it opens no write at all; only a signed-in person (or, in `hybrid`, the
+token) does. Anyone who needs real access control sets `AUTH_MODE=accounts`.
+
 ## Applying a setting
 
 Settings live in `deploy/.env.oci` on the server. Compose reads that file only when it **creates** a
