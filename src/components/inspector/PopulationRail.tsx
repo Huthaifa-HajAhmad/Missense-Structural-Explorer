@@ -16,6 +16,7 @@ import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import { clinvarAccessionNote, formatClinicalDate } from "../evidence/population/populationFormat";
 import { buildAssemblyLiftNote } from "./assemblyLiftNote";
 import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "../../shared/locusResolution";
+import { CandidateAlleleList } from "../evidence/CandidateAlleles";
 
 /**
  * PopulationRail — the Evidence Lineage inspector for the Population Data tab.
@@ -85,8 +86,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
    *  ceiling was read. "Ceiling applied" may only mark a row where that is actually true. */
   const pm2Reached = criterion.code === "PM2" || criterion.code === "none";
   const standIn = analysisResult.gnomadFrequency?.standIn ?? null;
-  const releaseRaw = evidence.observations.find(o => o.id.startsWith("gnomad"))?.dataset ?? null;
-  const gnomadRelease = releaseRaw && releaseRaw !== "release not reported" ? releaseRaw : null;
+  const gnomadRelease = evidence.gnomadRelease;
   const ruleFrom = reading.ruleSource.startsWith("gnomAD") && gnomadRelease
     ? `${reading.ruleSource} · ${gnomadRelease}`
     : reading.ruleSource;
@@ -227,6 +227,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               <span className="rail-step__sub" data-testid="bs2-recorded">
                 Also recorded: <span className="ev-tier chip-code" data-tone="good">BS2</span> from{" "}
                 <span className="pop-mono">{evidence.gnomadHomozygotes ?? "—"}</span> gnomAD homozygotes
+                {evidence.candidates ? " (minimum across candidates)" : ""}
               </span>
             )}
             {!bs2Info.recorded && !bs2Info.applicable && (evidence.gnomadHomozygotes ?? 0) >= 2 && (
@@ -317,10 +318,17 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               </Row>
             </>
           )}
-          <Row label="Assembly">
-            <span className="pop-mono">{genomicAssembly ? ASSEMBLY_LABELS[genomicAssembly] : "Build not reported"}</span>
-            {fallbackLocus && <span className="ev-tier chip-code" data-tone="warn">fallback</span>}
-          </Row>
+          {evidence.candidates ? (
+            // No single allele: each candidate was lifted to GRCh38 and read on its own.
+            <Row label="Candidate alleles">
+              <CandidateAlleleList rows={evidence.candidates} />
+            </Row>
+          ) : (
+            <Row label="Assembly">
+              <span className="pop-mono">{genomicAssembly ? ASSEMBLY_LABELS[genomicAssembly] : "Build not reported"}</span>
+              {fallbackLocus && <span className="ev-tier chip-code" data-tone="warn">fallback</span>}
+            </Row>
+          )}
           <Row label="Transcript">
             <span className="pop-mono">{transcriptId || "Not resolved"}</span>
             <span className="ev-tier chip-code" data-tone={tierTone}>{tier}</span>

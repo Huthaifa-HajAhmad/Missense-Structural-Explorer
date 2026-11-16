@@ -7,7 +7,7 @@ import {
   REGIONAL_MISSENSE_SOURCE,
 } from "../../../../src/shared/thresholds.ts";
 import type { ClinVarData } from "../../external-api/clinvar.ts";
-import type { PredictorData, ConservationData } from "../../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, GnomadCandidateReading } from "../../../../src/shared/contracts.ts";
 import type { GnomadVariantFrequency, GnomadGeneConstraint } from "../../external-api/gnomad.ts";
 import type { UniprotFeaturesResult } from "../../external-api/uniprot.ts";
 import { isNullVariant, isInFrameIndel, isIndelInRepeatRegion } from "./syntax.ts";
@@ -17,6 +17,7 @@ import { classifyClinvar } from "../../../../src/shared/clinvarClassification.ts
 import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
 import type { CuratedLofMechanism } from "../../../../src/shared/lofMechanismBasis.ts";
+import { candidateFrequencyCriteria } from "./candidate-frequency.ts";
 
 export interface ACMGEvidenceInput {
   gene: string;
@@ -48,6 +49,8 @@ export interface ACMGEvidenceInput {
     dataset: string;
     groupMaxAFIsFallback?: boolean;
     faf95?: number | null;
+    /** One gnomAD reading per candidate allele of a protein-only input (`candidate-frequency.ts`). */
+    candidates?: GnomadCandidateReading[] | null;
   } | null;
   /**
    * The gene's curated GenCC inheritance (`summariseCuratedInheritance`), or null when it has no
@@ -345,6 +348,7 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     typeof value === "number" && Number.isFinite(value) ? value : null;
 
   const gnomadInputs = gnomadRuleInputs(gnomadFrequency);
+  const candidateReadings = gnomadFrequency?.candidates?.length ? gnomadFrequency.candidates : null;
 
   if (isGnomadWithheld) {
     if (!unavailable.includes("GNOMAD_FREQUENCY")) {
@@ -354,6 +358,13 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
           : "GNOMAD_FREQUENCY (timeout/error — PM2 withheld)",
       );
     }
+  } else if (candidateReadings) {
+    // Several candidate alleles: a criterion holds only if it holds for every one of them.
+    const outcome = candidateFrequencyCriteria(candidateReadings, {
+      curatedInheritance, pli: gnomadConstraint?.pli ?? null, skipPathogenicComp, skipBenignComp,
+    });
+    criteria.push(...outcome.criteria);
+    unavailable.push(...outcome.unavailable);
   } else if (gnomadInputs) {
     ruleInputs = gnomadInputs;
   } else if (serviceStatus?.gnomadFrequency === "not_found") {

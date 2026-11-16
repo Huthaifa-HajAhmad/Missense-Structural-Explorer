@@ -239,6 +239,32 @@ describe("run-state slot", () => {
     expect(state?.detail).toMatch(/gnomAD/i);
   });
 
+  /** FGFR3 p.Gly380Arg on protein-only input: two candidate alleles, both lifted and queried. */
+  it("names several candidate alleles without asking for the allele once every candidate resolved", () => {
+    const candidate = (alt: string) => ({ grch37Id: `4-1806119-G-${alt}`, id: `4-1804392-G-${alt}`, canonicalBy: "ensembl-lift", retryable: false });
+    const multi = {
+      ...clean,
+      predictorData: {
+        amPathogenicity: 0.9, amClass: null, caddPhred: null, gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [], candidates: [candidate("A"), candidate("C")] },
+      },
+    } as unknown as AnalysisResult;
+    const state = buildVariantHeaderModel(props(multi)).runState;
+    expect(state).toMatchObject({ label: "Several candidate alleles", recoveryAction: null, retryable: false });
+    render(<VariantHeader {...props(multi)} onProvideAllele={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Provide nucleotide allele/ })).toBeNull();
+
+    const failedCandidate = {
+      ...multi,
+      gnomadFrequency: {
+        maxAF: null, genomeAF: null, exomeAF: null, nHomozygous: null, dataset: "gnomad_r4",
+        candidates: [{ id: "4-1804392-G-A", grch37Id: "4-1806119-G-A", outcome: "failed", frequency: null, detail: "timeout" }],
+      },
+    } as unknown as AnalysisResult;
+    const failedState = buildVariantHeaderModel(props(failedCandidate)).runState;
+    expect(failedState).toMatchObject({ label: "gnomAD did not answer", recoveryAction: "retry", retryable: true });
+  });
+
   /** The FGFR3 run (2026-11-08): VEP never settled, so gnomAD was never asked at all. */
   it("names the unresolved locus, not gnomAD, when the fetch never had a locus to use", () => {
     const unresolved = {

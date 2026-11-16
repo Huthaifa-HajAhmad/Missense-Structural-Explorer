@@ -79,3 +79,48 @@ describe("ACMG frequency rules — PM2 ceiling basis", () => {
     expect(res.acmgCriteria.find(c => c.code === "PM2")?.reason).toMatch(/no curated inheritance; pLI 0\.00 < 0\.9/);
   });
 });
+
+describe("ACMG frequency rules — protein change with several candidate alleles", () => {
+  /** FGFR3 p.Gly380Arg on protein-only input: G>A or G>C at one GRCh38 base. */
+  const multi = {
+    ...base, gene: "FGFR3", variant: "p.Gly380Arg",
+    predictorData: { available: true, gnomadVariantId: null, locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [] } },
+  };
+  const found = (alt: string, af: number, extra: Record<string, unknown> = {}) => ({
+    id: `4-1804392-G-${alt}`, grch37Id: `4-1806119-G-${alt}`, outcome: "found",
+    frequency: { maxAF: af, groupMaxAF: af, genomeAF: af, exomeAF: null, nHomozygous: 0, dataset: "gnomad_r4", ...extra },
+  });
+  const absent = (alt: string) => ({ id: `4-1804392-G-${alt}`, grch37Id: `4-1806119-G-${alt}`, outcome: "not-found", frequency: null });
+  const run = (candidates: unknown[]) => computeRuleBasedACMG({
+    ...multi, gnomadFrequency: { maxAF: null, groupMaxAF: null, genomeAF: null, exomeAF: null, nHomozygous: null, dataset: "gnomad_r4", candidates },
+  });
+  const frequencyCodes = (res: ReturnType<typeof computeRuleBasedACMG>) =>
+    res.acmgCriteria.map(c => c.code).filter(code => ["BA1", "BS1", "PM2", "BS2"].includes(code));
+
+  it("applies PM2 when every candidate is at or below the ceiling, and says so", () => {
+    const res = run([absent("A"), found("C", 0.000001)]);
+    expect(frequencyCodes(res)).toEqual(["PM2"]);
+    expect(res.acmgCriteria.find(c => c.code === "PM2")?.reason).toMatch(/every candidate allele \(2: 4-1804392-G-A, 4-1804392-G-C\)/);
+  });
+
+  it("applies BS1 when every candidate is above the BS1 cut-point on its own FAF95", () => {
+    expect(frequencyCodes(run([found("A", 0.03, { faf95: 0.02 }), found("C", 0.04, { faf95: 0.015 })]))).toEqual(["BS1"]);
+  });
+
+  it("applies no frequency criterion when the candidates disagree, and records why", () => {
+    const res = run([found("A", 0.03, { faf95: 0.02 }), absent("C")]);
+    expect(frequencyCodes(res)).toEqual([]);
+    expect(res.partialEvidence.unavailable.some(u => /candidate alleles disagree/.test(u))).toBe(true);
+  });
+
+  it("withholds every frequency criterion and names the candidate whose query failed", () => {
+    const res = run([absent("A"), { ...absent("C"), outcome: "failed", detail: "the gnomAD query failed" }]);
+    expect(frequencyCodes(res)).toEqual([]);
+    expect(res.partialEvidence.unavailable.some(u => u.includes("4-1804392-G-C"))).toBe(true);
+  });
+
+  it("applies BS2 only when every candidate has two or more homozygotes", () => {
+    expect(frequencyCodes(run([found("A", 0.006, { nHomozygous: 3 }), found("C", 0.006, { nHomozygous: 2 })]))).toContain("BS2");
+    expect(frequencyCodes(run([found("A", 0.006, { nHomozygous: 3 }), found("C", 0.006, { nHomozygous: 1 })]))).not.toContain("BS2");
+  });
+});

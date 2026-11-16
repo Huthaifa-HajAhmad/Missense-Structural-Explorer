@@ -388,6 +388,36 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       expect(result.aouLookup?.localTable).toBe("found");
     });
 
+    it("queries gnomAD once per candidate allele of a protein-only input, selecting none", async () => {
+      const { fetchPredictorData } = await import("../prediction/index.ts");
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      const { LOCUS_POLICY_VERSION } = await import("../../../src/shared/locusResolution.ts");
+      const candidate = (alt: string) => ({ grch37Id: `4-1806119-G-${alt}`, id: `4-1804392-G-${alt}`, canonicalBy: "ensembl-lift" as const, retryable: false });
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({
+        gnomad: { maxAF: 0.05, genomeAC: 50, genomeAN: 1000, dataset: "gnomad_r4_local" },
+        aou: null,
+      });
+      vi.mocked(fetchPredictorData).mockResolvedValueOnce({
+        available: true, amPathogenicity: 0.9, amClass: null, caddPhred: null, gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", policyVersion: LOCUS_POLICY_VERSION, steps: [], candidates: [candidate("A"), candidate("C")] },
+      } as any);
+      vi.mocked(fetchGnomadVariantFrequency).mockClear();
+      vi.mocked(fetchGnomadVariantFrequency).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      const result = await fetchCoreVariantData({ ...baseContext, gene: "FGFR3", variant: "p.Gly380Arg", pos: 380 }, 2000);
+      expect(vi.mocked(fetchGnomadVariantFrequency).mock.calls.map(c => c[0])).toEqual(["4-1804392-G-A", "4-1804392-G-C"]);
+      expect(fetchLocalPopulationFrequencies).not.toHaveBeenCalled();
+      expect(result.gnomadFrequency?.candidates?.map(c => c.outcome)).toEqual(["not-found", "not-found"]);
+      expect(result.gnomadFrequency?.standIn).toBeUndefined();
+      expect(result.serviceStatus.gnomadFrequency).toBe("ok");
+      // Absent for every candidate, so PM2 holds whichever allele the person carries.
+      expect(result.ruleBasedInsights!.acmgCriteria.map(c => c.code)).toContain("PM2");
+      vi.mocked(fetchLocalPopulationFrequencies).mockReset();
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValue(null);
+    });
+
     it("falls back to the local combined counts when gnomAD itself is unreachable", async () => {
       const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
       const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");

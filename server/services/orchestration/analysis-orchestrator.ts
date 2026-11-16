@@ -29,7 +29,7 @@ import { BUDGET_EXPIRED, createTimeoutScope } from "./timeout-scope.ts";
 import type { StructuralModelFrame, StructuralStreamFrame } from "../../../src/shared/structuralStream.ts";
 import { checkPayloadCompatibility, structuralIdentityRecordOf, type IdentityScope } from "./core-identity.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
-import { predictorCoordinateFromContext, isBuildDegradedResult, type PredictorData } from "../../../src/shared/contracts.ts";
+import { predictorCoordinateFromContext, isBuildDegradedResult, type PredictorData, type GnomadCandidateReading } from "../../../src/shared/contracts.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
@@ -105,8 +105,9 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
    * the next visit after a short back-off, not on every visit.
    */
   const statuses = payload.serviceStatus;
-  if (statuses && ["gnomadFrequency", "gnomadConstraint", "predictorData"]
-      .some(key => statuses[key] === "timeout") && !updatedWithin(recordUpdatedAt, CORE_TIMEOUT_RETRY_BACKOFF_MS)) return true;
+  const hasCandidateFailure = Boolean(payload.gnomadFrequency?.candidates?.some((c: GnomadCandidateReading) => c.outcome === "failed"));
+  if (((statuses && ["gnomadFrequency", "gnomadConstraint", "predictorData"].some(key => statuses[key] === "timeout")) || hasCandidateFailure)
+      && !updatedWithin(recordUpdatedAt, CORE_TIMEOUT_RETRY_BACKOFF_MS)) return true;
   if (hasInterruptedPredictorReadings(payload)) return true;
   // The persisted outer key is gene + protein + weighting, not nucleotide identity. A supplied
   // allele must escape a prior definitive ambiguity (or a different ALT at the same position).

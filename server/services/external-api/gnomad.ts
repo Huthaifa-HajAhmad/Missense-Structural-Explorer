@@ -6,6 +6,7 @@ import { buildGnomadFreqKey } from "../infra/cache-keys.ts";
 // Frequencies tab's grouped-maximum row), so the filter and the copy cannot drift apart.
 import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 import { groupMaximum } from "../../../src/shared/gnomadGroups.ts";
+import type { GnomadCandidateReading } from "../../../src/shared/contracts.ts";
 
 /**
  * An answer gnomAD did not give: a transport failure or a non-OK response.
@@ -71,6 +72,13 @@ export interface GnomadVariantFrequency {
   faf95?: number | null;
   /** The group FAF95 was taken from. */
   faf95Population?: string | null;
+  /** Set when local dbNSFP counts stand in for gnomAD due to grace timeout or fault. */
+  standIn?: "grace" | "fault" | null;
+  /**
+   * Set by the core fetch, never by gnomAD: one reading per candidate allele when the protein change
+   * can come from several nucleotide alleles (`gnomad-candidates.ts`). The fields above stay empty then.
+   */
+  candidates?: GnomadCandidateReading[] | null;
 }
 
 /**

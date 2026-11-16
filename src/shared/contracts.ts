@@ -1693,6 +1693,35 @@ export const landscapeContextResponseSchema = z.object({
 });
 export type LandscapeContextResponse = z.infer<typeof landscapeContextResponseSchema>;
 
+/** gnomAD's record for one allele, as the response carries it. */
+const gnomadFrequencyRecordSchema = z.object({
+  maxAF: z.number().nullable(),
+  groupMaxAF: z.number().nullable().optional(),
+  genomeAF: z.number().nullable(),
+  exomeAF: z.number().nullable(),
+  genomeAC: z.number().nullable().optional(),
+  exomeAC: z.number().nullable().optional(),
+  genomeAN: z.number().nullable().optional(),
+  exomeAN: z.number().nullable().optional(),
+  nHomozygous: z.number().nullable(),
+  dataset: z.string(),
+  // Declared so the client keeps them: an undeclared key is stripped by this schema, which is
+  // how `groupMaxAFIsFallback` used to vanish before the fallback note could render.
+  groupMaxAFIsFallback: z.boolean().optional(),
+  groupMaxPopulation: z.string().nullable().optional(),
+  faf95: z.number().nullable().optional(),
+  faf95Population: z.string().nullable().optional(),
+  standIn: z.enum(["grace", "fault"]).nullable().optional(),
+});
+
+const gnomadCandidateReadingSchema = z.object({
+  id: z.string().nullable(),
+  grch37Id: z.string(),
+  outcome: z.enum(["found", "not-found", "not-lifted", "failed"]),
+  frequency: gnomadFrequencyRecordSchema.omit({ standIn: true }).nullable(),
+  detail: z.string().nullable().optional(),
+});
+
 export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
   isFallback: z.boolean().optional(),
@@ -1874,24 +1903,9 @@ export const analyzeVariantResponseSchema = z.object({
   /** Hyphen form of the locus in `resolvedAssembly`, when a lift was verified. */
   liftedGenomicCoordinates: z.string().nullable().optional(),
   coordinateLift: coordinateLiftSchema.nullable().optional(),
-  gnomadFrequency: z.object({
-    maxAF: z.number().nullable(),
-    groupMaxAF: z.number().nullable().optional(),
-    genomeAF: z.number().nullable(),
-    exomeAF: z.number().nullable(),
-    genomeAC: z.number().nullable().optional(),
-    exomeAC: z.number().nullable().optional(),
-    genomeAN: z.number().nullable().optional(),
-    exomeAN: z.number().nullable().optional(),
-    nHomozygous: z.number().nullable(),
-    dataset: z.string(),
-    // Declared so the client keeps them: an undeclared key is stripped by this schema, which is
-    // how `groupMaxAFIsFallback` used to vanish before the fallback note could render.
-    groupMaxAFIsFallback: z.boolean().optional(),
-    groupMaxPopulation: z.string().nullable().optional(),
-    faf95: z.number().nullable().optional(),
-    faf95Population: z.string().nullable().optional(),
-    standIn: z.enum(["grace", "fault"]).nullable().optional(),
+  gnomadFrequency: gnomadFrequencyRecordSchema.extend({
+    // One reading per candidate allele of a protein-only input (`GnomadCandidateReading`).
+    candidates: z.array(gnomadCandidateReadingSchema).max(12).nullable().optional(),
   }).nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable().optional(),
@@ -2785,6 +2799,29 @@ export interface GnomadFrequencyData {
    * one of them (a fault) was reported as a plain `ok` with no trace on the payload.
    */
   standIn?: "grace" | "fault" | null;
+  /**
+   * Present only when the input was a protein change that more than one nucleotide allele can
+   * produce (`locusResolution.failureKind === "multiple-candidates"`). gnomAD was then read once per
+   * candidate allele, and the single-allele fields above stay empty: no allele was selected.
+   */
+  candidates?: GnomadCandidateReading[] | null;
+}
+
+/** gnomAD's answer for ONE candidate allele of a protein-only input. */
+export interface GnomadCandidateReading {
+  /** The candidate's GRCh38 gnomAD id, or null when its GRCh38 position could not be verified. */
+  id: string | null;
+  /** The GRCh37 id the candidate was found under (MyVariant.info / dbNSFP). */
+  grch37Id: string;
+  /**
+   * `found` — gnomAD holds a record; `not-found` — gnomAD answered "variant not found";
+   * `not-lifted` — no verified GRCh38 position, so gnomAD was not asked; `failed` — the query failed.
+   */
+  outcome: "found" | "not-found" | "not-lifted" | "failed";
+  /** gnomAD's record for this allele when `found`. */
+  frequency: Omit<GnomadFrequencyData, "candidates" | "standIn"> | null;
+  /** Why the candidate has no reading, for `not-lifted` and `failed`. */
+  detail?: string | null;
 }
 
 export interface AouFrequencyData {

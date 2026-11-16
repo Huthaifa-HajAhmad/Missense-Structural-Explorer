@@ -107,40 +107,42 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
 
   // ── Run state: the fixed slot a degraded run is announced in ──
   let runState: VariantHeaderModel["runState"] = null;
-  if (isFallbackLocus(result)) {
+  const constraintStatus = serviceStatusOf(result)?.gnomadConstraint;
+  const frequencyStatus = serviceStatusOf(result)?.gnomadFrequency;
+  const constraintFailed = constraintStatus === "timeout" || constraintStatus === "error";
+  const candidateFailed = Boolean(result?.gnomadFrequency?.candidates?.some(c => c.outcome === "failed"));
+  const gnomadStatus = constraintFailed ? constraintStatus : (candidateFailed ? "error" : frequencyStatus);
+  const failureKind = locusFailureKind(result);
+  const locusAction = locusRecoveryAction(result);
+
+  if (isFallbackLocus(result) && !(failureKind === "multiple-candidates" && locusAction === null && (gnomadStatus === "timeout" || gnomadStatus === "error"))) {
     runState = {
-      label: fallbackLocusShortLabel(assembly, locusFailureKind(result)),
-      detail: fallbackCause(assembly, locusRecoveryAction(result) === "retry", locusFailureKind(result)),
-      retryable: locusRecoveryAction(result) === "retry",
-      recoveryAction: locusRecoveryAction(result),
+      label: fallbackLocusShortLabel(assembly, failureKind),
+      detail: fallbackCause(assembly, locusAction === "retry", failureKind),
+      retryable: locusAction === "retry",
+      recoveryAction: locusAction,
     };
-  } else {
-    const constraintStatus = serviceStatusOf(result)?.gnomadConstraint;
-    const frequencyStatus = serviceStatusOf(result)?.gnomadFrequency;
-    const constraintFailed = constraintStatus === "timeout" || constraintStatus === "error";
-    const gnomadStatus = constraintFailed ? constraintStatus : frequencyStatus;
-    if (gnomadStatus === "timeout" || gnomadStatus === "error") {
-      // A payload without a resolved locus never issued the gnomAD queries the statuses describe —
-      // the FGFR3 run's VEP ladder consumed the whole budget before either fetch could start. The
-      // slot names the resolution failure instead of the provider, so the reader retries the run
-      // rather than suspecting a healthy gnomAD. A constraint that reports `error` did not wait
-      // behind the locus: the dataset's own read failed, and that is what the slot says.
-      const locusUnresolved = !result?.predictorData?.gnomadVariantId;
-      const locusDetail = "The run's genomic locus could not be resolved, so population evidence could not be read.";
-      const constraintDetail = constraintStatus === "timeout" && locusUnresolved
-        ? locusDetail
-        : "Gene constraint could not be loaded on this run; constraint evidence is incomplete.";
-      const locusCase = constraintFailed ? constraintStatus === "timeout" && locusUnresolved : locusUnresolved;
-      runState = {
-        // The chip must not blame a database the run never reached.
-        label: locusCase ? "Genomic locus not resolved" : "gnomAD did not answer",
-        detail: constraintFailed ? constraintDetail
-          : locusUnresolved ? locusDetail
-          : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
-        retryable: true,
-        recoveryAction: "retry",
-      };
-    }
+  } else if (gnomadStatus === "timeout" || gnomadStatus === "error") {
+    // A payload without a resolved locus never issued the gnomAD queries the statuses describe —
+    // the FGFR3 run's VEP ladder consumed the whole budget before either fetch could start. The
+    // slot names the resolution failure instead of the provider, so the reader retries the run
+    // rather than suspecting a healthy gnomAD. A constraint that reports `error` did not wait
+    // behind the locus: the dataset's own read failed, and that is what the slot says.
+    const locusUnresolved = !result?.predictorData?.gnomadVariantId && failureKind !== "multiple-candidates";
+    const locusDetail = "The run's genomic locus could not be resolved, so population evidence could not be read.";
+    const constraintDetail = constraintStatus === "timeout" && locusUnresolved
+      ? locusDetail
+      : "Gene constraint could not be loaded on this run; constraint evidence is incomplete.";
+    const locusCase = constraintFailed ? constraintStatus === "timeout" && locusUnresolved : locusUnresolved;
+    runState = {
+      // The chip must not blame a database the run never reached.
+      label: locusCase ? "Genomic locus not resolved" : "gnomAD did not answer",
+      detail: constraintFailed ? constraintDetail
+        : locusUnresolved ? locusDetail
+        : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
+      retryable: true,
+      recoveryAction: "retry",
+    };
   }
 
   return {

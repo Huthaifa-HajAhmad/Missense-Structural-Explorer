@@ -112,6 +112,7 @@ server/services/external-api/esm2.ts,server,server/services/external-api/esm2-cr
 server/services/external-api/esm3_forge.ts,server,server/services/external-api/esm3_forge.test.ts
 server/services/external-api/esmc.ts,server,server/services/external-api/esmc.test.ts;server/services/structure/structural-model-fetcher.test.ts
 server/services/external-api/genos_web.ts,server,server/services/external-api/genos_web.test.ts
+server/services/external-api/gnomad-candidates.ts,server,server/services/external-api/gnomad-candidates.test.ts
 server/services/external-api/gnomad-gene-constraint.ts,server,
 server/services/external-api/gnomad.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/external-api/gnomad.test.ts;server/services/external-api/gnomadFrequency.test.ts;server/services/prediction/landscape-context.test.ts
 server/services/external-api/gpn.ts,server,server/services/external-api/evolutionaryscale.test.ts;server/services/external-api/gpn.test.ts
@@ -196,6 +197,7 @@ server/services/pdb-parser.ts,barrel,
 server/services/pocket.ts,barrel,
 server/services/ppi.ts,barrel,
 server/services/prediction/acmg.ts,barrel,server/services/prediction/acmg.frequency.test.ts;server/services/prediction/acmg.test.ts;server/services/prediction/predictors.test.ts
+server/services/prediction/acmg/candidate-frequency.ts,server,
 server/services/prediction/acmg/classifier.ts,barrel,
 server/services/prediction/acmg/criteria.ts,server,
 server/services/prediction/acmg/index.ts,server,
@@ -208,6 +210,7 @@ server/services/prediction/landscape-aggregate.ts,server,server/services/predict
 server/services/prediction/landscape-context.ts,server,server/routes/variant/analysis.test.ts;server/services/prediction/landscape-context.test.ts
 server/services/prediction/landscape.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/prediction/landscape.test.ts
 server/services/prediction/local-population.ts,server,server/services/prediction/local-population.test.ts
+server/services/prediction/predictors/allele-candidates.ts,server,
 server/services/prediction/predictors/allele-identity.ts,server,server/services/prediction/predictors/allele-identity.test.ts
 server/services/prediction/predictors/conservation-orchestrator.ts,server,server/services/prediction/predictors/conservation-allele.test.ts;server/services/prediction/predictors/conservation-streaming.test.ts;server/services/prediction/predictors/predictors-modules.test.ts
 server/services/prediction/predictors/consurf-resolver.ts,server,

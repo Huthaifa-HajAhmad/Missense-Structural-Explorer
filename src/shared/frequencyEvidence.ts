@@ -61,6 +61,9 @@ import {
   type LocusResultLike,
 } from "./locusResolution.ts";
 import { serviceStatusOf } from "./serviceStatus.ts";
+import { formatAlleleFrequency, formatCount, formatCutPoint } from "./frequencyFormat.ts";
+import { candidateFrequencyReading, type CandidateAlleleRow } from "./candidateFrequencyEvidence.ts";
+export { formatAlleleFrequency, formatCount, formatCutPoint };
 
 /**
  * The gnomAD source key, as `assembly.ts` spells it.
@@ -177,6 +180,10 @@ export interface FrequencyCriterion {
   /** The gnomAD group behind the grouped maximum and behind FAF95, e.g. "afr". */
   groupMaxPopulation: string | null;
   faf95Population: string | null;
+  /** Set when gnomAD was read once per candidate allele: how many candidates the verdict covers. */
+  candidateAlleles?: number;
+  /** True when the candidate alleles reached different verdicts, so no criterion applies. */
+  candidatesDisagree?: boolean;
 }
 
 /**
@@ -222,10 +229,17 @@ export interface FrequencyEvidence {
   applied: FrequencyApplication;
   /** The ClinVar classification, with its own classified absence. */
   clinvar: ClinvarFrequencyReading;
+  /**
+   * One row per candidate allele when the protein change can come from several nucleotide alleles
+   * (`candidateFrequencyEvidence.ts`); null otherwise. These rows replace the single-allele gnomAD rows.
+   */
+  candidates: CandidateAlleleRow[] | null;
   /** Per-source observations, in display order. Includes sources with no value. */
   observations: FrequencyObservation[];
   /** Observations that produced a frequency, for the "contributing sources" roll-up. */
   contributing: FrequencyObservation[];
+  /** Formatted gnomAD release label (e.g. "v4"), or null when unreported. */
+  gnomadRelease: string | null;
   /**
    * Homozygotes across gnomAD's two datasets, or `null` when neither reported a count.
    *
@@ -363,13 +377,19 @@ const GNOMAD_DISPLAY = "gnomAD r4";
  * Null when the locus is not a fallback — the build gate's own wording then stands, and is true.
  */
 function fallbackRefusal(input: FrequencyEvidenceInput): { sentence: string; retryable: boolean; recoveryAction: FrequencyEvidence["recoveryAction"] } | null {
-  if (!isFallbackLocus(input.locus)) return null;
+  // Candidate runs are not refused: gnomAD is read once per candidate allele instead.
+  if (!isFallbackLocus(input.locus) || isCandidateRun(input)) return null;
   const recoveryAction = locusRecoveryAction(input.locus);
   const retryable = recoveryAction === "retry";
   const failureKind = locusFailureKind(input.locus);
   return { sentence: fallbackLocusSentence(GNOMAD_DISPLAY, input.assembly ?? null, { retryable, failureKind: failureKind ?? undefined }), retryable, recoveryAction };
 }
 
+
+/** True when the protein change can come from several nucleotide alleles and each is read on its own. */
+function isCandidateRun(input: FrequencyEvidenceInput): boolean {
+  return locusFailureKind(input.locus) === "multiple-candidates";
+}
 
 /**
  * A number, or `null` for anything that is not one.
@@ -381,31 +401,6 @@ function fallbackRefusal(input: FrequencyEvidenceInput): { sentence: string; ret
  */
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-/**
- * A frequency as a display string, using enough significant digits to distinguish the values the
- * ACMG cut-points separate.
- *
- * The PM2 boundary (0.01%) is four orders of magnitude below the BA1 boundary (5%), so a single
- * fixed precision either renders every common variant as "0.0%" or the rare ones as scientific
- * noise. Exponential notation is used at and below the PM2 ceiling, which is also how the ClinVar
- * and gnomAD records themselves report these values.
- */
-export function formatAlleleFrequency(af: number | null | undefined): string {
-  const value = finite(af);
-  if (value === null) return "—";
-  if (value === 0) return "0";
-  if (value < 0.0001) return value.toExponential(2);
-  if (value < 0.01) return `${(value * 100).toFixed(3)}%`;
-  return `${(value * 100).toFixed(2)}%`;
-}
-
-/** `1234567` → `"1,234,567"`, and a non-number → `"—"` so a missing denominator is never a zero. */
-export function formatCount(value: number | null | undefined): string {
-  const count = finite(value);
-  if (count === null) return "—";
-  return count.toLocaleString("en-US");
 }
 
 /**
@@ -462,7 +457,8 @@ export function frequencyObservationName(observation: Pick<FrequencyObservation,
 
 /** Where the rule's frequency came from, named so the number can be traced to a dataset. */
 export function frequencySourceLabel(evidence: FrequencyEvidence): string {
-  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, inputs, groupMaxPopulation, faf95Population } = evidence.criterion;
+  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, inputs, groupMaxPopulation, faf95Population, candidateAlleles } = evidence.criterion;
+  if (candidateAlleles) return `gnomAD, read for each of ${candidateAlleles} candidate alleles`;
   // A recorded absence has no statistic behind it; naming "the global maximum" invented one.
   if (sourceId === "gnomad-group" && absent) return "gnomAD — no record (absence read as 0)";
   if (sourceId === "gnomad-group" && combinedCohorts) return "gnomAD combined frequency (no ancestry groups in this source)";
@@ -632,7 +628,8 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   //      …but name the run, not the provider, when gnomAD was never asked: `predictorData` with no
   //      genomic id means the locus never resolved, so the gnomAD query could not have been issued
   //      (the FGFR3 run: VEP's ladder consumed the budget, gnomAD answered 3/3 within 300 ms).
-  const locusUnresolved = !input.locus?.predictorData?.gnomadVariantId;
+  const candidateRun = isCandidateRun(input);
+  const locusUnresolved = !input.locus?.predictorData?.gnomadVariantId && !candidateRun;
   if (status === "timeout" || status === "error") {
     return {
       ...base,
@@ -653,6 +650,19 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
       statement:
         "The population-frequency query is still running, so no frequency criterion (PM2, BS1 or BA1) has been applied yet.",
     };
+  }
+
+  // Several candidate alleles: a criterion only when every candidate supports it. A candidate run
+  // without per-allele readings is never read as an absence.
+  if (candidateRun) {
+    const candidates = gnomadFrequency?.candidates;
+    if (!candidates?.length) {
+      return {
+        ...base, code: "withheld", af: null, sourceId: null,
+        statement: "Population-frequency evidence was withheld: this protein change can come from more than one nucleotide allele, and no per-allele gnomAD reading was recorded. No frequency criterion (PM2, BS1 or BA1) was applied.",
+      };
+    }
+    return { ...base, ...candidateFrequencyReading(candidates, { curatedInheritance: input.curatedInheritance ?? null, pli: finite(input.pli) }).criterion };
   }
 
   // 3/4/5. What the rule reads, from the SAME function the engine calls (`shared/frequencyRule.ts`):
@@ -744,15 +754,6 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   const benignClause = inputs.benignStatistic === "faf95" ? `, and FAF95 ${formatAlleleFrequency(inputs.benignAf)} is` : " but";
   const predicate = `above the ${formatCutPoint(pm2Ceiling)} PM2 ceiling${benignClause} below the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point, so no frequency criterion applies`;
   return { ...shared, code: "none", headline, predicate, statement: `${formatAlleleFrequency(af)} sits ${predicate}.` };
-}
-
-/**
- * A cut-point as a percentage with no trailing zeros: 0.0001 → "0.01%", 0.001 → "0.1%", 0.01 → "1%".
- * The one format for thresholds on every surface; the rail and the hero used to print the same
- * ceiling as "≤ 0.01%" and "≤ 0.100%".
- */
-export function formatCutPoint(value: number): string {
-  return `${Number((value * 100).toPrecision(6))}%`;
 }
 
 /**
@@ -1049,11 +1050,11 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
       ? describeAssemblyRefusal(GNOMAD_SOURCE, assembly)
       : null;
   const fallback = fallbackRefusal(input);
-  const rawDataset = gnomadFrequency?.dataset ?? (
-    (gnomadStatus === "not_found" || gnomadStatus === "ok") && !buildRefusal && !fallback
+  const rawDataset = gnomadFrequency?.dataset
+    ?? gnomadFrequency?.candidates?.find(c => c.frequency?.dataset)?.frequency?.dataset
+    ?? ((gnomadStatus === "not_found" || gnomadStatus === "ok") && !buildRefusal && !fallback
       ? "gnomad_r4"
-      : null
-  );
+      : null);
   const dataset = gnomadReleaseLabel(rawDataset);
   const isLocalIngest = rawDataset === LOCAL_GNOMAD_DATASET;
 
@@ -1101,7 +1102,12 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
    * reading. Splitting it into two rows would print the same number twice and attribute a combined
    * figure to the exome cohort.
    */
-  const observations: FrequencyObservation[] = isLocalIngest
+  const candidateRun = isCandidateRun(input);
+  const candidateRows = candidateRun && gnomadFrequency?.candidates?.length
+    ? candidateFrequencyReading(gnomadFrequency.candidates, { curatedInheritance: input.curatedInheritance ?? null, pli: finite(input.pli) }).rows
+    : null;
+  // A candidate run's single-allele gnomAD rows would be empty; the candidate rows replace them.
+  const observations: FrequencyObservation[] = candidateRun ? [] : isLocalIngest
     ? [
         gnomadObservation(
           "gnomad-local",
@@ -1157,7 +1163,9 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   let aouReason: string;
   /** A lookup that did not finish is a fault with a remedy, not an absence. */
   let aouFault = false;
-  if (!aouHasEntry) {
+  if (!aouHasEntry && candidateRun) {
+    aouReason = `All of Us frequency was not assessed: ${fallbackCause(assembly, false, "multiple-candidates")}`;
+  } else if (!aouHasEntry) {
     const said = aouAbsenceReason(aouLookup);
     aouFault = said.fault;
     aouReason = aouNeedsAllele && !aouFault
@@ -1230,6 +1238,33 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   const runStates = observations.map(o => o.availability.state);
   // An unresolved locus is not a provider fault, but another run may resolve it, so a retry is still offered.
   const locusRetry = (gnomadStatus === "timeout" || gnomadStatus === "error") && !input.locus?.predictorData?.gnomadVariantId;
+  // A candidate run: an unlifted candidate needs the allele (or a re-run, when the lift failed
+  // temporarily), and a candidate whose gnomAD query failed needs a re-run.
+  const candidateAction = candidateRun ? locusRecoveryAction(input.locus) : null;
+  const candidateQueryFailed = Boolean(gnomadFrequency?.candidates?.some(c => c.outcome === "failed"));
+  const candidateRetry = candidateAction === "retry" || candidateQueryFailed;
+  const candidateFailedQuery = candidateRun && (
+    candidateQueryFailed ||
+    gnomadStatus === "timeout" ||
+    gnomadStatus === "error"
+  );
+  const candidatePending = candidateRun && gnomadStatus === "pending";
+
+  // On a candidate run, BS2 requires every candidate to be found with >= 2 homozygotes; the
+  // minimum across candidates is the binding homozygote count that every candidate satisfies.
+  const candidateHomozygotes = candidateRun && gnomadFrequency?.candidates?.length &&
+    gnomadFrequency.candidates.every(c => c.outcome === "found" && finite(c.frequency?.nHomozygous) !== null)
+      ? Math.min(...gnomadFrequency.candidates.map(c => finite(c.frequency?.nHomozygous)!))
+      : null;
+
+  // BS2's chromosome test needs an id. It reads the same gnomAD readings as the homozygote count,
+  // and every candidate sits on the same chromosome, so the first one serves.
+  const firstCandidate = gnomadFrequency?.candidates?.[0];
+  const bs2VariantId = input.locus?.predictorData?.gnomadVariantId
+    ?? (candidateRun && firstCandidate ? firstCandidate.id ?? firstCandidate.grch37Id : null);
+
+  const hasProviderFault = runStates.includes("upstream-error") || candidateFailedQuery;
+  const hasPendingSource = runStates.includes("pending") || candidatePending;
 
   return {
     criterion: classifyAcmgFrequency(input),
@@ -1238,19 +1273,21 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
       classification: clinvarClassification,
       availability: clinvarAvailability(clinvarClassification, serviceStatus?.clinvar),
     },
+    candidates: candidateRows,
     observations,
     contributing,
-    gnomadHomozygotes: finite(gnomadFrequency?.nHomozygous),
-    hasProviderFault: runStates.includes("upstream-error"),
-    retryable: runStates.includes("upstream-error") || Boolean(fallback?.retryable) || locusRetry,
-    recoveryAction: fallback?.recoveryAction === "provide-allele"
+    gnomadRelease: dataset !== "release not reported" ? dataset : null,
+    gnomadHomozygotes: candidateRun ? candidateHomozygotes : finite(gnomadFrequency?.nHomozygous),
+    hasProviderFault,
+    retryable: hasProviderFault || Boolean(fallback?.retryable) || locusRetry || candidateRetry,
+    recoveryAction: fallback?.recoveryAction === "provide-allele" || candidateAction === "provide-allele"
       ? "provide-allele"
-      : runStates.includes("upstream-error") || fallback?.retryable || locusRetry ? "retry" : null,
-    hasPendingSource: runStates.includes("pending"),
+      : hasProviderFault || fallback?.retryable || locusRetry || candidateRetry ? "retry" : null,
+    hasPendingSource,
     homozygoteCriterion: {
       code: "BS2",
       ...(() => {
-        const g = homozygotesInformBs2({ variantId: input.locus?.predictorData?.gnomadVariantId ?? null, inheritance: input.curatedInheritance ?? null });
+        const g = homozygotesInformBs2({ variantId: bs2VariantId, inheritance: input.curatedInheritance ?? null });
         return { applicable: g.applies, reason: g.reason };
       })(),
       recorded: input.engineCriteria

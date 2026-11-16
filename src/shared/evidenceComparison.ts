@@ -5,6 +5,7 @@ import { formatCount, frequencyObservationName, observationAbsence, populationRe
 import { AVI_FEATURES, AVI_GROUP_LABEL, fmtShare, type AlphaGenomeEvidence, type AviFeatureGroup } from './alphagenomeEvidence';
 import { CAVEAT_TEXT, PREDICTOR_GROUP_LABEL, type PredictorEvidence } from './predictorEvidence';
 import type { LadderEvidence } from './ladderEvidence';
+import type { CandidateAlleleRow } from './candidateFrequencyEvidence';
 import { formatEvidenceCode } from './thresholds';
 import type { EvidenceTabId } from './evidenceTabs';
 
@@ -57,6 +58,34 @@ export function populationRowLabel(name: string): string {
     : name;
 }
 
+/** One chart row for one candidate allele of a protein change several alleles can produce. */
+function candidateChartRow(allele: CandidateAlleleRow): EvidenceChartRow {
+  const faf95Differs = (allele.decision === 'BA1' || allele.decision === 'BS1')
+    && allele.benignStatistic === 'faf95'
+    && allele.benignAf !== null
+    && allele.benignAf !== allele.af;
+  return {
+    knowledgeKey: 'allele_frequency', key: `candidate:${allele.key}`, name: `gnomAD ${allele.change ?? 'allele'} · ${allele.id}`,
+    value: allele.af !== null && allele.af > 0 ? Math.log10(allele.af) : null,
+    valueText: allele.af === null ? 'No reading'
+      : allele.af === 0 ? (allele.absent ? 'No variant record returned' : '0%')
+      : formatFrequencyPercent(allele.af),
+    description: allele.note ?? (faf95Differs
+      ? 'gnomAD grouped maximum for this candidate allele (BA1/BS1 read FAF95).'
+      : 'Frequency PM2 reads for this candidate allele (gnomAD grouped maximum).'),
+    group: 'gnomad-candidate', tone: 'neutral',
+    contextText: allele.counts ? `AC / AN ${allele.counts}` : undefined,
+    facts: [
+      { label: allele.lifted ? 'Candidate allele (GRCh38)' : 'Candidate allele', value: allele.id },
+      { label: 'AC / AN (exomes + genomes)', value: allele.counts ?? 'Not reported' },
+      ...(faf95Differs ? [{ label: 'FAF95 (BA1/BS1 input)', value: formatFrequencyPercent(allele.benignAf as number) }] : []),
+      { label: 'Homozygotes', value: formatCount(allele.homozygotes) },
+      { label: 'Supports', value: allele.decision === null ? 'No reading' : allele.decision === 'none' ? 'No criterion' : allele.decision },
+    ],
+    notes: ['The person carries one of the candidate alleles, and the input does not say which. A frequency criterion applies only when every candidate supports it; frequencies are not added together.'],
+  };
+}
+
 export function buildPopulationComparison(evidence: FrequencyEvidence): EvidenceChartModel {
   const rows: EvidenceChartRow[] = evidence.observations.map(o => ({
     knowledgeKey: 'allele_frequency', key: o.key, name: frequencyObservationName(o),
@@ -72,18 +101,32 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
       { label: 'Dataset', value: o.dataset }, { label: 'Homozygotes', value: formatCount(o.homozygotes) }, { label: 'Heterozygotes', value: formatCount(o.heterozygotes) }],
     notes: ['AC counts copies of the allele; AN counts assessed alleles, not people. Sources can overlap and must not be added together.'],
   }));
+  rows.push(...(evidence.candidates ?? []).map(candidateChartRow));
   const c = evidence.criterion;
-  if (c.af !== null) rows.push({
-    knowledgeKey: 'population', key: 'frequency-rule-input', name: 'Engine frequency input',
-    value: !c.absent && c.af > 0 ? Math.log10(c.af) : null,
-    valueText: c.absent ? 'Not observed' : formatFrequencyPercent(c.af),
-    description: c.absent ? 'Confirmed absence was read by the engine. This is not a measured frequency of zero.' : populationReading(evidence).ruleSource,
-    group: 'rule', tone: 'accent',
-    contextText: 'Rule input · not a cohort',
-    facts: [{ label: 'Input source', value: c.absent ? 'Confirmed gnomAD absence' : populationReading(evidence).ruleSource },
-      { label: 'Engine record', value: evidence.applied.known ? evidence.applied.code ?? 'No frequency criterion' : 'Not recorded' }],
-    notes: [c.statement, 'This is the input used by the rule, not an additional cohort. A grouped maximum need not equal a dataset-wide frequency.'],
-  });
+  if (c.af !== null) {
+    const candidateStat = c.candidateAlleles && c.inputs
+      ? ((c.code === 'BA1' || c.code === 'BS1') && c.inputs.benignStatistic === 'faf95'
+          ? 'Filtering allele frequency (FAF95)'
+          : c.inputs.pm2Statistic === 'group-max' ? 'Ancestry-grouped maximum'
+          : c.inputs.pm2Statistic === 'global' ? 'Global maximum'
+          : c.absent ? 'Confirmed absence'
+          : null)
+      : null;
+    rows.push({
+      knowledgeKey: 'population', key: 'frequency-rule-input', name: 'Engine frequency input',
+      value: !c.absent && c.af > 0 ? Math.log10(c.af) : null,
+      valueText: c.absent ? 'Not observed' : formatFrequencyPercent(c.af),
+      description: c.absent ? 'Confirmed absence was read by the engine. This is not a measured frequency of zero.' : populationReading(evidence).ruleSource,
+      group: 'rule', tone: 'accent',
+      contextText: 'Rule input · not a cohort',
+      facts: [
+        { label: 'Input source', value: c.absent ? 'Confirmed gnomAD absence' : populationReading(evidence).ruleSource },
+        ...(candidateStat ? [{ label: 'Statistic', value: candidateStat }] : []),
+        { label: 'Engine record', value: evidence.applied.known ? evidence.applied.code ?? 'No frequency criterion' : 'Not recorded' },
+      ],
+      notes: [c.statement, 'This is the input used by the rule, not an additional cohort. A grouped maximum need not equal a dataset-wide frequency.'],
+    });
+  }
   const values = rows.flatMap(r => r.value === null ? [] : [r.value]);
   const lo = values.length ? Math.min(...values.map(v => Math.floor(v))) : -6;
   const hi = values.length ? Math.max(lo + 1, ...values.map(v => Math.ceil(v))) : -2;

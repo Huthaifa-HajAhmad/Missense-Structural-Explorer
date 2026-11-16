@@ -3,6 +3,7 @@ import { computeRuleBasedACMG } from "../prediction/acmg.ts";
 import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
 import { isUsablePredictorResult } from "../prediction/predictors/vep-orchestrator.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
+import { alleleCandidatesToQuery } from "../external-api/gnomad-candidates.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import type { ClinVarData } from "../external-api/clinvar.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
@@ -51,9 +52,12 @@ export function healCachedAnalysisIfPossible(
 
   // Healing is another producer, not an exception to allele binding. Remove unbound population
   // values before an early return or recomputation; never infer an allele from a protein cache key.
+  // Per-candidate gnomAD readings ARE allele-bound: each was queried by its own GRCh38 id.
+  const candidateBound = Boolean(alleleCandidatesToQuery(payload.predictorData) && payload.gnomadFrequency?.candidates?.length);
   if (!verifiedCoordinate) {
-    if (payload.gnomadFrequency != null || payload.aouFrequency != null || payload.conservationData?.aouFrequency != null) {
-      payload.gnomadFrequency = null;
+    const unboundGnomad = payload.gnomadFrequency != null && !candidateBound;
+    if (unboundGnomad || payload.aouFrequency != null || payload.conservationData?.aouFrequency != null) {
+      if (unboundGnomad) payload.gnomadFrequency = null;
       payload.aouFrequency = null;
       payload.aouLookup = null;
       if (payload.conservationData) payload.conservationData.aouFrequency = null;
