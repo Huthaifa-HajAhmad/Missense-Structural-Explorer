@@ -228,6 +228,20 @@ describe("predictor locus outcome reconciliation", () => {
     expect(mocks.recover).not.toHaveBeenCalled();
   });
 
+  it("stops asking VEP once an authoritative target has said the allele is ambiguous", async () => {
+    // A later target cannot be accepted after that answer, and on production each one cost 15-30 s,
+    // which left the per-allele gnomAD queries no time.
+    mocks.transcripts.mockResolvedValue({ refseqId: "NM_1.1", ensemblId: "ENST2.1", canonicalEnsemblId: "ENST2.1" });
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url.includes("myvariant")) return json({ hits: [] });
+      return json({ error: "Could not uniquely determine nucleotide change" }, 400);
+    });
+    const result = await fetchPredictorData("TEST", "D116G", "P1");
+    const vepCalls = mocks.fetch.mock.calls.filter(call => String(call[0]).includes("/vep/human/hgvs/"));
+    expect(vepCalls).toHaveLength(1);
+    expect(result.locusResolution).toMatchObject({ failureKind: "ambiguous-allele", retryable: false });
+  });
+
   it("does not treat a generic gene-symbol ambiguity error as authoritative", async () => {
     mocks.fetch.mockImplementation(async (url: string) => {
       if (url.includes("myvariant")) return json({ hits: [hit()] });
