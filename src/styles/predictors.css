@@ -307,6 +307,10 @@
 .prd-ruler__tick[data-side="path"] { border-color: var(--cs-text-danger); }
 .prd-ruler__tick[data-side="benign"] { border-color: var(--cs-text-success); }
 .prd-ruler[data-kind="local"] .prd-ruler__tick { border-left-style: dashed; border-left-width: 1.5px; opacity: 0.8; }
+.prd-ruler__range {
+  position: absolute; top: 3px; bottom: 3px; border-radius: 999px;
+  background: var(--cs-text-primary); opacity: 0.55;
+}
 .prd-ruler__marker {
   position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
   background: var(--cs-text-primary); box-shadow: 0 0 0 2px var(--cs-surface);

@@ -78,9 +78,10 @@ function thresholdLabels(
 }
 
 export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading; thresholds?: "entry" | "all" }) {
-  const { score, scale, orientation, cutpoints } = reading;
+  const { score, scoreRange, scale, orientation, cutpoints } = reading;
   const { min, max } = scale;
   const high = orientation === "higher";
+  const isAvailable = score !== null || reading.availability.state === "available";
 
   const bands = cutpoints.bands.map(b => {
     // PP3 bands run toward the pathogenic end; BP4 toward the benign end.
@@ -90,7 +91,7 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
     const lo = Math.min(from, to);
     const hi = Math.max(from, to);
     const active =
-      score !== null &&
+      isAvailable &&
       reading.calibrated?.code === b.code;
     return { ...b, left: pct(lo, min, max), width: pct(hi, min, max) - pct(lo, min, max), active };
   });
@@ -99,8 +100,12 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
     thresholds && cutpoints.kind === "calibrated" && cutpoints.bands.length > 0
       ? thresholdLabels(cutpoints.bands, min, max, thresholds)
       : null;
-  const offScale = score !== null && (score < min || score > max);
-  const markerPct = score !== null ? pct(score, min, max) : null;
+  const markerValues =
+    score !== null ? [score]
+      : scoreRange ? (scoreRange[0] === scoreRange[1] ? [scoreRange[0]] : [scoreRange[0], scoreRange[1]])
+      : [];
+  const rangeLeft = score === null && scoreRange && scoreRange[0] < scoreRange[1] ? pct(scoreRange[0], min, max) : null;
+  const rangeRight = score === null && scoreRange && scoreRange[0] < scoreRange[1] ? pct(scoreRange[1], min, max) : null;
 
   const describe = [
     `${reading.name} ${reading.scoreText}${reading.unit ? ` ${reading.unit}` : ""} on a ${fmtTick(min)} to ${fmtTick(max)} axis`,
@@ -142,13 +147,20 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
             title={m.label}
           />
         ))}
-        {markerPct !== null && (
+        {rangeLeft !== null && rangeRight !== null && (
           <span
-            className="prd-ruler__marker"
-            data-off-scale={offScale || undefined}
-            style={{ left: `${markerPct}%` }}
+            className="prd-ruler__range"
+            style={{ left: `${rangeLeft}%`, width: `${Math.max(0, rangeRight - rangeLeft)}%` }}
           />
         )}
+        {markerValues.map((v, i) => (
+          <span
+            key={`${i}-${v}`}
+            className="prd-ruler__marker"
+            data-off-scale={v < min || v > max || undefined}
+            style={{ left: `${pct(v, min, max)}%` }}
+          />
+        ))}
       </div>
       <div className="prd-ruler__axis" aria-hidden="true" data-lanes={labels?.lanes}>
         <span>{fmtAxis(min)}</span>

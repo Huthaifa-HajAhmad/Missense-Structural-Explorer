@@ -114,8 +114,18 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const add = (label: string, value: unknown) => {
     if (typeof value === "string" && value.trim()) sources.push([label, value.trim()]);
   };
+  const caddReading = evidence.readings.find(x => x.key === "cadd");
+  const pdSource = analysisResult.predictorData?.source;
+  const caddSource = caddReading?.source;
   add("Missense scores", analysisResult.conservationData?.source);
-  add("CADD · AlphaMissense", analysisResult.predictorData?.source);
+  if (caddSource && pdSource && caddSource !== pdSource) {
+    add("CADD", caddSource);
+    add("AlphaMissense", pdSource);
+  } else if (caddSource && !pdSource && caddSource !== "Ensembl VEP") {
+    add("CADD", caddSource);
+  } else {
+    add("CADD · AlphaMissense", pdSource);
+  }
   add("Gene constraint", analysisResult.gnomadConstraint ? constraintSourceLabel(analysisResult) : null);
   add("ESM-2", r.esm2Eval?.provenance);
   add("ESMC / VESM", r.esmcEval?.provenance);
@@ -135,7 +145,15 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           <Step n={1} label="Voting tools scored" state={scored === 0 ? "idle" : "done"}>
             <span>{scored} of {totalVoters}</span>
             {voters.missing.length > 0 && (
-              <span className="prd-step__sub">No score: {voters.missing.map(v => v.name).join(", ")}</span>
+              <span className="prd-step__sub">
+                Not counted:{" "}
+                {voters.missing
+                  .map(v => {
+                    const label = v.availability.label;
+                    return label && label !== ENGINE_STATE_LABELS["no-result"] ? `${v.name} (${label})` : v.name;
+                  })
+                  .join(", ")}
+              </span>
             )}
           </Step>
           <Step n={2} label="Calls">

@@ -287,4 +287,67 @@ describe("PredictorsTab", () => {
     expect(here.length).toBe(3);
     for (const cell of Array.from(here)) expect(cell.hasAttribute("data-votes")).toBe(true);
   });
+
+  it("renders candidate-consensus CADD as a range on the ruler and counts it in the vote when all candidates agree", () => {
+    const r = gzf1({
+      predictorData: {
+        amPathogenicity: 0.835,
+        amClass: "likely_pathogenic",
+        caddPhred: null,
+        gnomadVariantId: null,
+        gnomadVariantAssembly: null,
+        locusResolution: {
+          route: "fallback",
+          canonicalBy: null,
+          retryable: false,
+          failureKind: "multiple-candidates",
+          steps: [],
+          candidates: [
+            { grch37Id: null, id: "4-1804392-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+            { grch37Id: null, id: "4-1804392-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 28.5, caddSource: "ProtVar" },
+          ],
+        },
+      },
+    });
+    renderTab(r);
+    const row = screen.getByTestId("predictor-cadd");
+    expect(row.textContent).toMatch(/25\.7–28\.5/);
+    expect(row.textContent).toMatch(/PP3/);
+    expect(row.querySelector(".prd-ruler__range")).not.toBeNull();
+    expect(row.querySelectorAll(".prd-ruler__marker")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    expect(screen.getByTestId("predictor-vote-key").textContent).toMatch(/4 pathogenic/);
+  });
+
+  it("explains candidate disagreement on the CADD row and keeps it out of the vote", () => {
+    const r = gzf1({
+      predictorData: {
+        amPathogenicity: 0.835,
+        amClass: "likely_pathogenic",
+        caddPhred: null,
+        gnomadVariantId: null,
+        gnomadVariantAssembly: null,
+        locusResolution: {
+          route: "fallback",
+          canonicalBy: null,
+          retryable: false,
+          failureKind: "multiple-candidates",
+          steps: [],
+          candidates: [
+            { grch37Id: null, id: "4-1804392-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar" },
+            { grch37Id: null, id: "4-1804392-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+          ],
+        },
+      },
+    });
+    renderTab(r);
+    const row = screen.getByTestId("predictor-cadd");
+    expect(row.textContent).toMatch(/Candidates disagree/);
+    expect(row.textContent).toMatch(/G>C 24\.5 Indeterminate vs G>A 25\.7 PP3 Supporting/);
+    expect(row.querySelector(".prd-ruler")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    expect(screen.getByTestId("predictor-vote-key").textContent).toMatch(/3 pathogenic/);
+    expect(screen.getByTestId("predictor-vote-key").textContent).toMatch(/1 not scored/);
+  });
 });
+

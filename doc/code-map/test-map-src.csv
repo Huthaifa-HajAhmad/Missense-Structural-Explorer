@@ -360,7 +360,7 @@ src/shared/energeticsComparison.ts,client,src/shared/__tests__/energeticsCompari
 src/shared/energeticsEvidence.ts,client,src/components/__tests__/EnergeticsView.test.tsx;src/components/__tests__/clinicalExportVerdict.test.ts;src/components/energetics/EnergeticsComparison.test.tsx;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts
 src/shared/engineStatus.ts,client,server/tests/consensus-single-source.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/consensusVerdict.guard.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/perturbationEvidence.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
 src/shared/evidenceAvailability.ts,client,src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts
-src/shared/evidenceComparison.ts,client,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/evidenceComparison.ts,client,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/candidateScores.test.ts;src/test/evidenceComparison.test.ts
 src/shared/evidenceContextIdentity.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/shared/__tests__/evidenceContextIdentity.test.ts
 src/shared/evidenceKeys.ts,client,src/components/evidence/__tests__/EvidenceContextPrefetch.test.tsx;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/hooks/useEvidenceContext.test.ts
 src/shared/evidenceTabProgress.ts,client,src/shared/__tests__/conservationProgress.test.ts
@@ -391,12 +391,12 @@ src/shared/hpa.ts,client,server/services/evidence-context/phenotypesHpa.test.ts
 src/shared/hpoAnnotation.ts,client,server/services/evidence-context/hpo.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/httpBody.ts,client,src/shared/__tests__/httpBody.test.ts
 src/shared/inheritanceBasis.ts,client,src/shared/__tests__/frequencyRule.test.ts
-src/shared/insightsEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/insightsEvidence.test.ts;src/shared/__tests__/reportDocument.test.ts
+src/shared/insightsEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/insightsEvidence.test.ts;src/shared/__tests__/reportDocument.test.ts
 src/shared/insightsSnapshot.ts,client,src/components/__tests__/insightsSnapshot.parity.test.ts
 src/shared/interfacesEvidence.ts,client,src/components/evidence/__tests__/AssemblyDiagram.test.tsx;src/components/evidence/__tests__/InterfaceTrackControls.test.tsx;src/components/evidence/__tests__/InterfaceTrackNames.test.tsx;src/shared/__tests__/interfacesEvidence.test.ts;src/shared/__tests__/interfacesEvidenceSod1.test.ts;src/shared/__tests__/mechanismWorkspace.test.ts;src/shared/__tests__/nativeInterfaceSupport.test.ts
 src/shared/jobPlacement.ts,client,src/shared/__tests__/jobPlacement.test.ts
 src/shared/jobsCopy.ts,client,src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/jobsCopy.test.ts
-src/shared/ladderEvidence.ts,client,src/shared/__tests__/ladderEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/ladderEvidence.ts,client,src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/landscapeEvidence.ts,client,src/components/__tests__/ExplorationWorkspace.test.tsx;src/components/inspector/__tests__/LandscapeInspector.test.tsx;src/shared/__tests__/landscapeEvidence.test.ts
 src/shared/literatureAliases.ts,client,src/shared/__tests__/literatureAliases.test.ts
 src/shared/literatureEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts;src/components/literature/__tests__/PaperTable.security.test.tsx;src/shared/__tests__/curatedLiterature.test.ts;src/shared/__tests__/literatureEvidence.test.ts;src/shared/__tests__/literatureScreening.test.ts;src/shared/__tests__/reviewPresentation.test.ts
@@ -436,7 +436,7 @@ src/shared/providerStatus.ts,client,src/shared/__tests__/providerStatus.test.ts
 src/shared/quickEntry.ts,client,src/shared/__tests__/quickEntry.test.ts
 src/shared/raspIndex.ts,client,src/shared/__tests__/raspIndex.test.ts
 src/shared/redactSecrets.ts,client,src/components/__tests__/consoleUtils.test.ts;src/shared/__tests__/redactSecrets.test.ts
-src/shared/reportDocument.ts,client,src/components/__tests__/reportDraftPersistence.test.ts;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts
+src/shared/reportDocument.ts,client,src/components/__tests__/reportDraftPersistence.test.ts;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts
 src/shared/reportInput.ts,client,src/stores/__tests__/handleCopyReport.test.ts
 src/shared/reportRender.ts,client,src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts
 src/shared/researchGuides.ts,client,src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/methodCitations.test.ts;src/components/evidence/__tests__/burialBandsSingleSource.test.ts;src/components/inspector/__tests__/EvidenceRailRouting.test.tsx;src/components/knowledge/__tests__/ContextualCoverage.test.tsx;src/components/knowledge/__tests__/researchGuides.test.ts
@@ -464,7 +464,7 @@ src/shared/structureSecondary.ts,client,src/shared/__tests__/structureSecondary.
 src/shared/structureSelection.ts,client,src/shared/__tests__/structureSelection.test.ts
 src/shared/thresholds.ts,barrel,server/services/prediction/acmg.test.ts;server/services/prediction/predictors.test.ts;src/components/header/__tests__/constraintIntegrity.test.ts;src/components/inspector/__tests__/EvidenceInspector.populationFrequency.test.tsx;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
 src/shared/thresholds/calibration.ts,client,src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx;src/shared/__tests__/modelCalibration.test.ts
-src/shared/thresholds/concordance.ts,client,
+src/shared/thresholds/concordance.ts,client,src/shared/__tests__/candidateScores.test.ts
 src/shared/thresholds/consensus.ts,client,src/shared/__tests__/consensusVerdict.guard.test.ts
 src/shared/thresholds/constants.ts,client,src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/frequencyRule.test.ts;src/shared/__tests__/splicingEvidence.test.ts
 src/shared/thresholds/evaluators.ts,client,src/shared/__tests__/splicingEvidence.test.ts

@@ -227,6 +227,7 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       saprotLabel: typeof saprotEval?.provenance === "string" && /vesm/i.test(saprotEval.provenance) ? "VESM (SaProt fallback)" : null,
       gpnStar: conservationData?.gpnStar ?? null,
       alphagenome: conservationData?.alphagenome,
+      caddCandidates: predictorData?.locusResolution?.failureKind === "multiple-candidates" ? predictorData.locusResolution.candidates : null,
       // So a source the build gate declined is named in the consensus coverage line rather than
       // silently omitted (see src/shared/thresholds/concordance.ts).
       assemblyRefusals: conservationData?.assemblyRefusals
