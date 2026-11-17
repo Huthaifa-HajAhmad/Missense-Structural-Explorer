@@ -67,6 +67,28 @@ describe("truthful pipeline outcomes", () => {
   it("does not infer concurrent Landscape execution from a legacy step number", () => {
     expect(getWorkflowStageStatus({ view: "landscape", isLoadingSearch: true, loadingStep: "Step 4/4: Biophysics" }).status).toBe("pending");
   });
+  it("marks Energetics degraded when ThermoMPNN reports busy alongside FoldX", () => {
+    const withFoldx = getWorkflowStageStatus({
+      view: "energetics",
+      result,
+      foldingEnergetics: { foldx: 1.44 },
+      foldingStatus: "success",
+      thermompnnStatus: "busy",
+      thermompnnError: "ThermoMPNN did not answer within 150 s.",
+    });
+    expect(withFoldx.status).toBe("degraded");
+    expect(withFoldx.desc).toBe("FoldX ΔΔG = +1.44 kcal/mol · Some engines unavailable");
+
+    const busyOnly = getWorkflowStageStatus({
+      view: "energetics",
+      result,
+      thermompnnStatus: "busy",
+      thermompnnError: "ThermoMPNN did not answer within 150 s.",
+    });
+    expect(busyOnly.status).toBe("error");
+    expect(busyOnly.desc).toContain("ThermoMPNN");
+  });
+
   it("reports whole-protein loading honestly when window residues are ready but overview is fetching", () => {
     const singleResidueStatus = getWorkflowStageStatus({
       view: "landscape",

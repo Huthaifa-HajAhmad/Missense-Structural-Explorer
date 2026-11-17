@@ -28,7 +28,7 @@ server/routes/admin.ts,server,
 server/routes/agent.ts,server,server/routes/agent.test.ts;server/routes/live-routing.test.ts
 server/routes/auth.ts,server,
 server/routes/biophysics.ts,server,
-server/routes/biophysics/generation.ts,server,server/routes/biophysics.test.ts
+server/routes/biophysics/generation.ts,server,server/routes/biophysics.test.ts;server/tests/sidecar-budget.test.ts
 server/routes/biophysics/pocket.ts,server,
 server/routes/biophysics/polling.ts,server,
 server/routes/biophysics/stability.ts,server,
@@ -238,7 +238,7 @@ server/services/stability/biophysics.ts,server,server/services/external-api/core
 server/services/stability/build-rasp-sqlite.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.test.ts
 server/services/stability/ddmut-ppi.ts,server,server/services/external-api/ppi.test.ts;server/services/stability/ddmut-ppi.test.ts
 server/services/stability/dynamut.ts,server,server/services/infra/cache-hygiene.test.ts;server/services/stability/dynamut.test.ts
-server/services/stability/energy-models.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.test.ts;server/services/stability/foldx.test.ts;server/services/stability/tamarind-sharing.test.ts
+server/services/stability/energy-models.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.test.ts;server/services/stability/foldx.test.ts;server/services/stability/tamarind-sharing.test.ts;server/tests/sidecar-budget.test.ts
 server/services/stability/foldx-queue-job.ts,server,server/services/stability/foldx-queue-job.test.ts
 server/services/stability/foldx.ts,barrel,server/services/stability/foldx.test.ts
 server/services/stability/foldx/background-repair.ts,server,server/services/stability/foldx/background-repair.test.ts;server/services/stability/foldx/runner-background-repair.test.ts

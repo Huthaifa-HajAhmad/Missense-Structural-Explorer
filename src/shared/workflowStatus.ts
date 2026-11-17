@@ -60,7 +60,8 @@ function settledWithNothing(result: AnalysisResult, reason: string): { status: W
 }
 
 function remoteStatus(status: string | null | undefined): RemoteStatus {
-  if (status === "failed" || status === "timeout") return "error";
+  if (status === "busy" || status === "timeout") return "busy";
+  if (status === "failed") return "error";
   return status === "pending" || status === "done" || status === "error" || status === "unavailable" ? status : null;
 }
 

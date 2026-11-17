@@ -28,7 +28,7 @@ export interface RemoteJobStatuses {
   ddmutJobId?: string | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
   thermompnnJobId?: string | null;
-  thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | null;
+  thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | "busy" | null;
   thermompnnError?: string | null;
 }
 

@@ -793,7 +793,10 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const apiKey = (req.headers["x-tamarind-api-key"] as string) || undefined;
       const thermoRes = await submitThermoMpnnJob(cleanedPdb, canonicalMutation, apiKey);
 
-      if (thermoRes.jobId) {
+      // Only a job that can be POLLED has anything to register. The local sidecar answers with a value
+      // and a non-pollable id (`local_thermompnn`); registering that id put an entry in
+      // `job_registry.json` no poller would ever claim or backfill.
+      if (thermoRes.jobId && thermoRes.status === "pending") {
         await recordJobInRegistry(thermoRes.jobId, "thermompnn", canonicalMutation);
       }
 

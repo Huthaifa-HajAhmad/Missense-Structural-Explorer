@@ -226,7 +226,7 @@ export const energeticsDataSchema = z.object({
   pendingTools: z.array(z.string()).optional(),
   rawDdGs: z.array(z.number()).nullable().optional(),
   stabilityoracle: nullableFiniteNumber.optional(),
-  stabilityoracleStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
+  stabilityoracleStatus: z.enum(["pending", "done", "unavailable", "error", "busy"]).nullable().optional(),
   stabilityoracleError: z.string().nullable().optional(),
   /**
    * EBI ProtVar's precomputed FoldX ΔΔG on the AlphaFold model (kcal/mol, positive = destabilizing).

@@ -1253,6 +1253,35 @@ describe("foldxService reports its outcome to the Console", () => {
     warn.mockRestore();
   });
 
+  /**
+   * The job record keeps `thermompnnError` for the rest of the run, and every FoldX poll re-reads it.
+   * Un-deduplicated logging wrote one warning per tick (13 in the reported run, aggregated by the
+   * DevConsole into `count: 13`), which read as thirteen failures.
+   */
+  it("repeats a ThermoMPNN error once, not once per FoldX poll", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const busy = "ThermoMPNN did not answer within 150 s.";
+    const polls = [
+      { status: "running", thermompnnStatus: "busy", thermompnnError: busy },
+      { status: "running", thermompnnStatus: "busy", thermompnnError: busy },
+      { status: "running", thermompnnStatus: "busy", thermompnnError: busy },
+      { status: "completed", result: { status: "completed", pdb: "ATOM MUT ...", ddG: 0.9 } },
+    ];
+    let i = 0;
+    const sink = makeSink();
+    const fetchWithAuth: any = vi.fn(async (url: string) => {
+      if (url === "/api/v1/generate-mutant") return { ok: true, json: async () => ({ status: "queued", foldxJobId: "job-tm" }) };
+      return { ok: true, json: async () => polls[Math.min(i++, polls.length - 1)] };
+    });
+    await executeFoldxPipeline({
+      uniprotId: "P00439", variant: "p.Arg408Trp", residueIndex: 408, fetchWithAuth, sink,
+      signal: new AbortController().signal, requestId: 1, getActiveRequestId: () => 1,
+    });
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("busy");
+    expect(warn.mock.calls.filter(([line]) => String(line).startsWith("[ThermoMPNN]"))).toEqual([[`[ThermoMPNN] ${busy}`]]);
+    warn.mockRestore();
+  });
+
   it("records a trace span carrying the same outcome the Energetics tab shows", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const addTraceSpan = vi.fn();

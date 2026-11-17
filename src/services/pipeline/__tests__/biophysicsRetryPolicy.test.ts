@@ -40,5 +40,6 @@ describe("shared biophysics retry policy", () => {
     const snapshot = { ...healthy, foldingEnergetics: { foldxBinaryMissing: true } };
     expect(shouldRunBiophysics(snapshot, null, now)).toBe(false);
     expect(shouldRunBiophysics({ ...snapshot, ddmutStatus: "unavailable" }, null, now)).toBe(true);
+    expect(shouldRunBiophysics({ ...snapshot, thermompnnStatus: "busy" }, null, now)).toBe(true);
   });
 });

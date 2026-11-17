@@ -82,6 +82,12 @@ export { activeFoldxJobs };
 export interface InFlightSubmissions {
   dynamut2Promise?: Promise<string | null>;
   ddmutPromise?: Promise<string | null>;
+  /**
+   * ThermoMPNN's submission answers with more than a job id: a prediction (local sidecar, synchronous)
+   * or a refusal with its reason. Two callers for one variant therefore share ONE call; joining a
+   * second submission would queue it behind the very CPU pass the first is waiting on.
+   */
+  thermompnnPromise?: ReturnType<typeof submitThermoMpnnJob>;
 }
 export const inFlightRemoteSubmissions = new Map<string, InFlightSubmissions>();
 
@@ -117,6 +123,12 @@ export const pendingRemoteSubmissions = new Map<string, { promise: Promise<Remot
 /** Longest the long-poll holds a request open: past the 30 s submission timeout plus one retry. */
 export const REMOTE_SUBMISSION_WAIT_MS = 75_000;
 const REMOTE_SUBMISSION_TTL_MS = 10 * 60_000;
+/**
+ * The one signal every background remote submission of an analysis shares. It must stay longer than
+ * each engine's own budget + wait, or the caller aborts before the engine can explain itself; the
+ * nesting is asserted in `server/tests/sidecar-budget.test.ts`.
+ */
+export const BACKGROUND_REMOTE_TIMEOUT_MS = 180_000;
 
 function pruneRemoteSubmissions(now = Date.now()): void {
   for (const [token, entry] of pendingRemoteSubmissions) {
@@ -327,7 +339,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let ddmutJobId: string | null = null;
         let ddmutStatus: "pending" | "done" | "unavailable" | null = null;
         let thermompnnJobId: string | null = null;
-        let thermompnnStatus: "pending" | "done" | "unavailable" | "error" | null = null;
+        let thermompnnStatus: "pending" | "done" | "unavailable" | "error" | "busy" | null = null;
         let thermompnnError: string | null = null;
         let thermompnnVal: number | null = null;
         let rasp: number | null = null;
@@ -694,7 +706,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           stabilityoracleVal = existingStabilityoracle;
         }
 
-        const backgroundRemoteSignal = AbortSignal.timeout(180000);
+        const backgroundRemoteSignal = AbortSignal.timeout(BACKGROUND_REMOTE_TIMEOUT_MS);
         const cleanedRemotePdb = cleanPdbForFoldX(effectiveWtPdb);
 
         if (needDynamut2) {
@@ -712,7 +724,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   if (current && current.dynamut2Promise === createdD2Promise) {
                     delete current.dynamut2Promise;
                   }
-                  if (current && !current.dynamut2Promise && !current.ddmutPromise) {
+                  if (current && !current.dynamut2Promise && !current.ddmutPromise && !current.thermompnnPromise) {
                     inFlightRemoteSubmissions.delete(foldxCacheKey);
                   }
                 }, 60000).unref?.();
@@ -784,7 +796,28 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
 
         if (needThermompnn) {
           thermompnnStatus = "pending";
-          tmPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, tamarindApiKey, backgroundRemoteSignal)
+          let inFlight = inFlightRemoteSubmissions.get(foldxCacheKey);
+          if (!inFlight) {
+            inFlight = {};
+            inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
+          }
+          if (!inFlight.thermompnnPromise) {
+            const createdThermoPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, tamarindApiKey, backgroundRemoteSignal)
+              .finally(() => {
+                setTimeout(() => {
+                  const current = inFlightRemoteSubmissions.get(foldxCacheKey);
+                  if (current && current.thermompnnPromise === createdThermoPromise) {
+                    delete current.thermompnnPromise;
+                  }
+                  if (current && !current.dynamut2Promise && !current.ddmutPromise && !current.thermompnnPromise) {
+                    inFlightRemoteSubmissions.delete(foldxCacheKey);
+                  }
+                }, 60000).unref?.();
+              });
+            inFlight.thermompnnPromise = createdThermoPromise;
+          }
+
+          tmPromise = inFlight.thermompnnPromise
             .then(async (resObj) => {
               if (resObj.status === "done" && resObj.prediction !== null) {
                 thermompnnVal = resObj.prediction;
@@ -804,8 +837,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 thermompnnJobId = resObj.jobId;
                 thermompnnStatus = "pending";
                 await recordJobInRegistry(resObj.jobId, "thermompnn", actualMutation, foldxCacheKey);
-              } else if (resObj.status === "error") {
-                thermompnnStatus = "error";
+              } else if (resObj.status === "error" || resObj.status === "busy") {
+                thermompnnStatus = resObj.status;
                 thermompnnError = resObj.error || "ThermoMPNN API submission error";
               } else {
                 thermompnnStatus = "unavailable";
