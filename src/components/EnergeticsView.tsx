@@ -9,6 +9,7 @@ import type { FoldxProgress } from "../shared/foldxPhase";
 import { requestInspectorFocus, INSPECTOR_SECTIONS } from '../lib/inspectorFocus';
 import { WorkspaceTabs } from './ui/WorkspaceTabs';
 import { RetryDynamut2 } from "./energetics/RetryDynamut2";
+import { RetryThermompnn } from "./energetics/RetryThermompnn";
 import { ProgressPanel } from "./energetics/ProgressPanel";
 import { EngineTally, StructureFact } from "./energetics/FindingFacts";
 import { ReadingsTable } from "./energetics/ReadingsTable";
@@ -81,7 +82,7 @@ const EnergeticsView = memo(function EnergeticsView({
   const [hidePendingEngines, setHidePendingEngines] = useState(false);
   const handleHidePendingEngines = useCallback(() => setHidePendingEngines(true), []);
   const { evidence, unit } = useEnergeticsEvidence(run, result, hidePendingEngines);
-  const { foldingEnergetics, dynamut2Status, foldingStatus } = run;
+  const { foldingEnergetics, dynamut2Status, thermompnnStatus, foldingStatus } = run;
 
   if (!result) {
     return (
@@ -131,6 +132,14 @@ const EnergeticsView = memo(function EnergeticsView({
             uniprotId={result.metadata?.uniprotId ?? null}
             energetics={foldingEnergetics}
             status={dynamut2Status}
+            onSubmitted={() => setHidePendingEngines(false)}
+          />
+          <RetryThermompnn
+            variant={result.metadata?.variant}
+            uniprotId={result.metadata?.uniprotId ?? null}
+            energetics={foldingEnergetics}
+            status={thermompnnStatus}
+            folding={Boolean(run.isFolding)}
             onSubmitted={() => setHidePendingEngines(false)}
           />
           {selected && <button type="button" className="nrg-inspect-button" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityMethod)}>Inspect {evidence.readings.find(r => r.key === selected)?.name} →</button>}

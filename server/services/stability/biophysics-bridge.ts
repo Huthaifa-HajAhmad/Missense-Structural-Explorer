@@ -6,7 +6,7 @@ import { submitDynaMut2Job, submitDdmutJob } from "./dynamut.ts";
 export interface StabilityVerificationResult {
   ddG: number | null;
   thermompnnJobId: string | null;
-  thermompnnStatus: "pending" | "done" | "unavailable" | "error";
+  thermompnnStatus: "pending" | "done" | "unavailable" | "error" | "busy";
   thermompnnError?: string;
   dynamut2JobId: string | null;
   dynamut2Status: "pending" | "done" | "unavailable" | "error";
@@ -27,7 +27,7 @@ export async function verifyStability(
   // 1. Submit/Run ThermoMPNN stability prediction (uses wtPdb backbone)
   let ddG: number | null = null;
   let thermompnnJobId: string | null = null;
-  let thermompnnStatus: "pending" | "done" | "unavailable" | "error" = "unavailable";
+  let thermompnnStatus: "pending" | "done" | "unavailable" | "error" | "busy" = "unavailable";
   let thermompnnError: string | undefined = undefined;
 
   try {
@@ -38,8 +38,8 @@ export async function verifyStability(
     } else if (thermoRes.status === "pending" && thermoRes.jobId) {
       thermompnnJobId = thermoRes.jobId;
       thermompnnStatus = "pending";
-    } else if (thermoRes.status === "error") {
-      thermompnnStatus = "error";
+    } else if (thermoRes.status === "error" || thermoRes.status === "busy") {
+      thermompnnStatus = thermoRes.status;
       thermompnnError = thermoRes.error;
       console.warn("[verifyStability] ThermoMPNN API error:", thermoRes.error);
     } else {

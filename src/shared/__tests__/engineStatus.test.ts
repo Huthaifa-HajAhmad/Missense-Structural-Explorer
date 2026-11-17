@@ -431,6 +431,39 @@ describe("engineStatus — absence is attributed per engine, not by one rule", (
   it("reports an engine with no channel at all as no-result rather than guessing", () => {
     expect(byId.stabilityoracle.state).toBe("no-result");
   });
+
+  it("treats a busy sidecar or busy/timeout error as upstream-busy rather than upstream-error", () => {
+    const busyRun = buildEngineOutcomes({
+      thermompnn: null,
+      thermompnnStatus: "busy",
+      thermompnnError: "ThermoMPNN did not answer within 150 s: the model service was busy with earlier work.",
+      stabilityoracle: null,
+      stabilityoracleStatus: "error",
+      stabilityoracleError: "StabilityOracle did not answer within 60 s. The model service may be busy.",
+    });
+    const busyById = Object.fromEntries(busyRun.map(o => [o.id, o]));
+    expect(busyById.thermompnn.state).toBe("upstream-busy");
+    expect(busyById.thermompnn.label).toBe("Provider busy");
+    expect(busyById.thermompnn.tone).toBe("warn");
+    expect(busyById.thermompnn.reason).toContain("did not answer in time");
+    expect(busyById.stabilityoracle.state).toBe("upstream-busy");
+    expect(busyById.stabilityoracle.label).toBe("Provider busy");
+
+    // Legacy cached payloads with status "error" and a busy/timeout message also classify as upstream-busy,
+    // while genuine upstream errors stay upstream-error.
+    const cachedBusy = buildEngineOutcomes({
+      thermompnn: null,
+      thermompnnStatus: "error",
+      thermompnnError: "ThermoMPNN did not start: the model server was still busy with earlier work",
+      ddmut: null,
+      ddmutStatus: "error",
+      ddmutError: "Tamarind API HTTP 500: Internal Server Error",
+    });
+    const cachedById = Object.fromEntries(cachedBusy.map(o => [o.id, o]));
+    expect(cachedById.thermompnn.state).toBe("upstream-busy");
+    expect(cachedById.ddmut.state).toBe("upstream-error");
+    expect(cachedById.ddmut.label).toBe("Provider error");
+  });
 });
 
 describe("engineStatus — a session that expired mid-run pauses the engines it severed", () => {

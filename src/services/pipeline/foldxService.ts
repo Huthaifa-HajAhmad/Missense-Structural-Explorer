@@ -117,9 +117,20 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
   }
 }
 
-/** Surfaces a ThermoMPNN error string, which the engine registry otherwise renders only in the tab. */
-function noteThermompnnError(message: unknown): void {
-  if (typeof message === "string" && message.trim()) console.warn(`[ThermoMPNN] ${message.trim()}`);
+/**
+ * Surfaces a ThermoMPNN error string, which the engine registry otherwise renders only in the tab.
+ *
+ * ONCE PER RUN, PER MESSAGE. The FoldX job record keeps `thermompnnError` for the rest of the run and
+ * every 2-5 s poll re-reads it, so an unguarded log wrote the same warning thirteen times for one
+ * failure (the DevConsole then aggregated them into `count: 13`). A later, DIFFERENT message still
+ * gets its own line, and a new run starts with an empty `seen`.
+ */
+function noteThermompnnError(message: unknown, seen: { last: string | null }): void {
+  if (typeof message !== "string") return;
+  const text = message.trim();
+  if (!text || seen.last === text) return;
+  seen.last = text;
+  console.warn(`[ThermoMPNN] ${text}`);
 }
 
 /** One line per FoldX outcome that is not a success — the server's own words, never a guess. */
@@ -131,6 +142,8 @@ function noteFoldxFailure(status: string, variant: string, detail: string | null
 async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
   const { gene, uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
   const cacheGeneKey = gene || uniprotId;
+  /** One line per distinct ThermoMPNN error for THIS run; the poll loop re-reads the same record. */
+  const thermompnnLog = { last: null as string | null };
 
   if (!uniprotId || !uniprotId.trim()) {
     sink.setIsFolding(false);
@@ -387,7 +400,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
     if (data.thermompnnStatus != null) sink.setThermompnnStatus(data.thermompnnStatus as any);
     if (data.thermompnnError != null) {
       sink.setThermompnnError(data.thermompnnError);
-      noteThermompnnError(data.thermompnnError);
+      noteThermompnnError(data.thermompnnError, thermompnnLog);
     }
 
     // Remember what the run has told us, so a later error exit can settle the engines it left
@@ -524,7 +537,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
             if (sub.thermompnnStatus) sink.setThermompnnStatus(sub.thermompnnStatus);
             if (sub.thermompnnError) {
               sink.setThermompnnError(sub.thermompnnError);
-              noteThermompnnError(sub.thermompnnError);
+              noteThermompnnError(sub.thermompnnError, thermompnnLog);
             }
             if (typeof sub.thermompnnVal === "number") {
               sink.setFoldingEnergetics((prev: any) => ({ ...(prev ?? {}), thermompnn: sub.thermompnnVal }));
@@ -696,12 +709,12 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
         if (pollData.ddmutStatus === "unavailable" || pollData.ddmutStatus === "error") {
           sink.setDdmutStatus(pollData.ddmutStatus as any);
         }
-        if (pollData.thermompnnStatus === "unavailable" || pollData.thermompnnStatus === "error") {
+        if (pollData.thermompnnStatus === "unavailable" || pollData.thermompnnStatus === "error" || pollData.thermompnnStatus === "busy") {
           sink.setThermompnnStatus(pollData.thermompnnStatus as any);
         }
         if (pollData.thermompnnError != null) {
           sink.setThermompnnError(pollData.thermompnnError);
-          noteThermompnnError(pollData.thermompnnError);
+          noteThermompnnError(pollData.thermompnnError, thermompnnLog);
         }
 
         /** Independent estimates and the FoldX score are merged as soon as the worker publishes them. */

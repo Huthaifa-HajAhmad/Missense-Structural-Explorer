@@ -54,7 +54,7 @@ export interface ViewInspectorProps {
   setCustomPdbUrl?: (url: string | null) => void;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
-  thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | null;
+  thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | "busy" | null;
   thermompnnError?: string | null;
   disruptionPredictor?: { plddt?: number | null } | null;
   literatureSearchQuery?: string;

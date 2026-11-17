@@ -534,11 +534,22 @@ export async function runRaspLocal(
 // ---------------------------------------------------------------------------
 
 /**
- * How long a local ThermoMPNN call waits for the model server. It is also sent as the budget the server may use.
- * The prediction itself takes about 1 s; the wait is the queue behind the ESM-2 passes of the same analysis,
- * and a running pass cannot be stopped. 15 s ran out during analyses.
+ * How long the model server may spend BEFORE it starts a ThermoMPNN pass (sent as `X-Budget-Ms`), and
+ * how long this call then waits for its answer.
+ *
+ * The prediction itself takes about 1 s; the wait is the queue behind the ESM-2 passes of the same
+ * analysis, and a running pass cannot be stopped. 15 s ran out during analyses, and 60 s still ran out
+ * behind a 650M ESM-2 pass plus StabilityOracle's `pdb2pqr` on an 806-residue chain.
+ *
+ * Two numbers, on purpose: the budget is what the sidecar may use to refuse a pass it cannot start
+ * (`PriorityCpuGate` answers its own `503 busy`), and the wait is 30 s longer so that refusal REACHES
+ * us. With one shared number the client aborted in the same second the server was about to explain
+ * itself. Both stay below the 180 s `backgroundRemoteSignal` the analysis route wraps every remote
+ * submission in: a budget above it would be the caller aborting first, which is the defect this fixes.
  */
-const THERMOMPNN_SIDECAR_TIMEOUT_MS = 60_000;
+const THERMOMPNN_SIDECAR_BUDGET_MS = 120_000;
+const THERMOMPNN_SIDECAR_TIMEOUT_MS = 150_000;
+export const THERMOMPNN_SIDECAR_BUDGET = { budgetMs: THERMOMPNN_SIDECAR_BUDGET_MS, waitMs: THERMOMPNN_SIDECAR_TIMEOUT_MS };
 export const thermompnnCache = new LRUCache<string, { prediction: number | null; jobId?: string; status: "pending" | "running" | "done" | "error" }>({ max: 200 });
 defaultCacheRegistry.registerCache("thermompnnCache", thermompnnCache, { ttlDesc: "none" });
 
@@ -578,7 +589,7 @@ export async function submitThermoMpnnJob(
   mutation: string,
   apiKey?: string,
   signal?: AbortSignal
-): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error" | "unavailable"; error?: string }> {
+): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error" | "busy" | "unavailable"; error?: string }> {
   const pdbHash = crypto.createHash("sha256").update(pdbContent).digest("hex").slice(0, 16);
   const cacheKey = `${mutation}_${pdbHash}`;
   const cached = thermompnnCache.get(cacheKey);
@@ -613,7 +624,7 @@ export async function submitThermoMpnnJob(
           "Content-Type": "application/json",
           "X-Sidecar-Secret": sidecarSecret,
           // How long we wait, so the model server does not start a pass nobody is waiting for.
-          [SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_TIMEOUT_MS)
+          [SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_BUDGET_MS)
         },
         body: JSON.stringify({
           pdb_content: pdbContent,
@@ -635,10 +646,10 @@ export async function submitThermoMpnnJob(
         console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
         if ((errJson as any)?.status === "busy") {
           // Not warming up: the model server answered and was busy with earlier work. Retrying later can work,
-          // and the engine is there, so this is an error to retry, not an engine this deployment lacks.
+          // and the engine is there, so surface it as busy rather than unavailable or a provider error.
           // No cloud retry: that fallback is for a local service that gives no answer (a timeout, an unreachable
           // server), and a server that says it is busy will answer soon.
-          return { jobId: null, prediction: null, status: "error", error: sidecarFailure("ThermoMPNN", localRes.status).error };
+          return { jobId: null, prediction: null, status: "busy", error: sidecarFailure("ThermoMPNN", localRes.status).error };
         }
         if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
           /**
@@ -660,12 +671,12 @@ export async function submitThermoMpnnJob(
     } catch (localErr: any) {
       console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
       if (!keyToUse && localErr?.name === "TimeoutError") {
-        // No answer in time does not mean the engine is missing here, and the code cannot see why it was slow.
+        // No answer in time means the local service was busy with earlier work, not missing or broken.
         return {
           jobId: null,
           prediction: null,
-          status: "error",
-          error: `ThermoMPNN did not answer within ${THERMOMPNN_SIDECAR_TIMEOUT_MS / 1000} s. The model service may be busy. Please run the analysis again.`
+          status: "busy",
+          error: `ThermoMPNN did not answer within ${THERMOMPNN_SIDECAR_TIMEOUT_MS / 1000} s: the model service was busy with earlier work. Retrying ThermoMPNN on its own usually succeeds.`
         };
       }
       if (!keyToUse) {
@@ -911,7 +922,7 @@ export function enrichBiophysicalResult(
     ddmutStatus: "pending" | "done" | "unavailable" | "error" | string | null;
     ddmutVal: number | null;
     thermompnnJobId: string | null;
-    thermompnnStatus: "pending" | "done" | "unavailable" | "error" | string | null;
+    thermompnnStatus: "pending" | "done" | "unavailable" | "error" | "busy" | string | null;
     thermompnnError: string | null;
     thermompnnVal: number | null;
     raspStatus: "pending" | "done" | "unavailable" | "error" | string | null;

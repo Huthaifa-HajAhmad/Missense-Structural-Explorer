@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../services/infra/sidecar-budget.ts";
+import { THERMOMPNN_SIDECAR_BUDGET } from "../services/stability/energy-models.ts";
+import { BACKGROUND_REMOTE_TIMEOUT_MS } from "../routes/biophysics/generation.ts";
+import { CLIENT_THERMOMPNN_RETRY_WAIT_MS } from "../../src/shared/timeouts.ts";
 import { stripCommentsForScan } from "../../src/shared/engineStatus.ts";
 
 const read = (...parts: string[]) => fs.readFileSync(path.join(process.cwd(), ...parts), "utf-8");
@@ -65,5 +68,40 @@ describe("sidecar budget header", () => {
     expect(python).toContain("status_code=503");
     expect(python).toContain("GateDeadlineExceeded");
     expect(read("tools", "model_server.py")).toContain("register_refusal_handler(app)");
+  });
+});
+
+/**
+ * The model server cannot stop a CPU pass that has already started, so a ThermoMPNN call waits behind
+ * the ESM-2 passes of the same analysis. ThermoMPNN used one number for both "how long you may queue"
+ * and "how long I wait for you", so the caller aborted in the same second the sidecar was about to
+ * refuse and explain itself, and the reader saw a bare timeout instead of "busy, retrying usually
+ * works". The budgets must nest in this order, or that defect returns.
+ */
+describe("ThermoMPNN budgets nest", () => {
+  it("lets the sidecar answer before the caller gives up", () => {
+    expect(
+      THERMOMPNN_SIDECAR_BUDGET.budgetMs,
+      "a budget at or above the wait means the caller aborts before the sidecar can refuse"
+    ).toBeLessThan(THERMOMPNN_SIDECAR_BUDGET.waitMs);
+  });
+
+  it("keeps the sidecar wait below the analysis route's outer signal", () => {
+    expect(
+      THERMOMPNN_SIDECAR_BUDGET.waitMs,
+      "the analysis route's background signal would abort the call before the sidecar could answer"
+    ).toBeLessThan(BACKGROUND_REMOTE_TIMEOUT_MS);
+  });
+
+  it("waits past the sidecar's own answer on the retry route", () => {
+    // `/thermompnn-submit` awaits the sidecar without an outer signal, so the client is the only
+    // timer left; it must outlast the wait or a slow-but-valid retry reads as a client timeout.
+    expect(CLIENT_THERMOMPNN_RETRY_WAIT_MS).toBeGreaterThan(THERMOMPNN_SIDECAR_BUDGET.waitMs);
+  });
+
+  it("sends the budget, not the wait, as the header", () => {
+    expect(read("server", "services", "stability", "energy-models.ts")).toContain(
+      "[SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_BUDGET_MS)"
+    );
   });
 });

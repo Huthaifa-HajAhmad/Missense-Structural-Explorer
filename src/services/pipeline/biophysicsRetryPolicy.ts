@@ -4,7 +4,9 @@ import type { CachedVariantBundle } from "./variantCache";
 export function shouldRunBiophysics(snapshot: CachedVariantBundle | null | undefined, attemptedAt: number | null, now = Date.now()): boolean {
   if (attemptedAt !== null && now - attemptedAt <= BIOPHYSICS_RETRY_COOLDOWN_MS) return false;
   const remoteFailure = [snapshot?.dynamut2Status, snapshot?.ddmutStatus]
-    .some(status => status === "error" || status === "unavailable" || status === "failed") || snapshot?.thermompnnStatus === "error";
+    .some(status => status === "error" || status === "unavailable" || status === "failed") ||
+    snapshot?.thermompnnStatus === "error" ||
+    snapshot?.thermompnnStatus === "busy";
   // FoldX that cannot run here (no binary, failed repair) is not fixed by another attempt; only a
   // transient remote-engine failure justifies re-dispatching the run.
   const foldxStructurallyUnavailable = Boolean(snapshot?.foldingEnergetics?.foldxBinaryMissing || snapshot?.foldingEnergetics?.foldxRepairFailed);

@@ -102,7 +102,7 @@ export function AppViews({
   // The store types these three as plain strings; the components below read them as these states.
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status) as "pending" | "unavailable" | "done" | null;
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus) as "pending" | "unavailable" | "done" | null;
-  const thermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus) as "pending" | "unavailable" | "done" | "error" | null;
+  const thermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus) as "pending" | "unavailable" | "done" | "error" | "busy" | null;
   const thermompnnError = useVariantAnalysisStore(s => s.thermompnnError);
   const computedPocket = useVariantAnalysisStore(s => s.computedPocket);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);

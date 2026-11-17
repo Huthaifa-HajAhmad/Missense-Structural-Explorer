@@ -78,6 +78,17 @@ export const CLIENT_FOLDX_POLL_REQUEST_MS = 30_000; // 30 s
 export const CLIENT_REMOTE_SUBMISSION_WAIT_MS = 80_000; // 80 s
 
 /**
+ * Whole-call budget for `POST /api/v1/thermompnn-submit` from the per-engine retry control.
+ *
+ * The local model server is given 120 s (`THERMOMPNN_SIDECAR_BUDGET_MS` in
+ * `server/services/stability/energy-models.ts`, sent as `X-Budget-Ms`) and the server route waits
+ * 150 s for its answer (`THERMOMPNN_SIDECAR_TIMEOUT_MS`). This ceiling outlasts both on purpose: the
+ * client must not abort a call the server is about to refuse itself, or the reader loses the server's
+ * explanation ("still busy with earlier work") and sees a client timeout instead.
+ */
+export const CLIENT_THERMOMPNN_RETRY_WAIT_MS = 160_000; // 160 s
+
+/**
  * Minimum interval between automatic biophysics retries for the same variant.
  *
  * The backfill gate used to be permanently true (see `workflowOrchestrator`), so every visit

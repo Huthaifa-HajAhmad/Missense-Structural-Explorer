@@ -45,7 +45,7 @@ export function useBiophysicalModeling(
 
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status) as ("pending" | "unavailable" | "done" | null);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus) as ("pending" | "unavailable" | "done" | null);
-  const thermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus) as ("pending" | "unavailable" | "done" | "error" | null);
+  const thermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus) as ("pending" | "unavailable" | "done" | "error" | "busy" | null);
   const thermompnnError = useVariantAnalysisStore(s => s.thermompnnError);
 
   const dynamut2JobId = useVariantAnalysisStore(s => s.dynamut2JobId);

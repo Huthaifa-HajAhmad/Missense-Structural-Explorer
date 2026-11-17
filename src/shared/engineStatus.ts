@@ -462,7 +462,7 @@ export interface EngineObservation {
   /** Raw provider value (native sign); `null` when absent. */
   value: number | null;
   /** Server lifecycle status, for the remote engines. */
-  status?: "pending" | "done" | "unavailable" | "error" | null;
+  status?: RemoteStatus;
   /** Engine-specific cause, when known. Takes precedence over `status`. */
   problem?: EngineProblem | null;
   /** Free-text detail from the server, shown as supporting detail (never as the label). */
@@ -573,7 +573,9 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
         ? `No precomputed ${engine.name} score is available for this variant. ${raspCoverageSentence(coverage)}`
         : "No precomputed data for this variant.";
     case "upstream-busy":
-      return `${engine.name}'s provider did not answer in time. This can be retried later.`;
+      return engine.absenceClass === "install"
+        ? "The model service was busy or did not answer in time. This can be retried later."
+        : `${engine.name}'s provider did not answer in time. This can be retried later.`;
     case "upstream-error":
       return `${engine.name}'s provider returned an error. This can be retried later.`;
     case "cancelled":
@@ -621,8 +623,10 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
     state = "computed";
   } else if (obs.problem) {
     state = PROBLEM_TO_STATE[obs.problem];
+  } else if (obs.status === "busy") {
+    state = "upstream-busy";
   } else if (obs.status === "error") {
-    state = "upstream-error";
+    state = isBusyOrTimeoutDetail(detail) ? "upstream-busy" : "upstream-error";
   } else if (obs.status === "unavailable") {
     state =
       engine.absenceClass === "upstream"
@@ -736,7 +740,7 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
 // ---------------------------------------------------------------------------
 
 /** Lifecycle status reported by the server for a remote engine. */
-export type RemoteStatus = "pending" | "done" | "unavailable" | "error" | null | undefined;
+export type RemoteStatus = "pending" | "done" | "unavailable" | "error" | "busy" | null | undefined;
 
 /**
  * Everything the two Energetics surfaces know about a run.
@@ -816,8 +820,13 @@ function interruptedProblemFor(
   if (!interrupted) return null;
   if (value !== null) return null;
   if (runActive) return null;
-  if (status === "done" || status === "error") return null;
+  if (status === "done" || status === "error" || status === "busy") return null;
   return "auth-expired";
+}
+
+function isBusyOrTimeoutDetail(detail?: string | null): boolean {
+  if (!detail) return false;
+  return /\b(still busy|may be busy|was busy|did not answer within|did not start|timed out)\b/i.test(detail);
 }
 
 /**
@@ -827,9 +836,16 @@ function interruptedProblemFor(
  * `unavailable` both for a remote queue that did not answer (DynaMut2/DDMut) and for an engine
  * this deployment simply cannot run (ThermoMPNN/StabilityOracle have no sidecar). Collapsing
  * those into one cause told the user to "retry later" for a service that will never be there.
+ *
+ * Likewise, a live sidecar that answered `busy` or ran out of its wait budget (`status: "busy"`,
+ * or a persisted `error` carrying a busy/timeout detail) resolves to `upstream-busy` rather than
+ * `upstream-error`, keeping genuine provider errors separate from CPU queue saturation.
  */
-function absenceProblemFor(engine: EngineDescriptor, status: RemoteStatus): EngineProblem | null {
-  if (status === "error") return "upstream-error";
+function absenceProblemFor(engine: EngineDescriptor, status: RemoteStatus, detail?: string | null): EngineProblem | null {
+  if (status === "busy") return "upstream-busy";
+  if (status === "error") {
+    return isBusyOrTimeoutDetail(detail) ? "upstream-busy" : "upstream-error";
+  }
   if (status !== "unavailable") return null;
   switch (engine.absenceClass) {
     case "upstream":
@@ -950,7 +966,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       status: facts.dynamut2Status ?? null,
       problem:
         interruptedProblemFor(interruptedFor("dynamut2"), facts.dynamut2Status ?? null, facts.dynamut2 ?? null, dynamut2RunActive) ??
-        absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status),
+        absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status, facts.dynamut2Error),
       detail: facts.dynamut2Error ?? null,
       runActive: dynamut2RunActive,
       listening: Boolean(facts.dynamut2Listening),
@@ -961,7 +977,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       status: facts.ddmutStatus ?? null,
       problem:
         interruptedProblemFor(interruptedFor("ddmut"), facts.ddmutStatus ?? null, facts.ddmut ?? null, ddmutRunActive) ??
-        absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus),
+        absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus, facts.ddmutError),
       detail: facts.ddmutError ?? null,
       runActive: ddmutRunActive,
       listening: Boolean(facts.ddmutListening),
@@ -985,7 +1001,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       status: facts.thermompnnStatus ?? null,
       problem:
         interruptedProblemFor(interruptedFor("thermompnn"), facts.thermompnnStatus ?? null, facts.thermompnn ?? null, thermompnnRunActive) ??
-        absenceProblemFor(getEngine("thermompnn"), facts.thermompnnStatus),
+        absenceProblemFor(getEngine("thermompnn"), facts.thermompnnStatus, facts.thermompnnError),
       detail: facts.thermompnnError ?? null,
       runActive: thermompnnRunActive,
     },
@@ -996,7 +1012,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       detail: facts.stabilityoracleError ?? null,
       problem:
         interruptedProblemFor(interruptedFor("stabilityoracle"), facts.stabilityoracleStatus ?? null, facts.stabilityoracle ?? null, stabilityoracleRunActive) ??
-        absenceProblemFor(getEngine("stabilityoracle"), facts.stabilityoracleStatus),
+        absenceProblemFor(getEngine("stabilityoracle"), facts.stabilityoracleStatus, facts.stabilityoracleError),
       runActive: stabilityoracleRunActive,
     },
     {

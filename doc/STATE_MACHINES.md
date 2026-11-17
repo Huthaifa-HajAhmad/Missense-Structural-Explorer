@@ -349,6 +349,22 @@ pauses while the tab is hidden, resumes on focus, and backs off while the SSE ch
 `error` or `unavailable`, with exactly one final callback. `shouldRunBiophysics` allows a re-run 15 min
 after an attempt, unless FoldX cannot run here and no remote engine failed.
 
+One failed engine is retried on its own (`src/components/energetics/RetryThermompnn.tsx`,
+`src/components/energetics/RetryDynamut2.tsx`), through `POST /api/v1/thermompnn-submit` and
+`/dynamut2-submit`. A retry never re-runs FoldX: it submits the template FoldX started from. ThermoMPNN's
+local sidecar answers with a value synchronously, so its control writes `done` plus the value and clears
+`thermompnnError` itself; DynaMut2 answers with a job id and the existing poller takes over. DynaMut2's
+control is hidden while its engine is `pending` or already holds a value; ThermoMPNN's appears only after a
+terminal `error`/`unavailable`, because before a run there is nothing to retry. A 15 s cooldown
+(`RETRY_COOLDOWN_MS`) follows every attempt, so a busy CPU sidecar is not flooded. ThermoMPNN's control
+additionally stays disabled while FoldX is still running, because every request it sends would only queue
+behind the same CPU passes it failed on. ThermoMPNN's sidecar budget
+(`THERMOMPNN_SIDECAR_BUDGET_MS`, 120 s, sent as `X-Budget-Ms`) is shorter than its own wait
+(`THERMOMPNN_SIDECAR_TIMEOUT_MS`, 150 s), so the model server can refuse a pass it cannot start
+(`503 busy`) and that refusal reaches the reader instead of being cut off by the client's own timer. Both stay
+below `BACKGROUND_REMOTE_TIMEOUT_MS` (180 s), the signal that wraps every remote submission in
+`generation.ts`; `server/tests/sidecar-budget.test.ts` fails if the nesting breaks.
+
 ## 16. Machines listed only
 
 | Machine | Where | States |
