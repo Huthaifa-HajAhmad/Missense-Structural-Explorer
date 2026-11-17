@@ -9,8 +9,10 @@
  * Two sources name the candidates:
  *  - ProtVar reads the GRCh38 reference codon on the UniProt canonical isoform. Its ids need no lift.
  *  - MyVariant.info searches dbNSFP by protein notation. Its ids are GRCh37 and are lifted one by one.
- * ProtVar is used first. When both answer with complete lists that name different alleles, neither is
- * trusted and the run is refused. When ProtVar cannot answer, the MyVariant list and its lift stand.
+ * ProtVar is asked on every protein-only run, including when MyVariant names a single allele: a gap in
+ * dbNSFP must not make the run select that one allele. A MyVariant list that is only part of ProtVar's
+ * codon list is completed from ProtVar. When the two name alleles that cannot both be right, neither is
+ * trusted and the run is refused. When ProtVar cannot answer, the MyVariant outcome and its lift stand.
  */
 import type { AlleleCandidate, LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import { fetchProtVarProteinAlleles } from "../../external-api/protvar-protein.ts";
@@ -33,6 +35,20 @@ export function withinOneCodon(ids: string[]): boolean {
   const parsed = ids.map(id => id.split("-"));
   const positions = parsed.map(p => Number(p[1]));
   return new Set(parsed.map(p => p[0])).size === 1 && Math.max(...positions) - Math.min(...positions) <= 2;
+}
+
+/**
+ * The protein change in a submitted notation, or null when it is not protein notation. A cDNA or
+ * genomic notation ("c.1138G>A", "NM_1:c.1138G>A") has digits and letters in the same order, and
+ * must not be read as a residue change.
+ */
+export function proteinChangeOf(
+  variant: string,
+  toOneLetter: (aa: string) => string,
+): { position: number; wt: string; mut: string } | null {
+  if (/(^|:)\s*[cgmn]\./i.test(variant)) return null;
+  const m = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+  return m ? { position: Number(m[2]), wt: toOneLetter(m[1]), mut: toOneLetter(m[3]) } : null;
 }
 
 /** "4-1804392-G-A" → "G>A": the part of an id that is the same on GRCh37 and GRCh38. */
@@ -66,7 +82,7 @@ export async function liftAlleleCandidates(
 export type ProtVarCheck =
   /** ProtVar named two or more alleles and nothing contradicts it. */
   | { kind: "candidates"; candidates: AlleleCandidate[] }
-  /** ProtVar and a complete MyVariant list name different alleles. */
+  /** MyVariant names an allele ProtVar does not list, so neither list is trusted. */
   | { kind: "disagree" }
   /** ProtVar gave no usable list (one allele, none, partial, or unreachable): keep the MyVariant outcome. */
   | { kind: "unchanged" };
@@ -87,11 +103,15 @@ export async function candidatesFromProtVar(
     steps.push({ step: "protvar", outcome: "failed", detail: `${answer.reason}; the MyVariant.info outcome stands` });
     return { kind: "unchanged" };
   }
-  const protvarChanges = answer.alleles.map(a => change(a.id)).sort().join(",");
+  if (!withinOneCodon(answer.alleles.map(a => a.id))) {
+    steps.push({ step: "protvar", outcome: "failed", detail: "ProtVar's alleles are not at one codon; ignored, and the MyVariant.info outcome stands" });
+    return { kind: "unchanged" };
+  }
+  const protvarChanges = new Set(answer.alleles.map(a => change(a.id)));
   const myvariantIds = myvariant ? [...myvariant.keys()] : [];
-  if (myvariantIds.length > 0 &&
-      (!withinOneCodon(myvariantIds) || myvariantIds.map(change).sort().join(",") !== protvarChanges)) {
-    steps.push({ step: "protvar", outcome: "failed", detail: `ProtVar (${protvarChanges}) and MyVariant.info (${myvariantIds.join(", ")}) disagree on the candidate alleles; neither is trusted` });
+  // Every MyVariant allele must be one ProtVar lists. ProtVar may list more: dbNSFP can miss an allele.
+  if (myvariantIds.length > 0 && (!withinOneCodon(myvariantIds) || !myvariantIds.every(id => protvarChanges.has(change(id))))) {
+    steps.push({ step: "protvar", outcome: "failed", detail: `ProtVar (${[...protvarChanges].join(", ")}) and MyVariant.info (${myvariantIds.join(", ")}) disagree on the candidate alleles; neither is trusted` });
     return { kind: "disagree" };
   }
   if (answer.alleles.length < 2) {
@@ -108,6 +128,7 @@ export async function candidatesFromProtVar(
       retryable: false,
       caddPhred: a.caddPhred,
       caddSource: a.caddPhred !== null ? "ProtVar" : null,
+      cdna: a.cdna,
     })),
   };
 }

@@ -18,6 +18,15 @@ function DecisionChip({ decision }: { decision: CandidateAlleleRow["decision"] }
   );
 }
 
+/** A column header whose description is visible to assistive technology, not only a hover title. */
+function HeaderCell({ label, detail, className }: { label: string; detail: string; className?: string }) {
+  return (
+    <th scope="col" className={className} title={detail}>
+      {label}<span className="sr-only"> — {detail}</span>
+    </th>
+  );
+}
+
 /** One allele's All of Us frequency, or which absence it is. Display only: it feeds no criterion. */
 function AllOfUsCell({ reading }: { reading: CandidateAlleleRow["allOfUs"] }) {
   if (!reading) return <span className="pop-dim">—</span>;
@@ -30,17 +39,19 @@ function AllOfUsCell({ reading }: { reading: CandidateAlleleRow["allOfUs"] }) {
  * local store was read), and the allele's verdict.
  */
 export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
-  const showAllOfUs = rows.some(r => r.allOfUs);
+  // A column of the same "not installed" sentence says nothing per allele: it is stated once instead.
+  const showAllOfUs = rows.some(r => r.allOfUs?.af != null);
+  const allOfUsNotes = showAllOfUs ? [] : [...new Set(rows.flatMap(r => r.allOfUs?.note ? [r.allOfUs.note] : []))];
   return (
     <div className="pop-table-wrap" data-testid="candidate-alleles">
       <table className="pop-table">
         <thead>
           <tr>
             <th scope="col">Candidate allele</th>
-            <th scope="col" className="pop-num" title="Allele count / allele number over gnomAD exomes and genomes">gnomAD AC / AN</th>
-            <th scope="col" className="pop-num" title="The frequency PM2 reads for this allele: gnomAD's grouped maximum">gnomAD AF</th>
-            {showAllOfUs && <th scope="col" className="pop-num" title="All of Us frequency for this allele, from the local store. It feeds no criterion">All of Us AF</th>}
-            <th scope="col" title="What this allele's own reading supports">Supports</th>
+            <HeaderCell className="pop-num" label="gnomAD AC / AN" detail="allele count over allele number, across gnomAD exomes and genomes" />
+            <HeaderCell className="pop-num" label="gnomAD AF" detail="the frequency PM2 reads for this allele: gnomAD's grouped maximum" />
+            {showAllOfUs && <HeaderCell className="pop-num" label="All of Us AF" detail="from the local store; it feeds no criterion" />}
+            <HeaderCell label="Supports" detail="what this allele's own reading supports" />
           </tr>
         </thead>
         <tbody>
@@ -55,6 +66,7 @@ export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
                   </span>
                   {row.change && <span className="pop-dim">{row.change}</span>}
                 </span>
+                {row.cdna && <span className="pop-subject__note pop-mono">{row.cdna}</span>}
                 {row.note && <span className="pop-subject__note">{row.note}</span>}
               </th>
               <td className="pop-num">{row.counts ?? <span className="pop-dim">—</span>}</td>
@@ -65,6 +77,7 @@ export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
           ))}
         </tbody>
       </table>
+      {allOfUsNotes.length > 0 && <p className="pop-subject__note">All of Us: {allOfUsNotes.join(" ")}</p>}
     </div>
   );
 }

@@ -14,7 +14,7 @@ export function candidateCaddNote(candidates: ReadonlyArray<AlleleCandidate> | n
   if (!candidates?.length) return null;
   const each = candidates.map(c => {
     const name = candidateNucleotideChange(c) ?? c.id ?? c.grch37Id ?? "allele";
-    return typeof c.caddPhred === "number" ? `${name} ${c.caddPhred} (${c.caddSource ?? "source not stated"})` : `${name} not reported`;
+    return typeof c.caddPhred === "number" ? `${name} ${c.caddPhred} from ${c.caddSource ?? "a source not stated"}` : `${name} not reported`;
   });
   return `Each candidate allele has its own CADD: ${each.join("; ")}. No single allele was selected, so CADD does not vote.`;
 }

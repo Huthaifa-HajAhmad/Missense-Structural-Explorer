@@ -107,6 +107,10 @@ describe("ACMG frequency rules — protein change with several candidate alleles
     expect(frequencyCodes(run([found("A", 0.03, { faf95: 0.02 }), found("C", 0.04, { faf95: 0.015 })]))).toEqual(["BS1"]);
   });
 
+  it("applies BS1, not BA1, when every candidate is above the BS1 cut-point but only one is above BA1", () => {
+    expect(frequencyCodes(run([found("A", 0.07, { faf95: 0.06 }), found("C", 0.04, { faf95: 0.03 })]))).toEqual(["BS1"]);
+  });
+
   it("applies no frequency criterion when the candidates disagree, and records why", () => {
     const res = run([found("A", 0.03, { faf95: 0.02 }), absent("C")]);
     expect(frequencyCodes(res)).toEqual([]);

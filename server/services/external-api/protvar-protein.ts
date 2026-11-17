@@ -20,6 +20,12 @@ export interface ProtVarAllele {
   caddPhred: number | null;
   /** Ensembl transcript of the canonical isoform, when ProtVar names one. */
   transcript: string | null;
+  /**
+   * The nucleotide change on that transcript, "ENST…:c.1138G>C". Written from ProtVar's own
+   * transcript-strand codons, so it is right on a reverse-strand gene too. Null when the codon data
+   * is missing or inconsistent: it is never guessed.
+   */
+  cdna: string | null;
 }
 
 export type ProtVarProteinAlleles =
@@ -30,6 +36,19 @@ const ONE_LETTER: Record<string, string> = {
   Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
   Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V",
 };
+
+/**
+ * The cDNA change from the isoform's codon data. The coding position is the residue's first base plus
+ * the position inside the codon; the two bases are read from the same position in each codon.
+ */
+function cdnaChange(iso: any, transcript: string | null): string | null {
+  const ref = typeof iso.refCodon === "string" ? iso.refCodon.toUpperCase() : "";
+  const alt = typeof iso.variantCodon === "string" ? iso.variantCodon.toUpperCase() : "";
+  const at = iso.codonPosition;
+  if (!/^[ACGT]{3}$/.test(ref) || !/^[ACGT]{3}$/.test(alt) || ![1, 2, 3].includes(at) || ref[at - 1] === alt[at - 1]) return null;
+  const change = `c.${(iso.isoformPosition - 1) * 3 + at}${ref[at - 1]}>${alt[at - 1]}`;
+  return transcript ? `${transcript}:${change}` : change;
+}
 
 /** Throws on transport failure: an outage is not a fact about the variant. */
 export async function fetchProtVarProteinAlleles(
@@ -54,12 +73,16 @@ export async function fetchProtVarProteinAlleles(
       for (const gene of derived?.genes ?? []) {
         const match = (gene?.isoforms ?? []).find((iso: any) => iso?.canonical === true && iso.accession === accession &&
           iso.isoformPosition === position && ONE_LETTER[iso.refAA] === wt && ONE_LETTER[iso.variantAA] === mut);
-        if (!match || !/^[ACGT]$/.test(derived.refBase) || !/^[ACGT]$/.test(derived.altBase)) continue;
-        const id = `${derived.chromosome}-${derived.position}-${derived.refBase}-${derived.altBase}`;
+        const ref = String(derived.refBase ?? "").toUpperCase();
+        const alt = String(derived.altBase ?? "").toUpperCase();
+        if (!match || !/^[ACGT]$/.test(ref) || !/^[ACGT]$/.test(alt)) continue;
+        const id = `${String(derived.chromosome).replace(/^chr/i, "")}-${derived.position}-${ref}-${alt}`;
+        const transcript = match.transcripts?.[0]?.enst ?? null;
         alleles.set(id, {
           id,
           caddPhred: typeof gene.caddScore === "number" && Number.isFinite(gene.caddScore) ? gene.caddScore : null,
-          transcript: match.transcripts?.[0]?.enst ?? null,
+          transcript,
+          cdna: cdnaChange(match, transcript),
         });
       }
     }

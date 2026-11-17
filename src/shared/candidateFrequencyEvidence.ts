@@ -28,6 +28,8 @@ export interface CandidateAlleleRow {
   absent: boolean;
   /** The nucleotide change, "G>A". */
   change: string | null;
+  /** The change on its transcript, "ENST…:c.1138G>A", when the candidate source named it. */
+  cdna: string | null;
   /** The frequency PM2 reads for this allele (grouped maximum; 0 for "not found"); null without a reading. */
   af: number | null;
   /** The frequency BA1/BS1 read for this allele (FAF95 when available, else grouped maximum); null without a reading. */
@@ -49,6 +51,7 @@ const ALL_OF_US_ABSENCE: Record<Exclude<CandidateAllOfUs["localTable"], "found">
   absent: "Not in the local All of Us table.",
   "not-installed": "No local All of Us table in this deployment.",
   failed: "The local All of Us lookup failed on this run.",
+  invalid: "The local All of Us row has counts that fail validation, so none is shown.",
 };
 
 function allOfUsFor(reading: CandidateAllOfUs | null | undefined): CandidateAlleleRow["allOfUs"] {
@@ -82,6 +85,7 @@ function rowFor({ candidate, inputs, decision }: CandidateDecision): CandidateAl
     lifted: candidate.id !== null,
     absent: candidate.outcome === "not-found",
     change: candidateNucleotideChange(candidate),
+    cdna: candidate.cdna ?? null,
     af: inputs?.pm2Af ?? null,
     benignAf: inputs?.benignAf ?? null,
     benignStatistic: inputs?.benignStatistic ?? null,

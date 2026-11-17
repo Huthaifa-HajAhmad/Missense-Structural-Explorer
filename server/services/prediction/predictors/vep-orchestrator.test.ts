@@ -575,7 +575,10 @@ describe("candidate alleles cross-checked with ProtVar", () => {
   /** ProtVar's mapping answer: GRCh38 alleles on the canonical isoform P1, each with its CADD. */
   const protvar = (alts: string[]) => ({ content: { last: true, inputs: [{ derivedGenomicVariants: alts.map(alt => ({
     chromosome: "1", position: 200, refBase: "G", altBase: alt,
-    genes: [{ geneName: "TEST", caddScore: alt === "A" ? 25.7 : 24.5, isoforms: [{ accession: "P1", canonical: true, isoformPosition: 380, refAA: "Gly", variantAA: "Arg" }] }],
+    genes: [{ geneName: "TEST", caddScore: alt === "A" ? 25.7 : 24.5, isoforms: [{
+      accession: "P1", canonical: true, isoformPosition: 380, refAA: "Gly", variantAA: "Arg",
+      refCodon: "Ggg", variantCodon: `${alt === "A" ? "A" : "C"}gg`, codonPosition: 1, transcripts: [{ enst: "ENST1.1" }],
+    }] }],
   })) }] } });
   const route = (myvariant: unknown, protvarBody: unknown | null) => mocks.fetch.mockImplementation(async (url: string) =>
     url.includes("myvariant") ? json(myvariant)
@@ -588,8 +591,8 @@ describe("candidate alleles cross-checked with ProtVar", () => {
     expect(mocks.recover).not.toHaveBeenCalled();
     expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: false });
     expect(result.locusResolution?.candidates).toEqual([
-      { grch37Id: "1-100-G-C", id: "1-200-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar" },
-      { grch37Id: "1-100-G-A", id: "1-200-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+      { grch37Id: "1-100-G-C", id: "1-200-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar", cdna: "ENST1.1:c.1138G>C" },
+      { grch37Id: "1-100-G-A", id: "1-200-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar", cdna: "ENST1.1:c.1138G>A" },
     ]);
   });
 
@@ -627,5 +630,54 @@ describe("candidate alleles cross-checked with ProtVar", () => {
       ["1-200-G-C", 24.5, "ProtVar"],
     ]);
     expect(result.caddPhred).toBeNull();
+  });
+
+  it("asks ProtVar even when MyVariant names one allele, and keeps every codon allele instead of selecting it", async () => {
+    // dbNSFP lists only G>A here; the reference codon (GGG) also gives Arg from G>C.
+    route({ total: 1, hits: [candidate("A")] }, protvar(["A", "C"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.gnomadVariantId).toBeNull();
+    expect(result.caddPhred).toBeNull();
+    expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates", retryable: false });
+    expect(result.locusResolution?.candidates?.map(c => [c.id, c.grch37Id])).toEqual([["1-200-G-A", "1-100-G-A"], ["1-200-G-C", null]]);
+    expect(mocks.recover).not.toHaveBeenCalled();
+  });
+
+  it("still resolves one allele when ProtVar names the same single allele, and records that ProtVar was consulted", async () => {
+    route({ total: 1, hits: [candidate("A")] }, protvar(["A"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.gnomadVariantId).toBe("1-200-G-A");
+    expect(result.locusResolution?.candidates).toBeUndefined();
+    expect(result.locusResolution?.steps.some(s => s.step === "protvar" && s.outcome === "ok")).toBe(true);
+  });
+
+  it("refuses when MyVariant's single allele is not one ProtVar lists", async () => {
+    route({ total: 1, hits: [candidate("A")] }, protvar(["C"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.gnomadVariantId).toBeNull();
+    expect(result.caddPhred).toBeNull();
+    expect(result.locusResolution).toMatchObject({ failureKind: "incomplete-evidence", retryable: false });
+  });
+
+  it("names the candidates from ProtVar alone when MyVariant has no record", async () => {
+    route({ total: 0, hits: [] }, protvar(["A", "C"]));
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.locusResolution).toMatchObject({ failureKind: "multiple-candidates" });
+    expect(result.locusResolution?.candidates?.map(c => c.id)).toEqual(["1-200-G-A", "1-200-G-C"]);
+  });
+
+  it("ignores a ProtVar list that is not at one codon, keeping the MyVariant outcome", async () => {
+    const spread = protvar(["A", "C"]);
+    spread.content.inputs[0].derivedGenomicVariants[1].position = 9000;
+    route({ total: 1, hits: [candidate("A")] }, spread);
+    const result = await fetchPredictorsFallback("TEST", "G380R", "P1");
+    expect(result.gnomadVariantId).toBe("1-200-G-A");
+    expect(result.locusResolution?.steps.some(s => s.step === "protvar" && /one codon/.test(s.detail ?? ""))).toBe(true);
+  });
+
+  it("does not ask ProtVar a protein question about a cDNA input", async () => {
+    route({ total: 1, hits: [candidate("A")] }, protvar(["A", "C"]));
+    await fetchPredictorsFallback("TEST", "c.1138G>A", "P1");
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("ProtVar"))).toBe(false);
   });
 });
