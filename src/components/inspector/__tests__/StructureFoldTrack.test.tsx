@@ -35,6 +35,12 @@ describe("StructureFoldTrack", () => {
     expect(track.textContent).toContain("Selected");
   });
 
+  it("uses the shared Unstructured label for intrinsic-disorder annotations", () => {
+    render(<StructureFoldTrack secondary={SECONDARY} length={100} structureName={null} variantPosition={null}
+      selectedPosition={null} regions={[{ kind: "disordered", label: "Disordered", start: 5, end: 10 }]} />);
+    expect(screen.getByTestId('structure-fold-track').textContent).toContain('Unstructured: Disordered');
+  });
+
   it("moves the selection with the arrow keys, so the track is not pointer-only", () => {
     const onSelectResidue = vi.fn();
     render(<StructureFoldTrack secondary={SECONDARY} length={100} structureName={null} variantPosition={null} selectedPosition={42} regions={[]} onSelectResidue={onSelectResidue} />);
@@ -79,6 +85,12 @@ describe("StructureSelectionCard", () => {
     betweenDomains: null,
     siteDistance: { angstrom: 18.24, separation: 139 },
   };
+
+  it("uses Unstructured in the selected region's kind label", () => {
+    const { container } = render(<StructureSelectionCard selection={{ ...selection,
+      regions: [{ kind: 'disordered', label: 'Disordered', start: 10, end: 30, evidence: 'Sequence analysis' }] }} site={site} onReturn={() => {}} />);
+    expect(container.querySelector('.s3d-region__kind')?.textContent).toBe('Unstructured');
+  });
 
   it("reads identity, fold, confidence, distance and annotation in that order, each with its source", () => {
     render(<StructureSelectionCard selection={selection} site={site} onReturn={vi.fn()} />);

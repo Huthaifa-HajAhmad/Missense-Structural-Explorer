@@ -21,7 +21,7 @@ export function LandscapeLocalContext({ context: ctx, features, position, target
 }) {
   const hits = regionsAt(features?.filter(f => isRegionFeatureType(f.type)), position);
   const annotations: ContextRow = { label: "UniProt · residue", value: !features ? "Domain annotation not loaded" : hits.length
-    ? hits.map(h => h.kind === "disordered" ? `Unstructured region (${h.start}\u2013${h.end})` : `${REGION_KIND_LABEL[h.kind]}: ${h.label} (${h.start}\u2013${h.end})`).join("; ")
+    ? hits.map(h => h.kind === "disordered" ? `Unstructured region (${h.start}\u2013${h.end}) \u00b7 ${h.evidence}` : `${REGION_KIND_LABEL[h.kind]}: ${h.label} (${h.start}\u2013${h.end}) \u00b7 ${h.evidence}`).join("; ")
     : "Outside displayed UniProt domains and regions; this does not establish disorder or lack of function." };
   const rows = ctx ? contextRows(ctx, position, target) : [{ label: "Local context", value: "ClinVar, gnomAD and regional context not loaded" }];
   return <section aria-label="Local evidence for selected residue" className="lsr-kv">
@@ -64,15 +64,15 @@ function contextRows(ctx: LandscapeContext, position: number, target: { pos: num
 function clinvarRow(records: NonNullable<LandscapeContext["clinvar"]>, target: { pos: number | null; mut: string }): ContextRow {
   const own = records.filter(c => clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null));
   const others = records.filter(c => !own.includes(c));
-  const distinct = [...new Set(own.map(c => `${c.hgvsp} ${c.significance} (queried)`))];
-  const duplicates = own.length > distinct.length;
-  const details = duplicates ? records : others;
+  const review = (stars: number | null) => stars === null ? 'review stars not reported' : `${stars} review star${stars === 1 ? '' : 's'}`;
+  const assertions = [...new Set(own.map(c => c.significance))];
+  const details = own.length > 1 ? records : others;
   return {
     label: "ClinVar",
-    value: distinct.length ? distinct.join("; ") : records.length
-      ? `${records.length} missense record${records.length === 1 ? "" : "s"} at this residue` : "no missense here",
-    records: details.map(c => `${c.hgvsp} ${c.significance} · ${c.stars === null ? 'review stars not reported' : `${c.stars} review star${c.stars === 1 ? '' : 's'}`}`),
-    recordsLabel: duplicates ? `${own.length} matching ClinVar records${others.length ? ` and ${others.length} other records` : ''}`
+    value: own.length ? `${own[0].hgvsp} ${assertions.join('; ')} (queried)${own.length === 1 ? ` \u00b7 ${review(own[0].stars)}` : ''}`
+      : records.length ? `${records.length} missense record${records.length === 1 ? "" : "s"} at this residue` : "no missense here",
+    records: details.map(c => `${c.hgvsp} ${c.significance} \u00b7 ${review(c.stars)}`),
+    recordsLabel: own.length > 1 ? `${own.length} queried ClinVar records${others.length ? ` and ${others.length} other records` : ''}`
       : `${others.length}${own.length ? " other" : ""} substitution record${others.length === 1 ? "" : "s"}`
   };
 }

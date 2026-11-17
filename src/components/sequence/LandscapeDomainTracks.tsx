@@ -17,7 +17,7 @@ export function LandscapeDomainTracks({ domains, start, end, width, onPick, gutt
       <span className="ls-overview__label" style={gutter ? { inlineSize: gutter, flex: "none" } : undefined}>{disorder ? "Unstructured" : "Domains"}</span>
       <div className="ls-overview__plot" style={{ inlineSize: width }}>
         <LandscapeSpanTrack start={start} end={end} width={width} onPick={onPick} annotationLabels
-          spans={spans.map(d => ({ ...d, label: disorder ? `${d.start}\u2013${d.end}` : d.name.replace(/^Ig-like C2-type\s+/i, "Ig-C2 ").replace(/^(.{27}).{2,}$/, "$1\u2026"),
+          spans={spans.map(d => ({ ...d, label: disorder ? `${d.start}\u2013${d.end}` : d.name,
             tone: disorder ? "disordered" : undefined,
             detail: disorder ? `Intrinsically disordered region (${d.start}\u2013${d.end}) \u00b7 UniProt: ${d.name}. A protein region without a single stable folded structure.` : `${d.name} (${d.start}\u2013${d.end}) \u00b7 UniProt` }))} />
       </div>

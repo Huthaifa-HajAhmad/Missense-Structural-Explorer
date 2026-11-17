@@ -371,7 +371,9 @@
 .landscape-toolbar { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 0 0 4px; }
 .landscape-toolbar .ls-pill { min-height: 28px; }
 .lsr-root { gap: 22px; }
-.lsr-selection-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lsr-selection-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; position: sticky; inset-block-start: 0; z-index: 2; background: var(--cs-surface); padding: 12px 0; border-block-end: 1px solid var(--cs-border-subtle); }
+/* Cover the scroll panel's inset above the persistent selection heading. */
+.lsr-selection-heading::before { content: ""; position: absolute; inset-block-start: -32px; inset-inline: 0; block-size: 32px; background: inherit; }
 .lsr-return { display: flex; align-items: center; gap: 6px; border-radius: 8px; min-height: 30px; padding: 4px 8px; color: var(--cs-accent-clay); background: var(--cs-surface-2); font-size: 11px; cursor: pointer; }
 .landscape-workspace .lsr-card { background: var(--cs-surface); border: 0; padding: 0; gap: 16px; }
 .landscape-workspace .lsr-panelbox + .lsr-panelbox { border-top: 1px solid var(--cs-border-subtle); padding-top: 20px; }
@@ -471,7 +473,6 @@
 .lsr-domain-navigation button { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px; min-block-size: 36px; text-align: start; border: 1px solid var(--cs-border-subtle); border-radius: 6px; cursor: pointer; }
 .lsr-domain-navigation button span:first-child { overflow-wrap: anywhere; }
 .lsr-domain-navigation button span:last-child { flex: none; font-variant-numeric: tabular-nums; }
-.lsr-selection-heading { flex-wrap: wrap; }
 @media (hover: hover) and (pointer: fine) {
   .ls-span-track__span:hover .ls-span-track__visual, .lsr-domain-navigation button:hover { border-color: var(--cs-accent-clay); }
 }
@@ -519,16 +520,12 @@
 .lsr-mismatch > summary { cursor: pointer; min-block-size: 28px; inline-size: fit-content; border-radius: 4px; }
 .lsr-mismatch p { margin-block: 6px 0; }
 
-.lsr-selection-heading { position: sticky; inset-block-start: 0; z-index: 2; background: var(--cs-surface); padding: 12px 0; border-block-end: 1px solid var(--cs-border-subtle); }
 .lsr-selection-identity { display: grid; gap: 2px; }
 .lsr-selection-identity strong { font-size: 14px; font-family: var(--cs-font-mono); }
 .lsr-selection-identity > span { font-size: 12px; color: var(--cs-text-secondary); }
-.lsr-root { scroll-margin-block-start: 76px; }
 .ls-span-track__label { position: absolute; inset-block-start: 34px; font-size: 12px; line-height: 16px; overflow-wrap: anywhere; color: var(--cs-text-primary); text-align: center; }
 .ls-span-track__label::before { content: ""; position: absolute; inset-block-start: -6px; inset-inline-start: var(--ls-label-anchor); block-size: 6px; border-inline-start: 1px solid var(--cs-border); }
 .ls-mapping-limit > summary { cursor: pointer; min-block-size: 28px; border-radius: 4px; inline-size: fit-content; }
 .ls-mapping-limit > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .ls-mapping-limit > summary:active { opacity: .75; }
 .ls-mapping-limit p { max-inline-size: 70ch; font-family: var(--cs-font-sans); font-size: 12px; line-height: 1.5; }
-
-.lsr-selection-heading::before { content: ""; position: absolute; inset-block-start: -32px; inset-inline: 0; block-size: 32px; background: inherit; }

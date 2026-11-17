@@ -266,7 +266,7 @@ describe("LandscapeOverview", () => {
     ]} />);
     const domain = screen.getByRole('button', { name: /^Ig-like C2-type 1/ });
     const disorder = screen.getByRole('button', { name: /^Intrinsically disordered region/ });
-    expect(domain.textContent).toContain('Ig-C2 1');
+    expect(domain.textContent).toContain('Ig-like C2-type 1');
     expect(disorder.textContent).toContain('126\u2013153');
     expect(screen.getByText('Unstructured')).toBeTruthy();
   });

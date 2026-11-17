@@ -140,7 +140,7 @@ function setStoreState(): void {
 
 function mountRail(host: HTMLElement): void {
   setStoreState();
-  const root = React.createElement("div", { style: { width: 360, padding: 16, borderLeft: "1px solid var(--cs-border)", background: "var(--cs-surface-2)" } }, React.createElement(LandscapeInspector, { analysisResult: result, onSelectResidueIndex: () => {} }));
+  const root = React.createElement("div", { className: "inspector-body", style: { width: 360, maxHeight: 420, overflowY: "auto", padding: 16, borderLeft: "1px solid var(--cs-border)", background: "var(--cs-surface-2)" } }, React.createElement(LandscapeInspector, { analysisResult: result, onSelectResidueIndex: () => {} }));
   createRoot(host).render(root);
 }
 

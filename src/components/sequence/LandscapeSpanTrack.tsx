@@ -19,7 +19,7 @@ function layoutSpans(spans: LandscapeSpan[], start: number, end: number, width: 
       const hitSize = Math.min(width, Math.max(24, size));
       const hitLeft = Math.max(0, Math.min(width - hitSize, left - (hitSize - size) / 2));
       const external = annotations && span.label.length * 7 + 16 > size;
-      const labelWidth = Math.max(24, Math.min(width, span.label.length * 7 + 16));
+      const labelWidth = Math.max(24, Math.min(width, 240, span.label.length * 7 + 16));
       const labelLeft = Math.max(0, Math.min(width - labelWidth, left + size / 2 - labelWidth / 2));
       const lo = external ? Math.min(hitLeft, labelLeft) : hitLeft;
       const hi = external ? Math.max(hitLeft + hitSize, labelLeft + labelWidth) : hitLeft + hitSize;

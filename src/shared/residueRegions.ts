@@ -134,7 +134,7 @@ export function trackRegions(features: readonly RegionFeature[] | null | undefin
 export const REGION_KIND_LABEL: Record<RegionKind, string> = {
   domain: "Domain",
   linker: "Linker",
-  disordered: "Disordered",
+  disordered: "Unstructured",
   region: "Region",
   motif: "Motif",
   repeat: "Repeat",
