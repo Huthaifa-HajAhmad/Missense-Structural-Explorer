@@ -436,7 +436,8 @@ class Esm3AndVesmDeadlineTests(unittest.TestCase):
 
         self.assertFalse(called["remote"])
         # A budget skip is not a provider failure: the note would be classified as a timeout.
-        self.assertNotIn("remoteEngineNote", result)
+        # `_local_vesm_fallback` always carries the field; on a skip it must be empty.
+        self.assertIsNone(result["remoteEngineNote"])
         self.assertIn("skipped", result["provenance"])
         self.assertEqual(len(result["perturbationScores"]), len(SEQUENCE))
 
