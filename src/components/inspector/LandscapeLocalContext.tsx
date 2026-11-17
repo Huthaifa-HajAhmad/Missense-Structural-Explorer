@@ -1,7 +1,7 @@
 import React from "react";
 import type { LandscapeContext } from "../../shared/contracts";
-import { clinvarIsQuery } from "../../shared/landscapeEvidence";
-import { isRegionFeatureType, regionsAt, REGION_KIND_LABEL, type RegionFeature } from "../../shared/residueRegions";
+import { clinvarIsQuery, REGIONAL_MAPPING_LIMIT } from "../../shared/landscapeEvidence";
+import { isRegionFeatureType, regionKindOf, regionsAt, REGION_KIND_LABEL, type RegionFeature } from "../../shared/residueRegions";
 
 interface ContextRow {
   label: string;
@@ -9,6 +9,7 @@ interface ContextRow {
   source?: string;
   records?: string[];
   recordsLabel?: string;
+  explanation?: string;
 }
 
 
@@ -20,13 +21,14 @@ export function LandscapeLocalContext({ context: ctx, features, position, target
 }) {
   const hits = regionsAt(features?.filter(f => isRegionFeatureType(f.type)), position);
   const annotations: ContextRow = { label: "UniProt · residue", value: !features ? "Domain annotation not loaded" : hits.length
-    ? hits.map(h => `${REGION_KIND_LABEL[h.kind]}: ${h.label} (${h.start}–${h.end})`).join("; ")
+    ? hits.map(h => h.kind === "disordered" ? `Unstructured region (${h.start}\u2013${h.end})` : `${REGION_KIND_LABEL[h.kind]}: ${h.label} (${h.start}\u2013${h.end})`).join("; ")
     : "Outside displayed UniProt domains and regions; this does not establish disorder or lack of function." };
   const rows = ctx ? contextRows(ctx, position, target) : [{ label: "Local context", value: "ClinVar, gnomAD and regional context not loaded" }];
   return <section aria-label="Local evidence for selected residue" className="lsr-kv">
     {[annotations, ...rows].map(r => <div key={r.label} className="lsr-kv__row">
       <span className="lsr-kv__label">{r.label}</span><div className="lsr-kv__value">
         <span>{r.value}</span>
+        {r.explanation && <details className="lsr-context-source"><summary>About this reading</summary><p>{r.explanation}</p></details>}
         {!!r.records?.length && <details className="lsr-context-source"><summary>{r.recordsLabel}</summary>
           <ul>{r.records.map((record, index) => <li key={index}>{record}</li>)}</ul></details>}
         {r.source && <details className="lsr-context-source"><summary>Source details</summary><p>{r.source}</p>
@@ -40,22 +42,10 @@ export function LandscapeLocalContext({ context: ctx, features, position, target
 
 function contextRows(ctx: LandscapeContext, position: number, target: { pos: number | null; mut: string }): ContextRow[] {
     const out: ContextRow[] = [];
-    const cv = ctx.clinvar?.filter((c) => c.pos === position) ?? [];
-    if (ctx.clinvar) {
-      const own = cv.filter(c => clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null));
-      const others = cv.filter(c => !own.includes(c));
-      out.push({
-        label: "ClinVar",
-        value: own.length
-          ? own.map(c => `${c.hgvsp} ${c.significance} (queried)`).join("; ")
-          : cv.length ? `${cv.length} missense record${cv.length === 1 ? "" : "s"} at this residue` : "no missense here",
-        records: others.map(c => `${c.hgvsp} ${c.significance}`),
-        // "other" only makes sense when the queried record is already on screen.
-        recordsLabel: `${others.length}${own.length ? " other" : ""} substitution record${others.length === 1 ? "" : "s"}`
-      });
-    }
+    if (ctx.clinvar) out.push(clinvarRow(ctx.clinvar.filter(c => c.pos === position), target));
     const gn = ctx.gnomad?.find((x) => x.pos === position);
-    if (ctx.gnomad) out.push({ label: "gnomAD", value: gn ? `${gn.variants} missense, max AC ${gn.maxAc}` : "no missense here" });
+    if (ctx.gnomad) out.push({ label: "gnomAD", value: gn ? `${gn.variants} missense, max AC ${gn.maxAc}` : "no missense here",
+      explanation: "These residue counts come from a separate landscape request. They do not establish the queried allele's frequency, even when its frequency request is unavailable." });
     const region = ctx.regions?.find((r) => position >= r.start && position <= r.end);
     if (ctx.regions) out.push({
       label: "Regional O/E",
@@ -66,8 +56,25 @@ function contextRows(ctx: LandscapeContext, position: number, target: { pos: num
   if (ctx.clinvar === null) out.push({ label: "ClinVar", value: "Not loaded" });
   if (ctx.gnomad === null) out.push({ label: "gnomAD", value: "Not loaded" });
   if (ctx.regions === null) out.push({ label: "Regional O/E", value: ctx.regionsStatus === "withheld-mapping"
-    ? "Withheld: transcript-to-protein mapping not verified" : "Not loaded" });
+    ? REGIONAL_MAPPING_LIMIT.label : "Not loaded",
+    explanation: ctx.regionsStatus === "withheld-mapping" ? REGIONAL_MAPPING_LIMIT.detail : undefined });
   return out;
+}
+
+function clinvarRow(records: NonNullable<LandscapeContext["clinvar"]>, target: { pos: number | null; mut: string }): ContextRow {
+  const own = records.filter(c => clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null));
+  const others = records.filter(c => !own.includes(c));
+  const distinct = [...new Set(own.map(c => `${c.hgvsp} ${c.significance} (queried)`))];
+  const duplicates = own.length > distinct.length;
+  const details = duplicates ? records : others;
+  return {
+    label: "ClinVar",
+    value: distinct.length ? distinct.join("; ") : records.length
+      ? `${records.length} missense record${records.length === 1 ? "" : "s"} at this residue` : "no missense here",
+    records: details.map(c => `${c.hgvsp} ${c.significance} · ${c.stars === null ? 'review stars not reported' : `${c.stars} review star${c.stars === 1 ? '' : 's'}`}`),
+    recordsLabel: duplicates ? `${own.length} matching ClinVar records${others.length ? ` and ${others.length} other records` : ''}`
+      : `${others.length}${own.length ? " other" : ""} substitution record${others.length === 1 ? "" : "s"}`
+  };
 }
 
 export function LandscapeDomainNavigation({ features, onPick }: {
@@ -78,7 +85,7 @@ export function LandscapeDomainNavigation({ features, onPick }: {
   if (!domains.length) return null;
   return <details className="lsr-sources"><summary>Go to domain or region · {domains.length}</summary>
     <div className="lsr-domain-navigation">{domains.map((d, i) => <button type="button" key={i} onClick={() => onPick(d.start)}>
-      <span>{d.description || d.type}</span><span>{d.start}–{d.end}</span>
+      <span>{regionKindOf(d) === "disordered" ? "Unstructured region" : d.description || d.type}</span><span>{d.start}–{d.end}</span>
     </button>)}</div>
   </details>;
 }

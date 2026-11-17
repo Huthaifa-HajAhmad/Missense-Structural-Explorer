@@ -13,11 +13,11 @@ test('landscape geometry and keyboard substitution inspection', { tags: ['landsc
   expect(report.checks.length).toBe(38);
   const chip = browser.locator('#case-rail-wide .lsr-strip__chip').filter({ hasText: 'S' }).first();
   await chip.press('Enter');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('Inspected substitution');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('A5S');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('Inspected substitution');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('A5S');
   await browser.locator('#case-rail-wide .lsr-return').press('Enter');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('Queried substitution');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('A5V');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('Queried substitution');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('A5V');
   await browser.locator('#case-tab .ls-span-track__span').first().press('Enter');
   await expect(browser.locator('#case-tab .ls-span-track__detail').first()).toContainText('Cu/Zn superoxide dismutase');
   await browser.locator('#case-tab button').filter({ hasText: 'O/E 0.41' }).press('Enter');

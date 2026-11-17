@@ -139,12 +139,12 @@ describe("LandscapeInspector", () => {
     expect(verdict.textContent).toContain("REVEL 0.231");
     expect(verdict.textContent).toContain("BP4");
     // The lead box precedes the per-tool rows in the reading order.
-    const readsAs = screen.getByText("Queried substitution").closest(".lsr-readsas")!;
+    const readsAs = screen.getByText("Queried substitution").closest(".lsr-selection-heading")!;
     const pos = readsAs.compareDocumentPosition(verdict);
     expect((pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
     expect(readsAs.textContent).toContain("D116G");
     expect(screen.getByText(/Ranks 2 of 3 scored substitutions here/)).toBeTruthy();
-    expect(screen.getByText(/The queried variant/)).toBeTruthy();
+    expect(screen.getByText(/Predictor bands describe this substitution/)).toBeTruthy();
   });
 
   it("says a plain residue pick is a summary, not a variant-level call", () => {
@@ -163,8 +163,8 @@ describe("LandscapeInspector", () => {
 
   it("reads the queried variant's own scores when the queried residue is picked", () => {
     render(<LandscapeInspector analysisResult={result} />);
-    expect(screen.getByText(/The queried variant/)).toBeTruthy();
-    expect(screen.getByText(/variant-level score, so its band applies to the variant/)).toBeTruthy();
+    expect(screen.getByText(/Predictor bands describe this substitution/)).toBeTruthy();
+    expect(screen.getByText(/Predictor bands describe this substitution/)).toBeTruthy();
   });
 
   it("says a residue has no dbNSFP record instead of printing '0 substitutions · no score' twice", () => {
@@ -201,6 +201,22 @@ describe("LandscapeInspector", () => {
     expect(screen.getByText("1 missense record at this residue")).toBeTruthy();
     // No queried record here, so the list is not "other" records.
     expect(screen.getByText("1 substitution record")).toBeTruthy();
+  });
+
+  it("groups equivalent queried ClinVar assertions while preserving their review details", () => {
+    const overview = useVariantAnalysisStore.getState().landscapeOverview!;
+    act(() => useVariantAnalysisStore.setState({ landscapeOverview: { ...overview, data: {
+      ...overview.data!, context: { ...overview.data!.context!, clinvar: [
+        { pos: 116, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Gly" },
+        { pos: 116, cls: "plp", significance: "Pathogenic", stars: 1, hgvsp: "p.Asp116Gly" },
+      ] }
+    } } }));
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    expect(screen.getAllByText("p.Asp116Gly Pathogenic (queried)")).toHaveLength(1);
+    const records = screen.getByText("2 matching ClinVar records").closest("details")!;
+    expect(records.textContent).toContain("2 review stars");
+    expect(records.textContent).toContain("1 review star");
+    expect(container.querySelector('.lsr-selection-heading')?.textContent).toContain('D116G');
   });
 
   it("marks the queried variant in the residue's ClinVar list, apart from the other records", () => {
@@ -248,7 +264,7 @@ describe("LandscapeInspector", () => {
     const { container } = render(<LandscapeInspector analysisResult={withDomains} />);
     const local = screen.getByRole("region", { name: "Local evidence for selected residue" });
     expect(local.textContent).toContain("Domain: Long overlapping domain (90–130)");
-    expect(local.textContent).toContain("Disordered: Disordered (110–140)");
+    expect(local.textContent).toContain("Unstructured region (110–140)");
     expect(local.textContent).toContain("verified genomic locus");
     const navigation = screen.getByText(/Go to domain or region/).closest("details")!;
     expect(navigation.open).toBe(false);

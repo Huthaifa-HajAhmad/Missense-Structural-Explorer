@@ -166,7 +166,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
   return (
     <div className="lsr-root flex flex-col gap-3 text-xs font-sans">
-      <div className="lsr-selection-heading"><span className="lsr-eyebrow">{storeHoveredRes ? 'Previewing residue' : 'Selected residue'}</span>
+      <div className="lsr-selection-heading"><div className="lsr-selection-identity"><strong>{verdict.label || 'Select a residue'}</strong>
+        <span>{storeHoveredRes ? 'Residue preview' : verdict.kind === 'residue' ? 'Residue summary' : verdict.isQuery ? 'Queried substitution' : 'Inspected substitution'}</span></div>
         {target.pos && <button type="button" className="lsr-return" onClick={() => {
           setSelection({ key: extraKey, kind: 'substitution', pos: target.pos!, alt: target.mut || undefined });
           onSelectResidueIndex?.(target.pos!);
@@ -235,7 +236,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                     </div>
                   ) : activeRow || selectedAlt || (isTarget && (variantScores.revel !== null || variantScores.alphaMissense !== null)) ? (
                     <>
-                      <div className="lsr-readsas"><span className="font-semibold">{verdict.kind === "residue" ? "Residue summary" : verdict.isQuery ? "Queried substitution" : "Inspected substitution"}</span> · {verdict.label.replace(/^Residue /, "")}</div>
+
                       {verdict.mismatch && (
                         <details className="lsr-mismatch">
                           <summary>Score disagreement — read with caution</summary>
@@ -254,7 +255,6 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                           </div>
                         ))}
                         <span className="lsr-scope">
-                          {verdict.kind === "variant" && verdict.isQuery ? "The queried variant · " : verdict.kind === "substitution" ? "Selected substitution · " : ""}
                           {verdict.scope}
                         </span>
                         {verdict.rank && (

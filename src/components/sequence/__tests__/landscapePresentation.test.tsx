@@ -259,6 +259,18 @@ describe("LandscapeOverview", () => {
     expect(p.onPick).toHaveBeenCalledWith(11);
   });
 
+  it("keeps recognizable labels visible for narrow Ig-like domains and disorder", () => {
+    render(<LandscapeOverview {...props(ctx([]))} domains={[
+      { name: "Ig-like C2-type 1", start: 24, end: 126, kind: "domain" },
+      { name: "Disordered", start: 126, end: 153, kind: "disordered" },
+    ]} />);
+    const domain = screen.getByRole('button', { name: /^Ig-like C2-type 1/ });
+    const disorder = screen.getByRole('button', { name: /^Intrinsically disordered region/ });
+    expect(domain.textContent).toContain('Ig-C2 1');
+    expect(disorder.textContent).toContain('126\u2013153');
+    expect(screen.getByText('Unstructured')).toBeTruthy();
+  });
+
   it("keeps overlapping domains and disorder in separate rows and exposes full long names", () => {
     const p = props(ctx([]));
     render(<LandscapeOverview {...p} domains={[
@@ -268,7 +280,7 @@ describe("LandscapeOverview", () => {
     ]} />);
     const first = screen.getByRole("button", { name: /^A very long domain annotation/ });
     const second = screen.getByRole("button", { name: /^Overlapping domain/ });
-    const disorder = screen.getByRole("button", { name: /^Disordered/ });
+    const disorder = screen.getByRole("button", { name: /^Intrinsically disordered region/ });
     expect(first.style.insetBlockStart).not.toBe(second.style.insetBlockStart);
     expect(first.closest(".ls-overview__track")).not.toBe(disorder.closest(".ls-overview__track"));
     fireEvent.focus(first);
@@ -321,7 +333,9 @@ describe("LandscapeOverview", () => {
   it("calls a withheld map withheld, not missing, when only the protein mapping is absent", () => {
     render(<LandscapeOverview {...props(ctx([], null, "withheld-mapping"))} />);
     expect(screen.getByText("Missense O/E")).toBeTruthy();
-    expect(screen.getByText("Regional map withheld: transcript-to-protein mapping not verified")).toBeTruthy();
+    expect(screen.getByText("Regional O/E withheld")).toBeTruthy();
+    expect(screen.getByText(/cannot verify the transcript-to-protein mapping/)).toBeTruthy();
+    expect(screen.getByText(/may not resolve a transcript mismatch/)).toBeTruthy();
     expect(screen.queryByText("Regional constraint not loaded")).toBeNull();
   });
 
