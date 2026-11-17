@@ -363,7 +363,20 @@ behind the same CPU passes it failed on. ThermoMPNN's sidecar budget
 (`THERMOMPNN_SIDECAR_TIMEOUT_MS`, 150 s), so the model server can refuse a pass it cannot start
 (`503 busy`) and that refusal reaches the reader instead of being cut off by the client's own timer. Both stay
 below `BACKGROUND_REMOTE_TIMEOUT_MS` (180 s), the signal that wraps every remote submission in
-`generation.ts`; `server/tests/sidecar-budget.test.ts` fails if the nesting breaks.
+`generation.ts`; `server/tests/sidecar-budget.test.ts` fails if the nesting breaks. Two concurrent
+analyses of one variant share a single ThermoMPNN submission (`thermompnnPromise`); because that promise
+carries a value or a refusal rather than a pollable job id, it is released the moment it settles —
+`releaseThermoSubmission` — instead of after the 60 s grace the other engines keep. A second analysis
+therefore re-submits instead of inheriting an old busy answer.
+
+The ESM-3 and VESM remote tiers follow the same nesting: Node's `X-Budget-Ms` (30 s, or 90 s past 500
+residues) leaves headroom above the sidecar's `AbortSignal.timeout`, and the sidecar attempts a remote
+pass only when the time left covers that remote budget plus the local VESM fallback. The reserve comes
+from the measured per-token pass cost (`vesm_local_reserve_seconds`, with a fixed cold-host prior) so a
+short pass does not needlessly displace the better remote model; one slow measurement decays over later
+passes. A skip or a self-imposed deadline is not a provider failure: it is logged server-side and
+carried in provenance (`remote skipped`), never as a `remoteEngineNote` that would read as a provider
+timeout, and it never blocks the remote host in the shared remote failure memory.
 
 ## 16. Machines listed only
 

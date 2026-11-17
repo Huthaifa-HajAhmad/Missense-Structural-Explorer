@@ -11,6 +11,7 @@ from tools.model_server_app.utils import (
 from tools.model_server_app import models
 from tools.model_server_app.engine_resilience import (
     GateDeadlineExceeded,
+    RemoteDeadlineExceeded,
     RemoteFailureMemory,
     SingleFlightCache,
     describe_remote_error,
@@ -40,6 +41,8 @@ _local_vesm_wt_emb_cache = SingleFlightCache(max_entries=8)
 # Measured per-token cost on the active device; zero before the first local pass so cold or
 # GPU hosts are never refused on an estimate.
 _vesm_seconds_per_token: float = 0.0
+_VESM_RESERVE_SAFETY = 1.5
+_VESM_RESERVE_FLOOR_S = 3.0
 
 
 def clear_vesm_caches() -> None:
@@ -48,6 +51,24 @@ def clear_vesm_caches() -> None:
     _local_vesm_results.clear()
     _local_vesm_logits_cache.clear()
     _local_vesm_wt_emb_cache.clear()
+
+
+def note_vesm_pass_seconds(elapsed_s: float, token_count: int) -> None:
+    """Record a finished pass. One slow pass decays by half for each later pass, so a busy host
+    does not refuse work forever after a single bad measurement."""
+    global _vesm_seconds_per_token
+    measured = max(0.0, float(elapsed_s)) / max(1, token_count)
+    _vesm_seconds_per_token = measured if _vesm_seconds_per_token <= 0 else max(measured, _vesm_seconds_per_token * 0.5)
+
+
+def vesm_local_reserve_seconds(seq_len: int) -> float:
+    """Time to leave for the local fallback before trying a remote tier. Cold hosts keep the
+    old fixed reserve; a measured host uses its own pass cost, capped by that reserve."""
+    fixed = 20.0 if seq_len > 500 else 10.0
+    if _vesm_seconds_per_token <= 0:
+        return fixed
+    estimate = _vesm_seconds_per_token * (seq_len + 2) * _VESM_RESERVE_SAFETY + 2.0
+    return min(fixed, max(estimate, _VESM_RESERVE_FLOOR_S))
 
 
 BIOHUB_HOST = "https://biohub.ai"
@@ -134,17 +155,21 @@ def predict_vesm_sync(req: VesmRequest, deadline: float | None = None):
     # EvolutionaryScale routes via both forge.evolutionaryscale.ai and biohub.ai. In regions where
     # biohub.ai answers 451, Forge remains reachable.
     remote_engine_note = None
+    skipped_for_budget = False
     if req.biohubToken:
         candidate_hosts = [FORGE_HOST, BIOHUB_HOST] if FORGE_HOST != BIOHUB_HOST else [BIOHUB_HOST]
         notes: list[str] = []
-        local_reserve = 20.0 if len(sequence) > 500 else 10.0
+        local_reserve = vesm_local_reserve_seconds(len(sequence))
         for host in candidate_hosts:
             host_blocked = remote_failures.blocked_reason("esmc", host, req.biohubToken)
             if host_blocked:
                 notes.append(f"{host}: skipped (recent refusal: {host_blocked})")
                 continue
             if effective_deadline is not None and (effective_deadline - time.monotonic()) < VESM_REMOTE_BUDGET_S + local_reserve:
-                notes.append(f"{host}: skipped (timeout: insufficient remaining budget for local fallback)")
+                # We stopped waiting; the provider was never called. Say so in the server log only —
+                # a `remoteEngineNote` would be classified as a provider timeout for the reader.
+                skipped_for_budget = True
+                print(f"[Model Server] ESMC remote on {host} skipped: not enough budget left for the local fallback.")
                 continue
             try:
                 result = run_with_deadline(
@@ -154,6 +179,12 @@ def predict_vesm_sync(req: VesmRequest, deadline: float | None = None):
                 )
                 return result
             except Exception as e:
+                if isinstance(e, RemoteDeadlineExceeded):
+                    # Our own 15 s budget expired, not the provider's. Recording it would block this
+                    # host and credential for `timeout_ttl_seconds` even when the host answers in 16 s.
+                    print(f"[Model Server] Stopped waiting for ESMC remote on {host}: {e}")
+                    skipped_for_budget = True
+                    continue
                 err_note = remote_failures.record("esmc", host, req.biohubToken, e)
                 notes.append(f"{host}: {err_note}")
                 print(f"[Model Server Remote ESMC Error on {host}]: {err_note}")
@@ -183,6 +214,8 @@ def predict_vesm_sync(req: VesmRequest, deadline: float | None = None):
     if remote_engine_note:
         result["remoteEngineNote"] = remote_engine_note
         result["provenance"] = "VESM-150M (Local Fallback - ESMC remote failed)"
+    elif skipped_for_budget:
+        result["provenance"] = "VESM-150M (Local Fallback - ESMC remote skipped)"
     return result
 
 
@@ -213,24 +246,22 @@ def _compute_sequence_logits(sequence: str):
     (2026-11-05; better unmasked on 23 of 28). ESM-2 is very slightly better masked and keeps masked scoring.
     Index 0 is <cls>, so residue `pos` (1-based) is at index `pos`.
     """
-    global _vesm_seconds_per_token
     _ensure_vesm_loaded()
     inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
     with _acquire_vesm_gate(priority=0, seq_len=len(sequence)), torch.no_grad():
         started = time.monotonic()
         logits = models.vesm_model(**inputs).logits[0].detach().clone()
-        _vesm_seconds_per_token = (time.monotonic() - started) / max(1, inputs["input_ids"].shape[1])
+        note_vesm_pass_seconds(time.monotonic() - started, inputs["input_ids"].shape[1])
         return logits
 
 
 def _compute_wt_hidden_states(sequence: str):
-    global _vesm_seconds_per_token
     _ensure_vesm_loaded()
     wt_inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
     with _acquire_vesm_gate(priority=1, seq_len=len(sequence)), torch.no_grad():
         started = time.monotonic()
         wt_outputs = models.vesm_model(**wt_inputs, output_hidden_states=True)
-        _vesm_seconds_per_token = (time.monotonic() - started) / max(1, wt_inputs["input_ids"].shape[1])
+        note_vesm_pass_seconds(time.monotonic() - started, wt_inputs["input_ids"].shape[1])
         return wt_outputs.hidden_states[-1][0].detach().clone()
 
 
@@ -270,11 +301,10 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str
             mut_seq = "".join(mut_seq_chars)
             mut_inputs = models.vesm_tokenizer(mut_seq, return_tensors="pt")
 
-            global _vesm_seconds_per_token
             with _acquire_vesm_gate(priority=1, seq_len=len(sequence)), torch.no_grad():
                 started = time.monotonic()
                 mut_outputs = models.vesm_model(**mut_inputs, output_hidden_states=True)
-                _vesm_seconds_per_token = (time.monotonic() - started) / max(1, mut_inputs["input_ids"].shape[1])
+                note_vesm_pass_seconds(time.monotonic() - started, mut_inputs["input_ids"].shape[1])
                 mut_emb = mut_outputs.hidden_states[-1][0]
 
                 seq_len = min(wt_emb.size(0), mut_emb.size(0))
@@ -426,5 +456,7 @@ def _run_esmc_remote_host(req: VesmRequest, sequence: str, pos: int, wt: str, mu
 
 @router.post("/predict/vesm", response_model=VesmResponse)
 async def predict_vesm(req: VesmRequest):
-    # The remote tier here is EvolutionaryScale's ESMC (Forge / Biohub).
-    return with_remote_failure(await asyncio.to_thread(predict_vesm_sync, req), "biohub")
+    # The remote tier here is EvolutionaryScale's ESMC (Forge / Biohub). Pass the deadline the same
+    # way the ESM-3 route does, rather than relying on the context copied into `to_thread`.
+    caller_deadline = request_deadline.get()
+    return with_remote_failure(await asyncio.to_thread(predict_vesm_sync, req, caller_deadline), "biohub")

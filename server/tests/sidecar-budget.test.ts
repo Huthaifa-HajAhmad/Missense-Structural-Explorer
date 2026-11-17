@@ -4,7 +4,7 @@ import path from "path";
 import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../services/infra/sidecar-budget.ts";
 import { THERMOMPNN_SIDECAR_BUDGET } from "../services/stability/energy-models.ts";
 import { ESM3_SIDECAR_BUDGET } from "../services/external-api/esm3_forge.ts";
-import { BACKGROUND_REMOTE_TIMEOUT_MS } from "../routes/biophysics/generation.ts";
+import { BACKGROUND_REMOTE_TIMEOUT_MS, inFlightRemoteSubmissions, releaseThermoSubmission } from "../routes/biophysics/generation.ts";
 import { CLIENT_THERMOMPNN_RETRY_WAIT_MS } from "../../src/shared/timeouts.ts";
 import { stripCommentsForScan } from "../../src/shared/engineStatus.ts";
 
@@ -114,6 +114,37 @@ describe("ESM3 budgets nest", () => {
         budgetMs,
         `X-Budget-Ms (${budgetMs}ms) must be strictly less than AbortSignal.timeout (${waitMs}ms) for ${seqLen} aa`
       ).toBeLessThan(waitMs);
+    }
+  });
+});
+
+describe("ThermoMPNN in-flight submissions", () => {
+  it("releases a settled promise at once so the next analysis submits again", () => {
+    const key = `thermo-release-${Math.random()}`;
+    const settled = Promise.resolve({ jobId: null, prediction: 1, status: "done" as const });
+    const dyna = Promise.resolve("dyna-job");
+    inFlightRemoteSubmissions.set(key, { thermompnnPromise: settled as any, dynamut2Promise: dyna });
+    try {
+      releaseThermoSubmission(key, settled);
+      const current = inFlightRemoteSubmissions.get(key);
+      expect(current?.thermompnnPromise).toBeUndefined();
+      // Pollable submissions keep their own grace period; this release is ThermoMPNN-only.
+      expect(current?.dynamut2Promise).toBe(dyna);
+    } finally {
+      inFlightRemoteSubmissions.delete(key);
+    }
+  });
+
+  it("does not release a newer submission when an older one settles", () => {
+    const key = `thermo-release-${Math.random()}`;
+    const older = Promise.resolve({ jobId: null, prediction: 1, status: "done" as const });
+    const newer = Promise.resolve({ jobId: null, prediction: 2, status: "done" as const });
+    inFlightRemoteSubmissions.set(key, { thermompnnPromise: newer as any });
+    try {
+      releaseThermoSubmission(key, older);
+      expect(inFlightRemoteSubmissions.get(key)?.thermompnnPromise).toBe(newer);
+    } finally {
+      inFlightRemoteSubmissions.delete(key);
     }
   });
 });

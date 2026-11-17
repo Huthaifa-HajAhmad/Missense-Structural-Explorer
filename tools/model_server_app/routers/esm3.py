@@ -16,6 +16,7 @@ from tools.model_server_app.routers.vesm import (
     FORGE_HOST,
     REMOTE_REQUEST_TIMEOUT_S,
     REMOTE_MAX_RETRY_ATTEMPTS,
+    vesm_local_reserve_seconds,
 )
 from tools.model_server_app.engine_resilience import (
     GateDeadlineExceeded,
@@ -111,15 +112,19 @@ def predict_esm3_sync(req: Esm3Request, deadline: float | None = None):
     # rather than spending the request's budget rediscovering it.
     blocked = remote_failures.blocked_reason("esm3", FORGE_HOST, req.biohubToken)
     remote_budget = ESM3_REMOTE_BUDGET_S * (2 if len(sequence) > 500 else 1)
-    local_reserve = 30.0 if len(sequence) > 500 else 10.0
+    # The fallback is the local VESM pass, so use its measured cost (cold hosts keep the fixed reserve).
+    local_reserve = vesm_local_reserve_seconds(len(sequence))
+    note = None
+    remote_attempted = False
     if blocked:
         print(f"[Model Server] ESM-3 remote skipped: {blocked}")
         note = f"remote skipped (recent refusal): {blocked}"
     elif effective_deadline is not None and (effective_deadline - time.monotonic()) < remote_budget + local_reserve:
+        # The provider was never called; a note here would be read as a provider timeout.
         print("[Model Server] ESM-3 remote skipped: insufficient remaining budget for local fallback.")
-        note = "remote skipped (timeout): this request had already waited too long to try remote ESM-3 and still run the local fallback"
     else:
         started = time.monotonic()
+        remote_attempted = True
         try:
             return run_with_deadline(
                 lambda: _predict_esm3_remote(req, sequence, pos, mut),
@@ -130,8 +135,12 @@ def predict_esm3_sync(req: Esm3Request, deadline: float | None = None):
             note = remote_failures.record("esm3", FORGE_HOST, req.biohubToken, e)
             print(f"[Model Server Remote ESM3 Error] after {time.monotonic() - started:.1f}s: {note}. Falling back to local model.")
 
+    provenance = (
+        "VESM-150M (Local Fallback - ESM-3 remote failed)" if remote_attempted
+        else "VESM-150M (Local Fallback - ESM-3 remote skipped)"
+    )
     try:
-        return run_fallback("VESM-150M (Local Fallback - ESM-3 remote failed)", note)
+        return run_fallback(provenance, note)
     except GateDeadlineExceeded:
         raise
     except Exception as local_err:

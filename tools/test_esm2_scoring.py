@@ -435,7 +435,9 @@ class Esm3AndVesmDeadlineTests(unittest.TestCase):
             result = esm3.predict_esm3_sync(req, deadline=time.monotonic() + 12.0)
 
         self.assertFalse(called["remote"])
-        self.assertIn("skipped", result["remoteEngineNote"])
+        # A budget skip is not a provider failure: the note would be classified as a timeout.
+        self.assertNotIn("remoteEngineNote", result)
+        self.assertIn("skipped", result["provenance"])
         self.assertEqual(len(result["perturbationScores"]), len(SEQUENCE))
 
     def test_esm3_raises_gate_deadline_exceeded_when_deadline_already_expired(self):
@@ -454,6 +456,108 @@ class Esm3AndVesmDeadlineTests(unittest.TestCase):
             # SEQUENCE is 10 aa -> est_s = 1.0 * 12 = 12s, so a 5s deadline refuses cleanly instead of starting.
             with self.assertRaises(GateDeadlineExceeded):
                 vesm.predict_vesm_sync(req, deadline=time.monotonic() + 5.0)
+
+
+class DeadlineBudgetContractTests(unittest.TestCase):
+    """The Node budget, the sidecar reserve and the remote-failure memory must agree."""
+
+    def setUp(self):
+        vesm.clear_vesm_caches()
+        self.addCleanup(vesm.clear_vesm_caches)
+
+    def test_local_reserve_uses_the_measured_pass_cost(self):
+        from tools.model_server_app.routers.vesm import note_vesm_pass_seconds, vesm_local_reserve_seconds
+
+        with patch.object(vesm, "_vesm_seconds_per_token", 0.0):
+            note_vesm_pass_seconds(0.244, 122)  # 0.002 s/token, measured on a 120 aa pass
+            self.assertLess(vesm_local_reserve_seconds(120), 5.0)  # the fixed cold reserve was 10 s
+
+    def test_local_reserve_forgets_a_transiently_slow_pass(self):
+        from tools.model_server_app.routers.vesm import note_vesm_pass_seconds, vesm_local_reserve_seconds
+
+        with patch.object(vesm, "_vesm_seconds_per_token", 0.0):
+            note_vesm_pass_seconds(9.0, 120)
+            slow = vesm_local_reserve_seconds(120)
+            note_vesm_pass_seconds(0.2, 120)
+            note_vesm_pass_seconds(0.2, 120)
+            self.assertLess(vesm_local_reserve_seconds(120), slow)
+
+    def test_esm3_attempts_remote_within_the_measured_local_reserve(self):
+        from tools.model_server_app.routers.vesm import note_vesm_pass_seconds
+
+        outcome = {"status": "success", "perturbationScores": [0.0] * 120}
+        with patch.object(vesm, "_vesm_seconds_per_token", 0.0), \
+             patch.object(esm3, "_predict_esm3_remote", return_value=outcome) as remote:
+            note_vesm_pass_seconds(0.244, 122)
+            # ESM3's Node budget is 30 s for <=500 aa. 20 s is enough for a 15 s remote tier plus a
+            # 0.24 s local pass; the old fixed 10 s reserve skipped it at 20 s.
+            req = esm3.Esm3Request(sequence="A" * 120, position=6, wt="A", mut="C", biohubToken="tok")
+            result = esm3.predict_esm3_sync(req, deadline=time.monotonic() + 20.0)
+
+        self.assertEqual(remote.call_count, 1)
+        self.assertEqual(result, outcome)
+
+    def test_esm3_attempts_remote_for_a_long_sequence_within_the_measured_reserve(self):
+        from tools.model_server_app.routers.vesm import note_vesm_pass_seconds
+
+        outcome = {"status": "success", "perturbationScores": [0.0] * 806}
+        with patch.object(vesm, "_vesm_seconds_per_token", 0.0), \
+             patch.object(esm3, "_predict_esm3_remote", return_value=outcome) as remote:
+            note_vesm_pass_seconds(5.66, 808)  # 0.007 s/token
+            # 30 s remote + ~6 s local fits a 50 s budget; the old fixed 30 s reserve skipped it.
+            req = esm3.Esm3Request(sequence="A" * 806, position=6, wt="A", mut="C", biohubToken="tok")
+            esm3.predict_esm3_sync(req, deadline=time.monotonic() + 50.0)
+
+        self.assertEqual(remote.call_count, 1)
+
+    def test_esm3_attempts_remote_at_the_node_budget(self):
+        # The header side of the contract: 30 s for <=500 aa, 90 s past 500 (esm3_forge.test.ts).
+        outcome = {"status": "success", "perturbationScores": [0.0] * 120}
+        with patch.object(esm3, "_predict_esm3_remote", return_value=outcome) as remote:
+            req = esm3.Esm3Request(sequence="A" * 120, position=6, wt="A", mut="C", biohubToken="tok")
+            esm3.predict_esm3_sync(req, deadline=time.monotonic() + 30.0)
+
+        self.assertEqual(remote.call_count, 1)
+
+    def test_self_imagined_esmc_deadline_does_not_block_the_host(self):
+        from tools.model_server_app.engine_resilience import (
+            RemoteDeadlineExceeded,
+            RemoteFailureMemory,
+        )
+
+        memory = RemoteFailureMemory()
+        with patch.object(vesm, "remote_failures", memory), \
+             patch.object(vesm, "run_with_deadline", side_effect=RemoteDeadlineExceeded("ESMC remote exceeded its 15s remote budget")), \
+             patch.object(vesm._local_vesm_results, "get_or_compute", return_value={"status": "success", "cosineProfile": []}):
+            req = vesm.VesmRequest(sequence=SEQUENCE, position=6, wt="S", mut="C", biohubToken="tok")
+            vesm.predict_vesm_sync(req, deadline=time.monotonic() + 30.0)
+
+        for host in [vesm.FORGE_HOST, vesm.BIOHUB_HOST]:
+            self.assertIsNone(
+                memory.blocked_reason("esmc", host, "tok"),
+                "we stopped waiting: this says nothing about the provider",
+            )
+
+    def test_budget_skip_is_not_reported_as_a_provider_failure(self):
+        with patch.object(esm3, "_predict_esm3_remote") as remote, \
+             patch.object(vesm._local_vesm_results, "get_or_compute", return_value={"status": "success", "cosineProfile": []}):
+            req = esm3.Esm3Request(sequence=SEQUENCE, position=6, wt="S", mut="C", biohubToken="tok")
+            result = esm3.predict_esm3_sync(req, deadline=time.monotonic() + 10.0)
+
+        remote.assert_not_called()
+        self.assertNotIn("remoteFailure", with_remote_failure(result, "biohub"))
+        self.assertIn("skipped", result["provenance"])
+
+    def test_vesm_route_honors_the_request_budget(self):
+        import asyncio
+
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded, request_deadline
+
+        req = vesm.VesmRequest(sequence=SEQUENCE, position=6, wt="S", mut="C")
+        token = request_deadline.set(time.monotonic() - 1.0)
+        self.addCleanup(request_deadline.reset, token)
+        with self.assertRaises(GateDeadlineExceeded):
+            asyncio.run(vesm.predict_vesm(req))
 
 
 if __name__ == "__main__":
