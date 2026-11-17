@@ -574,7 +574,7 @@ function computationalExtras(b: ReportBlock, input: ReportDocumentInput) {
   if (!result) return;
   const pe = buildPredictorEvidence({ result, isLoading: Boolean(input.isLoading) });
   const rows = pe.readings
-    .filter(r => r.availability.state === "available" && r.score !== null)
+    .filter(r => r.availability.state === "available")
     .map(r => [r.name, `${r.scoreText}${r.unit ? ` ${r.unit}` : ""}`, formatEvidenceCode(r.callLabel),
       r.votes ? "Voting predictor" : r.group === "conservation" ? "Conservation" : "Informational",
       `${r.cutpoints.source ?? "No published calibration"}; ${r.orientation === "higher" ? "higher" : "lower"} scores indicate ${r.group === "conservation" ? "greater evolutionary constraint" : "greater predicted impact"}${r.note ? `; ${r.note}` : ""}${r.caveats.length ? `; ${r.caveats.map(c => CAVEAT_TEXT[c].detail).join("; ")}` : ""}`]);

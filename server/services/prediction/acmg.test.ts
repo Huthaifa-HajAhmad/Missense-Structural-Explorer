@@ -713,3 +713,68 @@ describe("PM4 / BP3 in-frame indel repeat check prefers explicit residueIndex", 
     expect(nonRepeatRes.acmgCriteria.some(c => c.code === "PM4")).toBe(true);
   });
 });
+
+describe("Candidate-allele CADD consensus in ACMG PP3/BP4 concordance", () => {
+  const candidate = (alt: string, caddPhred: number | null, caddSource: string | null = "ProtVar") => ({
+    grch37Id: null,
+    id: `4-1804392-G-${alt}`,
+    canonicalBy: "protvar" as const,
+    retryable: false,
+    caddPhred,
+    caddSource,
+  });
+
+  const runWithCandidates = (candidates: ReturnType<typeof candidate>[]) => computeRuleBasedACMG({
+    gene: "FGFR3",
+    variant: "p.Gly380Arg",
+    clinvar: null,
+    predictorData: {
+      available: true,
+      amPathogenicity: 0.9,
+      amClass: "likely_pathogenic",
+      caddPhred: null,
+      locusResolution: {
+        route: "fallback",
+        canonicalBy: null,
+        retryable: false,
+        failureKind: "multiple-candidates",
+        steps: [],
+        candidates,
+      },
+    },
+    conservationData: { available: true, revel: 0.72 },
+    gnomadConstraint: null,
+    gnomadFrequency: null,
+    acmgWeighting: "standard",
+  });
+
+  it("votes PP3 with range text when all candidates support PP3 from the same source", () => {
+    const res = runWithCandidates([candidate("A", 25.7), candidate("C", 28.5)]);
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(pp3).toBeDefined();
+    expect(pp3?.reason).toContain("3/3 predictors agree");
+    expect(pp3?.reason).toContain("CADD 25.7–28.5");
+    expect(res.partialEvidence.unavailable.some(u => u.startsWith("CADD"))).toBe(false);
+  });
+
+  it("withholds CADD and names disagreement in unavailable when candidates cross bands", () => {
+    const res = runWithCandidates([candidate("C", 24.5), candidate("A", 25.7)]);
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(pp3).toBeDefined();
+    expect(pp3?.reason).toContain("2/2 predictors agree");
+    expect(pp3?.reason.split("⚠")[0]).not.toContain("CADD");
+    expect(res.partialEvidence.unavailable).toContain(
+      "CADD — CANDIDATE ALLELES DISAGREE (G>C 24.5 Indeterminate vs G>A 25.7 PP3 Supporting)",
+    );
+  });
+
+  it("withholds CADD and names mixed sources when candidates come from different CADD releases", () => {
+    const res = runWithCandidates([candidate("A", 27.0, "ProtVar"), candidate("C", 28.5, "dbNSFP 5.3a (local)")]);
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(pp3?.reason).toContain("2/2 predictors agree");
+    expect(res.partialEvidence.unavailable).toContain(
+      "CADD — MIXED SOURCES (ProtVar vs dbNSFP 5.3a (local))",
+    );
+  });
+});
+

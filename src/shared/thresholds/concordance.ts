@@ -1,5 +1,7 @@
 import type { AlphaGenomeAviData } from "../contracts.ts";
+import { decideCandidateCadd, validCaddScore } from "../candidateScores.ts";
 import { resolveSourceAvailability } from "../evidenceAvailability.ts";
+import type { AlleleCandidate } from "../locusResolution.ts";
 import {
   type PredictorSignal,
   evaluateCadd,
@@ -23,6 +25,7 @@ export interface PredictorToolDetails {
   signal: PredictorSignal;
   scoreLabel: string;
   isInformationalOnly?: boolean;
+  unavailableLabel?: string | null;
 }
 
 export interface PredictorConcordance {
@@ -63,6 +66,8 @@ export function countPredictorConcordance(
     saprotLabel?: string | null;
     gpnStar?: number | null;
     alphagenome?: AlphaGenomeAviData | null;
+    /** Candidate-allele records from an ambiguous-locus run; CADD votes only when all candidates agree from one release. */
+    caddCandidates?: ReadonlyArray<AlleleCandidate> | null;
     /**
      * Per-source build-gate refusals recorded server-side, so a skipped evidence source can name the
      * reason it was skipped instead of being silently omitted. Optional: absent means no refusal was
@@ -73,12 +78,28 @@ export function countPredictorConcordance(
     alphagenomeConfigured?: boolean;
   }
 ): PredictorConcordance {
+  const scalarCadd = validCaddScore(caddPhred);
+  const caddDecision =
+    scalarCadd === null
+      ? decideCandidateCadd(extra?.caddCandidates)
+      : null;
+
   const toolDefs: PredictorToolDetails[] = [
     {
       key: "cadd",
       name: "CADD",
-      signal: evaluateCadd(caddPhred),
-      scoreLabel: caddPhred !== null && caddPhred !== undefined ? `${caddPhred.toFixed(1)}` : "—",
+      signal: caddDecision ? caddDecision.signal : evaluateCadd(scalarCadd),
+      scoreLabel: caddDecision
+        ? caddDecision.kind === "vote" || caddDecision.kind === "indeterminate"
+          ? caddDecision.scoreText
+          : "—"
+        : scalarCadd !== null
+          ? `${scalarCadd.toFixed(1)}`
+          : "—",
+      unavailableLabel:
+        caddDecision && (caddDecision.kind === "disagree" || caddDecision.kind === "mixed-source" || caddDecision.kind === "missing")
+          ? caddDecision.unavailableEntry
+          : null,
     },
     {
       key: "revel",
@@ -230,9 +251,11 @@ export function countPredictorConcordance(
       const notProvisioned = skipReason !== null && skipReason.state === "not-configured";
       if (!notProvisioned) {
         unavailable.push(
-          skipReason?.state === "not-covered" && skipReason.reason
-            ? `${tool.name.toUpperCase()} — NOT ASSESSED: ${skipReason.reason}`
-            : tool.name.toUpperCase(),
+          tool.unavailableLabel
+            ? tool.unavailableLabel
+            : skipReason?.state === "not-covered" && skipReason.reason
+              ? `${tool.name.toUpperCase()} — NOT ASSESSED: ${skipReason.reason}`
+              : tool.name.toUpperCase(),
         );
       }
     } else {

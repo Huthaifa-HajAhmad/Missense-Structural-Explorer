@@ -21,7 +21,7 @@
  *   • A cut-point is drawn only with its provenance: ClinGen-calibrated, the authors' own, local, or
  *     none. An uncalibrated cut-point is never presented as a calibrated one.
  */
-import { candidateCaddNote } from "./candidateScores.ts";
+import { candidateCaddNote, decideCandidateCadd, validCaddScore } from "./candidateScores.ts";
 import type { AnalysisResult } from "./contracts.ts";
 import {
   CALIBRATION_SOURCES,
@@ -116,6 +116,8 @@ export interface PredictorReading {
   votes: boolean;
   score: number | null;
   scoreText: string;
+  /** Range of candidate scores when an ambiguous locus votes by consensus; `score` stays `null`. */
+  scoreRange?: [number, number] | null;
   unit: string | null;
   scale: { min: number; max: number };
   orientation: "higher" | "lower";
@@ -269,7 +271,9 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   const cd = result.conservationData ?? null;
   const refusals = cd?.assemblyRefusals ?? null;
 
-  const cadd = finite(pd?.caddPhred);
+  const cadd = validCaddScore(pd?.caddPhred);
+  const candidateCaddList = pd?.locusResolution?.failureKind === "multiple-candidates" ? pd.locusResolution.candidates : null;
+  const caddDecision = cadd === null ? decideCandidateCadd(candidateCaddList) : null;
   const am = finite(pd?.amPathogenicity);
   const amClass = pd?.amClass ?? null;
   const revel = finite(cd?.revel);
@@ -316,6 +320,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     esmcLabel: esmcProvenance,
     gpnStar: gpn,
     alphagenome,
+    caddCandidates: candidateCaddList,
     assemblyRefusals: refusals,
     alphagenomeConfigured,
   });
@@ -432,14 +437,56 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     source: vepSource,
     knowledgeKey: "am",
   });
+  const caddExtra: Partial<PredictorReading> = (() => {
+    if (!caddDecision) {
+      return {
+        source: vepSource,
+        note: candidateCaddNote(candidateCaddList),
+      };
+    }
+    if (caddDecision.kind === "vote" || caddDecision.kind === "indeterminate") {
+      const { label, tone } = callFromCalibrated(caddDecision.calibrated);
+      return {
+        score: null,
+        scoreText: caddDecision.scoreText,
+        scoreRange: caddDecision.range,
+        signal: caddDecision.signal,
+        calibrated: caddDecision.calibrated,
+        callLabel: label,
+        callTone: tone,
+        availability: present,
+        source: caddDecision.source,
+        note: candidateCaddNote(candidateCaddList, caddDecision),
+      };
+    }
+    return {
+      score: null,
+      scoreText: "—",
+      signal: "unavailable",
+      calibrated: null,
+      callLabel: caddDecision.availabilityLabel,
+      callTone: "muted",
+      availability: {
+        state: "absent",
+        label: caddDecision.availabilityLabel,
+        reason: caddDecision.availabilityReason,
+        action: null,
+      },
+      source: caddDecision.kind === "disagree"
+        ? caddDecision.source
+        : caddDecision.sources.length
+          ? caddDecision.sources.join(" / ")
+          : vepSource,
+      note: candidateCaddNote(candidateCaddList, caddDecision),
+    };
+  })();
+
   calibratedVoter("cadd", "CADD", "cadd", cadd, 1, {
     description: "Genome-wide deleteriousness from about 100 annotations, conservation among them.",
     unit: "PHRED",
     scale: { min: 0, max: 50 },
-    source: vepSource,
     knowledgeKey: "cadd",
-    // A candidate run has no single CADD; each allele's own score is named instead.
-    note: candidateCaddNote(pd?.locusResolution?.failureKind === "multiple-candidates" ? pd.locusResolution.candidates : null),
+    ...caddExtra,
   });
 
   // ── Voting tools with the authors' own cut-points ──

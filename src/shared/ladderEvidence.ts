@@ -195,7 +195,7 @@ export function buildLadder(predictor: PredictorEvidence): { columns: LadderColu
       "none",
       ...STRENGTH_ORDER.filter(s => b.pp3[s] !== undefined).map(s => colId("PP3", s)),
     ];
-    const call = calibratedCall(tool, reading.score);
+    const call = reading.calibrated ?? calibratedCall(tool, reading.score);
     const at = call === null ? null : call.direction && call.strength ? colId(call.direction, call.strength) : "none";
     return {
       key,

@@ -13,8 +13,8 @@
  * Shared by the rule engine (`server/services/prediction/acmg/criteria.ts`) and the surfaces that
  * explain it (`frequencyEvidence.ts`), so the two cannot reach different verdicts. Pure.
  */
-import type { GnomadCandidateReading } from "./contracts";
-import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, type FrequencyDecision, type FrequencyRuleInputs } from "./frequencyRule";
+import type { GnomadCandidateReading } from "./contracts.ts";
+import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, type FrequencyDecision, type FrequencyRuleInputs } from "./frequencyRule.ts";
 
 export interface CandidateDecision {
   candidate: GnomadCandidateReading;

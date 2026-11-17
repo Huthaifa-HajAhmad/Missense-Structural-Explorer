@@ -147,7 +147,7 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
   const rows: EvidenceChartRow[] = evidence.readings.map(r => {
     const calibrated = ladder.ladder.find(l => l.key === r.key);
     const at = calibrated?.at == null || r.cutpoints.bands.length === 0 ? -1 : ladder.columns.findIndex(c => c.id === calibrated.at);
-    return { key: r.key, name: r.name, value: at < 0 ? null : at, valueText: r.score === null ? (r.availability.label ?? r.callLabel) : r.scoreText,
+    return { key: r.key, name: r.name, value: at < 0 ? null : at, valueText: r.availability.state === 'available' ? r.scoreText : (r.availability.label ?? r.callLabel),
       description: r.description, group: PREDICTOR_GROUP_LABEL[r.group], counted: r.votes, knowledgeKey: r.knowledgeKey ?? undefined,
       tone: r.callTone === 'muted' ? 'neutral' : r.callTone,
       facts: [{ label: 'Raw score', value: `${r.scoreText}${r.unit ? ` ${r.unit}` : ''}` },

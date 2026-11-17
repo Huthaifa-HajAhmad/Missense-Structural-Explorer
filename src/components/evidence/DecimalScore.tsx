@@ -6,6 +6,14 @@ import React from "react";
  * halves are hidden from assistive technology and the whole number is read once from the sr-only copy.
  */
 export function DecimalScore({ text }: { text: string }) {
+  if (text.includes("–")) {
+    return (
+      <span className="prd-dec">
+        <span className="sr-only">{text}</span>
+        <span className="prd-dec__int" aria-hidden="true">{text}</span>
+      </span>
+    );
+  }
   const dot = text.indexOf(".");
   const int = dot < 0 ? text : text.slice(0, dot);
   const frac = dot < 0 ? "" : text.slice(dot);

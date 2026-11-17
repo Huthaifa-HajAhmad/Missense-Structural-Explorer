@@ -65,6 +65,7 @@ export function evaluateRevel(score: number | null | undefined): PredictorSignal
 
 /** CADD PHRED against the ClinGen bands (Pejaver 2022): PP3 ≥ 25.3, BP4 ≤ 22.7. */
 export function evaluateCadd(phred: number | null | undefined): PredictorSignal {
+  if (phred === null || phred === undefined || !Number.isFinite(phred) || phred < 0) return "unavailable";
   return signalFromCall(calibratedCall("cadd", phred));
 }
 

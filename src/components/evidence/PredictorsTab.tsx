@@ -263,7 +263,7 @@ function ReadingRow({
   onAction: (action: NonNullable<PredictorReading["availability"]["action"]>) => void;
   onTabChange?: (tab: string) => void;
 }) {
-  const has = reading.score !== null;
+  const has = reading.score !== null || reading.availability.state === "available";
   const pending = reading.availability.state === "pending";
   return (
     <tr data-testid={`predictor-${reading.key}`} data-votes={reading.votes || undefined}>

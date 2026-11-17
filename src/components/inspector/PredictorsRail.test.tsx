@@ -53,4 +53,36 @@ describe("PredictorsRail", () => {
     expect(within(section).getByRole("button", { name: /VESM \(SaProt fallback\)/ })).toBeInTheDocument();
     expect(screen.getAllByText(/VESM-150M \(Local Fallback\)/).length).toBeGreaterThanOrEqual(1);
   });
+
+  it("explains candidate CADD disagreement under Not counted and separates CADD vs AlphaMissense sources", () => {
+    const candidateResult: any = {
+      ...result,
+      predictorData: {
+        caddPhred: null,
+        amPathogenicity: 0.835,
+        amClass: "likely_pathogenic",
+        source: "Ensembl VEP (GRCh38)",
+        locusResolution: {
+          route: "fallback",
+          canonicalBy: null,
+          retryable: false,
+          failureKind: "multiple-candidates",
+          steps: [],
+          candidates: [
+            { grch37Id: null, id: "4-1804392-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar" },
+            { grch37Id: null, id: "4-1804392-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+          ],
+        },
+      },
+    };
+    render(<EvidenceWorkspaceProvider result={candidateResult}><PredictorsRail analysisResult={candidateResult} /></EvidenceWorkspaceProvider>);
+    const trace = screen.getByTestId("predictor-rule-trace");
+    expect(trace.textContent).toContain("Not counted:");
+    expect(trace.textContent).toContain("CADD (Candidates disagree)");
+    expect(trace.textContent).not.toContain("No score:");
+
+    const rail = screen.getByTestId("predictors-rail");
+    expect(rail.textContent).toContain("ProtVar");
+    expect(rail.textContent).toContain("Ensembl VEP (GRCh38)");
+  });
 });
