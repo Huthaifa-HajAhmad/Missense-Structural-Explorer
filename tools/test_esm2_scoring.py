@@ -416,5 +416,45 @@ class TokenizationGuardTests(unittest.TestCase):
             compute_scientific_metrics(logits, 1, "S", "C", collapsed)
 
 
+class Esm3AndVesmDeadlineTests(unittest.TestCase):
+    def setUp(self):
+        vesm.clear_vesm_caches()
+        self.addCleanup(vesm.clear_vesm_caches)
+
+    def test_esm3_skips_remote_when_remaining_budget_cannot_cover_local_fallback(self):
+        called = {"remote": False}
+
+        def boom(*_args, **_kwargs):
+            called["remote"] = True
+            raise AssertionError("remote ESM-3 should be skipped when budget is tight")
+
+        with patch.multiple(models, vesm_model=FakeLm(), vesm_tokenizer=FakeTokenizer()), \
+             patch.object(esm3.remote_failures, "blocked_reason", return_value=None), \
+             patch.object(esm3, "_predict_esm3_remote", side_effect=boom):
+            req = esm3.Esm3Request(sequence=SEQUENCE, position=6, wt="S", mut="C", biohubToken="tok")
+            result = esm3.predict_esm3_sync(req, deadline=time.monotonic() + 12.0)
+
+        self.assertFalse(called["remote"])
+        self.assertIn("skipped", result["remoteEngineNote"])
+        self.assertEqual(len(result["perturbationScores"]), len(SEQUENCE))
+
+    def test_esm3_raises_gate_deadline_exceeded_when_deadline_already_expired(self):
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded
+
+        req = esm3.Esm3Request(sequence=SEQUENCE, position=6, wt="S", mut="C")
+        with self.assertRaises(GateDeadlineExceeded):
+            esm3.predict_esm3_sync(req, deadline=time.monotonic() - 0.1)
+
+    def test_vesm_refuses_before_starting_pass_that_would_exceed_deadline(self):
+        from tools.model_server_app.engine_resilience import GateDeadlineExceeded
+
+        with patch.multiple(models, vesm_model=FakeLm(), vesm_tokenizer=FakeTokenizer()), \
+             patch.object(vesm, "_vesm_seconds_per_token", 1.0):
+            req = vesm.VesmRequest(sequence=SEQUENCE, position=6, wt="S", mut="C")
+            # SEQUENCE is 10 aa -> est_s = 1.0 * 12 = 12s, so a 5s deadline refuses cleanly instead of starting.
+            with self.assertRaises(GateDeadlineExceeded):
+                vesm.predict_vesm_sync(req, deadline=time.monotonic() + 5.0)
+
+
 if __name__ == "__main__":
     unittest.main()

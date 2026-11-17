@@ -110,7 +110,7 @@ server/services/external-api/clinvar.ts,server,server/services/external-api/clin
 server/services/external-api/constraint-snapshot.ts,server,server/services/external-api/gnomad.test.ts
 server/services/external-api/core-data-fetcher.ts,server,server/services/external-api/core-data-fetcher.conservation-stream.test.ts;server/services/external-api/core-data-fetcher.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/core-singleflight.test.ts
 server/services/external-api/esm2.ts,server,server/services/external-api/esm2-credentials.test.ts;server/services/external-api/esm2.test.ts;server/services/structure/structural-model-fetcher.test.ts
-server/services/external-api/esm3_forge.ts,server,server/services/external-api/esm3_forge.test.ts
+server/services/external-api/esm3_forge.ts,server,server/services/external-api/esm3_forge.test.ts;server/tests/sidecar-budget.test.ts
 server/services/external-api/esmc.ts,server,server/services/external-api/esmc.test.ts;server/services/structure/structural-model-fetcher.test.ts
 server/services/external-api/genos_web.ts,server,server/services/external-api/genos_web.test.ts
 server/services/external-api/gnomad-gene-constraint.ts,server,

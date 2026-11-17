@@ -17,7 +17,13 @@ from tools.model_server_app.routers.vesm import (
     REMOTE_REQUEST_TIMEOUT_S,
     REMOTE_MAX_RETRY_ATTEMPTS,
 )
-from tools.model_server_app.engine_resilience import GateDeadlineExceeded, raise_if_sdk_error, run_with_deadline, with_remote_failure
+from tools.model_server_app.engine_resilience import (
+    GateDeadlineExceeded,
+    raise_if_sdk_error,
+    request_deadline,
+    run_with_deadline,
+    with_remote_failure,
+)
 
 # How long the remote ESM-3 tier may take before the request moves on to the local fallback. The Node
 # layer allows the whole sidecar call 40 s (<=500 residues) or 100 s (longer); the remote tier must
@@ -77,28 +83,47 @@ def _local_vesm_fallback(sequence: str, pos: int, wt: str, mut: str, provenance:
     }
 
 
-def predict_esm3_sync(req: Esm3Request):
+def predict_esm3_sync(req: Esm3Request, deadline: float | None = None):
     validate_missense_residues(req.wt, req.mut)
     sequence = req.sequence.upper()
     wt = req.wt.upper()
     mut = req.mut.upper()
     pos = req.position
 
+    effective_deadline = deadline if deadline is not None else request_deadline.get()
+    if effective_deadline is not None and time.monotonic() >= effective_deadline:
+        raise GateDeadlineExceeded("The caller's deadline passed before ESM-3 could start.")
+
+    def run_fallback(provenance: str, note: str | None):
+        token = None
+        if effective_deadline is not None and request_deadline.get() != effective_deadline:
+            token = request_deadline.set(effective_deadline)
+        try:
+            return _local_vesm_fallback(sequence, pos, wt, mut, provenance, note)
+        finally:
+            if token is not None:
+                request_deadline.reset(token)
+
     if not req.biohubToken:
-        return _local_vesm_fallback(sequence, pos, wt, mut, "VESM-150M (Local Fallback)", None)
+        return run_fallback("VESM-150M (Local Fallback)", None)
 
     # A 401/403/451 repeats identically for this host and credential: skip the attempt for a while
     # rather than spending the request's budget rediscovering it.
     blocked = remote_failures.blocked_reason("esm3", FORGE_HOST, req.biohubToken)
+    remote_budget = ESM3_REMOTE_BUDGET_S * (2 if len(sequence) > 500 else 1)
+    local_reserve = 30.0 if len(sequence) > 500 else 10.0
     if blocked:
         print(f"[Model Server] ESM-3 remote skipped: {blocked}")
         note = f"remote skipped (recent refusal): {blocked}"
+    elif effective_deadline is not None and (effective_deadline - time.monotonic()) < remote_budget + local_reserve:
+        print("[Model Server] ESM-3 remote skipped: insufficient remaining budget for local fallback.")
+        note = "remote skipped (timeout): this request had already waited too long to try remote ESM-3 and still run the local fallback"
     else:
         started = time.monotonic()
         try:
             return run_with_deadline(
                 lambda: _predict_esm3_remote(req, sequence, pos, mut),
-                ESM3_REMOTE_BUDGET_S * (2 if len(sequence) > 500 else 1),
+                remote_budget,
                 "ESM-3 remote",
             )
         except Exception as e:
@@ -106,7 +131,7 @@ def predict_esm3_sync(req: Esm3Request):
             print(f"[Model Server Remote ESM3 Error] after {time.monotonic() - started:.1f}s: {note}. Falling back to local model.")
 
     try:
-        return _local_vesm_fallback(sequence, pos, wt, mut, "VESM-150M (Local Fallback - ESM-3 remote failed)", note)
+        return run_fallback("VESM-150M (Local Fallback - ESM-3 remote failed)", note)
     except GateDeadlineExceeded:
         raise
     except Exception as local_err:
@@ -290,5 +315,6 @@ def _get_inference_semaphore() -> asyncio.Semaphore:
 
 @router.post("/predict/esm3", response_model=Esm3Response)
 async def predict_esm3(req: Esm3Request):
+    caller_deadline = request_deadline.get()
     async with _get_inference_semaphore():
-        return with_remote_failure(await asyncio.to_thread(predict_esm3_sync, req), "biohub")
+        return with_remote_failure(await asyncio.to_thread(predict_esm3_sync, req, caller_deadline), "biohub")

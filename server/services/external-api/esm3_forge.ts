@@ -70,10 +70,27 @@ export const esm3StructureCache = new LRUCache<string, any>({
  * sized for the local pass alone; a long protein such as CNOT1 (2,376 aa) then aborted here while the
  * sidecar was still working. Capped below the outer budget so ESM3 can never hold the whole run.
  */
-const ESM3_SIDECAR_BUDGET_MS = (sequenceLength: number): number =>
+const ESM3_SIDECAR_WAIT_MS = (sequenceLength: number): number =>
   sequenceLength > 500
     ? Math.min(100000, Math.max(20000, CONFIG.timeouts.structuralModelsMs - 10000))
     : 40000;
+
+/**
+ * Sidecar deadline (`X-Budget-Ms`) vs HTTP `AbortSignal.timeout` (`waitMs`).
+ *
+ * A CPU pass that has already started cannot be preempted (a single VESM-150M pass at 806-1022
+ * residues takes ~5.5-7 s on 2 CPU threads). Sending the full `waitMs` as `X-Budget-Ms` caused the
+ * Node caller to abort at 100 s while the sidecar was still inside a late pass or about to refuse.
+ * Nesting `budgetMs < waitMs` gives the sidecar 10 s of headroom to either finish an in-flight pass
+ * or return HTTP 503 (`GateDeadlineExceeded`, reported as retryable busy).
+ */
+export const ESM3_SIDECAR_BUDGET = (sequenceLength: number): { budgetMs: number; waitMs: number } => {
+  const waitMs = ESM3_SIDECAR_WAIT_MS(sequenceLength);
+  return {
+    budgetMs: Math.max(10000, waitMs - 10000),
+    waitMs,
+  };
+};
 
 function resolvePdbChain(pdbText: string, preferredChain?: string | null): string {
   const preferred = preferredChain?.trim().toUpperCase() || "A";
@@ -162,7 +179,7 @@ export async function fetchEsm3StructureEval(
     // The caller's token, else this person's saved one, else the team's under the lending policy (WP-I4).
     const tokenToUse = resolveCredential("biohub", biohubToken).token;
     const sidecarSecret = process.env.SIDECAR_SECRET || "";
-    const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
+    const { budgetMs: sidecarBudgetMs, waitMs: sidecarWaitMs } = ESM3_SIDECAR_BUDGET(sequence.length);
 
     try {
       // With a token the sidecar calls Biohub, so the call is governed (and counted) as Biohub (WP-I4).
@@ -181,8 +198,8 @@ export async function fetchEsm3StructureEval(
           biohubToken: tokenToUse,
           refine: false
         }),
-        signal: AbortSignal.timeout(sidecarBudgetMs)
-      }), { lane: "compute", deadlineAt: Date.now() + sidecarBudgetMs });
+        signal: AbortSignal.timeout(sidecarWaitMs)
+      }), { lane: "compute", deadlineAt: Date.now() + sidecarWaitMs });
 
       if (sidecarRes.ok) {
         const sidecarData = await sidecarRes.json() as any;
@@ -228,7 +245,7 @@ export async function fetchEsm3StructureEval(
       const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
       console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
       esm3Error = timedOut
-        ? `ESM3 structural perturbation timed out after ${Math.round(sidecarBudgetMs / 1000)}s (sidecar /predict/esm3)`
+        ? `ESM3 structural perturbation timed out after ${Math.round(sidecarWaitMs / 1000)}s (sidecar /predict/esm3)`
         : err.message;
       esm3Status = timedOut ? "timeout" : "error";
     }
