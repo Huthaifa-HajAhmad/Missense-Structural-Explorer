@@ -913,6 +913,10 @@ export async function fetchPredictorData(
       };
 
       for (const target of [...new Set(queryTargets)]) {
+        // Once an authoritative target says the allele is ambiguous, no later target can be accepted
+        // (the success check above needs `!ambiguousAllele`). Asking on cost 15-30 s per target on
+        // production and used up the time the per-allele gnomAD queries needed.
+        if (ambiguousAllele) break;
         const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(target)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
         try {
           console.log(`[VEP Fetch] Querying target: ${target}`);
