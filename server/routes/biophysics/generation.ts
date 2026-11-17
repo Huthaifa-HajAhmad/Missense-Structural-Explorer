@@ -91,6 +91,20 @@ export interface InFlightSubmissions {
 }
 export const inFlightRemoteSubmissions = new Map<string, InFlightSubmissions>();
 
+/**
+ * Release a settled ThermoMPNN call immediately. Unlike the pollable dyna/ddmut ids, this promise
+ * carries a value OR a refusal: keeping it for their 60 s grace would make the next analysis join an
+ * old busy/error answer instead of submitting again. A newer promise for the same cache key is kept.
+ */
+export function releaseThermoSubmission(cacheKey: string, promise: Promise<unknown>): void {
+  const current = inFlightRemoteSubmissions.get(cacheKey);
+  if (!current) return;
+  if (current.thermompnnPromise === promise) delete current.thermompnnPromise;
+  if (!current.dynamut2Promise && !current.ddmutPromise && !current.thermompnnPromise) {
+    inFlightRemoteSubmissions.delete(cacheKey);
+  }
+}
+
 export function clearInFlightRemoteSubmissions(): void {
   inFlightRemoteSubmissions.clear();
   resetBioSigSubmissionsForTests();
@@ -803,17 +817,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           }
           if (!inFlight.thermompnnPromise) {
             const createdThermoPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, tamarindApiKey, backgroundRemoteSignal)
-              .finally(() => {
-                setTimeout(() => {
-                  const current = inFlightRemoteSubmissions.get(foldxCacheKey);
-                  if (current && current.thermompnnPromise === createdThermoPromise) {
-                    delete current.thermompnnPromise;
-                  }
-                  if (current && !current.dynamut2Promise && !current.ddmutPromise && !current.thermompnnPromise) {
-                    inFlightRemoteSubmissions.delete(foldxCacheKey);
-                  }
-                }, 60000).unref?.();
-              });
+              .finally(() => releaseThermoSubmission(foldxCacheKey, createdThermoPromise));
             inFlight.thermompnnPromise = createdThermoPromise;
           }
 

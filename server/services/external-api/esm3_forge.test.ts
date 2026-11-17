@@ -33,31 +33,39 @@ function captureTimeouts() {
 }
 
 function stubSidecarSuccess() {
-  vi.stubGlobal("fetch", vi.fn(async () => ({
+  const fetchMock = vi.fn(async () => ({
     ok: true,
     json: async () => ({ status: "success", perturbationScores: [0.1, 0.2] })
-  })));
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 describe("fetchEsm3StructureEval sidecar budget", () => {
   // 40 s = the sidecar's 15 s remote tier + the local fallback; 100 s = its 30 s remote tier + a longer fallback,
   // held 10 s under the outer 120 s structural budget. The old 20/60 s covered the local pass alone.
-  it("uses the default budget for ordinary-length sequences", async () => {
-    stubSidecarSuccess();
+  it("uses the default budget for ordinary-length sequences and nests X-Budget-Ms below it", async () => {
+    const fetchMock = stubSidecarSuccess();
     const timeouts = captureTimeouts();
 
     await fetchEsm3StructureEval("TEST_SHORT", 1, "A", "V", null, null, "A".repeat(120));
 
     expect(timeouts).toEqual([40000]);
+    const headers = (fetchMock.mock.calls[0] as any)[1].headers;
+    expect(Number(headers["X-Budget-Ms"])).toBe(30000);
+    expect(Number(headers["X-Budget-Ms"])).toBeLessThan(timeouts[0]);
   });
 
-  it("scales the budget for sequences longer than 500 residues", async () => {
-    stubSidecarSuccess();
+  it("scales the budget for sequences longer than 500 residues and nests X-Budget-Ms below it", async () => {
+    const fetchMock = stubSidecarSuccess();
     const timeouts = captureTimeouts();
 
     await fetchEsm3StructureEval("TEST_LONG", 1, "A", "V", null, null, "A".repeat(674));
 
     expect(timeouts).toEqual([100000]);
+    const headers = (fetchMock.mock.calls[0] as any)[1].headers;
+    expect(Number(headers["X-Budget-Ms"])).toBe(90000);
+    expect(Number(headers["X-Budget-Ms"])).toBeLessThan(timeouts[0]);
   });
 });
 
