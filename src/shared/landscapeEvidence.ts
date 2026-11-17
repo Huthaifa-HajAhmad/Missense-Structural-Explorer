@@ -423,8 +423,8 @@ export function landscapeVerdict(input: {
       scope: revel === null && am === null
         ? "No REVEL or AlphaMissense score is available for this substitution. This is absence of data, not a benign reading; no band is assigned."
         : own
-        ? "The queried substitution's own scores — a variant-level score, so its band applies to the variant."
-        : `One substitution at residue ${residx} — a variant-level score, so its band applies to it.`,
+        ? "Predictor bands describe this substitution; they do not establish a clinical classification."
+        : `Predictor bands describe this substitution at residue ${residx}; they do not establish a clinical classification.`,
       stat: mode,
       isQuery: own,
       calls: [
@@ -442,7 +442,7 @@ export function landscapeVerdict(input: {
     return {
       kind: "variant",
       label: `${target!.wt}${target!.pos}${target!.mut}`,
-      scope: "The queried substitution's own scores — a variant-level score, so its band applies to the variant.",
+      scope: "Predictor bands describe this substitution; they do not establish a clinical classification.",
       stat: mode,
       isQuery: true,
       calls: [
@@ -688,3 +688,9 @@ export function agreementClass(revel: number | null, am: number | null): Agreeme
   if ((r === "PP3" && a === "BP4") || (r === "BP4" && a === "PP3")) return "discordant";
   return "other";
 }
+
+/** Mapping limits shared by the overview and selected-residue evidence. */
+export const REGIONAL_MAPPING_LIMIT = {
+  label: "Regional O/E withheld",
+  detail: "This run cannot verify the transcript-to-protein mapping needed to place regional O/E on this residue axis. No regional value is assigned. Re-running may help a temporary data failure, but may not resolve a transcript mismatch."
+};

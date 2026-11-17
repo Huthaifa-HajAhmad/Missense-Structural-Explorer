@@ -139,12 +139,12 @@ describe("LandscapeInspector", () => {
     expect(verdict.textContent).toContain("REVEL 0.231");
     expect(verdict.textContent).toContain("BP4");
     // The lead box precedes the per-tool rows in the reading order.
-    const readsAs = screen.getByText("Queried substitution").closest(".lsr-readsas")!;
+    const readsAs = screen.getByText("Queried substitution").closest(".lsr-selection-heading")!;
     const pos = readsAs.compareDocumentPosition(verdict);
     expect((pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
     expect(readsAs.textContent).toContain("D116G");
     expect(screen.getByText(/Ranks 2 of 3 scored substitutions here/)).toBeTruthy();
-    expect(screen.getByText(/The queried variant/)).toBeTruthy();
+    expect(screen.getByText(/Predictor bands describe this substitution/)).toBeTruthy();
   });
 
   it("says a plain residue pick is a summary, not a variant-level call", () => {
@@ -163,8 +163,8 @@ describe("LandscapeInspector", () => {
 
   it("reads the queried variant's own scores when the queried residue is picked", () => {
     render(<LandscapeInspector analysisResult={result} />);
-    expect(screen.getByText(/The queried variant/)).toBeTruthy();
-    expect(screen.getByText(/variant-level score, so its band applies to the variant/)).toBeTruthy();
+    expect(screen.getByText(/Predictor bands describe this substitution/)).toBeTruthy();
+    expect(screen.getByText(/Predictor bands describe this substitution/)).toBeTruthy();
   });
 
   it("says a residue has no dbNSFP record instead of printing '0 substitutions · no score' twice", () => {
@@ -203,6 +203,60 @@ describe("LandscapeInspector", () => {
     expect(screen.getByText("1 substitution record")).toBeTruthy();
   });
 
+  it("names a nucleotide-only selection instead of asking for a residue", () => {
+    act(() => useVariantAnalysisStore.setState({ selectedResidueIndex: null, hoveredResidueIndex: null,
+      landscapeSelection: null, selectedGenomicVariant: { chrom: '4', pos: 1804392, ref: 'G', alt: 'A',
+        strand: '+', isRef: false, isExonic: false, phred: 23 } as any }));
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    const heading = container.querySelector('.lsr-selection-heading')!;
+    expect(heading.textContent).toContain('chr4:1804392 G>A');
+    expect(heading.textContent).toContain('Nucleotide selection');
+    expect(heading.textContent).not.toContain('Select a residue');
+    expect(screen.getByText('AVI Phred 23.00')).toBeTruthy();
+  });
+
+  it("distinguishes an empty selection from an inspected substitution", () => {
+    act(() => useVariantAnalysisStore.setState({ selectedResidueIndex: null, landscapeSelection: null }));
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    expect(container.querySelector('.lsr-selection-heading')?.textContent).toContain('Nothing selected');
+    expect(screen.getByText(/Select a residue or substitution to inspect/)).toBeTruthy();
+  });
+
+  it.each([1, 2])("preserves queried ClinVar review stars across %s different assertions", (count) => {
+    const overview = useVariantAnalysisStore.getState().landscapeOverview!;
+    const records = [
+      { pos: 116, cls: "plp" as const, significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Gly" },
+      { pos: 116, cls: "blb" as const, significance: "Benign", stars: 1, hgvsp: "p.Asp116Gly" }
+    ].slice(0, count);
+    act(() => useVariantAnalysisStore.setState({ landscapeOverview: { ...overview, data: {
+      ...overview.data!, context: { ...overview.data!.context!, clinvar: records }
+    } } }));
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    const local = screen.getByRole('region', { name: 'Local evidence for selected residue' });
+    expect(local.textContent).toContain('2 review stars');
+    if (count === 2) {
+      expect(local.textContent).toContain('1 review star');
+      expect(local.textContent).toContain('Benign');
+      expect(container.querySelector('.lsr-context-source')?.textContent).toContain('2 queried ClinVar records');
+    }
+  });
+
+  it("groups equivalent queried ClinVar assertions while preserving their review details", () => {
+    const overview = useVariantAnalysisStore.getState().landscapeOverview!;
+    act(() => useVariantAnalysisStore.setState({ landscapeOverview: { ...overview, data: {
+      ...overview.data!, context: { ...overview.data!.context!, clinvar: [
+        { pos: 116, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Gly" },
+        { pos: 116, cls: "plp", significance: "Pathogenic", stars: 1, hgvsp: "p.Asp116Gly" },
+      ] }
+    } } }));
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    expect(screen.getAllByText("p.Asp116Gly Pathogenic (queried)")).toHaveLength(1);
+    const records = screen.getByText("2 queried ClinVar records").closest("details")!;
+    expect(records.textContent).toContain("2 review stars");
+    expect(records.textContent).toContain("1 review star");
+    expect(container.querySelector('.lsr-selection-heading')?.textContent).toContain('D116G');
+  });
+
   it("marks the queried variant in the residue's ClinVar list, apart from the other records", () => {
     act(() =>
       useVariantAnalysisStore.setState({
@@ -225,7 +279,7 @@ describe("LandscapeInspector", () => {
       } as any)
     );
     render(<LandscapeInspector analysisResult={result} />);
-    expect(screen.getByText("p.Asp116Gly Pathogenic (queried)")).toBeTruthy();
+    expect(screen.getByText(/p\.Asp116Gly Pathogenic \(queried\).*2 review stars/)).toBeTruthy();
     const others = screen.getByText("1 other substitution record").closest("details")!;
     expect(others.open).toBe(false);
     fireEvent.click(screen.getByText("1 other substitution record"));
@@ -242,14 +296,16 @@ describe("LandscapeInspector", () => {
 
   it("shows all domain memberships and keeps domain navigation collapsed after the methods", () => {
     const withDomains = { ...result, uniprotFeatures: { features: [
-      { type: "Domain", description: "Long overlapping domain", start: 90, end: 130 },
-      { type: "Region", description: "Disordered", start: 110, end: 140 },
+      { type: "Domain", description: "Long overlapping domain", start: 90, end: 130, evidence: [{ code: "ECO:0000269" }] },
+      { type: "Region", description: "Disordered", start: 110, end: 140, evidence: [{ code: "ECO:0000256" }] },
     ] } };
     const { container } = render(<LandscapeInspector analysisResult={withDomains} />);
     const local = screen.getByRole("region", { name: "Local evidence for selected residue" });
     expect(local.textContent).toContain("Domain: Long overlapping domain (90–130)");
-    expect(local.textContent).toContain("Disordered: Disordered (110–140)");
+    expect(local.textContent).toContain("Unstructured region (110–140)");
     expect(local.textContent).toContain("verified genomic locus");
+    expect(local.textContent).toContain("Experimental");
+    expect(local.textContent).toContain("Sequence analysis");
     const navigation = screen.getByText(/Go to domain or region/).closest("details")!;
     expect(navigation.open).toBe(false);
     const methods = container.querySelector("details.lsr-sources")!;

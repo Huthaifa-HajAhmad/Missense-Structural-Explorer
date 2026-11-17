@@ -136,10 +136,10 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
     const locusCase = constraintFailed ? constraintStatus === "timeout" && locusUnresolved : locusUnresolved;
     runState = {
       // The chip must not blame a database the run never reached.
-      label: locusCase ? "Genomic locus not resolved" : "gnomAD did not answer",
+      label: locusCase ? "Genomic locus not resolved" : constraintFailed ? "Gene constraint unavailable" : "Variant frequency unavailable",
       detail: constraintFailed ? constraintDetail
         : locusUnresolved ? locusDetail
-        : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
+        : "One or more gnomAD allele-frequency requests did not complete. Residue counts from a separate landscape request may still be available; they do not establish allele frequency.",
       retryable: true,
       recoveryAction: "retry",
     };

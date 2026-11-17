@@ -1,3 +1,4 @@
+import { REGIONAL_MAPPING_LIMIT } from "../../shared/landscapeEvidence";
 import React, { useMemo, useRef, useState } from "react";
 import type {
   LandscapeContext,
@@ -649,11 +650,11 @@ export function LandscapeOverview({
                 : "Regional constraint pending"}
             </p>
           ) : context.regions === null ? (
-            <p className="ls-overview__missing">
-              {context.regionsStatus === "withheld-mapping"
-                ? "Regional map withheld: transcript-to-protein mapping not verified"
-                : "Regional constraint not loaded"}
-            </p>
+            <div className="ls-overview__missing">
+              {context.regionsStatus === "withheld-mapping" ? <details className="ls-mapping-limit">
+                <summary>{REGIONAL_MAPPING_LIMIT.label}</summary><p>{REGIONAL_MAPPING_LIMIT.detail}</p>
+              </details> : "Regional constraint not loaded"}
+            </div>
           ) : (
             <>
             <LandscapeSpanTrack start={1} end={length} width={width} onPick={onPick}

@@ -345,7 +345,7 @@ describe("landscapeVerdict", () => {
     expect(v.kind).toBe("variant");
     expect(v.label).toBe("D116G");
     expect(v.calls.map((c) => c.band)).toEqual(["BP4", "Indeterminate"]);
-    expect(v.scope).toMatch(/variant-level/);
+    expect(v.scope).toMatch(/this substitution/);
   });
 
   it("reads a plain residue pick on the residue summary and names it orientation only", () => {

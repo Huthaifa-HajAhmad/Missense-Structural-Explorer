@@ -140,7 +140,7 @@ function setStoreState(): void {
 
 function mountRail(host: HTMLElement): void {
   setStoreState();
-  const root = React.createElement("div", { style: { width: 360, padding: 16, borderLeft: "1px solid var(--cs-border)", background: "var(--cs-surface-2)" } }, React.createElement(LandscapeInspector, { analysisResult: result, onSelectResidueIndex: () => {} }));
+  const root = React.createElement("div", { className: "inspector-body", style: { width: 360, maxHeight: 420, overflowY: "auto", padding: 16, borderLeft: "1px solid var(--cs-border)", background: "var(--cs-surface-2)" } }, React.createElement(LandscapeInspector, { analysisResult: result, onSelectResidueIndex: () => {} }));
   createRoot(host).render(root);
 }
 
@@ -253,11 +253,11 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
   out.push({ name: "inspector: sources use a closed disclosure", pass: Boolean(sources && !sources.open), detail: "sources available without replacing selection" });
 
   /* Summary tab: the lead box, then the verdict */
-  const readsAs = host.querySelector(".lsr-readsas");
+  const readsAs = host.querySelector(".lsr-selection-heading");
   const verdict = host.querySelector(".lsr-verdict");
   out.push({ name: "summary: the selection heading precedes the per-tool verdict", pass: Boolean(readsAs && verdict && readsAs.compareDocumentPosition(verdict as Node) & Node.DOCUMENT_POSITION_FOLLOWING), detail: readsAs && verdict ? "ordered" : "missing box or verdict" });
   const verdictText = verdict?.textContent ?? "";
-  out.push({ name: "summary: the verdict carries both tools' score and band", pass: verdictText.includes("REVEL 0.853") && verdictText.includes("PP3 Moderate") && verdictText.includes("AlphaMissense 0.840") && verdictText.includes("The queried variant"), detail: verdictText.slice(0, 90) });
+  out.push({ name: "summary: the verdict carries both tools' score and band", pass: verdictText.includes("REVEL 0.853") && verdictText.includes("PP3 Moderate") && verdictText.includes("AlphaMissense 0.840") && verdictText.includes("Predictor bands describe this substitution"), detail: verdictText.slice(0, 90) });
   const kv = host.querySelector(".lsr-kv");
   const kvText = kv?.textContent ?? "";
   out.push({ name: "summary: context reads as key/value rows, query marked apart", pass: Boolean(kv && kvText.includes("p.Ala5Ser Pathogenic") && kvText.includes("(queried)")), detail: kvText.slice(0, 90) });

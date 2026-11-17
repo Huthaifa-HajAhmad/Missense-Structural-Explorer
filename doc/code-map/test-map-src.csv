@@ -215,11 +215,11 @@ src/components/review/ReviewWorkspace.tsx,component,src/components/__tests__/Rev
 src/components/sequence/DensityTrack.tsx,component,src/components/sequence/__tests__/densityTrack.test.ts
 src/components/sequence/GenomicSaturationHeatmap.tsx,component,src/components/sequence/__tests__/landscapeTab.test.tsx
 src/components/sequence/LandscapeAgreement.tsx,component,src/components/sequence/__tests__/landscapeAgreement.test.tsx
-src/components/sequence/LandscapeDomainTracks.tsx,component,
+src/components/sequence/LandscapeDomainTracks.tsx,component,src/components/sequence/__tests__/LandscapeSpanTrack.test.tsx
 src/components/sequence/LandscapeFocus.tsx,component,src/components/sequence/__tests__/landscapePresentation.test.tsx;src/components/sequence/__tests__/landscapeTab.test.tsx
 src/components/sequence/LandscapeLegend.tsx,component,src/components/sequence/__tests__/landscapePresentation.test.tsx
 src/components/sequence/LandscapeOverview.tsx,component,src/components/sequence/__tests__/landscapePresentation.test.tsx;src/components/sequence/__tests__/landscapeTab.test.tsx
-src/components/sequence/LandscapeSpanTrack.tsx,component,
+src/components/sequence/LandscapeSpanTrack.tsx,component,src/components/sequence/__tests__/LandscapeSpanTrack.test.tsx
 src/components/sequence/LandscapeToolbar.tsx,component,src/components/sequence/__tests__/LandscapeToolbar.test.tsx
 src/components/sequence/overviewBins.ts,client,src/components/sequence/__tests__/overviewBins.test.ts
 src/components/sequence/sequenceConstants.ts,client,src/components/sequence/__tests__/landscapeTab.test.tsx

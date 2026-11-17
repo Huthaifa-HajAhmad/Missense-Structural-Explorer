@@ -3,7 +3,7 @@ import { expect } from 'e2e';
 import { skipTour } from './support.js';
 
 // The existing geometry page mounts production components with documented SOD1 fixtures.
-test('landscape geometry and keyboard substitution inspection', { tags: ['landscape'], timeout: 120_000 }, async ({ app, screen, browser }) => {
+test('landscape geometry and keyboard substitution inspection', { tags: ['landscape', 'smoke'], timeout: 120_000 }, async ({ app, screen, browser }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1440, height: 1000 });
   await app.open('/tools/landscape-geometry/index.html');
@@ -13,11 +13,11 @@ test('landscape geometry and keyboard substitution inspection', { tags: ['landsc
   expect(report.checks.length).toBe(38);
   const chip = browser.locator('#case-rail-wide .lsr-strip__chip').filter({ hasText: 'S' }).first();
   await chip.press('Enter');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('Inspected substitution');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('A5S');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('Inspected substitution');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('A5S');
   await browser.locator('#case-rail-wide .lsr-return').press('Enter');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('Queried substitution');
-  await expect(browser.locator('#case-rail-wide .lsr-readsas')).toContainText('A5V');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('Queried substitution');
+  await expect(browser.locator('#case-rail-wide .lsr-selection-heading')).toContainText('A5V');
   await browser.locator('#case-tab .ls-span-track__span').first().press('Enter');
   await expect(browser.locator('#case-tab .ls-span-track__detail').first()).toContainText('Cu/Zn superoxide dismutase');
   await browser.locator('#case-tab button').filter({ hasText: 'O/E 0.41' }).press('Enter');
@@ -65,4 +65,39 @@ test('landscape geometry and keyboard substitution inspection', { tags: ['landsc
   expect(await browser.evaluate(() => [...document.querySelectorAll<HTMLElement>('#case-tab .ls-overview__label')]
     .every(label => label.scrollWidth <= label.clientWidth + 1))).toBe(true);
   await app.screenshot('landscape-narrow-track');
+});
+
+
+test('offline landscape labels and persistent selection', { tags: ['smoke', 'landscape'], timeout: 120_000 }, async ({ app, browser }) => {
+  await skipTour(browser);
+  await browser.setViewport({ width: 1440, height: 1000 });
+  await app.open('/tools/landscape-geometry/index.html');
+  await expect(browser.locator('#geometry-report')).toContainText('harness: no console errors');
+  expect(await browser.evaluate(() => {
+    const captions = [...document.querySelectorAll<HTMLElement>('#case-tab .ls-span-track__label')];
+    return captions.length > 0 && captions.every((caption, index) => {
+      const box = caption.getBoundingClientRect();
+      const axis = caption.closest('.ls-span-track__axis')!.getBoundingClientRect();
+      const connector = getComputedStyle(caption, '::before');
+      const separate = captions.slice(index + 1).filter(other => other.closest('.ls-span-track__axis') === caption.closest('.ls-span-track__axis'))
+        .every(other => { const next = other.getBoundingClientRect(); return box.right <= next.left || next.right <= box.left || box.bottom <= next.top || next.bottom <= box.top; });
+      return box.left >= axis.left - 1 && box.right <= axis.right + 1 &&
+        caption.scrollHeight <= caption.clientHeight + 1 && parseFloat(connector.blockSize) > 0 && separate;
+    });
+  })).toBe(true);
+  expect(await browser.evaluate(async () => {
+    const body = document.querySelector<HTMLElement>('#case-rail-wide .inspector-body')!;
+    const heading = body.querySelector('.lsr-selection-heading')!;
+    const identity = heading.textContent;
+    const scrolls = body.scrollHeight > body.clientHeight;
+    body.scrollTop = body.scrollHeight;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const box = heading.getBoundingClientRect();
+    const panel = body.getBoundingClientRect();
+    return scrolls && box.top >= panel.top && box.bottom < panel.bottom && heading.textContent === identity &&
+      getComputedStyle(body.querySelector('.lsr-kv__value')!).fontFamily.includes('Source Sans');
+  })).toBe(true);
+  await app.screenshot('offline-persistent-selection');
+  await browser.locator('#case-tab button[aria-label^="Illustrative overlapping annotation"]').press('Enter');
+  await app.screenshot('offline-landscape-labels-and-selection');
 });
