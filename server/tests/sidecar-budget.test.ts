@@ -25,9 +25,7 @@ describe("sidecar budget header", () => {
   it("is sent by every call whose caller times out on its own clock", () => {
     // Each of these gives up after a fixed time, so each must say so.
     const callers = [
-      ["server", "services", "external-api", "esm2.ts"],
-      ["server", "services", "external-api", "saprot.ts"],
-      ["server", "services", "external-api", "esmc.ts"],
+      ["server", "services", "external-api", "lmSidecar.ts"], // the shared call for ESM-2, ESM C and SaProt
       ["server", "services", "external-api", "esm3_forge.ts"],
       ["server", "services", "structure", "structural-diff", "evaluator.ts"],
       ["server", "services", "stability", "stabilityoracle.ts"],

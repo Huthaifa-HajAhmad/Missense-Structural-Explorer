@@ -28,64 +28,31 @@ export async function checkJavaVersion(javaExePath: string): Promise<boolean> {
   }
 }
 
-export async function discoverJavaHome(): Promise<string | null> {
-  if (cachedJavaHomeChecked) {
-    return cachedJavaHome;
-  }
+function javaExeIn(homeDir: string): string {
+  return path.join(homeDir, "bin", process.platform === "win32" ? "java.exe" : "java");
+}
 
-  // 1. Explicit override via P2RANK_JAVA_HOME
-  if (process.env.P2RANK_JAVA_HOME) {
-    const candidatePath = path.join(process.env.P2RANK_JAVA_HOME, "bin", process.platform === "win32" ? "java.exe" : "java");
-    if (fs.existsSync(candidatePath) && await checkJavaVersion(candidatePath)) {
-      cachedJavaHome = process.env.P2RANK_JAVA_HOME;
-      cachedJavaHomeChecked = true;
-      console.log(`[Pocket Finder ML] Using explicit P2RANK_JAVA_HOME: ${cachedJavaHome}`);
-      return cachedJavaHome;
-    }
-  }
+async function isCompatibleJavaHome(homeDir: string): Promise<boolean> {
+  const candidatePath = javaExeIn(homeDir);
+  return fs.existsSync(candidatePath) && await checkJavaVersion(candidatePath);
+}
 
-  // 2. Check existing env JAVA_HOME
-  if (process.env.JAVA_HOME) {
-    const candidatePath = path.join(process.env.JAVA_HOME, "bin", process.platform === "win32" ? "java.exe" : "java");
-    if (fs.existsSync(candidatePath) && await checkJavaVersion(candidatePath)) {
-      cachedJavaHome = process.env.JAVA_HOME;
-      cachedJavaHomeChecked = true;
-      return cachedJavaHome;
-    }
+function readSubdirectories(parentDir: string): string[] {
+  if (!fs.existsSync(parentDir)) return [];
+  try {
+    return fs.readdirSync(parentDir).map(folder => path.join(parentDir, folder));
+  } catch (_) {
+    return [];
   }
+}
 
-  // 3. Check system default 'java'
-  const defaultJavaExe = process.platform === "win32" ? "java.exe" : "java";
-  if (await checkJavaVersion(defaultJavaExe)) {
-    cachedJavaHome = "";
-    cachedJavaHomeChecked = true;
-    return cachedJavaHome;
-  }
-
-  // 4. Scan user directories and standard JDK/JRE locations
+function collectJavaCandidates(): string[] {
   const candidates: string[] = [];
   const userProfile = process.env.USERPROFILE || process.env.HOME || "";
 
   if (userProfile) {
-    const gradleJdksDir = path.join(userProfile, ".gradle", "jdks");
-    if (fs.existsSync(gradleJdksDir)) {
-      try {
-        const folders = fs.readdirSync(gradleJdksDir);
-        for (const folder of folders) {
-          candidates.push(path.join(gradleJdksDir, folder));
-        }
-      } catch (_) {}
-    }
-
-    const jdksDir = path.join(userProfile, ".jdks");
-    if (fs.existsSync(jdksDir)) {
-      try {
-        const folders = fs.readdirSync(jdksDir);
-        for (const folder of folders) {
-          candidates.push(path.join(jdksDir, folder));
-        }
-      } catch (_) {}
-    }
+    candidates.push(...readSubdirectories(path.join(userProfile, ".gradle", "jdks")));
+    candidates.push(...readSubdirectories(path.join(userProfile, ".jdks")));
   }
 
   const standardDirs = [
@@ -102,38 +69,81 @@ export async function discoverJavaHome(): Promise<string | null> {
   ];
   for (const sDir of standardDirs) {
     if (fs.existsSync(sDir)) {
-      candidates.push(sDir);
-      try {
-        const folders = fs.readdirSync(sDir);
-        for (const folder of folders) {
-          candidates.push(path.join(sDir, folder));
-        }
-      } catch (_) {}
+      candidates.push(sDir, ...readSubdirectories(sDir));
     }
   }
+  return candidates;
+}
 
-  // Probe candidates sequentially
-  for (const candidate of candidates) {
-    const javaExe = path.join(candidate, "bin", process.platform === "win32" ? "java.exe" : "java");
-    if (fs.existsSync(javaExe)) {
-      if (await checkJavaVersion(javaExe)) {
-        cachedJavaHome = candidate;
-        cachedJavaHomeChecked = true;
-        console.log(`[Pocket Finder ML] Auto-discovered compatible Java 17+ home: ${candidate}`);
-        return cachedJavaHome;
-      }
-    }
+async function findEnvJavaHome(): Promise<string | null> {
+  // 1. Explicit override via P2RANK_JAVA_HOME
+  const override = process.env.P2RANK_JAVA_HOME;
+  if (override && await isCompatibleJavaHome(override)) {
+    console.log(`[Pocket Finder ML] Using explicit P2RANK_JAVA_HOME: ${override}`);
+    return override;
   }
 
-  cachedJavaHome = null;
-  cachedJavaHomeChecked = true;
+  // 2. Check existing env JAVA_HOME
+  const envHome = process.env.JAVA_HOME;
+  if (envHome && await isCompatibleJavaHome(envHome)) {
+    return envHome;
+  }
+
   return null;
+}
+
+async function findPathJavaHome(): Promise<string | null> {
+  // 3. Check system default 'java'
+  const defaultJavaExe = process.platform === "win32" ? "java.exe" : "java";
+  return await checkJavaVersion(defaultJavaExe) ? "" : null;
+}
+
+async function findInstalledJavaHome(): Promise<string | null> {
+  // 4. Scan user directories and standard JDK/JRE locations sequentially
+  for (const candidate of collectJavaCandidates()) {
+    if (await isCompatibleJavaHome(candidate)) {
+      console.log(`[Pocket Finder ML] Auto-discovered compatible Java 17+ home: ${candidate}`);
+      return candidate;
+    }
+  }
+  return null;
+}
+
+export async function discoverJavaHome(): Promise<string | null> {
+  if (cachedJavaHomeChecked) {
+    return cachedJavaHome;
+  }
+
+  const discovered =
+    (await findEnvJavaHome()) ??
+    (await findPathJavaHome()) ??
+    (await findInstalledJavaHome());
+
+  cachedJavaHome = discovered;
+  cachedJavaHomeChecked = true;
+  return cachedJavaHome;
 }
 
 export function _resetJavaHomeCache(): void {
   cachedJavaHome = null;
   cachedJavaVersion = null;
   cachedJavaHomeChecked = false;
+}
+
+function findLocalP2RankCommand(): string | null {
+  const localP2rankDir = path.join(process.cwd(), "tools", "p2rank");
+  if (!fs.existsSync(localP2rankDir)) return null;
+  try {
+    for (const f of fs.readdirSync(localP2rankDir)) {
+      const subPath = path.join(localP2rankDir, f);
+      if (!fs.statSync(subPath).isDirectory()) continue;
+      const batFile = path.join(subPath, "prank.bat");
+      const shFile = path.join(subPath, "prank");
+      if (process.platform === "win32" && fs.existsSync(batFile)) return batFile;
+      if (fs.existsSync(shFile)) return shFile;
+    }
+  } catch (_) {}
+  return null;
 }
 
 export async function checkP2RankCapability(): Promise<{
@@ -145,28 +155,7 @@ export async function checkP2RankCapability(): Promise<{
   ready: boolean;
   status: "ready" | "standby" | "unavailable";
 }> {
-  let p2rankCmd: string | null = null;
-  const localP2rankDir = path.join(process.cwd(), "tools", "p2rank");
-  if (fs.existsSync(localP2rankDir)) {
-    try {
-      const files = fs.readdirSync(localP2rankDir);
-      for (const f of files) {
-        const subPath = path.join(localP2rankDir, f);
-        if (fs.statSync(subPath).isDirectory()) {
-          const batFile = path.join(subPath, "prank.bat");
-          const shFile = path.join(subPath, "prank");
-          if (process.platform === "win32" && fs.existsSync(batFile)) {
-            p2rankCmd = batFile;
-            break;
-          } else if (fs.existsSync(shFile)) {
-            p2rankCmd = shFile;
-            break;
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
+  const p2rankCmd = findLocalP2RankCommand();
   const javaHome = await discoverJavaHome();
   const javaCompatible = javaHome !== null;
   const ready = Boolean(p2rankCmd && javaCompatible);
