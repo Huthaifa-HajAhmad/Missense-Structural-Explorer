@@ -359,7 +359,10 @@ The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own 
 engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min; HTTP polling
 pauses while the tab is hidden, resumes on focus, and backs off while the SSE channel is `OPEN`) → `done`,
 `error` or `unavailable`, with exactly one final callback. `shouldRunBiophysics` allows a re-run 15 min
-after an attempt, unless FoldX cannot run here and no remote engine failed.
+after an attempt, unless FoldX cannot run here and no remote engine failed. A failed remote engine here
+includes a StabilityOracle timeout or busy answer (the server then reruns StabilityOracle beside the
+cached FoldX value), but not a StabilityOracle rejection of the structure, which would only repeat.
+StabilityOracle has no retry control of its own.
 
 One failed engine is retried on its own (`src/components/energetics/RetryThermompnn.tsx`,
 `src/components/energetics/RetryDynamut2.tsx`), through `POST /api/v1/thermompnn-submit` and

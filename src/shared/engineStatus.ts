@@ -834,7 +834,7 @@ function interruptedProblemFor(
  * "rejected this query"): the same query would be refused again, so it is a failure, not a provider
  * error to retry.
  */
-function isRejectionDetail(detail?: string | null): boolean {
+export function isRejectionDetail(detail?: string | null): boolean {
   return Boolean(detail && /\brejected this query\b/i.test(detail));
 }
 

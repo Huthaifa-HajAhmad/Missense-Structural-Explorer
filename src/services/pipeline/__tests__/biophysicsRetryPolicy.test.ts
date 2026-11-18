@@ -32,6 +32,19 @@ describe("shared biophysics retry policy", () => {
     expect(shouldRunBiophysics(crashed, now - BIOPHYSICS_RETRY_COOLDOWN_MS, now)).toBe(false);
     expect(shouldRunBiophysics(crashed, now - BIOPHYSICS_RETRY_COOLDOWN_MS - 1, now)).toBe(true);
   });
+  it("re-runs after the cooldown when StabilityOracle timed out, but not when it rejected the structure", () => {
+    // Test container: with the model service paused, StabilityOracle timed out while FoldX succeeded;
+    // its message asked for another run, but a healthy FoldX snapshot meant another run did nothing.
+    const later = now - BIOPHYSICS_RETRY_COOLDOWN_MS - 1;
+    const timedOut = { ...healthy, foldingEnergetics: { foldx: 0, stabilityoracleStatus: "error",
+      stabilityoracleError: "StabilityOracle did not answer within 180 s. The model service may be busy. Please run the analysis again." } };
+    expect(shouldRunBiophysics(timedOut, later, now)).toBe(true);
+    expect(shouldRunBiophysics(timedOut, now - 1, now)).toBe(false);
+    const rejected = { ...healthy, foldingEnergetics: { foldx: 0, stabilityoracleStatus: "error",
+      stabilityoracleError: "StabilityOracle rejected this query: PDB2PQR could not add hydrogens to this chain." } };
+    expect(shouldRunBiophysics(rejected, later, now)).toBe(false);
+  });
+
   it("applies cooldown even when a failed attempt could not save a snapshot", () => {
     expect(shouldRunBiophysics(null, now - 1, now)).toBe(false);
     expect(shouldRunBiophysics(null, null, now)).toBe(true);
