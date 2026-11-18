@@ -264,6 +264,8 @@ server/services/structural-diff.ts,barrel,
 server/services/structural-model-fetcher.ts,barrel,
 server/services/structure-fetcher.ts,barrel,server/routes/biophysics.test.ts
 server/services/structure-resolver.ts,barrel,server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/structure.test.ts
+server/services/structure/best-chain.ts,server,server/services/structure/best-chain.test.ts
+server/services/structure/chain-quality.ts,server,server/services/structure/chain-quality.test.ts
 server/services/structure/esmfold.ts,server,
 server/services/structure/folding-engines.ts,server,server/services/structure/folding-engines.test.ts
 server/services/structure/index.ts,barrel,
