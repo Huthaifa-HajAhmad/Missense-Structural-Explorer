@@ -71,7 +71,7 @@ Cold structure choice adds 2 to 4 s to submission. Order invariance is unit-test
 7. **DynaMut2/DDMut outcomes not in the job row.** Decided: the audit log is the record; counting command in RUNBOOK.md.
 8. **One production FoldX failure** (601 s, `result:failed`, row purged): not reproduced in any live run; known limitation.
 9. **Criterion A3 for BioSig.** Decided (2026-11-19): 5 minutes, the server's polling window; a 200 s DDMut answer was observed.
-10. **Flaky tests** (not caused by this work, all pass alone): coordinate-resolver "misses its window", code-map, dbnsfp_local, analysis-db worker pool and ContextualCoverage under full-suite load; admission peak-memory on Windows. The e2e Services-badge test was fixed (39a23fd0): it now waits for the first reading.
+10. **Flaky tests** (not caused by this work, all pass alone): coordinate-resolver "misses its window", code-map, dbnsfp_local, analysis-db worker pool and ContextualCoverage under full-suite load, runner-background-repair "asks background work to stop" (failed once on CI at 56ad6ca while removing its temporary folder, passed on rerun); admission peak-memory on Windows. The e2e Services-badge test was fixed (39a23fd0): it now waits for the first reading.
 11. **Engine notes used internal names, and StabilityOracle's named the old marks** (found while checking A4:
     "sidecar raw isStabilizing", "−pred/2", "±0.5 / +1.0" under a +0.2 scale). Fixed: plain text naming the +0.2
     mark; a test keeps internal names out of these texts. A scan of the failure reasons in `engineStatus.ts`,
