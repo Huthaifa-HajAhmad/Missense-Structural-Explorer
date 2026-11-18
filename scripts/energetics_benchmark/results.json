@@ -1,0 +1,2886 @@
+{
+  "sign_convention": "positive=destabilizing (kcal/mol)",
+  "bootstrap_draws": 2000,
+  "min_regression_n": 20,
+  "min_roc_class_n": 20,
+  "criteria": {
+    "foldx": {
+      "A5": "pass (s669 5/5, ssym_dir 5/5)",
+      "A6": "pass",
+      "A6_by_dataset": {
+        "s669": "pass (CI [0.195, 0.472] vs 0.22)",
+        "ssym_direct": "pass (CI [0.510, 0.706] vs 0.63)",
+        "ssym_reverse": "pass (CI [0.284, 0.517] vs 0.39)"
+      },
+      "A7": "pass"
+    },
+    "thermompnn": {
+      "A5": "pass (s669 5/5, ssym_dir 5/5)",
+      "A6": "pass",
+      "A6_by_dataset": {
+        "s669": "pass (CI [0.272, 0.575] vs 0.43)",
+        "ssym_direct": "pass (CI [0.532, 0.795] vs 0.72)",
+        "ssym_reverse": "pass (CI [0.545, 0.663] vs 0.60)"
+      },
+      "A7": "pass"
+    },
+    "stabilityoracle": {
+      "A5": "pass (s669 4/5, ssym_dir 5/5)",
+      "A6": "fail",
+      "A6_by_dataset": {
+        "s669": "pass (CI [0.216, 0.527] vs 0.52)",
+        "ssym_direct": "fail (CI [0.490, 0.689] < 0.72)",
+        "ssym_reverse": "pass (CI [0.361, 0.664] vs 0.42)"
+      },
+      "A7": "pass"
+    },
+    "rasp": {
+      "A5": "unverified (too few / no WFYLIMV->AG scored)",
+      "A6": "unverified",
+      "A6_by_dataset": {
+        "s669": "unverified (partial set)",
+        "ssym_direct": "unverified (partial set)",
+        "ssym_reverse": "unverified (partial set)"
+      },
+      "A7": "too few to judge"
+    },
+    "dynamut2": {
+      "A5": "pass (run in progress; s669 5/5, ssym_dir 5/5)",
+      "A6": "unverified",
+      "A6_by_dataset": {
+        "s669": "unverified (run in progress)",
+        "ssym_direct": "no comparator",
+        "ssym_reverse": "no comparator"
+      },
+      "A7": "unverified (run in progress; provisional AUC CI [0.585, 0.767])"
+    },
+    "ddmut": {
+      "A5": "unverified (run in progress)",
+      "A6": "no comparator",
+      "A6_by_dataset": {
+        "s669": "no comparator",
+        "ssym_direct": "no comparator",
+        "ssym_reverse": "no comparator"
+      },
+      "A7": "too few to judge (run in progress)"
+    },
+    "protvar": {
+      "A5": "pass (partial set; s669 5/5, ssym_dir 5/5)",
+      "A6": "no comparator",
+      "A6_by_dataset": {
+        "s669": "no comparator",
+        "ssym_direct": "no comparator",
+        "ssym_reverse": "no comparator"
+      },
+      "A7": "pass (partial set)"
+    }
+  },
+  "a5_signed_examples": {
+    "foldx": {
+      "s669": {
+        "n_candidates": 129,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "3DV0I_V158A",
+            "mutation": "V158A",
+            "ca_neighbors_8a": 16,
+            "measured": 3.2,
+            "raw_ddg": 1.7468,
+            "converted_ddg": 1.7468,
+            "sign_agrees": true
+          },
+          {
+            "id": "1N88A_V81A",
+            "mutation": "V81A",
+            "ca_neighbors_8a": 15,
+            "measured": 2.82,
+            "raw_ddg": 2.9407,
+            "converted_ddg": 2.9407,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L6HA_F39A",
+            "mutation": "F39A",
+            "ca_neighbors_8a": 15,
+            "measured": 1.7,
+            "raw_ddg": 0.9227,
+            "converted_ddg": 0.9227,
+            "sign_agrees": true
+          },
+          {
+            "id": "2JIEA_L174A",
+            "mutation": "L174A",
+            "ca_neighbors_8a": 15,
+            "measured": 0.79,
+            "raw_ddg": 2.4197,
+            "converted_ddg": 2.4197,
+            "sign_agrees": true
+          },
+          {
+            "id": "1XZOA_W36A",
+            "mutation": "W36A",
+            "ca_neighbors_8a": 14,
+            "measured": 8.93,
+            "raw_ddg": 6.3055,
+            "converted_ddg": 6.3055,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_direct": {
+        "n_candidates": 49,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "1LZ1A_I56A",
+            "mutation": "I56A",
+            "ca_neighbors_8a": 16,
+            "measured": 3.7,
+            "raw_ddg": 3.6284,
+            "converted_ddg": 3.6284,
+            "sign_agrees": true
+          },
+          {
+            "id": "5PTIA_Y23A",
+            "mutation": "Y23A",
+            "ca_neighbors_8a": 15,
+            "measured": 5.9,
+            "raw_ddg": 2.608,
+            "converted_ddg": 2.608,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I27A",
+            "mutation": "I27A",
+            "ca_neighbors_8a": 15,
+            "measured": 3.1,
+            "raw_ddg": 3.1559,
+            "converted_ddg": 3.1559,
+            "sign_agrees": true
+          },
+          {
+            "id": "5PTIA_Y35G",
+            "mutation": "Y35G",
+            "ca_neighbors_8a": 14,
+            "measured": 5.0,
+            "raw_ddg": 5.0082,
+            "converted_ddg": 5.0082,
+            "sign_agrees": true
+          },
+          {
+            "id": "1BNIA_I88A",
+            "mutation": "I88A",
+            "ca_neighbors_8a": 14,
+            "measured": 4.0,
+            "raw_ddg": 3.7112,
+            "converted_ddg": 3.7112,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_reverse": {
+        "n_candidates": 10,
+        "n_examples": 5,
+        "n_destab_examples": 3,
+        "n_agree": 3,
+        "n_destab_agree": 3,
+        "examples": [
+          {
+            "id": "3AA4A_V52A",
+            "mutation": "V52A",
+            "ca_neighbors_8a": 13,
+            "measured": 1.7,
+            "raw_ddg": 2.5226,
+            "converted_ddg": 2.5226,
+            "sign_agrees": true
+          },
+          {
+            "id": "3AA3A_L52A",
+            "mutation": "L52A",
+            "ca_neighbors_8a": 12,
+            "measured": 1.3,
+            "raw_ddg": 3.8071,
+            "converted_ddg": 3.8071,
+            "sign_agrees": true
+          },
+          {
+            "id": "3AA2A_I52A",
+            "mutation": "I52A",
+            "ca_neighbors_8a": 11,
+            "measured": 1.9,
+            "raw_ddg": 3.8166,
+            "converted_ddg": 3.8166,
+            "sign_agrees": true
+          },
+          {
+            "id": "1QTCA_F129A",
+            "mutation": "F129A",
+            "ca_neighbors_8a": 13,
+            "measured": -1.2,
+            "raw_ddg": 2.8541,
+            "converted_ddg": 2.8541,
+            "sign_agrees": false
+          },
+          {
+            "id": "1QTBA_V42A",
+            "mutation": "V42A",
+            "ca_neighbors_8a": 13,
+            "measured": -2.7,
+            "raw_ddg": 2.3636,
+            "converted_ddg": 2.3636,
+            "sign_agrees": false
+          }
+        ]
+      }
+    },
+    "thermompnn": {
+      "s669": {
+        "n_candidates": 129,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "3DV0I_V158A",
+            "mutation": "V158A",
+            "ca_neighbors_8a": 16,
+            "measured": 3.2,
+            "raw_ddg": 1.735,
+            "converted_ddg": 1.735,
+            "sign_agrees": true
+          },
+          {
+            "id": "1N88A_V81A",
+            "mutation": "V81A",
+            "ca_neighbors_8a": 15,
+            "measured": 2.82,
+            "raw_ddg": 1.05,
+            "converted_ddg": 1.05,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L6HA_F39A",
+            "mutation": "F39A",
+            "ca_neighbors_8a": 15,
+            "measured": 1.7,
+            "raw_ddg": 0.715,
+            "converted_ddg": 0.715,
+            "sign_agrees": true
+          },
+          {
+            "id": "2JIEA_L174A",
+            "mutation": "L174A",
+            "ca_neighbors_8a": 15,
+            "measured": 0.79,
+            "raw_ddg": 1.107,
+            "converted_ddg": 1.107,
+            "sign_agrees": true
+          },
+          {
+            "id": "1XZOA_W36A",
+            "mutation": "W36A",
+            "ca_neighbors_8a": 14,
+            "measured": 8.93,
+            "raw_ddg": 1.973,
+            "converted_ddg": 1.973,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_direct": {
+        "n_candidates": 49,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "1LZ1A_I56A",
+            "mutation": "I56A",
+            "ca_neighbors_8a": 16,
+            "measured": 3.7,
+            "raw_ddg": 1.893,
+            "converted_ddg": 1.893,
+            "sign_agrees": true
+          },
+          {
+            "id": "5PTIA_Y23A",
+            "mutation": "Y23A",
+            "ca_neighbors_8a": 15,
+            "measured": 5.9,
+            "raw_ddg": 4.003,
+            "converted_ddg": 4.003,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I27A",
+            "mutation": "I27A",
+            "ca_neighbors_8a": 15,
+            "measured": 3.1,
+            "raw_ddg": 1.53,
+            "converted_ddg": 1.53,
+            "sign_agrees": true
+          },
+          {
+            "id": "5PTIA_Y35G",
+            "mutation": "Y35G",
+            "ca_neighbors_8a": 14,
+            "measured": 5.0,
+            "raw_ddg": 3.542,
+            "converted_ddg": 3.542,
+            "sign_agrees": true
+          },
+          {
+            "id": "1BNIA_I88A",
+            "mutation": "I88A",
+            "ca_neighbors_8a": 14,
+            "measured": 4.0,
+            "raw_ddg": 2.965,
+            "converted_ddg": 2.965,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_reverse": {
+        "n_candidates": 10,
+        "n_examples": 5,
+        "n_destab_examples": 3,
+        "n_agree": 3,
+        "n_destab_agree": 3,
+        "examples": [
+          {
+            "id": "3AA4A_V52A",
+            "mutation": "V52A",
+            "ca_neighbors_8a": 13,
+            "measured": 1.7,
+            "raw_ddg": 1.786,
+            "converted_ddg": 1.786,
+            "sign_agrees": true
+          },
+          {
+            "id": "3AA3A_L52A",
+            "mutation": "L52A",
+            "ca_neighbors_8a": 12,
+            "measured": 1.3,
+            "raw_ddg": 2.254,
+            "converted_ddg": 2.254,
+            "sign_agrees": true
+          },
+          {
+            "id": "3AA2A_I52A",
+            "mutation": "I52A",
+            "ca_neighbors_8a": 11,
+            "measured": 1.9,
+            "raw_ddg": 1.925,
+            "converted_ddg": 1.925,
+            "sign_agrees": true
+          },
+          {
+            "id": "1QTCA_F129A",
+            "mutation": "F129A",
+            "ca_neighbors_8a": 13,
+            "measured": -1.2,
+            "raw_ddg": 1.005,
+            "converted_ddg": 1.005,
+            "sign_agrees": false
+          },
+          {
+            "id": "1QTBA_V42A",
+            "mutation": "V42A",
+            "ca_neighbors_8a": 13,
+            "measured": -2.7,
+            "raw_ddg": 0.826,
+            "converted_ddg": 0.826,
+            "sign_agrees": false
+          }
+        ]
+      }
+    },
+    "stabilityoracle": {
+      "s669": {
+        "n_candidates": 118,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 4,
+        "n_destab_agree": 4,
+        "examples": [
+          {
+            "id": "1N88A_V81A",
+            "mutation": "V81A",
+            "ca_neighbors_8a": 15,
+            "measured": 2.82,
+            "raw_ddg": 0.9022,
+            "converted_ddg": 0.9022,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L6HA_F39A",
+            "mutation": "F39A",
+            "ca_neighbors_8a": 15,
+            "measured": 1.7,
+            "raw_ddg": 0.2451,
+            "converted_ddg": 0.2451,
+            "sign_agrees": true
+          },
+          {
+            "id": "2JIEA_L174A",
+            "mutation": "L174A",
+            "ca_neighbors_8a": 15,
+            "measured": 0.79,
+            "raw_ddg": 0.0501,
+            "converted_ddg": 0.0501,
+            "sign_agrees": true
+          },
+          {
+            "id": "1XZOA_W36A",
+            "mutation": "W36A",
+            "ca_neighbors_8a": 14,
+            "measured": 8.93,
+            "raw_ddg": 0.4808,
+            "converted_ddg": 0.4808,
+            "sign_agrees": true
+          },
+          {
+            "id": "2PTLA_I20A",
+            "mutation": "I20A",
+            "ca_neighbors_8a": 14,
+            "measured": 4.9,
+            "raw_ddg": -0.0318,
+            "converted_ddg": -0.0318,
+            "sign_agrees": false
+          }
+        ]
+      },
+      "ssym_direct": {
+        "n_candidates": 45,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "1LZ1A_I56A",
+            "mutation": "I56A",
+            "ca_neighbors_8a": 16,
+            "measured": 3.7,
+            "raw_ddg": 0.7102,
+            "converted_ddg": 0.7102,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I27A",
+            "mutation": "I27A",
+            "ca_neighbors_8a": 15,
+            "measured": 3.1,
+            "raw_ddg": 0.9905,
+            "converted_ddg": 0.9905,
+            "sign_agrees": true
+          },
+          {
+            "id": "1BNIA_I88A",
+            "mutation": "I88A",
+            "ca_neighbors_8a": 14,
+            "measured": 4.0,
+            "raw_ddg": 1.4864,
+            "converted_ddg": 1.4864,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I29A",
+            "mutation": "I29A",
+            "ca_neighbors_8a": 14,
+            "measured": 2.6,
+            "raw_ddg": 0.4185,
+            "converted_ddg": 0.4185,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I100A",
+            "mutation": "I100A",
+            "ca_neighbors_8a": 13,
+            "measured": 3.4,
+            "raw_ddg": 0.7106,
+            "converted_ddg": 0.7106,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_reverse": {
+        "n_candidates": 10,
+        "n_examples": 5,
+        "n_destab_examples": 3,
+        "n_agree": 3,
+        "n_destab_agree": 3,
+        "examples": [
+          {
+            "id": "3AA4A_V52A",
+            "mutation": "V52A",
+            "ca_neighbors_8a": 13,
+            "measured": 1.7,
+            "raw_ddg": 0.7028,
+            "converted_ddg": 0.7028,
+            "sign_agrees": true
+          },
+          {
+            "id": "3AA3A_L52A",
+            "mutation": "L52A",
+            "ca_neighbors_8a": 12,
+            "measured": 1.3,
+            "raw_ddg": 0.8629,
+            "converted_ddg": 0.8629,
+            "sign_agrees": true
+          },
+          {
+            "id": "3AA2A_I52A",
+            "mutation": "I52A",
+            "ca_neighbors_8a": 11,
+            "measured": 1.9,
+            "raw_ddg": 0.9051,
+            "converted_ddg": 0.9051,
+            "sign_agrees": true
+          },
+          {
+            "id": "1QTCA_F129A",
+            "mutation": "F129A",
+            "ca_neighbors_8a": 13,
+            "measured": -1.2,
+            "raw_ddg": 2.0077,
+            "converted_ddg": 2.0077,
+            "sign_agrees": false
+          },
+          {
+            "id": "1QTBA_V42A",
+            "mutation": "V42A",
+            "ca_neighbors_8a": 13,
+            "measured": -2.7,
+            "raw_ddg": 0.3965,
+            "converted_ddg": 0.3965,
+            "sign_agrees": false
+          }
+        ]
+      }
+    },
+    "rasp": {
+      "s669": {
+        "n_candidates": 0,
+        "n_examples": 0,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": []
+      },
+      "ssym_direct": {
+        "n_candidates": 0,
+        "n_examples": 0,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": []
+      },
+      "ssym_reverse": {
+        "n_candidates": 0,
+        "n_examples": 0,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": []
+      }
+    },
+    "dynamut2": {
+      "s669": {
+        "n_candidates": 26,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "2JIEA_L174A",
+            "mutation": "L174A",
+            "ca_neighbors_8a": 15,
+            "measured": 0.79,
+            "raw_ddg": -2.235,
+            "converted_ddg": 2.235,
+            "sign_agrees": true
+          },
+          {
+            "id": "1XZOA_W36A",
+            "mutation": "W36A",
+            "ca_neighbors_8a": 14,
+            "measured": 8.93,
+            "raw_ddg": -3.832,
+            "converted_ddg": 3.832,
+            "sign_agrees": true
+          },
+          {
+            "id": "1N88A_Y26A",
+            "mutation": "Y26A",
+            "ca_neighbors_8a": 14,
+            "measured": 4.61,
+            "raw_ddg": -1.485,
+            "converted_ddg": 1.485,
+            "sign_agrees": true
+          },
+          {
+            "id": "1DIVA_V143A",
+            "mutation": "V143A",
+            "ca_neighbors_8a": 13,
+            "measured": 3.25,
+            "raw_ddg": -2.439,
+            "converted_ddg": 2.439,
+            "sign_agrees": true
+          },
+          {
+            "id": "1DIVA_L102A",
+            "mutation": "L102A",
+            "ca_neighbors_8a": 13,
+            "measured": 2.37,
+            "raw_ddg": -3.066,
+            "converted_ddg": 3.066,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_direct": {
+        "n_candidates": 11,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "1L63A_I27A",
+            "mutation": "I27A",
+            "ca_neighbors_8a": 15,
+            "measured": 3.1,
+            "raw_ddg": -3.664,
+            "converted_ddg": 3.664,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I100A",
+            "mutation": "I100A",
+            "ca_neighbors_8a": 13,
+            "measured": 3.4,
+            "raw_ddg": -3.618,
+            "converted_ddg": 3.618,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_V103A",
+            "mutation": "V103A",
+            "ca_neighbors_8a": 13,
+            "measured": 2.2,
+            "raw_ddg": -2.354,
+            "converted_ddg": 2.354,
+            "sign_agrees": true
+          },
+          {
+            "id": "1L63A_I78A",
+            "mutation": "I78A",
+            "ca_neighbors_8a": 13,
+            "measured": 1.2,
+            "raw_ddg": -3.664,
+            "converted_ddg": 3.664,
+            "sign_agrees": true
+          },
+          {
+            "id": "1BNIA_I96A",
+            "mutation": "I96A",
+            "ca_neighbors_8a": 12,
+            "measured": 3.2,
+            "raw_ddg": -3.513,
+            "converted_ddg": 3.513,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_reverse": {
+        "n_candidates": 2,
+        "n_examples": 2,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": [
+          {
+            "id": "1QTBA_V42A",
+            "mutation": "V42A",
+            "ca_neighbors_8a": 13,
+            "measured": -2.7,
+            "raw_ddg": -1.816,
+            "converted_ddg": 1.816,
+            "sign_agrees": false
+          },
+          {
+            "id": "1QS9A_V98A",
+            "mutation": "V98A",
+            "ca_neighbors_8a": 12,
+            "measured": -3.2,
+            "raw_ddg": -2.523,
+            "converted_ddg": 2.523,
+            "sign_agrees": false
+          }
+        ]
+      }
+    },
+    "ddmut": {
+      "s669": {
+        "n_candidates": 2,
+        "n_examples": 2,
+        "n_destab_examples": 2,
+        "n_agree": 2,
+        "n_destab_agree": 2,
+        "examples": [
+          {
+            "id": "1DIVA_L102A",
+            "mutation": "L102A",
+            "ca_neighbors_8a": 13,
+            "measured": 2.37,
+            "raw_ddg": -2.68,
+            "converted_ddg": 2.68,
+            "sign_agrees": true
+          },
+          {
+            "id": "1DIVA_L72A",
+            "mutation": "L72A",
+            "ca_neighbors_8a": 10,
+            "measured": 3.77,
+            "raw_ddg": -2.19,
+            "converted_ddg": 2.19,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_direct": {
+        "n_candidates": 0,
+        "n_examples": 0,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": []
+      },
+      "ssym_reverse": {
+        "n_candidates": 0,
+        "n_examples": 0,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": []
+      }
+    },
+    "protvar": {
+      "s669": {
+        "n_candidates": 23,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "1GUAB_I58A",
+            "mutation": "I58A",
+            "ca_neighbors_8a": 14,
+            "measured": 3.27,
+            "raw_ddg": 4.45756,
+            "converted_ddg": 4.45756,
+            "sign_agrees": true
+          },
+          {
+            "id": "1GUAB_L78A",
+            "mutation": "L78A",
+            "ca_neighbors_8a": 12,
+            "measured": 3.8,
+            "raw_ddg": 4.55193,
+            "converted_ddg": 4.55193,
+            "sign_agrees": true
+          },
+          {
+            "id": "1GUAB_L126A",
+            "mutation": "L126A",
+            "ca_neighbors_8a": 12,
+            "measured": 3.4,
+            "raw_ddg": 4.97147,
+            "converted_ddg": 4.97147,
+            "sign_agrees": true
+          },
+          {
+            "id": "1GUAB_V128A",
+            "mutation": "V128A",
+            "ca_neighbors_8a": 12,
+            "measured": 3.37,
+            "raw_ddg": 4.01849,
+            "converted_ddg": 4.01849,
+            "sign_agrees": true
+          },
+          {
+            "id": "1GUAB_V60A",
+            "mutation": "V60A",
+            "ca_neighbors_8a": 12,
+            "measured": 2.25,
+            "raw_ddg": 4.18522,
+            "converted_ddg": 4.18522,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_direct": {
+        "n_candidates": 18,
+        "n_examples": 5,
+        "n_destab_examples": 5,
+        "n_agree": 5,
+        "n_destab_agree": 5,
+        "examples": [
+          {
+            "id": "1LZ1A_I56A",
+            "mutation": "I56A",
+            "ca_neighbors_8a": 16,
+            "measured": 3.7,
+            "raw_ddg": 2.94999,
+            "converted_ddg": 2.94999,
+            "sign_agrees": true
+          },
+          {
+            "id": "1LZ1A_V125A",
+            "mutation": "V125A",
+            "ca_neighbors_8a": 13,
+            "measured": 1.3,
+            "raw_ddg": 1.79127,
+            "converted_ddg": 1.79127,
+            "sign_agrees": true
+          },
+          {
+            "id": "1LZ1A_V100A",
+            "mutation": "V100A",
+            "ca_neighbors_8a": 12,
+            "measured": 0.3,
+            "raw_ddg": 1.04979,
+            "converted_ddg": 1.04979,
+            "sign_agrees": true
+          },
+          {
+            "id": "1LZ1A_I23A",
+            "mutation": "I23A",
+            "ca_neighbors_8a": 11,
+            "measured": 2.5,
+            "raw_ddg": 2.89302,
+            "converted_ddg": 2.89302,
+            "sign_agrees": true
+          },
+          {
+            "id": "1LZ1A_V99A",
+            "mutation": "V99A",
+            "ca_neighbors_8a": 11,
+            "measured": 1.0,
+            "raw_ddg": 2.00886,
+            "converted_ddg": 2.00886,
+            "sign_agrees": true
+          }
+        ]
+      },
+      "ssym_reverse": {
+        "n_candidates": 0,
+        "n_examples": 0,
+        "n_destab_examples": 0,
+        "n_agree": 0,
+        "n_destab_agree": 0,
+        "examples": []
+      }
+    }
+  },
+  "results": {
+    "foldx": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 669,
+          "attempted": 669,
+          "scored": 667,
+          "n_groups": 85,
+          "n_pos": 300,
+          "n_neg": 367,
+          "coverage": 0.9970104633781763,
+          "dataset_coverage": 0.9970104633781763,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 2,
+          "missing_reasons": {
+            "FoldX BuildModel error (missing adjacent residue / repair)": 2
+          },
+          "stats": {
+            "n": 667,
+            "n_groups": 85,
+            "n_pos": 300,
+            "n_neg": 367,
+            "spearman": {
+              "point": 0.3515498546314337,
+              "ci_low": 0.19582461919957994,
+              "ci_high": 0.49631850954540446,
+              "n_clusters": 85
+            },
+            "pearson": {
+              "point": 0.33062766490564194,
+              "ci_low": 0.19511449707499381,
+              "ci_high": 0.4718924280770617,
+              "n_clusters": 85
+            },
+            "rmse": {
+              "point": 1.965356666281505,
+              "ci_low": 1.6569473661961858,
+              "ci_high": 2.2668665932007603,
+              "n_clusters": 85
+            },
+            "roc_auc": {
+              "point": 0.6844277929155314,
+              "ci_low": 0.5886035249683169,
+              "ci_high": 0.775790332011323,
+              "n_clusters": 85
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 644,
+          "eligible": 644,
+          "attempted": 644,
+          "scored": 642,
+          "n_groups": 82,
+          "n_pos": 287,
+          "n_neg": 355,
+          "coverage": 0.9968944099378882,
+          "dataset_coverage": 0.9968944099378882,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 2,
+          "missing_reasons": {
+            "FoldX BuildModel error (missing adjacent residue / repair)": 2
+          },
+          "stats": {
+            "n": 642,
+            "n_groups": 82,
+            "n_pos": 287,
+            "n_neg": 355,
+            "spearman": {
+              "point": 0.35816112495062785,
+              "ci_low": 0.1954419406429925,
+              "ci_high": 0.5075569468114017,
+              "n_clusters": 82
+            },
+            "pearson": {
+              "point": 0.3334650606704277,
+              "ci_low": 0.189274900990122,
+              "ci_high": 0.48060168742606013,
+              "n_clusters": 82
+            },
+            "rmse": {
+              "point": 1.967002655975255,
+              "ci_low": 1.6319262463816897,
+              "ci_high": 2.285226716443334,
+              "n_clusters": 82
+            },
+            "roc_auc": {
+              "point": 0.6923246797860333,
+              "ci_low": 0.5897845375846936,
+              "ci_high": 0.785590817114055,
+              "n_clusters": 82
+            }
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 342,
+          "scored": 342,
+          "n_groups": 14,
+          "n_pos": 155,
+          "n_neg": 187,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 342,
+            "n_groups": 14,
+            "n_pos": 155,
+            "n_neg": 187,
+            "spearman": {
+              "point": 0.6927690106001326,
+              "ci_low": 0.4871619463176039,
+              "ci_high": 0.7649527700312271,
+              "n_clusters": 14
+            },
+            "pearson": {
+              "point": 0.6329491976479807,
+              "ci_low": 0.5100245954714583,
+              "ci_high": 0.705553296271398,
+              "n_clusters": 14
+            },
+            "rmse": {
+              "point": 1.564689893140461,
+              "ci_low": 1.2524040156202991,
+              "ci_high": 1.720185621647234,
+              "n_clusters": 14
+            },
+            "roc_auc": {
+              "point": 0.8544074521304122,
+              "ci_low": 0.7363029647375284,
+              "ci_high": 0.8974015407185341,
+              "n_clusters": 14
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 326,
+          "eligible": 326,
+          "attempted": 326,
+          "scored": 326,
+          "n_groups": 12,
+          "n_pos": 143,
+          "n_neg": 183,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 326,
+            "n_groups": 12,
+            "n_pos": 143,
+            "n_neg": 183,
+            "spearman": {
+              "point": 0.6832458038311476,
+              "ci_low": 0.4219571114813054,
+              "ci_high": 0.7571320436813505,
+              "n_clusters": 12
+            },
+            "pearson": {
+              "point": 0.6338625000354998,
+              "ci_low": 0.465134080205855,
+              "ci_high": 0.7066123908974807,
+              "n_clusters": 12
+            },
+            "rmse": {
+              "point": 1.5610332402343534,
+              "ci_low": 1.210975710007074,
+              "ci_high": 1.7320288258181984,
+              "n_clusters": 12
+            },
+            "roc_auc": {
+              "point": 0.8522679506286064,
+              "ci_low": 0.7147492809893586,
+              "ci_high": 0.8955540474345466,
+              "n_clusters": 12
+            }
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 342,
+          "scored": 342,
+          "n_groups": 14,
+          "n_pos": 19,
+          "n_neg": 323,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 342,
+            "n_groups": 14,
+            "n_pos": 19,
+            "n_neg": 323,
+            "spearman": {
+              "point": 0.4065671514186431,
+              "ci_low": 0.29672203726596413,
+              "ci_high": 0.548807038521723,
+              "n_clusters": 14
+            },
+            "pearson": {
+              "point": 0.37955549144996975,
+              "ci_low": 0.28375289521857316,
+              "ci_high": 0.517488681089217,
+              "n_clusters": 14
+            },
+            "rmse": {
+              "point": 2.147880784545521,
+              "ci_low": 1.9302591344966522,
+              "ci_high": 2.6008364778988233,
+              "n_clusters": 14
+            },
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 326,
+          "eligible": 326,
+          "attempted": 326,
+          "scored": 326,
+          "n_groups": 12,
+          "n_pos": 16,
+          "n_neg": 310,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 326,
+            "n_groups": 12,
+            "n_pos": 16,
+            "n_neg": 310,
+            "spearman": {
+              "point": 0.38820490947986547,
+              "ci_low": 0.23015331983966927,
+              "ci_high": 0.5049148968863706,
+              "n_clusters": 12
+            },
+            "pearson": {
+              "point": 0.3548755395876341,
+              "ci_low": 0.21641186587026465,
+              "ci_high": 0.4561653525059135,
+              "n_clusters": 12
+            },
+            "rmse": {
+              "point": 2.1390972639628267,
+              "ci_low": 1.881218221400965,
+              "ci_high": 2.678509625074018,
+              "n_clusters": 12
+            },
+            "roc_auc": null
+          }
+        }
+      }
+    },
+    "thermompnn": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 669,
+          "attempted": 669,
+          "scored": 667,
+          "n_groups": 85,
+          "n_pos": 300,
+          "n_neg": 367,
+          "coverage": 0.9970104633781763,
+          "dataset_coverage": 0.9970104633781763,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 2,
+          "missing_reasons": {
+            "HTTP 422 Unprocessable Entity (missing adjacent residue)": 2
+          },
+          "stats": {
+            "n": 667,
+            "n_groups": 85,
+            "n_pos": 300,
+            "n_neg": 367,
+            "spearman": {
+              "point": 0.4901700826488367,
+              "ci_low": 0.3256001349313181,
+              "ci_high": 0.6182809440745044,
+              "n_clusters": 85
+            },
+            "pearson": {
+              "point": 0.4359802568960935,
+              "ci_low": 0.2721408816522675,
+              "ci_high": 0.57490216413551,
+              "n_clusters": 85
+            },
+            "rmse": {
+              "point": 1.5116792835690427,
+              "ci_low": 1.2482579983709627,
+              "ci_high": 1.8135815104471695,
+              "n_clusters": 85
+            },
+            "roc_auc": {
+              "point": 0.7635558583106267,
+              "ci_low": 0.67246632892735,
+              "ci_high": 0.8340067544790671,
+              "n_clusters": 85
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 370,
+          "eligible": 370,
+          "attempted": 370,
+          "scored": 368,
+          "n_groups": 63,
+          "n_pos": 162,
+          "n_neg": 206,
+          "coverage": 0.9945945945945946,
+          "dataset_coverage": 0.9945945945945946,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 2,
+          "missing_reasons": {
+            "HTTP 422 Unprocessable Entity (missing adjacent residue)": 2
+          },
+          "stats": {
+            "n": 368,
+            "n_groups": 63,
+            "n_pos": 162,
+            "n_neg": 206,
+            "spearman": {
+              "point": 0.34707451300719516,
+              "ci_low": 0.14562861574458055,
+              "ci_high": 0.5304338990562186,
+              "n_clusters": 63
+            },
+            "pearson": {
+              "point": 0.2976719896621142,
+              "ci_low": 0.11268071064983905,
+              "ci_high": 0.47558105372552173,
+              "n_clusters": 63
+            },
+            "rmse": {
+              "point": 1.735118691122486,
+              "ci_low": 1.343242560628908,
+              "ci_high": 2.0991346223648404,
+              "n_clusters": 63
+            },
+            "roc_auc": {
+              "point": 0.6935454872348076,
+              "ci_low": 0.5752012173353211,
+              "ci_high": 0.7883524749898345,
+              "n_clusters": 63
+            }
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 342,
+          "scored": 342,
+          "n_groups": 14,
+          "n_pos": 155,
+          "n_neg": 187,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 342,
+            "n_groups": 14,
+            "n_pos": 155,
+            "n_neg": 187,
+            "spearman": {
+              "point": 0.7041513178149803,
+              "ci_low": 0.4406983398868704,
+              "ci_high": 0.7869857619280727,
+              "n_clusters": 14
+            },
+            "pearson": {
+              "point": 0.7120867474983237,
+              "ci_low": 0.5315178831735428,
+              "ci_high": 0.7945567619266822,
+              "n_clusters": 14
+            },
+            "rmse": {
+              "point": 1.124402277859726,
+              "ci_low": 0.9780889577167063,
+              "ci_high": 1.574335634961863,
+              "n_clusters": 14
+            },
+            "roc_auc": {
+              "point": 0.8594962911850957,
+              "ci_low": 0.7314995421245422,
+              "ci_high": 0.9007809481708223,
+              "n_clusters": 14
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 339,
+          "eligible": 339,
+          "attempted": 339,
+          "scored": 339,
+          "n_groups": 13,
+          "n_pos": 155,
+          "n_neg": 184,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 339,
+            "n_groups": 13,
+            "n_pos": 155,
+            "n_neg": 184,
+            "spearman": {
+              "point": 0.6982795706757703,
+              "ci_low": 0.4192990705054578,
+              "ci_high": 0.7818676862252147,
+              "n_clusters": 13
+            },
+            "pearson": {
+              "point": 0.7106151943918737,
+              "ci_low": 0.5039468277511954,
+              "ci_high": 0.7997102149210519,
+              "n_clusters": 13
+            },
+            "rmse": {
+              "point": 1.102012333366036,
+              "ci_low": 0.9699486106742145,
+              "ci_high": 1.5635644662684771,
+              "n_clusters": 13
+            },
+            "roc_auc": {
+              "point": 0.8573807854137447,
+              "ci_low": 0.722651764489895,
+              "ci_high": 0.8998708576600671,
+              "n_clusters": 13
+            }
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 342,
+          "scored": 342,
+          "n_groups": 14,
+          "n_pos": 19,
+          "n_neg": 323,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 342,
+            "n_groups": 14,
+            "n_pos": 19,
+            "n_neg": 323,
+            "spearman": {
+              "point": 0.5865481452411834,
+              "ci_low": 0.5019521614207909,
+              "ci_high": 0.6633134162742916,
+              "n_clusters": 14
+            },
+            "pearson": {
+              "point": 0.5996625946689327,
+              "ci_low": 0.5448375369318407,
+              "ci_high": 0.6634780446870627,
+              "n_clusters": 14
+            },
+            "rmse": {
+              "point": 1.5333544697246495,
+              "ci_low": 1.2708450673296783,
+              "ci_high": 2.0651876196792545,
+              "n_clusters": 14
+            },
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 338,
+          "eligible": 338,
+          "attempted": 338,
+          "scored": 338,
+          "n_groups": 13,
+          "n_pos": 16,
+          "n_neg": 322,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 338,
+            "n_groups": 13,
+            "n_pos": 16,
+            "n_neg": 322,
+            "spearman": {
+              "point": 0.5770307209120176,
+              "ci_low": 0.4806520349861699,
+              "ci_high": 0.6544063477683673,
+              "n_clusters": 13
+            },
+            "pearson": {
+              "point": 0.5957506757709924,
+              "ci_low": 0.5329973158455108,
+              "ci_high": 0.6566051415051586,
+              "n_clusters": 13
+            },
+            "rmse": {
+              "point": 1.5077869613145152,
+              "ci_low": 1.2748372600402251,
+              "ci_high": 2.036568806222177,
+              "n_clusters": 13
+            },
+            "roc_auc": null
+          }
+        }
+      }
+    },
+    "stabilityoracle": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 669,
+          "attempted": 669,
+          "scored": 638,
+          "n_groups": 84,
+          "n_pos": 281,
+          "n_neg": 357,
+          "coverage": 0.953662182361734,
+          "dataset_coverage": 0.953662182361734,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 31,
+          "missing_reasons": {
+            "HTTP 400 Bad Request (PDB2PQR failed)": 31
+          },
+          "stats": {
+            "n": 638,
+            "n_groups": 84,
+            "n_pos": 281,
+            "n_neg": 357,
+            "spearman": {
+              "point": 0.37103403359413795,
+              "ci_low": 0.1829586512146931,
+              "ci_high": 0.527909105141687,
+              "n_clusters": 84
+            },
+            "pearson": {
+              "point": 0.3814020731297396,
+              "ci_low": 0.21591673643515813,
+              "ci_high": 0.5270866977259008,
+              "n_clusters": 84
+            },
+            "rmse": {
+              "point": 1.765127933471219,
+              "ci_low": 1.5430602172126495,
+              "ci_high": 2.0319158651401428,
+              "n_clusters": 84
+            },
+            "roc_auc": {
+              "point": 0.6924299969097959,
+              "ci_low": 0.5792712906532838,
+              "ci_high": 0.7819554083232153,
+              "n_clusters": 84
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 525,
+          "eligible": 525,
+          "attempted": 525,
+          "scored": 494,
+          "n_groups": 72,
+          "n_pos": 217,
+          "n_neg": 277,
+          "coverage": 0.940952380952381,
+          "dataset_coverage": 0.940952380952381,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 31,
+          "missing_reasons": {
+            "HTTP 400 Bad Request (PDB2PQR failed)": 31
+          },
+          "stats": {
+            "n": 494,
+            "n_groups": 72,
+            "n_pos": 217,
+            "n_neg": 277,
+            "spearman": {
+              "point": 0.3265516158863333,
+              "ci_low": 0.18032029095800628,
+              "ci_high": 0.47949816644366405,
+              "n_clusters": 72
+            },
+            "pearson": {
+              "point": 0.33217809790549757,
+              "ci_low": 0.20542555819781289,
+              "ci_high": 0.4757797017905264,
+              "n_clusters": 72
+            },
+            "rmse": {
+              "point": 1.8685124307551821,
+              "ci_low": 1.5920298532410615,
+              "ci_high": 2.157610493037413,
+              "n_clusters": 72
+            },
+            "roc_auc": {
+              "point": 0.6603087723968124,
+              "ci_low": 0.5744585285169491,
+              "ci_high": 0.7473298387966902,
+              "n_clusters": 72
+            }
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 342,
+          "scored": 337,
+          "n_groups": 13,
+          "n_pos": 150,
+          "n_neg": 187,
+          "coverage": 0.9853801169590644,
+          "dataset_coverage": 0.9853801169590644,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 5,
+          "missing_reasons": {
+            "HTTP 400 Bad Request (PDB2PQR failed)": 5
+          },
+          "stats": {
+            "n": 337,
+            "n_groups": 13,
+            "n_pos": 150,
+            "n_neg": 187,
+            "spearman": {
+              "point": 0.6504591160566812,
+              "ci_low": 0.4611554371652557,
+              "ci_high": 0.7009484488816805,
+              "n_clusters": 13
+            },
+            "pearson": {
+              "point": 0.6421406445381659,
+              "ci_low": 0.4904855737520597,
+              "ci_high": 0.688858887604406,
+              "n_clusters": 13
+            },
+            "rmse": {
+              "point": 1.4920757019919524,
+              "ci_low": 1.2984843727788307,
+              "ci_high": 1.7249524113650598,
+              "n_clusters": 13
+            },
+            "roc_auc": {
+              "point": 0.8166488413547237,
+              "ci_low": 0.74397930261863,
+              "ci_high": 0.8487039729557249,
+              "n_clusters": 13
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 339,
+          "eligible": 339,
+          "attempted": 339,
+          "scored": 334,
+          "n_groups": 12,
+          "n_pos": 150,
+          "n_neg": 184,
+          "coverage": 0.9852507374631269,
+          "dataset_coverage": 0.9852507374631269,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 5,
+          "missing_reasons": {
+            "HTTP 400 Bad Request (PDB2PQR failed)": 5
+          },
+          "stats": {
+            "n": 334,
+            "n_groups": 12,
+            "n_pos": 150,
+            "n_neg": 184,
+            "spearman": {
+              "point": 0.6582909871617015,
+              "ci_low": 0.5014369968612534,
+              "ci_high": 0.70934317664176,
+              "n_clusters": 12
+            },
+            "pearson": {
+              "point": 0.6584368381336568,
+              "ci_low": 0.5546457674935688,
+              "ci_high": 0.6988275107917444,
+              "n_clusters": 12
+            },
+            "rmse": {
+              "point": 1.4740070269435768,
+              "ci_low": 1.2469290136571929,
+              "ci_high": 1.6793707034518974,
+              "n_clusters": 12
+            },
+            "roc_auc": {
+              "point": 0.8176086956521739,
+              "ci_low": 0.7521170059409401,
+              "ci_high": 0.8517828073415712,
+              "n_clusters": 12
+            }
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 342,
+          "scored": 342,
+          "n_groups": 14,
+          "n_pos": 19,
+          "n_neg": 323,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 342,
+            "n_groups": 14,
+            "n_pos": 19,
+            "n_neg": 323,
+            "spearman": {
+              "point": 0.4933585130776394,
+              "ci_low": 0.39700262148227,
+              "ci_high": 0.656652044495515,
+              "n_clusters": 14
+            },
+            "pearson": {
+              "point": 0.4740432674079158,
+              "ci_low": 0.36117707743259975,
+              "ci_high": 0.6643731746201914,
+              "n_clusters": 14
+            },
+            "rmse": {
+              "point": 1.6133432158425756,
+              "ci_low": 1.278643868358311,
+              "ci_high": 2.162099409813011,
+              "n_clusters": 14
+            },
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 339,
+          "eligible": 339,
+          "attempted": 339,
+          "scored": 339,
+          "n_groups": 13,
+          "n_pos": 16,
+          "n_neg": 323,
+          "coverage": 1.0,
+          "dataset_coverage": 1.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 339,
+            "n_groups": 13,
+            "n_pos": 16,
+            "n_neg": 323,
+            "spearman": {
+              "point": 0.48288162475662244,
+              "ci_low": 0.38918383707234533,
+              "ci_high": 0.6391903446659545,
+              "n_clusters": 13
+            },
+            "pearson": {
+              "point": 0.46067431508193996,
+              "ci_low": 0.33182021619517704,
+              "ci_high": 0.6557144707087643,
+              "n_clusters": 13
+            },
+            "rmse": {
+              "point": 1.6050600190948485,
+              "ci_low": 1.2464520779747934,
+              "ci_high": 2.265344618036316,
+              "n_clusters": 13
+            },
+            "roc_auc": null
+          }
+        }
+      }
+    },
+    "rasp": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 192,
+          "attempted": 669,
+          "scored": 21,
+          "n_groups": 5,
+          "n_pos": 14,
+          "n_neg": 7,
+          "coverage": 0.109375,
+          "dataset_coverage": 0.03139013452914798,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 648,
+          "missing_reasons": {
+            "non_human_protein": 477,
+            "human_not_in_precomputed_db": 166,
+            "human_no_uniprot_map": 5
+          },
+          "stats": {
+            "n": 21,
+            "n_groups": 5,
+            "n_pos": 14,
+            "n_neg": 7,
+            "spearman": {
+              "point": -0.035133443632492184,
+              "ci_low": -0.7436661698956781,
+              "ci_high": 0.6305224183247317,
+              "n_clusters": 5
+            },
+            "pearson": {
+              "point": -0.10342156619774372,
+              "ci_low": -0.6813702593379617,
+              "ci_high": 0.48497664295688353,
+              "n_clusters": 5
+            },
+            "rmse": {
+              "point": 2.3697959202413146,
+              "ci_low": 1.356348774837473,
+              "ci_high": 3.7497382006971525,
+              "n_clusters": 5
+            },
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 147,
+          "eligible": 81,
+          "attempted": 147,
+          "scored": 4,
+          "n_groups": 2,
+          "n_pos": 2,
+          "n_neg": 2,
+          "coverage": 0.04938271604938271,
+          "dataset_coverage": 0.027210884353741496,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 143,
+          "missing_reasons": {
+            "human_not_in_precomputed_db": 77,
+            "non_human_protein": 66
+          },
+          "stats": {
+            "n": 4,
+            "n_groups": 2,
+            "n_pos": 2,
+            "n_neg": 2,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 65,
+          "attempted": 342,
+          "scored": 2,
+          "n_groups": 1,
+          "n_pos": 1,
+          "n_neg": 1,
+          "coverage": 0.03076923076923077,
+          "dataset_coverage": 0.005847953216374269,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 340,
+          "missing_reasons": {
+            "non_human_protein": 277,
+            "human_not_in_precomputed_db": 63
+          },
+          "stats": {
+            "n": 2,
+            "n_groups": 1,
+            "n_pos": 1,
+            "n_neg": 1,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 0,
+          "eligible": 0,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 0,
+          "attempted": 342,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 342,
+          "missing_reasons": {
+            "not_applicable_wt_lookup (WT human AF2 only; mutant PDBs excluded)": 342
+          },
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 0,
+          "eligible": 0,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      }
+    },
+    "dynamut2": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 669,
+          "attempted": 150,
+          "scored": 150,
+          "n_groups": 49,
+          "n_pos": 63,
+          "n_neg": 87,
+          "coverage": 0.2242152466367713,
+          "dataset_coverage": 0.2242152466367713,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 519,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 519
+          },
+          "stats": {
+            "n": 150,
+            "n_groups": 49,
+            "n_pos": 63,
+            "n_neg": 87,
+            "spearman": {
+              "point": 0.3399687969714533,
+              "ci_low": 0.17019968013188902,
+              "ci_high": 0.47807169832294716,
+              "n_clusters": 49
+            },
+            "pearson": {
+              "point": 0.3930028210533557,
+              "ci_low": 0.16464408293982893,
+              "ci_high": 0.6003324054784316,
+              "n_clusters": 49
+            },
+            "rmse": {
+              "point": 1.6445533537509,
+              "ci_low": 1.2182161236050562,
+              "ci_high": 2.1062766636358043,
+              "n_clusters": 49
+            },
+            "roc_auc": {
+              "point": 0.6767013318737457,
+              "ci_low": 0.5838555409268801,
+              "ci_high": 0.7568475447566081,
+              "n_clusters": 49
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 603,
+          "eligible": 603,
+          "attempted": 135,
+          "scored": 135,
+          "n_groups": 47,
+          "n_pos": 56,
+          "n_neg": 79,
+          "coverage": 0.22388059701492538,
+          "dataset_coverage": 0.22388059701492538,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 468,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 468
+          },
+          "stats": {
+            "n": 135,
+            "n_groups": 47,
+            "n_pos": 56,
+            "n_neg": 79,
+            "spearman": {
+              "point": 0.3149928850397792,
+              "ci_low": 0.15130014204173972,
+              "ci_high": 0.46661501660626,
+              "n_clusters": 47
+            },
+            "pearson": {
+              "point": 0.35844420907299607,
+              "ci_low": 0.13201486364082804,
+              "ci_high": 0.5935401801295914,
+              "n_clusters": 47
+            },
+            "rmse": {
+              "point": 1.7026138445647927,
+              "ci_low": 1.2571235984159408,
+              "ci_high": 2.1337185190841987,
+              "n_clusters": 47
+            },
+            "roc_auc": {
+              "point": 0.6729204339963833,
+              "ci_low": 0.5853816646316646,
+              "ci_high": 0.7668874440661047,
+              "n_clusters": 47
+            }
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 62,
+          "scored": 62,
+          "n_groups": 6,
+          "n_pos": 35,
+          "n_neg": 27,
+          "coverage": 0.18128654970760233,
+          "dataset_coverage": 0.18128654970760233,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 280,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 280
+          },
+          "stats": {
+            "n": 62,
+            "n_groups": 6,
+            "n_pos": 35,
+            "n_neg": 27,
+            "spearman": {
+              "point": 0.7378202841243714,
+              "ci_low": 0.5449372025042281,
+              "ci_high": 0.7808885382286969,
+              "n_clusters": 6
+            },
+            "pearson": {
+              "point": 0.6567301077787765,
+              "ci_low": 0.6023104752948201,
+              "ci_high": 0.7631486074681935,
+              "n_clusters": 6
+            },
+            "rmse": {
+              "point": 1.1896706782049582,
+              "ci_low": 0.9888730842449834,
+              "ci_high": 1.5557452208853777,
+              "n_clusters": 6
+            },
+            "roc_auc": {
+              "point": 0.8841269841269841,
+              "ci_low": 0.8566666666666667,
+              "ci_high": 0.9358974358974359,
+              "n_clusters": 6
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 0,
+          "eligible": 0,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 62,
+          "scored": 61,
+          "n_groups": 6,
+          "n_pos": 3,
+          "n_neg": 58,
+          "coverage": 0.1783625730994152,
+          "dataset_coverage": 0.1783625730994152,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 281,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 280,
+            "running (in progress)": 1
+          },
+          "stats": {
+            "n": 61,
+            "n_groups": 6,
+            "n_pos": 3,
+            "n_neg": 58,
+            "spearman": {
+              "point": 0.0014551422118939336,
+              "ci_low": -0.2766312583255519,
+              "ci_high": 0.29805225943028424,
+              "n_clusters": 6
+            },
+            "pearson": {
+              "point": 0.07447955206769943,
+              "ci_low": -0.15290615598448282,
+              "ci_high": 0.24757318899303987,
+              "n_clusters": 6
+            },
+            "rmse": {
+              "point": 2.5417962991218452,
+              "ci_low": 2.2341717434678885,
+              "ci_high": 2.728864566340472,
+              "n_clusters": 6
+            },
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 0,
+          "eligible": 0,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      }
+    },
+    "ddmut": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 669,
+          "attempted": 16,
+          "scored": 14,
+          "n_groups": 4,
+          "n_pos": 8,
+          "n_neg": 6,
+          "coverage": 0.02092675635276532,
+          "dataset_coverage": 0.02092675635276532,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 655,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 653,
+            "running (in progress)": 1,
+            "timeout (Still RUNNING after 180s)": 1
+          },
+          "stats": {
+            "n": 14,
+            "n_groups": 4,
+            "n_pos": 8,
+            "n_neg": 6,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 569,
+          "eligible": 569,
+          "attempted": 4,
+          "scored": 4,
+          "n_groups": 2,
+          "n_pos": 4,
+          "n_neg": 0,
+          "coverage": 0.007029876977152899,
+          "dataset_coverage": 0.007029876977152899,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 565,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 565
+          },
+          "stats": {
+            "n": 4,
+            "n_groups": 2,
+            "n_pos": 4,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 342,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 342
+          },
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 0,
+          "eligible": 0,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 342,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": false,
+          "run_in_progress": true,
+          "missing_total": 342,
+          "missing_reasons": {
+            "not_run_yet (run in progress)": 342
+          },
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 0,
+          "eligible": 0,
+          "attempted": 0,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": false,
+          "run_in_progress": false,
+          "missing_total": 0,
+          "missing_reasons": {},
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      }
+    },
+    "protvar": {
+      "s669": {
+        "all": {
+          "n_dataset": 669,
+          "eligible": 192,
+          "attempted": 669,
+          "scored": 186,
+          "n_groups": 33,
+          "n_pos": 83,
+          "n_neg": 103,
+          "coverage": 0.96875,
+          "dataset_coverage": 0.27802690582959644,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 483,
+          "missing_reasons": {
+            "non_human_protein": 477,
+            "human_no_uniprot_map": 5,
+            "human_not_in_precomputed_db": 1
+          },
+          "stats": {
+            "n": 186,
+            "n_groups": 33,
+            "n_pos": 83,
+            "n_neg": 103,
+            "spearman": {
+              "point": 0.3069277020036186,
+              "ci_low": 0.024559287770084145,
+              "ci_high": 0.5270989974412149,
+              "n_clusters": 33
+            },
+            "pearson": {
+              "point": 0.20052411647771431,
+              "ci_low": -0.04937503274152515,
+              "ci_high": 0.43175223664810264,
+              "n_clusters": 33
+            },
+            "rmse": {
+              "point": 2.424796648003243,
+              "ci_low": 1.9242805629680166,
+              "ci_high": 3.1164041043219823,
+              "n_clusters": 33
+            },
+            "roc_auc": {
+              "point": 0.6748157679260732,
+              "ci_low": 0.5218712110500229,
+              "ci_high": 0.7850214745085162,
+              "n_clusters": 33
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 644,
+          "eligible": 167,
+          "attempted": 644,
+          "scored": 164,
+          "n_groups": 31,
+          "n_pos": 72,
+          "n_neg": 92,
+          "coverage": 0.9820359281437125,
+          "dataset_coverage": 0.2546583850931677,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 480,
+          "missing_reasons": {
+            "non_human_protein": 477,
+            "human_no_uniprot_map": 2,
+            "human_not_in_precomputed_db": 1
+          },
+          "stats": {
+            "n": 164,
+            "n_groups": 31,
+            "n_pos": 72,
+            "n_neg": 92,
+            "spearman": {
+              "point": 0.3094962137754372,
+              "ci_low": 0.0029880849666686724,
+              "ci_high": 0.5507670562177666,
+              "n_clusters": 31
+            },
+            "pearson": {
+              "point": 0.20775920297153794,
+              "ci_low": -0.07446230492863663,
+              "ci_high": 0.4732447557533349,
+              "n_clusters": 31
+            },
+            "rmse": {
+              "point": 2.4720602302737773,
+              "ci_low": 1.9354421658334662,
+              "ci_high": 3.1873208377320688,
+              "n_clusters": 31
+            },
+            "roc_auc": {
+              "point": 0.6847826086956522,
+              "ci_low": 0.5048826173826174,
+              "ci_high": 0.8011316721578126,
+              "n_clusters": 31
+            }
+          }
+        }
+      },
+      "ssym_direct": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 65,
+          "attempted": 342,
+          "scored": 65,
+          "n_groups": 3,
+          "n_pos": 24,
+          "n_neg": 41,
+          "coverage": 1.0,
+          "dataset_coverage": 0.19005847953216373,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 277,
+          "missing_reasons": {
+            "non_human_protein": 277
+          },
+          "stats": {
+            "n": 65,
+            "n_groups": 3,
+            "n_pos": 24,
+            "n_neg": 41,
+            "spearman": {
+              "point": 0.6388349844238963,
+              "ci_low": 0.15789473684210525,
+              "ci_high": 1.0,
+              "n_clusters": 3
+            },
+            "pearson": {
+              "point": 0.7140651064760196,
+              "ci_low": 0.3429968976069786,
+              "ci_high": 0.9992124779095365,
+              "n_clusters": 3
+            },
+            "rmse": {
+              "point": 1.0069859561753873,
+              "ci_low": 0.9814703677490756,
+              "ci_high": 1.4273999570781366,
+              "n_clusters": 3
+            },
+            "roc_auc": {
+              "point": 0.7987804878048781,
+              "ci_low": 0.6666666666666666,
+              "ci_high": 1.0,
+              "n_clusters": 3
+            }
+          }
+        },
+        "heldout": {
+          "n_dataset": 326,
+          "eligible": 65,
+          "attempted": 326,
+          "scored": 65,
+          "n_groups": 3,
+          "n_pos": 24,
+          "n_neg": 41,
+          "coverage": 1.0,
+          "dataset_coverage": 0.19938650306748465,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 261,
+          "missing_reasons": {
+            "non_human_protein": 261
+          },
+          "stats": {
+            "n": 65,
+            "n_groups": 3,
+            "n_pos": 24,
+            "n_neg": 41,
+            "spearman": {
+              "point": 0.6388349844238963,
+              "ci_low": 0.15789473684210525,
+              "ci_high": 1.0,
+              "n_clusters": 3
+            },
+            "pearson": {
+              "point": 0.7140651064760196,
+              "ci_low": 0.3429968976069786,
+              "ci_high": 0.9992124779095365,
+              "n_clusters": 3
+            },
+            "rmse": {
+              "point": 1.0069859561753873,
+              "ci_low": 0.9814703677490756,
+              "ci_high": 1.4273999570781366,
+              "n_clusters": 3
+            },
+            "roc_auc": {
+              "point": 0.7987804878048781,
+              "ci_low": 0.6666666666666666,
+              "ci_high": 1.0,
+              "n_clusters": 3
+            }
+          }
+        }
+      },
+      "ssym_reverse": {
+        "all": {
+          "n_dataset": 342,
+          "eligible": 0,
+          "attempted": 342,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 342,
+          "missing_reasons": {
+            "not_applicable_wt_lookup (WT human AF2 only; mutant PDBs excluded)": 342
+          },
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        },
+        "heldout": {
+          "n_dataset": 326,
+          "eligible": 0,
+          "attempted": 326,
+          "scored": 0,
+          "n_groups": 0,
+          "n_pos": 0,
+          "n_neg": 0,
+          "coverage": 0.0,
+          "dataset_coverage": 0.0,
+          "partial_set": true,
+          "run_in_progress": false,
+          "missing_total": 326,
+          "missing_reasons": {
+            "not_applicable_wt_lookup (WT human AF2 only; mutant PDBs excluded)": 326
+          },
+          "stats": {
+            "n": 0,
+            "n_groups": 0,
+            "n_pos": 0,
+            "n_neg": 0,
+            "spearman": null,
+            "pearson": null,
+            "rmse": null,
+            "roc_auc": null
+          }
+        }
+      }
+    }
+  },
+  "antisymmetry": {
+    "foldx": {
+      "all": {
+        "eligible_pairs": 342,
+        "n_pairs": 342,
+        "n_groups": 14,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 342,
+          "n_groups": 14,
+          "r_dir_inv": {
+            "point": -0.22366750984115658,
+            "ci_low": -0.4875232443838817,
+            "ci_high": -0.08806839396363643,
+            "n_clusters": 14
+          },
+          "mean_bias": {
+            "point": 0.6701713450292398,
+            "ci_low": 0.5104840382839143,
+            "ci_high": 0.757724485639051,
+            "n_clusters": 14
+          },
+          "mean_sum": {
+            "point": 1.3403426900584796,
+            "ci_low": 1.0209680765678286,
+            "ci_high": 1.515448971278102,
+            "n_clusters": 14
+          }
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 326,
+        "n_pairs": 326,
+        "n_groups": 12,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 326,
+          "n_groups": 12,
+          "r_dir_inv": {
+            "point": -0.21048607677118522,
+            "ci_low": -0.47613394326382696,
+            "ci_high": -0.07010618183467102,
+            "n_clusters": 12
+          },
+          "mean_bias": {
+            "point": 0.6634796012269939,
+            "ci_low": 0.48363346531100476,
+            "ci_high": 0.7591804799847502,
+            "n_clusters": 12
+          },
+          "mean_sum": {
+            "point": 1.3269592024539878,
+            "ci_low": 0.9672669306220095,
+            "ci_high": 1.5183609599695005,
+            "n_clusters": 12
+          }
+        }
+      }
+    },
+    "thermompnn": {
+      "all": {
+        "eligible_pairs": 342,
+        "n_pairs": 342,
+        "n_groups": 14,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 342,
+          "n_groups": 14,
+          "r_dir_inv": {
+            "point": -0.7026371940704019,
+            "ci_low": -0.784263693057492,
+            "ci_high": -0.5067550083960626,
+            "n_clusters": 14
+          },
+          "mean_bias": {
+            "point": 0.3467997076023392,
+            "ci_low": 0.2693896052631579,
+            "ci_high": 0.43625814118122974,
+            "n_clusters": 14
+          },
+          "mean_sum": {
+            "point": 0.6935994152046784,
+            "ci_low": 0.5387792105263158,
+            "ci_high": 0.8725162823624595,
+            "n_clusters": 14
+          }
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 338,
+        "n_pairs": 338,
+        "n_groups": 13,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 338,
+          "n_groups": 13,
+          "r_dir_inv": {
+            "point": -0.6986852498104058,
+            "ci_low": -0.7799721022971295,
+            "ci_high": -0.48755501732399054,
+            "n_clusters": 13
+          },
+          "mean_bias": {
+            "point": 0.34675591715976334,
+            "ci_low": 0.2672155090571803,
+            "ci_high": 0.4515293269230769,
+            "n_clusters": 13
+          },
+          "mean_sum": {
+            "point": 0.6935118343195267,
+            "ci_low": 0.5344310181143606,
+            "ci_high": 0.9030586538461538,
+            "n_clusters": 13
+          }
+        }
+      }
+    },
+    "stabilityoracle": {
+      "all": {
+        "eligible_pairs": 342,
+        "n_pairs": 337,
+        "n_groups": 13,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 337,
+          "n_groups": 13,
+          "r_dir_inv": {
+            "point": -0.7898571785482371,
+            "ci_low": -0.8781632126823035,
+            "ci_high": -0.7025054548465193,
+            "n_clusters": 13
+          },
+          "mean_bias": {
+            "point": -0.04609109792284866,
+            "ci_low": -0.08926045424565175,
+            "ci_high": -0.024241417177731057,
+            "n_clusters": 13
+          },
+          "mean_sum": {
+            "point": -0.09218219584569733,
+            "ci_low": -0.1785209084913035,
+            "ci_high": -0.048482834355462114,
+            "n_clusters": 13
+          }
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 339,
+        "n_pairs": 334,
+        "n_groups": 12,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 334,
+          "n_groups": 12,
+          "r_dir_inv": {
+            "point": -0.7983785722994856,
+            "ci_low": -0.8954612167174204,
+            "ci_high": -0.7417623904174574,
+            "n_clusters": 12
+          },
+          "mean_bias": {
+            "point": -0.04858967065868264,
+            "ci_low": -0.09417397760467382,
+            "ci_high": -0.028179604106903816,
+            "n_clusters": 12
+          },
+          "mean_sum": {
+            "point": -0.09717934131736528,
+            "ci_low": -0.18834795520934763,
+            "ci_high": -0.05635920821380763,
+            "n_clusters": 12
+          }
+        }
+      }
+    },
+    "rasp": {
+      "all": {
+        "eligible_pairs": 0,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": true,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 0,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": true,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      }
+    },
+    "dynamut2": {
+      "all": {
+        "eligible_pairs": 342,
+        "n_pairs": 61,
+        "n_groups": 6,
+        "partial_set": false,
+        "run_in_progress": true,
+        "stats": {
+          "n_pairs": 61,
+          "n_groups": 6,
+          "r_dir_inv": {
+            "point": -0.3474007537210806,
+            "ci_low": -0.44732885924126253,
+            "ci_high": 0.08058878935976015,
+            "n_clusters": 6
+          },
+          "mean_bias": {
+            "point": 0.9541967213114754,
+            "ci_low": 0.6657345258620689,
+            "ci_high": 1.103154761904762,
+            "n_clusters": 6
+          },
+          "mean_sum": {
+            "point": 1.9083934426229507,
+            "ci_low": 1.3314690517241379,
+            "ci_high": 2.206309523809524,
+            "n_clusters": 6
+          }
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 0,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      }
+    },
+    "ddmut": {
+      "all": {
+        "eligible_pairs": 342,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": false,
+        "run_in_progress": true,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 0,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": false,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      }
+    },
+    "protvar": {
+      "all": {
+        "eligible_pairs": 0,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": true,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      },
+      "heldout": {
+        "eligible_pairs": 0,
+        "n_pairs": 0,
+        "n_groups": 0,
+        "partial_set": true,
+        "run_in_progress": false,
+        "stats": {
+          "n_pairs": 0,
+          "n_groups": 0,
+          "r_dir_inv": null,
+          "mean_bias": null,
+          "mean_sum": null
+        }
+      }
+    }
+  }
+}

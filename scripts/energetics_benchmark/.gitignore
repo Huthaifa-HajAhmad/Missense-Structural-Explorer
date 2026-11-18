@@ -1,0 +1,17 @@
+cache/
+downloads/
+__pycache__/
+*.pyc
+*.pyo
+*.pdb
+*.ent
+*.cif
+*.sqlite
+*.db
+*.tsv
+*.csv
+*.m8
+*.zip
+*.tar.gz
+*.log
+*.tmp
