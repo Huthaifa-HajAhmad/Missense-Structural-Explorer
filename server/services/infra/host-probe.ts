@@ -24,6 +24,7 @@ import path from "path";
 import { hostClassOf, type HostFeatures, type HostTool, type JobType, type ToolName } from "../../../src/shared/computeRouting.ts";
 import type { ComputeProvenance } from "../../../src/shared/computeProvenance.ts";
 import { CONFIG } from "../../config.ts";
+import { availableMemoryBytes } from "./available-memory.ts";
 import { killProcessTree } from "../../utils/process-tree.ts";
 import { detectFoldxBinaryAndDir, getFoldxExecutionTarget } from "../stability/foldx/detector.ts";
 import { resolveFoldxRotabasePresent } from "../stability/foldx/readiness.ts";
@@ -408,6 +409,9 @@ export function serverProvenance(ownerId: string | null, type?: JobType): Comput
  * the host, `process.availableMemory()` honours the cgroup limit (production caps the app at 10 GiB).
  */
 export function freeRamBytes(): number {
+  // On Linux, read what the kernel calls available, which leaves out reclaimable file cache.
+  const kernelAvailable = availableMemoryBytes();
+  if (kernelAvailable !== null) return kernelAvailable;
   const host = os.freemem();
   if (typeof process.availableMemory !== "function") return host;
   const available = process.availableMemory();
