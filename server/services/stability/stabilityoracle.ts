@@ -151,11 +151,15 @@ export async function runStabilityOracleAnalysisDetailed(
         detail = errJson?.detail ?? "";
       } catch {}
       console.warn(`[StabilityOracle Warning] Sidecar rejected the request with status: ${sidecarRes.status}${detail ? ` (${typeof detail === "string" ? detail : ""})` : ""}`);
+      // Only a 4xx answer is about THIS input, and only that may be called a rejection: the panel tells
+      // the reader that retrying will not help. A 5xx is the service failing, even when it explains why.
+      const inputRejected = sidecarRes.status >= 400 && sidecarRes.status < 500 && sidecarRes.status !== 401 && sidecarRes.status !== 403 && sidecarRes.status !== 429;
+      const text = typeof detail === "string" && detail ? detail : "";
       return {
         kind: "error",
-        message: typeof detail === "string" && detail
-          ? `StabilityOracle rejected this query: ${detail}`
-          : sidecarFailure("StabilityOracle", sidecarRes.status).error
+        message: inputRejected && text
+          ? `StabilityOracle rejected this query: ${text}`
+          : `${sidecarFailure("StabilityOracle", sidecarRes.status).error}${text ? ` (${text})` : ""}`
       };
     }
   } catch (err: any) {

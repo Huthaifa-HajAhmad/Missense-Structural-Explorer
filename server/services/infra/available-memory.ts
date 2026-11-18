@@ -8,8 +8,9 @@
  * jobs (test container, 2026-11-18).
  *
  * This reads what the kernel itself calls available: on the host, `MemAvailable` in /proc/meminfo;
- * in a container (cgroup v2), the limit minus the working set, where the working set is the memory in
- * use minus the inactive file cache (the part the kernel reclaims first). The smaller of the two wins.
+ * in a container (cgroup v2, or v1 on older hosts), the limit minus the working set, where the working
+ * set is the memory in use minus the inactive file cache (the part the kernel reclaims first). The
+ * smaller of the two wins.
  */
 import fs from "fs";
 
@@ -34,16 +35,31 @@ function hostAvailable(read: ReadFile): number | null {
   }
 }
 
-function containerAvailable(read: ReadFile): number | null {
-  const limit = readNumber(read, "/sys/fs/cgroup/memory.max"); // "max" (no limit) reads as null
-  const current = readNumber(read, "/sys/fs/cgroup/memory.current");
-  if (limit === null || current === null) return null;
+/** cgroup v1 writes a number near 2^63 for "no limit"; anything this large is no limit at all. */
+const NO_LIMIT_BYTES = 2 ** 60;
+
+/** Memory not yet used under a cgroup limit, leaving out the inactive file cache the kernel reclaims first. */
+function underLimit(read: ReadFile, files: { limit: string; usage: string; stat: string; inactiveKey: string }): number | null {
+  const limit = readNumber(read, files.limit); // v2 "max" (no limit) reads as null
+  const usage = readNumber(read, files.usage);
+  if (limit === null || usage === null || limit >= NO_LIMIT_BYTES) return null;
   let inactiveFile = 0;
   try {
-    const match = /^inactive_file\s+(\d+)/m.exec(read("/sys/fs/cgroup/memory.stat"));
+    const match = new RegExp(`^${files.inactiveKey}\\s+(\\d+)`, "m").exec(read(files.stat));
     if (match) inactiveFile = Number(match[1]);
   } catch { /* without the breakdown, count everything as used: the cautious reading */ }
-  return Math.max(0, limit - Math.max(0, current - inactiveFile));
+  return Math.max(0, limit - Math.max(0, usage - inactiveFile));
+}
+
+function containerAvailable(read: ReadFile): number | null {
+  return underLimit(read, { limit: "/sys/fs/cgroup/memory.max", usage: "/sys/fs/cgroup/memory.current", stat: "/sys/fs/cgroup/memory.stat", inactiveKey: "inactive_file" })
+    // cgroup v1 (older hosts): the same reading under the memory controller's own folder.
+    ?? underLimit(read, {
+      limit: "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+      usage: "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+      stat: "/sys/fs/cgroup/memory/memory.stat",
+      inactiveKey: "total_inactive_file",
+    });
 }
 
 /** Available bytes, or null when this system offers neither reading. */

@@ -252,6 +252,15 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(status.desc).not.toContain("Query failed");
   });
 
+  it("counts a restored remote-engine value even when nothing else of the run survived", () => {
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      result: { analysis: "", dynamut2: -0.9, metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineStages: { core: "error" } } } as any,
+      dynamut2Status: "done",
+    } as any);
+    expect(status.status).not.toBe("unavailable");
+  });
+
   it("does not report insights as complete when insights only contain error placeholders and core failed", () => {
     const errorResult: AnalysisResult = {
       analysis: "",

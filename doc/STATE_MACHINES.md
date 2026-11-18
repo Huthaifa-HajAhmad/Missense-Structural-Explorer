@@ -69,7 +69,7 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | --- | --- | --- | --- |
 | (none) | `queued` | submit | `addJob` |
 | `queued` | `running` | the server picks the job (a FoldX job only when a FoldX slot is free, R9) | `processQueue` → `pickNext` |
-| `queued` | `queued` | no job starts while available memory (`freeRamBytes`, `services/infra/available-memory.ts`: the kernel's available memory, leaving out reclaimable file cache) is below `MIN_FREE_MEMORY_MB` (500); the queue checks again shortly and reports `getHold()` = `"memory"` (poll `queueHold`, jobs list `hold`), so no start time is promised | `processQueue` |
+| `queued` | `queued` | no job starts while available memory (`freeRamBytes`, `services/infra/available-memory.ts`: the kernel's available memory, leaving out reclaimable file cache) is below `MIN_FREE_MEMORY_MB` (500); the queue checks again shortly and reports `getHold()` = `"memory"` (poll `queueHold`, jobs list `hold`, both via `holdFor`, which leaves jobs placed on a paired computer out), so no start time is promised. The hold is the scheduling process's own: during a handover the standby reports none | `processQueue` |
 | `queued` | `running` | a paired computer claims it | `claimForAgent` |
 | `queued` | `failed` | corrupt job payload JSON | `processQueue`, `claimForAgent` |
 | `queued` | `failed` | a learned memory ceiling refuses it | `processQueue` |
@@ -320,7 +320,9 @@ the run (lost contact is handled below). Every write checks that the run is stil
 
 Losing contact is not a failure: a network error or a 502/503/504 answer keeps the loop polling, and
 only `CLIENT_FOLDX_LOST_CONTACT_MS` (5 min) without reaching the server ends the run, with
-`LOST_CONTACT_MESSAGE` (the job may still finish on the server). Other HTTP errors still end it after 3
+`LOST_CONTACT_MESSAGE` (the job may still finish on the server). A queue or execution deadline that
+passes while contact is lost, and a body cut off after the headers, also count as lost contact; contact
+counts as restored only once a usable body arrives. Other HTTP errors still end it after 3
 in a row. A run that ends by losing contact returns `"lost-contact"` and does not start the 15-min re-run
 cooldown (`recordBiophysicsAttempt`), so the next load can read the server's result. **Tested**
 (`foldxService.test.ts`, `workflowOrchestrator.test.ts`).

@@ -236,6 +236,39 @@ describe("foldxService", () => {
       expect(sink.setFoldingStatus).not.toHaveBeenCalledWith("failed");
     });
 
+    it("reports lost contact, not a timeout, when the queue deadline passes while the server is unreachable", async () => {
+      // Contact lost 29 min into the queue wait: the 30-min deadline arrives before the 5-min contact window.
+      let now = 1_000_000;
+      let polls = 0;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const sink: any = makeSink();
+        const end = await run(queuedThen(() => {
+          polls += 1;
+          now += polls === 1 ? 29 * 60_000 : 30_000;
+          return polls === 1
+            ? Promise.resolve({ ok: true, json: async () => ({ status: "queued" }) })
+            : Promise.reject(new TypeError("Failed to fetch"));
+        }), sink);
+        expect(end).toBe("lost-contact");
+        expect(sink.setFoldingError).toHaveBeenCalledWith(LOST_CONTACT_MESSAGE);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("keeps polling when the connection drops after the headers, before the body arrives", async () => {
+      let polls = 0;
+      const sink: any = makeSink();
+      const end = await run(queuedThen(() => {
+        polls += 1;
+        if (polls <= 2) return Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new TypeError("network error while reading body")) });
+        return Promise.resolve(done);
+      }), sink);
+      expect(end).toBeUndefined();
+      expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
+    });
+
     it("ends with an honest lost-contact message after five minutes without an answer", async () => {
       let now = 1_000_000;
       const clock = vi.spyOn(Date, "now").mockImplementation(() => (now += 60_000));

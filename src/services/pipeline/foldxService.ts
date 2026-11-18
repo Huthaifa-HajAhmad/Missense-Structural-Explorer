@@ -635,6 +635,8 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
           ? CLIENT_FOLDX_POLL_BUDGET_MS
           : CLIENT_FOLDX_QUEUE_BUDGET_MS;
         if (Date.now() - phaseStart > phaseBudget) {
+          // Out of contact, the server's outcome is unknown: that is lost contact, not a FoldX timeout.
+          if (lostContactSince !== null) throw Object.assign(new Error(LOST_CONTACT_MESSAGE), { lostContact: true });
           throw new Error(
             executionStart !== null
               ? `FoldX simulation timed out after ${Math.round(CLIENT_FOLDX_POLL_BUDGET_MS / 60000)} minutes of execution.`
@@ -672,8 +674,6 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
           console.warn(`[FoldxService] Server answered ${pollRes.status}; still polling.`);
           continue;
         }
-        lostContactSince = null;
-
         if (!pollRes.ok) {
           consecutiveErrors++;
           if (consecutiveErrors >= 3) {
@@ -685,7 +685,18 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
         }
 
         consecutiveErrors = 0;
-        const pollData = await readJsonWithTimeout(pollRes, CLIENT_FOLDX_POLL_REQUEST_MS);
+        let pollData: any;
+        try {
+          pollData = await readJsonWithTimeout(pollRes, CLIENT_FOLDX_POLL_REQUEST_MS);
+        } catch (bodyErr: any) {
+          if (signal.aborted || bodyErr?.name === "AbortError") throw bodyErr;
+          // The connection dropped after the headers: the same as not reaching the server at all.
+          stillLost();
+          console.warn("[FoldxService] Poll answer cut off; still polling:", bodyErr?.message);
+          continue;
+        }
+        // Contact counts as restored only once a usable answer has arrived.
+        lostContactSince = null;
 
         /**
          * Re-checked AFTER the body read, not only before it.

@@ -635,6 +635,17 @@ export class SQLiteQueue {
     return this.hold;
   }
 
+  /**
+   * The hold as it applies to one job: a job placed on a paired computer does not wait for this
+   * server's memory. The hold is this process's own; during a deploy handover the standby (which
+   * schedules nothing) reports none.
+   */
+  holdFor(id: string): QueueHold | null {
+    if (!this.hold) return null;
+    const row = this.db.prepare("SELECT placement FROM biophysical_jobs WHERE id = ?").get(id) as { placement?: string | null } | undefined;
+    return typeof row?.placement === "string" && row.placement.startsWith("agent:") ? null : this.hold;
+  }
+
   getEta(id: string): { waitMs: number | null; runMs: number | null } | null {
     try {
       const row = this.db.prepare("SELECT status, type, cost_estimate_ms, placement, routing FROM biophysical_jobs WHERE id = ?").get(id) as any;
@@ -771,11 +782,12 @@ export class SQLiteQueue {
         ownerId: r.owner_id === userId ? userId : null,
         mine: r.owner_id === userId,
         // A job waiting for the owner's computer stands in THAT computer's line, not the server's.
+        // The same count the job's own poll reports (`getQueuePosition`), so the two views agree.
         queuedAhead: r.status === "queued" && typeof r.placement === "string" && r.placement.startsWith("agent:")
           ? this.agentQueueAhead(r.placement, r.id).ahead
-          : idx < 0 ? null : running + idx,
+          : idx < 0 ? null : this.getQueuePosition(r.id),
         etaMs: r.status === "queued" ? (this.getEta(r.id)?.waitMs ?? null) : null,
-        hold: r.status === "queued" ? this.hold : null,
+        hold: r.status === "queued" ? this.holdFor(r.id) : null,
         elapsedMs: r.status === "running" && r.started_at ? Math.max(0, Date.now() - r.started_at) : null,
         label,
         watchers: watcherCounts.get(r.id) ?? 0,
@@ -1954,6 +1966,10 @@ export class BiophysicalJobQueue {
 
   getHold(): QueueHold | null {
     return this.sqliteQueue.getHold();
+  }
+
+  getHoldFor(id: string): QueueHold | null {
+    return this.sqliteQueue.holdFor(id);
   }
 
   async addCompletedJob(id: string, type: "foldx" | "p2rank", data: any, result: any): Promise<void> {

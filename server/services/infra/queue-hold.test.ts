@@ -26,10 +26,33 @@ describe("queue hold", () => {
     expect(started).toEqual([]);
     expect(q.getHold()).toBe("memory");
     expect((await q.listFor("X"))[0].hold).toBe("memory");
+    expect(q.holdFor("a")).toBe("memory");
 
     freeRam.bytes = 8 * 1024 ** 3;
     await tick(1_300);
     expect(started).toEqual(["a"]);
     expect(q.getHold()).toBeNull();
+  });
+
+  it("gives a queued job the same position in the jobs list as in its own poll", async () => {
+    freeRam.bytes = 8 * 1024 ** 3;
+    const previous = process.env.BIOPHYSICAL_CONCURRENCY;
+    process.env.BIOPHYSICAL_CONCURRENCY = "1";
+    try {
+      const release: Array<() => void> = [];
+      const q = new SQLiteQueue(":memory:", 2, () => new Promise((resolve) => release.push(() => resolve("ok"))));
+      open.push(q);
+      await q.addJob("f1", "foldx", { name: "f1" }, { ownerId: "A" });
+      await q.addJob("p1", "p2rank", { name: "p1" }, { ownerId: "B" });
+      await tick();
+      await q.addJob("f2", "foldx", { name: "f2" }, { ownerId: "X" });
+      const listed = (await q.listFor("X")).find((j) => j.id === "f2")!;
+      expect(listed.queuedAhead).toBe(q.getQueuePosition("f2"));
+      expect(listed.queuedAhead).toBe(1);
+      release.forEach((r) => r());
+    } finally {
+      if (previous === undefined) delete process.env.BIOPHYSICAL_CONCURRENCY;
+      else process.env.BIOPHYSICAL_CONCURRENCY = previous;
+    }
   });
 });

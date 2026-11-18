@@ -68,13 +68,6 @@ function remoteStatus(status: string | null | undefined): RemoteStatus {
 function energeticsStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string } {
   const result = params.result;
   const energetics = params.foldingEnergetics !== undefined ? params.foldingEnergetics : result?.foldingEnergetics;
-  // A failed core query says nothing about engines that answered anyway; only an empty run reads as unavailable.
-  if (result?.metadata?.pipelineStages?.core === "error" && !params.foldingStatus && !energetics) {
-    return {
-      status: "unavailable",
-      desc: "Stability engines unavailable · Query failed"
-    };
-  }
   const evidence = buildEnergeticsEvidence({
     foldingEnergetics: { ...energetics, dynamut2: energetics?.dynamut2 ?? result?.dynamut2, ddmut: energetics?.ddmut ?? result?.ddmut },
     foldingDdG: params.foldingDdG,
@@ -89,6 +82,14 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   // The run's ΔΔG comes from an engine that can count — never from a reference row (ProtVar), which
   // would otherwise be presented as this run's estimate whenever every counted engine failed.
   const computed = evidence.readings.find(reading => reading.ddg !== null && !reading.outcome.engine.referenceOnly);
+  // A failed core query says nothing about engines that answered anyway (including values restored on
+  // their own, such as `result.dynamut2`): only a run with no value and no work left reads as unavailable.
+  if (result?.metadata?.pipelineStages?.core === "error" && !evidence.readings.some(r => r.ddg !== null) && !params.foldingStatus && !params.isFolding) {
+    return {
+      status: "unavailable",
+      desc: "Stability engines unavailable · Query failed"
+    };
+  }
   /**
    * The figure is NAMED, and it says whose number it is.
    *

@@ -12,8 +12,9 @@
  *
  * Remote engines (DynaMut2, DDMut, ThermoMPNN jobs) are polled as src/hooks/useJobPoller.ts does:
  * from the moment their id appears, every 3 s, then 5 s, then 10 s; an answer of UNAVAILABLE that is
- * `retryable` and not `stale` starts "listening" (every 45 s) until 5 minutes after polling began; the
- * whole poll ends after 10 minutes.
+ * `retryable` and not `stale`, or three failed polls in a row, starts "listening" (every 45 s), and the
+ * listening window closes 5 minutes after polling began whatever later answers say; any other failed
+ * HTTP answer ends the poll; the whole poll ends after 10 minutes.
  */
 import fs from "node:fs";
 
@@ -27,6 +28,7 @@ const FOLDX_LIMIT_MS = 30 * 60_000 + 1_000_000 + 5 * 60_000;
 const FOLDX_POLL_MS = 3_000;
 const REMOTE = { maxElapsedMs: 10 * 60_000, listenWindowMs: 5 * 60_000, listenIntervalMs: 45_000 };
 const REMOTE_TOOLS = ["dynamut2", "ddmut", "thermompnn"];
+const REQUEST_TIMEOUT_MS = 30_000; // the browser's per-request ceiling (CLIENT_FOLDX_POLL_REQUEST_MS)
 if (!BASE || !args.cases || !args.users) {
   console.error("Need --base, --cases and --users.");
   process.exit(2);
@@ -38,7 +40,9 @@ async function call(method, path, body, cookie) {
   const started = Date.now();
   const headers = { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) };
   try {
-    const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const res = await fetch(`${BASE}${path}`, {
+      method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
     const text = await res.text();
     let json = null;
     try { json = JSON.parse(text); } catch { /* keep the text */ }
@@ -80,7 +84,11 @@ async function pollRemote(tool, id, cookie, t0) {
   const out = { id, idSeenMs: Date.now() - t0, polls: 0, listeningFromMs: null };
   const pollStart = Date.now();
   let listening = false;
+  let failedPolls = 0;
+  const listen = () => { if (!listening) { listening = true; out.listeningFromMs = Date.now() - t0; } };
   for (let attempt = 1; Date.now() - pollStart < REMOTE.maxElapsedMs; attempt++) {
+    // The browser's listening timer runs on its own: later RUNNING answers do not extend it.
+    if (listening && Date.now() - pollStart >= REMOTE.listenWindowMs) return { ...out, endedMs: Date.now() - t0, final: "listening window closed" };
     if (out.polls === 0) out.firstPollMs = Date.now() - t0;
     const r = await call("GET", `/api/v1/${tool}-job/${encodeURIComponent(id)}`, undefined, cookie);
     out.polls += 1;
@@ -88,12 +96,15 @@ async function pollRemote(tool, id, cookie, t0) {
     const status = String(d.status ?? "").toUpperCase();
     Object.assign(out, { httpStatus: r.status, status, prediction: d.prediction ?? null, error: d.error ?? r.error ?? null,
       reason: d.reason ?? null, retryable: d.retryable ?? null });
-    if (["DONE", "SUCCESS", "COMPLETED"].includes(status)) return { ...out, endedMs: Date.now() - t0, final: "done" };
-    if (status === "UNAVAILABLE" && d.retryable === true && d.reason !== "stale") {
-      if (!listening) { listening = true; out.listeningFromMs = Date.now() - t0; }
-      if (Date.now() - pollStart >= REMOTE.listenWindowMs) return { ...out, endedMs: Date.now() - t0, final: "listening window closed" };
-    } else if (["ERROR", "FAILED", "UNAVAILABLE"].includes(status)) {
-      return { ...out, endedMs: Date.now() - t0, final: status.toLowerCase() };
+    if (r.status === 0 || r.status >= 500) {
+      if (++failedPolls >= 3) listen(); // three failed polls in a row: the browser starts listening
+    } else if (r.status !== 200) {
+      return { ...out, endedMs: Date.now() - t0, final: `http ${r.status}` };
+    } else {
+      failedPolls = 0;
+      if (["DONE", "SUCCESS", "COMPLETED"].includes(status)) return { ...out, endedMs: Date.now() - t0, final: "done" };
+      if (status === "UNAVAILABLE" && d.retryable === true && d.reason !== "stale") listen();
+      else if (["ERROR", "FAILED", "UNAVAILABLE"].includes(status)) return { ...out, endedMs: Date.now() - t0, final: status.toLowerCase() };
     }
     await sleep(listening ? REMOTE.listenIntervalMs : attempt < 5 ? 3_000 : attempt < 15 ? 5_000 : 10_000);
   }
@@ -119,10 +130,14 @@ async function followJob(jobId, cookie, t0, timeline, remotes) {
         remotes[tool] = pollRemote(tool, String(id), cookie, t0);
       }
     }
-    if (last.status !== 200 || ["completed", "failed", "cancelled"].includes(String(j.status).toLowerCase())) break;
+    if (["completed", "failed", "cancelled"].includes(String(j.status).toLowerCase())) {
+      timeline.push({ ms: Date.now() - t0, event: "job final", status: j.status });
+      return last;
+    }
+    if (last.status !== 200) timeline.push({ ms: Date.now() - t0, event: `poll answered HTTP ${last.status}`, error: last.error ?? null });
     await sleep(FOLDX_POLL_MS);
   }
-  timeline.push({ ms: Date.now() - t0, event: "job final", httpStatus: last?.status });
+  timeline.push({ ms: Date.now() - t0, event: "harness gave up (no final state)", httpStatus: last?.status });
   return last;
 }
 

@@ -124,6 +124,20 @@ describe("StabilityOracle Service Integration Tests", () => {
     expect(legacy).toBeNull();
   });
 
+  it("detailed: only a 4xx answer about the input is a rejection; a 5xx with a detail stays a service error", async () => {
+    // A rejection tells the reader that retrying will not help, so a passing server fault must never read as one.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422, json: async () => ({ detail: "PDB2PQR could not add hydrogens to this chain." }) }));
+    const rejected = await runStabilityOracleAnalysisDetailed("TP53", "p.Arg175His", "P04637", "", "PDB TEXT", "K");
+    if (rejected.kind !== "error") throw new Error(`expected kind "error", got ${rejected.kind}`);
+    expect(rejected.message).toContain("rejected this query");
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ detail: "CUDA out of memory" }) }));
+    const serverFault = await runStabilityOracleAnalysisDetailed("TP53", "p.Arg175His", "P04637", "", "PDB TEXT", "K");
+    if (serverFault.kind !== "error") throw new Error(`expected kind "error", got ${serverFault.kind}`);
+    expect(serverFault.message).not.toContain("rejected this query");
+    expect(serverFault.message).toContain("CUDA out of memory");
+  });
+
   it("detailed: a wait that ran out is an error that says so, not an engine this deployment lacks", async () => {
     // What `AbortSignal.timeout` raises when the model service is still busy after the wait.
     const fetchMock = vi.fn().mockRejectedValue(new DOMException("The operation was aborted due to timeout", "TimeoutError"));

@@ -49,6 +49,26 @@ describe("availableMemoryBytes", () => {
     expect(availableMemoryBytes(read)).toBe(2 * GiB);
   });
 
+  it("respects a cgroup v1 container limit, not only the host", () => {
+    // Older hosts expose the memory controller under /sys/fs/cgroup/memory/ with v1 file names.
+    const read = files({
+      "/sys/fs/cgroup/memory/memory.limit_in_bytes": `${2 * GiB}\n`,
+      "/sys/fs/cgroup/memory/memory.usage_in_bytes": `${1900 * MiB}\n`,
+      "/sys/fs/cgroup/memory/memory.stat": `total_inactive_file ${100 * MiB}\n`,
+      "/proc/meminfo": meminfo(64 * 1024 * 1024),
+    });
+    expect(availableMemoryBytes(read)).toBe(2 * GiB - 1800 * MiB);
+  });
+
+  it("treats cgroup v1's 'no limit' sentinel as no container limit", () => {
+    const read = files({
+      "/sys/fs/cgroup/memory/memory.limit_in_bytes": "9223372036854771712\n",
+      "/sys/fs/cgroup/memory/memory.usage_in_bytes": `${400 * MiB}\n`,
+      "/proc/meminfo": meminfo(2 * 1024 * 1024),
+    });
+    expect(availableMemoryBytes(read)).toBe(2 * GiB);
+  });
+
   it("returns null where none of these files exist, so the caller keeps its own fallback", () => {
     expect(availableMemoryBytes(files({}))).toBeNull();
   });
