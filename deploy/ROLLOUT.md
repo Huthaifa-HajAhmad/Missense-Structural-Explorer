@@ -12,7 +12,8 @@ It can read job results and accept jobs without resetting work owned by the serv
 Redis handovers are refused until an equivalent ownership protocol is implemented.
 
 After the standby reports the expected revision and a ready VESM sidecar, the driver copies the
-old generation's immutable assets, pauses the old scheduler, reloads Caddy, and checks the public
+page assets of the last five versions (each version's own build, read once from its image and kept
+under `deploy/runtime/asset-generations/`; see `asset_generations.py`), pauses the old scheduler, reloads Caddy, and checks the public
 version endpoint. Existing requests stay on their upstream; new requests go to the standby.
 The old app must report **zero requests, active calculations, and background tasks** before the
 standby's worker is enabled. Queued work then continues on the new worker. Finally, the old
