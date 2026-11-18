@@ -40,7 +40,7 @@ class FakeDocker:
         self.states[name] = self.status(True)
         self.states[name]["ready"] = self.candidate_ready
 
-    def retain_assets(self, old, new):
+    def retain_assets(self, old, old_commit, new, commit):
         self.events.append(("assets", old, new))
 
     def switch(self, target):

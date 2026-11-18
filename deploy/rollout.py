@@ -7,8 +7,12 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.request
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from asset_generations import retain_assets  # noqa: E402  (a sibling file, not an installed package)
 
 ROOT = Path(__file__).resolve().parent.parent
 PROXY = "missense-resolve-caddy"
@@ -141,15 +145,8 @@ class Docker:
             raise RuntimeError("Less than 5 GiB available for a 4 GiB standby and host reserve; deployment deferred")
         self.run(*compose, "up", "-d", "--no-deps", "--no-build", "missense-resolve-app", env=env)
 
-    def retain_assets(self, old, candidate):
-        # Lazy-loaded chunks from open tabs must survive a server revision change.
-        archive = ROOT / "deploy/runtime/previous-assets"
-        if archive.exists():
-            shutil.rmtree(archive)
-        archive.mkdir(parents=True)
-        self.run("cp", f"{old}:/app/dist/assets/.", str(archive))
-        self.run("cp", str(archive) + "/.", f"{candidate}:/app/dist/assets")
-        shutil.rmtree(archive)
+    def retain_assets(self, old, old_commit, candidate, commit):
+        retain_assets(self.run, ROOT / "deploy/runtime", old, old_commit, candidate, commit)
 
 
 def drained(status):
@@ -222,7 +219,7 @@ class Rollout:
         ownership_transferred = False
         try:
             self.docker.start_candidate(self.candidate, self.commit)
-            self.docker.retain_assets(self.old, self.candidate)
+            self.docker.retain_assets(self.old, status.get("commit"), self.candidate, self.commit)
             self.record("warming")
             self.wait(self.candidate, lambda s: s.get("protocol") == 1 and s.get("backend") == "sqlite"
                       and s.get("paused") is True and s.get("ready") is True and s.get("commit") == self.commit,
