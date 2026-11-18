@@ -695,6 +695,22 @@ describe("learned ΔΔG placeholder disclosures", () => {
     const thermo = ev.readings.find(r => r.key === "thermompnn")!;
     const oracle = ev.readings.find(r => r.key === "stabilityoracle")!;
     expect(thermo.note).toMatch(/recalibration/i);
-    expect(oracle.note).toMatch(/recalibration/i);
+    // The note under the value must name the mark the scale actually draws.
+    expect(oracle.note).toMatch(/\+0\.2 kcal\/mol/);
+    expect(oracle.note).not.toMatch(/recalibration|\+1\.0/);
+  });
+
+  it("keeps internal names out of the text shown beside ThermoMPNN and StabilityOracle", async () => {
+    const { THRESHOLDS_METADATA, THRESHOLD_NOTES } = await import("../thresholds");
+    const ev = buildEnergeticsEvidence({
+      foldingStatus: "success",
+      foldingEnergetics: { foldx: 0.6, thermompnn: 1.2, stabilityoracle: -0.6 },
+    });
+    const shown = [
+      THRESHOLDS_METADATA.citations.thermompnn, THRESHOLD_NOTES.thermompnn,
+      THRESHOLDS_METADATA.citations.stabilityoracle, THRESHOLD_NOTES.stabilityoracle,
+      ...ev.readings.map(r => r.note ?? ""),
+    ];
+    for (const text of shown) expect(text).not.toMatch(/sidecar|isStabilizing|pred\/2/);
   });
 });

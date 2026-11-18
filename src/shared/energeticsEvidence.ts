@@ -557,10 +557,10 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
         : null;
     } else if (outcome.id === "thermompnn" && has) {
       note =
-        "App-defined +0.5 / +1.0 kcal/mol display marks await held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol).";
+        "App-defined +0.5 / +1.0 kcal/mol display marks await held-out recalibration.";
     } else if (outcome.id === "stabilityoracle" && has) {
       note =
-        "App-defined ±0.5 / +1.0 kcal/mol marks and PDB2PQR-reconstructed inputs (−pred/2) await held-out recalibration (sidecar raw isStabilizing uses < −0.5 kcal/mol).";
+        "One +0.2 kcal/mol destabilizing mark, chosen on S669 and checked on Ssym; inputs are rebuilt here from the structure.";
     }
 
     const risk = outcome.risk;

@@ -8,7 +8,7 @@ export const THRESHOLDS_METADATA = {
     alphaMissense: "Cheng et al. Science (2023); PP3/BP4 bands: Bergquist et al. Genet Med (2025)",
     cadd: "Rentzsch et al. Nucleic Acids Res (2019); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005) — force field only; the 0.5 / 1.5 kcal/mol marks are local (FoldX publishes no threshold)",
-    thermompnn: "Dieckhaus et al. PNAS (2024) — app-defined +0.5 / +1.0 kcal/mol display marks are placeholders pending held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol)",
+    thermompnn: "Dieckhaus et al. PNAS (2024) — app-defined +0.5 / +1.0 kcal/mol display marks are placeholders pending held-out recalibration",
     stabilityoracle: "Diaz et al. Nat Commun (2024) — one +0.2 kcal/mol destabilising mark chosen on S669 and checked on Ssym direct; checkpoint stability_oracle_cdna117k, r 0.64 on Ssym direct (independent evaluation 0.65, paper 0.72)",
     popEVE: "Orenbuch et al. Nat Genet (2025)",
     dbscsnv: "Jian et al. Nucleic Acids Res (2014) — authors' cut-point 0.6, not ClinGen-calibrated",
@@ -474,7 +474,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   ddmut:
     "DDMut (Zhou et al. Nucleic Acids Res 2023). Local mark: native ΔΔG ≤ −1.0 kcal/mol read as destabilizing (DDMut's sign is negative = destabilizing). No published clinical cut-point.",
   thermompnn:
-    "ThermoMPNN (Dieckhaus et al. PNAS 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising, canonical positive = destabilising) are local placeholders pending held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol). No published clinical cut-point.",
+    "ThermoMPNN (Dieckhaus et al. PNAS 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising, canonical positive = destabilising) are local placeholders pending held-out recalibration. No published clinical cut-point.",
   stabilityoracle:
     "StabilityOracle (Diaz et al. Nat Commun 2024). One local destabilising mark, ΔΔG ≥ +0.2 kcal/mol (no moderate band), chosen on S669 and checked unchanged on Ssym direct, which shares no proteins with S669: 86 of 150 destabilizing variants flagged, 164 of 187 others not; stabilizing ≤ −0.5 kcal/mol. Released checkpoint stability_oracle_cdna117k with inputs rebuilt here: Pearson r 0.64 on Ssym direct, close to an independent evaluation of the released model (0.65) and below the paper's 0.72. An empirical mark for this model and workflow; no clinical cut-point.",
   bayesdel:
