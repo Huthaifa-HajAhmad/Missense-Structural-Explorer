@@ -43,6 +43,20 @@ unless it says production.
 - StabilityOracle mark: one +0.2 kcal/mol destabilising mark (chosen on S669, checked on Ssym direct: sensitivity 0.57, specificity 0.88, accuracy 0.74 vs 0.60 at +1.0); no moderate band.
 - StabilityOracle A6 (Ssym direct r 0.64, CI 0.49-0.69, below the paper's 0.72; independent reproduction 0.65): known limitation, stated in the method note.
 
+## Structure selection validation (rule in STRUCTURE_SELECTION_RULE.md)
+
+Empty caches, candidates bf48966d and 88a7b30b. Pass conditions fixed in advance; FoldX values are not one.
+
+| Variant | Chosen template | Notes |
+| --- | --- | --- |
+| FHIT V95A | 1FIT A (1.85 Å, target and neighbourhood complete) | 4 engineered chains refused |
+| HBB E7V | 1IRD B (1.25 Å, complete) | whole chain repaired |
+| CNNM2 E357Q | AlphaFold v6 | no experimental chain |
+| SCN1A R1648H | 7DTD A (3.3 Å, complete) | the only covering chain, now checked |
+| TP53 R175H, R273H | AlphaFold v6 | none of the 12 examined chains is a wild-type, usable chain (the 30 best-resolved are engineered); before: 9R2Q K, 165/200 residues incomplete, repair skipped |
+
+Cold structure choice adds 2 to 4 s to submission. Order invariance is unit-tested (best-chain.test.ts).
+
 ## Open findings (each must end fixed, decided, or as a known limitation)
 
 1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed (e74461c0) and verified live: the test container was restarted for 82 s while the browser polled CNNM2 E357A; the panel showed FoldX +0.40, equal to the server record (0.3992).
