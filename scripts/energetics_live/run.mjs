@@ -151,6 +151,17 @@ async function runCase(c, cookie) {
   const remotes = {};
   const jobId = submit.json?.foldxJobId ?? submit.json?.jobId;
   const final = jobId ? await followJob(jobId, cookie, t0, timeline, remotes) : submit;
+  // A cached FoldX answer submits DynaMut2/DDMut in the background and hands back a token; the browser
+  // collects the job ids with one long poll (foldxService.ts), then polls each engine as usual.
+  const token = submit.json?.remoteSubmissionToken;
+  if (!jobId && token) {
+    const sub = await call("GET", `/api/v1/remote-submissions/${encodeURIComponent(token)}`, undefined, cookie);
+    timeline.push({ ms: Date.now() - t0, event: `remote submissions answered HTTP ${sub.status}`, settled: sub.json?.settled ?? null });
+    for (const tool of REMOTE_TOOLS) {
+      const id = sub.json?.[`${tool}JobId`];
+      if (id && !remotes[tool] && !String(id).startsWith("local")) remotes[tool] = pollRemote(tool, String(id), cookie, t0);
+    }
+  }
   out.foldxJobId = jobId ?? null;
   out.result = slim(final.json?.result ?? final.json);
   out.remote = Object.fromEntries(await Promise.all(Object.entries(remotes).map(async ([k, p]) => [k, await p])));
