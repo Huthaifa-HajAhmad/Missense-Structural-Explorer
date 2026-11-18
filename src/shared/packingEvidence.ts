@@ -60,8 +60,9 @@ export interface PackingEvidence {
   /** How the mutant model was built, in one line, when the caller recorded it. */
   method: string | null;
   /**
-   * pLDDT of the analysed AlphaFold model at the site, with its AlphaFold DB band: geometry built on
-   * a low-confidence region describes the model more than the protein. Null for experimental structures.
+   * pLDDT of the AlphaFold model FoldX built on, at the site, with its AlphaFold DB band: geometry built
+   * on a low-confidence region describes the model more than the protein. Null when FoldX used another
+   * template or did not record which one.
    */
   inputConfidence: { plddt: number; band: string | null } | null;
   /** Heavy-atom clash counts in each model, for a paired figure; null without a structural comparison. */
@@ -131,7 +132,10 @@ export function buildPackingEvidence({
     : rigid
       ? "Backbone positions identical in both models (RMSD 0); how the mutant was built was not recorded"
       : null;
-  const sitePlddt = site?.bFactorKind === "plddt" ? finite(site?.plddt) : null;
+  // The site record's pLDDT belongs to the AlphaFold model; it describes FoldX's input only when FoldX
+  // recorded that model as its template (it may have used an experimental structure instead).
+  const foldxOnAlphaFold = fe?.structureProvenance?.source === "alphafold";
+  const sitePlddt = foldxOnAlphaFold && site?.bFactorKind === "plddt" ? finite(site?.plddt) : null;
   const inputConfidence = sitePlddt !== null ? { plddt: sitePlddt, band: plddtBand(sitePlddt) } : null;
   const raw = Array.isArray(fe?.rawDdGs) ? fe.rawDdGs.filter((v: unknown) => finite(v) !== null) : [];
   const runs = raw.length > 0 ? raw.length : finite(fe?.structureProvenance?.foldxRuns);

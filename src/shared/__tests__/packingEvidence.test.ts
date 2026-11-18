@@ -78,4 +78,14 @@ describe("buildPackingEvidence — method, input confidence and figures", () => 
     expect(at("plddt")).toEqual({ plddt: 42.1, band: expect.any(String) });
     expect(at("temperature-factor")).toBeNull();
   });
+
+  it("states the site pLDDT only when FoldX built on that AlphaFold model", () => {
+    const site = { plddt: 42.1, bFactorKind: "plddt" };
+    const on = (source?: string) =>
+      build({ site, foldingEnergetics: { ...NAE1_ENERGETICS, structureProvenance: source ? { source } : undefined } }).inputConfidence;
+    expect(on("alphafold")).toEqual({ plddt: 42.1, band: expect.any(String) });
+    // FoldX used a crystal structure, or the run did not record its template: the AlphaFold score is not its input.
+    expect(on("experimental")).toBeNull();
+    expect(on(undefined)).toBeNull();
+  });
 });

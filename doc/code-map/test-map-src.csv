@@ -50,6 +50,10 @@ src/components/console/useCopy.ts,client,
 src/components/energetics/DdgRuler.tsx,component,src/components/__tests__/EnergeticsView.test.tsx
 src/components/energetics/EnergeticsComparison.tsx,component,src/components/energetics/EnergeticsComparison.test.tsx
 src/components/energetics/FindingFacts.tsx,component,
+src/components/energetics/MarkRuler.tsx,component,
+src/components/energetics/PackingFigures.tsx,component,
+src/components/energetics/PackingTable.tsx,component,
+src/components/energetics/PackingView.tsx,component,src/components/energetics/PackingView.test.tsx
 src/components/energetics/ProgressPanel.tsx,component,
 src/components/energetics/ReadingsTable.tsx,component,
 src/components/energetics/RetryDynamut2.tsx,component,src/components/energetics/RetryDynamut2.test.tsx
@@ -279,6 +283,7 @@ src/hooks/useJobPoller.ts,client,src/hooks/__tests__/useJobPoller.hardening.test
 src/hooks/useNarrativeEvidenceContext.ts,client,
 src/hooks/useNarrativeResynthesis.ts,client,src/hooks/__tests__/useNarrativeResynthesis.test.tsx
 src/hooks/useProteinSequence.ts,client,src/hooks/__tests__/useProteinSequence.test.ts
+src/hooks/useRetiredEvidenceTabRedirect.ts,client,src/hooks/__tests__/useRetiredEvidenceTabRedirect.test.tsx
 src/hooks/useSidebarShortcut.ts,client,src/hooks/__tests__/useSidebarShortcut.test.tsx
 src/hooks/useStaleDataNotice.ts,client,src/hooks/__tests__/useStaleDataNotice.test.ts
 src/hooks/useStructuralFolding.ts,client,src/hooks/__tests__/useStructuralFolding.test.ts
@@ -406,12 +411,13 @@ src/shared/narrativeResynthesis.ts,client,src/hooks/__tests__/useNarrativeResynt
 src/shared/narrativeSummary.ts,client,src/shared/__tests__/narrativeSummary.test.ts
 src/shared/narrativeSynthesis.ts,client,server/routes/variant/narrativeCacheKey.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;src/shared/__tests__/narrativePromptEvidence.test.ts
 src/shared/numbering.ts,client,src/shared/__tests__/numbering.test.ts
+src/shared/packingEvidence.ts,client,src/shared/__tests__/packingEvidence.test.ts
 src/shared/perBurden.ts,client,src/shared/__tests__/perBurden.test.ts;src/shared/__tests__/perBurdenParity.test.ts
 src/shared/perRegions.ts,client,server/services/evidence-context/perRegions.test.ts
 src/shared/pext.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/evidenceContext.test.ts;src/stores/slices/evidenceContextSlice.test.ts
 src/shared/platform.ts,client,
-src/shared/predictorEvidence.ts,client,src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/predictorEvidence.ts,client,server/services/prediction/acmg/pp3-bp4-language-models.test.ts;src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/predictorRecovery.ts,client,src/shared/__tests__/predictorRecovery.test.ts
 src/shared/proteinAlleleIdentity.ts,client,src/shared/__tests__/proteinAlleleIdentity.test.ts
 src/shared/provenance.ts,client,src/components/__tests__/AboutView.test.tsx;src/components/__tests__/clinicalExportVerdict.test.ts;src/shared/__tests__/provenance.test.ts
