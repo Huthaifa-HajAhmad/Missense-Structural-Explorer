@@ -33,6 +33,13 @@ unless it says production.
 
 | (next) | Energetics sidebar status no longer reads "Unavailable · Query failed" when only the core evidence query failed but engines answered. | Seen live after the 82 s outage (panel 5 of 6, sidebar "Unavailable"); unit-tested |
 
+## Decisions by the user (2026-11-18)
+
+- Structure choice: rank chains that cover the variant by local quality (resolution, complete side chains near the variant), deterministic tie-break.
+- Queue hold: the panel says the queue is held and why, instead of promising a start time.
+- Gene label: show UniProt's primary gene name (TP53, not P53), in this release.
+- DynaMut2/DDMut outcomes: the audit log is the record (STATE_MACHINES 6c); the runbook gives the counting query.
+
 ## Open findings (each must end fixed, decided, or as a known limitation)
 
 1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed (e74461c0) and verified live: the test container was restarted for 82 s while the browser polled CNNM2 E357A; the panel showed FoldX +0.40, equal to the server record (0.3992).

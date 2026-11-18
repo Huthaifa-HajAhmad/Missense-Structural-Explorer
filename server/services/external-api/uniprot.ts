@@ -340,8 +340,10 @@ export interface UniprotIsoform {
   /** Isoform accession: `Q9Y305` (canonical) or `Q9Y305-4`. */
   id: string;
   sequence: string;
-  /** Entry mnemonic from the FASTA header (`ACOT9_HUMAN`) — its first field is the gene symbol. */
+  /** Entry mnemonic from the FASTA header (`ACOT9_HUMAN`). Not always the gene symbol: P53_HUMAN is TP53. */
   entryName?: string;
+  /** Primary gene name from the header's `GN=` field (`TP53`), when UniProt gives one. */
+  geneName?: string;
 }
 
 export const uniprotIsoformsCache = new LRUCache<string, UniprotIsoform[]>({ max: 300 });
@@ -402,7 +404,8 @@ export async function fetchUniprotIsoforms(
           // `sp|Q9Y305-4|ACOT9_HUMAN ...` -> Q9Y305-4 / ACOT9_HUMAN
           const parts = line.slice(1).split("|");
           const id = parts[1]?.trim();
-          current = id ? { id, sequence: "", entryName: parts[2]?.trim().split(" ")[0] } : null;
+          const geneName = /\bGN=(\S+)/.exec(line)?.[1];
+          current = id ? { id, sequence: "", entryName: parts[2]?.trim().split(" ")[0], ...(geneName ? { geneName } : {}) } : null;
           if (current) isoforms.push(current);
           continue;
         }

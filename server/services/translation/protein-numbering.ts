@@ -311,7 +311,9 @@ export async function resolveAccessionedProteinNotation(
     };
   }
 
-  geneSymbol = geneSymbol ?? geneSymbolFromEntryName(isoforms.find((i) => i.id === declared!.id)?.entryName);
+  // UniProt's GN= gene name first; the entry mnemonic only as a last resort (P53_HUMAN is TP53).
+  const declaredIsoform = isoforms.find((i) => i.id === declared!.id);
+  geneSymbol = geneSymbol ?? declaredIsoform?.geneName ?? isoforms[0]?.geneName ?? geneSymbolFromEntryName(declaredIsoform?.entryName);
 
   // The declared protein must actually carry the stated wild-type residue.
   if (declared.sequence[substitution.position - 1] !== substitution.wt1) {

@@ -222,7 +222,8 @@ export function buildRefSeqProteinKey(proteinAccession: string): string {
  * that rule is missed.
  */
 export function buildUniprotIsoformKey(uniprotId: string): string {
-  return `uniprot_isoforms_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+  // `_gn`: records now carry the GN= gene name; older cached records lacked it.
+  return `uniprot_isoforms_gn_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 /**

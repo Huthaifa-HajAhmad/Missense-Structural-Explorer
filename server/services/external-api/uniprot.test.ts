@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   fetchUniprotEntryReferenceData,
   fetchUniprotFeatures,
+  fetchUniprotIsoforms,
   fetchUniprotSequence,
   isUniprotEntryName,
   resolveUniprotEntryNameToAccession,
@@ -317,5 +318,26 @@ describe("UniProt entry reference data", () => {
     } as any);
 
     await expect(fetchUniprotEntryReferenceData("Q5TA45")).rejects.toThrow(/503/);
+  });
+});
+
+describe("UniProt isoform headers", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+    vi.restoreAllMocks();
+    global.fetch = vi.fn() as any;
+  });
+
+  it("reads the gene name from GN=, not from the entry name (P53_HUMAN is TP53)", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        ">sp|P04637|P53_HUMAN Cellular tumor antigen p53 OS=Homo sapiens OX=9606 GN=TP53 PE=1 SV=4\nMEEPQSDPSV\n" +
+        ">sp|P04637-2|P53_HUMAN Isoform 2 of Cellular tumor antigen p53 OS=Homo sapiens OX=9606 GN=TP53\nMEEPQSDP\n",
+    } as any);
+    const isoforms = await fetchUniprotIsoforms("P04637");
+    expect(isoforms.map(i => i.geneName)).toEqual(["TP53", "TP53"]);
+    expect(isoforms[0].entryName).toBe("P53_HUMAN");
   });
 });
