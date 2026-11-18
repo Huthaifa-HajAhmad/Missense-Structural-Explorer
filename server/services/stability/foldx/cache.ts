@@ -126,6 +126,11 @@ function queueCacheFileWrite(filename: string, writer: () => Promise<void>): Pro
   return settled;
 }
 
+/** Waits until every queued cache file write has finished, so a test can delete its cache folder safely. */
+export async function settleCacheWritesForTests(): Promise<void> {
+  while (pendingCacheWrites.size) await Promise.allSettled([...pendingCacheWrites.values()]);
+}
+
 export function writeMutantToCache(cacheKey: string, result: any) {
   try {
     // Never cache results where RepairPDB failed, ddG is null, or status is not success
