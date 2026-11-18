@@ -180,7 +180,18 @@ or `unavailable`, StabilityOracle when `done`. `startFoldxCompanions` is single-
 (`STABILITY_ORACLE_BACKGROUND_BUDGET_MS`); a wait that runs out ends as `error`, not `unavailable`, because
 the model service may be there but busy. The job finishes only after the companions do
 (`finishFoldxQueueJob`), so a FoldX failure can report its final status up to 180 s late; the FoldX value
-itself is published early, so this is a wait and not a hang. **Read**.
+itself is published early, so this is a wait and not a hang. StabilityOracle `unavailable` (the model
+service could not be reached) keeps the connection error in `stabilityoracleError`; the screen says the
+service could not be reached and shows that error in the detail. **Read**; covered by `foldx-queue-job.test.ts`.
+
+**6c. DynaMut2 and DDMut** (`routes/biophysics/polling.ts`): the job row records only the submission
+(`dynamut2Status` / `ddmutStatus` = `pending` with a job id) and is never updated afterwards, because the
+browser polls BioSig through `/dynamut2-job/:jobId` and `/ddmut-job/:jobId`. The final outcome is
+written in two places only: the value goes into the FoldX cache entry (`backfillRemotePredictionToCache`),
+and every poll writes a `DYNAMUT2_POLL` / `DDMUT_POLL` audit event with the job id and `DONE`, `RUNNING`
+or `UNAVAILABLE` (with `TIMEOUT` or `RATE_LIMITED`). To count outcomes, read the last audit event per job
+id. The verdict stored in the job row (`energetics.consensusVerdict`, `pendingTools`) is a snapshot from
+before these engines answered; the screen recomputes it and uses the stored one only as a fallback.
 
 ## 7. Pre-warm claim
 

@@ -40,5 +40,19 @@ class CanonicalResidueNameTest(unittest.TestCase):
         self.assertEqual(atoms[0]["res_name"], "HIS")
 
 
+
+@unittest.skipIf(canonical_residue_name is None, "sidecar dependencies not installed")
+class ReadChainAtomsTest(unittest.TestCase):
+    def test_nucleic_acid_atoms_are_left_out(self):
+        from tools.model_server_app.routers.stabilityoracle import _read_chain_atoms
+
+        pdb = "\n".join([
+            "ATOM      1  CA  ARG A 273      11.000  12.000  13.000  1.00 20.00           C  ",
+            "ATOM      2  P    DA B  10      12.000  13.000  14.000  1.00 20.00           P  ",
+        ])
+        atoms = _read_chain_atoms(pdb, "A")
+        self.assertEqual([(a["chain"], a["res_name"]) for a in atoms], [("A", "ARG")])
+
+
 if __name__ == "__main__":
     unittest.main()

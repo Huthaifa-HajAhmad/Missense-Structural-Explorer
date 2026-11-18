@@ -112,8 +112,11 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
       const neutral = computeConsensusVerdict({ foldxMean: 0.4, rasp: 0.2 });
       expect(neutral).toBe("No Destabilization Predicted");
 
-      // FoldX +0.5 sits ON its local moderate mark, so it is not "neutral" beside RaSP +0.2.
-      expect(computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2 })).toBe("Engines Disagree");
+      // FoldX +0.5 sits ON its local moderate mark, so it is not "neutral" beside RaSP +0.2. One
+      // moderate and one neutral engine are an even split between neighbouring bands.
+      expect(computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2 })).toBe(
+        "No Destabilization to Moderately Destabilizing (Engines Split)"
+      );
     });
   });
 

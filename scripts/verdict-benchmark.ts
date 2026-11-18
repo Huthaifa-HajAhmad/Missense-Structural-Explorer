@@ -89,7 +89,7 @@ async function collect(dir: string): Promise<void> {
 export const band = (v: number) => (v >= 1.5 ? 2 : v >= 0.5 ? 1 : 0);
 /** Typed on the app's own direction names, so a new direction there fails the type check here until it is given a band. */
 export const DIRECTION_BAND: Record<AgreementDirection, number | null> = {
-  destabilizing: 2, "mostly-destabilizing": 2, moderate: 1, "mostly-moderate": 1, "not-destabilizing": 0, "mostly-not-destabilizing": 0, split: null, none: null
+  destabilizing: 2, "mostly-destabilizing": 2, moderate: 1, "mostly-moderate": 1, "not-destabilizing": 0, "mostly-not-destabilizing": 0, "split-moderate-high": null, "split-none-moderate": null, split: null, none: null
 };
 
 export interface Row { key: string; measured: number; foldx: number; thermompnn: number; stabilityoracle: number; verdict: number | null; noFoldx: number | null; noFoldxModerate: number | null; bands: Record<string, number> }

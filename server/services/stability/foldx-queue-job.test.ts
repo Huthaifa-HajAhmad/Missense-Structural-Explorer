@@ -151,6 +151,8 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     runStabilityOracleAnalysisDetailed.mockResolvedValueOnce({ kind: "unavailable", reason: "sidecar not reachable" });
     await runFoldxQueueJobOnServer(data, undefined, "job-unavailable");
     expect(publishedRemote.some(r => r.stabilityoracleStatus === "unavailable" && r.stabilityoracleVal === null)).toBe(true);
+    // The connection error is the only clue to why the model service could not be reached; keep it.
+    expect(publishedRemote.some(r => r.stabilityoracleStatus === "unavailable" && r.stabilityoracleError === "sidecar not reachable")).toBe(true);
 
     publishedRemote.length = 0;
     runStabilityOracleAnalysisDetailed.mockResolvedValueOnce({ kind: "error", message: "Wild-type residue mismatch at position 489" });

@@ -425,7 +425,7 @@ describe("engineStatus — absence is attributed per engine, not by one rule", (
     expect(byId.thermompnn.label).toBe("Not available here");
     expect(byId.thermompnn.reason).not.toContain("did not answer in time");
     // The remedy is local and stated plainly, rather than suggesting a retry.
-    expect(byId.thermompnn.reason).toContain("model service is not running");
+    expect(byId.thermompnn.reason).toContain("model service could not be reached");
   });
 
   it("reports an engine with no channel at all as no-result rather than guessing", () => {

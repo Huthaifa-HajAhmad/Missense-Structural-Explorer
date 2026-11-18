@@ -188,7 +188,7 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
           : outcome.kind === "error"
             ? outcome.message
             : outcome.kind === "unavailable"
-              ? null
+              ? outcome.reason
               : "StabilityOracle did not return a score",
       });
     } catch (err: any) {
