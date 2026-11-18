@@ -31,9 +31,11 @@ unless it says production.
 - Outages: BioSig blocked at submit (other engines fine; panel retry recovered DynaMut2); BioSig cut while polling 150 s (listening, values arrived after restore); EBI blocked (ProtVar error only); model server paused 3 min (ThermoMPNN busy, SO timeout; ThermoMPNN retry recovered; supervisor 2/3 strikes, no restart).
 - Browser: FHIT V95A panel = record, identical after reload.
 
+| (next) | Energetics sidebar status no longer reads "Unavailable · Query failed" when only the core evidence query failed but engines answered. | Seen live after the 82 s outage (panel 5 of 6, sidebar "Unavailable"); unit-tested |
+
 ## Open findings (each must end fixed, decided, or as a known limitation)
 
-1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed on the branch (lost contact tolerated 5 min, no cooldown after it); live check pending.
+1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed (e74461c0) and verified live: the test container was restarted for 82 s while the browser polled CNNM2 E357A; the panel showed FoldX +0.40, equal to the server record (0.3992).
 2. **Structure choice ranks coverage first.** TP53 R175H got 8UTS:K, later 9R2Q:K (3.2 Å cryo-EM, 165 of 200 residues missing side chains, repair skipped) → FoldX +15.6 / +15.4. Needs the user's decision.
 3. **"Next in line · starts in under a minute" shown while the queue was stalled.** Root cause fixed (item 76aabe94); wording during a genuine stall still promises a start. Decide: expose the stall, or known limitation.
 4. **Gene shown as "P53" for TP53** (UniProt entry name, not the gene symbol). Outside Energetics.

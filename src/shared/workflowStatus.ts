@@ -67,13 +67,14 @@ function remoteStatus(status: string | null | undefined): RemoteStatus {
 
 function energeticsStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string } {
   const result = params.result;
-  if (result?.metadata?.pipelineStages?.core === "error") {
+  const energetics = params.foldingEnergetics !== undefined ? params.foldingEnergetics : result?.foldingEnergetics;
+  // A failed core query says nothing about engines that answered anyway; only an empty run reads as unavailable.
+  if (result?.metadata?.pipelineStages?.core === "error" && !params.foldingStatus && !energetics) {
     return {
       status: "unavailable",
       desc: "Stability engines unavailable · Query failed"
     };
   }
-  const energetics = params.foldingEnergetics !== undefined ? params.foldingEnergetics : result?.foldingEnergetics;
   const evidence = buildEnergeticsEvidence({
     foldingEnergetics: { ...energetics, dynamut2: energetics?.dynamut2 ?? result?.dynamut2, ddmut: energetics?.ddmut ?? result?.ddmut },
     foldingDdG: params.foldingDdG,
