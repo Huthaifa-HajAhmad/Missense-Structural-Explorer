@@ -528,6 +528,62 @@ END`;
     });
   });
 
+  describe("/generate-mutant with no usable structure", () => {
+    // RYR1 p.Arg614Cys, 2026-11-18: the experimental chain did not serve position 614 and AlphaFold has
+    // no model for a 5,038-residue protein. Nothing was sent, yet the reply said "Invalid PDB content".
+    const NO_STRUCTURE =
+      "We could not obtain a usable structure for residue 614 of P21817: no experimental chain or AlphaFold model could be used, or a structure provider did not answer. The structure-based engines did not run; trying again later may help.";
+    const call = async (body: any) => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+      const out: { status: number; body: any } = { status: 200, body: null };
+      const res: any = {
+        status(code: number) { out.status = code; return this; },
+        json(b: any) { out.body = b; return this; },
+      };
+      await handler({ body, headers: {} } as any, res, () => {});
+      return out;
+    };
+
+    it("says no usable structure was obtained when the resolver finds none, without blaming a sent structure", async () => {
+      const resolver = await import("../services/structure-resolver.ts");
+      const spy = vi.spyOn(resolver, "resolveStructure").mockResolvedValue(null);
+      try {
+        const out = await call({ mutation: "RA614C", uniprotId: "P21817" });
+        expect(out.status).toBe(422);
+        expect(out.body.error.code).toBe("NO_STRUCTURE");
+        expect(out.body.error.message).toBe(NO_STRUCTURE);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("gives the same careful answer when a structure provider fails", async () => {
+      const resolver = await import("../services/structure-resolver.ts");
+      const spy = vi.spyOn(resolver, "resolveStructure").mockRejectedValue(new Error("PDBe answered 503"));
+      try {
+        const out = await call({ mutation: "RA614C", uniprotId: "P21817" });
+        expect(out.status).toBe(422);
+        expect(out.body.error.message).toBe(NO_STRUCTURE);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("still calls a sent structure without coordinates invalid", async () => {
+      const resolver = await import("../services/structure-resolver.ts");
+      const spy = vi.spyOn(resolver, "resolveStructure").mockResolvedValue(null);
+      try {
+        const out = await call({ mutation: "RA614C", uniprotId: "P21817", wtPdb: "HEADER only, no coordinates" });
+        expect(out.status).toBe(400);
+        expect(out.body.error.message).toContain("Invalid PDB content");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   describe("/generate-mutant cache-hit remote dispatch", () => {
     it("should trigger DynaMut2 and DDMut submissions when FoldX has a cache hit but remote jobs are missing", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");

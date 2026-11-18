@@ -1,0 +1,8 @@
+[
+  {"name": "selenomethionine: FHIT V95A on 1FIT (Val95 is 3.7 A from a selenium)", "uniprotId": "P49789", "mutation": "VA95A", "pdbFile": "/pdb/1FIT.pdb", "user": 0},
+  {"name": "protein-DNA complex: TP53 R273H on 1TSR (chains E,F are DNA)", "uniprotId": "P04637", "mutation": "RB273H", "pdbFile": "/pdb/1TSR.pdb", "user": 0},
+  {"name": "over 1,500 residues: RYR1 R614C (server-chosen structure)", "uniprotId": "P21817", "mutation": "RA614C", "user": 0},
+  {"name": "over 1,500 residues: SCN1A R1648H, 2,009 residues (server-chosen structure)", "uniprotId": "P35498", "mutation": "RA1648H", "user": 0},
+  {"name": "multi-chain protein: HBB E7V, haemoglobin (server-chosen structure)", "uniprotId": "P68871", "mutation": "EA7V", "user": 0},
+  {"name": "AlphaFold-only protein: CNNM2 E357Q (server-chosen structure)", "uniprotId": "Q9H8M5", "mutation": "EA357Q", "user": 0}
+]

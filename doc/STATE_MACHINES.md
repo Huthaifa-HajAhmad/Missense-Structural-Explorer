@@ -61,13 +61,14 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | R6 | In each process, `runningCount` equals the size of `activeJobs` and never goes above the concurrency limit. Across all processes, the running server rows equal the jobs the processes are executing. |
 | R7 | A row has an open claim in `agent_claims` exactly when it is `running` on that computer. At most one claim is open per job. |
 | R8 | No job runs in two processes at once. A job a process runs whose row was ended elsewhere is stopped within `ENDED_ELSEWHERE_CHECK_MS` (5 s). |
+| R9 | The server starts a FoldX job only while fewer server FoldX jobs hold a FoldX slot than FoldX has slots (`resolveFoldxConcurrency`, 1 on the 2-core server); other job types may still take the queue's spare slots. A `running` FoldX row stops holding the slot once it has published `foldxUpdate` (FoldX itself finished; companion engines may run up to 180 s more). A queued FoldX job's position counts only FoldX work ahead of it, and its wait estimate likewise. Before this, a FoldX job past the slot count waited on the FoldX semaphore while shown as `running`, and failed after `foldxSemaphoreWaitMs` (120 s) with "Concurrency limit reached". **Tested** (`queue-fairness.test.ts`). |
 
 ### Moves
 
 | From | To | Trigger | Function |
 | --- | --- | --- | --- |
 | (none) | `queued` | submit | `addJob` |
-| `queued` | `running` | the server picks the job | `processQueue` |
+| `queued` | `running` | the server picks the job (a FoldX job only when a FoldX slot is free, R9) | `processQueue` → `pickNext` |
 | `queued` | `running` | a paired computer claims it | `claimForAgent` |
 | `queued` | `failed` | corrupt job payload JSON | `processQueue`, `claimForAgent` |
 | `queued` | `failed` | a learned memory ceiling refuses it | `processQueue` |
