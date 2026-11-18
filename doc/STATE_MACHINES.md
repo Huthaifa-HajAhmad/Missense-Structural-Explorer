@@ -315,8 +315,15 @@ Code: `src/services/pipeline/foldxService.ts`. **Tested** (`foldxService.test.ts
 
 `submitted` → `queued` ⇄ `running` → `completed` / `failed` / given up. Two budgets: queue wait
 (`CLIENT_FOLDX_QUEUE_BUDGET_MS`, 30 min) and execution (`CLIENT_FOLDX_POLL_BUDGET_MS`, 1000 s, longer
-than the server's job cap). A return to `queued` starts both again. Three failed polls in a row end the
-run. Every write checks that the run is still the active one.
+than the server's job cap). A return to `queued` starts both again. Three HTTP error answers in a row end
+the run (lost contact is handled below). Every write checks that the run is still the active one.
+
+Losing contact is not a failure: a network error or a 502/503/504 answer keeps the loop polling, and
+only `CLIENT_FOLDX_LOST_CONTACT_MS` (5 min) without reaching the server ends the run, with
+`LOST_CONTACT_MESSAGE` (the job may still finish on the server). Other HTTP errors still end it after 3
+in a row. A run that ends by losing contact returns `"lost-contact"` and does not start the 15-min re-run
+cooldown (`recordBiophysicsAttempt`), so the next load can read the server's result. **Tested**
+(`foldxService.test.ts`, `workflowOrchestrator.test.ts`).
 
 ## 15. Client analysis pipeline stages
 

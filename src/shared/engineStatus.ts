@@ -585,6 +585,9 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
       // without implying the pipeline or the variant was at fault.
       return CANCELLED_RUN_MESSAGE;
     case "failed":
+      if (detail && /^Lost contact with the server/.test(detail)) {
+        return "The page lost contact with the server before FoldX finished. It may still finish there; reload the page in a few minutes to check.";
+      }
       if (isRejectionDetail(detail)) {
         return `${engine.name} cannot score this structure, so it gives no value for this variant. Retrying will not change that.`;
       }

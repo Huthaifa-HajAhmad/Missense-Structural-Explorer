@@ -33,7 +33,7 @@ unless it says production.
 
 ## Open findings (each must end fixed, decided, or as a known limitation)
 
-1. **Client FoldX poller ends a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4). Then a reload inside the 15-min pause showed all engines "ended without returning a value" (no server call). Fix in progress.
+1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed on the branch (lost contact tolerated 5 min, no cooldown after it); live check pending.
 2. **Structure choice ranks coverage first.** TP53 R175H got 8UTS:K, later 9R2Q:K (3.2 Å cryo-EM, 165 of 200 residues missing side chains, repair skipped) → FoldX +15.6 / +15.4. Needs the user's decision.
 3. **"Next in line · starts in under a minute" shown while the queue was stalled.** Root cause fixed (item 76aabe94); wording during a genuine stall still promises a start. Decide: expose the stall, or known limitation.
 4. **Gene shown as "P53" for TP53** (UniProt entry name, not the gene symbol). Outside Energetics.
@@ -41,4 +41,4 @@ unless it says production.
 6. **StabilityOracle A6 on Ssym**: 0.64 vs published 0.72; independent reproduction of the released model gives 0.65. Decide: known limitation text.
 7. **DynaMut2/DDMut outcomes not kept in the job row** (audit log only, documented in STATE_MACHINES 6c). Decide whether that is enough.
 8. **One FoldX failure in production telemetry** (601 s, `result:failed`, row purged): not reproduced; known limitation unless it recurs.
-9. **Flaky tests** (not caused by this work): e2e Services badge timing; coordinate-resolver "misses its window", code-map and dbnsfp_local under full-suite load; admission peak-memory on Windows.
+9. **Flaky tests** (not caused by this work, all pass alone): e2e Services badge timing; under full-suite load coordinate-resolver "misses its window", code-map, dbnsfp_local, analysis-db worker pool, ContextualCoverage render; admission peak-memory on Windows.

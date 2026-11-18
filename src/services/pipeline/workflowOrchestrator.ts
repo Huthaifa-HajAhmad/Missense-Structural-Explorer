@@ -277,7 +277,7 @@ export async function executeFullAnalysisWorkflow({
     let restoredRemoteState: RestoredRemoteState = NO_RESTORED_REMOTE_STATE;
 
     const conditionsContext = pipelineContext.simulationConditions;
-    /** Starts FoldX. A run that reaches its end starts the retry cooldown; an abandoned one does not. */
+    /** Starts FoldX. A run that reaches its end starts the retry cooldown; an abandoned one, or one that lost contact with the server, does not. */
     const dispatchFoldx = (signal: AbortSignal) => executeFoldxPipeline({
       gene: targetGene,
       uniprotId: targetUniprot,
@@ -294,9 +294,18 @@ export async function executeFullAnalysisWorkflow({
       // This variant's own restored state, so a failure settles against what the store holds and does
       // not mark an engine unavailable while the store is still polling for it.
       initialRemoteState: restoredRemoteState
-    }).finally(() => {
-      if (!signal.aborted && !run.isStale()) recordBiophysicsAttempt(targetGene, targetVariant, conditionsContext);
-    });
+    }).then(
+      end => {
+        // Losing contact is not an attempt that ran its course: the server may hold the result, and
+        // the next load must be allowed to ask for it instead of waiting out the cooldown.
+        if (end !== "lost-contact" && !signal.aborted && !run.isStale()) recordBiophysicsAttempt(targetGene, targetVariant, conditionsContext);
+        return end;
+      },
+      error => {
+        if (!signal.aborted && !run.isStale()) recordBiophysicsAttempt(targetGene, targetVariant, conditionsContext);
+        throw error;
+      }
+    );
     const shouldDispatchFoldx = () => shouldRunBiophysics(cached, getBiophysicsAttemptedAt(targetGene, targetVariant, conditionsContext));
 
     if (cached) {

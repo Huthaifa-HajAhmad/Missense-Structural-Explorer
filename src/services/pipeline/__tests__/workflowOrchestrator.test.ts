@@ -408,6 +408,26 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
     expect(executeFoldxPipeline).toHaveBeenCalledTimes(1);
   });
 
+  it("does not start the cooldown when the run only lost contact with the server", async () => {
+    // The server may already hold the result; the next load must be allowed to ask for it.
+    const conditions = createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any).simulationConditions;
+    const before = Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000;
+    vi.mocked(executeFoldxPipeline).mockResolvedValueOnce("lost-contact");
+    await runWithCache({ ...HEALTHY_SNAPSHOT, foldingStatus: "failed", biophysicsAttemptedAt: before });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(executeFoldxPipeline).toHaveBeenCalledTimes(1);
+    expect(variantCache.getBiophysicsAttemptedAt("PAH", "p.Arg408Trp", conditions)).toBe(before);
+  });
+
+  it("starts the cooldown when the run reached the server's own answer", async () => {
+    const conditions = createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any).simulationConditions;
+    const before = Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000;
+    vi.mocked(executeFoldxPipeline).mockResolvedValueOnce(undefined);
+    await runWithCache({ ...HEALTHY_SNAPSHOT, foldingStatus: "failed", biophysicsAttemptedAt: before });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(variantCache.getBiophysicsAttemptedAt("PAH", "p.Arg408Trp", conditions)).toBeGreaterThan(before);
+  });
+
   it("still backfills a snapshot that is genuinely missing its structure", async () => {
     await runWithCache({
       ...HEALTHY_SNAPSHOT,

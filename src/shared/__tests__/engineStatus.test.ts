@@ -411,6 +411,15 @@ describe("engineStatus — a refusal that a retry cannot change", () => {
     expect(built.detail).toContain("PDB2PQR");
   });
 
+  it("tells the reader that a lost connection may still finish on the server", () => {
+    const built = buildEngineOutcomes({
+      foldingStatus: "failed",
+      foldingError: "Lost contact with the server for 5 minutes before FoldX finished. It may still finish there; reload the page in a few minutes to check.",
+    }).find(o => o.id === "foldx")!;
+    expect(built.state).toBe("failed");
+    expect(built.reason).toContain("may still finish there; reload the page");
+  });
+
   it("keeps a timeout a busy provider that can be retried", () => {
     const built = buildEngineOutcomes({
       stabilityoracle: null,

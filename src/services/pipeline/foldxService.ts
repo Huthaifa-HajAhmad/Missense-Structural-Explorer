@@ -6,6 +6,7 @@ import { isFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
 import {
   CLIENT_FOLDX_POLL_BUDGET_MS,
   CLIENT_FOLDX_POLL_REQUEST_MS,
+  CLIENT_FOLDX_LOST_CONTACT_MS,
   CLIENT_FOLDX_QUEUE_BUDGET_MS,
   CLIENT_FOLDX_SUBMIT_BUDGET_MS,
   CLIENT_REMOTE_SUBMISSION_WAIT_MS,
@@ -64,6 +65,16 @@ let pollDelayScale = 1;
  * Test hook: shrink the real 2-5 s wall-clock wait between FoldX job polls. The poll DECISIONS (what is
  * published, when the budget expires — that reads `Date.now()` — and when it stops) are unaffected.
  */
+/** Shown when the poll loop could not reach the server for `CLIENT_FOLDX_LOST_CONTACT_MS`. */
+export const LOST_CONTACT_MESSAGE =
+  "Lost contact with the server for 5 minutes before FoldX finished. It may still finish there; reload the page in a few minutes to check.";
+
+/** How a FoldX run ended when it did not end with the server's own answer. */
+export type FoldxRunEnd = "lost-contact" | void;
+
+/** A poll that could not reach the server, as opposed to the server answering with an error. */
+const isLostContactAnswer = (status: number) => status === 502 || status === 503 || status === 504;
+
 export function setPollDelayScaleForTests(scale: number): void {
   pollDelayScale = scale;
 }
@@ -76,7 +87,7 @@ export function setPollDelayScaleForTests(scale: number): void {
  * Console reported "zero errors" and the waterfall had no FoldX row at all. The outcome is read off the
  * sink writes rather than re-derived, so the span can never disagree with what the Energetics tab shows.
  */
-export async function executeFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
+export async function executeFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRunEnd> {
   const { traceContext, sink, signal, requestId, getActiveRequestId } = options;
   if (!traceContext?.activeTraceId) return runFoldxPipeline(options);
 
@@ -97,7 +108,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
   };
 
   try {
-    await runFoldxPipeline({ ...options, sink: observed });
+    return await runFoldxPipeline({ ...options, sink: observed });
   } finally {
     const superseded = signal.aborted || getActiveRequestId() !== requestId;
     if (!superseded && (finalStatus === "success" || finalStatus === "failed" || finalStatus === "unavailable")) {
@@ -139,7 +150,7 @@ function noteFoldxFailure(status: string, variant: string, detail: string | null
   console.warn(`[FoldX] ${verb} for ${variant}${detail ? `: ${detail}` : "."}`);
 }
 
-async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
+async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRunEnd> {
   const { gene, uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
   const cacheGeneKey = gene || uniprotId;
   /** One line per distinct ThermoMPNN error for THIS run; the poll loop re-reads the same record. */
@@ -606,6 +617,13 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
        */
       let executionStart: number | null = null;
       let consecutiveErrors = 0;
+      /** When the loop last stopped reaching the server, or null while it reaches it. */
+      let lostContactSince: number | null = null;
+      const stillLost = () => {
+        lostContactSince ??= Date.now();
+        if (Date.now() - lostContactSince < CLIENT_FOLDX_LOST_CONTACT_MS) return true;
+        throw Object.assign(new Error(LOST_CONTACT_MESSAGE), { lostContact: true });
+      };
 
       while (true) {
         if (signal.aborted || getActiveRequestId() !== requestId) return;
@@ -639,15 +657,21 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
             timeout: CLIENT_FOLDX_POLL_REQUEST_MS
           });
         } catch (fetchErr: any) {
-          consecutiveErrors++;
-          if (consecutiveErrors >= 3 || signal.aborted) {
-            throw fetchErr;
-          }
-          console.warn(`[FoldxService] Polling network glitch (${consecutiveErrors}/3):`, fetchErr.message);
+          if (signal.aborted || fetchErr?.name === "AbortError") throw fetchErr;
+          // The server could not be reached; the job itself may be running fine there.
+          stillLost();
+          console.warn("[FoldxService] Cannot reach the server; still polling:", fetchErr.message);
           continue;
         }
 
         if (signal.aborted || getActiveRequestId() !== requestId) return;
+
+        if (!pollRes.ok && isLostContactAnswer(pollRes.status)) {
+          stillLost();
+          console.warn(`[FoldxService] Server answered ${pollRes.status}; still polling.`);
+          continue;
+        }
+        lostContactSince = null;
 
         if (!pollRes.ok) {
           consecutiveErrors++;
@@ -833,6 +857,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
 
   } catch (err: any) {
     if (signal.aborted || err.name === "AbortError" || getActiveRequestId() !== requestId) return;
+    const lostContact = Boolean(err?.lostContact);
     const msg = typeof err === "object" && err !== null ? (err.message || (typeof err.error === "object" ? err.error?.message : err.error) || JSON.stringify(err)) : String(err);
     console.error("[FoldxService Error] FoldX pipeline failed:", msg);
 
@@ -854,6 +879,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
     // A failed run has no phase; a stale "Structure repair" beside a failure message is a
     // contradiction the reader should never have to reconcile.
     publishProgress(null);
+    if (lostContact) return "lost-contact";
   } finally {
     if (!signal.aborted && getActiveRequestId() === requestId) {
       sink.setIsFolding(false);
