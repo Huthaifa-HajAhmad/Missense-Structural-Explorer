@@ -77,7 +77,8 @@ export const FIX_SHELL_OFFSET_NOTE =
  */
 const HOW_TO_READ =
   `Large values tend to overstate the change: FoldX values of +3 or more averaged about +${b.largeValueFoldx.toFixed(1)}, while the lab values averaged about +${b.largeValueMeasured.toFixed(1)}. ` +
-  "Read the band as a rough guide. Use FoldX for the direction of the change, not its exact size.";
+  "Read the band as a rough guide. Use FoldX for the direction of the change, not its exact size. " +
+  "FoldX here models one protein chain: partner chains, DNA and ligands are left out, so effects on binding are not measured.";
 
 const testResult = (variants: number, rmse: number, agreement: number, neutral: number) =>
   `In a test on ${variants} variants with lab measurements, FoldX was off by about ${rmse.toFixed(1)} kcal/mol. ` +

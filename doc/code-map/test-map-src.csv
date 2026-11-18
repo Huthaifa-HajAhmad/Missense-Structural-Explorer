@@ -375,7 +375,7 @@ src/shared/fetch-retry.ts,client,src/shared/__tests__/fetch-retry.test.ts
 src/shared/foldingLimits.ts,client,server/tests/denovo-fold-timeout-budget.test.ts;src/shared/__tests__/foldingLimits.test.ts
 src/shared/foldxPhase.ts,client,src/shared/__tests__/foldxPhase.test.ts;src/shared/__tests__/jobPlacement.test.ts
 src/shared/foldxRepairBenchmark.generated.ts,client,src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts
-src/shared/foldxRepairMode.ts,client,server/services/stability/foldx/runner-repair-cache.test.ts;src/shared/__tests__/computeRouting.test.ts
+src/shared/foldxRepairMode.ts,client,server/services/stability/foldx/runner-repair-cache.test.ts;src/shared/__tests__/computeRouting.test.ts;src/shared/__tests__/foldxHowToRead.test.ts
 src/shared/frequencyEvidence.ts,client,src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/frequencyFormat.ts,client,
 src/shared/frequencyRule.ts,client,src/shared/__tests__/frequencyRule.test.ts
