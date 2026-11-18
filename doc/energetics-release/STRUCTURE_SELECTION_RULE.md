@@ -74,3 +74,14 @@ The first run on candidate 1132d7fe showed two problems that are about the struc
    the memo key carries the rule version (`select-v2`), so a rule change is never masked by a cached choice.
 
 The ranking itself (target, neighbourhood, resolution, completeness, coverage, IDs) is unchanged.
+
+## Second amendment (2026-11-18, after the empty-cache validation run; no FoldX value was used)
+
+For TP53 p.Arg175His and p.Arg273His no chain among the 12 examined was eligible: the 30 best-resolved of
+the 483 covering chains are all engineered constructs (the Y220C stabilised-core series and 3D06). The
+fallback then returned PDBe's first row, 9R2Q:K, the incomplete chain this rule exists to avoid. Changes:
+- When a variant position is given and no examined chain is eligible, no experimental chain is returned;
+  every caller uses the AlphaFold model (the resolver's next tier).
+- The rule is applied even when only one chain covers the variant, so a single unusable chain is not
+  passed through unchecked.
+- The memo key moves to `select-v3`, so choices remembered under the previous version are not reused.

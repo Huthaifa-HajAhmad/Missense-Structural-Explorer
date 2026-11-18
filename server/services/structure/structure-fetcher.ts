@@ -210,7 +210,15 @@ export async function fetchBestPdbStructure(
     }
     const covering = structures.filter((item: any) =>
       item.pdb_id && item.chain_id && (pos === undefined || (pos >= item.unp_start && pos <= item.unp_end)));
-    const ranked = pos !== undefined && covering.length > 1 ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
+    // With a variant position, only a chain that passes the local-quality rule is offered. When none of the
+    // examined chains does (TP53: the best-resolved chains are all engineered constructs), no experimental
+    // chain is returned and every caller uses the predicted model instead of PDBe's first row.
+    const ranked = pos !== undefined ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
+    if (pos !== undefined && covering.length && !ranked) {
+      console.log(`[PDB Prioritizer] ${validatedUniprot} ${pos}: no examined chain is a wild-type, locally usable experimental chain; using the predicted model.`);
+      bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
+      return null;
+    }
     for (const item of ranked ? [ranked] : covering) {
       const shift = item.unp_start - item.start;
       console.log(`[PDB Prioritizer] Found suitable experimental structure: ${item.pdb_id} chain ${item.chain_id} (Resolution: ${item.resolution}Å, Coverage: ${item.coverage}, Shift: ${shift})`);

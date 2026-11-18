@@ -371,9 +371,9 @@ export async function resolveStructure(
   options: ResolveStructureOptions = {}
 ): Promise<ResolvedStructure | null> {
   // The wild-type requirement changes the answer, so it is part of the memo's key.
-  // `select-v2`: the experimental chain is chosen by local quality (STRUCTURE_SELECTION_RULE.md); choices
+  // `select-v3`: the experimental chain is chosen by local quality (STRUCTURE_SELECTION_RULE.md); choices
   // remembered under the earlier rule must not be served for six hours after the change.
-  const memoKey = `structure-resolution:select-v2:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
+  const memoKey = `structure-resolution:select-v3:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
 
   /**
    * The coordinates the probe just fetched, captured per CALL rather than per module.
