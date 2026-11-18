@@ -116,6 +116,18 @@ describe("FoldX Modular Engine Tests", () => {
       expect(cleaned).toContain("ENDMDL");
     });
 
+    it("keeps selenomethionine as methionine, selenium rewritten as the SD sulfur", () => {
+      const pdb = [
+        "HETATM   10  CA  MSE A  42      11.000  12.000  13.000  1.00 20.00           C  ",
+        "HETATM   11 SE   MSE A  42      12.000  13.000  14.000  1.00 20.00          SE  ",
+        "HETATM   12  C1  NAG A 901      15.000  16.000  17.000  1.00 20.00           C  ",
+      ].join("\n");
+      const lines = cleanPdbForFoldX(pdb).split("\n");
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toBe("ATOM     10  CA  MET A  42      11.000  12.000  13.000  1.00 20.00           C  ");
+      expect(lines[1]).toBe("ATOM     11  SD  MET A  42      12.000  13.000  14.000  1.00 20.00           S  ");
+    });
+
     it("does not count a C-terminal OXT as a defect", () => {
       const pdb = ["N", "CA", "C", "O", "CB", "OXT"].map((n, i) => atom(i + 1, n, "ALA", 9)).join("\n");
       expect(countIncompleteResidues(pdb)).toBe(0);

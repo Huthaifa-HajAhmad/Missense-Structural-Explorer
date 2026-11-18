@@ -127,6 +127,65 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     expect(s.tone).toBe("warning");
   });
 
+  it("reads a moderate majority with one stronger reading as 'mostly moderate', not 'engines disagree'", () => {
+    // Every engine is past its moderate mark; they differ only in how far. A weaker exception
+    // already read "mostly moderate", so a stronger one must not read as a contradiction.
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: { foldx: 3.0, rasp: 0.7, thermompnn: 0.7, raspStatus: "done" },
+      foldingStatus: "success",
+      thermompnnStatus: "done",
+    });
+    expect(ev.agreement.destabilizing.map(r => r.key)).toEqual(["foldx"]);
+    expect(ev.agreement.moderate).toHaveLength(2);
+    expect(ev.agreement.direction).toBe("mostly-moderate");
+    const s = energeticsSummary(ev);
+    expect(s.lead).toContain("2 of the 3 counted engines");
+    expect(s.lead).toMatch(/FoldX \(\+3\.0+ kcal\/mol\) is past the destabilizing mark\./);
+  });
+
+  it("names an even split between two neighbouring bands instead of 'engines disagree'", () => {
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: { foldx: 3.0, rasp: 0.7, thermompnn: 0.7, stabilityoracle: 3.0, raspStatus: "done", stabilityoracleStatus: "done" },
+      foldingStatus: "success",
+      thermompnnStatus: "done",
+    });
+    expect(ev.agreement.direction).toBe("split-moderate-high");
+    expect(ev.agreement.verdict).toBe("Moderately Destabilizing to Destabilizing (Engines Split)");
+    expect(AGREEMENT_CHIP[ev.agreement.direction].label).toBe("Split: moderate to high");
+    const s = energeticsSummary(ev);
+    expect(s.tone).toBe("warning");
+    expect(s.lead).toMatch(/^The 4 counted engines split between two neighbouring bands: .* past the destabilizing mark; .* moderately destabilizing band\.$/);
+  });
+
+  it("names an even split between no destabilization and moderate", () => {
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: { foldx: 0.0, rasp: 0.0, thermompnn: 0.7, stabilityoracle: 0.7, raspStatus: "done", stabilityoracleStatus: "done" },
+      foldingStatus: "success",
+      thermompnnStatus: "done",
+    });
+    expect(ev.agreement.direction).toBe("split-none-moderate");
+    expect(ev.agreement.verdict).toBe("No Destabilization to Moderately Destabilizing (Engines Split)");
+    expect(AGREEMENT_CHIP[ev.agreement.direction].label).toBe("Split: none to moderate");
+  });
+
+  it("keeps a moderate majority with exceptions on both sides split", () => {
+    const ev = buildEnergeticsEvidence({
+      // Four of six moderate is a two-thirds majority, so only the two-sided exceptions keep it split.
+      foldingEnergetics: {
+        foldx: 3.0, rasp: 0.7, thermompnn: 0.7, dynamut2: -0.7, stabilityoracle: 0.7, ddmut: 0.0,
+        raspStatus: "done", stabilityoracleStatus: "done",
+      },
+      foldingStatus: "success",
+      thermompnnStatus: "done",
+      dynamut2Status: "done",
+      ddmutStatus: "done",
+    });
+    expect(ev.agreement.moderate).toHaveLength(4);
+    expect(ev.agreement.destabilizing).toHaveLength(1);
+    expect(ev.agreement.notDestabilizing).toHaveLength(1);
+    expect(ev.agreement.direction).toBe("split");
+  });
+
   it("keeps a genuine contradiction split: one engine past a DESTABILIZING mark is not a majority", () => {
     const ev = buildEnergeticsEvidence({
       foldingEnergetics: { foldx: 2.6, dynamut2: 0.21, ddmut: 0.03, thermompnn: -0.1, stabilityoracle: 0.2, stabilityoracleStatus: "done" },

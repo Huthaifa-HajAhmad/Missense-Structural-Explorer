@@ -19,7 +19,11 @@ export function sanitizeAuditMetadata(metadata: any): any {
   }
   const sanitized: Record<string, any> = {};
   for (const [k, v] of Object.entries(metadata)) {
-    if (typeof v === "string") {
+    if (k === "jobId" && typeof v === "string" && /^\d{1,20}$/.test(v)) {
+      // A remote job id (BioSig uses 12 to 16 digits) is not personal data, and the phone-number
+      // pattern would hide it. The poll routes only accept digits, so only that shape is kept.
+      sanitized[k] = v;
+    } else if (typeof v === "string") {
       let clean = filterPII(v);
       if (k === "variant" || k === "originalNotation" || k === "mutation") {
         clean = anonymizeGenomicCoordinate(clean);

@@ -110,7 +110,7 @@ export function EnergeticsRuleTrace({ evidence, unit }: { evidence: EnergeticsEv
             </span>
             <span className="nrg-step__sub">Local marks, listed below. No probability is computed.</span>
           </Step>
-          <Step n={4} label="Summary" state={agreement.direction === "split" || agreement.direction.startsWith("mostly-") ? "warn" : agreement.nCounted ? "done" : "idle"}>
+          <Step n={4} label="Summary" state={agreement.direction.startsWith("split") || agreement.direction.startsWith("mostly-") ? "warn" : agreement.nCounted ? "done" : "idle"}>
             <span>
               {AGREEMENT_CHIP[agreement.direction].label}
               {agreement.nCounted > 1 ? ` · median ${signedDdg(agreement.median, unit)}` : ""}

@@ -178,7 +178,7 @@ export interface EnergeticsReading {
  * `mostly-moderate` / `mostly-destabilizing` are the same majority rule for the other bands, so a
  * severity difference is not reported as "the engines disagree" either.
  */
-export type AgreementDirection = "destabilizing" | "moderate" | "not-destabilizing" | "mostly-destabilizing" | "mostly-moderate" | "mostly-not-destabilizing" | "split" | "none";
+export type AgreementDirection = "destabilizing" | "moderate" | "not-destabilizing" | "mostly-destabilizing" | "mostly-moderate" | "mostly-not-destabilizing" | "split-moderate-high" | "split-none-moderate" | "split" | "none";
 
 /**
  * The stability verdict, as a CLOSED SET. It is what the server stores as
@@ -197,6 +197,8 @@ export const STABILITY_VERDICTS = {
   mostlyNotDestabilizing: "No Destabilization Predicted (Most Engines)",
   mostlyModerate: "Moderately Destabilizing (Most Engines)",
   mostlyDestabilizing: "Destabilizing (Most Engines)",
+  splitModerateHigh: "Moderately Destabilizing to Destabilizing (Engines Split)",
+  splitNoneModerate: "No Destabilization to Moderately Destabilizing (Engines Split)",
   split: "Engines Disagree",
   singleDestabilizing: "Destabilizing (Single-Engine Estimate)",
   singleModerate: "Moderately Destabilizing (Single-Engine Estimate)",
@@ -613,11 +615,13 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   else if (moderate.length === counted.length) direction = "moderate";
   else if (destabilizing.length === 0 && moderate.length === 0) direction = "not-destabilizing";
   /**
-   * A two-thirds majority in ONE band, with every exception in the band immediately *below* it
-   * (neutral ← moderate ← high). This is a majority reading, not unanimity, and the exception is
-   * still named in the summary. The band rule is what keeps a real contradiction `split`: 4 neutral
-   * + 1 past a DESTABILIZING mark crosses two bands, and 4 high + 1 neutral likewise; 4 moderate + 1
-   * high stays split rather than calling a strongly destabilizing reading "mostly moderate". UROD
+   * A two-thirds majority in ONE band, with every exception in ONE band next to it (neutral |
+   * moderate | high). This is a majority reading, not unanimity, and the exception is still named in
+   * the summary. The band rule is what keeps a real contradiction `split`: 4 neutral + 1 past a
+   * DESTABILIZING mark crosses two bands, 4 high + 1 neutral likewise, and a moderate majority with
+   * exceptions on both sides points two ways. A moderate majority with exceptions only above it
+   * (4 moderate + 1 high) is a severity difference: every engine is past its moderate mark, so it
+   * reads `mostly-moderate` with the stronger reading named, not "the engines disagree". UROD
    * p.Gly318Arg (4 neutral + DynaMut2 +0.53 moderate) is the case that produced
    * `mostly-not-destabilizing`.
    */
@@ -627,13 +631,19 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     const counts = [0, 0, 0];
     for (const r of counted) counts[bandOf(r)] += 1;
     const modal = counts.indexOf(Math.max(...counts)) as 0 | 1 | 2;
-    // Exceptions are allowed only in the band just below the majority's, so the summary's
+    // Every exception sits in the same band, next to the majority's, so the summary's
     // "the exception(s)" list is exactly the set that exists.
-    const exceptionBand = modal === 0 ? 1 : modal - 1;
-    const adjacentOnly = counted.every(r => bandOf(r) === modal || bandOf(r) === exceptionBand);
+    const exceptionBands = counted.map(bandOf).filter(b => b !== modal);
+    const adjacentOnly = exceptionBands.every(b => b === exceptionBands[0] && Math.abs(b - modal) === 1);
     const majority = counts[modal] / counted.length >= 2 / 3;
+    // No two-thirds majority, but every engine sits in one of two neighbouring bands (2 moderate +
+    // 2 high, say): a disagreement about how much, not about whether. Bands far apart stay `split`.
+    const bandsUsed = [0, 1, 2].filter(b => counts[b] > 0);
+    const neighbouringPair = bandsUsed.length === 2 && bandsUsed[1] - bandsUsed[0] === 1;
     direction = !adjacentOnly || !majority
-      ? "split"
+      ? neighbouringPair
+        ? bandsUsed[0] === 1 ? "split-moderate-high" : "split-none-moderate"
+        : "split"
       : modal === 2
         ? "mostly-destabilizing"
         : modal === 1
@@ -832,6 +842,10 @@ export function stabilityVerdict(direction: AgreementDirection, nCounted: number
       return STABILITY_VERDICTS.mostlyModerate;
     case "mostly-destabilizing":
       return STABILITY_VERDICTS.mostlyDestabilizing;
+    case "split-moderate-high":
+      return STABILITY_VERDICTS.splitModerateHigh;
+    case "split-none-moderate":
+      return STABILITY_VERDICTS.splitNoneModerate;
     case "split":
     default:
       return STABILITY_VERDICTS.split;
@@ -845,6 +859,8 @@ export const AGREEMENT_CHIP: Record<AgreementDirection, { label: string; tone: "
   "mostly-not-destabilizing": { label: "Mostly no destabilization", tone: "neutral" },
   "mostly-moderate": { label: "Mostly moderately destabilizing", tone: "neutral" },
   "mostly-destabilizing": { label: "Mostly destabilizing", tone: "danger" },
+  "split-moderate-high": { label: "Split: moderate to high", tone: "neutral" },
+  "split-none-moderate": { label: "Split: none to moderate", tone: "neutral" },
   split: { label: "Engines disagree", tone: "neutral" },
   none: { label: "No ΔΔG", tone: "muted" },
 };
@@ -909,10 +925,14 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
     }
     case "mostly-moderate": {
       tone = "warning";
-      const exceptions = a.notDestabilizing.map(withValue);
+      // The exceptions sit on one side of the majority: all below it or all above it.
+      const below = a.notDestabilizing.length > 0;
+      const exceptions = (below ? a.notDestabilizing : a.destabilizing).map(withValue);
+      const one = exceptions.length === 1;
       lead =
         `${a.moderate.length} of the ${a.nCounted} counted engines sit in their moderately destabilizing band; ` +
-        `${listNames(exceptions)} ${exceptions.length === 1 ? "predicts" : "predict"} no destabilization.`;
+        `${listNames(exceptions)} ` +
+        (below ? `${one ? "predicts" : "predict"} no destabilization.` : `${one ? "is" : "are"} past the destabilizing mark.`);
       break;
     }
     case "mostly-destabilizing": {
@@ -921,6 +941,19 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
       lead =
         `${a.destabilizing.length} of the ${a.nCounted} counted engines are past their destabilizing mark; ` +
         `${listNames(exceptions)} ${exceptions.length === 1 ? "sits" : "sit"} in the moderately destabilizing band.`;
+      break;
+    }
+    case "split-moderate-high":
+    case "split-none-moderate": {
+      tone = "warning";
+      const high = a.direction === "split-moderate-high";
+      const upper = (high ? a.destabilizing : a.moderate).map(withValue);
+      const lower = (high ? a.moderate : a.notDestabilizing).map(withValue);
+      lead =
+        `The ${a.nCounted} counted engines split between two neighbouring bands: ${listNames(upper)} ` +
+        (high
+          ? `${upper.length === 1 ? "is" : "are"} past the destabilizing mark; ${listNames(lower)} ${lower.length === 1 ? "sits" : "sit"} in the moderately destabilizing band.`
+          : `${upper.length === 1 ? "sits" : "sit"} in the moderately destabilizing band; ${listNames(lower)} ${lower.length === 1 ? "predicts" : "predict"} no destabilization.`);
       break;
     }
     case "split":

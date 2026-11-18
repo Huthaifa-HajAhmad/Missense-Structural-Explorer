@@ -563,7 +563,9 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
         : "Calculation in progress.";
     case "not-installed":
       return engine.id === "stabilityoracle" || engine.id === "thermompnn"
-        ? "Not available in this deployment — the local model service is not running."
+        // "Could not be reached" holds both when the service is absent and when it is restarting;
+        // the connection error itself travels in `detail`.
+        ? "The local model service could not be reached, so no value was produced. This can be retried later."
         : "Not available in this deployment.";
     case "not-covered":
       // Deliberately does not assert a fact about the protein. The server reports the same state for

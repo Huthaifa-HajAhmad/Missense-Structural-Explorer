@@ -81,11 +81,25 @@ export function injectBFactorsFromWtPdb(wtPdb: string, mutPdb: string): string {
   return updatedLines.join("\n");
 }
 
+/**
+ * Rewrites one selenomethionine (MSE) record as methionine. MSE is methionine with selenium in place
+ * of sulfur; crystallographers use it to solve the phase problem and deposit it as HETATM. The
+ * structure check reads it as Met, so dropping it with the other HETATM records left a hole at
+ * every Met, and a variant AT a Met was "not found in the PDB structure".
+ */
+function selenomethionineToMethionine(line: string): string {
+  const met = "ATOM  " + line.slice(6, 17) + "MET" + line.slice(20);
+  if (met.slice(12, 16).trim() !== "SE") return met;
+  const withSulfur = met.slice(0, 12) + " SD " + met.slice(16);
+  return withSulfur.length >= 78 ? withSulfur.slice(0, 76) + " S" + withSulfur.slice(78) : withSulfur;
+}
+
 export function cleanPdbForFoldX(pdbContent: string): string {
   const lines = pdbContent.split(/\r?\n/);
   const cleaned: string[] = [];
 
-  for (const line of lines) {
+  for (const record of lines) {
+    const line = record.startsWith("HETATM") && record.slice(17, 20) === "MSE" ? selenomethionineToMethionine(record) : record;
     // An NMR file holds many models of one chain. Read as one structure, they stack on top of each other
     // (1N88: 45,936 atoms instead of 1,584), so only the first model is a template.
     if (line.startsWith("ENDMDL")) {

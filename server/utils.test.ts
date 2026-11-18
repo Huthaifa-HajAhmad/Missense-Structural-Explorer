@@ -411,6 +411,14 @@ describe("Input Validation Patterns & Functions", () => {
       expect(sanitized.variant).toMatch(/^chr7:\[HASH_[a-f0-9]{8}\]$/);
       expect(sanitized.userDirections).toContain("[REDACTED DOB]");
     });
+
+    it("keeps a digits-only job id readable, so one remote job can be followed through the log", () => {
+      // BioSig job ids are 12 to 16 digits; the phone-number pattern used to swallow them.
+      const sanitized = sanitizeAuditMetadata({ jobId: "1793805317716379", note: "call 5551234567" });
+      expect(sanitized.jobId).toBe("1793805317716379");
+      expect(sanitized.note).toContain("[REDACTED PHONE]");
+      expect(sanitizeAuditMetadata({ jobId: "call 555-123-4567" }).jobId).toContain("[REDACTED PHONE]");
+    });
   });
 
   describe("sanitizeErrorMessage Unit Tests", () => {

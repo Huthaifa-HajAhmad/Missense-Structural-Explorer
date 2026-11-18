@@ -924,7 +924,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 finalStabilityoracleError = soOutcome.message;
               } else {
                 finalStabilityoracleStatus = "unavailable";
-                finalStabilityoracleError = null;
+                finalStabilityoracleError = soOutcome.kind === "unavailable" ? soOutcome.reason : "StabilityOracle did not return a score";
               }
             } catch (soErr: any) {
               console.warn("[StabilityOracle Cache Backfill Warning]:", soErr.message);

@@ -157,7 +157,12 @@ def _read_chain_atoms(pdb_content: str, chain: str | None):
         element = line[76:78].strip() if len(line) >= 78 and line[76:78].strip() else name.lstrip("0123456789")[0]
         if element.upper() == "H":
             continue
-        atoms.append({"line": line, "chain": (line[21].strip() or "A").upper(), "res_seq": int(line[22:26]), "res_name": canonical_residue_name(line[17:20].strip().upper()), "name": name})
+        res_name = canonical_residue_name(line[17:20].strip().upper())
+        if res_name not in AA_INDEX:
+            # DNA and RNA are also ATOM records. The model was trained on protein atoms only, and the
+            # charge and radius tables hold no entry for them (they would read as charge 0, radius 1.7).
+            continue
+        atoms.append({"line": line, "chain": (line[21].strip() or "A").upper(), "res_seq": int(line[22:26]), "res_name": res_name, "name": name})
     return atoms
 
 

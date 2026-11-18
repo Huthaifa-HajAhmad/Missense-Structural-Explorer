@@ -36,7 +36,7 @@ describe("verdict benchmark: how a lab value and a verdict become bands", () => 
   it("gives every verdict direction the app can show a band, and none to an undecided one", () => {
     expect(DIRECTION_BAND).toEqual({
       destabilizing: 2, "mostly-destabilizing": 2, moderate: 1, "mostly-moderate": 1,
-      "not-destabilizing": 0, "mostly-not-destabilizing": 0, split: null, none: null
+      "not-destabilizing": 0, "mostly-not-destabilizing": 0, "split-moderate-high": null, "split-none-moderate": null, split: null, none: null
     });
   });
 

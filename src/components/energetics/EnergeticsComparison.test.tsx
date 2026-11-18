@@ -35,7 +35,7 @@ describe('missing methods in the comparison', () => {
     render(<EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={null} onSelect={() => {}} options={{ sort: 'method', countedOnly: false, showMarks: false }} onOptions={() => {}} />);
     await screen.findByText('No point plotted');
     const chip = screen.getByRole('button', { name: /ThermoMPNN/ });
-    expect(chip).toHaveTextContent('Not available in this deployment — the local model service is not running.');
+    expect(chip).toHaveTextContent('The local model service could not be reached, so no value was produced. This can be retried later.');
     expect(chip.textContent).not.toMatch(/Not available here — Not available/);
   });
 });
