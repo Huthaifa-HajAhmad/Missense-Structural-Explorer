@@ -274,7 +274,7 @@ def _evaluate_criteria(engine: str, res: dict, a5: dict) -> dict:
         row = res[ds]["all"]
         pub = PUBLISHED_METRICS.get((engine, ds), {})
         pub_r = pub.get("r")
-        if pub_r is None or (engine == "ddmut" and ds == "s669"):
+        if pub_r is None:
             a6_details[ds] = "no comparator"
             continue
         if row["partial_set"]:

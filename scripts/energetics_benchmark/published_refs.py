@@ -96,10 +96,10 @@ PUBLISHED_METRICS: dict[tuple[str, str], dict] = {
         "note": "Combined Ssym |r_dir_inv|=0.11 and bias <d>=-1.56 kcal/mol (dir+inv).",
     },
     ("ddmut", "s669"): {
-        "r": 0.62, "rho": 0.61, "rmse": 1.50,
+        "r": None, "rho": None, "rmse": None,
         "citation": "Zhou et al. (2023) Nucleic Acids Res. 51(W1):W122-W128, Table 1 (S1304)",
         "url": "https://academic.oup.com/nar/article/51/W1/W122/7191158",
-        "note": "S1304 = deduplicated S669 forward+reverse (not direct-only S669).",
+        "note": "Paper reports S1304 (deduplicated S669 forward+reverse): r=0.62, rho=0.61, RMSE=1.50. Not the direct-only S669 subset, so no comparator.",
     },
     ("ddmut", "ssym_direct"): {
         "r": None, "rho": None, "rmse": None,
