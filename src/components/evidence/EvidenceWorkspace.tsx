@@ -15,7 +15,6 @@ const extraViews: Partial<Record<EvidenceWorkspaceTab, { id: View; label: string
   predictors: [{ id: 'strength', label: 'Strength bands' }],
   'expression-models': [{ id: 'protein', label: 'Protein measurements' }, { id: 'pext', label: 'Expression at variant' }],
   'species-models': [{ id: 'alignment', label: 'Protein alignments' }, { id: 'phenotypes', label: 'Phenotype annotations' }],
-  perturbation: [{ id: 'embeddings', label: 'Sequence embeddings' }],
 };
 export interface SpliceMapView { transcript: string | null; halfWidth: number | null; focusedScore: boolean; showSmallSignals: boolean }
 interface TabState { view: View; selected: string | null; filter: AttributionFilter; expanded: string[]; section: string; query: string; cohort: string; relevantOnly: boolean; window?: { start: number; end: number } | 'whole' | 'near'; hidden?: string[]; spliceView?: { transcript: string; zoom: number | null; focused: boolean }; smallSignals?: boolean; initialized?: boolean; spliceMap?: SpliceMapView; hotspotAllRows?: boolean }

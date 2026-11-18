@@ -1,7 +1,7 @@
 /**
  * molstarThemes.ts — the 3D view's Mol* colour themes.
  *
- * Every band and colour comes from `STRUCTURE_COLOUR_BANDS` / `THRESHOLDS.esm3Drift` in
+ * Every band and colour comes from `STRUCTURE_COLOUR_BANDS` / `THRESHOLDS` in
  * `src/shared/thresholds`, which the on-canvas legend reads too, so the canvas and its key cannot
  * disagree. Which theme a structure gets is decided by `src/shared/structure3dEvidence.ts` from
  * provenance — never here, and never from the B-factor values themselves.
@@ -15,7 +15,7 @@ import { Color } from "molstar/lib/mol-util/color";
 import { ColorTheme } from "molstar/lib/mol-theme/color";
 import { ColorThemeCategory } from "molstar/lib/mol-theme/color/categories";
 import { ParamDefinition as PD } from "molstar/lib/mol-util/param-definition";
-import { STRUCTURE_COLOUR_BANDS, THRESHOLDS } from "../../shared/thresholds";
+import { STRUCTURE_COLOUR_BANDS } from "../../shared/thresholds";
 
 export type { PocketResidue, PocketResult } from "../../types";
 
@@ -157,43 +157,10 @@ export const DisplacementColorThemeProvider: ColorTheme.Provider<any, any> = {
   isApplicable: (ctx: any) => !!ctx.structure,
 };
 
-/* ── ESM3 embedding shift, the engine's own bands ───────────────────────── */
-
-export const Esm3ShiftThemeParams = {
-  perturbationScores: PD.Value<number[]>([], { isEssential: true }),
-};
-
-export function esm3ShiftColor(score: number | null | undefined): Color {
-  if (score === null || score === undefined || !Number.isFinite(score) || score < 0) return NONE;
-  const d = THRESHOLDS.esm3Drift;
-  const c = STRUCTURE_COLOUR_BANDS.esm3Shift;
-  return Color(score < d.none ? c[0] : score < d.minor ? c[1] : score < d.moderate ? c[2] : c[3]);
-}
-
-export function Esm3ShiftColorTheme(ctx: any, props: any) {
-  const scores: number[] = props?.perturbationScores || [];
-  return atomTheme(ctx, props, Esm3ShiftColorTheme, "Sequence embedding shift (app-defined bands)", (_unit, _element, location) => {
-    // Scores are indexed by UniProt position; the model only offers this theme on UniProt-numbered structures.
-    const seq = StructureProperties.residue.auth_seq_id(location);
-    return esm3ShiftColor(seq > 0 && seq <= scores.length ? scores[seq - 1] : null);
-  });
-}
-
-export const Esm3ShiftColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: "esm3-shift",
-  label: "Sequence embedding shift",
-  category: ColorThemeCategory.Validation,
-  factory: Esm3ShiftColorTheme,
-  getParams: () => Esm3ShiftThemeParams,
-  defaultValues: PD.getDefaultValues(Esm3ShiftThemeParams),
-  isApplicable: (ctx: any) => !!ctx.structure,
-};
-
 export const STRUCTURE_THEME_PROVIDERS = [
   PlddtColorThemeProvider,
   BFactorQuartileColorThemeProvider,
   DisplacementColorThemeProvider,
-  Esm3ShiftColorThemeProvider,
 ];
 
 export function isValidPdbUrl(url: string): boolean {

@@ -197,7 +197,8 @@ describe("narrativeEvidence — the stamp and freshness", () => {
      * a side effect of it.
      */
     expect(narrativeFreshness({ ...stamped, foldingDdG: 2.85 })).toBe("outdated");
-    expect(narrativeFreshness({ ...stamped, esm2Eval: { llr: -3.1 } })).toBe("outdated");
+    // A retired language-model result is not narrative evidence any more: it cannot outdate the prose.
+    expect(narrativeFreshness({ ...stamped, esm2Eval: { llr: -3.1 } })).toBe("current");
 
     /*
      * ...but an artefact that is NOT narrative evidence does not make it outdated: a structure download,
@@ -290,7 +291,7 @@ describe("narrativeEvidence — deep-model evidence is integrated, and its ident
     });
     expect(status.integrated).toBe(true);
     expect(status.present).toContain("FoldX folding stability (ΔΔG)");
-    expect(status.present).toContain("ESM-2 variant-effect ΔLLR");
+    expect(status.present.join(" ")).not.toMatch(/ESM|ΔLLR/);
     // The engine that returned nothing is still named: the prompt lists it so the model cannot infer a
     // value for it, and the rail must therefore not present it as absent from the synthesis.
     expect(status.present).toContain("RaSP ΔΔG (precomputed table)");

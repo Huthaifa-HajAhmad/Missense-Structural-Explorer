@@ -839,7 +839,6 @@ async function runCoreFetch(
         gnomadConstraint: (partialData.gnomadConstraint as GnomadGeneConstraint | null) ?? null,
         gnomadFrequency: (partialData.gnomadFrequency as GnomadVariantFrequency | null) ?? null,
         acmgWeighting,
-        esm2: (partialData.esm2 as { llr: number | null; verdict: string } | null) ?? null,
         uniprotFeatures: (partialData.uniprotFeatures as UniprotFeaturesResult | null) ?? null,
         sequence,
         serviceStatus: runningStatus,
@@ -1133,7 +1132,6 @@ async function runCoreFetch(
     gnomadConstraint: gnomadConstraintRes,
     gnomadFrequency: gnomadFreqRes,
     acmgWeighting,
-    esm2: esm2Res,
     uniprotFeatures: uniprotFeaturesRes,
     sequence,
     serviceStatus

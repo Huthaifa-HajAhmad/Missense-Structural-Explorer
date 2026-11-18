@@ -16,7 +16,6 @@ const EVIDENCE: Record<EvidenceTabId, Omit<EmptyWorkspace, 'Icon' | 'title'>> = 
   alphagenome: { description: 'Explore predicted regulatory effects when a supported genomic variant is available.', topics: ['Variant impact score', 'Feature contributions', 'Genomic context'] },
   splicing: { description: 'Examine predicted splice changes in their transcript and junction context.', topics: ['Splice-site predictions', 'Transcript geometry', 'Splicing evidence'] },
   structure: { description: 'Compare side-chain properties and locate the variant relative to predicted pockets.', topics: ['Residue properties', 'Structural context', 'Nearby pockets'] },
-  perturbation: { description: 'Compare sequence-model readings with available changes in local packing and geometry.', topics: ['Sequence-model scores', 'Packing and geometry', 'Model availability'] },
   interfaces: { description: 'Explore protein interfaces, interacting partners and the variant’s available assembly context.', topics: ['Protein partners', 'Interface context', 'Assembly evidence'] },
 };
 const WORKSPACES: Partial<Record<MasterView, EmptyWorkspace>> = {

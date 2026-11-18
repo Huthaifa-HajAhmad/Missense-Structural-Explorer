@@ -132,18 +132,6 @@ export function AnalysisSection() {
             ]}
           />
         </SettingsRow>
-        <SettingsRow label="Perturbation model" description="Protein language model used for variant-effect embeddings.">
-          <SegmentedControl
-            ariaLabel="Default perturbation model"
-            value={settings.defaultPerturbationModel}
-            onChange={(value) => updateSetting("defaultPerturbationModel", value)}
-            options={[
-              { value: "saprot", label: "SaProt" },
-              { value: "esm2", label: "ESM-2" },
-              { value: "esmc", label: "ESMc" }
-            ]}
-          />
-        </SettingsRow>
         <SettingsRow stacked label="SaProt execution tier" description={SAPROT_DESCRIPTIONS[saprotEngine]}>
           <SegmentedControl
             fullWidth

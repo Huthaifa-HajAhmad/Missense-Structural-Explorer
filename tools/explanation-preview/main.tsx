@@ -38,7 +38,7 @@ function Preview() {
       <button type="button" className="rgd-trigger" onClick={() => setInspect(true)}>Read the 3D view</button>
       <ResearchGuideButton topic="llr" label="Explain LLR" />
       <ResearchGuideButton topic="missing_data" label="Why no result?" />
-      <ResearchGuideButton topic="vesm_embedding" label="About VESM embeddings" />
+      <ResearchGuideButton topic="uncertainty" label="About uncertainty" />
     </div>
     <ModelKnowledgeModal isOpen={model !== null} modelKey={model} onClose={() => setModel(null)} />
     <MetricExplanationModal selectedMetric={metric} setSelectedMetric={setMetric} />

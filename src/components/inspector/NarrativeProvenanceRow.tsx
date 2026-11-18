@@ -42,7 +42,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
 }) => {
   const { hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
-  const narrativeContext = useNarrativeEvidenceContext(settings?.saprotEngine);
+  const narrativeContext = useNarrativeEvidenceContext();
 
   const narrative = analysisResult?.analysis ?? "";
 

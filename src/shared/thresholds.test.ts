@@ -5,7 +5,6 @@ import {
   evaluateAlphaMissense,
   evaluatePopEve,
   evaluateBayesdel,
-  evaluateEsm,
   evaluateEsm1b,
   evaluateGpnStar,
   evaluateSplicePredictor,
@@ -60,12 +59,6 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateBayesdel(-0.05)).toBe("vus");
       expect(evaluateBayesdel(-0.2)).toBe("benign");
       expect(evaluateBayesdel(null)).toBe("unavailable");
-    });
-
-    it("should evaluate ESM (ESM-2/SaProt) scores as purely informational VUS", () => {
-      expect(evaluateEsm(-6.0)).toBe("vus");
-      expect(evaluateEsm(-1.0)).toBe("vus");
-      expect(evaluateEsm(null)).toBe("unavailable");
     });
 
     it("should evaluate ESM-1b scores against the Bergquist 2025 bands", () => {
@@ -149,7 +142,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.available).toContain("POPEVE");
     });
 
-    it("should include ESM-2 and SaProt, unsized, as informational models when LLR is provided", () => {
+    it("should keep DANN and Eigen informational beside voting BayesDel and ClinPred", () => {
       const res = countPredictorConcordance(
         null,
         null,
@@ -158,29 +151,22 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         0.25, // bayesdel is 5th parameter
         null,
         {
-          esm2Llr: -4.5,
-          saprotLlr: -3.2,
           dann: 0.98,
           clinpred: 0.95,
           eigenPhred: 7.1
         }
       );
 
-      // Unsized: ESM-2 is served as 650M (never 3B) and SaProt as 650M or 35M, so neither size is asserted.
-      expect(res.available).toContain("ESM-2");
-      expect(res.available).toContain("SAPROT");
       expect(res.available).toContain("DANN");
       expect(res.available).toContain("CLINPRED");
       expect(res.available).toContain("EIGEN");
       expect(res.available).toContain("BAYESDEL");
-      expect(res.signals.esm2_3b).toBe("vus");
-      expect(res.signals.saprot).toBe("vus");
       // DANN has no published clinical cut-point: informational, never a call.
       expect(res.signals.dann).toBe("vus");
       expect(res.nPathogenic).toBe(2); // BayesDel 0.25 and ClinPred 0.95 vote; DANN and Eigen do not
     });
 
-    it("should include the ESMC/VESM slot and GPN-Star as informational models without skewing voting counts", () => {
+    it("should include GPN-Star as an informational model without skewing voting counts", () => {
       const res = countPredictorConcordance(
         null,
         null,
@@ -189,14 +175,11 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         null,
         null,
         {
-          vesmLlr: -6.2,
           gpnStar: -4.5
         }
       );
 
-      expect(res.available).toContain("ESMC / VESM");
       expect(res.available).toContain("GPN-STAR");
-      expect(res.signals.vesm).toBe("vus");
       expect(res.signals.gpn_star).toBe("pathogenic");
       // Must not count toward active voting tallies (informational only)
       expect(res.nPathogenic).toBe(0);

@@ -89,10 +89,6 @@ export default function MolstarViewer({
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
   const pocketError = useVariantAnalysisStore(s => s.pocketError);
   const chain = useVariantAnalysisStore(s => (s.analysisState?.result?.metadata as any)?.chain ?? null);
-  const esm3Scores = useVariantAnalysisStore(s => {
-    const e: any = s.analysisState?.result?.esm3Eval;
-    return e && !("error" in e) && Array.isArray(e.perturbationScores) ? (e.perturbationScores as number[]) : null;
-  });
   const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
   const landscapeLength = useVariantAnalysisStore(s => s.analysisState?.result?.landscapeData?.length ?? null);
   const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
@@ -183,7 +179,6 @@ export default function MolstarViewer({
     colour: model.colour,
     plddtFilter: model.plddtFilter.available ? plddtFilter : "none",
     plddtScale: model.plddtFilter.available ? model.plddtFilter.scale : null,
-    esm3Scores: model.representation === "esm3" ? esm3Scores : null,
     variantPosition,
     canAddressVariantSite: model.site.canAddressVariantSite,
     residueNumbering: model.canvas.primary?.numbering ?? "unknown",

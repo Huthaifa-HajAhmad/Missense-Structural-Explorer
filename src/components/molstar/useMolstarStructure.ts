@@ -46,7 +46,6 @@ export interface UseMolstarStructureOptions {
   plddtFilter: PlddtFilter;
   /** 1 or 100; only set when the model says the primary B column holds pLDDT. */
   plddtScale: 1 | 100 | null;
-  esm3Scores: number[] | null;
   variantPosition: number | null;
   /** The displayed coordinates use verified UniProt numbering at the variant site. */
   canAddressVariantSite: boolean;
@@ -83,7 +82,7 @@ export interface UseMolstarStructureOptions {
   onSecondaryStructure?: (secondary: ModelSecondary | null, state: "reading" | "ready" | "unavailable" | "idle") => void;
 }
 
-function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: number | null): { color: string; colorParams?: any; typeParams?: any } {
+function themeRef(plan: ThemePlan, alphaOverride?: number | null): { color: string; colorParams?: any; typeParams?: any } {
   const extraAlpha = typeof alphaOverride === "number" && alphaOverride < 1 ? { typeParams: { alpha: alphaOverride } } : {};
   switch (plan.theme) {
     case "plddt":
@@ -92,8 +91,6 @@ function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: 
       return { color: "bfactor-quartile", ...extraAlpha };
     case "displacement":
       return { color: "backbone-displacement", ...extraAlpha };
-    case "esm3":
-      return { color: "esm3-shift", colorParams: { perturbationScores: esm3Scores ?? [] }, ...extraAlpha };
     case "secondary-structure":
       return { color: "secondary-structure", colorParams: { colors: { name: "custom", params: SECONDARY_COLOUR_MAP } }, ...extraAlpha };
     case "uniform": {
@@ -232,7 +229,6 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     colour,
     plddtFilter,
     plddtScale,
-    esm3Scores,
     variantPosition,
     canAddressVariantSite,
     residueNumbering = "unknown",
@@ -285,13 +281,11 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   onSecondaryRef.current = onSecondaryStructure;
 
   const colourKey = useMemo(() => JSON.stringify(colour), [colour]);
-  // A length-only key left an existing ESM3 heatmap stale after a same-length rerun.
-  const scoresKey = useMemo(() => (esm3Scores ? JSON.stringify(esm3Scores) : ""), [esm3Scores]);
   const companionKey = useMemo(() => companionResidues.join(","), [companionResidues]);
   const pocketKey = useMemo(() => pocketResidueIndices.join(","), [pocketResidueIndices]);
   const filterCut = plddtScale && plddtFilter !== "none" ? Number(plddtFilter) / (plddtScale === 1 ? 100 : 1) : null;
   // Alpha/visibility are representation properties, not colour-theme properties. Only these
-  // changes require rebuilding visual components; palette and ESM3 score changes do not.
+  // changes require rebuilding visual components; palette changes do not.
   const closeUpActive = Boolean(siteCloseUp && variantPosition && canAddressVariantSite);
   /** Residue numbers can be addressed on the canvas: verified UniProt numbering, site absent or not. */
   const residueNumbersTrusted = residueNumbering === "uniprot" || canAddressVariantSite;
@@ -445,7 +439,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (!active) return;
         polymerRef.current = polymerTarget;
         if (polymerTarget) {
-          await plugin.builders.structure.representation.addRepresentation(polymerTarget, { type: "cartoon", ...themeRef(colour.primary, esm3Scores, ribbonAlphaOverride) });
+          await plugin.builders.structure.representation.addRepresentation(polymerTarget, { type: "cartoon", ...themeRef(colour.primary, ribbonAlphaOverride) });
         }
         const ligand = await plugin.builders.structure.tryCreateComponentStatic(structure, "ligand");
         if (ligand) await plugin.builders.structure.representation.addRepresentation(ligand, { type: "ball-and-stick", color: "element-symbol" });
@@ -465,7 +459,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           const polymer2 = colour.secondaryCartoon ? await plugin.builders.structure.tryCreateComponentStatic(structure2, "polymer") : null;
           polymer2Ref.current = polymer2;
           if (polymer2) {
-            await plugin.builders.structure.representation.addRepresentation(polymer2, { type: "cartoon", ...themeRef(colour.secondary, esm3Scores, ribbonAlphaOverride) });
+            await plugin.builders.structure.representation.addRepresentation(polymer2, { type: "cartoon", ...themeRef(colour.secondary, ribbonAlphaOverride) });
           }
         }
 
@@ -550,7 +544,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       try {
         const primary = resolveHierarchyComponent(plugin, polymerRef.current);
         if (primary) {
-          const theme = themeRef(colour.primary, esm3Scores);
+          const theme = themeRef(colour.primary);
           await plugin.managers.structure.component.updateRepresentationsTheme([primary], {
             color: theme.color as any, colorParams: theme.colorParams,
           });
@@ -558,7 +552,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (!active) return;
         const secondary = resolveHierarchyComponent(plugin, polymer2Ref.current);
         if (secondary && colour.secondary) {
-          const theme = themeRef(colour.secondary, esm3Scores);
+          const theme = themeRef(colour.secondary);
           await plugin.managers.structure.component.updateRepresentationsTheme([secondary], {
             color: theme.color as any, colorParams: theme.colorParams,
           });
@@ -569,9 +563,9 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     }
     void updateColour();
     return () => { active = false; };
-    // The serialized keys capture value changes in colour plans and ESM3 arrays.
+    // The serialized key captures value changes in colour plans.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, colourKey, scoresKey]);
+  }, [pluginCreated, readyVersion, colourKey]);
 
   useEffect(() => {
     if (!customPdbUrl) onEntryLoadedRef.current?.(null);

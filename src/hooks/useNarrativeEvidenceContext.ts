@@ -4,7 +4,7 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { deepEvidenceContextFromStore } from "../shared/deepModelEvidence";
 
 /** Subscribe only to evidence that can change synthesis freshness, not every workspace edit. */
-export function useNarrativeEvidenceContext(saprotEngine?: string | null) {
+export function useNarrativeEvidenceContext() {
   const evidence = useVariantAnalysisStore(useShallow(s => ({
     primaryBiophysics: s.primaryBiophysics,
     foldingDdG: s.foldingDdG, foldingEnergetics: s.foldingEnergetics,
@@ -13,5 +13,5 @@ export function useNarrativeEvidenceContext(saprotEngine?: string | null) {
     thermompnnStatus: s.thermompnnStatus, thermompnnError: s.thermompnnError,
     isFolding: s.isFolding, disruptionPredictor: s.disruptionPredictor
   })));
-  return useMemo(() => deepEvidenceContextFromStore(evidence, saprotEngine), [evidence, saprotEngine]);
+  return useMemo(() => deepEvidenceContextFromStore(evidence), [evidence]);
 }

@@ -10,7 +10,7 @@ import { useVariantAnalysisStore as store } from '../../src/stores/useVariantAna
 import { evidenceWorkspaceFixture } from '../../src/test/evidenceWorkspaceFixture';
 import { contextWorkspaceFixture } from '../../src/test/contextWorkspaceFixture';
 import { molecularWorkspaceFixture } from '../../src/test/molecularWorkspaceFixture';
-import { NAE1_ENERGETICS, NAE1_METRICS, NAE1_SITE, NAE1_STRUCTURAL_DIFF } from '../../src/shared/__tests__/fixtures/nae1Perturbation';
+import { NAE1_ENERGETICS, NAE1_METRICS, NAE1_SITE, NAE1_STRUCTURAL_DIFF } from '../../src/shared/__tests__/fixtures/nae1Packing';
 import { GATA4_RESULT } from '../../src/shared/__tests__/fixtures/gata4Perturbation';
 import { NAE1_POCKET } from '../../src/shared/__tests__/fixtures/nae1ResidueShifts';
 import { splicingWorkspaceFixture, SPLICING_WORKSPACE_CASES } from '../../src/test/splicingWorkspaceFixture';
@@ -40,7 +40,7 @@ function scenario(name: string, scope: 'context' | 'molecular' | 'evidence' | 's
     analysisState: { result: f.result, isLoading: false, error: null }, isFolding: false, isBiophysicalLoading: false } as never);
 }
 scenario('Mixed', 'evidence');
-const tabScope = (tab: string) => tab === 'splicing' ? 'splicing' : ['structure', 'perturbation', 'function'].includes(tab) ? 'molecular' : ['clinical', 'predictors', 'alphagenome'].includes(tab) ? 'evidence' : 'context';
+const tabScope = (tab: string) => tab === 'splicing' ? 'splicing' : ['structure', 'function'].includes(tab) ? 'molecular' : ['clinical', 'predictors', 'alphagenome'].includes(tab) ? 'evidence' : 'context';
 const nativeFetch = window.fetch;
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -62,14 +62,14 @@ function Preview() {
       <button className="viz-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
       <label>Evidence <select aria-label="Evidence" value={tab} onChange={e => {
         const next = e.target.value;
-        const nextMolecular = ['structure', 'perturbation', 'function'].includes(next);
+        const nextMolecular = ['structure', 'function'].includes(next);
         setTab(next); setView('evidence');
         if (tabScope(next) !== scope) {
           const name = next === 'splicing' ? 'Reverse strand' : nextMolecular ? 'Overlapping domains' : 'Mixed';
           setExample(name); scenario(name, tabScope(next));
         }
       }}>
-        <option value="splicing">RNA splicing</option><option value="function">Functional domains</option><option value="structure">Residue shifts &amp; pockets</option><option value="perturbation">Structural perturbation</option><option value="gene-disease">Gene-disease</option><option value="expression-models">Expression</option><option value="species-models">Species &amp; models</option><option value="clinical">Population Data</option><option value="predictors">Predictors</option><option value="alphagenome">AlphaGenome</option></select></label>
+        <option value="splicing">RNA splicing</option><option value="function">Functional domains</option><option value="structure">Residue shifts &amp; pockets</option><option value="gene-disease">Gene-disease</option><option value="expression-models">Expression</option><option value="species-models">Species &amp; models</option><option value="clinical">Population Data</option><option value="predictors">Predictors</option><option value="alphagenome">AlphaGenome</option></select></label>
       <label>Example <select aria-label="Example" value={example} onChange={e => { setExample(e.target.value); scenario(e.target.value, scope); }}>{(scope === 'splicing' ? SPLICING_WORKSPACE_CASES : molecular ? ['Overlapping domains', 'Dense SOD1', 'NAE1', 'GATA4', 'Missing', 'New variant'] : scope === 'evidence' ? ['Mixed', 'Partial', 'Absent', 'Zero', 'Missing', 'New variant'] : ['Mixed', 'Differing assertions', 'Single disease', 'Dense expression', 'Pediatric unavailable', 'Mismatch', 'Missing', 'New variant']).map(name => <option key={name}>{name}</option>)}</select></label>
     </header>
     <AppViews masterView={view} setMasterView={setView} pushErrorEntry={console.error} setIsSettingsOpen={() => {}}

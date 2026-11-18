@@ -144,7 +144,7 @@ export function useNarrativeResynthesis(): NarrativeResynthesis {
      */
     const plan = planNarrativeSynthesis(
       { gene: identity.gene, variant: identity.variant, uniprotId: identity.uniprotId },
-      narrativeEvidenceSourceFromResult(result, deepEvidenceContextFromStore(store, settings.saprotEngine ?? null)),
+      narrativeEvidenceSourceFromResult(result, deepEvidenceContextFromStore(store)),
       { userDirections: store.userDirections, acmgWeighting: settings.acmgWeighting }
     );
 

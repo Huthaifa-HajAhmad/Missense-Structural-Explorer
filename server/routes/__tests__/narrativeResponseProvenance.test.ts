@@ -40,7 +40,6 @@ function respond(analysisResult: any) {
     null, // gnomadConstraint
     null, // gnomadFrequency
     "standard",
-    null, // esm2
     null, // uniprotFeatures
     null  // sequence
   );

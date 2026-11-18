@@ -1,4 +1,4 @@
-import type { PhysicalReading } from './perturbationEvidence';
+import type { PhysicalReading } from './packingEvidence';
 import { EVIDENCE_TABS } from './evidenceTabs';
 import { ALPHAGENOME_SOURCES } from './alphagenomeEvidence';
 import { BURIAL_RSA_BANDS, PACKING_NEIGHBOUR_BANDS } from './burialEvidence';
@@ -106,11 +106,6 @@ export const RESEARCH_GUIDES: Record<string, ResearchGuide> = {
     'Read each score on its own scale. Published calibrated bands appear separately from author classifications and local marks; the rule trace identifies the tools actually counted.',
     'Scores are not interchangeable probabilities. A predictor’s label is not a diagnosis, and shared features can make agreement dependent.',
     'Inspect the source records, calibrated reference and any disagreement with the engine’s recorded vote.', ['evidence_strength', 'revel', 'am', 'cadd', 'conservation'], calibration),
-  perturbation: guide('Sequence preference & local perturbation', 'Workspaces', 'How do models read this substitution, and what changes in the modelled neighbourhood?',
-    'This workspace separates language-model preferences, changes in numerical representations and physical readings from modelled coordinates.',
-    'Read sequence preference within each served model. For coordinate or energy readings, identify the paired structures and the quantity that was actually computed.',
-    'Embedding drift is not atomic movement. Language-model scores are not averaged into a physical disruption score, and a rigid backbone cannot reveal a backbone response.',
-    'Compare the native and alternate residue within one model, then inspect local structural readings and their availability.', ['llr', 'mutant_rank', 'embedding_shift', 'rmsd', 'foldx']),
   structure_guide: guide('Reading the 3D view', 'Workspaces', 'What can I learn from the shapes and colours?',
     'The viewer lets you inspect the selected structure, residue environment and paired models. Coordinates can come from a prediction, an experiment or local modelling.',
     'Check the structure source and colour key first. Rotate by dragging and zoom with the wheel or pinch. Selecting a residue explores the structure without changing the analysed variant.',
@@ -293,29 +288,9 @@ export const RESEARCH_GUIDES: Record<string, ResearchGuide> = {
     'Inspect the position’s structural and functional context.', ['conservation', 'function'], source('ConSurf documentation', 'https://consurf.tau.ac.il/')),
   esm1b: guide('ESM-1b', 'Sequence models', 'How does the sequence model score this substitution?',
     'ESM-1b learns patterns in protein sequences and scores how expected an alternate residue is relative to the native residue.',
-    'More negative log-likelihood ratios favour the native residue. Use the ESM-1b-specific calibration shown by the app; it does not apply to ESM-2 or ESM C.',
+    'More negative log-likelihood ratios favour the native residue. Use the ESM-1b-specific calibration shown by the app; it does not apply to other language models.',
     'A model-native preference is not an energy change. Calibrations are specific to the tool and scoring method.',
     'Confirm the served score identity and inspect its evidence band.', ['llr', 'model_provenance', 'evidence_strength'], source('Additional computational-tool calibration', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12208618/')),
-  esm2: guide('ESM-2', 'Sequence models', 'Which residue does this protein language model expect here?',
-    'ESM-2 learns sequence patterns from proteins. The residue at the site is hidden and the model scores all 20 amino acids there; the alternate is compared with the native (masked-marginal scoring, Meier 2021). The 650M checkpoint runs on this server when no hosted provider answers.',
-    'Read the log-likelihood ratio and residue distribution within the returned model. A negative ratio favours the native residue.',
-    'Sequence preference is not a stability estimate or a measurement of atomic movement. ESM-1b clinical thresholds must not be reused for ESM-2.',
-    'Check the served model and compare its native and alternate probabilities.', ['llr', 'mutant_rank', 'entropy', 'model_provenance']),
-  esmc: guide('ESM C', 'Sequence models', 'What does ESM C infer from the protein sequence?',
-    'ESM C is a protein language model that returns sequence representations and, in this workflow, residue preferences.',
-    'Read the served model in the record. The ESM C slot can be supplied by a VESM fallback; each score retains its own model’s scale.',
-    'An embedding difference is a change in model representation, not a physical displacement or a clinical probability.',
-    'Inspect the returned model name, residue probabilities and any fallback reason.', ['vesm', 'llr', 'embedding_shift', 'model_provenance'], source('ESM C model documentation', 'https://github.com/evolutionaryscale/esm')),
-  vesm: guide('VESM', 'Sequence models', 'How should I interpret the smaller fallback model?',
-    'VESM is a compact protein language model. It can supply sequence scores when used as the local alternative in this workflow.',
-    'Read its log-likelihood ratio within VESM and identify the served model in the record. A fallback can be useful while remaining a distinct method.',
-    'A VESM result must not inherit ESM C’s identity or presumed calibration. A different model size does not establish the reliability of this individual prediction.',
-    'Inspect the fallback reason and compare native and alternate preferences within the same model.', ['esmc', 'llr', 'model_provenance']),
-  saprot: guide('SaProt', 'Sequence models', 'What does adding structural context change about sequence preference?',
-    'SaProt combines amino-acid identity with tokens describing local structure to learn sequence preferences in structural context.',
-    'Read the served model and whether structure tokens were available. A missing structure token means the result lacks that part of the intended context.',
-    'Its likelihood is not a physical energy. Input structure errors or missing tokens limit what can be inferred from the score.',
-    'Inspect the structure-token status, distribution and native-versus-alternate preference.', ['llr', 'entropy', 'model_provenance']),
   gpn_star: guide('GPN-Star', 'Sequence models', 'How expected is this nucleotide in an evolutionary alignment?',
     'GPN-Star uses genomic sequence alignments and phylogenetic information to model nucleotide preferences.',
     'A more negative alternate-versus-reference log-likelihood ratio means the alternate base is less expected by the model. Local reference marks are not clinical evidence bands.',
@@ -325,32 +300,7 @@ export const RESEARCH_GUIDES: Record<string, ResearchGuide> = {
     'The ratio compares the model’s probability for the alternate residue with its probability for the native residue. The natural logarithm expresses that ratio in nats.',
     'For log(P(alternate)/P(native)), negative favours native, positive favours alternate and zero means equal probabilities. Compare magnitudes within the same model and scoring method.',
     'These are model probabilities for residues, not probabilities of disease. Averaging LLRs from different model families does not produce a calibrated impact score.',
-    'Inspect both probabilities and the distribution, especially when the model gives little preference to any residue.', ['mutant_rank', 'entropy', 'model_provenance'], esm),
-  mutant_rank: guide('Residue rank & probability', 'Metrics', 'Does a high-ranked alternate residue mean the substitution is tolerated?',
-    'Rank orders the candidate amino acids within one model’s distribution. It says where a residue sits, not how far apart its probability is from the others.',
-    'Compare alternate rank and probability with the native residue. The alternate can rank second while remaining much less probable than native.',
-    'Rank is not a probability of tolerance or a clinical verdict. A nearly flat distribution offers little preference even though it still has an ordering.',
-    'Read the native-versus-alternate ratio and distribution together.', ['llr', 'entropy'], esm),
-  entropy: guide('Residue-distribution entropy', 'Metrics', 'Is the model expressing a strong preference at this position?',
-    'Entropy describes how spread out the model’s probabilities are across amino acids.',
-    'Read entropy in bits. Lower entropy means probability is concentrated on fewer candidates; higher entropy means the distribution is flatter. Read any flatness mark as an app-defined interpretation aid.',
-    'A concentrated distribution is not proof that the model is correct, and a flat distribution is not proof that every substitution is harmless.',
-    'Inspect the full distribution before interpreting a rank or preference.', ['mutant_rank', 'llr'], esm),
-  embedding_shift: guide('Embedding drift', 'Metrics', 'Did the model’s numerical representation change?',
-    'An embedding is a vector of numbers learned by a model. Comparing vectors before and after a substitution describes a change in that representation.',
-    'Read the distance definition, model, sequence window and position of the peak. Euclidean and cosine distances use different scales and are not interchangeable.',
-    'Embedding distance has no unit of angstroms and is not observed motion, allostery or binding energy. A peak away from the site does not by itself establish a remote biological effect.',
-    'Check the model-specific metric and residue mapping; use coordinate evidence for physical geometry questions.', ['esm3', 'llr', 'rmsd']),
-  vesm_embedding: guide('VESM embedding analysis', 'Sequence models', 'What did the fallback model actually measure?',
-    'This result compares VESM representations of the native and alternate sequences. VESM supplied the calculation requested through the ESM3 service slot.',
-    'The displayed value is cosine distance between embeddings, not a log-likelihood ratio. Read the recorded model, covered sequence window, variant-site distance and location of the peak. Unscored positions are missing, not zero.',
-    'The distance is unitless. It does not measure physical motion, binding energy or disease probability. The app-defined bands are not a validated clinical calibration and cannot establish equivalence with ESM3.',
-    'Check the fallback provenance and coverage before comparing runs. Use coordinate measurements for structural geometry.', ['embedding_shift', 'model_provenance', 'coverage'], source('VESM methods', 'https://doi.org/10.1038/s41592-026-03050-9')),
-  esm3: guide('ESM3 representation analysis', 'Sequence models', 'Is this result a generated structure or an embedding comparison?',
-    'ESM3 supports multiple kinds of protein modelling. The representation analysis shown here compares sequence embeddings.',
-    'Read the actual operation and provenance. An embedding drift value belongs to the representation analysis; an input structure confidence value belongs to that input.',
-    'A method’s ability to generate structures does not mean generation ran. Embedding drift cannot demonstrate backbone movement.',
-    'Inspect the operation recorded for the result and follow any coordinate result separately.', ['embedding_shift', 'model_provenance', 'plddt'], source('ESM3 methods and SDK', 'https://github.com/evolutionaryscale/esm')),
+    'Inspect both probabilities, especially when the model gives little preference to any residue.', ['esm1b', 'model_provenance'], esm),
   foldx: guide('FoldX', 'Stability methods', 'What changed after local side-chain modelling?',
     'FoldX models a substitution and repacks side chains on the template backbone, then estimates energy differences.',
     'Read the total ΔΔG separately from its energy components. Compare the variant with its paired reference and check whether template repair succeeded.',
@@ -492,7 +442,7 @@ export const RESEARCH_GUIDES: Record<string, ResearchGuide> = {
 /** Subject-specific explanation for each Evidence workspace. */
 /** Evidence tab id → its research guide, read from the tab registry. */
 export const EVIDENCE_GUIDES: Record<string, string> = Object.fromEntries(EVIDENCE_TABS.map(t => [t.id, t.guide]));
-export const GUIDE_ALIASES: Record<string, string> = { esm: 'esm1b', esmc_llr: 'esmc', gerp_rs: 'gerp', phyloP: 'phylop', alphaMissense: 'am' };
+export const GUIDE_ALIASES: Record<string, string> = { esm: 'esm1b', gerp_rs: 'gerp', phyloP: 'phylop', alphaMissense: 'am' };
 export function resolveResearchGuide(key: string): ResearchGuide | undefined {
   return RESEARCH_GUIDES[GUIDE_ALIASES[key] ?? key];
 }

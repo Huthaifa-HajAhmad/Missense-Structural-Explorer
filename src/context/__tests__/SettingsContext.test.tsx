@@ -49,7 +49,7 @@ describe("SettingsContext (settings revamp)", () => {
     renderProbe((c) => (ctx = c));
     expect(ctx.settings.residueColor).toBe("#10B981");
     expect(ctx.settings.maxHistoryItems).toBe(20);
-    expect(ctx.settings.defaultPerturbationModel).toBe(DEFAULT_USER_SETTINGS.defaultPerturbationModel);
+    expect(ctx.settings.defaultStructureModel).toBe(DEFAULT_USER_SETTINGS.defaultStructureModel);
     expect(ctx.settings.biophysicsConditions).toEqual(DEFAULT_USER_SETTINGS.biophysicsConditions);
   });
 

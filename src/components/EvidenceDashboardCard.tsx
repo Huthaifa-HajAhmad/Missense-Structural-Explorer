@@ -9,7 +9,6 @@ import { ExpressionModelsTab } from './evidence/ExpressionModelsTab';
 import { SplicingTab } from "./evidence/SplicingTab";
 import { PredictorsTab } from "./evidence/PredictorsTab";
 import { StructureTab } from "./evidence/StructureTab";
-import { PerturbationTab } from "./evidence/PerturbationTab";
 import { InterfacesTab } from "./evidence/InterfacesTab";
 import { FunctionTab } from "./evidence/FunctionInteractionsTabs";
 import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
@@ -245,7 +244,6 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "predictors" && <PredictorsTab {...tabProps} />}
         {activeTab === "alphagenome" && <AlphaGenomeTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}
-        {activeTab === "perturbation" && <PerturbationTab {...tabProps} />}
         {activeTab === "function" && <FunctionTab {...tabProps} />}
         {activeTab === "interfaces" && <InterfacesTab {...tabProps} />}
         {activeTab === "splicing" && <SplicingTab {...tabProps} />}

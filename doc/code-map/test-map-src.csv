@@ -68,7 +68,7 @@ src/components/evidence/DevelopmentalExpressionCard.tsx,component,src/components
 src/components/evidence/DiseaseContextPicker.tsx,component,src/components/__tests__/EvidenceContextTabs.test.tsx
 src/components/evidence/EvidenceComparison.tsx,component,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx
 src/components/evidence/EvidenceContextPrefetch.tsx,component,src/components/evidence/__tests__/EvidenceContextPrefetch.test.tsx
-src/components/evidence/EvidenceWorkspace.tsx,component,src/components/__tests__/PerturbationTab.test.tsx;src/components/__tests__/PredictorsTab.test.tsx;src/components/__tests__/candidateAlleles.test.tsx;src/components/evidence/__tests__/AlphaGenomeTab.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/components/evidence/__tests__/FunctionTab.test.tsx;src/components/evidence/__tests__/InterfacesTab.sod1.test.tsx;src/components/evidence/__tests__/MechanismWorkspace.test.tsx;src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx;src/components/evidence/__tests__/SpeciesReviewFixes.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/components/evidence/__tests__/StructureTab.test.tsx;src/components/inspector/PredictorsRail.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/components/inspector/__tests__/PerturbationRail.pinnedReading.test.tsx;src/components/knowledge/__tests__/ContextualCoverage.test.tsx
+src/components/evidence/EvidenceWorkspace.tsx,component,src/components/__tests__/PredictorsTab.test.tsx;src/components/__tests__/candidateAlleles.test.tsx;src/components/evidence/__tests__/AlphaGenomeTab.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/components/evidence/__tests__/FunctionTab.test.tsx;src/components/evidence/__tests__/InterfacesTab.sod1.test.tsx;src/components/evidence/__tests__/MechanismWorkspace.test.tsx;src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx;src/components/evidence/__tests__/SpeciesReviewFixes.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/components/evidence/__tests__/StructureTab.test.tsx;src/components/inspector/PredictorsRail.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/components/knowledge/__tests__/ContextualCoverage.test.tsx
 src/components/evidence/ExpressionModelsTab.tsx,component,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx
 src/components/evidence/FunctionInteractionsTabs.tsx,barrel,src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/FunctionTab.sod1.test.tsx;src/components/evidence/__tests__/FunctionTab.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx
 src/components/evidence/GeneDiseaseReadings.tsx,component,
@@ -83,7 +83,6 @@ src/components/evidence/MetricExplanations.ts,client,src/components/__tests__/en
 src/components/evidence/ModelOrganismsCard.tsx,component,src/components/evidence/__tests__/ModelOrganismsCard.test.tsx
 src/components/evidence/ModelPhenotypesCard.tsx,component,src/components/evidence/__tests__/ModelPhenotypesCard.test.tsx
 src/components/evidence/MolecularComparison.tsx,component,
-src/components/evidence/PerturbationTab.tsx,component,src/components/__tests__/PerturbationTab.test.tsx;src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx
 src/components/evidence/PextCard.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/PredictorInformationalSummary.tsx,component,
 src/components/evidence/PredictorsTab.tsx,component,src/components/__tests__/PredictorsTab.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx
@@ -113,16 +112,6 @@ src/components/evidence/interfaces/Rulers.tsx,component,
 src/components/evidence/interfaces/interfacesLive.ts,client,src/components/evidence/__tests__/InterfacesTab.test.tsx;src/components/evidence/__tests__/MechanismWorkspace.test.tsx
 src/components/evidence/interfaces/useInterfacesData.ts,client,
 src/components/evidence/interfaces/viewUrlState.ts,client,
-src/components/evidence/perturbation/EmbeddingProfile.tsx,component,
-src/components/evidence/perturbation/Esm3Rows.tsx,component,
-src/components/evidence/perturbation/FindingCard.tsx,component,
-src/components/evidence/perturbation/ModelAvailability.tsx,component,
-src/components/evidence/perturbation/ReadingsTable.tsx,component,
-src/components/evidence/perturbation/ResidueDetail.tsx,component,
-src/components/evidence/perturbation/Rulers.tsx,component,
-src/components/evidence/perturbation/ViewIntro.tsx,component,
-src/components/evidence/perturbation/format.ts,client,
-src/components/evidence/perturbation/usePerturbationEvidence.ts,client,
 src/components/evidence/population/FrequencyScale.tsx,component,
 src/components/evidence/population/populationFormat.ts,client,src/components/evidence/__tests__/populationFormat.test.ts
 src/components/evidence/predictors/ScoreRuler.tsx,component,
@@ -164,7 +153,6 @@ src/components/inspector/LandscapeMethods.tsx,component,
 src/components/inspector/LandscapeSubstitutionStrip.tsx,component,
 src/components/inspector/LiteratureInspector.tsx,component,src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts
 src/components/inspector/NarrativeProvenanceRow.tsx,component,src/components/inspector/__tests__/InsightsInspector.provenance.test.tsx
-src/components/inspector/PerturbationRail.tsx,component,src/components/__tests__/PerturbationTab.test.tsx;src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx;src/components/inspector/__tests__/PerturbationRail.pinnedReading.test.tsx
 src/components/inspector/PinHeader.tsx,component,
 src/components/inspector/PopulationRail.tsx,component,src/components/__tests__/candidateAlleles.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/__tests__/PopulationRail.buildProvenance.test.tsx
 src/components/inspector/PredictorsRail.tsx,component,src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/PredictorsRail.test.tsx
@@ -356,10 +344,9 @@ src/shared/developmentalExpression.ts,client,
 src/shared/diseaseFrame.ts,client,src/shared/__tests__/evidenceContext.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/domainUnits.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts;src/shared/__tests__/functionEvidenceGzf1.test.ts
 src/shared/dosageSensitivity.ts,client,src/shared/__tests__/dosageSensitivity.test.ts;src/shared/__tests__/geneDiseaseEvidence.test.ts
-src/shared/embeddingSource.ts,client,src/shared/__tests__/embeddingSource.test.ts
 src/shared/energeticsComparison.ts,client,src/shared/__tests__/energeticsComparison.test.ts
 src/shared/energeticsEvidence.ts,client,src/components/__tests__/EnergeticsView.test.tsx;src/components/__tests__/clinicalExportVerdict.test.ts;src/components/energetics/EnergeticsComparison.test.tsx;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts
-src/shared/engineStatus.ts,client,server/tests/consensus-single-source.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/consensusVerdict.guard.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/perturbationEvidence.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
+src/shared/engineStatus.ts,client,server/tests/consensus-single-source.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/consensusVerdict.guard.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
 src/shared/evidenceAvailability.ts,client,src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts
 src/shared/evidenceComparison.ts,client,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/candidateScores.test.ts;src/test/evidenceComparison.test.ts
 src/shared/evidenceContextIdentity.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/shared/__tests__/evidenceContextIdentity.test.ts
@@ -407,7 +394,6 @@ src/shared/locusResolution.ts,client,server/services/external-api/candidate-freq
 src/shared/lofMechanismBasis.ts,client,src/shared/__tests__/lofMechanismBasis.test.ts
 src/shared/mechanismContext.ts,client,server/services/evidence-context/g2p.test.ts
 src/shared/mechanismWorkspace.ts,client,src/shared/__tests__/mechanismWorkspace.test.ts
-src/shared/modelCalibration.ts,client,src/shared/__tests__/modelCalibration.test.ts
 src/shared/modelOrganisms.ts,client,src/shared/__tests__/modelOrganisms.test.ts
 src/shared/modelPhenotypes.ts,client,server/services/evidence-context/phenotypesHpa.test.ts
 src/shared/molecularWorkspace.ts,client,src/components/evidence/function/__tests__/domainOverlap.test.ts;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/shared/__tests__/functionEvidenceGzf1.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
@@ -422,9 +408,6 @@ src/shared/narrativeSynthesis.ts,client,server/routes/variant/narrativeCacheKey.
 src/shared/numbering.ts,client,src/shared/__tests__/numbering.test.ts
 src/shared/perBurden.ts,client,src/shared/__tests__/perBurden.test.ts;src/shared/__tests__/perBurdenParity.test.ts
 src/shared/perRegions.ts,client,server/services/evidence-context/perRegions.test.ts
-src/shared/perturbationEvidence.ts,client,src/shared/__tests__/molecularWorkspace.test.ts;src/shared/__tests__/perturbationEvidence.test.ts;src/shared/__tests__/perturbationSummary.test.ts
-src/shared/perturbationModels.ts,client,src/shared/__tests__/modelCalibration.test.ts
-src/shared/perturbationSummary.ts,client,src/shared/__tests__/perturbationSummary.test.ts
 src/shared/pext.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/evidenceContext.test.ts;src/stores/slices/evidenceContextSlice.test.ts
 src/shared/platform.ts,client,
@@ -464,7 +447,7 @@ src/shared/structureRefs.ts,client,server/routes/biophysics/pocket-structure-ref
 src/shared/structureSecondary.ts,client,src/shared/__tests__/structureSecondary.test.ts
 src/shared/structureSelection.ts,client,src/shared/__tests__/structureSelection.test.ts
 src/shared/thresholds.ts,barrel,server/services/prediction/acmg.test.ts;server/services/prediction/predictors.test.ts;src/components/header/__tests__/constraintIntegrity.test.ts;src/components/inspector/__tests__/EvidenceInspector.populationFrequency.test.tsx;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
-src/shared/thresholds/calibration.ts,client,src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx;src/shared/__tests__/modelCalibration.test.ts
+src/shared/thresholds/calibration.ts,client,src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx
 src/shared/thresholds/concordance.ts,client,src/shared/__tests__/candidateScores.test.ts
 src/shared/thresholds/consensus.ts,client,src/shared/__tests__/consensusVerdict.guard.test.ts
 src/shared/thresholds/constants.ts,client,src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/frequencyRule.test.ts;src/shared/__tests__/splicingEvidence.test.ts

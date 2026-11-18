@@ -48,7 +48,6 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
         curatedLofMechanism: curatedLof,
         gnomadFrequency: null,
         acmgWeighting: "standard",
-        esm2: null,
         uniprotFeatures: null,
         sequence: "A".repeat(452)
       });
@@ -66,7 +65,6 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
         curatedLofMechanism: curatedLof,
         gnomadFrequency: null,
         acmgWeighting: "standard",
-        esm2: null,
         uniprotFeatures: null,
         sequence: "A".repeat(452)
       });
@@ -84,7 +82,6 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
         curatedLofMechanism: curatedLof,
         gnomadFrequency: null,
         acmgWeighting: "standard",
-        esm2: null,
         uniprotFeatures: { features: [{ type: "domain", start: 400, end: 420 }] },
         sequence: "A".repeat(452)
       });

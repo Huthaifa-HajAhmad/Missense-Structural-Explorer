@@ -107,7 +107,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const [pptxBusy, setPptxBusy] = useState(false);
 
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
-  const narrativeContext = useNarrativeEvidenceContext(settings?.saprotEngine);
+  const narrativeContext = useNarrativeEvidenceContext();
   const isNarrativeBusy = propIsNarrativeLoading ?? storeIsNarrativeLoading;
   const narrative = analysisResult?.analysis ?? "";
   const isDegraded = isFallbackNarrative(analysisResult?.analysis, analysisResult?.isFallback, analysisResult?.fallbackReason);

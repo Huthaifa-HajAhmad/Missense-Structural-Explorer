@@ -7,7 +7,7 @@ import {
   type Structure3dInput,
 } from "../structure3dEvidence";
 import { scanBFactors, readResidueAt, identifyAlphaFoldHeader, plddtScale, isSitePair } from "../coordinateText";
-import { LOCAL_ALIGNMENT_FIT_WINDOW, THRESHOLDS } from "../thresholds";
+import { LOCAL_ALIGNMENT_FIT_WINDOW } from "../thresholds";
 import { LEGACY_ENGINE_LABELS } from "../engineStatus";
 
 /**
@@ -102,7 +102,6 @@ function baseInput(overrides: Partial<Structure3dInput> = {}): Structure3dInput 
     },
     alignmentScope: "global",
     metrics: null,
-    esm3: null,
     burial: null,
     homologs: [
       { pdbId: "1YOV", organism: "Homo sapiens", method: "X-RAY DIFFRACTION", resolution: 2.6, identity: 100, querySeqFrom: 1, querySeqTo: 534 },
@@ -531,37 +530,16 @@ describe("structure3dEvidence — ESMFold view", () => {
   });
 });
 
-describe("ESM3 sequence shift overlay", () => {
-  it.each([
-    ['VESM-150M fallback', 'VESM embedding drift', '10.1038/s41592-026-03050-9'],
-    ['ESM3-Medium', 'ESM3 embedding drift', '10.1126/science.ads0018'],
-  ])('keeps overlay labels and citations tied to %s', (provenance, label, doi) => {
-    const model = buildStructure3dEvidence(baseInput({ esm3: { scoreCount: 534, error: null, provenance }, representation: 'esm3' }));
-    expect(model.legend?.title).toBe(`${label} on wild type`);
-    expect(model.representations.find(r => r.id === 'esm3')?.label).toBe(label);
-    expect(JSON.stringify(model)).toContain(doi);
-    if (provenance.includes('VESM')) expect(JSON.stringify(model)).not.toContain('10.1126/science.ads0018');
-  });
-  it("projects variant-conditioned scores only onto the predicted wild type and uses app-defined bands", () => {
-    const m = buildStructure3dEvidence(baseInput({ esm3: { scoreCount: 534, error: null }, representation: "esm3" }));
-    expect(m.representation).toBe("esm3");
-    expect(m.legend?.title).toBe("Sequence embedding drift on wild type");
-    expect(m.legend?.provenanceNote).toMatch(/Wild-type versus variant sequence embeddings, projected/);
-    const d = THRESHOLDS.esm3Drift;
-    expect(m.legend?.entries.map(e => e.label).slice(0, 4)).toEqual([`< ${d.none}`, `${d.none}–${d.minor}`, `${d.minor}–${d.moderate}`, `≥ ${d.moderate}`]);
-    expect(m.legend?.provenance).toBe("app-defined");
-    expect(JSON.stringify(m)).not.toMatch(/Allosteric (Hub|Heatmap)/);
+describe("relationship notes for entries", () => {
+  it("offers no sequence-embedding colour mode, even for an analysis saved with embedding scores", () => {
+    const m = buildStructure3dEvidence(baseInput({ representation: "esm3" as never }));
+    expect(m.representations.map(option => option.id)).not.toContain("esm3");
+    expect(m.representation).not.toBe("esm3");
+    expect(JSON.stringify(m)).not.toMatch(/embedding|ESM3|VESM/i);
   });
 
-  it("does not offer the sequence overlay on a FoldX variant or an experimental entry", () => {
-    const variant = buildStructure3dEvidence(baseInput({
-      viewMode: "mutant", foldx: readyFoldx(), esm3: { scoreCount: 534, error: null }, representation: "esm3",
-    }));
-    expect(variant.representations.some(option => option.id === "esm3")).toBe(false);
-    expect(variant.representation).not.toBe("esm3");
-
+  it("states the AlphaFold–PDB relationship on the wild type only", () => {
     const entry = buildStructure3dEvidence(baseInput({
-      esm3: { scoreCount: 534, error: null }, representation: "esm3",
       wildType: {
         provenance: { source: "alphafold", afdbVersion: "v6" },
         customPdbUrl: "/api/v1/pdb/entry/1YOV?uniprot=Q13564&pos=116&wt=D",
@@ -569,8 +547,6 @@ describe("ESM3 sequence shift overlay", () => {
         scan: scanBFactors(CRYSTAL_TEXT), site: readResidueAt(CRYSTAL_TEXT, 116),
       },
     }));
-    expect(entry.representations.find(option => option.id === "esm3")?.available).toBe(false);
-    expect(entry.representation).not.toBe("esm3");
     expect(entry.canvas.relationshipNote).toMatch(/AlphaFold–PDB coordinate RMSD/);
     const variantWithEntry = buildStructure3dEvidence(baseInput({
       viewMode: "mutant", foldx: readyFoldx(),

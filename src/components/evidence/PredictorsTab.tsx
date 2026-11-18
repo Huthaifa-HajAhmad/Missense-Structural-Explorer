@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Cpu, Info, ListChecks } from "lucide-react";
 import { TabComponentProps } from "./types";
-import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { useSettings } from "../../context/SettingsContext";
 import { ModelKnowledgeModal } from "../modals/ModelKnowledgeModal";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
@@ -421,9 +420,8 @@ export function PredictorsTab(props: TabComponentProps) {
   return <PredictorsTabContent {...props} />;
 }
 
-function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSettings, onTabChange }: TabComponentProps) {
+function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: TabComponentProps) {
   const workspace = useEvidenceWorkspace('predictors');
-  const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const { settings, openSettingsTab } = useSettings();
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
   // Non-null: the PredictorsTab wrapper renders this only when a result exists.
@@ -433,10 +431,9 @@ function PredictorsTabContent({ analysisState, isBiophysicalLoading, onOpenSetti
   const evidence = useMemo(() => buildPredictorEvidence({
     result,
     isLoading: analysisState.isLoading,
-    isModelLoading: Boolean(isBiophysicalLoading || isStructuralLoading),
     // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
     alphagenomeConfigured,
-  }), [result, analysisState.isLoading, isBiophysicalLoading, isStructuralLoading, alphagenomeConfigured]);
+  }), [result, analysisState.isLoading, alphagenomeConfigured]);
   const summary = useMemo(() => predictorSummary(evidence), [evidence]);
   const ladder = useMemo(() => buildLadderEvidence({ result, predictor: evidence }), [result, evidence]);
   const cutLinesByKey = useMemo(() => new Map<string, string[]>([

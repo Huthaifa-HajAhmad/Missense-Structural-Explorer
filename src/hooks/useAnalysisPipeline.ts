@@ -350,7 +350,7 @@ export function useAnalysisPipeline() {
           getCurrentEvidence: normalizedOptions.getCurrentEvidence ?? (() => {
             const state = useVariantAnalysisStore.getState();
             const result = state.analysisState.result;
-            return result ? { result, context: deepEvidenceContextFromStore(state, normalizedOptions.settings.saprotEngine) } : null;
+            return result ? { result, context: deepEvidenceContextFromStore(state) } : null;
           })
         },
         activeSignal,

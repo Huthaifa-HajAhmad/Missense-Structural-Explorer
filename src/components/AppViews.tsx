@@ -388,6 +388,8 @@ export function AppViews({
                   isFolding={isFolding}
                   foldingProgress={storeFoldingProgress}
                   foldingError={foldingError}
+                  structuralDiff={structuralDiff}
+                  packingMetrics={foldxMetrics}
                 />
               </ErrorBoundary>
             )}
@@ -639,7 +641,6 @@ export function AppViews({
                 activeEvidenceTab={activeEvidenceTab}
                 onSelectEvidenceTab={setActiveEvidenceTab}
                 onSelectResidueIndex={setSelectedResidueIndex}
-                metrics={isEsm ? esmFoldMetrics : foldxMetrics}
                 active3dModelTab={isEsm ? "esmfold2" : "alphafold2"}
                 computedPocket={computedPocket}
                 isPocketLoading={isPocketLoading}

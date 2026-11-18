@@ -6,7 +6,7 @@ import {
   RiFlaskLine, RiBookOpenLine, RiFileTextLine, RiTerminalBoxLine, RiInformationLine,
   RiGroupLine, RiStethoscopeLine, RiSoundModuleLine, RiBearSmileLine,
   RiShapesLine, RiCpuLine, RiSparklingLine, RiScissorsLine, RiCrosshair2Line,
-  RiWaterFlashLine, RiLinksLine, RiAtomLine, RiBrainLine,
+  RiLinksLine, RiAtomLine, RiBrainLine,
   type RemixiconComponentType,
 } from "@remixicon/react";
 import type { EvidenceTabId } from "../../shared/insightsEvidence";
@@ -59,7 +59,6 @@ export const SUB_NAV_ICONS: Record<EvidenceTabId | StructureModelId, NavIcon> = 
   alphagenome: navGlyph(RiSparklingLine, "AlphaGenome"),
   splicing: navGlyph(RiScissorsLine, "Splicing"),
   structure: navGlyph(RiCrosshair2Line, "Residue"),
-  perturbation: navGlyph(RiWaterFlashLine, "Perturbation"),
   interfaces: navGlyph(RiLinksLine, "Interfaces"),
   structure_alphafold: navGlyph(RiAtomLine, "AlphaFold"),
   structure_esmfold: navGlyph(RiBrainLine, "Esmfold"),

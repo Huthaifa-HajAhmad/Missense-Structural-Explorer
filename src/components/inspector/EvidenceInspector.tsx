@@ -1,9 +1,7 @@
 import React from "react";
-import type { AnalysisResult, EnergeticsData, PocketResult } from "../../types";
-import type { PerturbationModelId } from "../../shared/perturbationModels";
+import type { AnalysisResult, PocketResult } from "../../types";
 import { findEvidenceTab, type EvidenceTabId } from "../../shared/evidenceTabs";
 import SplicingRail from "./SplicingRail";
-import PerturbationRail from "./PerturbationRail";
 import { FunctionRail } from "./FunctionRail";
 import { PopulationRail } from "./PopulationRail";
 import { EvidenceContextRail } from './EvidenceContextRail';
@@ -27,14 +25,6 @@ interface EvidenceInspectorProps {
   isNarrativeLoading?: boolean;
   onRetryPocket?: () => void | Promise<void>;
   onRetryNarrative?: () => void | Promise<void>;
-  activePerturbationModel?: PerturbationModelId;
-  saprotEngine?: string | null;
-  foldingEnergetics?: EnergeticsData | null;
-  structuralDiff?: unknown;
-  metrics?: unknown;
-  isFolding?: boolean;
-  foldingStatus?: "success" | "failed" | "unavailable" | null;
-  foldingError?: string | null;
 }
 
 type RailProps = Omit<EvidenceInspectorProps, "analysisResult" | "activeEvidenceTab"> & { analysisResult: AnalysisResult };
@@ -42,7 +32,7 @@ type RailProps = Omit<EvidenceInspectorProps, "analysisResult" | "activeEvidence
 /**
  * One rail per Evidence tab, and the ONLY place the routing lives.
  *
- * It used to be split: `ViewInspector` routed splicing, structure and perturbation, this file routed
+ * It used to be split: `ViewInspector` routed splicing, structure and a third tab, this file routed
  * the rest, its own `structure` branch could never render, and an unknown id fell through to a
  * "placeholder telemetry" box. The map is keyed by the registry's id type, so a new tab does not
  * build until it has a rail; an unrecognised id falls back to Population, as the tab body does.
@@ -66,19 +56,6 @@ const RAILS: Record<EvidenceTabId, (p: RailProps) => React.ReactNode> = {
       isNarrativeLoading={p.isNarrativeLoading}
       onRetryPocket={p.onRetryPocket}
       onRetryNarrative={p.onRetryNarrative}
-    />
-  ),
-  perturbation: p => (
-    <PerturbationRail
-      analysisResult={p.analysisResult}
-      activePerturbationModel={p.activePerturbationModel}
-      saprotEngine={p.saprotEngine}
-      foldingEnergetics={p.foldingEnergetics}
-      structuralDiff={p.structuralDiff}
-      metrics={p.metrics}
-      isFolding={p.isFolding}
-      foldingStatus={p.foldingStatus}
-      foldingError={p.foldingError}
     />
   ),
   interfaces: p => <InterfacesRail analysisResult={p.analysisResult} />,

@@ -10,7 +10,6 @@ import { MasterView } from "../MasterSidebar";
 import { NAV_ICONS, SUB_NAV_ICONS, type NavIcon } from "../ui/navIcons";
 import { revealInspectorSection, useInspectorFocus } from "../../lib/inspectorFocus";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
-import { useSettings } from "../../context/SettingsContext";
 import type { FoldxProgress } from "../../shared/foldxPhase";
 
 import StructureInspector from "./StructureInspector";
@@ -70,7 +69,6 @@ export interface ViewInspectorProps {
   activeEvidenceTab?: string;
   onSelectEvidenceTab?: (tab: string) => void;
   onSelectResidueIndex?: (idx: number) => void;
-  metrics?: any;
   active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
   /** P2Rank output backing the Residue Shifts inspector's cavity narrative. */
   computedPocket?: PocketResult | null;
@@ -178,7 +176,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   activeEvidenceTab,
   onSelectEvidenceTab,
   onSelectResidueIndex,
-  metrics,
   active3dModelTab = "alphafold2",
   computedPocket = null,
   isPocketLoading = false,
@@ -192,20 +189,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     return localStorage.getItem("cs-inspector-collapsed") === "true";
   });
 
-  /**
-   * Read directly from the shared stores rather than threading two more props through
-   * every intermediate view: the perturbation selection is produced by the model cards in
-   * the main column and consumed here, the same way ReportInspector reads reportSections.
-   */
-  const activePerturbationModel = useVariantAnalysisStore(s => s.activePerturbationModel);
   const isAnalysisLoading = useVariantAnalysisStore(s => s.analysisState.isLoading);
-  const saprotEngine = useSettings().settings.saprotEngine;
-  /**
-   * The tab reads its geometry from the biophysics slice, while this panel receives
-   * `foldingEnergetics` as a prop but no `structuralDiff`. Reading the slice here keeps
-   * the inspector's score decomposition in step with the verdict in the main column.
-   */
-  const primaryStructuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
 
   /**
    * A gene-constraint reading sent here from the context strip borrows the rail from the page
@@ -536,14 +520,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             isNarrativeLoading={isNarrativeLoading}
             onRetryPocket={onRetryPocket}
             onRetryNarrative={onRetryNarrative}
-            activePerturbationModel={activePerturbationModel}
-            saprotEngine={saprotEngine}
-            foldingEnergetics={foldingEnergetics}
-            structuralDiff={primaryStructuralDiff}
-            metrics={metrics}
-            isFolding={isFolding}
-            foldingStatus={foldingStatus}
-            foldingError={foldingError}
           />
         )}
 

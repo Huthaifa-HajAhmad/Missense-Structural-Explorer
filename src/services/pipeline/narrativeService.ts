@@ -150,18 +150,7 @@ export async function generateClinicalNarrative(
     }
   }
 
-  /*
-   * The SaProt engine setting belongs to THIS pass's invocation, so it is filled in when the snapshot's
-   * context does not carry one. Without it the language-model roster would name the card's static label
-   * where the explicit control names the engine that actually served the score, and the two plans would
-   * hash differently — a cache miss and no coalescing, for a difference that is not evidence.
-   */
-  const evidenceContext = currentEvidence
-    ? {
-        ...currentEvidence.context,
-        saprotEngine: currentEvidence.context?.saprotEngine ?? settings?.saprotEngine ?? null,
-      }
-    : deepEvidenceContextFromResult(bpResult, settings?.saprotEngine ?? null);
+  const evidenceContext = currentEvidence ? (currentEvidence.context ?? {}) : deepEvidenceContextFromResult(bpResult);
 
   /** The result the plan's evidence came from — and therefore the run this synthesis is FOR. */
   const evidenceResult = currentEvidence ? currentEvidence.result : bpResult;

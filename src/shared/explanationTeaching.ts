@@ -10,13 +10,7 @@ export const EXPLANATION_TEACHING: Record<string, TeachingFigure> = {
   boltz2: flow('The specified protein chains and their sequences.', 'Predict a candidate assembly for the submitted sequence combination.', 'Complex coordinates, confidence and contacts; binding change is computed separately.'),
   ddmut_ppi: flow('A wild-type complex, a chain and the substitution.', 'Predict the effect of the substitution on protein-protein binding.', 'A signed binding-energy change; negative means weaker binding.'),
   foldx: flow('A protein structure, the substitution and modelling conditions.', 'Repair the template and model the substitution with local side-chain repacking on a fixed backbone.', 'A paired structural comparison, estimated total stability change and separate energy components.'),
-  esm2: flow('The protein sequence and the position being scored.', 'Compare the model’s preference for native and alternate amino acids in sequence context.', 'Residue probabilities and a model-native log-likelihood ratio; embeddings where available.'),
   esm1b: flow('Protein sequence context and a candidate substitution.', 'Compare alternate and native sequence likelihoods using the ESM-1b scoring method.', 'A log-likelihood ratio with tool-specific published calibration where applicable.'),
-  esmc: flow('The protein sequence and the position being scored.', 'Use the served ESM C model, or a separately identified fallback.', 'Sequence representations and residue preferences on the served model’s own scale.'),
-  vesm: flow('The protein sequence.', 'Use a compact distilled language model to score residue preferences.', 'VESM-labelled sequence scores; the result does not inherit the identity of another model.'),
-  saprot: flow('An amino-acid sequence and available structure tokens.', 'Combine sequence identity with local structural context; flag unavailable structure tokens.', 'Residue preferences conditional on the context that was actually supplied.'),
-  esm3: flow('Native and alternate protein sequences.', 'Compare the returned sequence embeddings for this analysis.', 'A representation distance. Structural generation is a separate operation.'),
-  vesm_embedding: flow('Native and alternate sequences within the recorded scoring window.', 'VESM supplies embeddings through the fallback route. Compare paired vectors by cosine distance.', 'Unitless distances at covered residues. Missing positions remain unassessed; these are not LLR scores or coordinate movements.'),
   gpn_star: flow('A genomic substitution, multispecies alignment and phylogenetic context.', 'Estimate reference and alternate nucleotide preferences.', 'A nucleotide-level log-likelihood ratio.'),
   am: flow('A missense substitution with learned sequence and structural context.', 'Retrieve the AlphaMissense prediction and apply the separate published calibration for display.', 'A score, author class and calibrated evidence reading with distinct meanings.'),
   revel: flow('Multiple missense predictor annotations.', 'Combine the annotations in an ensemble model.', 'One REVEL score. Its components are not extra independent evidence.'),
@@ -42,10 +36,6 @@ export const EXPLANATION_TEACHING: Record<string, TeachingFigure> = {
   llr: { kind: 'example', heading: 'Illustrative example · one model', values: [
     { label: 'Native residue probability', value: '40%' }, { label: 'Alternate residue probability', value: '4%' }, { label: 'Alternate / native', value: '0.1' },
   ], explanation: 'The model gives native ten times the probability of alternate. The natural logarithm of 0.1 is about −2.30 nats. This compares residue preferences, not disease probabilities.' },
-  mutant_rank: { kind: 'comparison', heading: 'Rank and probability answer different questions', columns: [
-    { label: 'Rank', text: 'Second among 20 amino acids tells you the order.' },
-    { label: 'Probability', text: 'Native 90% and alternate 5% tells you how uneven the preference is.' },
-  ], note: 'Illustrative values. Second place can still be much less probable than native.' },
   ddg: { kind: 'comparison', heading: 'Reading the displayed sign', columns: [
     { label: 'Negative', text: 'Predicted stabilization relative to the reference.' },
     { label: 'Positive', text: 'Predicted destabilization relative to the reference.' },
@@ -61,10 +51,6 @@ export const EXPLANATION_TEACHING: Record<string, TeachingFigure> = {
   allele_frequency: { kind: 'example', heading: 'Illustrative count-to-frequency calculation', values: [
     { label: 'Alternate allele copies · AC', value: '2' }, { label: 'Assessed allele copies · AN', value: '10,000' }, { label: 'Frequency · AC / AN', value: '0.0002 = 0.02%' },
   ], explanation: 'The denominator counts assessed allele copies, not people. The same alternate count in a smaller sample produces a different frequency.' },
-  embedding_shift: { kind: 'comparison', heading: 'Keep the measured space clear', columns: [
-    { label: 'Embedding distance', text: 'Difference between vectors inside a model; read its metric and scale.' },
-    { label: 'Coordinate distance', text: 'Difference between positions of matched atoms, measured in angstroms.' },
-  ], note: 'These quantities cannot share a physical displacement threshold.' },
   plddt: { kind: 'comparison', heading: 'Confidence belongs to the prediction', columns: [
     { label: 'Local confidence', text: 'How reliable the model expects nearby coordinate geometry to be.' },
     { label: 'Biological effect', text: 'Whether the substitution changes protein function or causes disease.' },
