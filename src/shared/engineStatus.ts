@@ -585,6 +585,9 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
       // without implying the pipeline or the variant was at fault.
       return CANCELLED_RUN_MESSAGE;
     case "failed":
+      if (isRejectionDetail(detail)) {
+        return `${engine.name} cannot score this structure, so it gives no value for this variant. Retrying will not change that.`;
+      }
       return detail && /repair/i.test(detail)
         ? "Structure preparation failed, so no reliable estimate was produced."
         : "The calculation failed for this variant.";
@@ -826,6 +829,15 @@ function interruptedProblemFor(
   return "auth-expired";
 }
 
+/**
+ * A live model service refusing THIS input (server/services/stability/stabilityoracle.ts words it
+ * "rejected this query"): the same query would be refused again, so it is a failure, not a provider
+ * error to retry.
+ */
+function isRejectionDetail(detail?: string | null): boolean {
+  return Boolean(detail && /\brejected this query\b/i.test(detail));
+}
+
 function isBusyOrTimeoutDetail(detail?: string | null): boolean {
   if (!detail) return false;
   return /\b(still busy|may be busy|was busy|did not answer within|did not start|timed out)\b/i.test(detail);
@@ -846,6 +858,7 @@ function isBusyOrTimeoutDetail(detail?: string | null): boolean {
 function absenceProblemFor(engine: EngineDescriptor, status: RemoteStatus, detail?: string | null): EngineProblem | null {
   if (status === "busy") return "upstream-busy";
   if (status === "error") {
+    if (isRejectionDetail(detail)) return "pipeline-failed";
     return isBusyOrTimeoutDetail(detail) ? "upstream-busy" : "upstream-error";
   }
   if (status !== "unavailable") return null;

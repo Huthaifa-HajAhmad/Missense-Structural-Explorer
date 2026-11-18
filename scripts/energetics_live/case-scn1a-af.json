@@ -1,0 +1,9 @@
+[
+ {
+  "name": "over 1,500 residues: SCN1A R1648H on the full 2,009-residue AlphaFold model",
+  "uniprotId": "P35498",
+  "mutation": "RA1648H",
+  "pdbFile": "/pdb/AF-P35498-F1-model_v6.pdb",
+  "user": 0
+ }
+]

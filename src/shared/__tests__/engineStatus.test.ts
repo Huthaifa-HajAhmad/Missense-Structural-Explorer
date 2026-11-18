@@ -397,6 +397,30 @@ describe("engineStatus — RaSP 'Not covered' needs a lookup that said so", () =
   });
 });
 
+describe("engineStatus — a refusal that a retry cannot change", () => {
+  it("calls a model-service rejection a failure for this structure, not a provider error to retry", () => {
+    // Test container, TP53 p.Arg175His on 8UTS chain K: the structure could not be prepared, so the
+    // same query would be refused again; "can be retried later" was untrue.
+    const built = buildEngineOutcomes({
+      stabilityoracle: null,
+      stabilityoracleStatus: "error",
+      stabilityoracleError: "StabilityOracle rejected this query: PDB2PQR could not add hydrogens to this chain, so StabilityOracle cannot score it.",
+    }).find(o => o.id === "stabilityoracle")!;
+    expect(built.state).toBe("failed");
+    expect(built.reason).toBe("StabilityOracle cannot score this structure, so it gives no value for this variant. Retrying will not change that.");
+    expect(built.detail).toContain("PDB2PQR");
+  });
+
+  it("keeps a timeout a busy provider that can be retried", () => {
+    const built = buildEngineOutcomes({
+      stabilityoracle: null,
+      stabilityoracleStatus: "error",
+      stabilityoracleError: "StabilityOracle did not answer within 180 s. The model service may be busy. Please run the analysis again.",
+    }).find(o => o.id === "stabilityoracle")!;
+    expect(built.state).toBe("upstream-busy");
+  });
+});
+
 describe("engineStatus — absence is attributed per engine, not by one rule", () => {
   /**
    * `unavailable` means two different things: a remote queue that did not answer (retryable) and
