@@ -55,6 +55,9 @@ Empty caches, candidates bf48966d and 88a7b30b. Pass conditions fixed in advance
 | SCN1A R1648H | 7DTD A (3.3 Å, complete) | the only covering chain, now checked |
 | TP53 R175H, R273H | AlphaFold v6 | none of the 12 examined chains is a wild-type, usable chain (the 30 best-resolved are engineered); before: 9R2Q K, 165/200 residues incomplete, repair skipped |
 
+Replayed after the review corrections (candidate df699495, memo key `select-v4`, fresh container): all six
+cases chose the same template as above and every engine request returned 200 with a FoldX value.
+
 Cold structure choice adds 2 to 4 s to submission. Order invariance is unit-tested (best-chain.test.ts).
 
 ## Findings and how each ended

@@ -93,3 +93,5 @@ fallback then returned PDBe's first row, 9R2Q:K, the incomplete chain this rule 
 - An examination that could not complete (UniProt sequence unavailable, or no examined chain verified) is
   not remembered, by the selector or by the resolver's memo, so the next request checks again; only a
   completed examination with no eligible chain is remembered (1 hour) and logged with its counts.
+- The memo key moves to `select-v4`, because the examination order changed. Replayed on candidate df699495
+  with a fresh container: the same six templates as the second validation run (STATUS.md).
