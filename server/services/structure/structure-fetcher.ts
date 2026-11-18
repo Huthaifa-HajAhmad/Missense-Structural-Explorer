@@ -154,29 +154,45 @@ export function getResolvedAlphafoldVersion(uniprotId: string): string | undefin
   return undefined;
 }
 
+/** UniProt:position pairs whose last chain examination could not complete; their fallback must not be remembered. */
+const incompleteSelections = new Set<string>();
+
+/** Whether the last chain examination for this variant could not complete (see `rankByLocalQuality`). */
+export function selectionWasIncomplete(uniprotId: string, pos: number | undefined): boolean {
+  return pos !== undefined && incompleteSelections.has(`${uniprotId.toUpperCase()}:${pos}`);
+}
+
 /**
- * The covering row with the best local quality at `pos` (doc/energetics-release/STRUCTURE_SELECTION_RULE.md),
- * or null when none of the examined chains is eligible, so the caller keeps PDBe's first covering row.
+ * The covering row with the best local quality at `pos` (doc/energetics-release/STRUCTURE_SELECTION_RULE.md).
+ * `none` means the examination completed and no chain qualified; `incomplete` means it could not run
+ * (UniProt sequence unavailable, or no examined chain could be verified), which must not be remembered.
  */
-async function rankByLocalQuality(uniprotId: string, pos: number, rows: BestStructureRow[]): Promise<BestStructureRow | null> {
+async function rankByLocalQuality(uniprotId: string, pos: number, rows: BestStructureRow[]): Promise<BestStructureRow | "none" | "incomplete"> {
   const sequence = await fetchUniprotSequence(uniprotId).catch(() => null);
   const wildType = sequence?.[pos - 1];
-  if (!wildType) return null;
-  const choice = await chooseBestChain(
+  if (!sequence || !wildType) return "incomplete";
+  const outcome = await chooseBestChain(
     rows, pos, wildType,
     async row => (await fetchVerifiedExperimentalChain(row.pdb_id.toLowerCase(), row.chain_id, uniprotId, pos, row.unp_start, row.start))?.pdbText ?? null,
     // An engineered construct (stabilising mutations elsewhere in the chain) is not the wild type.
-    (row, pdbText) => templateSequenceDifferences(pdbText, row.chain_id, sequence!).length === 0
+    (row, pdbText) => templateSequenceDifferences(pdbText, row.chain_id, sequence).length === 0
   );
-  if (choice) {
-    const q = choice.quality;
+  const counts = `examined ${outcome.examined}, not the wild type ${outcome.notWildType}, did not verify ${outcome.unverified}, not examined ${outcome.omitted}`;
+  if (outcome.best) {
+    const q = outcome.best.quality;
     console.log(
       `[PDB Prioritizer] ${uniprotId} ${pos}: chose ${q.pdbId.toUpperCase()} chain ${q.chainId} by local quality ` +
       `(target ${q.targetComplete ? "complete" : "incomplete"}, neighbours ${q.neighbourFraction === null ? "none" : `${Math.round(q.neighbourFraction * 100)}% complete`}, ` +
-      `resolution ${q.resolution ?? "not reported"}); examined ${choice.examined}, not the wild type ${choice.notWildType}, not examined ${choice.omitted}.`
+      `resolution ${q.resolution ?? "not reported"}); ${counts}.`
     );
+    return outcome.best.row;
   }
-  return choice?.row ?? null;
+  if (outcome.examined > 0 && outcome.unverified === outcome.examined) {
+    console.warn(`[PDB Prioritizer] ${uniprotId} ${pos}: no examined chain could be verified (${counts}); not remembered, the next request checks again.`);
+    return "incomplete";
+  }
+  console.log(`[PDB Prioritizer] ${uniprotId} ${pos}: AlphaFold model used. None of the ${outcome.examined} experimental chains examined met the selection rule (${counts}).`);
+  return "none";
 }
 
 export async function fetchBestPdbStructure(
@@ -213,9 +229,14 @@ export async function fetchBestPdbStructure(
     // With a variant position, only a chain that passes the local-quality rule is offered. When none of the
     // examined chains does (TP53: the best-resolved chains are all engineered constructs), no experimental
     // chain is returned and every caller uses the predicted model instead of PDBe's first row.
-    const ranked = pos !== undefined ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
-    if (pos !== undefined && covering.length && !ranked) {
-      console.log(`[PDB Prioritizer] ${validatedUniprot} ${pos}: no examined chain is a wild-type, locally usable experimental chain; using the predicted model.`);
+    const ranked = pos !== undefined && covering.length ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
+    if (pos !== undefined) {
+      const selectionKey = `${validatedUniprot.toUpperCase()}:${pos}`;
+      if (ranked === "incomplete") incompleteSelections.add(selectionKey);
+      else incompleteSelections.delete(selectionKey);
+    }
+    if (ranked === "incomplete") return null; // not cached: the next request examines again
+    if (ranked === "none") {
       bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
       return null;
     }

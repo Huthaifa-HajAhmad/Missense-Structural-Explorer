@@ -24,8 +24,8 @@ describe("chooseBestChain", () => {
     const rows = [row("9r2q", "K", 3.2, 1.0), row("2ocj", "A", 2.05, 0.5)];
     const texts: Record<string, string> = { "9r2q:K": chain("K", { targetComplete: false, neighboursComplete: false }), "2ocj:A": chain("A") };
     const choice = await chooseBestChain(rows, 10, "R", async r => texts[`${r.pdb_id}:${r.chain_id}`] ?? null);
-    expect(choice?.row.pdb_id).toBe("2ocj");
-    expect(choice?.examined).toBe(2);
+    expect(choice.best?.row.pdb_id).toBe("2ocj");
+    expect(choice.examined).toBe(2);
   });
 
   it("examines at most a fixed number of chains, best resolution first, and says how many it left out", async () => {
@@ -34,8 +34,8 @@ describe("chooseBestChain", () => {
     const choice = await chooseBestChain([...rows].reverse(), 10, "R", verify);
     // Every chain here is eligible, so examination stops once MAX_CHAINS_EXAMINED of them are found.
     expect(verify).toHaveBeenCalledTimes(MAX_CHAINS_EXAMINED);
-    expect(choice?.omitted).toBe(7 - MAX_CHAINS_EXAMINED);
-    expect(choice?.row.pdb_id).toBe("1abc");
+    expect(choice.omitted).toBe(7 - MAX_CHAINS_EXAMINED);
+    expect(choice.best?.row.pdb_id).toBe("1abc");
   });
 
   it("gives the same chain whatever order PDBe lists the rows in", async () => {
@@ -43,8 +43,8 @@ describe("chooseBestChain", () => {
     const verify = async (r: BestStructureRow) => chain(r.chain_id);
     const first = await chooseBestChain(rows, 10, "R", verify);
     const second = await chooseBestChain([rows[2], rows[0], rows[1]], 10, "R", verify);
-    expect(second?.row.pdb_id).toBe(first?.row.pdb_id);
-    expect(first?.row.pdb_id).toBe("1aaa");
+    expect(second.best?.row.pdb_id).toBe(first.best?.row.pdb_id);
+    expect(first.best?.row.pdb_id).toBe("1aaa");
   });
 
   it("skips chains that are not the wild type and keeps examining until it has enough wild-type ones", async () => {
@@ -53,8 +53,8 @@ describe("chooseBestChain", () => {
     const engineered = new Set(["1abc", "2abc", "3abc", "4abc"]);
     const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
     const choice = await chooseBestChain(rows, 10, "R", verify, (r) => !engineered.has(r.pdb_id));
-    expect(choice?.row.pdb_id).toBe("5abc");
-    expect(choice?.notWildType).toBe(4);
+    expect(choice.best?.row.pdb_id).toBe("5abc");
+    expect(choice.notWildType).toBe(4);
     expect(verify.mock.calls.length).toBeLessThanOrEqual(MAX_CHAINS_DOWNLOADED);
   });
 
@@ -62,13 +62,38 @@ describe("chooseBestChain", () => {
     const rows = Array.from({ length: 30 }, (_, i) => row(`${String(i).padStart(2, "0")}zz`, "A", 1 + i * 0.01));
     const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
     const choice = await chooseBestChain(rows, 10, "R", verify, () => false);
-    expect(choice).toBeNull();
+    expect(choice.best).toBeNull();
     expect(verify).toHaveBeenCalledTimes(MAX_CHAINS_DOWNLOADED);
   });
 
-  it("returns null when no examined chain is eligible, so the caller keeps its own choice", async () => {
+  it("compares only the first four eligible chains, never a fifth found in the same batch", async () => {
+    // Batch one gives 3 eligible chains; batch two must fetch only 1 more, so a sharper 6th cannot win.
+    const rows = Array.from({ length: 8 }, (_, i) => row(`${i + 1}abc`, "A", 1 + i * 0.1));
+    const texts: Record<string, string> = {};
+    for (const r of rows) texts[r.pdb_id] = chain("A", { neighboursComplete: r.pdb_id !== "6abc" ? false : true });
+    texts["2abc"] = "";
+    const verify = vi.fn(async (r: BestStructureRow) => texts[r.pdb_id] || null);
+    const choice = await chooseBestChain(rows, 10, "R", verify);
+    expect(verify).toHaveBeenCalledTimes(5);
+    expect(choice.best?.row.pdb_id).not.toBe("6abc");
+  });
+
+  it("keeps the same duplicate mapping whichever order PDBe lists it in", async () => {
+    const a = { ...row("1aaa", "A", 2.0), coverage: 0.9 };
+    const b = { ...row("1aaa", "A", 2.0), coverage: 0.3 };
+    const verify = async (r: BestStructureRow) => chain(r.chain_id);
+    const first = await chooseBestChain([a, b], 10, "R", verify);
+    const second = await chooseBestChain([b, a], 10, "R", verify);
+    expect(first.best?.quality.coverage).toBe(second.best?.quality.coverage);
+    expect(first.best?.quality.coverage).toBe(0.9);
+  });
+
+  it("reports no chain when none is eligible, and counts chains that did not verify", async () => {
     const rows = [row("1aaa", "A", 2.0)];
-    expect(await chooseBestChain(rows, 10, "W", async r => chain(r.chain_id))).toBeNull();
-    expect(await chooseBestChain(rows, 10, "R", async () => null)).toBeNull();
+    expect((await chooseBestChain(rows, 10, "W", async r => chain(r.chain_id))).best).toBeNull();
+    // A chain that does not verify is counted apart, so the caller can tell a failed lookup from "none qualify".
+    const failed = await chooseBestChain(rows, 10, "R", async () => null);
+    expect(failed.best).toBeNull();
+    expect(failed.unverified).toBe(1);
   });
 });

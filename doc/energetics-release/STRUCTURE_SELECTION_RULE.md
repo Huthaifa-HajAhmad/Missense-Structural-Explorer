@@ -85,3 +85,11 @@ fallback then returned PDBe's first row, 9R2Q:K, the incomplete chain this rule 
 - The rule is applied even when only one chain covers the variant, so a single unusable chain is not
   passed through unchecked.
 - The memo key moves to `select-v3`, so choices remembered under the previous version are not reused.
+
+## Implementation corrections after review (no rule change)
+
+- Each batch fetches only as many chains as eligible slots remain, so the comparison is always among the
+  first 4 eligible chains in the fixed order; duplicate PDB/chain rows are sorted before one is kept.
+- An examination that could not complete (UniProt sequence unavailable, or no examined chain verified) is
+  not remembered, by the selector or by the resolver's memo, so the next request checks again; only a
+  completed examination with no eligible chain is remembered (1 hour) and logged with its counts.

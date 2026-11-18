@@ -37,6 +37,7 @@ import {
   fetchPdbFromRcsb,
   fetchPdbHomologs,
   fetchVerifiedExperimentalChain,
+  selectionWasIncomplete,
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
@@ -395,7 +396,8 @@ export async function resolveStructure(
       ttlSeconds: STRUCTURE_RESOLUTION_TTL_S,
       fetcher: async () => {
         const probed = await probeStructure(uniprotId, pos, options);
-        probeDegraded = scopeWasHeldBack(currentCacheScope());
+        // A fallback chosen because the chain examination could not complete is not remembered either.
+        probeDegraded = scopeWasHeldBack(currentCacheScope()) || selectionWasIncomplete(uniprotId, pos);
         if (!probed) return null;
         freshlyProbed = probed;
         return probed.choice;

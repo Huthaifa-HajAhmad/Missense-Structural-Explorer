@@ -17,6 +17,11 @@ Production runs as `missense-resolve-blue` or `-green` behind `missense-resolve-
 Engine outcomes, read-only: `sqlite3 -readonly "file:data/shared_state.sqlite?mode=ro"` on `biophysical_jobs`
 (`result.energetics`, `data.remoteJobs`) and `job_telemetry`. DynaMut2 and DDMut final states are only in
 `logs/audit.jsonl` (`DYNAMUT2_POLL` / `DDMUT_POLL`, last event per `jobId`); see `doc/STATE_MACHINES.md` 6c.
+Final state per BioSig job, counted:
+
+```bash
+python3 -c "import json,collections; last={}; [last.__setitem__((e['action'],e.get('jobId')),e.get('status')+('/'+e['reason'] if e.get('reason') else '')) for e in map(json.loads,open('logs/audit.jsonl')) if e.get('action') in ('DYNAMUT2_POLL','DDMUT_POLL')]; print(collections.Counter((a,s) for (a,_),s in last.items()))"
+```
 
 ## 2. An outside service is down
 

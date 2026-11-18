@@ -15,7 +15,7 @@ Success is counted as a finite value per eligible request, per engine (not as a 
 | --- | --- | --- |
 | A1 | Success rate, own engines (FoldX, RaSP, ThermoMPNN, StabilityOracle) | ≥ 95% of eligible runs computed; RaSP 100% (table lookup). |
 | A2 | Success rate, outside services (DynaMut2, DDMut, ProtVar) | No failures caused by our side; provider failures are counted and reported but do not fail the release. |
-| A3 | Every run reaches a final state | No run stays running past its limit: FoldX 30 min queue + 1,000 s run; StabilityOracle 180 s; ThermoMPNN 150 s; BioSig and ProtVar 180 s. |
+| A3 | Every run reaches a final state | No run stays running past its limit: FoldX 30 min queue + 1,000 s run; StabilityOracle 180 s; ThermoMPNN 150 s; ProtVar 180 s; BioSig (DynaMut2, DDMut) 5 min, the server's polling window (amended 2026-11-19 by the user: a shared academic queue, a 200 s DDMut answer was observed). |
 | A4 | Honest failure messages | 100% of runs without a value are honest; no internal names (BioSig, Zenodo, file paths) in messages. |
 | A5 | Sign and units | On Ssym, positive always means destabilizing in kcal/mol; a negative direct-mutation correlation for any engine blocks the release. |
 | A6 | Accuracy matches the paper | Our statistic, of the type the paper published and on the same subset, has a 95% bootstrap interval containing the published figure or lying above it. Clearly lower is treated as an integration bug and blocks the release. No published figure: "no comparator". |

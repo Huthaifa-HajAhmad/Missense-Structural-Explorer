@@ -57,14 +57,15 @@ Empty caches, candidates bf48966d and 88a7b30b. Pass conditions fixed in advance
 
 Cold structure choice adds 2 to 4 s to submission. Order invariance is unit-tested (best-chain.test.ts).
 
-## Open findings (each must end fixed, decided, or as a known limitation)
+## Findings and how each ended
 
-1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed (e74461c0) and verified live: the test container was restarted for 82 s while the browser polled CNNM2 E357A; the panel showed FoldX +0.40, equal to the server record (0.3992).
-2. **Structure choice ranks coverage first.** TP53 R175H got 8UTS:K, later 9R2Q:K (3.2 Å cryo-EM, 165 of 200 residues missing side chains, repair skipped) → FoldX +15.6 / +15.4. Needs the user's decision.
-3. **"Next in line · starts in under a minute" shown while the queue was stalled.** Root cause fixed (item 76aabe94); wording during a genuine stall still promises a start. Decide: expose the stall, or known limitation.
-4. **Gene shown as "P53" for TP53** (UniProt entry name, not the gene symbol). Outside Energetics.
-5. **StabilityOracle +1 kcal/mol mark vs compressed values** (benchmark: mean +0.5 where lab mean +2.0). Pending decision with final benchmark.
-6. **StabilityOracle A6 on Ssym**: 0.64 vs published 0.72; independent reproduction of the released model gives 0.65. Decide: known limitation text.
-7. **DynaMut2/DDMut outcomes not kept in the job row** (audit log only, documented in STATE_MACHINES 6c). Decide whether that is enough.
-8. **One FoldX failure in production telemetry** (601 s, `result:failed`, row purged): not reproduced; known limitation unless it recurs.
-9. **Flaky tests** (not caused by this work, all pass alone): e2e Services badge timing; under full-suite load coordinate-resolver "misses its window", code-map, dbnsfp_local, analysis-db worker pool, ContextualCoverage render; admission peak-memory on Windows.
+1. **FoldX poller gave up after ~15 s of network trouble** (false "Failed", empty panel after reload). Fixed (e74461c0, 29d91e73); verified live with an 82 s restart (panel FoldX +0.40 = server 0.3992).
+2. **Structure choice ranked coverage first** (TP53 9R2Q:K, repair skipped, FoldX +15). Decided (local-quality rule) and fixed (1132d7fe, f88caa24, 88a7b30b, and the batch, duplicate and incomplete-check fixes after review 3); validated above.
+3. **Start time promised while the queue was stalled.** Decided (say the queue is held) and fixed (8d8b7fc2, 29d91e73); unit-tested; the hold message itself was not reproduced live (the memory fix 76aabe94 removed the stall).
+4. **Gene shown as "P53"** (UniProt entry name). Decided and fixed (89eac3f5).
+5. **StabilityOracle +1.0 mark flagged 10% of destabilizing variants.** Decided: +0.2 (bf48966d).
+6. **StabilityOracle A6 on Ssym** (0.64 vs 0.72). Decided: known limitation, stated in the method note without a causal claim.
+7. **DynaMut2/DDMut outcomes not in the job row.** Decided: the audit log is the record; counting command in RUNBOOK.md.
+8. **One production FoldX failure** (601 s, `result:failed`, row purged): not reproduced in any live run; known limitation.
+9. **Criterion A3 for BioSig.** Decided (2026-11-19): 5 minutes, the server's polling window; a 200 s DDMut answer was observed.
+10. **Flaky tests** (not caused by this work, all pass alone): coordinate-resolver "misses its window", code-map, dbnsfp_local, analysis-db worker pool and ContextualCoverage under full-suite load; admission peak-memory on Windows. The e2e Services-badge test was fixed (39a23fd0): it now waits for the first reading.
