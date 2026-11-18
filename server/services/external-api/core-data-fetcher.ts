@@ -37,7 +37,7 @@ import {
 } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
-import { predictStructuralDisruption, runEsm2Eval, type DisruptionPrediction } from "../stability/biophysics.ts";
+import { predictStructuralDisruption, type DisruptionPrediction } from "../stability/biophysics.ts";
 import { computeRuleBasedACMG, type RuleBasedInsights } from "../prediction/acmg.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
@@ -139,7 +139,6 @@ const SERVICE_STATUS_KEYS: readonly (keyof ServiceStatusMap)[] = [
   "conservationData",
   "stringInteractions",
   "disruptionPredictor",
-  "esm2",
   "gnomadConstraint",
   "gnomadFrequency",
   "uniprotFeatures",
@@ -323,9 +322,6 @@ async function runCoreFetch(
   const TIMEOUT_FLAG = BUDGET_EXPIRED;
   /** Budget for a source on the core critical path. */
   const CORE_BUDGET_MS = coreTimeoutMs;
-  /** Budget for the ESM-2 triage, which is allowed to answer later than the cheap sources. */
-  /** Scaled for long proteins (>500 residues), whose CPU forward pass needs more time. */
-  const DEEP_MODEL_BUDGET_MS = sequence.length > 500 ? 25000 : 15000;
 
   let clinvarHasError = false;
   const clinvarPromise = timeTask("clinvar", (prefetched?.clinvarPromise || fetchClinVarData(gene, variant, originalNotation)).catch(err => {
@@ -353,13 +349,6 @@ async function runCoreFetch(
     console.warn("[STRING Parallel Run Warning] Failed to fetch STRING network:", err);
     stringHasError = true;
     return [];
-  }));
-
-  let esm2HasError = false;
-  const esm2Promise = timeTask("esm2", runEsm2Eval(sequence, pos, wt1Letter, mut1Letter).catch(err => {
-    console.warn("[ESM2 Parallel Run Warning] Failed to run ESM2 evaluation:", err);
-    esm2HasError = true;
-    return null;
   }));
 
   const genosPromise = timeTask("genosWeb", queryGenosWebservice(gene, variant).catch(err => {
@@ -706,7 +695,6 @@ async function runCoreFetch(
   const fastPredictorPromise = budgets.race(predictorPromise, CORE_BUDGET_MS);
   const fastStringPromise = budgets.race(stringPromise, CORE_BUDGET_MS);
   const fastDisruptionPromise = budgets.race(disruptionPromise, CORE_BUDGET_MS);
-  const fastEsm2TriagePromise = budgets.race(esm2Promise, DEEP_MODEL_BUDGET_MS);
   const fastConservationPromise = budgets.race(conservationPromise, CORE_BUDGET_MS);
   const fastGnomadFrequencyPromise = budgets.race(gnomadFrequencyPromise, CORE_BUDGET_MS);
   const fastGnomadConstraintPromise = budgets.race(gnomadConstraintPromise, CORE_BUDGET_MS);
@@ -762,8 +750,6 @@ async function runCoreFetch(
         : "ok",
     disruptionPredictor: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout" : disruptionHasError ? "error" : disruptionNotAssessed ? "not_found" : "ok",
-    esm2: (raw: unknown): ServiceFetchStatus =>
-      raw === TIMEOUT_FLAG ? "timeout" : esm2HasError ? "error" : raw ? "ok" : "not_found",
     pdbMapping: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout" : pdbHasError ? "error" : raw ? "ok" : "not_found",
     gnomadConstraint: (raw: unknown): ServiceFetchStatus =>
@@ -944,10 +930,6 @@ async function runCoreFetch(
     })
     .catch(() => {});
 
-  fastEsm2TriagePromise
-    .then(raw => publish({ esm2: settled(raw) }, { esm2: statusRules.esm2(raw) }))
-    .catch(() => {});
-
   /**
    * A composite whose budget expired keeps every model that answered, each still labelled with its
    * own state, and the models that did not answer are marked `timeout` rather than dropped silently.
@@ -997,7 +979,6 @@ async function runCoreFetch(
   predictorPromise.catch(() => {});
   stringPromise.catch(() => {});
   disruptionPromise.catch(() => {});
-  esm2Promise.catch(() => {});
   conservationPromise.catch(() => {});
   gnomadFrequencyPromise.catch(() => {});
   gnomadConstraintPromise.catch(() => {});
@@ -1011,7 +992,6 @@ async function runCoreFetch(
     rawString,
     rawGnomadFreq,
     rawDisruption,
-    rawEsm2,
     rawPredictor,
     rawPdbMap,
     rawGnomadConstraint,
@@ -1023,7 +1003,6 @@ async function runCoreFetch(
     fastStringPromise,
     fastGnomadFrequencyPromise,
     fastDisruptionPromise,
-    fastEsm2TriagePromise,
     fastPredictorPromise,
     fastPdbMappingPromise,
     fastGnomadConstraintPromise,
@@ -1055,10 +1034,6 @@ async function runCoreFetch(
   const disruptionTimedOut = rawDisruption === TIMEOUT_FLAG;
   const disruptionRes = (disruptionTimedOut ? null : rawDisruption) as DisruptionPrediction | null;
   const disruptionStatus: ServiceFetchStatus = statusRules.disruptionPredictor(rawDisruption);
-
-  const esm2TimedOut = rawEsm2 === TIMEOUT_FLAG;
-  const esm2Res = (esm2TimedOut ? null : rawEsm2) as { llr: number | null; verdict: string } | null;
-  const esm2Status: ServiceFetchStatus = statusRules.esm2(rawEsm2);
 
   const pdbMapTimedOut = rawPdbMap === TIMEOUT_FLAG;
   const pdbMapRes = (pdbMapTimedOut ? null : rawPdbMap) as PdbBestStructureMapping | null;
@@ -1112,7 +1087,6 @@ async function runCoreFetch(
     conservationData: conservationStatus,
     stringInteractions: stringStatus,
     disruptionPredictor: disruptionStatus,
-    esm2: esm2Status,
     gnomadConstraint: gnomadConstraintStatus,
     gnomadFrequency: gnomadFreqStatus,
     uniprotFeatures: uniprotFeaturesStatus,
@@ -1196,7 +1170,6 @@ async function runCoreFetch(
     stringInteractions: stringRes,
     gnomadFrequency: gnomadFreqRes,
     disruptionPredictor: disruptionRes,
-    esm2: esm2Res,
     predictorData: predictorRes,
     pdbMapping: pdbMapRes,
     gnomadConstraint: gnomadConstraintRes,

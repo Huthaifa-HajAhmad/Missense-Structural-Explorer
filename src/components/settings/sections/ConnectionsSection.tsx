@@ -194,7 +194,7 @@ export function ConnectionsSection() {
             placeholder="Enter EvolutionaryScale Forge API key…"
             value={settings.biohubApiToken || ""}
             onChange={(value) => updateSetting("biohubApiToken", value)}
-            description="Enables ESM3 multimodal generative structural refinement on forge.evolutionaryscale.ai."
+            description="Enables ESMFold2 de novo structures on forge.evolutionaryscale.ai."
             action={{
               label: "Test connection",
               busyLabel: "Testing…",
@@ -214,7 +214,7 @@ export function ConnectionsSection() {
             placeholder="Enter HF_TOKEN…"
             value={settings.hfToken || ""}
             onChange={(value) => updateSetting("hfToken", value)}
-            description="Enables GPN-Star phylogeny LM, SaProt structure-aware scoring, and ESM-2 via Hugging Face inference."
+            description="Enables GPN-Star phylogeny scores via Hugging Face inference."
             action={{
               label: "Test connection",
               busyLabel: "Testing…",

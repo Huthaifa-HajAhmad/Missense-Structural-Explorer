@@ -3,7 +3,6 @@ import fs from "fs";
 import path from "path";
 import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../services/infra/sidecar-budget.ts";
 import { THERMOMPNN_SIDECAR_BUDGET } from "../services/stability/energy-models.ts";
-import { ESM3_SIDECAR_BUDGET } from "../services/external-api/esm3_forge.ts";
 import { BACKGROUND_REMOTE_TIMEOUT_MS, inFlightRemoteSubmissions, releaseThermoSubmission } from "../routes/biophysics/generation.ts";
 import { CLIENT_THERMOMPNN_RETRY_WAIT_MS } from "../../src/shared/timeouts.ts";
 import { stripCommentsForScan } from "../../src/shared/engineStatus.ts";
@@ -29,9 +28,6 @@ describe("sidecar budget header", () => {
   it("is sent by every call whose caller times out on its own clock", () => {
     // Each of these gives up after a fixed time, so each must say so.
     const callers = [
-      ["server", "services", "external-api", "lmSidecar.ts"], // the shared call for ESM-2, ESM C and SaProt
-      ["server", "services", "external-api", "esm3_forge.ts"],
-      ["server", "services", "structure", "structural-diff", "evaluator.ts"],
       ["server", "services", "stability", "stabilityoracle.ts"],
       ["server", "services", "stability", "energy-models.ts"] // the local ThermoMPNN call
     ];
@@ -104,17 +100,6 @@ describe("ThermoMPNN budgets nest", () => {
     expect(read("server", "services", "stability", "energy-models.ts")).toContain(
       "[SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_BUDGET_MS)"
     );
-  });
-});
-describe("ESM3 budgets nest", () => {
-  it("lets the sidecar answer 503 before Node aborts the request", () => {
-    for (const seqLen of [120, 806]) {
-      const { budgetMs, waitMs } = ESM3_SIDECAR_BUDGET(seqLen);
-      expect(
-        budgetMs,
-        `X-Budget-Ms (${budgetMs}ms) must be strictly less than AbortSignal.timeout (${waitMs}ms) for ${seqLen} aa`
-      ).toBeLessThan(waitMs);
-    }
   });
 });
 

@@ -67,7 +67,7 @@ export interface EvidenceDashboardCardProps {
   active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
   metrics?: StructuralMetrics | null;
   onOpenSettings?: () => void;
-  onRetryStructural?: (overrides?: { saprotEngine?: string }) => void | Promise<void>;
+  onRetryStructural?: () => void | Promise<void>;
   onRetryPocket?: () => void | Promise<void>;
   /** Selects a residue; a `focus` draws its companions on the structure too (a disulfide's partner cysteine, an interface). */
   onSelectResidue?: (index: number, focus?: ResidueFocus | null) => void;

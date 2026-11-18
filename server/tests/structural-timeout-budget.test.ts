@@ -13,12 +13,11 @@ const read = (...parts: string[]) => stripCommentsForScan(fs.readFileSync(path.j
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * THE STRUCTURAL STAGE'S CLOCKS — what must stay true so one slow model cannot cost the reader a fast one
+ * THE STRUCTURAL STAGE'S CLOCKS — what must stay true so a slow stage cannot cost the reader its answer
  * ─────────────────────────────────────────────────────────────────────────────
- * The route answered once, as one JSON body, under a fixed 125 s client limit. The server's own limit for
- * the four deep models is 120 s, and the client's clock started a few seconds before the server's, so a
- * run that used its whole allowance lost every model — including ESM-2, which finished 0.4 s inside the
- * limit on the production VM. These tests pin the properties of the fix, not only its numbers.
+ * The route answered once, as one JSON body, under a fixed client limit that could undercut the server's
+ * own, so a run that used its whole allowance lost its answer. These tests pin the properties of the fix
+ * (a streamed answer with heartbeats and per-chunk bounds), not only its numbers.
  */
 describe("structural stage budgets", () => {
   it("has no fixed total client limit that can undercut the server's", () => {
@@ -34,21 +33,10 @@ describe("structural stage budgets", () => {
     expect(CLIENT_STREAM_IDLE_BUDGET_MS / STREAM_HEARTBEAT_MS).toBeGreaterThanOrEqual(3);
   });
 
-  it("takes the inner model-call limits from the one structural setting", () => {
-    // ESM-2 and SaProt each had their own `120000`, equal to the route's race, so the two could be edited
-    // apart without any test noticing. They now read the same value the route races against.
-    for (const file of ["esm2.ts", "saprot.ts"]) {
-      const source = read("server", "services", "external-api", file);
-      expect(source, `${file} must not hard-code a structural time limit`).not.toMatch(/AbortSignal\.timeout\(\s*\d/);
-      expect(source).toContain("CONFIG.timeouts.structuralModelsMs");
-    }
-    expect(read("server", "services", "orchestration", "analysis-orchestrator.ts")).toContain("CONFIG.timeouts.structuralModelsMs");
-  });
-
-  it("bounds the work after the models with its own deadline", () => {
+  it("bounds the burial refresh with its own deadline", () => {
     expect(CONFIG.timeouts.structuralTailMs).toBeGreaterThan(0);
-    // The tail is a best-effort extra: it must be shorter than the models' own stage.
-    expect(CONFIG.timeouts.structuralTailMs).toBeLessThan(CONFIG.timeouts.structuralModelsMs);
+    // The refresh is a best-effort extra: it must finish inside the client's own per-chunk bound.
+    expect(CONFIG.timeouts.structuralTailMs).toBeLessThan(CLIENT_STRUCTURAL_REQUEST_BUDGET_MS);
     expect(read("server", "services", "orchestration", "analysis-orchestrator.ts")).toContain("CONFIG.timeouts.structuralTailMs");
   });
 

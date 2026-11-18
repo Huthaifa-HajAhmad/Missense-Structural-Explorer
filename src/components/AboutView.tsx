@@ -1057,7 +1057,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
 
             <div className="about-rail-panel">
             <h2 className="about-rail-head">Run provenance</h2>
-            <section className="about-rail-section" aria-labelledby="about-rail-models">
+            {MODEL_REVISIONS.length > 0 && <section className="about-rail-section" aria-labelledby="about-rail-models">
               <h3 id="about-rail-models" className="about-rail-title">Pinned model revisions</h3>
               <p className="about-rail-hint">
                 Weights are pinned so a result can be re-derived later; one run's pins are copied
@@ -1071,7 +1071,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                   href: rev.commitSha ? `https://huggingface.co/${rev.model}/tree/${rev.commitSha}` : undefined
                 }))}
               />
-            </section>
+            </section>}
 
             <section className="about-rail-section" aria-labelledby="about-rail-sources">
               <h3 id="about-rail-sources" className="about-rail-title">Manifest data sources</h3>

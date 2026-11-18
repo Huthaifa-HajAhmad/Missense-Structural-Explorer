@@ -7,31 +7,12 @@ import { LOCUS_POLICY_VERSION } from "../../../src/shared/locusResolution.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
-vi.mock("../structure/structural-model-fetcher.ts", () => ({
-  fetchStructuralModelData: vi.fn(async () => ({
-    esm3Eval: { score: -4.5 },
-    esmcEval: { score: -2.1 },
-    esm2Eval: { score: -3.8 },
-    saprotEval: { score: -1.9 },
-    /**
-     * The structural ESM-2 650M outcome travels as `esm2Eval`. The `esm2` entry is kept deliberately
-     * in this fixture as a LEGACY ALIAS: the merge must refuse to let it overwrite the core run's own
-     * VESM-150M status, which is what used to happen (both producers used that one key).
-     */
-    serviceStatus: { esm3: "ok", esmc: "ok", esm2Eval: "ok", saprot: "ok", esm2: "timeout" },
-    /** The structural stage's own spans, under structural names (never the core's). */
-    structuralTimings: { esm3: 11, esmc: 12, esm2Eval: 13, saprot: 14, pdbText: 9 },
-    structuralTimingOffsets: { esm3: 20, esmc: 21, esm2Eval: 22, saprot: 24, pdbText: 9 }
-  }))
-}));
-
 const mockCoreData = {
   clinvar: { classification: "Pathogenic" },
   conservationData: { revel: 0.8 },
   stringInteractions: [],
   gnomadFrequency: { maxAF: 0.0001 },
   disruptionPredictor: { level: "high", reason: "disruption" },
-  esm2: { llr: -5.0 },
   predictorData: { caddPhred: 25 },
   pdbMapping: { pdbId: "2PAH" },
   gnomadConstraint: { isPP2Constrained: true },
@@ -46,7 +27,6 @@ const mockCoreData = {
     conservationData: "ok",
     stringInteractions: "ok",
     disruptionPredictor: "ok",
-    esm2: "ok",
     gnomadConstraint: "ok",
     gnomadFrequency: "ok",
     uniprotFeatures: "ok",
@@ -121,16 +101,15 @@ describe("Analysis Orchestrator Unit Tests", () => {
   it("refreshes missing burial during structural retry and returns it to the client", async () => {
     const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
     vi.mocked(fetchAlphafoldPdb).mockResolvedValueOnce("MOCK_AF_PDB");
-    const result = await runStructuralAnalysis(baseContext, null, null);
+    const result = await runStructuralAnalysis(baseContext);
     expect(result.disruptionPredictor).toMatchObject({ rsa: 0.6, burialStatus: "surface", structureLabel: "AlphaFold model" });
   });
 
-  it("keeps the earlier burial reading and the model results when the AlphaFold refresh throws", async () => {
+  it("keeps the earlier burial reading when the AlphaFold refresh throws", async () => {
     const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
     vi.mocked(fetchAlphafoldPdb).mockRejectedValueOnce(new Error("AlphaFold is down"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await runStructuralAnalysis(baseContext, null, null);
-    expect(result.esm3Eval).toEqual({ score: -4.5 });
+    const result = await runStructuralAnalysis(baseContext);
     expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
     expect(result.disruptionPredictor).not.toHaveProperty("structureLabel");
     warn.mockRestore();
@@ -141,7 +120,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const { predictStructuralDisruption } = await import("../structure/pocket/disruption.ts");
     vi.mocked(fetchAlphafoldPdb).mockResolvedValueOnce("MOCK_AF_PDB");
     vi.mocked(predictStructuralDisruption).mockResolvedValueOnce({ level: "unknown", reason: "No accessibility", plddt: 90 } as never);
-    const result = await runStructuralAnalysis(baseContext, null, null);
+    const result = await runStructuralAnalysis(baseContext);
     expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
   });
 
@@ -149,9 +128,8 @@ describe("Analysis Orchestrator Unit Tests", () => {
    * ─────────────────────────────────────────────────────────────────────────────
    * THE BURIAL REFRESH HAS ITS OWN DEADLINE
    * ─────────────────────────────────────────────────────────────────────────────
-   * After the four models settle, the retry downloads the AlphaFold structure and measures
-   * accessibility. That step had no deadline at all, so a slow structure host held the answer long after
-   * every model was done.
+   * The refresh downloads the AlphaFold structure and measures accessibility. That step had no deadline
+   * at all, so a slow structure host held the answer indefinitely.
    */
   it("keeps the earlier burial reading when the refresh outlives its own deadline", async () => {
     const { CONFIG } = await import("../../config.ts");
@@ -163,9 +141,8 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const startedAt = Date.now();
-      const result = await runStructuralAnalysis(baseContext, null, null);
+      const result = await runStructuralAnalysis(baseContext);
       expect(Date.now() - startedAt, "the answer must not wait for a download that never ends").toBeLessThan(2_000);
-      expect(result.esm3Eval).toEqual({ score: -4.5 });
       expect(result.disruptionPredictor).toMatchObject({ level: "high", reason: "disruption" });
       expect(result.disruptionPredictor).not.toHaveProperty("structureLabel");
       expect(warn.mock.calls.flat().join(" ")).toContain("did not finish");
@@ -179,57 +156,39 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
     const left = new AbortController();
     left.abort();
-    const result = await runStructuralAnalysis(baseContext, null, null, { signal: left.signal });
+    const result = await runStructuralAnalysis(baseContext, { signal: left.signal });
     expect(fetchAlphafoldPdb).not.toHaveBeenCalled();
-    // The models' results are still returned (and persisted): only the optional extra is skipped.
-    expect(result.esm3Eval).toEqual({ score: -4.5 });
+    // The rule insights are still returned (and persisted): only the optional refresh is skipped.
+    expect(result.ruleBasedInsights).toBeDefined();
   });
 
   /**
    * ─────────────────────────────────────────────────────────────────────────────
-   * THE STRUCTURAL STREAM — each model as it settles, a heartbeat while waiting, the result last
+   * THE STRUCTURAL STREAM — a heartbeat while waiting, the result last
    * ─────────────────────────────────────────────────────────────────────────────
    */
-  const structuralFetchResult = {
-    esm3Eval: { score: -4.5 }, esmcEval: { score: -2.1 }, esm2Eval: { score: -3.8 }, saprotEval: { score: -1.9 },
-    serviceStatus: { esm3: "ok", esmc: "ok", esm2Eval: "ok", saprot: "ok" },
-    structuralTimings: { esm3: 11, esmc: 12, esm2Eval: 13, saprot: 14 },
-    structuralTimingOffsets: { esm3: 20, esmc: 21, esm2Eval: 22, saprot: 24 }
-  };
-
-  it("streams each model the moment it settles and ends on ONE final frame equal to the buffered result", async () => {
-    const { fetchStructuralModelData } = await import("../structure/structural-model-fetcher.ts");
-    vi.mocked(fetchStructuralModelData).mockImplementationOnce((async (_c: any, _b: any, _h: any, _t: any, _p: any, onModel: any) => {
-      onModel?.({ type: "model", key: "esm3", evaluation: { score: -4.5 }, status: "ok", durationMs: 11 });
-      onModel?.({ type: "model", key: "saprot", evaluation: { score: -1.9 }, status: "ok", durationMs: 14 });
-      return structuralFetchResult;
-    }) as any);
-
+  it("ends on ONE final frame equal to the buffered result", async () => {
     const frames: any[] = [];
-    const result = await streamStructuralAnalysis(baseContext, null, null, frame => frames.push(frame));
-
-    expect(frames.slice(0, 2).map(frame => frame.key)).toEqual(["esm3", "saprot"]);
+    const result = await streamStructuralAnalysis(baseContext, frame => frames.push(frame));
     const finals = frames.filter(frame => frame.type === "final");
     expect(finals, "exactly one final frame").toHaveLength(1);
     expect(frames[frames.length - 1], "and it comes last").toBe(finals[0]);
     expect(finals[0].data).toBe(result);
-    expect(result).toMatchObject({ esm3Eval: { score: -4.5 }, saprotEval: { score: -1.9 }, structuralTimings: { esm3: 11 } });
+    expect(frames.some(frame => frame.type === "model"), "the retired language models stream nothing").toBe(false);
   });
 
-  it("writes a heartbeat while the models are still running, and clears its timer afterwards", async () => {
-    const { fetchStructuralModelData } = await import("../structure/structural-model-fetcher.ts");
+  it("writes a heartbeat while the burial refresh is still running, and clears its timer afterwards", async () => {
+    const { fetchAlphafoldPdb } = await import("../structure/structure-fetcher.ts");
     let finish!: () => void;
-    vi.mocked(fetchStructuralModelData).mockImplementationOnce(
-      (() => new Promise(resolve => { finish = () => resolve(structuralFetchResult); })) as any
-    );
+    vi.mocked(fetchAlphafoldPdb).mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(null); }));
 
     vi.useFakeTimers();
     try {
       const frames: any[] = [];
-      const run = streamStructuralAnalysis(baseContext, null, null, frame => frames.push(frame));
+      const run = streamStructuralAnalysis(baseContext, frame => frames.push(frame));
       await vi.advanceTimersByTimeAsync(STREAM_HEARTBEAT_MS * 2 + 10);
       expect(frames.filter(frame => frame.type === "heartbeat").length).toBeGreaterThanOrEqual(2);
-      expect(frames.some(frame => frame.type === "final"), "nothing is final while a model is running").toBe(false);
+      expect(frames.some(frame => frame.type === "final"), "nothing is final while the refresh is running").toBe(false);
 
       finish();
       await vi.advanceTimersByTimeAsync(0);
@@ -245,7 +204,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const left = new AbortController();
     left.abort();
     const frames: any[] = [];
-    expect(await streamStructuralAnalysis(baseContext, null, null, frame => frames.push(frame), left.signal)).toBeNull();
+    expect(await streamStructuralAnalysis(baseContext, frame => frames.push(frame), left.signal)).toBeNull();
     expect(frames).toEqual([]);
   });
 
@@ -603,69 +562,40 @@ describe("Analysis Orchestrator Unit Tests", () => {
     expect(coordinate).toEqual({ chrom: "1", pos: 1321072, ref: "C", alt: "A", assembly: "GRCh38" });
   });
 
-  it("should execute runStructuralAnalysis and merge deep model evaluations", async () => {
+  it("recomputes the rule insights, persists them, and no longer returns language-model results", async () => {
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
 
-    const result = await runStructuralAnalysis(baseContext, "mock-biohub-token", "mock-hf-token");
+    const result: any = await runStructuralAnalysis(baseContext);
 
-    expect(result).toBeDefined();
-    expect((result.esm3Eval as any)?.score).toBe(-4.5);
-    expect((result.esmcEval as any)?.score).toBe(-2.1);
-    expect((result.esm2Eval as any)?.score).toBe(-3.8);
-    expect((result.saprotEval as any)?.score).toBe(-1.9);
-    expect(result.serviceStatus.esm3).toBe("ok");
-    /**
-     * The collision regression: the core run's VESM-150M outcome lives at `serviceStatus.esm2`, so
-     * the structural merge may not overwrite it — not even with the legacy `esm2` key the fixture
-     * carries, and not with anything else. The deep model's ESM-2 650M outcome is `esm2Eval`.
-     */
-    expect(result.serviceStatus.esm2, "the core's status must survive the structural merge").toBe("ok");
-    expect(result.serviceStatus.esm2Eval).toBe("ok");
-    /**
-     * The structural stage's own spans travel on the response, under structural names — the client's
-     * waterfall can then draw a real model span instead of the whole-request span, which reports a
-     * healthy structural stage even when every model was unavailable.
-     */
-    expect(result.structuralTimings).toMatchObject({ esm3: 11, esmc: 12, esm2Eval: 13, saprot: 14 });
-    expect(result.structuralTimingOffsets).toMatchObject({ esm3: 20, saprot: 24 });
     expect(result.ruleBasedInsights).toBeDefined();
+    expect(result.serviceStatus.clinvar).toBe("ok");
+    for (const field of ["esm3Eval", "esmcEval", "esm2Eval", "saprotEval", "structuralTimings"]) {
+      expect(result, field).not.toHaveProperty(field);
+    }
     expect(mockDb.saveVariantAnalysisAsync).toHaveBeenCalled();
   });
 
-  it("persists structural spans BESIDE the core's, never over them", async () => {
-    // A restored core row that carries its own per-source timings: the structural stage must not
-    // relabel those sources with its own spans (nor the reverse).
+  it("keeps a restored row's own timings and results when it rewrites the row", async () => {
+    // A row saved before 2026-11-18 still carries model results and their spans. Rewriting it must not
+    // relabel or drop them: the structural stage writes no timings of its own any more.
     const cachedCore = stamp({
-      metadata: {
-        gene: "PAH",
-        variant: "p.Arg408Trp",
-        // The rest of the payload mirrors its timings into metadata; this row does too.
-        serviceTimings: { clinvar: 12, predictorData: 480 },
-        serviceTimingOffsets: { clinvar: 12, predictorData: 500 }
-      },
+      metadata: { gene: "PAH", variant: "p.Arg408Trp", serviceTimings: { clinvar: 12 } },
       clinvar: { classification: "Pathogenic" },
       conservationData: { available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0 },
       serviceStatus: { ...mockCoreData.serviceStatus },
-      serviceTimings: { clinvar: 12, predictorData: 480 },
-      serviceTimingOffsets: { clinvar: 12, predictorData: 500 },
+      serviceTimings: { clinvar: 12 },
+      esm2Eval: { llr: -3.8, provenance: "ESM-2 650M (Local)" },
       ruleBasedInsights: { plausibility: "", acmgVerdict: "Pathogenic", acmgCriteria: [] }
     });
-    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
-      payload: cachedCore, id: "timings-1", updatedAt: new Date().toISOString()
-    });
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedCore, id: "legacy-1", updatedAt: new Date().toISOString() });
 
-    const result = await runStructuralAnalysis(baseContext, null, null);
+    await runStructuralAnalysis(baseContext);
 
-    const saved = mockDb.saveVariantAnalysisAsync.mock.calls[mockDb.saveVariantAnalysisAsync.mock.calls.length - 1][0].payload;
-    expect(saved.serviceTimings, "the core's per-source timings are untouched").toEqual({ clinvar: 12, predictorData: 480 });
-    expect(saved.serviceTimingOffsets).toEqual({ clinvar: 12, predictorData: 500 });
-    expect(saved.structuralTimings.esm3).toBe(11);
-    expect(saved.structuralTimingOffsets.saprot).toBe(24);
-    // The metadata mirror carries the STRUCTURAL spans beside the core's, not instead of them.
-    expect(saved.metadata.structuralTimings.esm2Eval).toBe(13);
-    expect(saved.metadata.structuralTimingOffsets.esmc).toBe(21);
-    expect(saved.metadata.serviceTimings).toEqual({ clinvar: 12, predictorData: 480 });
-    expect(result.structuralTimings.esm3).toBe(11);
+    const write = mockDb.saveVariantAnalysisAsync.mock.calls[mockDb.saveVariantAnalysisAsync.mock.calls.length - 1][0];
+    expect(write.payload.serviceTimings).toEqual({ clinvar: 12 });
+    expect(write.payload.esm2Eval).toEqual({ llr: -3.8, provenance: "ESM-2 650M (Local)" });
+    // The provenance of the numbers the row keeps is still declared, not erased.
+    expect(write.modelVersions.models["structural.esm2Eval"]).toBe("ESM-2 650M (Local)");
   });
 
   it("should invalidate cached analysis when HF token is provided but cached data lacks GPN-Star", async () => {
@@ -837,7 +767,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
 
     const chunks: any[] = [];
     const stream = streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
-    const structural = runStructuralAnalysis(baseContext, null, null);
+    const structural = runStructuralAnalysis(baseContext);
 
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(vi.mocked(fetchCoreVariantData), "the second route must join, not repeat").toHaveBeenCalledTimes(1);
@@ -888,7 +818,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
     );
 
     // The structural request goes first, exactly as the fan-out dispatches it.
-    const structural = runStructuralAnalysis(baseContext, null, null);
+    const structural = runStructuralAnalysis(baseContext);
     const chunks: any[] = [];
     const stream = streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
 

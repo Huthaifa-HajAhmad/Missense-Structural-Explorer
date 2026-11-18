@@ -287,30 +287,14 @@ export default function useVariantAnalysis() {
     [settings.energyUnit]
   );
 
-  const retryStructuralAnalysisWrapper = useCallback(async (overrides?: { saprotEngine?: string }) => {
+  const retryStructuralAnalysisWrapper = useCallback(async () => {
     const currentStore = useVariantAnalysisStore.getState();
     const gene = currentStore.gene || currentStore.analysisState.result?.metadata?.gene;
     const variant = currentStore.variant || currentStore.analysisState.result?.metadata?.variant;
     const uniprotId = currentStore.uniprotId || currentStore.analysisState.result?.metadata?.uniprotId;
     if (!gene || !variant || !uniprotId) return;
 
-    // Immediately dispatch optimistic loading state so the UI responds instantly
-    currentStore.setAnalysisState((prev: any) => {
-      if (!prev?.result) return prev;
-      return {
-        ...prev,
-        result: {
-          ...prev.result,
-          esm2Eval: { loading: true },
-          saprotEval: { loading: true },
-          esmcEval: { loading: true },
-          esm3Eval: { loading: true }
-        }
-      };
-    });
-
     const acmgWeighting = settings.acmgWeighting;
-    const saprotEngine = overrides?.saprotEngine ?? settings.saprotEngine;
     /**
      * A LOCAL request generation, not the pipeline's.
      *
@@ -332,8 +316,7 @@ export default function useVariantAnalysis() {
         gene,
         variant,
         uniprotId,
-        acmgWeighting,
-        saprotEngine
+        acmgWeighting
       },
       apiClient,
       retryController.signal,
@@ -343,7 +326,7 @@ export default function useVariantAnalysis() {
       undefined,
       currentStore.setIsStructuralLoading
     );
-  }, [settings.acmgWeighting, settings.saprotEngine, apiClient]);
+  }, [settings.acmgWeighting, apiClient]);
 
   // Backward-compatible state proxy that avoids establishing 50+ store subscriptions
   const state = useMemo(() => {

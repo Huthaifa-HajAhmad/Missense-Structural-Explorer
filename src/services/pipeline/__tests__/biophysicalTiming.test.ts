@@ -24,37 +24,4 @@ describe("measured source telemetry", () => {
     expect(addTraceSpan.mock.calls[0][0]).not.toHaveProperty("cached");
   });
 
-  it("emits real structural spans, preserves core VESM status, and reports a partial cohort as degraded", async () => {
-    const addTraceSpan = vi.fn();
-    let state: any = { result: { metadata: { pipelineStages: { core: "complete" } }, serviceStatus: { esm2: "timeout" } } };
-    const response = {
-      esm3Eval: { score: null, status: "token_required" }, esmcEval: { llr: 0 }, esm2Eval: { llr: -2 }, saprotEval: { error: "busy", status: "timeout" },
-      serviceStatus: { esm3: "offline", esmc: "ok", esm2Eval: "ok", saprot: "timeout" },
-      structuralTimings: { esm3: 10, esmc: 35, esm2Eval: 20, saprot: 45 },
-      structuralTimingOffsets: { esm3: 20, esmc: 65, esm2Eval: 40, saprot: 60 }
-    };
-    await fetchProgressiveStructuralAssessments(params, { getStructuralAssessments: vi.fn().mockResolvedValue(response) }, new AbortController().signal, update => { state = update(state); }, 1, () => 1, { activeTraceId: "models", traceStart: performance.now(), addTraceSpan });
-    expect(state.result.metadata.pipelineStages).toMatchObject({ core: "complete", structural: "degraded" });
-    expect(state.result.serviceStatus).toMatchObject({ esm2: "timeout", esm2Eval: "ok" });
-    const spans = addTraceSpan.mock.calls.map(call => call[0]);
-    const model = spans.find(span => span.meta?.serviceKey === "esmc");
-    const missing = spans.find(span => span.meta?.serviceKey === "esm3");
-    const timeout = spans.find(span => span.meta?.serviceKey === "saprot");
-    const parent = spans.find(span => !span.meta?.serviceKey);
-    expect(model.durationMs).toBe(35);
-    expect(model.offsetMs - parent.offsetMs).toBeGreaterThanOrEqual(29);
-    expect(model.offsetMs - parent.offsetMs).toBeLessThanOrEqual(31);
-    expect(missing.status).toBe("unavailable");
-    expect(timeout.status).toBe("failed");
-    expect(state.result.metadata.structuralTimings).toEqual(response.structuralTimings);
-  });
-
-  it("never labels four token placeholders as a completed model cohort", async () => {
-    const addTraceSpan = vi.fn();
-    let state: any = { result: { metadata: {} } };
-    const empty = { score: null, status: "token_required" };
-    await fetchProgressiveStructuralAssessments(params, { getStructuralAssessments: vi.fn().mockResolvedValue({ esm3Eval: empty, esmcEval: empty, esm2Eval: empty, saprotEval: empty }) }, new AbortController().signal, update => { state = update(state); }, 1, () => 1, { activeTraceId: "missing", traceStart: performance.now(), addTraceSpan });
-    expect(state.result.metadata.pipelineStages.structural).toBe("degraded");
-    expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({ status: "unavailable" }));
-  });
 });

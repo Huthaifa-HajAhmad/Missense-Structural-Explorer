@@ -15,7 +15,7 @@ import { fetchStringInteractionsWithStatus } from "../external-api/string.ts";
 import { clearSpliceAiCache, fetchSpliceAiBroadOutcome } from "../external-api/spliceai_broad.ts";
 import { fetchDisplayedIsoformId, fetchUniprotSequence } from "../external-api/uniprot.ts";
 import { resetBioSigSubmissionsForTests, submitDynaMut2Job } from "../stability/dynamut.ts";
-import { clearJapanFoldCache, queryEsmc, querySaProt } from "../external-api/japanfold-client.ts";
+import { clearJapanFoldCache } from "../external-api/japanfold-client.ts";
 import { AnalysisDatabase } from "./analysis-db.ts";
 import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
 import { persistVariantAnalysisPayload } from "../orchestration/payload-assembler.ts";
@@ -210,19 +210,6 @@ describe("one upstream call for concurrent callers", () => {
     expect(await stayer).toBe("J3");
   });
 
-  it("JapanFold ESMC: concurrent identical queries make one call", async () => {
-    let release!: (r: Response) => void;
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(r => (release = r)));
-    const p1 = queryEsmc("MKV", 2, "K", "E");
-    const p2 = queryEsmc("MKV", 2, "K", "E");
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    release(respond({ llr: -2.5 }));
-    const [r1, r2] = await Promise.all([p1, p2]);
-    expect(r1?.llr).toBe(-2.5);
-    expect(r2).toBe(r1);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-  });
-
   it("SpliceAI: concurrent identical lookups make one call", async () => {
     let release!: (r: Response) => void;
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(r => (release = r)));
@@ -245,14 +232,6 @@ describe("review 5 fixes", () => {
     fetchSpy.mockImplementation(async () => respond(s3Missing, 403));
     await fetchPopEVEScoreOnline("P04637", "R273H");
     expect(popEveOnlineCache.has("P04637_R273H")).toBe(true);
-  });
-
-  it("SaProt: a different structure is a different answer, not a shared one", async () => {
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => respond({ llr: -1 }));
-    await querySaProt("MKV", 2, "K", "E", "ATOM one");
-    await querySaProt("MKV", 2, "K", "E", "ATOM two");
-    await querySaProt("MKV", 2, "K", "E", "ATOM one");
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("SpliceAI: the request spells the contig the way the cache key does", async () => {

@@ -351,10 +351,7 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
         return { status: "progress", desc: "Coordinates available · Assessing binding pockets..." };
       }
       // An accession, template selection, or narrative is not proof that coordinates loaded.
-      const hasStructureEvidence = Boolean(
-        hasStructureCoordinates ||
-        (result.esm3Eval && "pdbText" in result.esm3Eval && result.esm3Eval.pdbText)
-      );
+      const hasStructureEvidence = Boolean(hasStructureCoordinates);
       /**
        * Multimer and PPI are started with the structure and are read through the same viewer (the
        * Interfaces & PPI tab). Showing the structure as settled while they still compute would tell the

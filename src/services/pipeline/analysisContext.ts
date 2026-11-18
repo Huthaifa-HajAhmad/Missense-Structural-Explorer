@@ -10,7 +10,6 @@ import type { UserSettings } from "../../types/ui";
 export interface AnalysisCacheContext {
   uniprotId: string;
   acmgWeighting: string;
-  saprotEngine: string;
   assembly: string;
   genomicCoordinates: string;
   resolvedAssembly: string;
@@ -97,7 +96,6 @@ export function createAnalysisCacheContext(uniprotId: string, settings: CacheCon
   return {
     uniprotId: uniprotId.trim().toUpperCase(),
     acmgWeighting: ["standard", "conservative", "strict-structural"].includes(settings.acmgWeighting as string) ? settings.acmgWeighting as string : "standard",
-    saprotEngine: settings.saprotEngine || "saprot-650m",
     assembly: notation.assembly || "",
     genomicCoordinates: notation.genomicCoordinates || "",
     resolvedAssembly: notation.resolvedAssembly || "",

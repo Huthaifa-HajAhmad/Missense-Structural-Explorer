@@ -226,7 +226,6 @@ export async function executeFullAnalysisWorkflow({
       gene: targetGene, variant: targetVariant, uniprotId: targetUniprot,
       pipelineRunId: String(runMetadata.pipelineRunId),
       acmgWeighting: pipelineContext.acmgWeighting as "standard" | "conservative" | "strict-structural",
-      saprotEngine: settings.saprotEngine,
       ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {}),
       ...(transcriptMeta?.genomicCoordinates && transcriptMeta?.assembly ? { genomicCoordinates: transcriptMeta.genomicCoordinates } : {}),
       ...(transcriptMeta?.resolvedAssembly ? { resolvedAssembly: transcriptMeta.resolvedAssembly } : {}),
@@ -420,7 +419,7 @@ export async function executeFullAnalysisWorkflow({
       const params = requestParams();
       enrichmentTasks.push(Promise.resolve(fetchProgressiveLandscape(params, apiClient, activeSignal, setEnrichmentState, requestId, getActiveRequestId)));
       enrichmentTasks.push(fetchProgressiveStructuralAssessments(
-        { ...params, saprotEngine: settings.saprotEngine }, apiClient, activeSignal,
+        params, apiClient, activeSignal,
         setEnrichmentState, requestId, getActiveRequestId, getTraceContext(), analysisSink.setIsStructuralLoading
       ));
       enrichmentTasks.push(fetchProgressiveMultimer(params, fetchWithAuth, activeSignal, setEnrichmentState, requestId, getActiveRequestId));

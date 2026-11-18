@@ -15,8 +15,7 @@ import {
   FoldingEngine,
   FoldingContext,
   ESMFoldEngine,
-  FoldxEngine,
-  ESM3Engine
+  FoldxEngine
 } from "../../services/folding-engines.ts";
 import { verifyStability } from "../../services/biophysics-bridge.ts";
 import { cleanPdbForFoldX, parseResiduesFromPdbMaybeAsync } from "../../services/biophysics.ts";
@@ -142,8 +141,6 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
         foldingEngine = new ESMFoldEngine();
       } else if (engine === "foldx" || engine === "alphafold") {
         foldingEngine = new FoldxEngine();
-      } else if (engine === "esm3") {
-        foldingEngine = new ESM3Engine();
       } else {
         sendError(res, 400, "BAD_REQUEST", `Unsupported engine type: ${engine}`);
         return;

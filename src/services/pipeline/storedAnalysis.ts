@@ -25,10 +25,9 @@ export type ResumableStage = "multimer" | "ppi" | "landscape" | "structural";
 /** The enrichment stages a saved result did not finish, in the order a run restarts them. */
 export function stagesToResume(result: any): ResumableStage[] {
   const stages = result?.metadata?.pipelineStages;
-  const modelStillLoading = ["esm3Eval", "esmcEval", "esm2Eval", "saprotEval"].some(key => result?.[key]?.loading);
-  const structuralUnfinished = modelStillLoading
-    || ["running", "error", "degraded"].includes(stages?.structural ?? "")
-    || (!stages?.structural && !result?.esm2Eval && !result?.saprotEval);
+  // The structural stage's own record decides. Model fields a pre-2026-11-18 save may carry (an
+  // `esm2Eval` still `{ loading: true }`) say nothing about it: those models were retired.
+  const structuralUnfinished = !stages?.structural || ["running", "error", "degraded"].includes(stages.structural);
   return [
     ...(!result?.multimerData ? ["multimer" as const] : []),
     ...(!result?.ppiBindingData ? ["ppi" as const] : []),
@@ -43,7 +42,7 @@ export function narrativeNeedsBackfill(result: any): boolean {
 }
 
 /** The context fields that live in settings. A reload still knows these, so a change to one is real. */
-const SETTINGS_OWNED_CONTEXT = ["uniprotId", "acmgWeighting", "saprotEngine", "simulationConditions", "providerConfiguration"] as const;
+const SETTINGS_OWNED_CONTEXT = ["uniprotId", "acmgWeighting", "simulationConditions", "providerConfiguration"] as const;
 
 /**
  * True when a page reload may show the saved result without starting a run.

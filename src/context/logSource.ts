@@ -12,7 +12,7 @@ import type { LogSource } from "../types/devConsole";
 const RULES: Array<[LogSource, RegExp]> = [
   ["component", /errorboundary/],
   ["notification", /notification/],
-  ["biophysics", /foldx|dynamut|ddmut|thermompnn|stabilityoracle|rasp|esm-?2|esm-?3|esmc|saprot|biophysic|comparison|structuralmodel|structuralanalysis/],
+  ["biophysics", /foldx|dynamut|ddmut|thermompnn|stabilityoracle|rasp|biophysic|comparison|structuralmodel|structuralanalysis/],
   ["structure-3d", /esmfold|alphafold|pdb|pocket|mol\*|molstar|structure|3d|homolog|residue|uniprot|sequence/],
   ["genomics", /vep|mane|splice|genomic|notation|alphagenome|landscape|coordinate/],
   ["ai-narrative", /gemini|narrative|acmg|clinical/],

@@ -147,31 +147,6 @@ describe("core singleflight", () => {
     expect(seenBySecond[1]).toBe(secondPartial);
   });
 
-  /**
-   * THE SAPROT SPLIT. The client sends `saprotEngine` on the structural request and nowhere else, so a
-   * flight key that included it started a SECOND full core fetch for every non-default checkpoint —
-   * while the core evidence for both is the same, because the core graph does not run SaProt.
-   */
-  it("shares ONE core fetch for identical science and auth across different SaProt checkpoints", async () => {
-    const gate = deferred<any>();
-    const mocked = await fetchCore();
-    mocked.mockImplementation(() => gate.promise);
-
-    const coreRequest = runSharedCoreFetch(baseContext); // no saprotEngine, as the client sends it
-    const structural35 = runSharedCoreFetch({ ...baseContext, saprotEngine: "saprot-35m" });
-    const structural650 = runSharedCoreFetch({ ...baseContext, saprotEngine: "saprot-650m" });
-    const structuralDefault = runSharedCoreFetch({ ...baseContext, saprotEngine: "saprot-650m" });
-
-    expect(mocked, "one checkpoint is not three core fetches").toHaveBeenCalledTimes(1);
-    expect(coreSingleflightStats()).toMatchObject({ started: 1, joined: 3 });
-
-    gate.release({ clinvar: { classification: "Pathogenic" }, serviceStatus: {} });
-    const [a, b, c, d] = await Promise.all([coreRequest, structural35, structural650, structuralDefault]);
-    expect(a).toBe(b);
-    expect(b).toBe(c);
-    expect(c).toBe(d);
-  });
-
   it("refuses to share across a different weighting, sequence or coordinate trail", async () => {
     const gate = deferred<any>();
     const mocked = await fetchCore();

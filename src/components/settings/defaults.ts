@@ -38,7 +38,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   saveHistory: false,
   reducedMotion: false,
   defaultStructureModel: "alphafold",
-  saprotEngine: "saprot-650m",
   spliceaiWindow: 500,
   /**
    * The simulation conditions the panel collects. Taken from the shared module rather than written

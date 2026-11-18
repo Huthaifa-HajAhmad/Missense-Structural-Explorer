@@ -18,11 +18,7 @@ import path from "path";
 const ALLOWED: Record<string, { count: number; why: string }> = {
   "server/services/infra/http-client.ts": { count: 3, why: "the governed implementations themselves" },
   "server/services/external-api/adapters/service-adapters.ts": { count: 1, why: "sidecar /health (loopback)" },
-  "server/services/external-api/lmSidecar.ts": { count: 1, why: "model sidecar (loopback), shared by ESM-2, ESM C and SaProt" },
-  "server/services/external-api/esm3_forge.ts": { count: 1, why: "model sidecar (loopback)" },
   "server/services/stability/stabilityoracle.ts": { count: 1, why: "model sidecar (loopback)" },
-  "server/services/structure/folding-engines.ts": { count: 1, why: "model sidecar (loopback)" },
-  "server/services/structure/structural-diff/evaluator.ts": { count: 1, why: "model sidecar (loopback)" },
   "server/routes/capabilities.ts": { count: 3, why: "sidecar /health, and the JapanFold reachability probe (a monitor)" },
   "server/routes/health.ts": { count: 1, why: "sidecar /health (loopback)" },
   "server/routes/structure.ts": { count: 2, why: "sidecar /health (loopback)" },

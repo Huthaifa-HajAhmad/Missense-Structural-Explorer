@@ -56,7 +56,6 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
         "rasp",
         "thermompnn",
         "stabilityoracle",
-        "saprot",
         "japanfold",
         "p2rank",
         "dbnsfp_local",
@@ -151,33 +150,6 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
   });
 
   describe("Protected Endpoints Security Enforcement", () => {
-    it("POST /api/v1/esm3-structure-eval should reject unauthenticated requests with 401", async () => {
-      const res = await fetch(`${baseUrl}/api/v1/esm3-structure-eval`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uniprotId: "P04637", position: 273 })
-      });
-      expect(res.status).toBe(401);
-      const json = await res.json();
-      expect(json.error).toBeDefined();
-      expect(json.error.code).toBe("UNAUTHORIZED");
-    });
-
-    it("POST /api/v1/esm3-structure-eval should accept valid Bearer token", async () => {
-      const res = await fetch(`${baseUrl}/api/v1/esm3-structure-eval`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${TEST_API_TOKEN}`
-        },
-        body: JSON.stringify({}) // Empty body should reach handler and fail schema validation (400)
-      });
-      // Not 401: proves Bearer token authentication successfully passed authCheck!
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.error.code).toBe("BAD_REQUEST");
-    });
-
     it("Non-public unregistered endpoint should be rejected by authCheck with 401 before 404", async () => {
       const res = await fetch(`${baseUrl}/api/v1/private-admin-route`, {
         method: "GET"

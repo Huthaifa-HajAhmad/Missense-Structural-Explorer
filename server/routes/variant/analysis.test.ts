@@ -322,10 +322,9 @@ describe("Variant Analysis Route Handlers", () => {
       vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
       vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR");
       const buffered = vi.spyOn(orchestrator, "runStructuralAnalysis");
-      vi.spyOn(orchestrator, "streamStructuralAnalysis").mockImplementation(async (_ctx, _b, _h, onFrame) => {
+      vi.spyOn(orchestrator, "streamStructuralAnalysis").mockImplementation(async (_ctx, onFrame) => {
         onFrame({ type: "heartbeat" });
-        onFrame({ type: "model", key: "esm3", evaluation: { score: 0.9 }, status: "ok", durationMs: 12 });
-        const result = { esm3Eval: { score: 0.9 } } as any;
+        const result = { ruleBasedInsights: { acmgVerdict: "VUS" } } as any;
         onFrame({ type: "final", data: result });
         return result;
       });
@@ -339,8 +338,8 @@ describe("Variant Analysis Route Handlers", () => {
       expect(buffered, "the buffered path must not also run").not.toHaveBeenCalled();
       for (const chunk of written) expect(chunk.endsWith("\n")).toBe(true);
       const frames = written.map(chunk => JSON.parse(chunk));
-      expect(frames.map(frame => frame.type)).toEqual(["heartbeat", "model", "final"]);
-      expect(frames[2].data.esm3Eval.score).toBe(0.9);
+      expect(frames.map(frame => frame.type)).toEqual(["heartbeat", "final"]);
+      expect(frames[1].data.ruleBasedInsights.acmgVerdict).toBe("VUS");
     });
 
     it("answers a run-level failure with an error frame and closes the stream", async () => {

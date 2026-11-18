@@ -2,9 +2,7 @@
  * server/services/japanfold-client.ts — Unified API client for JapanFold sovereign drug discovery platform.
  *
  * Provides:
- * - ESMC: Zero-shot variant fitness, positional entropy, embedding shifts
  * - ESMFold-2: De novo 3D coordinate generation (up to 1,024 residues)
- * - SaProt: Structure-aware language modeling with 3Di token conditioning
  * - Boltz-2: quaternary complex modelling (submitted, then followed as a job)
  */
 
@@ -14,21 +12,6 @@ import { CONFIG } from "../../config.ts";
 import { anySignal } from "../../utils/signals.ts";
 import { governedFetch } from "../infra/http-client.ts";
 import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
-
-export interface JapanFoldZeroShotResult {
-  status: "success" | "failed";
-  llr: number;
-  wtProbability?: number;
-  mutProbability?: number;
-  mutRank?: number;
-  positionalEntropy?: number;
-  embeddingShift?: number;
-  preferences?: Array<{ aa: string; prob: number }>;
-  localShiftMap?: Array<{ position: number; residue: string; shift: number }>;
-  conformationState?: string;
-  klDivergence?: number;
-  provenance: string;
-}
 
 export interface JapanFoldMultimerResult {
   status: "success" | "failed";
@@ -93,7 +76,7 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
-/** ESMC, ESMFold-2 and SaProt calls in flight, by cache key (what they compute, never who asked). */
+/** ESMFold-2 calls in flight, by cache key (what they compute, never who asked). */
 const japanFoldFlights: SharedFlights<any> = new Map();
 
 /**
@@ -106,76 +89,6 @@ async function joinJapanFold<T>(key: string, run: () => Promise<T | null>, signa
   } catch {
     return null;
   }
-}
-
-/**
- * Tier-1: Query JapanFold ESMC for zero-shot variant fitness and latent embedding shifts.
- */
-export async function queryEsmc(
-  sequence: string,
-  pos: number,
-  wt: string,
-  mut: string,
-  signal?: AbortSignal
-): Promise<JapanFoldZeroShotResult | null> {
-  const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
-  const cacheKey = `japanfold:esmc:${seqHash}:${pos}:${wt}:${mut}`;
-  const cached = japanFoldCache.get(cacheKey);
-  if (cached) return cached;
-  if (isJapanFoldAuthBlocked()) return null;
-
-  return joinJapanFold(cacheKey, async () => {
-    if (isJapanFoldAuthBlocked()) return null;
-    const timeoutMs = CONFIG.timeouts.japanfoldZeroShotMs || 3500;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    // Bounded by its own timeout, not by the caller's signal: the call is shared (see joinJapanFold).
-    const effectiveSignal = timeoutSignal;
-
-    try {
-      const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-      const response = await governedFetch(url, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          model: "esmc",
-          sequence,
-          position: pos,
-          wt: wt.toUpperCase(),
-          mut: mut.toUpperCase()
-        }),
-        signal: effectiveSignal
-      });
-
-      if (!response.ok) {
-        recordJapanFoldStatus(response.status);
-        console.warn(`[JapanFold Client] ESMC query failed with HTTP ${response.status}`);
-        return null;
-      }
-
-      const data = (await response.json()) as any;
-      if (data && (Number.isFinite(data.llr) || Number.isFinite(data.score))) {
-        const rawLlr = Number.isFinite(data.llr) ? data.llr : data.score;
-        const result: JapanFoldZeroShotResult = {
-          status: "success",
-          llr: rawLlr,
-          wtProbability: Number.isFinite(data.wtProbability) ? data.wtProbability : undefined,
-          mutProbability: Number.isFinite(data.mutProbability) ? data.mutProbability : undefined,
-          mutRank: Number.isFinite(data.mutRank) ? data.mutRank : undefined,
-          positionalEntropy: Number.isFinite(data.positionalEntropy) ? data.positionalEntropy : undefined,
-          embeddingShift: Number.isFinite(data.embeddingShift) ? data.embeddingShift : undefined,
-          preferences: Array.isArray(data.preferences) ? data.preferences : [],
-          localShiftMap: Array.isArray(data.localShiftMap) ? data.localShiftMap : [],
-          provenance: "JapanFold ESMC (Tier 1)"
-        };
-        japanFoldCache.set(cacheKey, result);
-        return result;
-      }
-    } catch (err: any) {
-      console.warn(`[JapanFold Client] ESMC invocation error: ${err.message}`);
-    }
-
-    return null;
-  }, signal);
 }
 
 /**
@@ -268,82 +181,6 @@ export async function queryEsmfold2(
       }
     } catch (err: any) {
       console.warn(`[JapanFold Client] ESMFold-2 invocation error: ${err.message}`);
-    }
-
-    return null;
-  }, signal);
-}
-
-/**
- * Tier-1: Query JapanFold SaProt for structure-conditioned fitness and 3Di conformations.
- */
-export async function querySaProt(
-  sequence: string,
-  pos: number,
-  wt: string,
-  mut: string,
-  wtPdb?: string | null,
-  signal?: AbortSignal
-): Promise<JapanFoldZeroShotResult | null> {
-  const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
-  // The structure is part of the request, so it is part of the answer's identity (and of the shared call's).
-  const pdbHash = wtPdb ? crypto.createHash("sha256").update(wtPdb).digest("hex").slice(0, 16) : "none";
-  const cacheKey = `japanfold:saprot:${seqHash}:${pdbHash}:${pos}:${wt}:${mut}`;
-  const cached = japanFoldCache.get(cacheKey);
-  if (cached) return cached;
-  if (isJapanFoldAuthBlocked()) return null;
-
-  return joinJapanFold(cacheKey, async () => {
-    if (isJapanFoldAuthBlocked()) return null;
-    const timeoutMs = CONFIG.timeouts.japanfoldZeroShotMs || 3500;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    // Bounded by its own timeout, not by the caller's signal: the call is shared (see joinJapanFold).
-    const effectiveSignal = timeoutSignal;
-
-    try {
-      const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-      const response = await governedFetch(url, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          model: "saprot",
-          sequence,
-          position: pos,
-          wt: wt.toUpperCase(),
-          mut: mut.toUpperCase(),
-          wtPdb: wtPdb || null
-        }),
-        signal: effectiveSignal
-      });
-
-      if (!response.ok) {
-        recordJapanFoldStatus(response.status);
-        console.warn(`[JapanFold Client] SaProt query failed with HTTP ${response.status}`);
-        return null;
-      }
-
-      const data = (await response.json()) as any;
-      if (data && (Number.isFinite(data.llr) || Number.isFinite(data.score))) {
-        const rawLlr = Number.isFinite(data.llr) ? data.llr : data.score;
-        const result: JapanFoldZeroShotResult = {
-          status: "success",
-          llr: rawLlr,
-          wtProbability: Number.isFinite(data.wtProbability) ? data.wtProbability : undefined,
-          mutProbability: Number.isFinite(data.mutProbability) ? data.mutProbability : undefined,
-          mutRank: Number.isFinite(data.mutRank) ? data.mutRank : undefined,
-          positionalEntropy: Number.isFinite(data.positionalEntropy) ? data.positionalEntropy : undefined,
-          embeddingShift: Number.isFinite(data.embeddingShift) ? data.embeddingShift : undefined,
-          preferences: Array.isArray(data.preferences) ? data.preferences : [],
-          localShiftMap: Array.isArray(data.localShiftMap) ? data.localShiftMap : [],
-          conformationState: data.conformationState,
-          klDivergence: Number.isFinite(data.klDivergence) ? data.klDivergence : undefined,
-          provenance: "JapanFold SaProt (Tier 1)"
-        };
-        japanFoldCache.set(cacheKey, result);
-        return result;
-      }
-    } catch (err: any) {
-      console.warn(`[JapanFold Client] SaProt invocation error: ${err.message}`);
     }
 
     return null;

@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  queryEsmc,
   queryEsmfold2,
-  querySaProt,
   queryBoltz2Multimer,
   runBoltz2Multimer,
   resolveResultsUrl,
@@ -15,89 +13,6 @@ describe("JapanFold API Client", () => {
     clearJapanFoldCache();
     clearBoltzJobs();
     vi.restoreAllMocks();
-  });
-
-  describe("fields the service did not return", () => {
-    it.each([
-      ["ESMC", () => queryEsmc("MSLSK", 3, "L", "P")],
-      ["SaProt", () => querySaProt("MSLSK", 3, "L", "P", null)]
-    ])("%s keeps them absent instead of reporting 0", async (_name, call) => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "success", llr: -1.5 })
-      } as any);
-      const result = await call();
-      expect(result).toMatchObject({ llr: -1.5 });
-      for (const field of ["wtProbability", "mutProbability", "positionalEntropy", "embeddingShift"] as const) {
-        expect(result![field]).toBeUndefined();
-      }
-    });
-  });
-
-  describe("queryEsmc", () => {
-    it("returns parsed zero-shot metrics on successful API response", async () => {
-      const mockResponse = {
-        status: "success",
-        llr: -2.345,
-        wtProbability: 0.12,
-        mutProbability: 0.015,
-        mutRank: 6,
-        positionalEntropy: 2.1,
-        embeddingShift: 0.45,
-        preferences: [{ aa: "R", prob: 0.12 }, { aa: "H", prob: 0.015 }],
-        localShiftMap: [{ position: 408, residue: "R", shift: 0.45 }]
-      };
-
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => mockResponse
-      } as any);
-
-      const result = await queryEsmc("MSLSK", 3, "L", "P");
-      expect(result).not.toBeNull();
-      expect(result?.llr).toBe(-2.345);
-      expect(result?.provenance).toBe("JapanFold ESMC (Tier 1)");
-      expect(result?.wtProbability).toBe(0.12);
-      expect(result?.embeddingShift).toBe(0.45);
-    });
-
-    it("caches identical queries without repeating HTTP requests", async () => {
-      const mockResponse = { status: "success", llr: -1.2, wtProbability: 0.2, mutProbability: 0.05 };
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => mockResponse
-      } as any);
-
-      const res1 = await queryEsmc("MSLSK", 3, "L", "P");
-      const res2 = await queryEsmc("MSLSK", 3, "L", "P");
-
-      expect(res1?.llr).toBe(-1.2);
-      expect(res2?.llr).toBe(-1.2);
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it("returns null on network failure without throwing unhandled exceptions", async () => {
-      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Connection refused"));
-
-      const result = await queryEsmc("MSLSK", 3, "L", "P");
-      expect(result).toBeNull();
-    });
-
-    it("remembers HTTP 401/402 refusals across ESMC and SaProt instead of repeating doomed calls", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized"
-      } as any);
-
-      expect(await queryEsmc("MSLSK", 3, "L", "P")).toBeNull();
-      expect(await querySaProt("MSLSK", 3, "L", "P", "ATOM...")).toBeNull();
-      expect(await queryEsmc("MSLSK", 4, "S", "A")).toBeNull();
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-    });
   });
 
   describe("queryEsmfold2", () => {
@@ -122,31 +37,6 @@ describe("JapanFold API Client", () => {
 
       const pdb = await queryEsmfold2("MSLSK");
       expect(pdb).toBeNull();
-    });
-  });
-
-  describe("querySaProt", () => {
-    it("returns structure-aware evaluation metrics", async () => {
-      const mockResponse = {
-        status: "success",
-        llr: -3.12,
-        wtProbability: 0.18,
-        mutProbability: 0.008,
-        conformationState: "A",
-        klDivergence: 0.85
-      };
-
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => mockResponse
-      } as any);
-
-      const result = await querySaProt("MSLSK", 3, "L", "P", "ATOM...");
-      expect(result).not.toBeNull();
-      expect(result?.llr).toBe(-3.12);
-      expect(result?.conformationState).toBe("A");
-      expect(result?.provenance).toBe("JapanFold SaProt (Tier 1)");
     });
   });
 
