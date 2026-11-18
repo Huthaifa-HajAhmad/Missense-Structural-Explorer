@@ -23,6 +23,8 @@ export interface JobSummary {
   queuedAhead: number | null;
   /** Estimated wait before it starts, while waiting; null when the server cannot estimate it. */
   etaMs: number | null;
+  /** Why the server cannot start any job right now, while this one is queued; null when it can. */
+  hold?: "memory" | null;
   /**
    * How long it has been running, measured on the server that started it; null when it is not running.
    * A duration rather than a timestamp, so the client never subtracts its own clock from the server's.

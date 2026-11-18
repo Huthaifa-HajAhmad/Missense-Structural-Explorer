@@ -60,11 +60,17 @@ export function formatServerTime(seconds: number): string {
  * The queue line for a waiting job: "Next in line", "3 jobs ahead", plus the wait when the server
  * could estimate it ("· about 4 min"). Null when the job is not waiting or nothing is known.
  */
-export function describeQueueWait(queuedAhead: number | null | undefined, etaMs: number | null | undefined): string | null {
+export function describeQueueWait(
+  queuedAhead: number | null | undefined,
+  etaMs: number | null | undefined,
+  hold?: "memory" | null
+): string | null {
   const ahead = typeof queuedAhead === "number" && Number.isFinite(queuedAhead) && queuedAhead >= 0 ? queuedAhead : null;
   const eta = typeof etaMs === "number" && Number.isFinite(etaMs) && etaMs >= 0 ? etaMs : null;
-  if (ahead === null && eta === null) return null;
+  if (ahead === null && eta === null && !hold) return null;
   const position = ahead === null ? "Waiting" : ahead === 0 ? "Next in line" : `${ahead} job${ahead === 1 ? "" : "s"} ahead`;
+  // A held queue starts nothing, so any start time would be a promise it cannot keep.
+  if (hold === "memory") return `${position} · on hold: the server is short of memory, so no job can start until it frees up`;
   if (eta === null) return position;
   return `${position} · starts in ${formatApproxDuration(eta)}`;
 }
@@ -203,10 +209,10 @@ export function describeLimits(
  * for a job that had been running for an hour, because the difference clamped to zero.
  */
 export function describeJobTiming(
-  job: { status: "queued" | "running" | "completed" | "failed"; queuedAhead: number | null; etaMs: number | null; startedAt: number | null; completedAt: number | null; createdAt: number; elapsedMs?: number | null },
+  job: { status: "queued" | "running" | "completed" | "failed"; queuedAhead: number | null; etaMs: number | null; hold?: "memory" | null; startedAt: number | null; completedAt: number | null; createdAt: number; elapsedMs?: number | null },
   now: number,
 ): string {
-  if (job.status === "queued") return describeQueueWait(job.queuedAhead, job.etaMs) ?? "Waiting for a free slot";
+  if (job.status === "queued") return describeQueueWait(job.queuedAhead, job.etaMs, job.hold) ?? "Waiting for a free slot";
   if (job.status === "running") {
     const serverElapsed = typeof job.elapsedMs === "number" && Number.isFinite(job.elapsedMs) && job.elapsedMs >= 0 ? job.elapsedMs : null;
     const since = job.startedAt ?? job.createdAt;

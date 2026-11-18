@@ -217,7 +217,8 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
     // Validated like everything else here: a malformed placement is dropped, never rendered.
     const runsOnParsed = payload.runsOn == null ? null : jobRunsOnSchema.safeParse(payload.runsOn);
     const runsOn = runsOnParsed?.success ? runsOnParsed.data : null;
-    return { phase, elapsedMs, queuePosition, queueEtaMs, runsOn, receivedAt: Date.now() };
+    const queueHold = payload.queueHold === "memory" ? "memory" as const : null;
+    return { phase, elapsedMs, queuePosition, queueEtaMs, queueHold, runsOn, receivedAt: Date.now() };
   };
 
   sink.setIsFolding(true);

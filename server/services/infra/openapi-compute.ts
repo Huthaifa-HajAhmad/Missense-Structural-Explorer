@@ -173,6 +173,7 @@ export const COMPUTE_SCHEMAS = {
       mine: { type: "boolean", description: "True when the caller owns the job." },
       queuedAhead: { type: ["integer", "null"], description: "Jobs that will start before this one, while queued." },
       etaMs: { type: ["integer", "null"], description: "Estimated wait before it starts, while queued; null when unknown." },
+      hold: { type: ["string", "null"], enum: ["memory", null], description: "Why the server cannot start any job right now, while queued; null when it can." },
       elapsedMs: { type: ["integer", "null"], description: "How long it has been running, measured on the server that started it; null when not running." },
       label: { type: ["string", "null"], description: "Short human label from the job's input (mutation or protein)." },
       watchers: { type: "integer", description: "How many people are waiting on it, the caller included. More than 1 means somebody else asked for the same result, so cancelling only withdraws the caller's interest." },

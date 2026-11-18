@@ -137,6 +137,9 @@ export interface EnqueueOptions {
   routing?: RoutingRecord | null;
 }
 
+/** Why the scheduler is holding every job back. */
+export type QueueHold = "memory";
+
 export interface JobSummary {
   id: string;
   type: "foldx" | "p2rank";
@@ -153,6 +156,8 @@ export interface JobSummary {
   queuedAhead: number | null;
   /** Estimated wait before it starts, while queued; null when unknown or not waiting (see `getEta`). */
   etaMs: number | null;
+  /** Why the queue cannot start any job right now, while this one is queued; null when it can (see `getHold`). */
+  hold: QueueHold | null;
   /**
    * How long it has been running, measured on the HOST that started it, or null when it is not running.
    * The client must not subtract the server's `startedAt` from its own clock (a lagging clock reads
@@ -188,6 +193,8 @@ export class SQLiteQueue {
   private endedElsewhereInterval: NodeJS.Timeout | null = null;
   private isShutdown = false;
   private processingPaused: boolean;
+  /** Set while the scheduler holds every job back (too little available memory); cleared once it can start one. */
+  private hold: QueueHold | null = null;
   private costModels!: CostModelCache;
   private lastStartedAt = 0;
   private lastPrunedAt = 0;
@@ -623,6 +630,11 @@ export class SQLiteQueue {
    * Work of the other tool is not counted as ahead for this reason: it never holds the slot this job
    * is waiting for. (It does share the CPU, which this model deliberately does not attempt to price.)
    */
+  /** Why no job can start right now, or null when the scheduler can start one. A held queue has no honest start time. */
+  getHold(): QueueHold | null {
+    return this.hold;
+  }
+
   getEta(id: string): { waitMs: number | null; runMs: number | null } | null {
     try {
       const row = this.db.prepare("SELECT status, type, cost_estimate_ms, placement, routing FROM biophysical_jobs WHERE id = ?").get(id) as any;
@@ -763,6 +775,7 @@ export class SQLiteQueue {
           ? this.agentQueueAhead(r.placement, r.id).ahead
           : idx < 0 ? null : running + idx,
         etaMs: r.status === "queued" ? (this.getEta(r.id)?.waitMs ?? null) : null,
+        hold: r.status === "queued" ? this.hold : null,
         elapsedMs: r.status === "running" && r.started_at ? Math.max(0, Date.now() - r.started_at) : null,
         label,
         watchers: watcherCounts.get(r.id) ?? 0,
@@ -1266,9 +1279,11 @@ export class SQLiteQueue {
       const memoryLimit = CONFIG.memory.minFreeBytes;
       if (freeMem < memoryLimit) {
         console.warn(`[Queue] High memory pressure (${(freeMem / 1024 / 1024).toFixed(0)} MB free). Stalling job scheduling.`);
+        this.hold = "memory";
         this.scheduleNext();
         return;
       }
+      this.hold = null;
 
       const row = this.pickNext(this.serverFoldxCoresRunning() >= resolveFoldxConcurrency());
 
@@ -1935,6 +1950,10 @@ export class BiophysicalJobQueue {
 
   async getEta(id: string): Promise<{ waitMs: number | null; runMs: number | null } | null> {
     return this.sqliteQueue.getEta(id);
+  }
+
+  getHold(): QueueHold | null {
+    return this.sqliteQueue.getHold();
   }
 
   async addCompletedJob(id: string, type: "foldx" | "p2rank", data: any, result: any): Promise<void> {

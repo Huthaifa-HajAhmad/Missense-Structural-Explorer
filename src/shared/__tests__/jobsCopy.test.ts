@@ -39,6 +39,9 @@ describe("jobsCopy", () => {
     expect(describeQueueWait(null, 30_000)).toBe("Waiting · starts in under a minute");
     expect(describeQueueWait(null, null)).toBeNull();
     expect(describeQueueWait(Number.NaN, -5)).toBeNull();
+    // A held queue gives no start time: it would be a promise the queue cannot keep.
+    expect(describeQueueWait(0, 30_000, "memory")).toBe("Next in line · on hold: the server is short of memory, so no job can start until it frees up");
+    expect(describeQueueWait(null, null, "memory")).toBe("Waiting · on hold: the server is short of memory, so no job can start until it frees up");
   });
 
   it("names a cancelled job as cancelled, not failed", () => {
