@@ -9,7 +9,7 @@ export const THRESHOLDS_METADATA = {
     cadd: "Rentzsch et al. Nucleic Acids Res (2019); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005) — force field only; the 0.5 / 1.5 kcal/mol marks are local (FoldX publishes no threshold)",
     thermompnn: "Dieckhaus et al. PNAS (2024) — app-defined +0.5 / +1.0 kcal/mol display marks are placeholders pending held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol)",
-    stabilityoracle: "Diaz et al. Nat Commun (2024) — app-defined ±0.5 / +1.0 kcal/mol marks and PDB2PQR-reconstructed inputs (-pred/2) are placeholders pending held-out recalibration (sidecar raw isStabilizing uses < -0.5 kcal/mol)",
+    stabilityoracle: "Diaz et al. Nat Commun (2024) — one +0.2 kcal/mol destabilising mark chosen on S669 and checked on Ssym direct; PDB2PQR-rebuilt inputs reproduce the released model (r about 0.65 on Ssym, paper 0.72)",
     popEVE: "Orenbuch et al. Nat Genet (2025)",
     dbscsnv: "Jian et al. Nucleic Acids Res (2014) — authors' cut-point 0.6, not ClinGen-calibrated",
     spliceai: "Jaganathan et al. Cell (2019); splicing PP3/BP4 bands: Walker et al. Am J Hum Genet (2023), ClinGen SVI Splicing Subgroup",
@@ -169,8 +169,13 @@ export const THRESHOLDS = {
     destabilizing: 1.0,
   },
   stabilityoracle: {
-    /** ΔΔG ≥ 1.0 kcal/mol: predicted destabilization */
-    destabilizing: 1.0,
+    /**
+     * ΔΔG ≥ +0.2 kcal/mol: predicted destabilization (one mark, no moderate band). StabilityOracle's values
+     * are compressed (lab mean +2.0, its mean +0.5 on large-to-small buried mutations), so +1.0 flagged 10%
+     * of destabilizing variants. +0.2 was chosen on S669 (Youden, measured ≥ 1.0) and checked on Ssym
+     * direct: sensitivity 0.57, specificity 0.88, accuracy 0.74 (was 0.60). scripts/energetics_benchmark.
+     */
+    destabilizing: 0.2,
   },
   // `bayesdel` (0.133 / -0.0404) was removed: nothing read it and neither number is a ClinGen cut. BayesDel's
   // PP3/BP4 bands (Pejaver 2022 Table 2, noAF) are in `calibration.ts`.
@@ -471,7 +476,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   thermompnn:
     "ThermoMPNN (Dieckhaus et al. PNAS 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising, canonical positive = destabilising) are local placeholders pending held-out recalibration (sidecar raw isStabilizing uses < 0.0 kcal/mol). No published clinical cut-point.",
   stabilityoracle:
-    "StabilityOracle (Diaz et al. Nat Commun 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising; stabilizing ≤ −0.5 kcal/mol) and reconstructed PDB2PQR inputs (−pred/2) are local placeholders pending held-out recalibration (sidecar raw isStabilizing uses < −0.5 kcal/mol). No published clinical cut-point.",
+    "StabilityOracle (Diaz et al. Nat Commun 2024). One local destabilising mark, ΔΔG ≥ +0.2 kcal/mol (no moderate band), chosen on S669 and checked on Ssym direct (sensitivity 0.57, specificity 0.88); stabilizing ≤ −0.5 kcal/mol. Inputs are rebuilt with PDB2PQR, so it reproduces the released model (Pearson r about 0.65 on Ssym), below the paper's 0.72. No published clinical cut-point.",
   bayesdel:
     "BayesDel without allele frequency (Feng 2017). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.13, moderate ≥ 0.27, strong ≥ 0.50; " +
     "BP4 supporting ≤ −0.18, moderate ≤ −0.36.",

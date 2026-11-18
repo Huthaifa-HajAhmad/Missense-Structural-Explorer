@@ -193,7 +193,8 @@ export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
     taxonomy: "Graph-Transformer / Structure ML",
     nativeSign: "positive-destabilizing",
     strongCut: THRESHOLDS.stabilityoracle.destabilizing,
-    supportingCut: SUPPORTING_CUT,
+    // One mark: StabilityOracle's calibrated cut (+0.2) sits below the shared moderate mark, so it has no moderate band.
+    supportingCut: THRESHOLDS.stabilityoracle.destabilizing,
     stabilizingCut: STABILIZING_CUT,
     absenceClass: "install",
     summary: "Geometric graph-transformer over wild-type and mutant 3D coordinates.",

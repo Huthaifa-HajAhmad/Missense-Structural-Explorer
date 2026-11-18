@@ -40,6 +40,9 @@ unless it says production.
 - Gene label: show UniProt's primary gene name (TP53, not P53), in this release.
 - DynaMut2/DDMut outcomes: the audit log is the record (STATE_MACHINES 6c); the runbook gives the counting query.
 
+- StabilityOracle mark: one +0.2 kcal/mol destabilising mark (chosen on S669, checked on Ssym direct: sensitivity 0.57, specificity 0.88, accuracy 0.74 vs 0.60 at +1.0); no moderate band.
+- StabilityOracle A6 (Ssym direct r 0.64, CI 0.49-0.69, below the paper's 0.72; independent reproduction 0.65): known limitation, stated in the method note.
+
 ## Open findings (each must end fixed, decided, or as a known limitation)
 
 1. **Client FoldX poller ended a run after 3 network errors (~15 s).** Panel showed "Failed / Failed to fetch" while the server completed FoldX (+15.4); a reload inside the 15-min pause then showed all engines "ended without returning a value" (no server call). Fixed (e74461c0) and verified live: the test container was restarted for 82 s while the browser polled CNNM2 E357A; the panel showed FoldX +0.40, equal to the server record (0.3992).

@@ -93,7 +93,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ select
         </table>
         <p className="nrg-step__sub">
           FoldX publishes no threshold; {markText(1.5, unit)} and {markText(0.5, unit)} {unit} are this app&apos;s marks. The{" "}
-          {markText(1, unit)} mark for the learned engines (and ThermoMPNN&apos;s &lt; 0 vs StabilityOracle&apos;s &lt; &minus;0.5 sidecar flags) is an app-defined local placeholder pending held-out recalibration. None is a clinical cut-point.{" "}
+          {markText(1, unit)} mark for ThermoMPNN, RaSP, DynaMut2 and DDMut is an app-defined local placeholder pending held-out recalibration. StabilityOracle has one mark, {markText(0.2, unit)}, chosen on S669 and checked on Ssym. None is a clinical cut-point.{" "}
           {FOLDX_HOW_TO_READ}
         </p>
       </section>
