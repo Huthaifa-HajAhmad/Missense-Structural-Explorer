@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { chooseBestChain, MAX_CHAINS_EXAMINED, type BestStructureRow } from "./best-chain.ts";
+import { chooseBestChain, MAX_CHAINS_DOWNLOADED, MAX_CHAINS_EXAMINED, type BestStructureRow } from "./best-chain.ts";
 
 /** A UniProt-numbered chain with residues `from`..`to`; residue 10 is ARG, complete unless told otherwise. */
 function chain(chainId: string, opts: { targetComplete?: boolean; neighboursComplete?: boolean } = {}): string {
@@ -32,6 +32,7 @@ describe("chooseBestChain", () => {
     const rows = Array.from({ length: 7 }, (_, i) => row(`${i + 1}abc`, "A", 1 + i * 0.1));
     const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
     const choice = await chooseBestChain([...rows].reverse(), 10, "R", verify);
+    // Every chain here is eligible, so examination stops once MAX_CHAINS_EXAMINED of them are found.
     expect(verify).toHaveBeenCalledTimes(MAX_CHAINS_EXAMINED);
     expect(choice?.omitted).toBe(7 - MAX_CHAINS_EXAMINED);
     expect(choice?.row.pdb_id).toBe("1abc");
@@ -44,6 +45,25 @@ describe("chooseBestChain", () => {
     const second = await chooseBestChain([rows[2], rows[0], rows[1]], 10, "R", verify);
     expect(second?.row.pdb_id).toBe(first?.row.pdb_id);
     expect(first?.row.pdb_id).toBe("1aaa");
+  });
+
+  it("skips chains that are not the wild type and keeps examining until it has enough wild-type ones", async () => {
+    // TP53: the sharpest chains are engineered constructs with stabilising mutations elsewhere (3D06).
+    const rows = Array.from({ length: 8 }, (_, i) => row(`${i + 1}abc`, "A", 1 + i * 0.1));
+    const engineered = new Set(["1abc", "2abc", "3abc", "4abc"]);
+    const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
+    const choice = await chooseBestChain(rows, 10, "R", verify, (r) => !engineered.has(r.pdb_id));
+    expect(choice?.row.pdb_id).toBe("5abc");
+    expect(choice?.notWildType).toBe(4);
+    expect(verify.mock.calls.length).toBeLessThanOrEqual(MAX_CHAINS_DOWNLOADED);
+  });
+
+  it("stops downloading after a fixed number of chains even when few are eligible", async () => {
+    const rows = Array.from({ length: 30 }, (_, i) => row(`${String(i).padStart(2, "0")}zz`, "A", 1 + i * 0.01));
+    const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
+    const choice = await chooseBestChain(rows, 10, "R", verify, () => false);
+    expect(choice).toBeNull();
+    expect(verify).toHaveBeenCalledTimes(MAX_CHAINS_DOWNLOADED);
   });
 
   it("returns null when no examined chain is eligible, so the caller keeps its own choice", async () => {

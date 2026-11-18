@@ -4,6 +4,7 @@ import { fetchWithRetry } from "../infra/http-client.ts";
 import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "../infra/cache.ts";
 import { fetchUniprotSequence } from "../external-api/uniprot.ts";
 import { chooseBestChain, type BestStructureRow } from "./best-chain.ts";
+import { templateSequenceDifferences } from "./template-identity.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import type { PdbHomolog } from "../../../src/shared/contracts.ts";
 
@@ -161,14 +162,18 @@ async function rankByLocalQuality(uniprotId: string, pos: number, rows: BestStru
   const sequence = await fetchUniprotSequence(uniprotId).catch(() => null);
   const wildType = sequence?.[pos - 1];
   if (!wildType) return null;
-  const choice = await chooseBestChain(rows, pos, wildType, async row =>
-    (await fetchVerifiedExperimentalChain(row.pdb_id.toLowerCase(), row.chain_id, uniprotId, pos, row.unp_start, row.start))?.pdbText ?? null);
+  const choice = await chooseBestChain(
+    rows, pos, wildType,
+    async row => (await fetchVerifiedExperimentalChain(row.pdb_id.toLowerCase(), row.chain_id, uniprotId, pos, row.unp_start, row.start))?.pdbText ?? null,
+    // An engineered construct (stabilising mutations elsewhere in the chain) is not the wild type.
+    (row, pdbText) => templateSequenceDifferences(pdbText, row.chain_id, sequence!).length === 0
+  );
   if (choice) {
     const q = choice.quality;
     console.log(
       `[PDB Prioritizer] ${uniprotId} ${pos}: chose ${q.pdbId.toUpperCase()} chain ${q.chainId} by local quality ` +
       `(target ${q.targetComplete ? "complete" : "incomplete"}, neighbours ${q.neighbourFraction === null ? "none" : `${Math.round(q.neighbourFraction * 100)}% complete`}, ` +
-      `resolution ${q.resolution ?? "not reported"}); examined ${choice.examined}, not examined ${choice.omitted}.`
+      `resolution ${q.resolution ?? "not reported"}); examined ${choice.examined}, not the wild type ${choice.notWildType}, not examined ${choice.omitted}.`
     );
   }
   return choice?.row ?? null;

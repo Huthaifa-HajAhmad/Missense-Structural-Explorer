@@ -58,3 +58,19 @@ CNNM2 p.Glu357Gln and SCN1A p.Arg1648His:
 
 Not a pass condition: any change in a FoldX value. Selecting a template by the answer it gives would be
 choosing the answer.
+
+## Amendment (2026-11-18, after the first validation run; no FoldX value was used)
+
+The first run on candidate 1132d7fe showed two problems that are about the structures, not about scores:
+
+1. For TP53 p.Arg273His the rule chose 3D06 chain A (1.2 Å, target and neighbourhood complete), which the
+   existing whole-chain wild-type gate then refused, and the resolver fell back to AlphaFold. The sharpest
+   TP53 chains are engineered constructs with stabilising mutations elsewhere in the chain. Change: a chain
+   whose sequence differs from the UniProt wild type anywhere (`templateSequenceDifferences`) is not
+   eligible, and examination continues in the same fixed order until 4 eligible chains are found or 12
+   chains have been downloaded. The log reports how many were examined, refused as not the wild type, and
+   not examined.
+2. For TP53 p.Arg175His the resolver served a choice remembered under the old rule (six-hour memo). Change:
+   the memo key carries the rule version (`select-v2`), so a rule change is never masked by a cached choice.
+
+The ranking itself (target, neighbourhood, resolution, completeness, coverage, IDs) is unchanged.
