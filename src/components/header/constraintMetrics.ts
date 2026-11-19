@@ -396,6 +396,7 @@ export function buildRmcMetric(
     "transcript-mismatch": ["Transcript mismatch", "The annotated transcript is absent from this gene's constraint release; regional evidence is withheld and PP2 is not tested."],
     "failed-qc": ["QC warning", "The gene or regional interval failed quality checks; no regional reading is made and PP2 is not tested."],
     "invalid-data": ["Invalid data", "The interval or its statistics are invalid or ambiguous; no regional reading is made."],
+    "candidates-differ": ["Candidates differ", "The candidate alleles of this protein change fall in different regional intervals, so no single interval is read and PP2 is not tested. No allele was selected."],
     "no-regions": ["No regions", "No regional intervals are released for this transcript, so PP2 is not tested."],
     "outside-region": ["Outside regions", "The verified locus lies outside the released intervals; this does not establish tolerance, and PP2 is not tested."],
   };

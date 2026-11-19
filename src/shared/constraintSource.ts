@@ -11,7 +11,7 @@ export const CONSTRAINT_GUIDANCE_URL = "https://gnomad.broadinstitute.org/news/2
  */
 export const CONSTRAINT_SOURCE_SHA256 = "a3fbca52b2beb889dba15cc558f6b6c937f9ea48982f2940395913bd138a858f";
 export const REGIONAL_SOURCE_SHA256 = "f31bbe463311487127c2b789faf1b358b962f4c599568e9e01ee777ed3b0813d";
-export const REGIONAL_STATUSES = ["measured", "no-regions", "outside-region", "unverified-locus", "transcript-mismatch", "failed-qc", "nonsignificant", "invalid-data"] as const;
+export const REGIONAL_STATUSES = ["measured", "no-regions", "outside-region", "unverified-locus", "transcript-mismatch", "failed-qc", "nonsignificant", "invalid-data", "candidates-differ"] as const;
 export type RegionalConstraintStatus = typeof REGIONAL_STATUSES[number];
 
 /** The three gene-constraint readings the app shows, in display order (strip, card, inspector). */

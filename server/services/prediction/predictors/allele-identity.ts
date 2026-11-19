@@ -1,6 +1,6 @@
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
-import { LOCUS_POLICY_VERSION } from "../../../../src/shared/locusResolution.ts";
+import { LOCUS_POLICY_VERSION, type AlleleCandidate } from "../../../../src/shared/locusResolution.ts";
 
 /** Cohort evidence requires a verified canonical identity, not a protein-selected database row. */
 export function verifiedPopulationCoordinate(pred: PredictorData | null | undefined): AssemblyTaggedCoordinate | null {
@@ -17,4 +17,22 @@ export function verifiedPopulationCoordinate(pred: PredictorData | null | undefi
   if (!parsed || !Number.isSafeInteger(parsed.pos) || !/^[ACGT]+$/.test(parsed.ref) ||
       !/^[ACGT]+$/.test(parsed.alt) || parsed.ref === parsed.alt) return null;
   return { ...parsed, assembly: "GRCh38" };
+}
+
+/**
+ * The GRCh38 coordinate of every candidate allele of a protein-only input, or null when any candidate has
+ * no verified GRCh38 id. Each allele keeps its own base: none is chosen.
+ */
+export function verifiedCandidateCoordinates(candidates: ReadonlyArray<AlleleCandidate>): AssemblyTaggedCoordinate[] | null {
+  if (candidates.length === 0) return null;
+  const coordinates: AssemblyTaggedCoordinate[] = [];
+  for (const { id } of candidates) {
+    // Same id normalization as `verifiedPopulationCoordinate`, so an id spelled with ":" or ">" reads the same on both paths.
+    const parts = id?.trim().replace(/[:>/_]/g, "-").split("-") ?? [];
+    const parsed = parts.length === 4 && /^\d+$/.test(parts[1]) ? parseGenomicCoordinateString(id!) : null;
+    // A candidate is a single-base change (one base in, one base out), so the check is stricter than the single-allele path's.
+    if (!parsed || !Number.isSafeInteger(parsed.pos) || !/^[ACGT]$/.test(parsed.ref) || !/^[ACGT]$/.test(parsed.alt) || parsed.ref === parsed.alt) return null;
+    coordinates.push({ ...parsed, assembly: "GRCh38" });
+  }
+  return coordinates;
 }
