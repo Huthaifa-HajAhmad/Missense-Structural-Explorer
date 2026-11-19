@@ -1198,7 +1198,7 @@ function VariantSearchPanel({
     };
   }, [serviceSummary]);
   const [quickDraft, setQuickDraft] = useState("");
-  const [benchmarksChoice, setBenchmarksChoice] = useState<{ open: boolean; whileEmpty: boolean } | null>(null);
+  const [benchmarksChoice, setBenchmarksChoice] = useState<{ open: boolean; defaultOpen: boolean } | null>(null);
   useEffect(() => {
     setQuickDraft(draft =>
       quickEntryMatches(draft, { gene: customGene, variant: customVariant, genomic: customGenomic })
@@ -1284,11 +1284,13 @@ function VariantSearchPanel({
      analysisState.error.toLowerCase().includes("start-loss"))
   );
 
-  /* The benchmark list is open while there is no history to show; once there is one it folds to its heading, so the
-     recents card keeps a short floor and the deck does not grow. Opening or closing it by hand is remembered until
-     the history is cleared or first filled; then the default applies again. */
-  const historyEmpty = history.length === 0;
-  const benchmarksOpen = benchmarksChoice?.whileEmpty === historyEmpty ? benchmarksChoice.open : historyEmpty;
+  /* The benchmark list is a first-run shortcut: open while there is no history and nothing is typed. A history, or
+     a variant in the form (its breakdown makes the query card tall), folds it to its heading, so the recents card
+     keeps a short floor and the deck does not grow past the monitor. Opening or closing it by hand is remembered
+     until that default changes (history first filled or cleared, form first typed in or emptied). */
+  const formUntouched = [quickDraft, customGene, customVariant, customUniprot, customGenomic].every(field => field.trim() === "");
+  const defaultOpen = history.length === 0 && formUntouched;
+  const benchmarksOpen = benchmarksChoice?.defaultOpen === defaultOpen ? benchmarksChoice.open : defaultOpen;
   /* One line per benchmark, set like a Recent analyses row: who, which change, what it teaches, then the run.
      The row is a control of its own so it can carry a second, form-only action without nesting buttons. */
   const benchmarkSection = (
@@ -1300,7 +1302,7 @@ function VariantSearchPanel({
             className="workbench-benchmarks-toggle"
             aria-expanded={benchmarksOpen}
             aria-controls={benchmarksOpen ? "workbench-benchmark-list" : undefined}
-            onClick={() => setBenchmarksChoice({ open: !benchmarksOpen, whileEmpty: historyEmpty })}
+            onClick={() => setBenchmarksChoice({ open: !benchmarksOpen, defaultOpen })}
           >
             <ChevronRight className="workbench-benchmarks-chevron" aria-hidden="true" />
             Benchmark controls

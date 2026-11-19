@@ -700,6 +700,8 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       renderPanel();
 
       const preset = ONBOARDING_BENCHMARK_PRESETS[0];
+      // A coordinate is already in the form, so the list starts folded; the reader opens it first.
+      fireEvent.click(screen.getByRole("button", { name: "Benchmark controls" }));
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: new RegExp(`Run benchmark ${preset.gene}`) }));
       });
@@ -733,6 +735,22 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       fireEvent.click(toggle);
       expect(toggle).toHaveAttribute("aria-expanded", "false");
       expect(screen.queryByRole("button", { name: /Run benchmark/ })).toBeNull();
+    });
+
+    it("folds the benchmarks once something is typed, even with no history, and opens them again when the form is cleared", async () => {
+      renderPanel();
+      const toggle = () => screen.getByRole("button", { name: "Benchmark controls" });
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+
+      await act(async () => {
+        useVariantAnalysisStore.setState({ customGene: "FGFR3", customVariant: "p.Gly380Arg" });
+      });
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+
+      await act(async () => {
+        useVariantAnalysisStore.setState({ customGene: "", customVariant: "" });
+      });
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
     });
 
     it("points aria-controls at the list only while the list exists", async () => {
