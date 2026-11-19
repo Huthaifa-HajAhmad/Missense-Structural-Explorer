@@ -401,12 +401,6 @@ export const STRUCTURE_COLOUR_BANDS = {
     { max: 2.5, label: "1.0–2.5 Å", color: 0xe0a458 },
     { max: Infinity, label: "≥ 2.5 Å", color: 0xc4523a },
   ],
-  /**
-   * ESM3 embedding shift, four steps over the engine's own bands `THRESHOLDS.esm3Drift`
-   * (none / minor / moderate / major). The heatmap used to band at 0.05 / 0.15 / 0.35 while the
-   * engine classified the same score at 0.08 / 0.22 / 0.38.
-   */
-  esm3Shift: [0x9fb8cf, 0x8fb996, 0xe0a458, 0xc4523a],
   /** Residues the channel does not cover (no score, outside the model, non-atomic). */
   none: 0xa8a29e,
 } as const;

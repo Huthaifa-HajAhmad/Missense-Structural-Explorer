@@ -406,28 +406,16 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
  */
 const MODEL_SOURCES: AttributionEntry[] = [
   {
-    id: "esm2",
-    name: "ESM-2",
-    provider: "Meta FAIR (Fundamental AI Research)",
-    kind: "model",
-    role: "Zero-shot masked-marginal log-likelihood ratios (ΔLLR) for the wild-type to mutant substitution, from the pinned 650M (and smaller 150M) checkpoints.",
-    url: "https://huggingface.co/facebook/esm2_t33_650M_UR50D",
-    release: "Weights pinned by commit SHA in the provenance manifest",
-    citation:
-      "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science 379, 1123–1130. https://doi.org/10.1126/science.ade2574",
-    usedBy: ["server/services/external-api/esm2.ts", "src/shared/modelCalibration.ts"]
-  },
-  {
     id: "esm3-esmc",
-    name: "ESM-3 and ESMC",
+    name: "EvolutionaryScale Forge",
     provider: "EvolutionaryScale (served through the Biohub Platform)",
     kind: "model",
-    role: "De novo folding requests and the zero-shot ESMC variant-fitness score. A biohub token is required; without one the workspace falls back to the local VESM embedding model rather than inventing a number.",
+    role: "De novo folding requests for the ESMFold view, when a Biohub token is saved.",
     url: "https://www.evolutionaryscale.ai/",
     release: "Served by the remote platform — the workspace pins no revision",
     citation:
       "Hayes, T., et al. (2025). Simulating 500 million years of evolution with a language model. Science 387, 850–858. https://doi.org/10.1126/science.ads0018",
-    usedBy: ["server/services/external-api/esmc.ts", "server/services/external-api/esm3_forge.ts", "server/services/structure/esmfold.ts"]
+    usedBy: ["server/services/structure/esmfold.ts"]
   },
   {
     id: "esmfold",
@@ -452,30 +440,6 @@ const MODEL_SOURCES: AttributionEntry[] = [
     citation:
       "Passaro, S., Corso, G., Wohlwend, J., et al. (2025). Boltz-2: towards accurate and efficient binding affinity prediction. bioRxiv. https://doi.org/10.1101/2025.06.14.659707",
     usedBy: ["server/services/external-api/japanfold-client.ts", "server/services/structure/multimer.ts"]
-  },
-  {
-    id: "saprot",
-    name: "SaProt 650M AF2",
-    provider: "Westlake University",
-    kind: "model",
-    role: "Structure-aware ΔLLR: the sequence is interleaved with Foldseek 3Di structural tokens, so the likelihood is conditioned on the actual 3D fold rather than on the sequence alone.",
-    url: "https://huggingface.co/westlake-repl/SaProt_650M_AF2",
-    release: "Weights pinned by commit SHA in the provenance manifest (35M variant selectable)",
-    citation:
-      "Su, J., et al. (2024). SaProt: protein language modeling with structure-aware vocabulary. ICLR 2024; bioRxiv preprint https://doi.org/10.1101/2023.10.01.560349",
-    usedBy: ["server/services/external-api/saprot.ts", "src/shared/perturbationModels.ts"]
-  },
-  {
-    id: "vesm",
-    name: "VESM++ (co-distilled)",
-    provider: "Ntranos laboratory",
-    kind: "model",
-    role: "The local sidecar model: a 150M-parameter distillation used for embedding and fitness scoring when remote ESM-3/ESMC is unavailable. Strictly informational — it casts no ACMG vote.",
-    url: "https://github.com/ntranoslab/vesm",
-    release: "ntranoslab/vesm · VESM_150M.pth (see the provenance rail)",
-    citation:
-      "Dinh, T., et al. (2026). Compressing the collective knowledge of ESM into a single protein language model. Nature Methods 23, 772–784. https://doi.org/10.1038/s41592-026-03050-9",
-    usedBy: ["tools/model_server.py", "src/shared/perturbationModels.ts"]
   },
   {
     id: "alphamissense",

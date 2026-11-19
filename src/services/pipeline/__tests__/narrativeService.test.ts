@@ -329,13 +329,11 @@ describe("narrativeService", () => {
     expect(foldx.state).toBe("computed");
   });
 
-  it("sends the deep evidence the run recorded on its analysis result, not only the biophysical payload", async () => {
+  it("keeps a saved analysis's retired language-model results out of the deep evidence", async () => {
     /*
-     * The language-model evaluations land on the ANALYSIS result (the structural stage merges them
-     * there and into the cache bundle), while the stability values arrive on the biophysical response.
-     * The automatic pass used to build its request from the biophysical payload alone, so it saw less
-     * than the explicit Re-synthesize control did for the same run — one run with two evidence sets,
-     * decided by which control asked.
+     * Analyses saved before 2026-11-18 carry ESM-2/SaProt/ESMC results on the ANALYSIS result. The
+     * models were retired (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md), so those results must not reach
+     * the prompt, while the stability values from the biophysical response still do.
      */
     setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
       analysisResult: {
@@ -369,9 +367,8 @@ describe("narrativeService", () => {
     );
 
     const [payload] = mockApiClient.getNarrative.mock.calls[0];
-    const esm2 = payload.deepEvidence.observations.find((o: any) => o.id === "esm2");
-    expect(esm2.value).toBe(-3.2);
-    expect(esm2.provenance).toContain("ESM-2 650M");
+    // Retired language-model results on the recorded result do not reach the narrative.
+    expect(payload.deepEvidence.observations.find((o: any) => o.id === "esm2")).toBeUndefined();
     // ...and the stability side still comes from this pass's own payload.
     expect(payload.deepEvidence.observations.find((o: any) => o.id === "foldx").value).toBe(1.5);
   });
@@ -658,10 +655,8 @@ describe("narrativeService", () => {
     );
 
     const [payload] = mockApiClient.getNarrative.mock.calls[0];
-    // Deep side: the FoldX reading from the store context and the ESM evaluation from the recorded
-    // result — the two locations the snapshot exists to join.
+    // Deep side: the FoldX reading from the store context.
     expect(payload.deepEvidence.observations.find((o: any) => o.id === "foldx").value).toBe(2.85);
-    expect(payload.deepEvidence.observations.find((o: any) => o.id === "esm2").value).toBe(-3.2);
     // Fast side: the snapshot is the whole evidence set, not just the deep half.
     expect(payload.clinvar).toEqual({ classification: "Pathogenic" });
   });

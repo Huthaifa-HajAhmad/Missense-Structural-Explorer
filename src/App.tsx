@@ -13,6 +13,7 @@ import AppViews from "./components/AppViews";
 import SettingsDrawer from "./components/settings/SettingsDrawer";
 import CommandPalette from "./components/CommandPalette";
 import { normalizeEvidenceTab } from "./components/evidence/types";
+import { useRetiredEvidenceTabRedirect } from "./hooks/useRetiredEvidenceTabRedirect";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import OnboardingModal, { hasCompletedOnboarding, type OnboardingPreset } from "./components/modals/OnboardingModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
@@ -86,6 +87,7 @@ export default function App() {
   const [windowSize, setWindowSize] = useState<number>(() => settings.seqScrollStep || 31);
   const [activeEvidenceTab, setActiveEvidenceTabRaw] = useState<string>("clinical");
   const setActiveEvidenceTab = useCallback((tab: string) => setActiveEvidenceTabRaw(normalizeEvidenceTab(tab)), []);
+  useRetiredEvidenceTabRedirect(masterView, activeEvidenceTab, setActiveEvidenceTabRaw, setMasterView);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     /* Corrupt `cs-sidebar-width` entries used to parse to NaN and flow straight
        into the aside's inline style. clampSidebarWidth sends NaN (and any value

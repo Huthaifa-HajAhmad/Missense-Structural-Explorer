@@ -92,13 +92,6 @@ export function evaluateBayesdel(score: number | null | undefined): PredictorSig
   return signalFromCall(calibratedCall("bayesdel", score));
 }
 
-export function evaluateEsm(llr: number | null | undefined): PredictorSignal {
-  // ESM-2, ESMC / VESM and SaProt have no published clinical cut-points on their own scales,
-  // so they are informational: an available score is "vus", never a call.
-  if (llr === null || llr === undefined || !Number.isFinite(llr)) return "unavailable";
-  return "vus";
-}
-
 /**
  * ESM1b against the ClinGen bands (Bergquist 2025): PP3 ≤ −10.7, BP4 ≥ −6.3.
  *

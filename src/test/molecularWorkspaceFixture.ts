@@ -1,6 +1,6 @@
 import type { AnalysisResult } from '../types';
 import { NAE1_UNIPROT } from '../shared/__tests__/fixtures/nae1FunctionalDomains';
-import { NAE1_RESULT } from '../shared/__tests__/fixtures/nae1Perturbation';
+import { NAE1_RESULT } from '../shared/__tests__/fixtures/nae1Packing';
 import { SOD1_UNIPROT } from '../shared/__tests__/fixtures/sod1FunctionalDomains';
 
 /** Labelled UI scenarios. Extra domain matches deliberately exercise overlap; they are not annotations of NAE1. */
@@ -17,6 +17,5 @@ export function molecularWorkspaceFixture(example = 'Overlapping domains'): Anal
       wildType: dense ? 'A' : 'D', mutant: dense ? 'V' : example === 'New variant' ? 'A' : 'G', uniprotId: dense ? 'P00441' : 'Q13564' },
     uniprotFeatures: example === 'Missing' ? null : uniprot,
     serviceStatus: { uniprotFeatures: example === 'Missing' ? 'timeout' : 'ok' },
-    ...(example === 'Missing' || dense || example === 'New variant' ? { saprotEval: null, esmcEval: null, esm2Eval: null } : {}),
   } as unknown as AnalysisResult;
 }

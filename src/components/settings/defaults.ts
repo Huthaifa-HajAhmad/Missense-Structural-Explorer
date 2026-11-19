@@ -37,7 +37,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   show3DLabels: true,
   saveHistory: false,
   reducedMotion: false,
-  defaultPerturbationModel: "saprot",
   defaultStructureModel: "alphafold",
   saprotEngine: "saprot-650m",
   spliceaiWindow: 500,

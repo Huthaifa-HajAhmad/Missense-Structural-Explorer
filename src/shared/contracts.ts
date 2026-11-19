@@ -345,7 +345,7 @@ export const deepModelEvidenceObservationSchema = z.object({
   value: z.number().nullable().refine(v => v === null || (Number.isFinite(v) && Math.abs(v) <= 1000), {
     message: "Deep-model value must be finite and within ±1000",
   }),
-  unit: z.enum(["kcal/mol", "ΔLLR"]).nullable(),
+  unit: z.enum(["kcal/mol"]).nullable(),
   call: z.string().max(48).nullable(),
   provenance: z.string().max(160).nullable(),
   note: z.string().max(240).nullable(),

@@ -12,7 +12,6 @@ import { render } from "@testing-library/react";
 
 vi.mock("../SplicingRail", () => ({ default: () => <div data-testid="rail-splicing" /> }));
 vi.mock("../ResidueShiftInspector", () => ({ default: () => <div data-testid="rail-structure" /> }));
-vi.mock("../PerturbationRail", () => ({ default: () => <div data-testid="rail-perturbation" /> }));
 vi.mock("../PopulationRail", () => ({ PopulationRail: () => <div data-testid="rail-clinical" /> }));
 
 import { EvidenceInspector } from "../EvidenceInspector";
@@ -45,9 +44,9 @@ describe("Evidence tab registry", () => {
   });
 });
 
-describe("EvidenceInspector routes every tab, including the three ViewInspector used to route", () => {
+describe("EvidenceInspector routes every tab, including the two ViewInspector used to route", () => {
   const result: any = { metadata: { gene: "UROD", variant: "p.Gly318Arg" } };
-  it.each([["splicing"], ["structure"], ["perturbation"]])("renders the %s rail", tab => {
+  it.each([["splicing"], ["structure"]])("renders the %s rail", tab => {
     const { getByTestId, container } = render(<EvidenceInspector analysisResult={result} activeEvidenceTab={tab} />);
     expect(getByTestId(`rail-${tab}`)).toBeTruthy();
     expect(container.textContent).not.toMatch(/placeholder/);

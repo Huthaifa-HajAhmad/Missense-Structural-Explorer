@@ -204,7 +204,6 @@ export function handleNarrativeResponse(
   gnomadConstraint: GnomadGeneConstraint | null,
   gnomadFrequency: GnomadVariantFrequency | null,
   acmgWeighting: "standard" | "conservative" | "strict-structural",
-  esm2?: { llr: number | null; verdict: string } | null,
   uniprotFeatures?: UniprotFeaturesResult | null,
   sequence?: string | null,
   curatedInheritance?: CuratedInheritance | null,
@@ -242,7 +241,6 @@ export function handleNarrativeResponse(
     curatedInheritance: curatedInheritance ?? null,
     curatedLofMechanism: curatedLofMechanism ?? null,
     acmgWeighting,
-    esm2,
     uniprotFeatures,
     sequence
   });

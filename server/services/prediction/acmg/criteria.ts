@@ -63,12 +63,8 @@ export interface ACMGEvidenceInput {
    */
   curatedLofMechanism?: CuratedLofMechanism | null;
   acmgWeighting?: "standard" | "conservative" | "strict-structural";
-  esm2?: { llr: number | null; verdict: string } | null;
   uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null;
   sequence?: string | null;
-  esmcEval?: any | null;
-  esm2Eval?: any | null;
-  saprotEval?: any | null;
   serviceStatus?: Record<string, string> | any | null;
 }
 
@@ -92,12 +88,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     gnomadConstraint = null,
     gnomadFrequency = null,
     acmgWeighting = "standard",
-    esm2 = null,
     uniprotFeatures = null,
     sequence = null,
-    esmcEval = null,
-    esm2Eval = null,
-    saprotEval = null,
     serviceStatus = null,
     curatedInheritance = null,
     curatedLofMechanism = null
@@ -207,10 +199,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     conservationData?.bayesdel,
     /**
      * This positional argument is labelled "ESM-1b" and evaluated against ESM1b's ClinGen
-     * bands (Bergquist 2025), so it must receive an ESM-1b score. It was
-     * being fed `esmcEval?.llr ?? esm2?.llr`, which made an ESMC ΔLLR of ~-8.4 render as
-     * "ESM-1b: pathogenic". ESMC, ESM-2 and SaProt have no published cut-points on their
-     * own scales and travel through `extra` below, which is evaluated as informational.
+     * bands (Bergquist 2025), so it must receive an ESM-1b score (precomputed in dbNSFP) and
+     * never another language model's ΔLLR.
      */
     conservationData?.esm1b ?? null,
     {
@@ -219,12 +209,6 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       eigenPhred: conservationData?.eigenPhred,
       dann: conservationData?.dann,
       popeve: conservationData?.popeve,
-      esm2Llr: esm2Eval?.llr ?? esm2?.llr ?? null,
-      esm2Label: typeof esm2Eval?.provenance === "string" && /vesm/i.test(esm2Eval.provenance) ? "VESM (ESM-2 fallback)" : null,
-      vesmLlr: esmcEval?.llr ?? null,
-      esmcLabel: typeof esmcEval?.provenance === "string" ? esmcEval.provenance : null,
-      saprotLlr: saprotEval?.llr,
-      saprotLabel: typeof saprotEval?.provenance === "string" && /vesm/i.test(saprotEval.provenance) ? "VESM (SaProt fallback)" : null,
       gpnStar: conservationData?.gpnStar ?? null,
       alphagenome: conservationData?.alphagenome,
       caddCandidates: predictorData?.locusResolution?.failureKind === "multiple-candidates" ? predictorData.locusResolution.candidates : null,

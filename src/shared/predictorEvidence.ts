@@ -66,8 +66,7 @@ export type Caveat =
   | "clinvar-trained"
   | "includes-alphamissense"
   | "rank-not-probability"
-  | "no-benign-cut"
-  | "fallback-model";
+  | "no-benign-cut";
 
 export const CAVEAT_TEXT: Record<Caveat, { label: string; detail: string }> = {
   "uses-af": {
@@ -90,10 +89,6 @@ export const CAVEAT_TEXT: Record<Caveat, { label: string; detail: string }> = {
   "no-benign-cut": {
     label: "No benign cut-point",
     detail: "The authors publish deleterious cut-points only, so a score above them is not a benign call.",
-  },
-  "fallback-model": {
-    label: "Fallback model",
-    detail: "The preferred engine did not answer; this score was served by a fallback model.",
   },
 };
 
@@ -186,8 +181,6 @@ export interface PredictorEvidenceInput {
   result: AnalysisResult;
   /** The analysis itself is still in flight: any missing score may yet arrive. */
   isLoading?: boolean;
-  /** Only the model-served scores (language models, structure-conditioned) are still in flight. */
-  isModelLoading?: boolean;
   /** Whether the browser holds an AlphaGenome key. `undefined` = cannot know. */
   alphagenomeConfigured?: boolean;
 }
@@ -265,7 +258,7 @@ export function aviAvailabilityFor(
 
 // ── builder ───────────────────────────────────────────────────────────────────────────────────
 
-export function buildPredictorEvidence({ result, isLoading = false, isModelLoading = false, alphagenomeConfigured }: PredictorEvidenceInput): PredictorEvidence {
+export function buildPredictorEvidence({ result, isLoading = false, alphagenomeConfigured }: PredictorEvidenceInput): PredictorEvidence {
   const r = result as any;
   const pd = result.predictorData ?? null;
   const cd = result.conservationData ?? null;
@@ -290,21 +283,6 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   const gpn = finite(cd?.gpnStar);
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
-  const esm2 = finite(r.esm2Eval?.llr ?? r.esm2?.llr);
-  const esm2Provenance: string | null = typeof r.esm2Eval?.provenance === "string" ? r.esm2Eval.provenance : null;
-  const esm2IsVesmFallback = Boolean(esm2Provenance && /vesm/i.test(esm2Provenance));
-  const esm2Name = esm2IsVesmFallback ? "VESM (ESM-2 fallback)" : "ESM-2";
-  const esmc = finite(r.esmcEval?.llr);
-  const esmcProvenance: string | null = typeof r.esmcEval?.provenance === "string" ? r.esmcEval.provenance : null;
-  const esmcRemoteNote: string | null = typeof r.esmcEval?.remoteEngineNote === "string" ? r.esmcEval.remoteEngineNote : null;
-  const esmcIsVesm = Boolean(esmcProvenance && /vesm/i.test(esmcProvenance));
-  const esmcIsFallback = Boolean(esmcRemoteNote || (esmcProvenance && /fallback/i.test(esmcProvenance)));
-  const saprot = finite(r.saprotEval?.llr);
-  const saprotProvenance: string | null = typeof r.saprotEval?.provenance === "string" ? r.saprotEval.provenance : null;
-  const saprotFallback: string | null = typeof r.saprotEval?.fallbackReason === "string" ? r.saprotEval.fallbackReason : null;
-  const saprotIsVesmFallback = Boolean(saprotProvenance && /vesm/i.test(saprotProvenance));
-  const saprotIsFallback = Boolean(saprotFallback || saprotIsVesmFallback || (saprotProvenance && /fallback/i.test(saprotProvenance)));
-  const saprotName = saprotIsVesmFallback ? "VESM (SaProt fallback)" : "SaProt";
 
   const concordance = countPredictorConcordance(cadd, revel, am, amClass, bayesdel, esm1b, {
     metarnn,
@@ -312,12 +290,6 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     eigenPhred: eigen,
     dann,
     popeve,
-    esm2Llr: esm2,
-    esm2Label: esm2IsVesmFallback ? esm2Name : null,
-    saprotLlr: saprot,
-    saprotLabel: saprotIsVesmFallback ? saprotName : null,
-    vesmLlr: esmc,
-    esmcLabel: esmcProvenance,
     gpnStar: gpn,
     alphagenome,
     caddCandidates: candidateCaddList,
@@ -333,10 +305,6 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     isLoading ? { state: "pending", label: ENGINE_STATE_LABELS.running, reason: null, action: null } : { state: "absent", label: label ?? NO_RESULT, reason, action: null };
   const present: PredictorReading["availability"] = { state: "available", label: null, reason: null, action: null };
   const avail = (score: number | null, reason?: string | null) => (score !== null ? present : absent(reason ?? null));
-  const modelAvail = (score: number | null): PredictorReading["availability"] =>
-    score !== null ? present
-    : isLoading || isModelLoading ? { state: "pending", label: ENGINE_STATE_LABELS.running, reason: null, action: null }
-    : { state: "absent", label: NO_RESULT, reason: null, action: null };
 
   /**
    * A provider budget expiry is not a completed miss.
@@ -604,78 +572,6 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       link: null,
     });
   }
-
-  const uncalibratedLm = (
-    key: string,
-    name: string,
-    score: number | null,
-    extra: Partial<PredictorReading>,
-  ) => {
-    readings.push({
-      key,
-      name,
-      description: "",
-      group: "protein-lm",
-      votes: false,
-      score,
-      scoreText: fmt(score, 2),
-      unit: "LLR",
-      scale: { min: -25, max: 5 },
-      orientation: "lower",
-      cutpoints: NO_CUTS,
-      signal: score === null ? "unavailable" : "vus",
-      calibrated: null,
-      callLabel: score === null ? NO_RESULT : "Informational",
-      callTone: "muted",
-      caveats: [],
-      note: null,
-      availability: modelAvail(score),
-      source: "",
-      knowledgeKey: null,
-      link: null,
-      ...extra,
-    });
-  };
-  uncalibratedLm("esm2_3b", esm2Name, esm2, {
-    description: esm2IsVesmFallback
-      ? "ESM-2 could not run; served by the local VESM-150M wild-type-marginal stand-in."
-      : "Protein language model masked-marginal LLR.",
-    caveats: esm2IsVesmFallback ? ["fallback-model"] : [],
-    note: esm2IsVesmFallback
-      ? `Stand-in via ${esm2Provenance}`
-      : esm2Provenance
-        ? `Served by ${esm2Provenance}`
-        : null,
-    source: esm2Provenance ?? "Meta FAIR ESM-2",
-    knowledgeKey: esm2IsVesmFallback ? "vesm" : "esm2",
-  });
-  uncalibratedLm("vesm", esmcIsVesm ? "VESM" : esmcProvenance && /esmc/i.test(esmcProvenance) ? "ESMC" : "ESMC / VESM", esmc, {
-    description: "Protein language model LLR — ESMC when the remote tier answers, VESM when the local sidecar does.",
-    caveats: esmcIsFallback ? ["fallback-model"] : [],
-    note: esmcRemoteNote
-      ? `Stand-in (${esmcProvenance ?? "VESM-150M"}); ESMC remote unavailable: ${esmcRemoteNote}`
-      : esmcProvenance
-        ? `Served by ${esmcProvenance}`
-        : null,
-    source: esmcProvenance ?? "ESMC (remote) or VESM (local sidecar)",
-    knowledgeKey: esmcIsVesm ? "vesm" : "esmc",
-  });
-  uncalibratedLm("saprot", saprotName, saprot, {
-    description: saprotIsVesmFallback
-      ? "SaProt could not run; served by the local VESM-150M wild-type-marginal stand-in without 3Di structure tokens."
-      : "Structure-aware protein language model over Foldseek 3Di tokens from the predicted structure.",
-    scale: { min: -20, max: 5 },
-    caveats: saprotIsFallback ? ["fallback-model"] : [],
-    note: saprotFallback
-      ? `Stand-in fallback: ${saprotFallback}`
-      : saprotIsVesmFallback
-        ? `Stand-in via ${saprotProvenance}`
-        : saprotProvenance
-          ? `Served by ${saprotProvenance}`
-          : null,
-    source: saprotProvenance ?? "SaProt",
-    knowledgeKey: saprotIsVesmFallback ? "vesm" : "saprot",
-  });
 
   // ── Genome-wide models (informational) ──
   {
@@ -1109,8 +1005,8 @@ export type InformationalGroup = Exclude<PredictorGroup, "vote">;
 export const INFORMATIONAL_FAMILY: Record<InformationalGroup, { what: string; why: string; read: string }> = {
   "protein-lm": {
     what: "Trained on millions of natural protein sequences to learn which amino acids evolution tolerates at each position. The score is a log-likelihood ratio (LLR): how much less likely the substituted residue is than the original.",
-    why: "Only ESM1b has a published evidence calibration, and ClinGen has not adopted any language model for PP3/BP4, so none is counted.",
-    read: "More negative means the change is less expected by the model. Scores from different models are not on the same scale.",
+    why: "ESM1b has a published evidence calibration, but ClinGen has not adopted any language model for PP3/BP4, so it is not counted.",
+    read: "More negative means the change is less expected by the model.",
   },
   genome: {
     what: "Models that score a variant from DNA context rather than protein sequence alone: a rank of regulatory and splicing impact, a language model over a vertebrate alignment, or a combination of existing annotations.",
@@ -1170,17 +1066,16 @@ export function informationalSummary(evidence: PredictorEvidence): Informational
  */
 export const LOCAL_AGREEMENT_COPY = {
   descriptive: "Descriptive agreement only. Correlated models are not independent evidence; these readings never change PP3 / BP4.",
-  preference: "Sequence preference is not a benign or pathogenic call. Published bands sit separately from sequence preference; scores are not averaged.",
   /** A calibrated tool's own code (ESM1b's PP3) is a published band, not a counted vote here. */
   calibratedBand: "(published band, not counted)",
-  /** Conservation and genome-wide scores have a direction; they are just not a preference ratio. */
-  noPreference: "No sequence-preference reading",
+  /** Conservation and genome-wide scores have a direction, but no published band. */
+  noBand: "No published band",
 };
 
 /**
  * The local agreement in words, plus the rows the caller may pin.
  *
- * The named fields (`descriptive`, `preferenceSummary`, `preferenceCaveat`) are what the shared
+ * The named field `descriptive` is what the shared
  * component renders; the `lead`/`tail` arrays remain the composed copy for callers that need one
  * string, so the wording cannot drift even though the chrome differs. Absent readings are stated
  * only when they exist — "none" is not a finding.
@@ -1188,28 +1083,17 @@ export const LOCAL_AGREEMENT_COPY = {
 export function localPredictorAgreement(evidence: PredictorEvidence) {
   const rows = evidence.readings.filter(r => !r.votes);
   const scoredRows = rows.filter(r => r.score !== null);
-  // These share an alternate/native LLR interpretation; zero is equal preference, not a benign cut.
-  const preferenceRows = scoredRows.filter(r => r.unit === "LLR" && !r.calibrated);
-  const unclassified = scoredRows.filter(r => !r.calibrated && r.unit !== "LLR");
+  const unclassified = scoredRows.filter(r => !r.calibrated);
   const missing = rows.filter(r => r.score === null);
-  const native = preferenceRows.filter(r => r.score! < 0).length;
-  const alternate = preferenceRows.filter(r => r.score! > 0).length;
-  const preferenceSummary = preferenceRows.length === 0
-    ? "No uncalibrated sequence-preference scores returned."
-    : `${native} favour native, ${alternate} favour alternate, ${preferenceRows.length - native - alternate} equal preference (${preferenceRows.length} sequence model${preferenceRows.length === 1 ? "" : "s"}).`;
   const descriptive = `${scoredRows.length} of ${rows.length} non-voting readings scored. ${LOCAL_AGREEMENT_COPY.descriptive}`;
-  const preferenceCaveat = LOCAL_AGREEMENT_COPY.preference;
   return {
     total: rows.length,
     scored: scoredRows.length,
-    preferenceSummary,
     descriptive,
-    preferenceCaveat,
-    lead: [descriptive, preferenceSummary],
+    lead: [descriptive],
     tail: [
-      ...(unclassified.length ? [`${LOCAL_AGREEMENT_COPY.noPreference}: ${unclassified.map(r => r.name).join(", ")}.`] : []),
+      ...(unclassified.length ? [`${LOCAL_AGREEMENT_COPY.noBand}: ${unclassified.map(r => r.name).join(", ")}.`] : []),
       ...(missing.length ? [`Not scored: ${missing.map(r => `${r.name} (${r.availability.label})`).join(", ")}.`] : []),
-      preferenceCaveat,
     ],
     // A calibrated non-voting tool keeps its published code only as a band name: naming it is not
     // counting it, and the section above says so. The code is formatted here, not in the renderer,
@@ -1217,10 +1101,6 @@ export function localPredictorAgreement(evidence: PredictorEvidence) {
     calibrated: scoredRows.filter(r => r.calibrated).map(r => ({
       reading: r,
       label: `${formatEvidenceCode(r.callLabel)} ${LOCAL_AGREEMENT_COPY.calibratedBand}`,
-    })),
-    preference: preferenceRows.map(r => ({
-      reading: r,
-      label: r.score! < 0 ? "Native residue favoured" : r.score! > 0 ? "Alternate residue favoured" : "Equal preference",
     })),
     unclassified,
     missing,

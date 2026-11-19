@@ -200,9 +200,6 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
           <p className="s3d-empty"><strong>{canvas.chip.label}</strong>{family === "esmfold" ? "No de novo structure is loaded." : "The wild-type coordinates are loading."}</p>
         )}
         {canvas.relationshipNote && <p className="s3d-relationship">{canvas.relationshipNote}</p>}
-        {model.representation === "esm3" && (
-          <p className="s3d-relationship">Embedding colours are a variant-conditioned sequence overlay projected onto the predicted wild type. They do not measure a change in this structure.</p>
-        )}
         {model.notices.map(notice => (
           <p key={notice.key} className="s3d-notice" data-tone={notice.tone}><strong>{notice.title}</strong>{notice.body}</p>
         ))}

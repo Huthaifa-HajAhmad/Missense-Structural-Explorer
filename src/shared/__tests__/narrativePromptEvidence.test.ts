@@ -27,7 +27,7 @@ describe("NARRATIVE_PROMPT_EVIDENCE", () => {
     ]) {
       expect(body).toContain(block);
     }
-    expect(NARRATIVE_PROMPT_EVIDENCE.sent).toHaveLength(10);
+    expect(NARRATIVE_PROMPT_EVIDENCE.sent).toHaveLength(9);
   });
 
   it("uses the supplied citation snapshot and carries the screening no-criterion rule", () => {

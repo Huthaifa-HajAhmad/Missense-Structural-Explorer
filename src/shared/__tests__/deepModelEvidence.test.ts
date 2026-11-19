@@ -127,130 +127,17 @@ describe("deepModelEvidence — sign, provenance and status per model", () => {
     expect(foldx.note).toContain("excluded");
   });
 
-  it("carries language-model provenance and refuses to invent a band for an LLR", () => {
-    const evidence = buildDeepModelEvidence({
-      evaluations: {
-        esm2: { llr: -3.21, provenance: "ESM-2 650M (local)" },
-        esmc: { llr: 0.42, provenance: "VESM-150M (cpu)" },
-        saprot: { error: "sidecar unreachable", status: "timeout" },
-        esm3: {
-          structuralChangeLevel: "moderate",
-          confidence: { level: "high", plddt: 82.14 },
-          provenance: "ESM3-open",
-        },
-      },
-    });
-
-    const esm2 = observation(evidence, "esm2");
-    expect(esm2.value).toBe(-3.21);
-    expect(esm2.unit).toBe("ΔLLR");
-    expect(esm2.provenance).toContain("ESM-2 650M");
-    // No calibrated band exists for an LLR, so none is asserted.
-    expect(esm2.call).toBeNull();
-
-    // The ESMC card is served by a VESM fallback here: the payload says so rather than the card's own
-    // calibration row being presented as the serving model.
-    expect(observation(evidence, "esmc").note).toContain("calibration row");
-
-    expect(observation(evidence, "saprot").state).toBe("upstream-busy");
-    // The reason travels with the row, so the prompt is told WHY it produced nothing rather than being
-    // left to infer a value for it.
-    expect(observation(evidence, "saprot").note).toContain("sidecar unreachable");
-
-    const esm3 = observation(evidence, "esm3");
-    // A categorical drift band is not turned into a number.
-    expect(esm3.value).toBeNull();
-    expect(esm3.call).toBe("Moderate embedding shift (app-defined)");
-    expect(esm3.note).toContain("confidence high");
-    expect(esm3.note).toContain("pLDDT 82.1");
-  });
-
-  it("reports a model still loading as running, and one that failed as failed", () => {
-    const evidence = buildDeepModelEvidence({
-      evaluations: { esm2: { loading: true }, esmc: { error: "boom", status: "error" } },
-    });
-    expect(observation(evidence, "esm2").state).toBe("running");
-    expect(observation(evidence, "esmc").state).toBe("failed");
-  });
-
-  /**
-   * A failure placeholder OUTRANKS any score or category in the same payload.
-   *
-   * The projection consulted the value first, so a payload carrying BOTH a finite score and a failure
-   * placeholder was reported as `computed` — an errored evaluation reached the prompt, and any telemetry
-   * consumer reading the block saw a measurement. These are the mixed shapes that actually occur: a
-   * score left beside a fresh error, and an error that closed after partial output.
-   */
-  it("drops the value and the call when a failure placeholder shares the payload", () => {
-    const evidence = buildDeepModelEvidence({
-      evaluations: {
-        // A finite LLR beside an explicit error: no reading may be quoted.
-        esm2: { llr: -4, error: "sidecar failed", status: "error" },
-        // A categorical band beside an error: the call must go too, not just the state.
-        esm3: {
-          structuralChangeLevel: "moderate",
-          confidence: { level: "high", plddt: 82.14 },
-          provenance: "ESM3-open",
-          error: "no perturbation scores returned",
-          status: "error",
-        },
-      },
-    });
-
-    const esm2 = observation(evidence, "esm2");
-    expect(esm2.state).toBe("failed");
-    expect(esm2.value).toBeNull();
-    expect(esm2.unit).toBeNull();
-    expect(esm2.call).toBeNull();
-    expect(esm2.note).toContain("sidecar failed");
-
-    const esm3 = observation(evidence, "esm3");
-    expect(esm3.state).toBe("failed");
-    expect(esm3.value).toBeNull();
-    expect(esm3.call, "a band beside an error is not a reading").toBeNull();
-    expect(esm3.note).toContain("no perturbation scores returned");
-    // An errored row does not claim which engine served it.
-    expect(esm3.provenance).toBeNull();
-  });
-
-  it("classifies each placeholder from the endpoint's own vocabulary, and never as computed", () => {
-    const cases: Array<[string, any, string]> = [
-      ["timeout", { llr: -1.2, status: "timeout" }, "upstream-busy"],
-      ["offline", { llr: -1.2, status: "offline" }, "not-installed"],
-      ["token_required", { score: null, status: "token_required" }, "not-installed"],
-      ["unavailable", { status: "unavailable" }, "not-installed"],
-      ["invalid_input", { llr: 0.4, status: "invalid_input" }, "failed"],
-      ["error without a status", { llr: 0.4, error: "HTTP 500" }, "failed"],
-    ];
-
-    for (const [label, payload, expected] of cases) {
-      const esm2 = observation(buildDeepModelEvidence({ evaluations: { esm2: payload } }), "esm2");
-      expect(esm2.state, label).toBe(expected);
-      expect(esm2.value, label).toBeNull();
-      expect(esm2.call, label).toBeNull();
-      expect(esm2.note, label).toBeTruthy();
-      // The ESM3 row reads the same vocabulary, because the server sends it that way.
-      const esm3 = observation(buildDeepModelEvidence({ evaluations: { esm3: payload } }), "esm3");
-      expect(esm3.state, `${label} (esm3)`).toBe(expected);
-      expect(esm3.call, `${label} (esm3)`).toBeNull();
-    }
-  });
-
-  it("keeps a fallback tier's note while keeping its real reading", () => {
-    /*
-     * The other side of the same rule: `hfError`/`remoteEngineNote`/`fallbackReason` describe WHICH tier
-     * answered — `saprot.ts` returns them beside a computed `llr` — so mistaking them for failure
-     * placeholders would discard a real reading. They travel as the row's note instead.
-     */
-    const evidence = buildDeepModelEvidence({
-      evaluations: {
-        saprot: { llr: -2.5, remoteEngineNote: "remote HF tier unavailable; local tier served", hfError: "HTTP 503" },
-      },
-    });
-    const saprot = observation(evidence, "saprot");
-    expect(saprot.state).toBe("computed");
-    expect(saprot.value).toBe(-2.5);
-    expect(saprot.note).toContain("local tier served");
+  it("leaves out the retired language-model results a saved analysis still carries", () => {
+    const saved = {
+      esm2Eval: { llr: -3.21, provenance: "ESM-2 650M (local)" },
+      esmcEval: { llr: 0.42, provenance: "VESM-150M (cpu)" },
+      saprotEval: { llr: -2.5, provenance: "SaProt (SaProt_35M_AF2 - Remote)" },
+      esm3Eval: { structuralChangeLevel: "moderate", provenance: "ESM3-Medium (Remote)" },
+    };
+    const evidence = deepModelEvidenceFor(saved);
+    expect(evidence.observations.map(o => o.id)).toEqual([...DEEP_EVIDENCE_MODEL_IDS]);
+    expect(JSON.stringify(evidence)).not.toMatch(/ESM|SaProt|VESM|ΔLLR/);
+    expect(deepEvidencePromptBlock(evidence) ?? "").not.toMatch(/ESM|SaProt|VESM|ΔLLR/);
   });
 });
 

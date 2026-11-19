@@ -14,9 +14,12 @@ import { ProgressPanel } from "./energetics/ProgressPanel";
 import { EngineTally, StructureFact } from "./energetics/FindingFacts";
 import { ReadingsTable } from "./energetics/ReadingsTable";
 import { useEnergeticsEvidence, type EnergeticsContext, type EnergeticsRun } from "./energetics/useEnergeticsEvidence";
+import { PackingView } from "./energetics/PackingView";
+import type { StructuralDiffResult, StructuralMetrics } from "../types";
 
 const EnergeticsComparison = lazy(() => import('./energetics/EnergeticsComparison'));
-const ENERGY_TABS = [{ id: 'comparison', label: 'Comparison' }, { id: 'records', label: 'Engine records' }] as const;
+const ENERGY_TABS = [{ id: 'comparison', label: 'Comparison' }, { id: 'records', label: 'Engine records' }, { id: 'packing', label: 'Packing & geometry' }] as const;
+type EnergyTab = (typeof ENERGY_TABS)[number]['id'];
 
 
 /**
@@ -41,8 +44,13 @@ const ENERGY_TABS = [{ id: 'comparison', label: 'Comparison' }, { id: 'records',
  *   • A second, drifted copy of the method citations (DDMut cited to a 2022 DOI, ThermoMPNN to a
  *     vendor page, StabilityOracle to this repository). The info buttons open the shared table.
  *
+ * Packing & geometry is the third view: the physical readings of the same FoldX mutant model (energy
+ * components, clashes, contacts, surface area), built by `buildPackingEvidence`. It moved here from the
+ * retired Structural perturbation tab (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md).
+ *
  * INVARIANTS
- *   • Every number, state and call comes from `buildEnergeticsEvidence`; this file classifies nothing.
+ *   • Every number, state and call comes from `buildEnergeticsEvidence` or `buildPackingEvidence`;
+ *     this file classifies nothing.
  *   • Comparison and Engine records share one evidence model and one selected method.
  */
 
@@ -54,6 +62,9 @@ interface EnergeticsViewProps extends EnergeticsRun {
   analysisResult: EnergeticsContext | null;
   /** Server-reported FoldX phase and age; absent sinks simply render the spinner as before. */
   foldingProgress?: FoldxProgress | null;
+  /** The FoldX wild-type/mutant structural comparison and contact metrics, for Packing & geometry. */
+  structuralDiff?: StructuralDiffResult | null;
+  packingMetrics?: StructuralMetrics | null;
 }
 
 const EnergeticsView = memo(function EnergeticsView({
@@ -62,9 +73,11 @@ const EnergeticsView = memo(function EnergeticsView({
   classCard,
   analysisResult: result,
   foldingProgress = null,
+  structuralDiff = null,
+  packingMetrics = null,
   ...run
 }: EnergeticsViewProps) {
-  const [tab, setTab] = useState<'comparison' | 'records'>('comparison');
+  const [tab, setTab] = useState<EnergyTab>('comparison');
   const [chartOptions, setChartOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: false, showMarks: false });
   const [localSelection, setLocalSelection] = useState<EnergyEngineId | null>(null);
   const selected = onSelectEngine ? selectedEngine : localSelection;
@@ -142,7 +155,7 @@ const EnergeticsView = memo(function EnergeticsView({
             folding={Boolean(run.isFolding)}
             onSubmitted={() => setHidePendingEngines(false)}
           />
-          {selected && <button type="button" className="nrg-inspect-button" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityMethod)}>Inspect {evidence.readings.find(r => r.key === selected)?.name} →</button>}
+          {selected && tab !== 'packing' && <button type="button" className="nrg-inspect-button" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityMethod)}>Inspect {evidence.readings.find(r => r.key === selected)?.name} →</button>}
         </div>
 
         {run.isFolding && !hidePendingEngines && (
@@ -156,7 +169,7 @@ const EnergeticsView = memo(function EnergeticsView({
         )}
 
         {/* ── 1. The finding ─────────────────────────────────────────────────────────────── */}
-        <section className="nrg-card nrg-hero" data-compact={tab === 'comparison'} aria-labelledby="nrg-finding-title" data-testid="energetics-finding">
+        {tab !== 'packing' && <section className="nrg-card nrg-hero" data-compact={tab === 'comparison'} aria-labelledby="nrg-finding-title" data-testid="energetics-finding">
           <div className="nrg-hero__head">
             <span className="eyebrow" id="nrg-finding-title">
               <Activity className="w-3.5 h-3.5" aria-hidden="true" />
@@ -240,7 +253,7 @@ const EnergeticsView = memo(function EnergeticsView({
               <span className="nrg-fact__sub">Informational evidence</span>
             </div>
           </div>}
-        </section>
+        </section>}
 
         <div id={`energetics-panel-${tab}`} role="tabpanel" aria-labelledby={`energetics-tab-${tab}`} tabIndex={0}>
         {tab === 'comparison' && <Suspense fallback={<p role="status">Loading stability comparison…</p>}>
@@ -249,6 +262,16 @@ const EnergeticsView = memo(function EnergeticsView({
 
 
         {tab === 'records' && <ReadingsTable evidence={evidence} unit={unit} selected={selected} onSelect={selectEngine} onKnowledge={setKnowledgeKey} />}
+        {tab === 'packing' && <PackingView
+          position={result.metadata?.residueIndex ?? null}
+          foldingEnergetics={foldingEnergetics}
+          structuralDiff={structuralDiff}
+          metrics={packingMetrics}
+          isFolding={Boolean(run.isFolding)}
+          foldingStatus={foldingStatus}
+          foldingError={run.foldingError}
+          site={run.disruptionPredictor ?? result.disruptionPredictor ?? null}
+        />}
         </div>
       </div>
     </div>

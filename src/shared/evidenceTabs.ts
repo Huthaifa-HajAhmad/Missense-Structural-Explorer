@@ -30,7 +30,6 @@ export const EVIDENCE_TABS = [
   { id: 'alphagenome', label: 'AlphaGenome', subtitle: 'AlphaGenome variant impact (AVI)', detailView: 'Rank & composition', guide: 'alphagenome' },
   { id: 'splicing', label: 'RNA splicing', subtitle: 'Splice rule & junction geometry', detailView: 'Channel details', guide: 'splicing' },
   { id: 'structure', label: 'Residue shifts & pockets', subtitle: 'Residue shifts & pocket provenance', detailView: 'Environment & pockets', guide: 'residue' },
-  { id: 'perturbation', label: 'Structural perturbation', subtitle: 'Structural perturbation trace', detailView: 'Packing & geometry', guide: 'perturbation' },
   { id: 'interfaces', label: 'Interfaces & PPI', subtitle: 'Interfaces & partner provenance', detailView: 'Assemblies & models', guide: 'interfaces' },
 ] as const;
 

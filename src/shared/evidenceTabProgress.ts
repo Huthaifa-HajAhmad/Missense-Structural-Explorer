@@ -45,7 +45,6 @@ export function isEvidenceTabLoading(
     case "predictors": return pending("predictorData") ||
       (["base", "popeve", "gpnStar", "alphagenome"] as const).some(model => isConservationModelPending(result, model, isBiophysicalLoading));
     case "structure":
-    case "perturbation": return stages?.structural === "running";
     case "interfaces": return stages?.multimer === "running" || stages?.ppi === "running";
     default: return false;
   }

@@ -495,7 +495,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   lanes.push({
     key: "language-models",
     name: "Sequence models",
-    links: [{ label: "AlphaGenome", tab: "alphagenome" }, { label: "Perturbation", tab: "perturbation" }],
+    links: [{ label: "Predictors", tab: "predictors" }, { label: "AlphaGenome", tab: "alphagenome" }],
     lean: lmP > lmB ? "pathogenic" : lmB > lmP ? "benign" : "none",
     counted: false,
     code: null,
@@ -505,7 +505,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     lead: lm.length
       ? `${lm.length} ${plural(lm.length, "protein or genome model scored", "protein and genome models scored")} this variant; ${lmP} flag it and ${lmB} read it as tolerated.`
       : "No protein or genome model returned a score.",
-    rest: "ESM1b has published calibrated bands; the other sequence models are informational. None votes in this engine.",
+    rest: "ESM1b has published calibrated bands; the genome models are informational. None votes in this engine.",
   });
 
   // Contrasts ─ generated from the lanes' own calls, never from a new score.

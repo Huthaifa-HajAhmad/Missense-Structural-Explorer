@@ -29,6 +29,20 @@ export function normalizeEvidenceTab(tab: string): string {
   return RETIRED_EVIDENCE_TABS[tab.toLowerCase()] ?? tab;
 }
 
+/**
+ * Ids of evidence tabs whose remaining content moved to another page, not to another Evidence tab.
+ * Structural perturbation lost its protein-language-model readings (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md);
+ * its FoldX Packing & geometry readings are now a view on Energetics.
+ */
+const RETIRED_TO_VIEW: Record<string, MasterView> = {
+  perturbation: "energetics",
+};
+
+/** The page that took over a retired evidence tab, or null when `tab` is not one. */
+export function retiredEvidenceTabView(tab: string): MasterView | null {
+  return RETIRED_TO_VIEW[tab.toLowerCase()] ?? null;
+}
+
 export interface EvidenceDashboardCardProps {
   isDark: boolean;
   isBiophysicalLoading?: boolean;

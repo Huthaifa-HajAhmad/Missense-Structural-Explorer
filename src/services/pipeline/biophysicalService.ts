@@ -4,7 +4,6 @@ import { TraceContext } from "./types";
 import { getCachedVariant, setCachedVariant, type CachedVariantBundle } from "./variantCache";
 import { mergeResultPatch, type PipelineStage, type StageOutcome } from "./resultMerge";
 import { serviceStatusOf } from "../../shared/serviceStatus";
-import { deepModelEvidenceFor } from "../../shared/deepModelEvidence";
 import { STRUCTURAL_MODEL_FIELDS, STRUCTURAL_MODEL_KEYS, type StructuralModelKey } from "../../shared/structuralStream";
 
 export interface BiophysicalAnalysisParams {
@@ -362,33 +361,31 @@ export function fetchProgressiveStructuralAssessments(
       if (!structRes || typeof structRes !== "object") throw new Error("Structural evaluation returned no result");
       setIsStructuralLoading?.(false);
 
-      // Reuse the scientific projection's actual computed/absent outcome, not HTTP 200 or a token placeholder.
-      const observations = deepModelEvidenceFor(structRes, { saprotEngine: params.saprotEngine }).observations;
+      // A model counts as computed only when it returned a reading and no error, not on HTTP 200.
       const modelEntries = [
-        ["saprot", "saprot", structRes.saprotEval], ["esm2Eval", "esm2", structRes.esm2Eval],
-        ["esmc", "esmc", structRes.esmcEval], ["esm3", "esm3", structRes.esm3Eval]
+        ["saprot", "SaProt", structRes.saprotEval], ["esm2Eval", "ESM-2", structRes.esm2Eval],
+        ["esmc", "ESM-C", structRes.esmcEval], ["esm3", "ESM3", structRes.esm3Eval]
       ] as const;
       const failedModels: string[] = [];
       const timings = structRes.structuralTimings ?? structRes.metadata?.structuralTimings;
       const offsets = structRes.structuralTimingOffsets ?? structRes.metadata?.structuralTimingOffsets;
-      for (const [key, id, evaluation] of modelEntries) {
-        const observation = observations.find(item => item.id === id)!;
-        const computed = observation.state === "computed";
-        const outcome = structRes.serviceStatus?.[key] ?? evaluation?.status ?? observation.state;
+      for (const [key, source, evaluation] of modelEntries) {
+        const computed = !evaluation?.error && (Number.isFinite(evaluation?.llr) || typeof evaluation?.structuralChangeLevel === "string");
+        const outcome = structRes.serviceStatus?.[key] ?? evaluation?.status ?? (computed ? "computed" : "no-result");
         if (!computed) {
-          failedModels.push(`${observation.source} (${outcome})`);
-          console.warn(`[StructuralModel] ${observation.source}: ${evaluation?.error || outcome}`);
+          failedModels.push(`${source} (${outcome})`);
+          console.warn(`[StructuralModel] ${source}: ${evaluation?.error || outcome}`);
         }
         const durationMs = timings?.[key];
         if (traceContext?.activeTraceId && Number.isFinite(durationMs) && durationMs >= 0) {
           const startOffset = Number.isFinite(offsets?.[key]) ? Math.max(0, offsets[key] - durationMs) : 0;
           const clientOffset = Math.max(0, structuralStart - traceContext.traceStart);
           traceContext.addTraceSpan({
-            traceId: traceContext.activeTraceId, name: `↳ ${observation.source}`, stage: "biophysics",
+            traceId: traceContext.activeTraceId, name: `↳ ${source}`, stage: "biophysics",
             startTime: Date.now() - (performance.now() - structuralStart) + startOffset,
             offsetMs: Math.round(clientOffset + startOffset), durationMs,
             status: computed ? "success" : outcome === "error" || outcome === "timeout" ? "failed" : "unavailable",
-            meta: { serviceKey: key, status: outcome, modelProvenance: observation.provenance }
+            meta: { serviceKey: key, status: outcome, modelProvenance: typeof evaluation?.provenance === "string" ? evaluation.provenance : null }
           });
         }
       }

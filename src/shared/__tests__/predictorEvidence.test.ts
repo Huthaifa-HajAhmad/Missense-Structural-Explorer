@@ -171,7 +171,7 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
 
   it("never lets an informational tool vote", () => {
     for (const r of evidence.readings.filter(x => !x.votes)) {
-      expect(["alphagenome", "eigen", "dann", "esm", "esm2_3b", "vesm", "saprot", "gpn_star", "phylop", "gerp", "consurf"]).toContain(r.key);
+      expect(["alphagenome", "eigen", "dann", "esm", "gpn_star", "phylop", "gerp", "consurf"]).toContain(r.key);
     }
     const avi = evidence.readings.find(r => r.key === "alphagenome")!;
     expect(avi.callLabel).toBe("Informational");
@@ -185,10 +185,13 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(evidence.readings.find(r => r.key === "revel")!.caveats).not.toContain("uses-af");
   });
 
-  it("names the model that served the ESMC/VESM slot", () => {
-    const row = evidence.readings.find(r => r.key === "vesm")!;
-    expect(row.name).toBe("VESM");
-    expect(row.note).toMatch(/VESM-150M/);
+  it("shows no row for the retired runtime language models a saved analysis still carries, and keeps ESM1b", () => {
+    // The fixture stores ESMC/VESM, ESM-2 and SaProt results, as analyses saved before 2026-11-18 do.
+    for (const key of ["esm2_3b", "vesm", "saprot"]) expect(evidence.readings.find(r => r.key === key)).toBeUndefined();
+    expect(evidence.readings.map(r => r.name).join(" ")).not.toMatch(/ESM-2|ESMC|VESM|SaProt/);
+    const esm1b = evidence.readings.find(r => r.key === "esm")!;
+    expect(esm1b.name).toBe("ESM1b");
+    expect(esm1b.group).toBe("protein-lm");
   });
 
   it("reads the engine record rather than inferring it", () => {
@@ -213,11 +216,11 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
   });
 
   it("reports a missing score as pending while the analysis runs, and as no result after", () => {
-    const loading = buildPredictorEvidence({ result: gzf1({ esm2Eval: null, esm2: null }), isModelLoading: true });
-    expect(loading.readings.find(r => r.key === "esm2_3b")!.availability.state).toBe("pending");
-    expect(loading.pending).toBe(true);
-    const done = buildPredictorEvidence({ result: gzf1({ esm2Eval: null, esm2: null }) });
-    expect(done.readings.find(r => r.key === "esm2_3b")!.availability.state).toBe("absent");
+    const missing = { conservationData: { ...gzf1().conservationData, esm1b: null } };
+    const loading = buildPredictorEvidence({ result: gzf1(missing), isLoading: true });
+    expect(loading.readings.find(r => r.key === "esm")!.availability.state).toBe("pending");
+    const done = buildPredictorEvidence({ result: gzf1(missing) });
+    expect(done.readings.find(r => r.key === "esm")!.availability.state).toBe("absent");
   });
 });
 
@@ -342,20 +345,18 @@ describe("AlphaGenome reference-base refusal", () => {
 });
 
 describe("local informational agreement", () => {
-  it("keeps sequence preference, unclassified scores and missingness separate from the vote", () => {
+  it("keeps calibrated bands, unclassified scores and missingness separate from the vote", () => {
     const evidence = buildPredictorEvidence({ result: gzf1() });
     const agreement = localPredictorAgreement(evidence);
-    expect(agreement.preferenceSummary).toContain("4 favour native");
     expect(agreement.unclassified.map(r => r.key)).toContain("alphagenome");
     expect(agreement.missing.map(r => r.key)).toContain("esm");
-    expect([...agreement.preference, ...agreement.calibrated].every(x => !x.reading.votes)).toBe(true);
+    expect(agreement.calibrated.every(x => !x.reading.votes)).toBe(true);
     const empty = localPredictorAgreement(buildPredictorEvidence({ result: {} as any }));
     expect(empty.scored).toBe(0);
-    expect(empty.preferenceSummary).toContain("No uncalibrated");
     // The tab card and the rail render these strings verbatim, so gaps are stated only when they
     // exist: "None" is not a finding, and a calibrated code names its band without counting it.
     expect(agreement.lead[0]).toContain("non-voting readings scored");
-    expect(agreement.tail.some(t => t.startsWith("No sequence-preference reading:"))).toBe(true);
+    expect(agreement.tail.some(t => t.startsWith("No published band:"))).toBe(true);
     expect(agreement.tail.some(t => t.startsWith("Not scored:"))).toBe(true);
     expect(agreement.tail.every(t => !/\bnone\b/i.test(t))).toBe(true);
     expect(agreement.calibrated.every(x => x.label.endsWith("(published band, not counted)"))).toBe(true);
@@ -389,45 +390,5 @@ describe("local informational agreement", () => {
       }),
     });
     expect(settled.readings.find(r => r.key === "metarnn")!.availability.label).toBe("No result");
-  });
-
-  it("distinctly labels VESM-150M fallback across ESM-2, ESMC/VESM, and SaProt", () => {
-    const base = gzf1();
-    const evidence = buildPredictorEvidence({
-      result: gzf1({
-        esm2Eval: { ...base.esm2Eval, llr: -4.2, provenance: "VESM-150M (Local Fallback)" },
-        esmcEval: {
-          ...base.esmcEval,
-          llr: -4.2,
-          provenance: "VESM-150M (Local Fallback - ESMC remote failed)",
-          remoteEngineNote: "HTTP 451",
-        },
-        saprotEval: {
-          ...base.saprotEval,
-          llr: -4.2,
-          provenance: "VESM-150M (Local Fallback - SaProt unavailable)",
-          fallbackReason: "weights missing",
-        },
-      }),
-    });
-    const esm2 = evidence.readings.find(r => r.key === "esm2_3b")!;
-    expect(esm2.name).toBe("VESM (ESM-2 fallback)");
-    expect(esm2.caveats).toContain("fallback-model");
-    expect(esm2.knowledgeKey).toBe("vesm");
-    expect(esm2.note).toContain("VESM-150M");
-
-    const vesm = evidence.readings.find(r => r.key === "vesm")!;
-    expect(vesm.name).toBe("VESM");
-    expect(vesm.caveats).toContain("fallback-model");
-    expect(vesm.note).toContain("ESMC remote unavailable: HTTP 451");
-
-    const saprot = evidence.readings.find(r => r.key === "saprot")!;
-    expect(saprot.name).toBe("VESM (SaProt fallback)");
-    expect(saprot.caveats).toContain("fallback-model");
-    expect(saprot.knowledgeKey).toBe("vesm");
-
-    const agreement = localPredictorAgreement(evidence);
-    expect(agreement.preference.map(x => x.reading.name)).toContain("VESM (ESM-2 fallback)");
-    expect(agreement.preference.map(x => x.reading.name)).toContain("VESM (SaProt fallback)");
   });
 });

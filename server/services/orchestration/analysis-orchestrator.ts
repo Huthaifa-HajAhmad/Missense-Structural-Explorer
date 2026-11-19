@@ -663,12 +663,8 @@ export async function runStructuralAnalysis(
     curatedInheritance: coreData.curatedInheritance ?? null,
     curatedLofMechanism: coreData.curatedLofMechanism ?? null,
     acmgWeighting,
-    esm2: coreData.esm2,
     uniprotFeatures: coreData.uniprotFeatures,
     sequence,
-    esmcEval: structuralData.esmcEval,
-    esm2Eval: structuralData.esm2Eval,
-    saprotEval: structuralData.saprotEval,
     serviceStatus: coreData.serviceStatus
   });
 

@@ -49,17 +49,16 @@ describe("PredictorsTab", () => {
     renderTab(gzf1());
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const row = screen.getByTestId("predictor-local-agreement");
-    expect(row.textContent).toContain("4 favour native");
     expect(row.textContent).toContain("never change PP3 / BP4");
     // The summary states what the readings say together; each reading is listed once, in the outside-the-comparison card.
     expect(within(row).queryByRole("button")).toBeNull();
     const groups = screen.getByTestId("predictor-unplotted-groups");
-    expect(within(groups).getByRole("button", { name: /ESM-2/ })).toBeTruthy();
+    expect(within(groups).queryByRole("button", { name: /ESM-2|VESM|SaProt/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).textContent).toContain("No result");
     // Numeric readings split at the decimal point so the column lines up; states keep the muted "absent" treatment.
-    const esm2 = within(groups).getByRole("button", { name: /ESM-2/ });
-    expect(esm2.querySelector(".prd-dec__int")!.textContent).toBe("-4");
-    expect(esm2.querySelector(".prd-dec__frac")!.textContent).toBe(".78");
+    const gpn = within(groups).getByRole("button", { name: /GPN-Star/ });
+    expect(gpn.querySelector(".prd-dec__int")!.textContent).toBe("-8");
+    expect(gpn.querySelector(".prd-dec__frac")!.textContent).toBe(".81");
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).querySelector("strong[data-state='absent']")).toBeTruthy();
   });
 

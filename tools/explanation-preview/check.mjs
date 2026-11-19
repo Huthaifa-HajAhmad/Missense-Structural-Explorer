@@ -64,18 +64,18 @@ try {
   for (const [width, height, textSize] of [[320, 568, '100%'], [667, 375, '100%'], [390, 700, '200%']]) {
     await page.setViewportSize({ width, height });
     await page.evaluate(size => document.documentElement.style.fontSize = size, textSize);
-    await open('About VESM embeddings');
+    await open('About uncertainty');
     check(`${width}x${height} text ${textSize}: readable body and reachable exit`, await page.locator('dialog').evaluate(el => {
       const body = el.querySelector('.rgd-body').getBoundingClientRect();
       const exit = el.querySelector('.rgd-close').getBoundingClientRect();
       return body.height > 80 && exit.bottom <= innerHeight && el.scrollWidth <= el.clientWidth;
     }));
-    await page.screenshot({ path: `${output}/vesm-${width}-${height}-${textSize.replace('%', '')}.png` });
+    await page.screenshot({ path: `${output}/uncertainty-${width}-${height}-${textSize.replace('%', '')}.png` });
     await page.keyboard.press('Escape');
   }
   await page.evaluate(() => document.documentElement.style.fontSize = '');
   await page.setViewportSize({ width: 390, height: 700 });
-  await open('About VESM embeddings');
+  await open('About uncertainty');
   await page.locator('dialog').evaluate(dialog => {
     const text = [...dialog.querySelectorAll('h2, h3, p, button, dt, dd, strong, a, li, span')];
     const sizes = text.map(el => parseFloat(getComputedStyle(el).fontSize));
@@ -86,7 +86,7 @@ try {
     const exit = dialog.querySelector('.rgd-close').getBoundingClientRect();
     return body.clientHeight > 80 && body.scrollHeight > body.clientHeight && body.scrollWidth <= body.clientWidth && exit.bottom <= innerHeight;
   }));
-  await page.screenshot({ path: `${output}/vesm-doubled-text.png` });
+  await page.screenshot({ path: `${output}/uncertainty-doubled-text.png` });
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1500, height: 900 });
   await open('About FoldX');
@@ -112,7 +112,7 @@ try {
       check(`${theme} ${width}: no content overflow`, !geometry.overflow);
       check(`${theme} ${width}: scrollable explanation`, geometry.scrollable);
       check(`${theme} ${width}: dimmed backdrop`, /0\.48/.test(geometry.backdrop));
-      await page.screenshot({ path: `${output}/foldx-${width}-${theme}.png` });
+      await page.screenshot({ path: `${output}/uncertainty-${width}-${theme}.png` });
       const before = await page.evaluate(() => scrollY);
       await page.locator('.rgd-body').hover();
       await page.mouse.wheel(0, 700);
@@ -188,19 +188,13 @@ try {
       await collectTopics();
     }
   }
-  await page.getByLabel('Example', { exact: true }).selectOption('Embedding fallback');
-  await page.getByLabel('Evidence', { exact: true }).selectOption('perturbation');
-  await page.getByRole('tab', { name: 'Sequence embeddings', exact: true }).click();
-  await page.locator('[data-explanation-topic="vesm_embedding"]').waitFor();
-  await collectTopics();
-  await open('About the VESM fallback');
-  check('Fallback record opens embedding guidance rather than LLR guidance', await page.getByRole('dialog', { name: 'VESM embedding analysis', exact: true }).count() === 1);
-  await page.keyboard.press('Escape');
   for (const view of ['search', 'structure_alphafold', 'energetics', 'landscape', 'insights', 'literature', 'report']) {
     await page.getByLabel('Workspace', { exact: true }).selectOption(view);
     await page.locator('[data-explanation-topic]:visible').first().waitFor();
     await collectTopics();
-    if (view === 'energetics') { await page.getByRole('tab', { name: 'Engine records', exact: true }).click(); await collectTopics(); }
+    if (view === 'energetics') {
+      for (const name of ['Engine records', 'Packing & geometry']) { await page.getByRole('tab', { name, exact: true }).click(); await collectTopics(); }
+    }
     const trigger = page.locator('[data-explanation-topic]:visible').first();
     await trigger.click();
     await page.locator('dialog:modal').waitFor();

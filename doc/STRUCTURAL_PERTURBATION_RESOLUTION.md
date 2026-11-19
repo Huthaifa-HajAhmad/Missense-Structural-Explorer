@@ -4,6 +4,9 @@ Investigation: 2026-10-29. Second increment and provider decision: 2026-10-30 (b
 
 ## ESM-2 decision (2026-10-30, owner-approved)
 
+> **Superseded on 2026-11-18.** Runtime protein language models, ESM-2 650M included, are being retired. The reasons and
+> the benchmark are in `doc/PROTEIN_LANGUAGE_MODELS_DECISION.md`. This section stays as the record of the earlier decision.
+
 The screenshot's failure was HTTP 402 (no Hugging Face inference credits), not an expired token. ESMFold succeeds because it uses a different provider chain.
 
 **Decision: on a host without a GPU, the ESM-2 card runs genuine ESM-2 650M (`facebook/esm2_t33_650M_UR50D`, pinned revision) on the server's CPU.** Hugging Face stays an optional first tier when a token is saved. VESM-150M serves the card only if genuine ESM-2 cannot load, and the card then names VESM as the model that ran. Setting: `ESM2_CPU_MODEL` (`facebook/esm2_t30_150M_UR50D` for a smaller host; `vesm` restores the old route).

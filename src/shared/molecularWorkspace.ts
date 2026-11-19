@@ -1,13 +1,11 @@
 /** Presentation models only. No new classification, cut-points or cross-model normalisation.
  * Every selectable mark resolves to the same record in the figure, records and inspector.
  * Domain overlap is retained as source annotation, never merged into a biological consensus. */
-import type { EvidenceChartRow, EvidenceChartModel } from './evidenceComparison';
+import type { EvidenceChartRow } from './evidenceComparison';
 import type { FunctionEvidence } from './functionEvidence';
 import { HOTSPOT_GRADE_LABEL, HOTSPOT_LANE_LABEL, HOTSPOT_STATE_WORD, RSA_UNIT_NOTE, hotspotRungKey, type HotspotEvidence } from './hotspotEvidence';
 import type { ResidueContextEvidence } from './residueContextEvidence';
 import { RESIDUE_SCALE_SOURCES } from './residueScales';
-import { LM_CAVEAT_TEXT, type PerturbationEvidence } from './perturbationEvidence';
-import { PHYSICAL_EXPLANATIONS } from './researchGuides';
 
 export function hotspotReadings(ev: HotspotEvidence): (EvidenceChartRow & { reportUrl?: string | null })[] {
   if (ev.state !== 'ready') return [];
@@ -141,69 +139,4 @@ export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] 
       facts: [{ label: 'Distance', value: ev.pocket.proximity.distance === null ? 'No result' : `${ev.pocket.proximity.distance} Å` }, { label: 'Reference', value: ev.pocket.proximity.reference },
         { label: 'Profile', value: ev.pocket.ranking.profile ?? 'Not reported' }],
       notes: [ev.pocket.bottomLine, ...ev.pocket.caveats, 'A predicted cavity does not establish ligand binding or a functional effect.'].filter((n): n is string => Boolean(n)) }];
-}
-
-export function perturbationReadings(ev: PerturbationEvidence): EvidenceChartRow[] {
-  const models = ev.lms.flatMap(l => {
-    const modelNotes = [l.rankSentence, l.availability.reason, ...l.caveats.map(c => LM_CAVEAT_TEXT[c].detail)];
-    const model: EvidenceChartRow = { key: l.id, name: l.name, value: l.llr, valueText: l.llr === null ? l.availability.label : l.llr.toFixed(2),
-      description: l.description, group: 'Language model', tone: 'neutral',
-      knowledgeKey: /vesm/i.test(l.servedBy ?? '') ? 'vesm' : l.id,
-      facts: [{ label: 'Served model', value: l.servedBy ?? 'Not reported' }, { label: 'Status', value: l.availability.label },
-        { label: 'ΔLLR', value: l.llr === null ? 'No result' : String(l.llr) },
-        { label: 'Reference / variant rank', value: `${l.nativeRank ?? '—'} / ${l.rank ?? '—'}` },
-        { label: 'Scoring method', value: l.scoringMethod ?? 'Not recorded by this engine' }],
-      notes: [...modelNotes,
-        'ΔLLR compares the variant with the reference within this model. Raw magnitudes from different model families are not a common scale or clinical evidence.'].filter((s): s is string => Boolean(s)) };
-    return [model, ...l.preferences.map(p => ({ ...model, key: `${l.id}:${p.aa}`, name: `${l.name} · ${p.aa}`, value: p.prob,
-      valueText: String(p.prob), description: `Model probability for amino acid ${p.aa} at residue ${ev.residues.position ?? 'under study'}.`,
-      facts: [{ label: 'Amino acid', value: p.aa }, { label: 'Probability', value: String(p.prob) }, { label: 'Served model', value: l.servedBy ?? 'Not reported' }],
-      notes: [...modelNotes, 'Probability within this model at this position, not a probability of disease.'].filter((s): s is string => Boolean(s)) }))];
-  });
-  const physical: EvidenceChartRow[] = ev.physical.readings.filter(r => r.value !== null).map(r => {
-    const valueText = `${r.text}${r.unit ? ' ' + r.unit : ''}`;
-    const confidence = ev.physical.inputConfidence;
-    return { key: `phys:${r.key}`, name: r.name, value: r.value, valueText, description: r.description,
-      group: 'FoldX mutant model', tone: 'neutral', knowledgeKey: PHYSICAL_EXPLANATIONS[r.key],
-      facts: [{ label: 'Value', value: valueText }, { label: 'Method', value: ev.physical.method ?? 'Not recorded' },
-        ...(confidence ? [{ label: 'Input model confidence', value: `pLDDT ${confidence.plddt.toFixed(1)}${confidence.band ? ' · ' + confidence.band : ''}` }] : [])],
-      notes: [r.note, 'This is one measurement of the modelled mutant against its reference, not a stability estimate or a measurement in a living cell.'].filter((n): n is string => Boolean(n)) };
-  });
-  const e = ev.esm3;
-  const embedding: EvidenceChartRow[] = e && e.availability.state === 'computed' && e.drift !== null ? [{ key: 'esm3', name: e.label, value: e.drift, valueText: e.drift.toFixed(3),
-    description: "Largest change in the model's numerical description of any residue when the substitution is introduced.",
-    group: 'Sequence embedding', tone: 'neutral', knowledgeKey: e.knowledgeKey,
-    facts: [{ label: 'Distance metric', value: 'Cosine distance' },
-      { label: 'Largest change', value: `${e.drift.toFixed(3)}${e.driftResidue !== null ? ` at residue ${e.driftResidue}` : ''}` },
-      { label: 'At the variant residue', value: e.siteDrift?.toFixed(3) ?? 'Not measured' },
-      { label: 'Coverage', value: e.coverage ? `${e.coverage.measured} of ${e.coverage.total} residues` : 'Not reported' },
-      { label: 'Served model', value: e.servedBy ?? 'Not reported' }],
-    notes: ["An embedding distance describes a change in a model's representation, not atomic movement or disease risk.", e.serviceNote ? `${e.serviceNote}.` : null].filter((n): n is string => Boolean(n)) }] : [];
-  return [...models, ...physical, ...embedding];
-}
-
-/** Bound the overview without dropping the reference/variant, renormalising, or changing the axis.
- * Return original row objects so the overview and full distribution have identical source keys. */
-export function probabilityOverview(model: EvidenceChartModel, expanded: boolean): EvidenceChartModel {
-  if (expanded || model.rows.length <= 8) return model;
-  const ranked = [...model.rows].sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
-  const keep = new Set(ranked.slice(0, 6).map(r => r.key));
-  for (const row of model.rows) if (row.name.endsWith(' · reference') || row.name.endsWith(' · variant')) keep.add(row.key);
-  return { ...model, rows: ranked.filter(r => keep.has(r.key)) };
-}
-
-export function residueProbabilityComparison(ev: PerturbationEvidence, modelId: string): EvidenceChartModel {
-  const prefix = `${modelId}:`;
-  const rows = perturbationReadings(ev).filter(r => r.key.startsWith(prefix)).map(r => {
-    const aa = r.key.slice(prefix.length);
-    return { ...r, name: `${aa}${aa === ev.residues.wtCode ? ' · reference' : aa === ev.residues.mutCode ? ' · variant' : ''}`,
-      valueText: r.value === 0 ? '0%' : r.value !== null && r.value < .0001 ? `${(r.value * 100).toExponential(2)}%` : `${((r.value ?? 0) * 100).toFixed(2)}%`,
-      tone: aa === ev.residues.mutCode ? 'accent' as const : 'neutral' as const };
-  });
-  return { rows, domain: [0, 1], ticks: [0, .25, .5, .75, 1], tickLabels: ['0%', '25%', '50%', '75%', '100%'],
-    axisLabel: 'Probability assigned to an amino acid by this model',
-    unplottedHeading: 'Not plotted',
-    unplottedBody: 'Residues this model gave no returned probability have no mark here; a missing probability is not zero.',
-    emptyCopy: 'No amino-acid probabilities were returned for this residue. Inspect the model record below for its own status.',
-    summary: `${rows.length} returned amino-acid probabilities at the variant position. Missing residues are not imputed as zero; these values are not disease probabilities.` };
 }

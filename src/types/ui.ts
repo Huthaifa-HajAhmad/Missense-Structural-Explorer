@@ -79,7 +79,6 @@ export interface UserSettings {
   show3DLabels: boolean;
   saveHistory: boolean;
   reducedMotion: boolean;
-  defaultPerturbationModel: "saprot" | "esm2" | "esmc";
   defaultStructureModel: "alphafold" | "esmfold";
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf";
   /**

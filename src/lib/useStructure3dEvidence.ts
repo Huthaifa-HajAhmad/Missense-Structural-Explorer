@@ -35,7 +35,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const uniprotFromSearch = useVariantAnalysisStore(s => s.uniprotId);
   const gene = useVariantAnalysisStore(s => s.gene);
   const disruption = useVariantAnalysisStore(s => s.analysisState?.result?.disruptionPredictor ?? null);
-  const esm3Eval = useVariantAnalysisStore(s => s.analysisState?.result?.esm3Eval ?? null);
 
   const pdbText = useVariantAnalysisStore(s => s.pdbText);
   const pdbTextProvenance = useVariantAnalysisStore(s => s.pdbTextProvenance);
@@ -97,11 +96,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   return useMemo(() => {
     const disruptionStructure =
       metadata?.pdbSource === PDB_SOURCE_RCSB && metadata?.pdbId ? `PDB ${metadata.pdbId}` : "the AlphaFold model";
-    const esm3 = esm3Eval
-      ? "error" in (esm3Eval as any)
-        ? { provenance: (esm3Eval as any).provenance, scoreCount: null, error: String((esm3Eval as any).error ?? "ESM3 failed") }
-        : { provenance: (esm3Eval as any).provenance, scoreCount: Array.isArray((esm3Eval as any).perturbationScores) ? (esm3Eval as any).perturbationScores.length : null, error: null }
-      : null;
 
     const input: Structure3dInput = {
       family,
@@ -157,7 +151,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
       },
       alignmentScope: esmAlignmentScope,
       metrics: family === "alphafold" ? (foldxMetrics as any) : (esmFoldMetrics as any),
-      esm3,
       burial: disruption
         ? {
             rsa: typeof disruption.rsa === "number" ? disruption.rsa : null,
@@ -178,7 +171,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
     return buildStructure3dEvidence(input);
   }, [
     family, viewMode, representation, esmAlignmentScope, selectedResidueIndex, metadata, uniprotFromSearch, gene,
-    disruption, esm3Eval, pdbTextProvenance, headerSaysAlphaFold, customPdbUrl, entryMeta, wildTypeScan, wildTypeSite,
+    disruption, pdbTextProvenance, headerSaysAlphaFold, customPdbUrl, entryMeta, wildTypeScan, wildTypeSite,
     isFolding, foldingProgress, foldingStatus, foldingError, foldingDdG, foldingEnergetics, foldxReference,
     foldxAlignedPdb, foldxReferencePdb, referenceSite, isEsmFolding, esmFoldingError, esmFoldWtPdb, esmFoldMutPdb,
     esmFoldSingleStructure, esmFoldEngines, deNovoScan, esmFoldAlignedPdb, deNovoSite, foldxMetrics, esmFoldMetrics,

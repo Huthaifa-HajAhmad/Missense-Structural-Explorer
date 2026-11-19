@@ -27,12 +27,6 @@ describe('contextual scientific explanations', () => {
     }
     for (const key of Object.values(PHYSICAL_EXPLANATIONS)) expect(resolveResearchGuide(key)).toBeDefined();
   });
-  it('explains the actual served language model rather than always calling the slot VESM', () => {
-    const esmc = buildPredictorEvidence({ result: { esmcEval: { llr: -2, provenance: 'ESMC-6B' } } as AnalysisResult }).readings.find(r => r.key === 'vesm');
-    const vesm = buildPredictorEvidence({ result: { esmcEval: { llr: -2, provenance: 'VESM-150M' } } as AnalysisResult }).readings.find(r => r.key === 'vesm');
-    expect(esmc?.knowledgeKey).toBe('esmc');
-    expect(vesm?.knowledgeKey).toBe('vesm');
-  });
   it('has no dangling related explanations, aliases or teaching figures', () => {
     for (const [key, topic] of Object.entries(RESEARCH_GUIDES)) {
       for (const field of ['title', 'question', 'answer', 'reading', 'limit', 'next'] as const) expect(topic[field].trim(), `${key}.${field}`).not.toBe('');

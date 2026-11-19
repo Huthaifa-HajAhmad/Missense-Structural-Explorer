@@ -227,7 +227,6 @@ export function healCachedAnalysisIfPossible(
       curatedInheritance: payload.curatedInheritance ?? null,
       curatedLofMechanism: payload.curatedLofMechanism ?? null,
       acmgWeighting: context.acmgWeighting,
-      esm2: payload.esm2,
       uniprotFeatures: payload.uniprotFeatures,
       sequence: context.sequence,
       serviceStatus: payload.serviceStatus

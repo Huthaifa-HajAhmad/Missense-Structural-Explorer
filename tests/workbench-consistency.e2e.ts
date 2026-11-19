@@ -51,7 +51,7 @@ test('walk through populated workspaces in both themes', { tags: ['design', 'she
     await screen.getByRole('button', 'Switch theme').tap();
   };
   await app.open('/tools/evidence-preview/index.html');
-  for (const tab of ['Population Data', 'Predictors', 'Gene-disease', 'Expression', 'Species & models', 'RNA splicing', 'Functional domains', 'Residue shifts & pockets', 'Structural perturbation', 'AlphaGenome']) {
+  for (const tab of ['Population Data', 'Predictors', 'Gene-disease', 'Expression', 'Species & models', 'RNA splicing', 'Functional domains', 'Residue shifts & pockets', 'AlphaGenome']) {
     await screen.getByRole('combobox', 'Evidence').selectOption(tab);
     await capture(tab.replace(/[^a-z0-9]+/gi, '-'));
   }

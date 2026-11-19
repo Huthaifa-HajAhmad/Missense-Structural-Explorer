@@ -182,9 +182,6 @@ export function StructureToolbar(props: StructureToolbarProps) {
                   ))}
                 </select>
               </label>
-              {model.representation === "esm3" && (
-                <p className="s3d-display__note">Sequence difference projected onto wild-type coordinates; this is not structural motion.</p>
-              )}
               {model.plddtFilter.available && (
                 <label className="s3d-display__field">
                   <span className="s3d-display__label">Show residues</span>

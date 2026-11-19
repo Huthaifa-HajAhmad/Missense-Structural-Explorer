@@ -7,12 +7,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperUrl: "https://doi.org/10.1101/2025.09.21.677619",
     citation: "Ye, C., Benegas, G., et al. (2025). Predicting functional constraints across evolutionary timescales with phylogeny-informed genomic language models. bioRxiv.",
   },
-  vesm: {
-    name: "VESM",
-    paperTitle: "Dinh et al. Nat Methods (2026)",
-    paperUrl: "https://doi.org/10.1038/s41592-026-03050-9",
-    citation: "Dinh, T., et al. (2026). Compressing the collective knowledge of ESM into a single protein language model. Nature Methods.",
-  },
   am: {
     name: "AlphaMissense",
     paperTitle: "Cheng et al. Science (2023)",
@@ -33,12 +27,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "EVE Model",
     paperTitle: "Frazer et al. Nature (2021)",
     paperUrl: "https://doi.org/10.1038/s41586-021-04043-8",
-  },
-  esm2: {
-    name: "ESM-2 Foundation LM",
-    paperTitle: "Lin et al. Science (2023)",
-    paperUrl: "https://doi.org/10.1126/science.ade2574",
-    citation: "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science, 379(6637), 1123-1130.",
   },
   foldx: {
     name: "FoldX ddG",
@@ -135,12 +123,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Orenbuch et al. Nat Genet (2025)",
     paperUrl: "https://doi.org/10.1038/s41588-025-02400-1",
     citation: "Orenbuch, R., et al. (2025). Proteome-wide model for human disease genetics. Nature Genetics 57, 3165–3174.",
-  },
-  saprot: {
-    name: "SaProt",
-    paperTitle: "Su et al. bioRxiv / ICLR (2024)",
-    paperUrl: "https://doi.org/10.1101/2023.10.01.560349",
-    citation: "Su, J., et al. (2024). SaProt: Protein Language Modeling with Structure-aware Vocabulary. bioRxiv / ICLR.",
   },
   alphagenome: {
     name: "AlphaGenome AVI",

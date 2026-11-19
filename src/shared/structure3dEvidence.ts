@@ -33,7 +33,6 @@
  *  - "Allosteric heatmap" for an embedding distance, banded at 0.05/0.15/0.35 while the engine used
  *    0.08/0.22/0.38; "±15 residue" for a ±5 window; χ1 "0.0°" for a glycine.
  */
-import { embeddingSource } from "./embeddingSource";
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
 import {
@@ -57,7 +56,7 @@ import { SECONDARY_COLOURS, SECONDARY_LABELS, SECONDARY_ORDER, type SecondarySou
 
 export type ModelFamily = "alphafold" | "esmfold";
 export type ViewMode = "wildtype" | "mutant" | "superimposed";
-export type RepresentationId = "confidence" | "plain" | "pair" | "displacement" | "esm3" | "secondary";
+export type RepresentationId = "confidence" | "plain" | "pair" | "displacement" | "secondary";
 export type AlignmentScope = "local" | "global";
 
 export interface CoordinateProvenance {
@@ -233,7 +232,6 @@ export interface Structure3dInput {
   };
   alignmentScope: AlignmentScope;
   metrics: StructuralMetricsLike | null;
-  esm3: { scoreCount: number | null; error: string | null; provenance?: string | null } | null;
   burial: { rsa: number | null; label: string | null; structure: string | null } | null;
   homologs: HomologLike[];
   homologsLoading: boolean;
@@ -261,7 +259,6 @@ export type ThemePlan =
   | { theme: "plddt"; scale: 1 | 100 }
   | { theme: "bfactor-quartile" }
   | { theme: "displacement" }
-  | { theme: "esm3" }
   | { theme: "secondary-structure" }
   | { theme: "uniform"; color: number; alpha: number };
 
@@ -415,8 +412,6 @@ export const STRUCTURE_SOURCES = {
   schymkowitz2005: { citation: "Schymkowitz et al. 2005, Nucleic Acids Res — the FoldX force field", doi: "10.1093/nar/gki387" },
   lin2023: { citation: "Lin et al. 2023, Science — ESM-2 and ESMFold (v1)", doi: "10.1126/science.ade2574" },
   candido2026: { citation: "Candido et al. 2026, bioRxiv — ESMC and ESMFold2", doi: "10.64898/2026.06.03.729735" },
-  dinh2026: { citation: "Dinh et al. 2026, Nature Methods - VESM", doi: "10.1038/s41592-026-03050-9" },
-  hayes2025: { citation: "Hayes et al. 2025, Science — ESM3", doi: "10.1126/science.ads0018" },
   kabsch1976: { citation: "Kabsch 1976, Acta Cryst A — least-squares superposition", doi: "10.1107/S0567739476001873" },
   sun2019: { citation: "Sun et al. 2019, Chem Rev — interpreting and normalising B-factors", doi: "10.1021/acs.chemrev.8b00290" },
   sehnal2021: { citation: "Sehnal et al. 2021, Nucleic Acids Res — Mol* Viewer", doi: "10.1093/nar/gkab314" },
@@ -430,7 +425,6 @@ const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   plain: "Plain cartoon",
   pair: "Wild type and variant",
   displacement: "Cα displacement",
-  esm3: "Sequence embedding shift",
   secondary: "Secondary structure",
 };
 
@@ -836,11 +830,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
           ? "Template B-factor (copied)"
           : "B-factor, relative"
         : "Confidence";
-  // ESM3 scores compare the two sequences. They can be projected onto a numbered predicted
-  // wild type, but are not an experimental measurement or a property of a FoldX variant model.
-  const esm3ProjectionReady =
-    effectiveMode === "wildtype" && primary?.numbering === "uniprot" &&
-    (primary.origin === "afdb" || primary.origin === "de-novo");
   const rigid = isAf;
   const representations: RepresentationOption[] = [
     {
@@ -867,23 +856,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
             reason: referenceReady ? null : "No superposition to measure.",
           },
         ]
-      : effectiveMode === "wildtype"
-      ? [
-          {
-            id: "esm3" as const,
-            label: embeddingSource(input.esm3?.provenance).label,
-            available: Boolean(input.esm3?.scoreCount) && esm3ProjectionReady,
-            reason: !input.esm3
-              ? "Embedding analysis was not run for this variant."
-              : input.esm3.error
-                ? `Embedding analysis did not return scores: ${input.esm3.error}`
-                : !input.esm3.scoreCount
-                  ? "Embedding analysis returned no per-residue scores."
-                  : esm3ProjectionReady
-                    ? null
-                    : "Sequence embedding scores are projected only onto a numbered predicted wild-type model.",
-          },
-        ] : []),
+      : []),
     {
       id: "secondary",
       label: REPRESENTATION_LABELS.secondary,
@@ -975,21 +948,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       entries: [
         ...STRUCTURE_COLOUR_BANDS.displacement.map(b => ({ label: b.label, range: null, color: b.color })),
         { label: "Wild type", range: null, color: PAIR_COLOURS.template },
-      ],
-    };
-  } else if (representation === "esm3") {
-    const d = THRESHOLDS.esm3Drift;
-    colour = { primary: { theme: "esm3" }, secondary: null, secondaryCartoon: false };
-    legend = {
-      title: `${embeddingSource(input.esm3?.provenance).label} on wild type`,
-      provenance: "app-defined",
-      provenanceNote: "Wild-type versus variant sequence embeddings, projected by residue onto the predicted wild-type coordinates. App-defined bands; not structural movement or allostery.",
-      entries: [
-        { label: `< ${d.none}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[0] },
-        { label: `${d.none}–${d.minor}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[1] },
-        { label: `${d.minor}–${d.moderate}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[2] },
-        { label: `≥ ${d.moderate}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[3] },
-        { label: "No score", range: null, color: STRUCTURE_COLOUR_BANDS.none },
       ],
     };
   } else if (representation === "secondary") {
@@ -1523,12 +1481,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     `Superposition is a Kabsch least-squares fit on matched Cα atoms. "Local" fits ±${LOCAL_ALIGNMENT_FIT_WINDOW} residues around the site; the local RMSD is read over ±${LOCAL_STRUCTURAL_WINDOW}, inside that fit.`
   );
   addSource("kabsch1976");
-  if (representation === "esm3") {
-    notes.push(`${embeddingSource(input.esm3?.provenance).label} is the cosine distance between wild-type and variant representations per residue. It is a language-model signal with this app's own bands; it does not measure allostery or motion. Served model: ${input.esm3?.provenance || "not recorded"}.`);
-    const source = embeddingSource(input.esm3?.provenance);
-    if (source.fallback) addSource("dinh2026");
-    else if (source.topic === "esm3") addSource("hayes2025");
-  }
   addSource("sehnal2021");
 
   /* ── Chip ─────────────────────────────────────────────────────────────── */

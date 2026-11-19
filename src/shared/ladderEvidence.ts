@@ -271,7 +271,6 @@ export interface LadderEvidence {
 export interface LadderEvidenceInput {
   result: AnalysisResult;
   isLoading?: boolean;
-  isModelLoading?: boolean;
   alphagenomeConfigured?: boolean;
 }
 
@@ -287,7 +286,6 @@ export function buildLadderEvidence(input: LadderEvidenceInput & { predictor?: P
     buildPredictorEvidence({
       result,
       isLoading: input.isLoading,
-      isModelLoading: input.isModelLoading,
       alphagenomeConfigured: input.alphagenomeConfigured,
     });
   const r = result as any;

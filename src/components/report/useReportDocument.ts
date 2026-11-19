@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useSettings } from "../../context/SettingsContext";
 import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import type { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -14,8 +13,7 @@ import { readReportDraft, removeReportDraft, reportDraftKeys, writeReportDraft }
  * when it is merely looked at (the old page printed today's date every time it rendered).
  */
 export function useReportDocument(result: AnalysisResult | null): { doc: ReportDocument; stamped: () => ReportDocument } {
-  const { settings } = useSettings();
-  const narrativeContext = useNarrativeEvidenceContext(settings?.saprotEngine);
+  const narrativeContext = useNarrativeEvidenceContext();
   const gene = useVariantAnalysisStore(s => s.gene);
   const variant = useVariantAnalysisStore(s => s.variant);
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);

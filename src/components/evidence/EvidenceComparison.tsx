@@ -34,7 +34,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const expanded = w.expanded.includes('all-attributions');
   const limit = tab === 'alphagenome' && !expanded ? 8 : Infinity;
   const returned = model.rows.filter(r => r.value !== null).length;
-  const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models', 'perturbation'].includes(tab);
+  const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models'].includes(tab);
   // Width of the longest tissue name: about 6.4px per character at 12px, plus 28px of padding, kept between 175 and 245px.
   // This is an estimate (capital letters run wider), so the cap, not the text, decides for very long names. It sizes the left side only.
   const expressionLabelWidth = Math.min(245, Math.max(175, ...model.rows.filter(r => r.value !== null).map(r => Math.ceil(r.name.length * 6.4) + 28)));
@@ -59,7 +59,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         axis: { line: false, ticks: { values: plotted.map(p => p.row), size: 0, format: (v: number) => plotted[v] ? `${rowLabel(plotted[v].name)}${plotted[v].counted === false ? ' *' : ''}` : '' }, tickLabels: { fontSize: 12, opacity: 1, dx: labelled ? -12 : 0 } } },
     },
     marks: [
-      ...(tab === 'alphagenome' || tab === 'perturbation' || tab === 'expression-models' ? [ruleX([0], { stroke: 'var(--cs-text-secondary)', strokeWidth: 1.5 }),
+      ...(tab === 'alphagenome' || tab === 'expression-models' ? [ruleX([0], { stroke: 'var(--cs-text-secondary)', strokeWidth: 1.5 }),
         decorative(link(plotted, { id: 'contribution', key: 'key', x1: () => 0, x2: 'value', y1: 'row', y2: 'row', stroke: d => d.tone === 'accent' ? 'var(--cs-accent-clay)' : 'var(--cs-text-secondary)', strokeWidth: 7, strokeOpacity: .55, lineCap: 'butt' }))] : []),
       ...(['accent', 'neutral', 'danger', 'good'] as const).map(tone => dot(plotted.filter(p => p.tone === tone), {
         id: `reading-${tone}`, key: 'key', x: 'value', y: 'row', r: 6,
@@ -120,7 +120,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         {tab === 'predictors' && <div className="evw-band-head" aria-label="Published evidence bands">{model.tickLabels.map(label => <span key={label} data-direction={label.startsWith('BP4') ? 'benign' : label.startsWith('PP3') ? 'pathogenic' : 'neither'}><b>{label.split(' ')[0]}</b>{label.includes(' ') && <small>{label.substring(label.indexOf(' ') + 1)}</small>}</span>)}</div>}
         <div className="evw-plot">
         {tab === 'predictors' && <div className="evw-band-grid" aria-hidden="true">{model.tickLabels.map(label => <span key={label} data-direction={label.startsWith('BP4') ? 'benign' : label.startsWith('PP3') ? 'pathogenic' : 'neither'} />)}</div>}
-        <Chart definition={definition} height={labelled ? Math.max(tab === 'clinical' ? 220 : 160, plotted.length * (tab === 'clinical' ? 60 : tab === 'predictors' ? 40 : 32) + margin.top + margin.bottom) : Math.max(260, plotted.length * (tab === 'perturbation' ? 28 : 42) + 90)}
+        <Chart definition={definition} height={labelled ? Math.max(tab === 'clinical' ? 220 : 160, plotted.length * (tab === 'clinical' ? 60 : tab === 'predictors' ? 40 : 32) + margin.top + margin.bottom) : Math.max(260, plotted.length * 42 + 90)}
           ariaLabel={`${title}. Arrow keys explore; Enter pins a reading.`} ariaDescription={model.summary}
           onSelect={p => { if (p) toggleSelect(p.datum.key); }}
           onFocusChange={p => setHoverKey(p ? p.datum.key : null)} />
@@ -129,10 +129,6 @@ export default function EvidenceComparison({ tab, model, title, description }: {
     </div>}
     {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All inputs to see it here.</p>}
     {tab === 'alphagenome' && selected?.value != null && !plotted.some(r => r.key === selected.key) && <p className="evw-caption">The pinned feature is outside the largest 8. Choose Show all to see it; its details remain in the inspector.</p>}
-    {/* The perturbation model strip pins its model id, which is an inspector row but not a dot on this
-        chart; saying "outside this chart" for it fired on the normal path. Only a probability reading
-        (`<model>:<amino acid>`) that this chart does not plot is genuinely outside it. */}
-    {tab === 'perturbation' && w.selected && !selected && w.selected.includes(':') && <p className="evw-caption">The pinned reading is outside this probability chart. Its details remain in the inspector.</p>}
   </ChartFrame>
     {/* Its own card below the figure: a header strip with an icon and a count, then one row per reading with its
         state as a chip. Inside the figure it read as the chart's last table rows; the card edge makes the split. */}

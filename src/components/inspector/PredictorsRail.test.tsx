@@ -33,25 +33,23 @@ describe("PredictorsRail", () => {
     render(<EvidenceWorkspaceProvider result={result}><PredictorsRail analysisResult={result} /></EvidenceWorkspaceProvider>);
     const section = screen.getByRole("region", { name: "Local informational agreement" });
     expect(within(section).getByRole("heading", { level: 3, name: "Local agreement / informational" })).toBeInTheDocument();
-    for (const heading of ["Published bands / not counted", "Sequence preference", "Not scored"]) {
+    for (const heading of ["Other scores", "Not scored"]) {
       expect(within(section).getByRole("heading", { level: 4, name: heading })).toBeInTheDocument();
     }
-    expect(within(section).getByRole("button", { name: /ESM-2/ })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: /ESM1b/ })).toBeInTheDocument();
     expect(within(section).getByText(/never change PP3 \/ BP4/)).toBeInTheDocument();
   });
 
-  it("displays VESM fallback names and ESM-2 source provenance in the rail", () => {
-    const fallbackResult: any = {
+  it("shows no retired language-model rows or sources for an analysis saved with their results", () => {
+    const saved: any = {
       ...result,
       esm2Eval: { llr: -4.78, provenance: "VESM-150M (Local Fallback)" },
       esmcEval: { llr: -9.55, provenance: "VESM-150M (Local Fallback - ESMC remote failed)" },
       saprotEval: { llr: -3.16, provenance: "VESM-150M (Local Fallback - SaProt unavailable)" },
     };
-    render(<EvidenceWorkspaceProvider result={fallbackResult}><PredictorsRail analysisResult={fallbackResult} /></EvidenceWorkspaceProvider>);
-    const section = screen.getByRole("region", { name: "Local informational agreement" });
-    expect(within(section).getByRole("button", { name: /VESM \(ESM-2 fallback\)/ })).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: /VESM \(SaProt fallback\)/ })).toBeInTheDocument();
-    expect(screen.getAllByText(/VESM-150M \(Local Fallback\)/).length).toBeGreaterThanOrEqual(1);
+    const { container } = render(<EvidenceWorkspaceProvider result={saved}><PredictorsRail analysisResult={saved} /></EvidenceWorkspaceProvider>);
+    expect(container.textContent).not.toMatch(/ESM-2|ESMC|VESM|SaProt/);
+    expect(container.textContent).toContain("ESM1b");
   });
 
   it("explains candidate CADD disagreement under Not counted and separates CADD vs AlphaMissense sources", () => {

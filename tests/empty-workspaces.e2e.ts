@@ -19,7 +19,7 @@ test('walk through empty analysis workspaces', { tags: ['design'] }, async ({ ap
     await expect(screen.getByRole('textbox', /^Variant/)).toBeFocused();
   }
   await screen.getByRole('button', /^Evidence/).first().tap();
-  for (const label of ['Population data', 'Gene–disease', 'Expression', 'Species & models', 'Functional domains', 'In-silico predictors', 'AlphaGenome', 'RNA splicing', 'Residue shifts & pockets', 'Structural perturbation', 'Interfaces & PPI']) {
+  for (const label of ['Population data', 'Gene–disease', 'Expression', 'Species & models', 'Functional domains', 'In-silico predictors', 'AlphaGenome', 'RNA splicing', 'Residue shifts & pockets', 'Interfaces & PPI']) {
     await screen.getByRole('button', label, { exact: true }).tap();
     await expect(screen.getByRole('heading', label, { exact: true })).toBeVisible();
     await expect(screen.getByRole('heading', 'No analysis loaded')).toBeVisible();

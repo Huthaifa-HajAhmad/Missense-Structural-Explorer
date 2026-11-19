@@ -8,7 +8,7 @@ import { SettingsProvider, useSettings } from '../../src/context/SettingsContext
 import { useVariantAnalysisStore as store } from '../../src/stores/useVariantAnalysisStore';
 import { mechanismWorkspaceFixture } from '../../src/test/mechanismWorkspaceFixture';
 import { EVIDENCE_SUB_ITEMS, type MasterView } from '../../src/components/MasterSidebar';
-import { NAE1_RESULT, NAE1_ENERGETICS } from '../../src/shared/__tests__/fixtures/nae1Perturbation';
+import { NAE1_RESULT, NAE1_ENERGETICS, NAE1_METRICS, NAE1_SITE, NAE1_STRUCTURAL_DIFF } from '../../src/shared/__tests__/fixtures/nae1Packing';
 
 const nativeFetch = window.fetch;
 window.fetch = async (input, init) => {
@@ -17,12 +17,13 @@ window.fetch = async (input, init) => {
 };
 function scenario(name: string) {
   const base = mechanismWorkspaceFixture(name);
-  const result = name === 'Embedding fallback' ? { ...base, ...structuredClone(NAE1_RESULT), isDemoData: true,
-    metadata: { ...base.metadata, ...NAE1_RESULT.metadata },
-    esm3Eval: { ...NAE1_RESULT.esm3Eval, provenance: 'VESM-150M fallback' } } : base;
+  const packing = name === 'NAE1 packing';
+  const result = packing ? { ...base, ...structuredClone(NAE1_RESULT), isDemoData: true,
+    metadata: { ...base.metadata, ...NAE1_RESULT.metadata }, disruptionPredictor: NAE1_SITE } : base;
   store.setState({ gene: result.metadata!.gene, variant: result.metadata!.variant, uniprotId: result.metadata!.uniprotId,
     analysisState: { result, isLoading: false, error: null }, isFolding: false, isBiophysicalLoading: false,
-    foldingEnergetics: name === 'Embedding fallback' ? NAE1_ENERGETICS : null } as never);
+    foldingEnergetics: packing ? NAE1_ENERGETICS : null, structuralDiff: packing ? NAE1_STRUCTURAL_DIFF : null,
+    foldxMetrics: packing ? NAE1_METRICS : null } as never);
 }
 scenario('SOD1');
 function Preview() {
@@ -38,7 +39,7 @@ function Preview() {
       <button className="viz-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
       <label>Workspace <select aria-label="Workspace" value={view} onChange={e => setView(e.target.value as MasterView)}>{['search', 'evidence', 'structure_alphafold', 'energetics', 'landscape', 'insights', 'literature', 'report'].map(name => <option key={name}>{name}</option>)}</select></label>
       <label>Evidence <select aria-label="Evidence" value={tab} onChange={e => setTab(e.target.value)}>{EVIDENCE_SUB_ITEMS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-      <label>Example <select aria-label="Example" value={example} onChange={e => { setExample(e.target.value); scenario(e.target.value); }}>{['SOD1', 'SLC12A4', 'NAE1', 'Embedding fallback', 'Splice signals', 'Missing position', 'Unresolved strand', 'Missing', 'New variant'].map(n => <option key={n}>{n}</option>)}</select></label>
+      <label>Example <select aria-label="Example" value={example} onChange={e => { setExample(e.target.value); scenario(e.target.value); }}>{['SOD1', 'SLC12A4', 'NAE1', 'NAE1 packing', 'Splice signals', 'Missing position', 'Unresolved strand', 'Missing', 'New variant'].map(n => <option key={n}>{n}</option>)}</select></label>
     </header>
     <AppViews masterView={view} setMasterView={setView} pushErrorEntry={console.error} setIsSettingsOpen={() => {}}
       activeEvidenceTab={tab} setActiveEvidenceTab={setTab} metricMode={metric} setMetricMode={setMetric}

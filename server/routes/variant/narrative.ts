@@ -275,7 +275,6 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           gnomadConstraint,
           gnomadFrequency,
           acmgWeighting,
-          null,
           uniprotFeatures,
           sequence,
           await curatedInheritanceRead,
@@ -371,7 +370,6 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           curatedInheritance,
           curatedLofMechanism,
           acmgWeighting,
-          esm2: null,
           uniprotFeatures,
           sequence
         });
@@ -519,7 +517,6 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         gnomadConstraint,
         gnomadFrequency,
         acmgWeighting,
-        null,
         uniprotFeatures,
         sequence,
         await curatedInheritanceRead,

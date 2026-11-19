@@ -204,7 +204,6 @@ describe("3D toolbar and legend", () => {
     deNovo: { folding: false, error: null, wildTypeLoaded: false, variantLoaded: false, singleStructure: false, engines: null, scan: null, aligned: false, site: null },
     alignmentScope: "global",
     metrics: null,
-    esm3: null,
     burial: null,
     homologs: [],
     homologsLoading: false,

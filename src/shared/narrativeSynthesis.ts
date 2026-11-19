@@ -102,7 +102,7 @@ export function describeSampling(temperature: number): string {
  * The prompt (`performGeminiAnalysis`) carries ClinVar, AlphaMissense, CADD, REVEL, GERP, phyloP, the
  * top STRING partners, and — since schema v5 — the deep-model observation block built by
  * `deepModelEvidencePromptBlock` (`src/shared/deepModelEvidence.ts`): every ΔΔG engine the run
- * produced, the language models' ΔLLR, and a line naming the engines that returned nothing.
+ * produced and a line naming the engines that returned nothing.
  *
  * It still carries no allele frequency, gene constraint, functional domain annotation, splicing
  * prediction or 3D coordinates, and it does not let the model propose a criterion from a prediction.
@@ -122,7 +122,6 @@ export const NARRATIVE_PROMPT_EVIDENCE = {
     "STRING partners",
     "screening-selected literature abstracts and curated citation relationships",
     "deep-model ΔΔG engines (FoldX, DynaMut2, DDMut, RaSP, ThermoMPNN, StabilityOracle)",
-    "language-model variant scores (SaProt, ESM-2, ESM-C, ESM3)",
   ],
   notSent: ["gnomAD frequency", "gene constraint", "functional domains", "splicing", "3D structure"],
 } as const;

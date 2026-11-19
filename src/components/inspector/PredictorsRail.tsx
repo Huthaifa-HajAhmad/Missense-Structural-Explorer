@@ -71,14 +71,13 @@ const pointsPct = (v: number) => ((v - POINTS_MIN) / (POINTS_MAX - POINTS_MIN)) 
 export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const { settings } = useSettings();
   const isLoading = useVariantAnalysisStore(s => s.analysisState?.isLoading ?? false);
-  const isModelLoading = useVariantAnalysisStore(s => Boolean(s.isBiophysicalLoading || s.isStructuralLoading));
   // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
   const alphagenomeConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
   const evidence = useMemo(() => buildPredictorEvidence({
     result: analysisResult,
-    isLoading, isModelLoading,
+    isLoading,
     alphagenomeConfigured,
-  }), [analysisResult, isLoading, isModelLoading, alphagenomeConfigured]);
+  }), [analysisResult, isLoading, alphagenomeConfigured]);
   const ev = useMemo(() => buildLadderEvidence({ result: analysisResult, predictor: evidence }), [analysisResult, evidence]);
   const comparisonRows = useMemo(() => buildPredictorComparison(evidence, ev).rows, [evidence, ev]);
   const { constraint } = ev;
@@ -109,7 +108,6 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const scored = vote.nVoting;
   const totalVoters = scored + voters.missing.length;
 
-  const r = analysisResult as any;
   const sources: Array<[string, string]> = [];
   const add = (label: string, value: unknown) => {
     if (typeof value === "string" && value.trim()) sources.push([label, value.trim()]);
@@ -127,9 +125,6 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
     add("CADD · AlphaMissense", pdSource);
   }
   add("Gene constraint", analysisResult.gnomadConstraint ? constraintSourceLabel(analysisResult) : null);
-  add("ESM-2", r.esm2Eval?.provenance);
-  add("ESMC / VESM", r.esmcEval?.provenance);
-  add("SaProt", r.saprotEval?.provenance);
 
 
   return (

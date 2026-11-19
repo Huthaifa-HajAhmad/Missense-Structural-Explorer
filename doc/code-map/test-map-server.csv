@@ -203,7 +203,7 @@ server/services/prediction/acmg.ts,barrel,server/services/prediction/acmg.freque
 server/services/prediction/acmg/candidate-frequency.ts,server,
 server/services/prediction/acmg/classifier.ts,barrel,
 server/services/prediction/acmg/criteria.ts,server,
-server/services/prediction/acmg/index.ts,server,
+server/services/prediction/acmg/index.ts,server,server/services/prediction/acmg/pp3-bp4-language-models.test.ts
 server/services/prediction/acmg/syntax.ts,server,
 server/services/prediction/dbnsfp-reader-core.ts,server,server/services/prediction/dbnsfp-reader-core.test.ts;server/services/prediction/dbnsfp_local.test.ts
 server/services/prediction/dbnsfp-reader-pool.ts,server,server/services/prediction/dbnsfp_local.test.ts

@@ -57,7 +57,7 @@ const PACKING_METER_BASE_DOMAIN = 24;
  * The microenvironment entry that stands in for "accessibility was never measured".
  *
  * Shared because the producer and the renderer have to agree on it: `esm3_forge.ts` pushes
- * this string into `microenvironments`, and the Perturbation tab's chips must paint it
+ * this string into `microenvironments`, and every surface that reads it must paint it
  * differently from a classification — the absence of a measurement must not wear the same
  * chip as a finding. A literal copied into the view is exactly how those two drift, which is
  * the failure this module exists to stop.
