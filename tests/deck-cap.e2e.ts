@@ -93,7 +93,7 @@ describe('deck height cap', { tags: ['search'] }, () => {
     });
     expect(layout.formScrolls, 'the query card shows all of its fields without a scrollbar').toBe(false);
     expect(layout.queryEndsAboveRecents, 'the recents card starts below the query card').toBe(true);
-    expect(layout.benchmarks, 'the benchmark controls are not shown beside a history').toBe(0);
+    expect(layout.benchmarks, 'the benchmark controls are folded beside a history').toBe(0);
     expect(layout.scrollers, 'the history list is the only scroller in the recents card').toEqual(['workbench-recent-list']);
     await app.screenshot('query-pushes-recents');
   });
