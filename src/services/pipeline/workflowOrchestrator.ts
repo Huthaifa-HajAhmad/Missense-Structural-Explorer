@@ -18,7 +18,7 @@ import { generateClinicalNarrative } from "./narrativeService";
 import { mergeResultPatch, mergeCompletedCore, settleUnreportedStages, type StageOutcome } from "./resultMerge";
 import { refusalAttachmentsFromError } from "./refusalAttachments";
 import { isServableStoredResult, narrativeNeedsBackfill, NO_RESTORED_REMOTE_STATE, restoreStoredArtifacts, stagesToResume, type RestoredRemoteState, type ResumableStage } from "./storedAnalysis";
-import { createAnalysisCacheContext, narrativeModeOf } from "./analysisContext";
+import { createAnalysisCacheContext, narrativeModeOf, requestFieldsOf } from "./analysisContext";
 import { createPipelineRun } from "./pipelineRun";
 import { geminiCredentials } from "../../shared/geminiCredentials";
 import { narrativeFreshness } from "../../shared/narrativeEvidence";
@@ -225,12 +225,7 @@ export async function executeFullAnalysisWorkflow({
     const requestParams = () => ({
       gene: targetGene, variant: targetVariant, uniprotId: targetUniprot,
       pipelineRunId: String(runMetadata.pipelineRunId),
-      acmgWeighting: pipelineContext.acmgWeighting as "standard" | "conservative" | "strict-structural",
-      ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {}),
-      ...(transcriptMeta?.genomicCoordinates && transcriptMeta?.assembly ? { genomicCoordinates: transcriptMeta.genomicCoordinates } : {}),
-      ...(transcriptMeta?.resolvedAssembly ? { resolvedAssembly: transcriptMeta.resolvedAssembly } : {}),
-      ...(transcriptMeta?.liftedGenomicCoordinates ? { liftedGenomicCoordinates: transcriptMeta.liftedGenomicCoordinates } : {}),
-      ...(numberingBasis ? { numberingBasis } : {})
+      ...requestFieldsOf(pipelineContext)
     });
     const mode = narrativeModeOf(settings);
     const seedState = () => {

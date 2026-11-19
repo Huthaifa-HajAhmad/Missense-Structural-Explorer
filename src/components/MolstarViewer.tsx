@@ -49,7 +49,6 @@ export interface MolstarViewerProps {
   onSwitchToAlphaFold?: () => void;
   onOpenPocketTab?: () => void;
   onRetryPocket?: () => void;
-  onRetryStructural?: () => void;
   heightClass?: string;
 }
 
@@ -71,7 +70,6 @@ export default function MolstarViewer({
   onSwitchToAlphaFold,
   onOpenPocketTab,
   onRetryPocket,
-  onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
   const { model, coordinateIndex, selection, siteSelection, primary: primaryPdbData, compare: comparePdbData, contextFit, allowFetch } = view;
@@ -80,6 +78,7 @@ export default function MolstarViewer({
   const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
+  const retryFolding = useVariantAnalysisStore(s => s.requestEsmFoldRetry);
 
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const gene = useVariantAnalysisStore(s => s.gene);
@@ -455,7 +454,7 @@ export default function MolstarViewer({
             onClearEntry={() => actions.setCustomPdbUrl(null)}
             onOpenSettings={() => openSettingsTab("connections")}
             onRetryLoad={() => setReloadNonce(nonce => nonce + 1)}
-            onRetryStructural={onRetryStructural}
+            onRetryFolding={retryFolding}
           />
         </div>
       </div>

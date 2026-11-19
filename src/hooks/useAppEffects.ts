@@ -39,6 +39,7 @@ export function useAppEffects({
   const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const storeEsmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
   const storeEsmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
+  const esmFoldRetryNonce = useVariantAnalysisStore(s => s.esmFoldRetryNonce);
   const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
 
   const gene = state?.gene ?? storeGene;
@@ -63,6 +64,7 @@ export function useAppEffects({
   }, [fetchWithAuth, fetchEsmFold, executeAnalysis]);
 
   const lastFoldedKeyRef = useRef<string>("");
+  const seenRetryNonceRef = useRef(esmFoldRetryNonce);
   const hasInitializedFromUrlRef = useRef(false);
 
   // Auto-restore or auto-trigger analysis when landing with URL parameters (F5)
@@ -116,6 +118,12 @@ export function useAppEffects({
       const mutRes = metadata.mutant;
       const activeUniprot = uniprotId || metadata.uniprotId;
       const foldKey = `${activeUniprot}_${pos}_${mutRes}`;
+
+      // A "Retry folding" request forgets that this variant was already tried.
+      if (seenRetryNonceRef.current !== esmFoldRetryNonce) {
+        seenRetryNonceRef.current = esmFoldRetryNonce;
+        lastFoldedKeyRef.current = "";
+      }
 
       // Prevent redundant fetches / folding routines if we already fold this variant
       if (lastFoldedKeyRef.current === foldKey) return;
@@ -180,6 +188,7 @@ export function useAppEffects({
     analysisState.result?.metadata,
     esmFoldWtPdb,
     esmFoldingError,
+    esmFoldRetryNonce,
     uniprotId,
     variant
   ]);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { biophysicsContextOf, createAnalysisCacheContext } from "../analysisContext";
+import { biophysicsContextOf, createAnalysisCacheContext, requestFieldsOf } from "../analysisContext";
 import { getCachedVariant, setCachedVariant, clearClientVariantCache } from "../variantCache";
 import {
   BIOPHYSICS_CONDITION_UNIT_VERSION,
@@ -129,5 +129,26 @@ describe("the stamp decides whether an artifact may be reused", () => {
 
     expect(cached?.foldingEnergetics).toEqual({ foldx: 1.25 });
     expect(cached?.foldingDdG).toBe(1.25);
+  });
+});
+
+describe("requestFieldsOf", () => {
+  const notation = { assembly: "GRCh38", genomicCoordinates: "16:66857184", resolvedAssembly: "GRCh38", liftedGenomicCoordinates: "16:66857184" };
+
+  it("names the run's genome build, coordinates and numbering, so a retry asks about the same allele", () => {
+    const context = createAnalysisCacheContext("P00439", { acmgWeighting: "conservative" }, notation, "", "uniprot");
+    expect(requestFieldsOf(context)).toEqual({
+      acmgWeighting: "conservative",
+      assembly: "GRCh38",
+      genomicCoordinates: "16:66857184",
+      resolvedAssembly: "GRCh38",
+      liftedGenomicCoordinates: "16:66857184",
+      numberingBasis: "uniprot",
+    });
+  });
+
+  it("leaves out what the run did not have, and sends coordinates only with their build", () => {
+    const context = createAnalysisCacheContext("P00439", {}, { genomicCoordinates: "16:66857184" }, "", undefined);
+    expect(requestFieldsOf(context)).toEqual({ acmgWeighting: "standard" });
   });
 });

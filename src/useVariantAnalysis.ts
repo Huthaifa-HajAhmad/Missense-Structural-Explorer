@@ -11,6 +11,7 @@ import { getVariantStyles } from "./shared/variantStyles";
 import { firstDiagnosticsReading } from "./stores/diagnosticsStore";
 import { useVariantAnalysisStore } from "./stores/useVariantAnalysisStore";
 import { fetchProgressiveStructuralAssessments } from "./services/pipeline/biophysicalService";
+import { requestFieldsOf, type AnalysisCacheContext } from "./services/pipeline/analysisContext";
 
 /**
  * useVariantAnalysis — Backward-compatible adapter facade.
@@ -294,7 +295,15 @@ export default function useVariantAnalysis() {
     const uniprotId = currentStore.uniprotId || currentStore.analysisState.result?.metadata?.uniprotId;
     if (!gene || !variant || !uniprotId) return;
 
-    const acmgWeighting = settings.acmgWeighting;
+    /**
+     * The same coordinate context the run's own request carried (genome build, coordinates, numbering),
+     * read from the context the run saved. Without it the server would resolve the protein change on
+     * its own, and a change with several possible DNA alleles could be recomputed for another one and
+     * written over the selected allele's insights. An older save without a context keeps the weighting
+     * from settings alone.
+     */
+    const savedContext = currentStore.analysisState.result?.metadata?.pipelineContext as AnalysisCacheContext | undefined;
+    const requestFields = savedContext ? requestFieldsOf(savedContext) : { acmgWeighting: settings.acmgWeighting };
     /**
      * A LOCAL request generation, not the pipeline's.
      *
@@ -312,12 +321,7 @@ export default function useVariantAnalysis() {
 
     const requestId = ++structuralRetryIdRef.current;
     return await fetchProgressiveStructuralAssessments(
-      {
-        gene,
-        variant,
-        uniprotId,
-        acmgWeighting
-      },
+      { gene, variant, uniprotId, ...requestFields },
       apiClient,
       retryController.signal,
       currentStore.setAnalysisState,
