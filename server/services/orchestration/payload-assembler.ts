@@ -37,7 +37,6 @@ export interface ServiceStatusMap {
   conservationData: ServiceFetchStatus;
   stringInteractions: ServiceFetchStatus;
   disruptionPredictor: ServiceFetchStatus;
-  esm2: ServiceFetchStatus;
   gnomadConstraint: ServiceFetchStatus;
   gnomadFrequency: ServiceFetchStatus;
   uniprotFeatures: ServiceFetchStatus;
@@ -49,7 +48,6 @@ export interface CoreAnalysisData {
   conservationData: ConservationData | null;
   stringInteractions: StringInteraction[];
   disruptionPredictor: DisruptionPrediction | null;
-  esm2: { llr: number | null; verdict: string } | null;
   predictorData: PredictorData | null;
   pdbMapping: PdbBestStructureMapping | null;
   gnomadConstraint: GnomadGeneConstraint | null;
@@ -199,11 +197,6 @@ export function assembleCoreResponsePayload(
     aouLookup: coreData.aouLookup ?? null,
     curatedInheritance: coreData.curatedInheritance ?? null,
     curatedLofMechanism: coreData.curatedLofMechanism ?? null,
-    esm2: coreData.esm2 ?? null,
-    esm3Eval: null,
-    esmcEval: null,
-    esm2Eval: null,
-    saprotEval: null,
     metadata: {
       gene,
       variant,
@@ -261,35 +254,16 @@ export const MODEL_PROVENANCE_SCHEMA_VERSION = 2;
 /**
  * The model provenance recorded beside a payload — DERIVED from the payload, never hard-coded.
  *
- * WHAT WAS WRONG
- * --------------
- * This was the literal `{ esm2: "esm2_t12_35M", version: "1.0.0" }` for every row, whatever had
- * actually produced the numbers. The core `esm2` field is not a 35M ESM-2 at all: it is the
- * VESM-150M triage evaluation (`runEsm2Eval` → sidecar `/predict/vesm`, with the local
- * `tools/esm2_eval.py` VESM_150M weights as the fallback), and the structural ESM-2 field is
- * `facebook/esm2_t33_650M_UR50D`. So every persisted row carried a provenance claim about a model
- * that had not run — a provenance record that is wrong is worse than an absent one, because it is
- * cited.
+ * A model is declared only when the payload actually carries its output: an absent entry means "no
+ * numbers from this source". Where the producer stated its own provenance, that string is recorded
+ * verbatim.
  *
- * HOW IT IS DERIVED NOW
- * ---------------------
- * Two rules, both refusing to invent anything:
- *
- *   • a model is declared only when the payload actually carries its output. An absent entry means
- *     "no numbers from this source", which is the honest reading of a null field — declaring a model
- *     that returned nothing would re-create the original defect in a subtler form;
- *   • where the producer already states its own provenance (`EsmcEvalResult.provenance`,
- *     `ESM3StructureEvalResult.provenance` — set from the sidecar's or JapanFold's own response), that
- *     string is recorded verbatim rather than replaced by a guess about which tier answered.
- *
- * The one fallback that is a DECLARATION rather than a measurement is the core VESM-150M entry: the
- * core result carries no provenance field, so the entry names the weights the transport implies
- * (`ntranoslab/vesm` on `facebook/esm2_t30_150M_UR50D`).
+ * Runs since 2026-11-18 produce no protein-language-model output (the models were retired,
+ * doc/PROTEIN_LANGUAGE_MODELS_DECISION.md), so a fresh payload declares none. A payload refreshed from
+ * an older row still carries that row's results, and their provenance is still declared, so rewriting
+ * the row does not erase what produced numbers it keeps.
  */
-export function declaredModelProvenanceOf(
-  payload: any,
-  context: ParsedVariantContext
-): Record<string, unknown> {
+export function declaredModelProvenanceOf(payload: any): Record<string, unknown> {
   const models: Record<string, string> = {};
 
   const declare = (key: string, producerProvenance: unknown, fallback: string): void => {
@@ -300,24 +274,10 @@ export function declaredModelProvenanceOf(
   if (payload?.esm2) {
     models["core.esm2"] = "VESM-150M (ntranoslab/vesm fine-tune of facebook/esm2_t30_150M_UR50D)";
   }
-  if (payload?.esm3Eval) {
-    declare("structural.esm3Eval", payload.esm3Eval?.provenance, "ESM3 (EvolutionaryScale / BioHub)");
-  }
-  if (payload?.esmcEval) {
-    declare("structural.esmcEval", payload.esmcEval?.provenance, "ESMC-6B (JapanFold) or VESM-150M (local sidecar)");
-  }
-  if (payload?.esm2Eval) {
-    declare("structural.esm2Eval", payload.esm2Eval?.provenance, "facebook/esm2_t33_650M_UR50D");
-  }
-  if (payload?.saprotEval) {
-    declare(
-      "structural.saprotEval",
-      payload.saprotEval?.provenance,
-      context.saprotEngine === "saprot-35m"
-        ? "westlake-repl/SaProt_35M_AF2"
-        : "westlake-repl/SaProt_650M_AF2"
-    );
-  }
+  if (payload?.esm3Eval) declare("structural.esm3Eval", payload.esm3Eval?.provenance, "ESM3 (EvolutionaryScale / BioHub)");
+  if (payload?.esmcEval) declare("structural.esmcEval", payload.esmcEval?.provenance, "ESMC-6B (JapanFold) or VESM-150M (local sidecar)");
+  if (payload?.esm2Eval) declare("structural.esm2Eval", payload.esm2Eval?.provenance, "facebook/esm2_t33_650M_UR50D");
+  if (payload?.saprotEval) declare("structural.saprotEval", payload.saprotEval?.provenance, "SaProt (checkpoint not recorded)");
 
   return { schemaVersion: MODEL_PROVENANCE_SCHEMA_VERSION, constraintRelease: CONSTRAINT_RELEASE, models };
 }
@@ -369,7 +329,7 @@ export function persistVariantAnalysisPayload(
      * `declaredModelProvenanceOf`. Never a fixed string: the previous literal named a model
      * (`esm2_t12_35M`) that no field in this pipeline is produced by.
      */
-    modelVersions: declaredModelProvenanceOf(payload, context)
+    modelVersions: declaredModelProvenanceOf(payload)
   }).then(
     () => undefined,
     (err: any) => {

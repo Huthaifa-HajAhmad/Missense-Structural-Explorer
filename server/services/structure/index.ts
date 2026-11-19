@@ -3,7 +3,6 @@
  */
 export * from "./structure-fetcher.ts";
 export * from "./structure-resolver.ts";
-export * from "./structural-model-fetcher.ts";
 export * from "./structural-diff.ts";
 export * from "./pdb-parser.ts";
 export * from "./pocket.ts";

@@ -97,32 +97,5 @@ class StabilityOracleFollowsItsAuthors(unittest.TestCase):
         self.assertGreater(ours[list(self.PUBLISHED).index("R175H")], 0.5)
 
 
-@unittest.skipUnless(torch is not None, "needs torch")
-class VesmScoresAsItsAuthorsDocument(unittest.TestCase):
-    def test_reads_the_residue_from_the_unmasked_wild_type_sequence(self):
-        from tools.model_server_app import models
-        from tools.model_server_app.routers import vesm
-
-        sequence = "MKTAY"
-        calls = []
-
-        class Tokenizer:
-            mask_token = "<mask>"
-
-            def __call__(self, text, return_tensors=None):
-                calls.append(text)
-                return {"input_ids": torch.zeros((1, len(text) + 2), dtype=torch.long)}
-
-        class Output:
-            logits = torch.arange(7 * 33, dtype=torch.float32).reshape(1, 7, 33)
-
-        with mock.patch.object(models, "vesm_tokenizer", Tokenizer()), mock.patch.object(models, "vesm_model", lambda **_: Output()), mock.patch.object(vesm, "_ensure_vesm_loaded", lambda: None):
-            logits = vesm._compute_sequence_logits(sequence)
-
-        self.assertEqual(calls, [sequence])
-        self.assertNotIn("<mask>", calls[0])
-        self.assertEqual(tuple(logits.shape), (7, 33))
-
-
 if __name__ == "__main__":
     unittest.main()

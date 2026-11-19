@@ -253,7 +253,10 @@ Code: `deployment-role.ts`, `deployment-control.ts`, `graceful-shutdown.ts`, `de
 | Queue processing | running, paused | `pauseProcessing` stops the timers and reapers; running jobs finish. `resumeProcessing` restarts them. A closed queue cannot resume. |
 | Process | serving → closing → exited | `SIGTERM` or `SIGINT`: stop accepting connections, run the hooks (sidecar, background tasks, queue awaiting a bounded worker drain before closing SQLite, pools, temp files), close the connections still open, exit 0. A `gracefulShutdownWatchdogMs` (default 10 s) watchdog forces exit 1. |
 
-Handover (`rollout.py`): start the new generation paused → wait until ready → pause the old one → wait
+Handover (`rollout.py`): start the new generation paused → wait until ready (`server/deployment-control.ts`:
+the sidecar's `/health` says `healthy`, `ready`, and `model_loaded: true`, which since 2026-11-18 means at
+least one local model, StabilityOracle or ThermoMPNN, passed its start-up check; it meant "VESM is loaded"
+before the language models were retired) → pause the old one → wait
 until it has no requests, jobs or background tasks → resume the new one → stop the old one. Rollback is
 the same the other way and never force-stops a busy process. Both processes answer requests during the
 drain, which is why R8 matters.
@@ -336,12 +339,16 @@ Stages: `core`, `coordinates`, `landscape`, `structural`, `multimer`, `ppi`, `na
 Outcomes: `running`, `complete`, `degraded`, `error`, `skipped`.
 
 Rules: a stage's patch may not overwrite another stage's evidence (`mergeResultPatch`). When core fails,
-stages still `running` become `skipped` and core becomes `error`. A stage that failed after some models
-arrived is `degraded`. At the end of a run, `settleUnreportedStages` settles any stage still `running`
-(except `coordinates`): `complete` when its evidence arrived, `error` when it did not, and `complete` for a
-stage with no evidence field of its own (narrative, literature have their own writers). A result saved in the middle of a run records no outcome for
-a narrative or literature search still running. A cached result with a `running` or `error` stage is re-run
-when opened, and each resumed stage is marked `running`.
+stages still `running` become `skipped` and core becomes `error`. At the end of a run,
+`settleUnreportedStages` settles any stage still `running` (except `coordinates`): `complete` when its
+evidence arrived, `error` when it did not, and `complete` for a stage with no evidence field of its own
+(narrative, literature have their own writers). The `structural` stage is the exception: it owns no field
+of its own (it refines the core's burial reading and rule insights), so a `structural` stage still
+`running` becomes `error`, and the interrupted refresh is re-run. A result saved in the middle of a run
+records no outcome for a narrative or literature search still running. A cached result with a `running` or
+`error` stage, or with no `structural` outcome at all, is re-run when opened (`stagesToResume`), and each
+resumed stage is marked `running`. Fields a result saved before 2026-11-18 may still carry from the retired
+protein language models (`esm2Eval: { loading: true }` and the like) play no part in this.
 Responses for an old request are ignored.
 
 `createPipelineRun` is the only answer to "is this run still current?" (`isStale`) and "may evidence still
@@ -394,14 +401,12 @@ carries a value or a refusal rather than a pollable job id, it is released the m
 `releaseThermoSubmission` — instead of after the 60 s grace the other engines keep. A second analysis
 therefore re-submits instead of inheriting an old busy answer.
 
-The ESM-3 and VESM remote tiers follow the same nesting: Node's `X-Budget-Ms` (30 s, or 90 s past 500
-residues) leaves headroom above the sidecar's `AbortSignal.timeout`, and the sidecar attempts a remote
-pass only when the time left covers that remote budget plus the local VESM fallback. The reserve comes
-from the measured per-token pass cost (`vesm_local_reserve_seconds`, with a fixed cold-host prior) so a
-short pass does not needlessly displace the better remote model; one slow measurement decays over later
-passes. A skip or a self-imposed deadline is not a provider failure: it is logged server-side and
-carried in provenance (`remote skipped`), never as a `remoteEngineNote` that would read as a provider
-timeout, and it never blocks the remote host in the shared remote failure memory.
+The structural stage (`fetchProgressiveStructuralAssessments`) is one streamed request for the burial
+refresh and the rule insights: heartbeats keep it alive, its bounded silence is
+`CLIENT_STRUCTURAL_REQUEST_BUDGET_MS`, and the server bounds the refresh itself with
+`CONFIG.timeouts.structuralTailMs`. It ran four protein language models with their own budgets, remote
+tiers, VESM fallbacks and a remote failure memory until 2026-11-18; those were removed with the models
+(`doc/PROTEIN_LANGUAGE_MODELS_DECISION.md`).
 
 ## 16. Machines listed only
 

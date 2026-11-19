@@ -20,11 +20,9 @@ sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from tools.model_server_app import models, utils
 from tools.model_server_app.engine_resilience import BudgetHeaderMiddleware, register_refusal_handler
-from tools.model_server_app.routers import vesm, esm3, esm2, saprot, esmfold, stabilityoracle, thermompnn
+from tools.model_server_app.routers import esmfold, stabilityoracle, thermompnn
 
 # Re-export helper functions for backward compatibility (e.g. unit tests)
-crop_sequence_around_mutation = utils.crop_sequence_around_mutation
-compute_scientific_metrics = utils.compute_scientific_metrics
 validate_missense_residues = utils.validate_missense_residues
 from fastapi import HTTPException  # Re-export HTTPException for test compatibility
 
@@ -36,7 +34,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Model Server Error] Failed to initiate background warmup: {e}")
     yield
-    models.clear_vesm()
     models.clear_gpu_cache()
 
 app = FastAPI(title="Missense Structural Explorer Model Server", lifespan=lifespan)
@@ -89,14 +86,16 @@ class ClearCacheResponse(BaseModel):
 def health_check():
     with models._model_lock:
         active_models = len(models.loaded_models)
-        vesm_loaded = models.vesm_model is not None
     status_snapshot = dict(models.model_status)
     errors_snapshot = dict(models.model_errors)
     is_warming = any(state in ("downloading", "loading") for state in status_snapshot.values())
+    # Deployment readiness waits on this. It meant "VESM is loaded" until the language models were
+    # retired; it now means at least one local model passed its startup check.
+    model_loaded = any(state == "ready" for state in status_snapshot.values())
     return {
         "status": "healthy",
         "state": "warming_up" if is_warming else "ready",
-        "model_loaded": vesm_loaded,
+        "model_loaded": model_loaded,
         "active_models": active_models,
         "models": status_snapshot,
         "model_status": status_snapshot,
@@ -108,16 +107,10 @@ def clear_model_cache():
     """Explicitly releases cached PyTorch model weights and flushes GPU RAM."""
     with models._model_lock:
         models.loaded_models.clear()
-    vesm.clear_vesm_caches()
-    esm2.clear_esm2_caches()
     models.clear_gpu_cache()
     return {"status": "success", "message": "GPU memory cache cleared"}
 
 # Register model sub-routers
-app.include_router(vesm.router)
-app.include_router(esm3.router)
-app.include_router(esm2.router)
-app.include_router(saprot.router)
 app.include_router(esmfold.router)
 app.include_router(stabilityoracle.router)
 app.include_router(thermompnn.router)

@@ -141,17 +141,6 @@ export const THRESHOLDS = {
      */
     significantClash: 2.0,
   },
-  esm3Drift: {
-    /**
-     * Bands over the maximum per-residue cosine distance between wild-type and mutant ESM3
-     * sequence embeddings (server/services/external-api/esm3_forge.ts). APP-DEFINED, unsourced:
-     * below `none` → "none", below `minor` → "minor", below `moderate` → "moderate", else "major".
-     * Previously literals in the server, where the tab could not show them.
-     */
-    none: 0.08,
-    minor: 0.22,
-    moderate: 0.38,
-  },
   dynamut2: {
     /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
     destabilizing: -1.0,
@@ -474,14 +463,10 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   bayesdel:
     "BayesDel without allele frequency (Feng 2017). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.13, moderate ≥ 0.27, strong ≥ 0.50; " +
     "BP4 supporting ≤ −0.18, moderate ≤ −0.36.",
-  vesm:
-    "VESM (Ntranos lab, UCSF). A compact protein language model distilled from the ESM family. No published clinical cut-point — informational only.",
   esm:
     "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
   esm1b:
     "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
-  esm2:
-    "ESM-2 (Meta FAIR, Lin et al. 2023 Science). Evolutionary scale masked protein language model.",
   gpnStar:
     "GPN-Star (Song lab, bioRxiv 2025). Phylogeny-aware genomic language model LLR over a vertebrate alignment. No published clinical cut-point; the −2.5 / 0.0 marks are local. Informational only.",
   metaRnn:

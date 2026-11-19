@@ -259,10 +259,6 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 
-    // Only what the request brought; each model resolves saved and team tokens when it calls (WP-I4).
-    const biohubToken = (req.headers["x-biohub-token"] as string) || null;
-    const hfToken = (req.headers["x-hf-token"] as string) || null;
-
     /**
      * Streaming is opt-in (`Accept: application/x-ndjson`); every other caller gets the one buffered
      * JSON body it always got. Frame shapes: `src/shared/structuralStream.ts`.
@@ -283,7 +279,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       };
 
       try {
-        await streamStructuralAnalysis(context, biohubToken, hfToken, write, abortController.signal);
+        await streamStructuralAnalysis(context, write, abortController.signal);
         if (!res.writableEnded) res.end();
       } catch (error: any) {
         if (abortController.signal.aborted) return;
@@ -295,7 +291,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     }
 
     try {
-      const result = await runStructuralAnalysis(context, biohubToken, hfToken);
+      const result = await runStructuralAnalysis(context);
       res.json(result);
     } catch (error: any) {
       console.error("Structural endpoint failure:", error);

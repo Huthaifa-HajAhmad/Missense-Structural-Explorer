@@ -9,7 +9,6 @@ import {
   type LandscapeResidueItem
 } from "../shared/contracts";
 import { CLIENT_STREAM_IDLE_BUDGET_MS, CLIENT_STRUCTURAL_REQUEST_BUDGET_MS } from "../shared/timeouts";
-import type { StructuralModelFrame } from "../shared/structuralStream";
 import { extractApiError, extractErrorMessage, FetchWithAuth, noteCredentialHeader, noteStaleDataHeader } from "./authSession";
 import { encodeStaleData, parseStaleData } from "../shared/providerLimits";
 import { encodeCredentialUse, parseCredentialUse } from "../shared/credentials";
@@ -300,29 +299,19 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
     },
 
     /**
-     * The four deep models, streamed: `onModel` is called with each model the moment the server has
-     * it, and the promise resolves with the complete result (the `final` frame) once the server is
-     * done. A caller that passes no `onModel` still gets the complete result, as before.
-     *
-     * There is no total time limit here on purpose (see `CLIENT_STRUCTURAL_REQUEST_BUDGET_MS`): the
-     * stream stays open while the server heartbeats, so a slow model cannot cost the reader a fast one.
+     * The structural stage: the core evidence's rule insights and a burial refresh when the core run
+     * found no accessibility value. Streamed, so the server's heartbeats keep a slow refresh alive
+     * (see `CLIENT_STRUCTURAL_REQUEST_BUDGET_MS`); the promise resolves with the `final` frame.
      */
     async getStructuralAssessments(
-      params: { gene: string; uniprotId: string; variant: string; acmgWeighting?: string; saprotEngine?: string },
-      signal?: AbortSignal,
-      onModel?: (frame: StructuralModelFrame) => void
+      params: { gene: string; uniprotId: string; variant: string; acmgWeighting?: string },
+      signal?: AbortSignal
     ): Promise<{
       disruptionPredictor?: import("../shared/contracts").DisruptionPredictorResult;
-      esm3Eval: any;
-      esmcEval: any;
-      esm2Eval: any;
-      saprotEval: any;
+      serviceStatus?: Record<string, string>;
       ruleBasedInsights: any;
     }> {
       const headers: Record<string, string> = { "Content-Type": "application/json", "Accept": "application/x-ndjson" };
-      if (params.saprotEngine) {
-        headers["X-SaProt-Engine"] = params.saprotEngine;
-      }
       const res = await fetchWithAuth("/api/v1/analyze-variant/structural", {
         method: "POST",
         headers,
@@ -341,8 +330,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
 
       let finalPayload: any = null;
       await readNdjsonFrames(res, signal, "Structural assessment stream aborted by client.", frame => {
-        if (frame.type === "model") onModel?.(frame as StructuralModelFrame);
-        else if (frame.type === "final") finalPayload = frame.data;
+        if (frame.type === "final") finalPayload = frame.data;
       });
       if (!finalPayload) {
         throw new Error("The structural stream ended before its final result.");

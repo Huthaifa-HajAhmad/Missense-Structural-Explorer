@@ -136,10 +136,13 @@ describe("persistVariantAnalysisPayload — the return contract", () => {
 });
 
 describe("declaredModelProvenanceOf — never stamp a model that did not run", () => {
+  it("declares no model for a payload written after the language models were retired", () => {
+    expect((declaredModelProvenanceOf({ clinvar: {} }) as any).models).toEqual({});
+  });
+
   it("names the core VESM-150M evaluation, not the 35M checkpoint the block used to claim", () => {
     const declared: any = declaredModelProvenanceOf(
-      { esm2: { llr: -7.5, verdict: "deleterious" } },
-      context({})
+      { esm2: { llr: -7.5, verdict: "deleterious" } }
     );
 
     expect(declared.schemaVersion).toBe(2);
@@ -153,8 +156,7 @@ describe("declaredModelProvenanceOf — never stamp a model that did not run", (
         esm2Eval: { provenance: "ESM-2 (esm2_t33_650M_UR50D)" },
         esmcEval: { score: -2.1 },
         saprotEval: { provenance: "SaProt (SaProt_35M_AF2)" }
-      },
-      context({ saprotEngine: "saprot-35m" })
+      }
     );
 
     expect(declared.models["structural.esm2Eval"]).toBe("ESM-2 (esm2_t33_650M_UR50D)");

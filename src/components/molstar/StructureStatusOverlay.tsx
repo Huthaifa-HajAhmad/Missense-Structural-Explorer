@@ -29,7 +29,8 @@ export interface StructureStatusProps {
   onClearEntry?: () => void;
   onOpenSettings?: () => void;
   onRetryLoad?: () => void;
-  onRetryStructural?: () => void;
+  /** Folds the variant again after a failed ESMFold run. */
+  onRetryFolding?: () => void;
 }
 
 /**
@@ -113,8 +114,8 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
                   {beyondAlphaFold ? "Open the AlphaFold2 view (experimental entry)" : "Open the AlphaFold2 view"}
                 </button>
               )}
-              {!isLength && p.onRetryStructural && (
-                <button type="button" className="s3d-btn" onClick={p.onRetryStructural}>Retry folding</button>
+              {!isLength && p.onRetryFolding && (
+                <button type="button" className="s3d-btn" onClick={p.onRetryFolding}>Retry folding</button>
               )}
               {isLength && p.onOpenSettings && (
                 <button type="button" className="s3d-btn" onClick={p.onOpenSettings}>

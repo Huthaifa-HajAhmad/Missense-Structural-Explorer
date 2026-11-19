@@ -15,7 +15,7 @@ export const STAGE_ORDER: PipelineStage[] = ["genomics", "structure", "biophysic
 export const STAGE_META: Record<PipelineStage, { index: number; title: string; tools: string }> = {
   genomics: { index: 1, title: "Genomic & cDNA notation", tools: "Ensembl VEP · MANE Select · Splice resolver" },
   structure: { index: 2, title: "Structure retrieval & cavities", tools: "AlphaFold/PDB · Pocket finder · FoldX" },
-  biophysics: { index: 3, title: "Multi-model biophysics", tools: "ESM-2 · SaProt · DynaMut2 · DDMut · ThermoMPNN" },
+  biophysics: { index: 3, title: "Multi-model biophysics", tools: "DynaMut2 · DDMut · ThermoMPNN" },
   clinical: { index: 4, title: "Clinical synthesis & ACMG", tools: "ClinVar · gnomAD · Literature RAG · Gemini" },
 };
 

@@ -3,7 +3,6 @@
  *   GET  /sequence/:uniprotId
  *   GET  /alphafold-pdb/:uniprotId
  *   POST /esmfold
- *   POST /esm3-structure-eval
  *   POST /structural-diff
  *   POST /structure/multimer            the assembly, and on request either the provider complex or the LocalFold hand-off
  *   POST /structure/multimer/import     a complex model the reader folded in their browser
@@ -27,7 +26,6 @@ import {
 import { resolveStructure } from "../services/structure-resolver.ts";
 import { registerStructureReference, type StructureReferenceIdentity } from "../services/structure/structure-reference-store.ts";
 import { STRUCTURE_REF_HEADER } from "../../src/shared/structureRefs.ts";
-import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
 import { foldSequenceWithProvenance } from "../services/esmfold.ts";
 import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
 import fs from "fs";
@@ -379,14 +377,6 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     token: z.string().min(8).optional()
   });
 
-  const esm3StructureEvalSchema = z.object({
-    uniprotId: z.string(),
-    position: z.union([z.number(), z.string()]),
-    wtResidue: z.string(),
-    mutResidue: z.string(),
-    wtPdbText: z.string().optional()
-  });
-
   const structuralDiffSchema = z.object({
     wtPdb: z.string(),
     mutPdb: z.string(),
@@ -486,7 +476,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
           const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
           if (sidecarRes.ok) {
             const healthData = await sidecarRes.json() as any;
-            if (healthData && healthData.model_loaded === false) {
+            if (healthData && healthData.state === "warming_up") {
               statusCode = 503;
               customMessage = "Model Server sidecar is online but still loading ML model weights in the background. Please wait ~30-60 seconds and try again.";
             }
@@ -576,48 +566,6 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       }
     } catch (err: any) {
       res.json({ valid: false, message: err.message || "Validation failed." });
-    }
-  });
-
-  apiRouter.post("/esm3-structure-eval", jsonParserPdb, async (req, res) => {
-    const parseResult = esm3StructureEvalSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
-      return;
-    }
-    try {
-      const { uniprotId, position, wtResidue, mutResidue, wtPdbText } = parseResult.data;
-      const posVal = typeof position === "string" ? parseInt(position, 10) : position;
-      if (isNaN(posVal) || posVal <= 0) {
-        sendError(res, 400, "BAD_REQUEST", "Position must be a valid positive number (> 0).");
-        return;
-      }
-      const headerBiohub = req.headers["x-biohub-token"];
-      // Only what the request brought; the ESM3 service resolves saved and team tokens (WP-I4).
-      const biohubToken = (Array.isArray(headerBiohub) ? headerBiohub[0] : headerBiohub) || req.body?.biohubToken || null;
-      const evalResult = await fetchEsm3StructureEval(uniprotId, posVal, wtResidue, mutResidue, wtPdbText, biohubToken);
-
-      let expectedSeqLen = 0;
-      if (wtPdbText) {
-        const lines = wtPdbText.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("ATOM ") && line.substring(12, 16).trim() === "CA") {
-            expectedSeqLen++;
-          }
-        }
-      }
-
-      if (evalResult && evalResult.perturbationScores && expectedSeqLen > 0) {
-        if (evalResult.perturbationScores.length !== expectedSeqLen) {
-          sendError(res, 502, "BAD_GATEWAY", `ESM3 structural evaluation score length mismatch (got ${evalResult.perturbationScores.length}, expected ${expectedSeqLen}).`);
-          return;
-        }
-      }
-
-      res.json(evalResult);
-    } catch (error: any) {
-      console.error("ESM3 structure eval endpoint failure:", error);
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "Failed to evaluate ESM3 structure.");
     }
   });
 

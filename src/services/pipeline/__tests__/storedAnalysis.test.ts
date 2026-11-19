@@ -11,7 +11,6 @@ import type { AnalysisCacheContext } from "../analysisContext";
 const context: AnalysisCacheContext = {
   uniprotId: "P00439",
   acmgWeighting: "standard",
-  saprotEngine: "saprot-650m",
   assembly: "",
   genomicCoordinates: "",
   resolvedAssembly: "",

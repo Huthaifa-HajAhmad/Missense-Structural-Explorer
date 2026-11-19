@@ -11,8 +11,7 @@ import {
 
 const ENGINE_ROWS: Array<[string, string]> = [
   ["thermompnn", "Stability prediction (ThermoMPNN)"],
-  ["stabilityoracle", "Structure stability (StabilityOracle)"],
-  ["saprot", "Structure-aware language model (SaProt)"]
+  ["stabilityoracle", "Structure stability (StabilityOracle)"]
 ];
 
 /** Per-model lines, only from what the server reported. An engine it did not report is left out. */

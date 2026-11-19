@@ -26,21 +26,18 @@ describe("stage-owned result merging", () => {
   });
   it("retains settled enrichment through the final streamed core frame and cache snapshot", () => {
     let state = mergeResultPatch({ result: null }, { landscapeData: [{ position: 408 }], landscapeMeta: { source: "dbnsfp-local" } }, base, "landscape", "complete");
-    state = mergeResultPatch(state, { esm2Eval: { llr: -2 }, saprotEval: { error: "Unavailable" } }, base, "structural", "degraded");
-    const finalFrame = { landscapeData: null, landscapeMeta: null, esm2Eval: null, saprotEval: null, predictorData: { revel: 0.8 } };
+    state = mergeResultPatch(state, {}, base, "structural", "degraded");
+    const finalFrame = { landscapeData: null, landscapeMeta: null, predictorData: { revel: 0.8 } };
     state = mergeResultPatch(state, finalFrame, base, "core", "running");
     state = mergeCompletedCore(state, createCompletedAnalysisState(finalFrame, base), base);
     const restored = JSON.parse(JSON.stringify(state.result));
     expect(restored.landscapeData).toEqual([{ position: 408 }]);
     expect(restored.landscapeMeta.source).toBe("dbnsfp-local");
-    expect(restored.esm2Eval).toEqual({ llr: -2 });
-    expect(restored.saprotEval).toEqual({ error: "Unavailable" });
     expect(restored.metadata.pipelineStages).toEqual({ landscape: "complete", structural: "degraded", core: "complete" });
   });
   it("does not install foreign-stage values even before their owner responds", () => {
-    const state = mergeResultPatch({ result: null }, { landscapeData: [{ position: 1 }], esm2Eval: { llr: 10 }, ppiBindingData: { status: "success" } }, base, "core", "running");
+    const state = mergeResultPatch({ result: null }, { landscapeData: [{ position: 1 }], ppiBindingData: { status: "success" } }, base, "core", "running");
     expect(state.result.landscapeData).toBeNull();
-    expect(state.result.esm2Eval).toBeNull();
     expect(state.result.ppiBindingData).toBeUndefined();
   });
   it("merges source outcomes from both metadata and top-level patches", () => {
@@ -81,6 +78,11 @@ describe("settling stages a finished run left at running", () => {
       ppi: "error",
       narrative: "complete",
     });
+  });
+
+  it("re-runs an interrupted structural refresh: it owns no field that could show it finished", () => {
+    const result = { disruptionPredictor: { rsa: 0.4 }, ruleBasedInsights: {}, metadata: { pipelineStages: { core: "complete", structural: "running" } } };
+    expect(settleUnreportedStages(result)).toEqual({ core: "complete", structural: "error" });
   });
 
   it("returns null when nothing was left running", () => {

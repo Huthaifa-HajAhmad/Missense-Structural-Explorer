@@ -77,18 +77,29 @@ beforeEach(() => {
 });
 
 describe("coordinate load recovery", () => {
-  it("retries the canvas load without silently rerunning structural analysis", () => {
+  it("retries the canvas load without silently refolding", () => {
     const retryLoad = vi.fn();
-    const retryAnalysis = vi.fn();
+    const retryFolding = vi.fn();
     const { getByRole } = render(<StructureStatusOverlay
       family="alphafold" hasVariant loading={false} loadError="Coordinate parse failed"
       deNovoFolding={false} deNovoError={null} deNovoLoaded={false}
       proteinLength={null} scanWindowLength={null} customEntryLoaded={false}
-      onRetryLoad={retryLoad} onRetryStructural={retryAnalysis}
+      onRetryLoad={retryLoad} onRetryFolding={retryFolding}
     />);
     fireEvent.click(getByRole("button", { name: "Retry loading coordinates" }));
     expect(retryLoad).toHaveBeenCalledOnce();
-    expect(retryAnalysis).not.toHaveBeenCalled();
+    expect(retryFolding).not.toHaveBeenCalled();
+  });
+
+  it("offers Retry folding after a failed ESMFold run, and it asks to fold again", () => {
+    const retryFolding = vi.fn();
+    const { getByRole } = render(<StructureStatusOverlay
+      family="esmfold" hasVariant loading={false} loadError={null}
+      deNovoFolding={false} deNovoError="Folding engine unavailable" deNovoLoaded={false}
+      proteinLength={450} scanWindowLength={null} customEntryLoaded={false} onRetryFolding={retryFolding}
+    />);
+    fireEvent.click(getByRole("button", { name: "Retry folding" }));
+    expect(retryFolding).toHaveBeenCalledOnce();
   });
 });
 

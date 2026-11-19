@@ -4,6 +4,8 @@
 .env
 .env.*
 tools/.venv
+# VESM-150M weights, left on hosts that ran the retired language models; nothing reads them now.
+tools/vesm
 **/.venv
 data/*.sqlite
 data/*.sqlite-shm

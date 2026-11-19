@@ -438,7 +438,6 @@ export function AppViews({
                           setMasterView("evidence");
                         }}
                         onRetryPocket={handleRetryPocket}
-                        onRetryStructural={actions?.retryStructuralAnalysis}
                         heightClass="h-full"
                       />
                     </Suspense>

@@ -36,7 +36,6 @@ describe("Invariant 1: 'Timeout Never Implies Absence' (PM2 Epistemic Safety)", 
         uniprotFeatures: "ok",
         stringInteractions: "ok",
         disruptionPredictor: "ok",
-        esm2: "ok",
         pdbMapping: "ok"
       };
 
@@ -82,7 +81,6 @@ describe("Invariant 1: 'Timeout Never Implies Absence' (PM2 Epistemic Safety)", 
         uniprotFeatures: "ok",
         stringInteractions: "ok",
         disruptionPredictor: "ok",
-        esm2: "ok",
         pdbMapping: "ok"
       };
 

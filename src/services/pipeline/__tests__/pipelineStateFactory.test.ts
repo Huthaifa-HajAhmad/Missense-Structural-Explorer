@@ -69,11 +69,8 @@ describe("pipelineStateFactory", () => {
     expect(state.result.metadata.mutant).toBe("Trp");
     expect(state.result.metadata.customAnnotation).toBe("ClinVar Verified");
     expect(state.result.metadata.analysisVersion.geminiModel).toBe("Not recorded");
-    // Verify deep model evaluation flags
-    expect(state.result.esm3Eval).toEqual({ loading: true });
-    expect(state.result.esmcEval).toEqual({ loading: true });
-    expect(state.result.esm2Eval).toEqual({ loading: true });
-    expect(state.result.saprotEval).toEqual({ loading: true });
+    // No placeholder for the retired protein language models (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md).
+    for (const field of ["esm3Eval", "esmcEval", "esm2Eval", "saprotEval"]) expect(state.result).not.toHaveProperty(field);
   });
 
   it("creates biophysical error state with informative messages and safe defaults", () => {
