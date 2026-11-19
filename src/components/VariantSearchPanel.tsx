@@ -1198,6 +1198,7 @@ function VariantSearchPanel({
     };
   }, [serviceSummary]);
   const [quickDraft, setQuickDraft] = useState("");
+  const [benchmarksChoice, setBenchmarksChoice] = useState<{ open: boolean; defaultOpen: boolean } | null>(null);
   useEffect(() => {
     setQuickDraft(draft =>
       quickEntryMatches(draft, { gene: customGene, variant: customVariant, genomic: customGenomic })
@@ -1283,15 +1284,33 @@ function VariantSearchPanel({
      analysisState.error.toLowerCase().includes("start-loss"))
   );
 
+  /* The benchmark list is a first-run shortcut: open while there is no history and nothing is typed. A history, or
+     a variant in the form (its breakdown makes the query card tall), folds it to its heading, so the recents card
+     keeps a short floor and the deck does not grow past the monitor. Opening or closing it by hand is remembered
+     until that default changes (history first filled or cleared, form first typed in or emptied). */
+  const formUntouched = [quickDraft, customGene, customVariant, customUniprot, customGenomic].every(field => field.trim() === "");
+  const defaultOpen = history.length === 0 && formUntouched;
+  const benchmarksOpen = benchmarksChoice?.defaultOpen === defaultOpen ? benchmarksChoice.open : defaultOpen;
   /* One line per benchmark, set like a Recent analyses row: who, which change, what it teaches, then the run.
      The row is a control of its own so it can carry a second, form-only action without nesting buttons. */
   const benchmarkSection = (
     <section className="workbench-benchmarks-section" aria-labelledby="benchmark-title">
       <div className="workbench-benchmarks-head">
-        <h3 id="benchmark-title">Benchmark controls</h3>
+        <h3 id="benchmark-title">
+          <button
+            type="button"
+            className="workbench-benchmarks-toggle"
+            aria-expanded={benchmarksOpen}
+            aria-controls={benchmarksOpen ? "workbench-benchmark-list" : undefined}
+            onClick={() => setBenchmarksChoice({ open: !benchmarksOpen, defaultOpen })}
+          >
+            <ChevronRight className="workbench-benchmarks-chevron" aria-hidden="true" />
+            Benchmark controls
+          </button>
+        </h3>
         <p>Known variants to try</p>
       </div>
-      <div className="workbench-benchmarks">
+      {benchmarksOpen && <div className="workbench-benchmarks" id="workbench-benchmark-list">
         {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
           <div key={preset.gene + preset.variant} className="workbench-benchmark">
             <button
@@ -1320,7 +1339,7 @@ function VariantSearchPanel({
             </button>
           </div>
         ))}
-      </div>
+      </div>}
     </section>
   );
 
@@ -1949,7 +1968,7 @@ function VariantSearchPanel({
           </form>
         </section>
 
-        {/* Recent runs and first-run benchmarks share the ruled workbench tray. */}
+        {/* Recent runs and the benchmarks share the ruled workbench tray. */}
         <section
           aria-labelledby="recent-title"
           className="workbench-recents flex flex-col gap-3 min-w-0"
@@ -1975,7 +1994,7 @@ function VariantSearchPanel({
 
               {/* Every entry stays in the list (the store keeps ten). The list is the card's only scroller: it takes the
                   height the query card leaves, so a longer history never pushes the deck or the monitor down the page.
-                  The benchmarks are the empty tray's content and do not share the card with the history. */}
+                  The benchmarks stay below it, at the foot of the card, folded once there is a history. */}
               <ol ref={recentListRef} className="workbench-recent-list" id="workbench-recent-list">
                 {history.map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
@@ -2004,22 +2023,24 @@ function VariantSearchPanel({
                   );
                 })}
               </ol>
+              {benchmarkSection}
             </>
           ) : (
             <>
               <div className="workbench-recents-heading">
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
               </div>
-              {/* The history's own empty slot. It takes the height the tray has left, so the benchmarks sit at
-                  the foot of the tray. */}
+              {/* The history's own empty slot: one compact line, so the benchmarks below it keep their full height. */}
               <div className="workbench-recents-empty">
                 <span className="workbench-recents-empty-icon" aria-hidden="true">
                   <HistoryIcon />
                 </span>
-                <p className="workbench-recents-empty-title">Analysed variants will appear here</p>
-                <p className="workbench-recents-empty-note">
-                  Each run is added to this history so you can run it again. It is kept in this browser.
-                </p>
+                <div>
+                  <p className="workbench-recents-empty-title">Analysed variants will appear here</p>
+                  <p className="workbench-recents-empty-note">
+                    Each run is added to this history so you can run it again. It is kept in this browser.
+                  </p>
+                </div>
               </div>
               {benchmarkSection}
             </>

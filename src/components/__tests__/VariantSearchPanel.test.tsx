@@ -700,6 +700,8 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       renderPanel();
 
       const preset = ONBOARDING_BENCHMARK_PRESETS[0];
+      // A coordinate is already in the form, so the list starts folded; the reader opens it first.
+      fireEvent.click(screen.getByRole("button", { name: "Benchmark controls" }));
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: new RegExp(`Run benchmark ${preset.gene}`) }));
       });
@@ -711,13 +713,77 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(state.customGenomic).toBe("");
     });
 
-    it("gives way to the recent-analyses list once there is history: one list in the card, not both", async () => {
+    it("keeps the benchmarks under the recent-analyses list once there is history, folded until opened", async () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
       renderPanel();
       expect(screen.getByRole("heading", { name: /Recent analyses/ })).toBeInTheDocument();
+      const toggle = screen.getByRole("button", { name: "Benchmark controls" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
       expect(screen.queryByRole("button", { name: /Run benchmark/ })).toBeNull();
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getAllByRole("button", { name: /Run benchmark/ })).toHaveLength(ONBOARDING_BENCHMARK_PRESETS.length);
+    });
+
+    it("opens the benchmarks while there is no history, and lets the reader fold them", () => {
+      renderPanel();
+      const toggle = screen.getByRole("button", { name: "Benchmark controls" });
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByRole("button", { name: /Run benchmark/ })).toBeNull();
+    });
+
+    it("folds the benchmarks once something is typed, even with no history, and opens them again when the form is cleared", async () => {
+      renderPanel();
+      const toggle = () => screen.getByRole("button", { name: "Benchmark controls" });
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+
+      await act(async () => {
+        useVariantAnalysisStore.setState({ customGene: "FGFR3", customVariant: "p.Gly380Arg" });
+      });
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+
+      await act(async () => {
+        useVariantAnalysisStore.setState({ customGene: "", customVariant: "" });
+      });
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("points aria-controls at the list only while the list exists", async () => {
+      await act(async () => {
+        useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
+      });
+      renderPanel();
+      const toggle = screen.getByRole("button", { name: "Benchmark controls" });
+      expect(toggle).not.toHaveAttribute("aria-controls");
+      fireEvent.click(toggle);
+      expect(document.getElementById(toggle.getAttribute("aria-controls")!)).not.toBeNull();
+    });
+
+    it("keeps the reader's choice while the history grows, and goes back to the default when it is cleared", async () => {
+      await act(async () => {
+        useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
+      });
+      renderPanel();
+      const toggle = screen.getByRole("button", { name: "Benchmark controls" });
+      fireEvent.click(toggle); // open
+      fireEvent.click(toggle); // fold again, by hand
+      await act(async () => {
+        useVariantAnalysisStore.setState({ history: [
+          { gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" },
+          { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
+        ] });
+      });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Clear search history/i }));
+      });
+      expect(screen.getByRole("button", { name: "Benchmark controls" })).toHaveAttribute("aria-expanded", "true");
     });
   });
 
