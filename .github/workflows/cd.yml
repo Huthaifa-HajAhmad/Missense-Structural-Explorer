@@ -344,8 +344,10 @@ jobs:
                 # still there. The serving app runs FoldX from this bind-mounted binary: copying over it
                 # rewrites the running program's file in place, and the FoldX run then dies with SIGBUS
                 # (seen 2026-11-19, a RepairPDB that crashed 5 s after a deploy started).
+                # `--update=none` needs coreutils 9.3 or newer (the VM has 9.4); `-n` is the older spelling of
+                # the same skip, used if a rebuilt host has an older cp.
                 mkdir -p "$(dirname "$p")"
-                cp -aT --update=none "$ASSET_SAFE/$p" "$p"
+                cp -aT --update=none "$ASSET_SAFE/$p" "$p" 2>/dev/null || cp -anT "$ASSET_SAFE/$p" "$p"
                 echo "[CD] restored $p"
               fi
             done

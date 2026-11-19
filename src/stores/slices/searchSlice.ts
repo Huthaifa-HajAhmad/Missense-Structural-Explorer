@@ -375,6 +375,7 @@ export const createSearchSlice: StateCreator<
         foldingEnergetics: (state.primaryBiophysics?.foldingEnergetics ?? state.foldingEnergetics ?? null) as any,
         foldingDdG: (state.primaryBiophysics?.foldingDdG ?? state.foldingDdG ?? null) as number | null,
         foldingStatus: (state.primaryBiophysics?.foldingStatus ?? state.foldingStatus ?? null) as string | null,
+        isFolding: state.primaryBiophysics?.isFolding ?? state.isFolding ?? false,
         isLoading: state.isBiophysicalLoading,
         draft: { sections: state.reportSections, edits: state.reportEdits, meta: state.reportMeta, citations: state.reportCitations },
         generatedAt: new Date().toISOString(),

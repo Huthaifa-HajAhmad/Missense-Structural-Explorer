@@ -445,7 +445,7 @@ src/shared/snapshotAge.ts,client,src/shared/__tests__/geneDiseaseEvidence.test.t
 src/shared/spatialClustering.ts,client,src/shared/__tests__/spatialClustering.test.ts
 src/shared/splicingEvidence.ts,client,src/components/__tests__/SpliceWindowControl.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/shared/__tests__/conservationProgress.test.ts;src/shared/__tests__/splicingEvidence.test.ts;src/shared/__tests__/splicingEvidence.transcript.test.ts;src/test/splicingWorkspace.test.ts
 src/shared/splicingWorkspace.ts,client,src/test/splicingWorkspace.test.ts
-src/shared/stabilityConsensus.ts,client,
+src/shared/stabilityConsensus.ts,client,src/shared/__tests__/energeticsEvidence.test.ts
 src/shared/structuralStream.ts,types,
 src/shared/structure3dEvidence.ts,client,src/components/__tests__/Structure3dView.test.tsx;src/shared/__tests__/structure3dEvidence.test.ts
 src/shared/structureContext.ts,client,src/shared/__tests__/structureContext.test.ts

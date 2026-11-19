@@ -333,6 +333,22 @@ const FOLDX_NEAR_ZERO_KCAL = 0.5;
 // Inputs
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether local FoldX is still running. It decides one thing the values cannot: whether ProtVar may stand
+ * in for a FoldX value that does not exist yet (`FOLDX_STAND_IN_RULE`). Every verdict passes it, so the
+ * screen, Insights, the Report and the export count the same engines during a run.
+ */
+export interface FoldxRunState {
+  isFolding?: boolean;
+  /** The store's FoldX status; anything but a final status counts as not final. */
+  foldingStatus?: string | null;
+}
+
+/** The store's status narrowed to the final values the evidence reads. */
+export function finalFoldingStatus(status: string | null | undefined): EnergeticsInputs["foldingStatus"] {
+  return status === "success" || status === "failed" || status === "unavailable" ? status : null;
+}
+
 export interface EnergeticsInputs {
   foldingDdG?: number | null;
   foldingStatus?: "success" | "failed" | "unavailable" | null;

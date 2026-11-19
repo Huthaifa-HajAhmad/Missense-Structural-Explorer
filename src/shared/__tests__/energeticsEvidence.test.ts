@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatDdg, formatDdgValue } from "../engineStatus";
 import { LOCAL_REPAIR_BENCHMARK } from "../foldxRepairBenchmark.generated";
 import { computeStabilityConsensus } from "../thresholds";
+import { stabilityConsensusFor } from "../stabilityConsensus";
 import {
   signedDdgNumber,
   AGREEMENT_CHIP,
@@ -540,6 +541,18 @@ describe("FoldX on two templates", () => {
       expect(stored.consensusVerdict).toBe(screen.verdict);
       expect(stored.enginesCounted).toBe(screen.nCounted);
       expect(stored.enginesCounted).toBe(4);
+    });
+
+    it("gives the same answer while local FoldX is still running: ProtVar is not counted as FoldX on either", () => {
+      const energetics = { foldx: null, foldxMean: null, protvar: 1.9, dynamut2: -0.8, ddmut: -0.6, thermompnn: 0.4, structureProvenance: alphafold };
+      const run = { isFolding: true, foldingStatus: null };
+      const screen = buildEnergeticsEvidence({ foldingEnergetics: energetics, ...run }).agreement;
+      const stored = computeStabilityConsensus(energetics, run);
+      expect(stored.enginesCounted).toBe(screen.nCounted);
+      expect(stored.consensusVerdict).toBe(screen.verdict);
+      expect(stored.enginesCounted).toBe(3);
+      const insights = stabilityConsensusFor({ result: {} as any, foldingEnergetics: energetics, ...run });
+      expect(insights?.enginesCounted).toBe(3);
     });
   });
 });

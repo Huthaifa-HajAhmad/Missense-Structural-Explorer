@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { GitBranch, Bot, BookOpen, Sparkles, Vote, Pin } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../context/VariantAnalysisContext";
+import { useFoldxRunState } from "../../hooks/useFoldxRunState";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import { buildInsightsEvidence, criterionForLane } from "../../shared/insightsEvidence";
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
@@ -56,17 +57,18 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisResult, isNarrativeLoading = false, foldingEnergetics, foldingDdG, isEvidenceLoading = false }) => {
   const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
   const w = useReviewWorkspace('insights');
+  const { isFolding, foldingStatus } = useFoldxRunState();
 
   const ev = useMemo(
     () => {
       if (!analysisResult) return null;
-      const consensus = deriveConsensus({ result: analysisResult, foldingEnergetics, foldingDdG });
+      const consensus = deriveConsensus({ result: analysisResult, foldingEnergetics, foldingDdG, isFolding, foldingStatus });
       return buildInsightsEvidence({ result: analysisResult, functionInput: functionEvidenceInputFrom(analysisResult),
         stability: consensus ? { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing } : null,
         isLoading: isEvidenceLoading,
         narrativeDegraded: isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason) });
     },
-    [analysisResult, foldingEnergetics, foldingDdG, isEvidenceLoading]
+    [analysisResult, foldingEnergetics, foldingDdG, isEvidenceLoading, isFolding, foldingStatus]
   );
   const predictors = useMemo(() => (analysisResult ? buildPredictorEvidence({ result: analysisResult }) : null), [analysisResult]);
 

@@ -1,5 +1,6 @@
 import type { AnalysisState } from "../types";
 import { stabilityConsensusFor as deriveConsensus } from "../shared/stabilityConsensus";
+import type { FoldxRunState } from "../shared/energeticsEvidence";
 
 /** Shared with Insights snapshots and reports; always recomputed from current engine values. */
 export { deriveConsensus };
@@ -8,7 +9,7 @@ export { deriveConsensus };
  * The `verdictContext` the export paths pass to the manifest — one function, so the call site has
  * nothing left to get wrong.
  */
-export function buildExportVerdictContext(args: {
+export function buildExportVerdictContext(args: FoldxRunState & {
   result: AnalysisState["result"] | null;
   foldingEnergetics?: any;
   foldingDdG?: number | null;

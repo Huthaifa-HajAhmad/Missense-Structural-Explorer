@@ -21,6 +21,7 @@ export function useReportDocument(result: AnalysisResult | null): { doc: ReportD
   const foldingDdG = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingDdG ?? s.foldingDdG);
   const foldingStatus = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingStatus ?? s.foldingStatus);
   const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
+  const isFolding = useVariantAnalysisStore(s => s.primaryBiophysics?.isFolding ?? s.isFolding ?? false);
   const sections = useVariantAnalysisStore(s => s.reportSections);
   const edits = useVariantAnalysisStore(s => s.reportEdits);
   const meta = useVariantAnalysisStore(s => s.reportMeta);
@@ -38,12 +39,13 @@ export function useReportDocument(result: AnalysisResult | null): { doc: ReportD
           foldingEnergetics: foldingEnergetics as any,
           foldingDdG: foldingDdG as number | null,
           foldingStatus: foldingStatus as string | null,
+          isFolding,
           isLoading: isBiophysicalLoading,
           draft: { sections, edits, meta, citations },
           generatedAt,
         })
       ),
-    [result, narrativeContext, gene, variant, uniprotId, foldingEnergetics, foldingDdG, foldingStatus, isBiophysicalLoading, sections, edits, meta, citations]
+    [result, narrativeContext, gene, variant, uniprotId, foldingEnergetics, foldingDdG, foldingStatus, isFolding, isBiophysicalLoading, sections, edits, meta, citations]
   );
 
   const doc = useMemo(() => build(null), [build]);

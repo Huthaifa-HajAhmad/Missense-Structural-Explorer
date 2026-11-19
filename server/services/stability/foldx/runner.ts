@@ -468,7 +468,8 @@ async function runRepairPdb(input: RepairInput): Promise<RepairRun> {
   const remainingMs = input.budgetMs - (elapsedMs ?? input.budgetMs);
   if (outcome !== "failed" || !REPAIR_CRASH_SIGNALS.has(signal ?? "") || remainingMs <= 0) return first;
   console.warn(`[Biophysical Modeling] RepairPDB was killed by ${signal}; running it once more within the remaining ${(remainingMs / 1000).toFixed(0)} s.`);
-  return runRepairPdbOnce({ ...input, budgetMs: remainingMs });
+  const second = await runRepairPdbOnce({ ...input, budgetMs: remainingMs });
+  return { ...second, diagnostic: { ...second.diagnostic, retriedAfterSignal: signal ?? undefined } };
 }
 
 /**
@@ -492,6 +493,9 @@ async function runRepairPdbOnce(input: {
   const { foldxBin, extraArgs, jobDir, budgetMs, signal, lowPriority, fixResiduesFile } = input;
   console.log(`[Biophysical Modeling] Running FoldX RepairPDB${fixResiduesFile ? " (local, --fix-residues-file)" : ""}: ${foldxBin}...`);
   const startedAt = Date.now();
+  const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
+  // A crashed attempt can leave a partial repaired file; it must never be read as this run's output.
+  await fs.promises.unlink(repairedPdbPath).catch(() => {});
   try {
     if (fixResiduesFile) await fs.promises.writeFile(path.join(jobDir, "fix.txt"), fixResiduesFile, "utf8");
     const repairRes = await execFileAsync(foldxBin, [
@@ -505,7 +509,6 @@ async function runRepairPdbOnce(input: {
       signal,
       lowPriority
     });
-    const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
     if (fs.existsSync(repairedPdbPath)) {
       console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
       const repairedPdb = await fs.promises.readFile(repairedPdbPath, "utf8");
@@ -528,6 +531,8 @@ async function runRepairPdbOnce(input: {
       }
     };
   } catch (repairErr: any) {
+    // Whatever a failed RepairPDB wrote is not a repaired structure; BuildModel must not find it beside wt.pdb.
+    await fs.promises.unlink(repairedPdbPath).catch(() => {});
     if (signal?.aborted || repairErr?.name === "AbortError") throw repairErr;
     const isTimeout = Boolean(
       repairErr?.code === "ETIMEDOUT" ||

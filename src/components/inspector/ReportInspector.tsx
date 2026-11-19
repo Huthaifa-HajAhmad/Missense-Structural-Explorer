@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileText, KeyRound, RefreshCw, Sparkles, Terminal, UserRound } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { useFoldxRunState } from "../../hooks/useFoldxRunState";
 import { useSettings } from "../../context/SettingsContext";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { generateProvenanceManifest } from "../../shared/provenance";
@@ -207,6 +208,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
       addNotification("error", "Unable to access the clipboard.");
     }
   };
+  const { isFolding, foldingStatus } = useFoldxRunState();
   const exportBundle = () => {
     const manifest = generateProvenanceManifest(
       gene,
@@ -220,6 +222,8 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         foldingEnergetics,
         foldingDdG,
         plddt: disruptionPredictor?.plddt,
+        isFolding,
+        foldingStatus,
       })
     );
     const bundle = {

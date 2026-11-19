@@ -239,6 +239,9 @@ export async function fetchBestPdbStructure(
   const cacheKey = `${validatedUniprot}:${pos ?? "any"}`;
   const cached = bestPdbCache.get(cacheKey);
   if (cached !== undefined) return cached;
+  // A new lookup replaces what an earlier examination found. If this one cannot examine any chain
+  // (PDBe unreachable), no refusal is reported for an examination that did not happen.
+  if (pos !== undefined) refusedSelections.delete(`${validatedUniprot.toUpperCase()}:${pos}`);
 
   const url = `https://www.ebi.ac.uk/pdbe/graph-api/mappings/best_structures/${validatedUniprot}`;
   try {
@@ -268,7 +271,6 @@ export async function fetchBestPdbStructure(
     const ranked = pos !== undefined && covering.length ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
     if (pos !== undefined) {
       const selectionKey = `${validatedUniprot.toUpperCase()}:${pos}`;
-      if (ranked !== "none") refusedSelections.delete(selectionKey);
       if (ranked === "incomplete") incompleteSelections.add(selectionKey);
       else incompleteSelections.delete(selectionKey);
     }

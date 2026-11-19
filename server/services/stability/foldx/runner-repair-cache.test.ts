@@ -36,6 +36,8 @@ vi.mock("child_process", () => ({
     if (command === "RepairPDB") {
       if (repairCrashes > 0) {
         repairCrashes -= 1;
+        // A process killed mid-write can leave a partial repaired file behind.
+        fs.writeFileSync(repairPath, "PARTIAL REPAIR");
         const crash = Object.assign(new Error("Command failed"), { signal: "SIGBUS", code: null });
         queueMicrotask(() => callback(crash, "partial output", ""));
         return { pid: undefined };
@@ -470,6 +472,9 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     const result = await runFoldx(pdb, []);
     expect(foldxLog.filter(l => l.startsWith("RepairPDB"))).toHaveLength(2);
     expect(result.energetics.foldxRepairFailed).toBe(true);
+    // Neither the retry nor BuildModel may find the crashed attempt's partial file.
+    expect(foldxLog.filter(l => l.startsWith("RepairPDB"))[1]).toContain("repairPresent=false");
+    expect(foldxLog.find(l => l.startsWith("BuildModel"))).toContain("repairPresent=false");
     // The failure is remembered per structure; forget it so the next test repairs this structure again.
     const pdbHash = crypto.createHash("sha256").update(cleanPdbForFoldX(pdb)).digest("hex");
     clearRepairFailure(getRepairCacheKey(pdbHash, { seed: 12345 }));

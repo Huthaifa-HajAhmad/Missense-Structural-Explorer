@@ -8,6 +8,7 @@
  */
 import type { AnalysisResult } from "./contracts.ts";
 import { stabilityConsensusFor } from "./stabilityConsensus";
+import type { FoldxRunState } from "./energeticsEvidence";
 import { buildInsightsEvidence, type InsightsEvidence, type StabilityInput } from "./insightsEvidence.ts";
 import { functionEvidenceInputFrom } from "./functionEvidenceInput.ts";
 import { isFallbackNarrative } from "./narrativeFallback.ts";
@@ -15,9 +16,10 @@ import { isFallbackNarrative } from "./narrativeFallback.ts";
 export function stabilityInputFor(
   result: AnalysisResult | null,
   foldingEnergetics?: any,
-  foldingDdG?: number | null
+  foldingDdG?: number | null,
+  run: FoldxRunState = {}
 ): StabilityInput | null {
-  const consensus = stabilityConsensusFor({ result, foldingEnergetics, foldingDdG });
+  const consensus = stabilityConsensusFor({ result, foldingEnergetics, foldingDdG, ...run });
   return consensus
     ? {
         verdict: consensus.consensusVerdict,
@@ -27,7 +29,7 @@ export function stabilityInputFor(
     : null;
 }
 
-export function insightsEvidenceFor(args: {
+export function insightsEvidenceFor(args: FoldxRunState & {
   result: AnalysisResult | null;
   foldingEnergetics?: any;
   foldingDdG?: number | null;
@@ -38,7 +40,7 @@ export function insightsEvidenceFor(args: {
   return buildInsightsEvidence({
     result,
     functionInput: functionEvidenceInputFrom(result),
-    stability: stabilityInputFor(result, args.foldingEnergetics, args.foldingDdG),
+    stability: stabilityInputFor(result, args.foldingEnergetics, args.foldingDdG, { isFolding: args.isFolding, foldingStatus: args.foldingStatus }),
     isLoading: Boolean(args.isLoading),
     narrativeDegraded: isFallbackNarrative(result.analysis ?? "", result.isFallback, result.fallbackReason),
   });
