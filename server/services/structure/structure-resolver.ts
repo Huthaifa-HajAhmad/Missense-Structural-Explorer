@@ -37,6 +37,7 @@ import {
   fetchPdbFromRcsb,
   fetchPdbHomologs,
   fetchVerifiedExperimentalChain,
+  selectionWasIncomplete,
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
@@ -371,7 +372,9 @@ export async function resolveStructure(
   options: ResolveStructureOptions = {}
 ): Promise<ResolvedStructure | null> {
   // The wild-type requirement changes the answer, so it is part of the memo's key.
-  const memoKey = `structure-resolution:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
+  // `select-v4`: the experimental chain is chosen by local quality (STRUCTURE_SELECTION_RULE.md); choices
+  // remembered under the earlier rule must not be served for six hours after the change.
+  const memoKey = `structure-resolution:select-v4:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
 
   /**
    * The coordinates the probe just fetched, captured per CALL rather than per module.
@@ -393,7 +396,8 @@ export async function resolveStructure(
       ttlSeconds: STRUCTURE_RESOLUTION_TTL_S,
       fetcher: async () => {
         const probed = await probeStructure(uniprotId, pos, options);
-        probeDegraded = scopeWasHeldBack(currentCacheScope());
+        // A fallback chosen because the chain examination could not complete is not remembered either.
+        probeDegraded = scopeWasHeldBack(currentCacheScope()) || selectionWasIncomplete(uniprotId, pos);
         if (!probed) return null;
         freshlyProbed = probed;
         return probed.choice;

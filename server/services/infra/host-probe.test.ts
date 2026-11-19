@@ -12,6 +12,11 @@ import path from "path";
 const foldxBin = { value: "foldx" as string, dir: "" as string };
 const p2rankReady = { value: true, calls: 0 };
 
+// The kernel reading (Linux /proc and cgroup files) is mocked so these tests behave the same on every
+// host; it returns null unless a test sets a value, which leaves freeRamBytes on its own fallback.
+const kernel = vi.hoisted(() => ({ available: null as number | null }));
+vi.mock("./available-memory.ts", () => ({ availableMemoryBytes: () => kernel.available }));
+
 vi.mock("../stability/foldx/detector.ts", () => ({
   detectFoldxBinaryAndDir: () => ({ foldxBin: foldxBin.value, foldxDir: foldxBin.dir }),
   getFoldxExecutionTarget: (bin: string, args: string[]) => ({ file: bin, args }),
@@ -223,6 +228,15 @@ describe("version parsing", () => {
 });
 
 describe("freeRamBytes", () => {
+  it("uses the kernel's available memory when the system reports it", () => {
+    kernel.available = 3 * 1024 ** 3;
+    try {
+      expect(freeRamBytes()).toBe(3 * 1024 ** 3);
+    } finally {
+      kernel.available = null;
+    }
+  });
+
   it("takes the smaller of host and container, and a zero container reading as ZERO, not the host's number", () => {
     const proc = process as unknown as { availableMemory?: () => number };
     const had = "availableMemory" in proc;

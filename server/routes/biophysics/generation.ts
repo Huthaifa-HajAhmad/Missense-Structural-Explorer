@@ -437,6 +437,12 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       const actualMutation = `${wt1}${resolvedChain}${posNum}${mut1}`;
 
       if (!effectiveWtPdb || typeof effectiveWtPdb !== "string" || (!effectiveWtPdb.includes("ATOM") && !effectiveWtPdb.includes("HETATM"))) {
+        if (!wtPdb && uniprotId?.trim()) {
+          // Nothing was sent, so nothing sent was invalid. The resolver answers null both when no model
+          // covers the residue and when a provider failed, so the message claims neither.
+          sendError(res, 422, "NO_STRUCTURE", `We could not obtain a usable structure for residue ${posNum} of ${uniprotId.trim()}: no experimental chain or AlphaFold model could be used, or a structure provider did not answer. The structure-based engines did not run; trying again later may help.`);
+          return;
+        }
         sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records, and structure could not be resolved from UniProt.");
         return;
       }

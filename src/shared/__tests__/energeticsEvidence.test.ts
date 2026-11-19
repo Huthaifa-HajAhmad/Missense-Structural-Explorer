@@ -159,9 +159,11 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
 
   it("names an even split between no destabilization and moderate", () => {
     const ev = buildEnergeticsEvidence({
-      foldingEnergetics: { foldx: 0.0, rasp: 0.0, thermompnn: 0.7, stabilityoracle: 0.7, raspStatus: "done", stabilityoracleStatus: "done" },
+      // DynaMut2's native −0.7 is canonical +0.7 (moderate). StabilityOracle has no moderate band.
+      foldingEnergetics: { foldx: 0.0, rasp: 0.0, thermompnn: 0.7, dynamut2: -0.7, raspStatus: "done" },
       foldingStatus: "success",
       thermompnnStatus: "done",
+      dynamut2Status: "done",
     });
     expect(ev.agreement.direction).toBe("split-none-moderate");
     expect(ev.agreement.verdict).toBe("No Destabilization to Moderately Destabilizing (Engines Split)");
@@ -172,7 +174,7 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     const ev = buildEnergeticsEvidence({
       // Four of six moderate is a two-thirds majority, so only the two-sided exceptions keep it split.
       foldingEnergetics: {
-        foldx: 3.0, rasp: 0.7, thermompnn: 0.7, dynamut2: -0.7, stabilityoracle: 0.7, ddmut: 0.0,
+        foldx: 3.0, rasp: 0.7, thermompnn: 0.7, dynamut2: -0.7, ddmut: -0.7, stabilityoracle: 0.0,
         raspStatus: "done", stabilityoracleStatus: "done",
       },
       foldingStatus: "success",
@@ -678,12 +680,13 @@ describe("formatDdgValue — the figure without its unit", () => {
 });
 
 describe("learned ΔΔG placeholder disclosures", () => {
-  it("discloses pending held-out recalibration on ThermoMPNN and StabilityOracle notes", async () => {
+  it("discloses ThermoMPNN's placeholder mark and StabilityOracle's calibrated one with its evidence", async () => {
     const { THRESHOLDS_METADATA, THRESHOLD_NOTES } = await import("../thresholds");
     expect(THRESHOLDS_METADATA.citations.thermompnn).toMatch(/recalibration/i);
-    expect(THRESHOLDS_METADATA.citations.stabilityoracle).toMatch(/recalibration/i);
     expect(THRESHOLD_NOTES.thermompnn).toMatch(/recalibration/i);
-    expect(THRESHOLD_NOTES.stabilityoracle).toMatch(/recalibration/i);
+    // StabilityOracle's +0.2 was chosen on S669 and checked on Ssym; the notes must say so, not "placeholder".
+    expect(THRESHOLDS_METADATA.citations.stabilityoracle).toMatch(/S669.*Ssym/);
+    expect(THRESHOLD_NOTES.stabilityoracle).toMatch(/\+0\.2 kcal\/mol.*S669.*Ssym/);
 
     const ev = buildEnergeticsEvidence({
       foldingStatus: "success",
@@ -692,6 +695,22 @@ describe("learned ΔΔG placeholder disclosures", () => {
     const thermo = ev.readings.find(r => r.key === "thermompnn")!;
     const oracle = ev.readings.find(r => r.key === "stabilityoracle")!;
     expect(thermo.note).toMatch(/recalibration/i);
-    expect(oracle.note).toMatch(/recalibration/i);
+    // The note under the value must name the mark the scale actually draws.
+    expect(oracle.note).toMatch(/\+0\.2 kcal\/mol/);
+    expect(oracle.note).not.toMatch(/recalibration|\+1\.0/);
+  });
+
+  it("keeps internal names out of the text shown beside ThermoMPNN and StabilityOracle", async () => {
+    const { THRESHOLDS_METADATA, THRESHOLD_NOTES } = await import("../thresholds");
+    const ev = buildEnergeticsEvidence({
+      foldingStatus: "success",
+      foldingEnergetics: { foldx: 0.6, thermompnn: 1.2, stabilityoracle: -0.6 },
+    });
+    const shown = [
+      THRESHOLDS_METADATA.citations.thermompnn, THRESHOLD_NOTES.thermompnn,
+      THRESHOLDS_METADATA.citations.stabilityoracle, THRESHOLD_NOTES.stabilityoracle,
+      ...ev.readings.map(r => r.note ?? ""),
+    ];
+    for (const text of shown) expect(text).not.toMatch(/sidecar|isStabilizing|pred\/2/);
   });
 });

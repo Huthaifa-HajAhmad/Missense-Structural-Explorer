@@ -343,6 +343,69 @@ describe("limits and listing", () => {
     }
   });
 
+  it("starts no more FoldX jobs than FoldX has slots, and gives the spare queue slot to other work", async () => {
+    // Test container, 2026-11-18 (production image): the queue started several FoldX jobs on one FoldX
+    // slot; those that waited gave up after FOLDX_SEMAPHORE_WAIT_MS with "Concurrency limit reached".
+    const previous = process.env.BIOPHYSICAL_CONCURRENCY;
+    process.env.BIOPHYSICAL_CONCURRENCY = "1";
+    try {
+      const { q, started, release } = controlled(4);
+      track(q);
+      for (const n of ["f1", "f2", "f3"]) await q.addJob(n, "foldx", { name: n }, { ownerId: n });
+      await q.addJob("p1", "p2rank", { name: "p1" }, { ownerId: "X" });
+      await tick();
+      expect(started.sort()).toEqual(["f1", "p1"]);
+      release.get("f1")!();
+      await tick(1_300);
+      expect(started).toContain("f2");
+      expect(started).not.toContain("f3");
+    } finally {
+      if (previous === undefined) delete process.env.BIOPHYSICAL_CONCURRENCY;
+      else process.env.BIOPHYSICAL_CONCURRENCY = previous;
+    }
+  });
+
+  it("frees the FoldX slot when FoldX itself is done, not when the job's companion engines finish", async () => {
+    // After FoldX the job still waits up to 180 s for StabilityOracle; FoldX has published its value
+    // (`foldxUpdate`) and released its slot, so the next person's FoldX should start.
+    const previous = process.env.BIOPHYSICAL_CONCURRENCY;
+    process.env.BIOPHYSICAL_CONCURRENCY = "1";
+    try {
+      const { q, started } = controlled(4);
+      track(q);
+      for (const n of ["f1", "f2"]) await q.addJob(n, "foldx", { name: n }, { ownerId: n });
+      await tick();
+      expect(started).toEqual(["f1"]);
+      q.updateJobData("f1", { name: "f1", foldxUpdate: { foldx: 1.2 } });
+      await tick(1_300);
+      expect(started).toEqual(["f1", "f2"]);
+    } finally {
+      if (previous === undefined) delete process.env.BIOPHYSICAL_CONCURRENCY;
+      else process.env.BIOPHYSICAL_CONCURRENCY = previous;
+    }
+  });
+
+  it("tells a waiting FoldX job how many FoldX jobs are ahead of it, not how many jobs of any kind", async () => {
+    const previous = process.env.BIOPHYSICAL_CONCURRENCY;
+    process.env.BIOPHYSICAL_CONCURRENCY = "1";
+    try {
+      const { q } = controlled(2);
+      track(q);
+      await q.addJob("f1", "foldx", { name: "f1" }, { ownerId: "A" });
+      await q.addJob("p1", "p2rank", { name: "p1" }, { ownerId: "B" });
+      await tick();
+      await q.addJob("p2", "p2rank", { name: "p2" }, { ownerId: "C" });
+      await q.addJob("f2", "foldx", { name: "f2" }, { ownerId: "D" });
+      await q.addJob("f3", "foldx", { name: "f3" }, { ownerId: "E" });
+      // Ahead of f3: f1 running FoldX and f2 waiting for FoldX. The P2Rank jobs do not use the FoldX slot.
+      expect(q.getQueuePosition("f2")).toBe(1);
+      expect(q.getQueuePosition("f3")).toBe(2);
+    } finally {
+      if (previous === undefined) delete process.env.BIOPHYSICAL_CONCURRENCY;
+      else process.env.BIOPHYSICAL_CONCURRENCY = previous;
+    }
+  });
+
   it("keeps the queue's parallelism for a tool that does not take the FoldX semaphore", async () => {
     const previous = process.env.BIOPHYSICAL_CONCURRENCY;
     process.env.BIOPHYSICAL_CONCURRENCY = "1";

@@ -1,4 +1,5 @@
 import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../shared/timeouts";
+import { isRejectionDetail } from "../../shared/engineStatus";
 import type { CachedVariantBundle } from "./variantCache";
 
 export function shouldRunBiophysics(snapshot: CachedVariantBundle | null | undefined, attemptedAt: number | null, now = Date.now()): boolean {
@@ -6,7 +7,12 @@ export function shouldRunBiophysics(snapshot: CachedVariantBundle | null | undef
   const remoteFailure = [snapshot?.dynamut2Status, snapshot?.ddmutStatus]
     .some(status => status === "error" || status === "unavailable" || status === "failed") ||
     snapshot?.thermompnnStatus === "error" ||
-    snapshot?.thermompnnStatus === "busy";
+    snapshot?.thermompnnStatus === "busy" ||
+    // A StabilityOracle timeout is worth another run (the server reruns it beside a cached FoldX
+    // value); a rejection of this structure would only be refused again.
+    snapshot?.foldingEnergetics?.stabilityoracleStatus === "busy" ||
+    (snapshot?.foldingEnergetics?.stabilityoracleStatus === "error" &&
+      !isRejectionDetail(snapshot?.foldingEnergetics?.stabilityoracleError));
   // FoldX that cannot run here (no binary, failed repair) is not fixed by another attempt; only a
   // transient remote-engine failure justifies re-dispatching the run.
   const foldxStructurallyUnavailable = Boolean(snapshot?.foldingEnergetics?.foldxBinaryMissing || snapshot?.foldingEnergetics?.foldxRepairFailed);

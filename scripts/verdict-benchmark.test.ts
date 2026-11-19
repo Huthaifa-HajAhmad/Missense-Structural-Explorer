@@ -62,8 +62,9 @@ describe("verdict benchmark: the verdict is the one the app computes", () => {
   });
 
   it("lets FoldX break a tie, and shows what the other two say without it", () => {
-    // Without FoldX, ThermoMPNN says high and StabilityOracle says low-to-moderate: no call. FoldX's low value settles it.
-    expect(run(-1, -1, 0.6)).toMatchObject({ verdict: 0, noFoldx: null });
+    // Without FoldX, ThermoMPNN says moderate and StabilityOracle says no destabilization: no call. FoldX's low
+    // value settles it. (StabilityOracle has one +0.2 mark and no moderate band, so ThermoMPNN plays the moderate role.)
+    expect(run(-1, 0.6, -1)).toMatchObject({ verdict: 0, noFoldx: null });
     // The other way round: two engines agree on high, and a low FoldX value turns that into no call.
     expect(run(-1, 1, 1)).toMatchObject({ verdict: null, noFoldx: 2 });
   });

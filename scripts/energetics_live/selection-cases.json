@@ -1,0 +1,8 @@
+[
+ {"name": "selection: TP53 R175H", "uniprotId": "P04637", "mutation": "RA175H", "user": 0},
+ {"name": "selection: TP53 R273H", "uniprotId": "P04637", "mutation": "RA273H", "user": 0},
+ {"name": "selection: FHIT V95A", "uniprotId": "P49789", "mutation": "VA95A", "user": 0},
+ {"name": "selection: HBB E7V", "uniprotId": "P68871", "mutation": "EA7V", "user": 0},
+ {"name": "selection: CNNM2 E357Q", "uniprotId": "Q9H8M5", "mutation": "EA357Q", "user": 0},
+ {"name": "selection: SCN1A R1648H", "uniprotId": "P35498", "mutation": "RA1648H", "user": 0}
+]

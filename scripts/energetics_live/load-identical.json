@@ -1,0 +1,32 @@
+[
+ {
+  "name": "shared: PTEN R130G, user 1",
+  "uniprotId": "P60484",
+  "mutation": "RA130G",
+  "user": 0
+ },
+ {
+  "name": "shared: PTEN R130G, user 2",
+  "uniprotId": "P60484",
+  "mutation": "RA130G",
+  "user": 1
+ },
+ {
+  "name": "shared: PTEN R130G, user 3",
+  "uniprotId": "P60484",
+  "mutation": "RA130G",
+  "user": 2
+ },
+ {
+  "name": "shared: PTEN R130G, user 4",
+  "uniprotId": "P60484",
+  "mutation": "RA130G",
+  "user": 3
+ },
+ {
+  "name": "shared: PTEN R130G, user 5",
+  "uniprotId": "P60484",
+  "mutation": "RA130G",
+  "user": 4
+ }
+]

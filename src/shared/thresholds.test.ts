@@ -294,7 +294,10 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(classifyRawDdg("dynamut2", 0.3)?.id).toBe("neutral");
       expect(classifyRawDdg("rasp", THRESHOLDS.rasp.destabilizing)?.id).toBe("high");
       expect(classifyRawDdg("thermompnn", 1.0)?.id).toBe("high");
-      expect(classifyRawDdg("stabilityoracle", 0.5)?.id).toBe("moderate");
+      // StabilityOracle has one calibrated mark (+0.2) and no moderate band.
+      expect(classifyRawDdg("stabilityoracle", 0.5)?.id).toBe("high");
+      expect(classifyRawDdg("stabilityoracle", 0.2)?.id).toBe("high");
+      expect(classifyRawDdg("stabilityoracle", 0.19)?.id).toBe("neutral");
     });
   });
 

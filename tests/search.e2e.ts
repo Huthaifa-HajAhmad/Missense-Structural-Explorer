@@ -203,6 +203,17 @@ describe('variant search form', { tags: ['search'] }, () => {
       };
     });
 
+    const badge = () => browser.evaluate(() =>
+      document.querySelector('.workbench-monitor-tabs .workbench-monitor-count')?.textContent?.trim() ?? null);
+    // The first service check pings outside providers and can take seconds on a slow runner. Wait for its
+    // reading, so the test checks that the tab switch KEEPS the reading, not how fast the providers answered.
+    let before = await badge();
+    for (let i = 0; i < 40 && !(before && /^\d+\/\d+$/.test(before)); i++) {
+      await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('ok'), 500)));
+      before = await badge();
+    }
+    expect(before !== null && /^\d+\/\d+$/.test(before), `the Services badge holds a count before the switch (${before})`).toBe(true);
+
     const first = await panelMount();
     expect(first.bothMounted, 'both tabpanels are mounted ' + JSON.stringify(first)).toBe(true);
     expect(first.telemetryShown && !first.pipelineShown, `telemetry is shown first ${JSON.stringify(first)}`).toBe(true);
@@ -214,12 +225,9 @@ describe('variant search form', { tags: ['search'] }, () => {
     expect(!second.telemetryShown && second.pipelineShown, `the switch moved the view without losing a panel ${JSON.stringify(second)}`).toBe(true);
     expect(second.telemetryHasSummary, 'the switch did not unmount the telemetry panel').toBe(true);
 
-    // The badge on the Services tab names the same count its panel computed.
-    const reading = await browser.evaluate(() => {
-      const badge = document.querySelector('.workbench-monitor-tabs .workbench-monitor-count');
-      return badge?.textContent?.trim() ?? null;
-    });
-    expect(reading !== null && /^\d+\/\d+$/.test(reading), `the Services badge holds a count (${reading})`).toBe(true);
+    // The badge keeps the reading its panel computed while Pipeline is open.
+    const reading = await badge();
+    expect(reading, `the Services badge keeps its reading (${reading}) after the switch`).toBe(before);
     await screen.getByRole('tab', 'Services').tap();
     await app.screenshot('services-badge');
   });

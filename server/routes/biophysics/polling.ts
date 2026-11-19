@@ -400,6 +400,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         createdAt: jobInfo.createdAt ?? null,
         queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : 0,
         queuedEtaMs: jobInfo.status === "queued" ? ((await queue.getEta(jobId))?.waitMs ?? null) : null,
+        // While the scheduler is held (too little memory), no start time is honest: say why instead.
+        queueHold: jobInfo.status === "queued" ? queue.getHoldFor(jobId) : null,
         // Where it runs and why (live routing, WP-G2); null when it is simply the server's, as always.
         runsOn: queue.runsOn(jobId, submitterId(req) ?? null),
         dynamut2JobId: remoteJobs.dynamut2JobId,

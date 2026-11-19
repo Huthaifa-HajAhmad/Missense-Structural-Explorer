@@ -137,6 +137,9 @@ export interface EnqueueOptions {
   routing?: RoutingRecord | null;
 }
 
+/** Why the scheduler is holding every job back. */
+export type QueueHold = "memory";
+
 export interface JobSummary {
   id: string;
   type: "foldx" | "p2rank";
@@ -153,6 +156,8 @@ export interface JobSummary {
   queuedAhead: number | null;
   /** Estimated wait before it starts, while queued; null when unknown or not waiting (see `getEta`). */
   etaMs: number | null;
+  /** Why the queue cannot start any job right now, while this one is queued; null when it can (see `getHold`). */
+  hold: QueueHold | null;
   /**
    * How long it has been running, measured on the HOST that started it, or null when it is not running.
    * The client must not subtract the server's `startedAt` from its own clock (a lagging clock reads
@@ -188,6 +193,8 @@ export class SQLiteQueue {
   private endedElsewhereInterval: NodeJS.Timeout | null = null;
   private isShutdown = false;
   private processingPaused: boolean;
+  /** Set while the scheduler holds every job back (too little available memory); cleared once it can start one. */
+  private hold: QueueHold | null = null;
   private costModels!: CostModelCache;
   private lastStartedAt = 0;
   private lastPrunedAt = 0;
@@ -587,9 +594,15 @@ export class SQLiteQueue {
         return this.agentQueueAhead(row.placement, id).ahead;
       }
       if (row.status === "queued") {
+        const order = this.queuedInStartOrder();
+        const idx = order.findIndex(j => j.id === id);
+        if (idx < 0) return null;
+        if (order[idx].type === "foldx") {
+          // A FoldX job waits for the FoldX slot (R9), so only FoldX work is ahead of it.
+          return this.serverFoldxCoresRunning() + order.slice(0, idx).filter(j => j.type === "foldx").length;
+        }
         const running = (this.db.prepare(`SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).get() as any).c as number;
-        const idx = this.queuedInStartOrder().findIndex(j => j.id === id);
-        return idx < 0 ? null : running + idx;
+        return running + idx;
       }
       const ahead = this.db.prepare(`
         SELECT count(*) AS count FROM biophysical_jobs
@@ -617,6 +630,22 @@ export class SQLiteQueue {
    * Work of the other tool is not counted as ahead for this reason: it never holds the slot this job
    * is waiting for. (It does share the CPU, which this model deliberately does not attempt to price.)
    */
+  /** Why no job can start right now, or null when the scheduler can start one. A held queue has no honest start time. */
+  getHold(): QueueHold | null {
+    return this.hold;
+  }
+
+  /**
+   * The hold as it applies to one job: a job placed on a paired computer does not wait for this
+   * server's memory. The hold is this process's own; during a deploy handover the standby (which
+   * schedules nothing) reports none.
+   */
+  holdFor(id: string): QueueHold | null {
+    if (!this.hold) return null;
+    const row = this.db.prepare("SELECT placement FROM biophysical_jobs WHERE id = ?").get(id) as { placement?: string | null } | undefined;
+    return typeof row?.placement === "string" && row.placement.startsWith("agent:") ? null : this.hold;
+  }
+
   getEta(id: string): { waitMs: number | null; runMs: number | null } | null {
     try {
       const row = this.db.prepare("SELECT status, type, cost_estimate_ms, placement, routing FROM biophysical_jobs WHERE id = ?").get(id) as any;
@@ -636,8 +665,11 @@ export class SQLiteQueue {
       const now = Date.now();
       let total = 0;
       let known = true;
-      for (const r of this.db.prepare(`SELECT type, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).all() as any[]) {
-        if (isFoldx && r.type !== "foldx") continue;
+      for (const r of this.db.prepare(`SELECT type, cost_estimate_ms AS c, started_at AS s,
+          json_extract(CASE WHEN json_valid(data) THEN data END, '$.foldxUpdate') IS NOT NULL AS coreDone
+          FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).all() as any[]) {
+        // A FoldX job only finishing its companion engines no longer holds the FoldX slot (R9).
+        if (isFoldx && (r.type !== "foldx" || r.coreDone)) continue;
         if (r.c == null) known = false;
         else total += Math.max(0, r.c - (now - (r.s ?? now)));
       }
@@ -750,10 +782,12 @@ export class SQLiteQueue {
         ownerId: r.owner_id === userId ? userId : null,
         mine: r.owner_id === userId,
         // A job waiting for the owner's computer stands in THAT computer's line, not the server's.
+        // The same count the job's own poll reports (`getQueuePosition`), so the two views agree.
         queuedAhead: r.status === "queued" && typeof r.placement === "string" && r.placement.startsWith("agent:")
           ? this.agentQueueAhead(r.placement, r.id).ahead
-          : idx < 0 ? null : running + idx,
+          : idx < 0 ? null : this.getQueuePosition(r.id),
         etaMs: r.status === "queued" ? (this.getEta(r.id)?.waitMs ?? null) : null,
+        hold: r.status === "queued" ? this.holdFor(r.id) : null,
         elapsedMs: r.status === "running" && r.started_at ? Math.max(0, Date.now() - r.started_at) : null,
         label,
         watchers: watcherCounts.get(r.id) ?? 0,
@@ -1209,11 +1243,16 @@ export class SQLiteQueue {
    * owner's oldest job. There is deliberately no per-owner cap: if only one person has queued work
    * they take every free slot, and the rotation only matters once somebody else is waiting.
    * `queuedInStartOrder` applies the same rule in memory to report queue positions.
+   *
+   * `foldxFull` leaves FoldX jobs queued while every FoldX slot on this server is taken. FoldX runs
+   * behind its own semaphore (`resolveFoldxConcurrency`, 1 on the 2-core server); a job started past
+   * it only waited on that semaphore, reported "running", and failed after `foldxSemaphoreWaitMs`.
    */
-  private pickNext(): any {
+  private pickNext(foldxFull: boolean): any {
     return this.db.prepare(`
       SELECT j.* FROM biophysical_jobs j
       WHERE j.status = 'queued' AND (j.placement IS NULL OR j.placement NOT LIKE 'agent:%')
+        AND (? = 0 OR j.type <> 'foldx')
       ORDER BY
         j.priority DESC,
         (SELECT count(*) FROM biophysical_jobs r WHERE r.owner_id = j.owner_id AND r.status = 'running'
@@ -1225,7 +1264,22 @@ export class SQLiteQueue {
         j.created_at ASC,
         j.rowid ASC
       LIMIT 1
-    `).get();
+    `).get(foldxFull ? 1 : 0);
+  }
+
+  /**
+   * FoldX jobs on this server that still hold a FoldX slot, counted across both processes of a handover.
+   *
+   * A job publishes `foldxUpdate` once FoldX itself has finished and released its slot; the row then
+   * stays `running` for up to `STABILITY_ORACLE_BACKGROUND_BUDGET_MS` (180 s) while companion engines
+   * finish. Counting that tail would leave the slot idle while the next person waits.
+   */
+  private serverFoldxCoresRunning(): number {
+    const row = this.db.prepare(
+      `SELECT count(*) AS n FROM biophysical_jobs WHERE status = 'running' AND type = 'foldx' AND ${ON_SERVER}
+         AND json_extract(CASE WHEN json_valid(data) THEN data END, '$.foldxUpdate') IS NULL`
+    ).get() as { n: number };
+    return row.n;
   }
 
   private async processQueue() {
@@ -1237,11 +1291,13 @@ export class SQLiteQueue {
       const memoryLimit = CONFIG.memory.minFreeBytes;
       if (freeMem < memoryLimit) {
         console.warn(`[Queue] High memory pressure (${(freeMem / 1024 / 1024).toFixed(0)} MB free). Stalling job scheduling.`);
+        this.hold = "memory";
         this.scheduleNext();
         return;
       }
+      this.hold = null;
 
-      const row = this.pickNext();
+      const row = this.pickNext(this.serverFoldxCoresRunning() >= resolveFoldxConcurrency());
 
       if (!row) {
         // A standby may enqueue into the shared database without waking this process.
@@ -1906,6 +1962,14 @@ export class BiophysicalJobQueue {
 
   async getEta(id: string): Promise<{ waitMs: number | null; runMs: number | null } | null> {
     return this.sqliteQueue.getEta(id);
+  }
+
+  getHold(): QueueHold | null {
+    return this.sqliteQueue.getHold();
+  }
+
+  getHoldFor(id: string): QueueHold | null {
+    return this.sqliteQueue.holdFor(id);
   }
 
   async addCompletedJob(id: string, type: "foldx" | "p2rank", data: any, result: any): Promise<void> {

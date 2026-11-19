@@ -1,0 +1,20 @@
+[
+ {
+  "name": "selection: TP53 R175H",
+  "uniprotId": "P04637",
+  "mutation": "RA175H",
+  "user": 0
+ },
+ {
+  "name": "selection: TP53 R273H",
+  "uniprotId": "P04637",
+  "mutation": "RA273H",
+  "user": 0
+ },
+ {
+  "name": "selection: SCN1A R1648H",
+  "uniprotId": "P35498",
+  "mutation": "RA1648H",
+  "user": 0
+ }
+]

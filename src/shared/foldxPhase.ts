@@ -124,6 +124,8 @@ export interface FoldxProgress {
    * cannot estimate it. Optional so a snapshot built before this field existed still type-checks.
    */
   queueEtaMs?: number | null;
+  /** Why the server cannot start any job right now (`queueHold`), or null when it can. */
+  queueHold?: "memory" | null;
   /** Local clock at the moment this snapshot was RECEIVED — the client's own baseline. */
   receivedAt: number;
   /**

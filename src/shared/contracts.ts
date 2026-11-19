@@ -1598,6 +1598,8 @@ export const generateMutantResponseSchema = z.object({
   queuedAhead: nullableFiniteNumber.optional(),
   /** Estimated wait before the job starts, in ms; null when the server has no estimate for what is ahead. */
   queuedEtaMs: nullableFiniteNumber.optional(),
+  /** Why the server cannot start any job right now ("memory"), while this one is queued; null when it can. */
+  queueHold: z.enum(["memory"]).nullable().optional(),
   /** Where the job runs and why (live routing); null when it is simply the server's. `jobPlacement.ts`. */
   runsOn: jobRunsOnSchema.nullable().optional(),
   energetics: energeticsDataSchema.optional(),

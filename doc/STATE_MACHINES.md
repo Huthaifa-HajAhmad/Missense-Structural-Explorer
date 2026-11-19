@@ -61,13 +61,15 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | R6 | In each process, `runningCount` equals the size of `activeJobs` and never goes above the concurrency limit. Across all processes, the running server rows equal the jobs the processes are executing. |
 | R7 | A row has an open claim in `agent_claims` exactly when it is `running` on that computer. At most one claim is open per job. |
 | R8 | No job runs in two processes at once. A job a process runs whose row was ended elsewhere is stopped within `ENDED_ELSEWHERE_CHECK_MS` (5 s). |
+| R9 | The server starts a FoldX job only while fewer server FoldX jobs hold a FoldX slot than FoldX has slots (`resolveFoldxConcurrency`, 1 on the 2-core server); other job types may still take the queue's spare slots. A `running` FoldX row stops holding the slot once it has published `foldxUpdate` (FoldX itself finished; companion engines may run up to 180 s more). A queued FoldX job's position counts only FoldX work ahead of it, and its wait estimate likewise. Before this, a FoldX job past the slot count waited on the FoldX semaphore while shown as `running`, and failed after `foldxSemaphoreWaitMs` (120 s) with "Concurrency limit reached". **Tested** (`queue-fairness.test.ts`). |
 
 ### Moves
 
 | From | To | Trigger | Function |
 | --- | --- | --- | --- |
 | (none) | `queued` | submit | `addJob` |
-| `queued` | `running` | the server picks the job | `processQueue` |
+| `queued` | `running` | the server picks the job (a FoldX job only when a FoldX slot is free, R9) | `processQueue` → `pickNext` |
+| `queued` | `queued` | no job starts while available memory (`freeRamBytes`, `services/infra/available-memory.ts`: the kernel's available memory, leaving out reclaimable file cache) is below `MIN_FREE_MEMORY_MB` (500); the queue checks again shortly and reports `getHold()` = `"memory"` (poll `queueHold`, jobs list `hold`, both via `holdFor`, which leaves jobs placed on a paired computer out), so no start time is promised. The hold is the scheduling process's own: during a handover the standby reports none | `processQueue` |
 | `queued` | `running` | a paired computer claims it | `claimForAgent` |
 | `queued` | `failed` | corrupt job payload JSON | `processQueue`, `claimForAgent` |
 | `queued` | `failed` | a learned memory ceiling refuses it | `processQueue` |
@@ -313,8 +315,17 @@ Code: `src/services/pipeline/foldxService.ts`. **Tested** (`foldxService.test.ts
 
 `submitted` → `queued` ⇄ `running` → `completed` / `failed` / given up. Two budgets: queue wait
 (`CLIENT_FOLDX_QUEUE_BUDGET_MS`, 30 min) and execution (`CLIENT_FOLDX_POLL_BUDGET_MS`, 1000 s, longer
-than the server's job cap). A return to `queued` starts both again. Three failed polls in a row end the
-run. Every write checks that the run is still the active one.
+than the server's job cap). A return to `queued` starts both again. Three HTTP error answers in a row end
+the run (lost contact is handled below). Every write checks that the run is still the active one.
+
+Losing contact is not a failure: a network error or a 502/503/504 answer keeps the loop polling, and
+only `CLIENT_FOLDX_LOST_CONTACT_MS` (5 min) without reaching the server ends the run, with
+`LOST_CONTACT_MESSAGE` (the job may still finish on the server). A queue or execution deadline that
+passes while contact is lost, and a body cut off after the headers, also count as lost contact; contact
+counts as restored only once a usable body arrives. Other HTTP errors still end it after 3
+in a row. A run that ends by losing contact returns `"lost-contact"` and does not start the 15-min re-run
+cooldown (`recordBiophysicsAttempt`), so the next load can read the server's result. **Tested**
+(`foldxService.test.ts`, `workflowOrchestrator.test.ts`).
 
 ## 15. Client analysis pipeline stages
 
@@ -358,7 +369,10 @@ The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own 
 engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min; HTTP polling
 pauses while the tab is hidden, resumes on focus, and backs off while the SSE channel is `OPEN`) → `done`,
 `error` or `unavailable`, with exactly one final callback. `shouldRunBiophysics` allows a re-run 15 min
-after an attempt, unless FoldX cannot run here and no remote engine failed.
+after an attempt, unless FoldX cannot run here and no remote engine failed. A failed remote engine here
+includes a StabilityOracle timeout or busy answer (the server then reruns StabilityOracle beside the
+cached FoldX value), but not a StabilityOracle rejection of the structure, which would only repeat.
+StabilityOracle has no retry control of its own.
 
 One failed engine is retried on its own (`src/components/energetics/RetryThermompnn.tsx`,
 `src/components/energetics/RetryDynamut2.tsx`), through `POST /api/v1/thermompnn-submit` and

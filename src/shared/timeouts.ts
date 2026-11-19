@@ -70,6 +70,14 @@ export const CLIENT_FOLDX_POLL_BUDGET_MS = 1_000_000; // 1000 s
 export const CLIENT_FOLDX_POLL_REQUEST_MS = 30_000; // 30 s
 
 /**
+ * How long the poll loop keeps trying while it cannot reach the server (network errors, 502/503/504).
+ *
+ * A restart or a dropped connection is not a FoldX failure: the job keeps running on the server.
+ * Three failed polls (about 15 s) used to end the run as failed while the server went on to finish.
+ */
+export const CLIENT_FOLDX_LOST_CONTACT_MS = 300_000; // 5 min
+
+/**
  * Client ceiling for collecting remote job ids after a FoldX cache hit.
  *
  * Just above the server's own hold (`REMOTE_SUBMISSION_WAIT_MS`, 75 s) so the server's

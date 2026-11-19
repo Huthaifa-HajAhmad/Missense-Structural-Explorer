@@ -1,0 +1,24 @@
+# Energetics: known limitations and the text users see
+
+Criterion C3. Each limitation that remains at release, with the exact text on screen (quoted from the source
+named) or, where there is none, a statement that there is none. Figures in braces are filled in from the
+benchmark at build time.
+
+| # | Limitation | What the user sees | Source |
+| --- | --- | --- | --- |
+| 1 | FoldX values are rough: typical error about 2 kcal/mol, large values overstated | "In a test on {n} variants with lab measurements, FoldX was off by about {rmse} kcal/mol. Its band matched the lab result {x}% of the time; always answering "no destabilization" matched {y}%. Large values tend to overstate the change: … Use FoldX for the direction of the change, not its exact size." | `src/shared/foldxRepairMode.ts` (`FOLDX_HOW_TO_READ`) |
+| 2 | FoldX models one protein chain; partner chains, DNA and ligands are removed (TP53 on 1TSR, haemoglobin chain B) | "FoldX here models one protein chain: partner chains, DNA and ligands are left out, so effects on binding are not measured." | same |
+| 3 | Large structures are repaired only around the variant | "Only the region around the variant was repaired, because this structure is too large to repair whole while you wait. …" and, for legacy runs, "Repair was skipped above … residues to limit waiting time. This is a deliberate limit, not a repair failure." | `src/shared/energeticsEvidence.ts` |
+| 4 | Learned engines' marks: +1 kcal/mol for ThermoMPNN, RaSP, DynaMut2, DDMut is a placeholder | "The +1 kcal/mol mark for ThermoMPNN, RaSP, DynaMut2 and DDMut is an app-defined local placeholder pending held-out recalibration. StabilityOracle has one mark, +0.2 kcal/mol, chosen on S669 and checked on Ssym. None is a clinical cut-point." | `src/components/inspector/EnergeticsInspector.tsx` |
+| 5 | StabilityOracle below its paper on Ssym (r 0.64 vs 0.72) | "… Released checkpoint stability_oracle_cdna117k with inputs rebuilt here: Pearson r 0.64 on Ssym direct, close to an independent evaluation of the released model (0.65) and below the paper's 0.72. An empirical mark for this model and workflow; no clinical cut-point." | `src/shared/thresholds/constants.ts` (`THRESHOLD_NOTES.stabilityoracle`) |
+| 6 | StabilityOracle cannot score some structures (hydrogens cannot be added) | "StabilityOracle cannot score this structure, so it gives no value for this variant. Retrying will not change that." | `src/shared/engineStatus.ts` |
+| 7 | ProtVar is precomputed FoldX on AlphaFold models, human proteins only, never counted | "Shown, not counted: ProtVar FoldX"; "Cross-check only. One FoldX value is counted …"; a miss reads "No precomputed score" | `src/shared/energeticsEvidence.ts`, `engineStatus.ts` |
+| 8 | RaSP covers the proteins in its installed table only | The RaSP coverage sentence, e.g. "The installed RaSP tables cover {n} human proteins, including the AlphaFold proteome predictions." | `engineStatus.ts` (`raspCoverageSentence`) |
+| 9 | Not a pathogenicity call | "These predictions describe folding stability, not whether a variant causes disease." | `src/components/EnergeticsView.tsx` |
+| 10 | When no experimental chain passes the selection rule, the AlphaFold model is used | Sources names the template ("AlphaFold prediction", AlphaFold DB version). The reason (how many chains were examined and why none qualified) is logged on the server, not shown. | `structure-fetcher.ts` log |
+| 11 | No usable structure at all (e.g. RYR1 p.Arg614Cys) | "We could not obtain a usable structure for residue {n} of {accession}: no experimental chain or AlphaFold model could be used, or a structure provider did not answer. The structure-based engines did not run; trying again later may help." | `server/routes/biophysics/generation.ts` |
+| 12 | BioSig is a shared academic queue; answers can take minutes | "{engine}'s provider did not answer in time. Still listening — the value will appear here if it arrives." then, if none arrives, "{engine}'s provider did not answer in time. This can be retried later." | `engineStatus.ts` |
+| 13 | Losing the connection while FoldX runs | "The page lost contact with the server before FoldX finished. It may still finish there; reload the page in a few minutes to check." | `engineStatus.ts` |
+| 14 | The server holds the queue when it is short of memory | "{position} · on hold: the server is short of memory, so no job can start until it frees up" (not shown during the minutes of a deploy handover) | `src/shared/jobsCopy.ts` |
+| 15 | StabilityOracle has no retry button | After a timeout its reason ends "This can be retried later."; running the analysis again after 15 minutes reruns it | `engineStatus.ts`, `biophysicsRetryPolicy.ts` |
+| 16 | One production FoldX failure (601 s) was not reproduced | "The calculation failed for this variant." | `engineStatus.ts` |

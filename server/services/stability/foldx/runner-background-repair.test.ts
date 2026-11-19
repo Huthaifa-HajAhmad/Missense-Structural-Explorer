@@ -46,7 +46,7 @@ vi.mock("./budget.ts", async importOriginal => {
 
 const { generateMutantPdb, repairTemplateOnly, biophysicalSemaphore, deferFoldxJobDirCleanup } = await import("./runner.ts");
 const { announceInflightRepair, resetInflightRepairsForTests } = await import("./inflight-repairs.ts");
-const { getRepairCacheKey, getRepairedStructureFromCache, repairedStructureCache, mutantCache } = await import("./cache.ts");
+const { getRepairCacheKey, getRepairedStructureFromCache, repairedStructureCache, mutantCache, settleCacheWritesForTests } = await import("./cache.ts");
 const { cleanPdbForFoldX } = await import("./pdb-utils.ts");
 const { registerPreemptible, backgroundFoldxRunning, resetPreemptionForTests } = await import("./preemption.ts");
 const crypto = await import("crypto");
@@ -96,7 +96,9 @@ beforeEach(() => {
   mutantCache.clear();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // The runner saves results to the disk cache without waiting; let those saves finish before the folder is removed.
+  await settleCacheWritesForTests();
   for (const [key, value] of Object.entries(originalEnv)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;

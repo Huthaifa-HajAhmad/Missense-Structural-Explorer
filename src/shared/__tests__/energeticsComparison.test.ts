@@ -92,10 +92,10 @@ describe('Energetics comparison scientific display contract', () => {
     expect(mostlyHigh.agreement.direction).toBe('mostly-destabilizing');
     expect(energeticsComparisonHeadline(mostlyHigh)).toBe('Mostly destabilizing');
     expect(energeticsComparisonFinding(mostlyHigh)).toContain('DynaMut2 sits in the moderately destabilising band');
-    // 4 moderate, one neutral: still a majority reading, with the dissent named.
+    // 3 moderate, one neutral: still a majority reading, with the dissent named.
     const mostlyModerate = buildEnergeticsEvidence({
       foldingEnergetics: {
-        foldx: 1.2, foldxMean: 1.2, rasp: 0.8, thermompnn: 0.9, stabilityoracle: 0.9, stabilityoracleStatus: 'done', raspStatus: 'done',
+        foldx: 1.2, foldxMean: 1.2, rasp: 0.8, thermompnn: 0.9, raspStatus: 'done',
         dynamut2: 0.1,
       },
       foldingStatus: 'success',

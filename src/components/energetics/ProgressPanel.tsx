@@ -83,7 +83,7 @@ export const ProgressPanel = memo(function ProgressPanel({
     ? "FoldX does not report a percentage for structure repair. It takes seconds for a large structure (only the region around the variant is repaired) and up to a few minutes for a small one (the whole chain); a repair is reused for later variants it applies to."
     : null;
   // "3 jobs ahead · starts in about 4 min": the server's own position and estimate (src/shared/jobsCopy.ts).
-  const queueNote = queued ? describeQueueWait(progress?.queuePosition, progress?.queueEtaMs) : null;
+  const queueNote = queued ? describeQueueWait(progress?.queuePosition, progress?.queueEtaMs, progress?.queueHold) : null;
   // Where it runs and why, only once routing has had a say (null keeps today's card for everyone else). While
   // it waits, the queue line above already says what it waits for, so only the reasons follow.
   const placementLine = !foldxFinished && !queued ? describeRunsOn(runsOn, "running") : null;

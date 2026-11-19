@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { executeFoldxPipeline, setPollDelayScaleForTests } from "../foldxService";
+import { executeFoldxPipeline, setPollDelayScaleForTests, LOST_CONTACT_MESSAGE } from "../foldxService";
 import { getCachedVariant, setCachedVariant, clearClientVariantCache } from "../variantCache";
 import { biophysicsContextOf, createAnalysisCacheContext } from "../analysisContext";
 import {
@@ -201,6 +201,87 @@ describe("foldxService", () => {
     expect(sink.setThermompnnJobId).toHaveBeenCalledWith("tm-123");
     expect(sink.setThermompnnStatus).toHaveBeenCalledWith("pending");
     expect(sink.setIsFolding).toHaveBeenLastCalledWith(false);
+  });
+
+  /**
+   * Test container, 2026-11-18: a restart cut the server off for about a minute. Three failed polls
+   * (about 15 s) ended the run as "Failed to fetch" while the server went on to finish FoldX.
+   */
+  describe("losing contact while polling", () => {
+    const queuedThen = (poll: () => Promise<any>) => vi.fn(async (url: string) => {
+      if (url === "/api/v1/generate-mutant") {
+        return { ok: true, json: async () => ({ status: "queued", foldxJobId: "job-lc" }) };
+      }
+      return poll();
+    });
+    const run = (fetchWithAuth: any, sink: any) => executeFoldxPipeline({
+      uniprotId: "P00439", variant: "p.Arg408Trp", residueIndex: 408, fetchWithAuth, sink,
+      signal: new AbortController().signal, requestId: 1, getActiveRequestId: () => 1,
+    });
+    const done = { ok: true, json: async () => ({ status: "completed", result: { status: "completed", pdb: "ATOM", ddG: 1.2 } }) };
+
+    it("keeps polling through network errors and gateway errors, then takes the result", async () => {
+      let polls = 0;
+      const answers = [
+        () => Promise.reject(new TypeError("Failed to fetch")),
+        () => Promise.reject(new TypeError("Failed to fetch")),
+        () => Promise.resolve({ ok: false, status: 502, json: async () => ({}) }),
+        () => Promise.reject(new TypeError("Failed to fetch")),
+        () => Promise.resolve({ ok: false, status: 503, json: async () => ({}) }),
+      ];
+      const sink: any = makeSink();
+      const end = await run(queuedThen(() => (polls < answers.length ? answers[polls++]() : Promise.resolve(done))), sink);
+      expect(end).toBeUndefined();
+      expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
+      expect(sink.setFoldingStatus).not.toHaveBeenCalledWith("failed");
+    });
+
+    it("reports lost contact, not a timeout, when the queue deadline passes while the server is unreachable", async () => {
+      // Contact lost 29 min into the queue wait: the 30-min deadline arrives before the 5-min contact window.
+      let now = 1_000_000;
+      let polls = 0;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const sink: any = makeSink();
+        const end = await run(queuedThen(() => {
+          polls += 1;
+          now += polls === 1 ? 29 * 60_000 : 30_000;
+          return polls === 1
+            ? Promise.resolve({ ok: true, json: async () => ({ status: "queued" }) })
+            : Promise.reject(new TypeError("Failed to fetch"));
+        }), sink);
+        expect(end).toBe("lost-contact");
+        expect(sink.setFoldingError).toHaveBeenCalledWith(LOST_CONTACT_MESSAGE);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("keeps polling when the connection drops after the headers, before the body arrives", async () => {
+      let polls = 0;
+      const sink: any = makeSink();
+      const end = await run(queuedThen(() => {
+        polls += 1;
+        if (polls <= 2) return Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new TypeError("network error while reading body")) });
+        return Promise.resolve(done);
+      }), sink);
+      expect(end).toBeUndefined();
+      expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
+    });
+
+    it("ends with an honest lost-contact message after five minutes without an answer", async () => {
+      let now = 1_000_000;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => (now += 60_000));
+      try {
+        const sink: any = makeSink();
+        const end = await run(queuedThen(() => Promise.reject(new TypeError("Failed to fetch"))), sink);
+        expect(end).toBe("lost-contact");
+        expect(sink.setFoldingError).toHaveBeenCalledWith(LOST_CONTACT_MESSAGE);
+        expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
+      } finally {
+        clock.mockRestore();
+      }
+    });
   });
 
   it("handles queued FoldX job and polls until completion", async () => {

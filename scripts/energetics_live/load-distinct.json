@@ -1,0 +1,7 @@
+[
+  {"name": "load: GATA4 S159C", "uniprotId": "P43694", "mutation": "SA159C", "user": 0},
+  {"name": "load: Q9H116 G224E", "uniprotId": "Q9H116", "mutation": "GA224E", "user": 1},
+  {"name": "load: Q12756 S252N", "uniprotId": "Q12756", "mutation": "SA252N", "user": 2},
+  {"name": "load: FGFR3 G380R", "uniprotId": "P22607", "mutation": "GA380R", "user": 3},
+  {"name": "load: TP53 R175H (server-chosen structure)", "uniprotId": "P04637", "mutation": "RA175H", "user": 4}
+]

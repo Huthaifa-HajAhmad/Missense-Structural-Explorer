@@ -26,7 +26,8 @@ vi.mock("./structure-fetcher.ts", () => ({
   fetchPdbFromRcsb: vi.fn(),
   fetchPdbHomologs: vi.fn(),
   fetchVerifiedExperimentalChain: vi.fn(),
-  getResolvedAlphafoldVersion: vi.fn(() => "v4")
+  getResolvedAlphafoldVersion: vi.fn(() => "v4"),
+  selectionWasIncomplete: vi.fn(() => false)
 }));
 
 // The resolver reads the canonical sequence to decide whether a verified experimental chain is the
@@ -101,6 +102,20 @@ describe("resolveStructure tier determinism", () => {
 
     vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(tierOneMapping as any);
     const second = await resolveStructure("TIERLIMIT1", 489);
+    expect(second?.pdbText).toBe("EXPERIMENTAL_PDB");
+    expect(fetchers.fetchBestPdbStructure).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not remember a fallback chosen because the chain examination could not complete", async () => {
+    // The selector returns null both when no chain qualifies and when it could not check; only the
+    // first is a decision about the protein worth keeping for six hours.
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValueOnce(null as any);
+    vi.mocked(fetchers.selectionWasIncomplete).mockReturnValueOnce(true);
+    const first = await resolveStructure("TIERINCOMPLETE1", 175);
+    expect(first?.provenance.source).toBe("alphafold");
+
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(tierOneMapping as any);
+    const second = await resolveStructure("TIERINCOMPLETE1", 175);
     expect(second?.pdbText).toBe("EXPERIMENTAL_PDB");
     expect(fetchers.fetchBestPdbStructure).toHaveBeenCalledTimes(2);
   });

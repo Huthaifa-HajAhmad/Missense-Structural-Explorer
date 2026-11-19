@@ -239,6 +239,28 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(reportStatus.status).not.toBe("complete");
   });
 
+  it("reports the engines' own results in Energetics even when the core evidence query failed", () => {
+    // Test container: a restart failed the core evidence query while FoldX, RaSP, ThermoMPNN and the
+    // BioSig engines all returned; the sidebar still said "Energetics: Unavailable".
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      result: { analysis: "", metadata: { gene: "CNNM2", variant: "p.Glu357Ala", uniprotId: "Q9H8M5", pipelineStages: { core: "error" } } } as any,
+      foldingStatus: "success",
+      foldingEnergetics: { foldx: 0.4, foldxMean: 0.4, rasp: 1.18, thermompnn: -0.04, raspStatus: "done" },
+    } as any);
+    expect(status.status).not.toBe("unavailable");
+    expect(status.desc).not.toContain("Query failed");
+  });
+
+  it("counts a restored remote-engine value even when nothing else of the run survived", () => {
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      result: { analysis: "", dynamut2: -0.9, metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineStages: { core: "error" } } } as any,
+      dynamut2Status: "done",
+    } as any);
+    expect(status.status).not.toBe("unavailable");
+  });
+
   it("does not report insights as complete when insights only contain error placeholders and core failed", () => {
     const errorResult: AnalysisResult = {
       analysis: "",
