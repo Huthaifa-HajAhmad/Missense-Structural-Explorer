@@ -45,6 +45,8 @@ export function reportInputFromRun(args: {
   foldingEnergetics?: Record<string, any> | null;
   foldingDdG?: number | null;
   foldingStatus?: string | null;
+  /** Whether local FoldX is still running; decides the ProtVar stand-in in the stability lane. */
+  isFolding?: boolean;
   narrativeContext?: DeepEvidenceContext;
   isLoading?: boolean;
   draft: ReportDraft;
@@ -57,6 +59,8 @@ export function reportInputFromRun(args: {
       result,
       foldingEnergetics: args.foldingEnergetics,
       foldingDdG: args.foldingDdG,
+      isFolding: args.isFolding,
+      foldingStatus: args.foldingStatus,
       isLoading: args.isLoading,
     }),
     gene: args.gene,

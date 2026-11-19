@@ -95,3 +95,17 @@ fallback then returned PDBe's first row, 9R2Q:K, the incomplete chain this rule 
   completed examination with no eligible chain is remembered (1 hour) and logged with its counts.
 - The memo key moves to `select-v4`, because the examination order changed. Replayed on candidate df699495
   with a fresh container: the same six templates as the second validation run (STATUS.md).
+
+## Corrections after the second code review (no rule change)
+
+- Only the first model of a multi-model (NMR) file is scored (`readChain` stops at `ENDMDL`). A later model
+  could otherwise fill in atoms the first model lacks, while FoldX builds on the first model only.
+- When no examined chain qualifies, the first chain refused as not the wild type (in the examination order)
+  is recorded with its differences and the number of other examined chains (`selectionRefusal`). The
+  model used instead carries it as `excludedExperimental` (with `otherChainsRefused`), so the screen says
+  why the crystal structures were not used.
+- For a mutating engine, the homolog tier refuses any hit with 95% or more sequence identity: that is the
+  same protein, which only Tier 1 and this rule may judge. Before, it refused only the one entry Tier 1
+  had named, so an engineered chain the rule refused could return as a "homolog" when AlphaFold was down.
+- Every chain choice carries the rule version (`STRUCTURE_SELECTION_VERSION`, now `select-v4`), which is
+  also the resolver's memo key, so a choice remembered under an earlier rule is never reused.

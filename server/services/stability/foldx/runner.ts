@@ -451,11 +451,32 @@ interface RepairRun {
   repairedPdb?: string;
 }
 
+/** Signals that mean the FoldX process crashed (not a timeout, not the system ending it for memory). */
+const REPAIR_CRASH_SIGNALS = new Set(["SIGBUS", "SIGSEGV"]);
+
+type RepairInput = Parameters<typeof runRepairPdbOnce>[0];
+
+/**
+ * RepairPDB, run once more when a crash signal killed it, within what is left of the same budget.
+ * A crash is not a property of the structure: SIGBUS was seen when a deploy rewrote the FoldX binary
+ * under a running repair, and the same repair then succeeded. SIGKILL (out of memory) is not retried.
+ */
+async function runRepairPdb(input: RepairInput): Promise<RepairRun> {
+  const first = await runRepairPdbOnce(input);
+  const { outcome, signal, elapsedMs } = first.diagnostic;
+  // An unknown elapsed time leaves no budget to retry in.
+  const remainingMs = input.budgetMs - (elapsedMs ?? input.budgetMs);
+  if (outcome !== "failed" || !REPAIR_CRASH_SIGNALS.has(signal ?? "") || remainingMs <= 0) return first;
+  console.warn(`[Biophysical Modeling] RepairPDB was killed by ${signal}; running it once more within the remaining ${(remainingMs / 1000).toFixed(0)} s.`);
+  const second = await runRepairPdbOnce({ ...input, budgetMs: remainingMs });
+  return { ...second, diagnostic: { ...second.diagnostic, retriedAfterSignal: signal ?? undefined } };
+}
+
 /**
  * One RepairPDB invocation in `jobDir` (which holds `wt.pdb`). A FoldX failure is returned as a
  * diagnostic, never thrown; only an abort is rethrown, because the caller must stop too.
  */
-async function runRepairPdb(input: {
+async function runRepairPdbOnce(input: {
   foldxBin: string;
   extraArgs: string[];
   jobDir: string;
@@ -472,6 +493,9 @@ async function runRepairPdb(input: {
   const { foldxBin, extraArgs, jobDir, budgetMs, signal, lowPriority, fixResiduesFile } = input;
   console.log(`[Biophysical Modeling] Running FoldX RepairPDB${fixResiduesFile ? " (local, --fix-residues-file)" : ""}: ${foldxBin}...`);
   const startedAt = Date.now();
+  const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
+  // A crashed attempt can leave a partial repaired file; it must never be read as this run's output.
+  await fs.promises.unlink(repairedPdbPath).catch(() => {});
   try {
     if (fixResiduesFile) await fs.promises.writeFile(path.join(jobDir, "fix.txt"), fixResiduesFile, "utf8");
     const repairRes = await execFileAsync(foldxBin, [
@@ -485,7 +509,6 @@ async function runRepairPdb(input: {
       signal,
       lowPriority
     });
-    const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
     if (fs.existsSync(repairedPdbPath)) {
       console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
       const repairedPdb = await fs.promises.readFile(repairedPdbPath, "utf8");
@@ -508,6 +531,8 @@ async function runRepairPdb(input: {
       }
     };
   } catch (repairErr: any) {
+    // Whatever a failed RepairPDB wrote is not a repaired structure; BuildModel must not find it beside wt.pdb.
+    await fs.promises.unlink(repairedPdbPath).catch(() => {});
     if (signal?.aborted || repairErr?.name === "AbortError") throw repairErr;
     const isTimeout = Boolean(
       repairErr?.code === "ETIMEDOUT" ||

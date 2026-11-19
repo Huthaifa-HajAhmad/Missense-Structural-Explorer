@@ -277,6 +277,7 @@ src/hooks/useContextWorkspace.ts,client,
 src/hooks/useCredentialUseNotice.ts,client,src/hooks/__tests__/useCredentialUseNotice.test.ts
 src/hooks/useDiagnostics.ts,client,src/hooks/__tests__/useDiagnostics.shared.test.tsx;src/hooks/__tests__/useDiagnostics.test.tsx
 src/hooks/useEvidenceContext.ts,client,src/hooks/useEvidenceContext.test.ts
+src/hooks/useFoldxRunState.ts,client,
 src/hooks/useFoldxSuperposition.ts,client,
 src/hooks/useGeneContextLoading.ts,client,
 src/hooks/useJobPoller.ts,client,src/hooks/__tests__/useJobPoller.hardening.test.ts;src/hooks/__tests__/useJobPoller.test.ts
@@ -426,6 +427,7 @@ src/shared/providerStatus.ts,client,src/shared/__tests__/providerStatus.test.ts
 src/shared/quickEntry.ts,client,src/shared/__tests__/quickEntry.test.ts
 src/shared/raspIndex.ts,client,src/shared/__tests__/raspIndex.test.ts
 src/shared/redactSecrets.ts,client,src/components/__tests__/consoleUtils.test.ts;src/shared/__tests__/redactSecrets.test.ts
+src/shared/refusedTemplate.ts,client,src/shared/__tests__/refusedTemplate.test.ts
 src/shared/reportDocument.ts,client,src/components/__tests__/reportDraftPersistence.test.ts;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts
 src/shared/reportInput.ts,client,src/stores/__tests__/handleCopyReport.test.ts
 src/shared/reportRender.ts,client,src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts
@@ -444,7 +446,7 @@ src/shared/snapshotAge.ts,client,src/shared/__tests__/geneDiseaseEvidence.test.t
 src/shared/spatialClustering.ts,client,src/shared/__tests__/spatialClustering.test.ts
 src/shared/splicingEvidence.ts,client,src/components/__tests__/SpliceWindowControl.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/shared/__tests__/conservationProgress.test.ts;src/shared/__tests__/splicingEvidence.test.ts;src/shared/__tests__/splicingEvidence.transcript.test.ts;src/test/splicingWorkspace.test.ts
 src/shared/splicingWorkspace.ts,client,src/test/splicingWorkspace.test.ts
-src/shared/stabilityConsensus.ts,client,
+src/shared/stabilityConsensus.ts,client,src/shared/__tests__/energeticsEvidence.test.ts
 src/shared/structuralStream.ts,types,
 src/shared/structure3dEvidence.ts,client,src/components/__tests__/Structure3dView.test.tsx;src/shared/__tests__/structure3dEvidence.test.ts
 src/shared/structureContext.ts,client,src/shared/__tests__/structureContext.test.ts

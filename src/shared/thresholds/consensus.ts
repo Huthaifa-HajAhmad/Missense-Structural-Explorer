@@ -25,6 +25,8 @@
 import {
   STABILITY_VERDICTS,
   buildEnergeticsEvidence,
+  finalFoldingStatus,
+  type FoldxRunState,
   type StabilityVerdict,
 } from "../energeticsEvidence.ts";
 
@@ -84,8 +86,12 @@ export interface StabilityConsensusResult {
  * Deliberately takes VALUES only: statuses (running, provider busy…) describe the run, not the verdict,
  * and the screen adds them itself. With no engine counted the verdict is "Insufficient Biophysical Data".
  */
-export function computeStabilityConsensus(energetics: StabilityConsensusInput | null): StabilityConsensusResult {
-  const ev = buildEnergeticsEvidence({ foldingEnergetics: (energetics ?? null) as Record<string, any> | null });
+export function computeStabilityConsensus(energetics: StabilityConsensusInput | null, run: FoldxRunState = {}): StabilityConsensusResult {
+  const ev = buildEnergeticsEvidence({
+    foldingEnergetics: (energetics ?? null) as Record<string, any> | null,
+    isFolding: run.isFolding,
+    foldingStatus: finalFoldingStatus(run.foldingStatus),
+  });
   const a = ev.agreement;
   return {
     consensusVerdict: a.verdict,

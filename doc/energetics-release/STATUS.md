@@ -80,3 +80,8 @@ Cold structure choice adds 2 to 4 s to submission. Order invariance is unit-test
 12. **runner-background-repair cleanup failed twice on CI** (ENOTEMPTY with every assertion passing): the runner
     saves results to the disk cache without waiting, and the cleanup removed the folder mid-save. Fixed (0a874945):
     the cleanup waits for pending saves.
+13. **A deploy crashed a running FoldX repair** (production, TP53 R175H, 2026-11-19): RepairPDB died with SIGBUS
+    5 s after the #262 deploy began, so FoldX ran unrepaired and was excluded. The deploy restored the bind-mounted
+    `tools/foldx_linux` with `cp -aT` over the files in place, rewriting the binary a running FoldX was using.
+    Fixed: the restore copies back only files the checkout removed (`--update=none`, checked on the VM), and a
+    repair killed by SIGBUS or SIGSEGV runs once more within the same time budget.

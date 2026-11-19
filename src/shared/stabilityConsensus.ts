@@ -1,7 +1,8 @@
 import type { AnalysisResult } from "./contracts";
 import { computeStabilityConsensus } from "./thresholds";
+import type { FoldxRunState } from "./energeticsEvidence";
 
-export function stabilityConsensusFor(args: {
+export function stabilityConsensusFor(args: FoldxRunState & {
   result: AnalysisResult | null;
   foldingEnergetics?: any;
   /** The FoldX single-value fallback, which the badge applies and the first version omitted. */
@@ -9,7 +10,7 @@ export function stabilityConsensusFor(args: {
   /** Accepted for existing callers; the consensus no longer weights by pLDDT (see below). */
   plddt?: number | null;
 }) {
-  const { result, foldingEnergetics: fe, foldingDdG } = args;
+  const { result, foldingEnergetics: fe, foldingDdG, isFolding, foldingStatus } = args;
   if (!result) return null;
   return computeStabilityConsensus(
     {
@@ -28,7 +29,9 @@ export function stabilityConsensusFor(args: {
       // ProtVar stands in for FoldX on an AlphaFold template with no local value; see `FOLDX_STAND_IN_RULE`.
       protvar: fe?.protvar ?? null,
       structureProvenance: fe?.structureProvenance ?? null
-    }
+    },
+    // Whether local FoldX is still running decides the ProtVar stand-in, as on the Energetics screen.
+    { isFolding, foldingStatus }
     // Values only. The residue context and pLDDT arguments fed per-context "AUC" weights that had no
     // source (`protein_class_calibration.json`); they were retired with the probability.
   );

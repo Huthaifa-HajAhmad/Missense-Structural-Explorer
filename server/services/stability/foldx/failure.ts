@@ -61,6 +61,8 @@ export interface FoldxRepairDiagnostic {
   /** The last lines of FoldX's own output, verbatim. Empty stderr is recorded as empty, not omitted. */
   stderrTail?: string;
   stdoutTail?: string;
+  /** Set when this is the second attempt: the signal that killed the first one. */
+  retriedAfterSignal?: string;
 }
 
 /** What FoldX's RepairPDB prints that says how far it got; all of it is optional in the output. */

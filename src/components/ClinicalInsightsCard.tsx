@@ -14,6 +14,7 @@ import { summariseNarrative } from "../shared/narrativeSummary";
 import { narrativeAuthorshipOfResult } from "../shared/narrativeEvidence";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
+import { useFoldxRunState } from "../hooks/useFoldxRunState";
 import {
   CheckCircle2,
   Copy,
@@ -103,6 +104,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
   );
+  const { isFolding, foldingStatus } = useFoldxRunState();
   const isBiophysicalLoading = propIsBiophysicalLoading !== undefined
     ? propIsBiophysicalLoading
     : Boolean(analysisState.isLoading && analysisState.result && (!analysisState.result.insights || (!analysisState.result.insights.biochemicalShift && !analysisState.result.insights.structuralImpact)));
@@ -188,7 +190,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   const insightsEvidence = useMemo(() => {
     const result = analysisState.result;
     if (!result) return null;
-    const consensus = deriveConsensus({ result, foldingEnergetics, foldingDdG, plddt: disruptionPredictor?.plddt });
+    const consensus = deriveConsensus({ result, foldingEnergetics, foldingDdG, plddt: disruptionPredictor?.plddt, isFolding, foldingStatus });
     return buildInsightsEvidence({
       result,
       functionInput: functionEvidenceInputFrom(result),
@@ -198,7 +200,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
       narrativeDegraded: isFallbackNarrative(result.analysis, result.isFallback, result.fallbackReason),
     });
-  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt]);
+  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt, isFolding, foldingStatus]);
 
   const handleExportJSON = () => {
     if (!analysisState.result) return;
@@ -217,7 +219,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       result: analysisState.result,
       foldingEnergetics,
       foldingDdG,
-      plddt: disruptionPredictor?.plddt
+      plddt: disruptionPredictor?.plddt,
+      isFolding,
+      foldingStatus
     });
 
     const exportData = {
@@ -328,7 +332,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         result: analysisState.result,
         foldingEnergetics,
         foldingDdG,
-        plddt: disruptionPredictor?.plddt
+        plddt: disruptionPredictor?.plddt,
+        isFolding,
+        foldingStatus
       })
     );
     const filename = `${gene}_${variant}_provenance_manifest.json`.replace(/\s+/g, "_");
