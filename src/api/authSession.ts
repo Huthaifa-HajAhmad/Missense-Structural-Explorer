@@ -3,6 +3,7 @@ import { useSettings } from "../context/SettingsContext";
 import { fetchWithRetry } from "../shared/fetch-retry";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { STALE_DATA_HEADER, parseStaleData, type StaleDataNote } from "../shared/providerLimits";
+import { appVersionWatch } from "../lib/appVersionWatch";
 import { CREDENTIALS_HEADER, parseCredentialUse, type CredentialKind, type CredentialUse } from "../shared/credentials";
 
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
@@ -653,6 +654,8 @@ export function useAuthSession() {
         } else if (response.ok) {
           clearAuthLapse();
         }
+        // A request the server refused as malformed may come from a page older than the server.
+        appVersionWatch.noteRejectedRequest(response.status);
         noteStaleDataHeader(response.headers?.get?.(STALE_DATA_HEADER) ?? null);
         noteCredentialHeader(response.headers?.get?.(CREDENTIALS_HEADER) ?? null);
       }
