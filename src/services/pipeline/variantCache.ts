@@ -75,7 +75,9 @@ import { settleStagesForStorage } from "./resultMerge";
 //   masked-marginal score, so a stored bundle would replay the defective one as if corrected.
 // v4.10 discards readings from before the ThermoMPNN, VESM and StabilityOracle fixes and the first-model rule for
 //   NMR files. Engine names did not change, so a stored bundle would show the old values as if they were corrected.
-export const CACHE_VERSION = "v4.10";
+// v4.11 discards bundles from before the local-quality structure choice (STRUCTURE_SELECTION_RULE.md). A stored
+//   bundle would show its old stability values next to a structure fetched under the new choice.
+export const CACHE_VERSION = "v4.11";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

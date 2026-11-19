@@ -173,7 +173,10 @@ under a `deciding` lock taken before the first `await`.
 
 **6a. Phase** (`FOLDX_PHASES`, `src/shared/foldxPhase.ts`): `queued` → `repairing` → `modelling` →
 `finalizing`, written by the worker or by the computer's heartbeat. An unknown phase is shown as unknown.
-A job that goes back to the queue loses its phase (`clearPhase`). **Read**.
+A job that goes back to the queue (restart recovery in `recoverInterruptedJobs`, or a hand-back from a paired
+computer through `clearAttemptMarks`) loses its phase and its `foldxUpdate` mark: the next attempt runs FoldX
+again, so it holds the FoldX slot again (R9) and shows no FoldX value until it has one. **Tested**
+(`queue-requeue-foldx-mark.test.ts`).
 
 **6b. Companion engines** (RaSP, ProtVar, StabilityOracle; `foldx-queue-job.ts`): each goes absent →
 `pending` → `done`, `error` or `unavailable`. On a second run RaSP and ProtVar skip themselves when `done`

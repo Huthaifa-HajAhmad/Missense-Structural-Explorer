@@ -308,6 +308,8 @@ export class SQLiteQueue {
           const data = JSON.parse(row.data);
           delete data.phase;
           delete data.phaseAt;
+          // The next attempt runs FoldX again, so the previous attempt's "FoldX finished" mark must go (R9).
+          delete data.foldxUpdate;
           this.db.prepare("UPDATE biophysical_jobs SET data = ? WHERE id = ?").run(JSON.stringify(data), row.id);
         } catch (_) {
           // A record that cannot be parsed must still be re-queued, not left running forever.
@@ -1085,7 +1087,7 @@ export class SQLiteQueue {
       WHERE id = ? AND status = 'running' AND claimed_by = ?
     `).run(now, jobId, `agent:${agentId}`);
     if (Number(r.changes ?? 0) === 0) return false;
-    this.clearPhase(jobId);
+    this.clearAttemptMarks(jobId);
     this.setRouting(jobId, serverRecordAfter("handed_back", now));
     this.endClaim(jobId, agentId, ending.outcome, now);
     this.scheduleNext();
@@ -1201,7 +1203,7 @@ export class SQLiteQueue {
       `).run(now, row.id, row.claimed_by);
       if (Number(r.changes ?? 0) === 0) continue;
       console.warn(`[Queue Reaper] ${row.claimed_by} ${leaseLost ? "lost its lease on" : "held past the job cap"} ${row.id}; handing it to the server.`);
-      this.clearPhase(row.id);
+      this.clearAttemptMarks(row.id);
       this.setRouting(row.id, serverRecordAfter("handed_back", now));
       // Only a lease that ran out counts against the computer's reliability; a deliberate disconnect or a
       // job held past its cap is recorded as what it was.
@@ -1223,12 +1225,15 @@ export class SQLiteQueue {
     }
   }
 
-  /** A job handed back has not been repaired or modelled on its new host yet. */
-  private clearPhase(jobId: string): void {
+  /**
+   * A job handed back has not been repaired or modelled on its new host yet, and its FoldX will run
+   * again, so the previous attempt's "FoldX finished" mark (`foldxUpdate`, R9) goes with its phase.
+   */
+  private clearAttemptMarks(jobId: string): void {
     try {
       this.db.prepare(`
         UPDATE biophysical_jobs
-        SET data = json_remove(data, '$.phase', '$.phaseAt')
+        SET data = json_remove(data, '$.phase', '$.phaseAt', '$.foldxUpdate')
         WHERE id = ? AND json_valid(data)
       `).run(jobId);
     } catch { /* an unparseable record keeps its data; the job is still handed back */ }
