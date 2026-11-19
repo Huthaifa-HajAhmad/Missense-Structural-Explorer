@@ -277,6 +277,7 @@ src/hooks/useContextWorkspace.ts,client,
 src/hooks/useCredentialUseNotice.ts,client,src/hooks/__tests__/useCredentialUseNotice.test.ts
 src/hooks/useDiagnostics.ts,client,src/hooks/__tests__/useDiagnostics.shared.test.tsx;src/hooks/__tests__/useDiagnostics.test.tsx
 src/hooks/useEvidenceContext.ts,client,src/hooks/useEvidenceContext.test.ts
+src/hooks/useFoldxRunState.ts,client,
 src/hooks/useFoldxSuperposition.ts,client,
 src/hooks/useGeneContextLoading.ts,client,
 src/hooks/useJobPoller.ts,client,src/hooks/__tests__/useJobPoller.hardening.test.ts;src/hooks/__tests__/useJobPoller.test.ts
