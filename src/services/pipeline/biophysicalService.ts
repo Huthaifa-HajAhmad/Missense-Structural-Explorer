@@ -4,7 +4,6 @@ import { TraceContext } from "./types";
 import { getCachedVariant, setCachedVariant, type CachedVariantBundle } from "./variantCache";
 import { mergeResultPatch, type PipelineStage, type StageOutcome } from "./resultMerge";
 import { serviceStatusOf } from "../../shared/serviceStatus";
-import { STRUCTURAL_MODEL_FIELDS, STRUCTURAL_MODEL_KEYS, type StructuralModelKey } from "../../shared/structuralStream";
 
 export interface BiophysicalAnalysisParams {
   gene: string;
@@ -135,7 +134,6 @@ export async function fetchBiophysicalAnalysis(
             disruptionPredictor: { name: "3D Residue Microenvironment & Disruption Triage", stage: "structure" },
             predictorData: { name: "In-Silico Pathogenicity (dbNSFP / AlphaMissense / CADD)", stage: "biophysics" },
             conservationData: { name: "Evolutionary Conservation (ConSurf / REVEL / GERP++)", stage: "biophysics" },
-            esm2: { name: "Zero-Shot ESM-2 Masked Marginal Likelihood", stage: "biophysics" },
             clinvar: { name: "ClinVar Clinical Interpretation (NCBI E-Utilities)", stage: "clinical" },
             gnomadFrequency: { name: "Population Allele Frequency (gnomAD r4 GraphQL)", stage: "clinical" },
             gnomadConstraint: { name: "Gene Constraint & Regional Missense (gnomAD)", stage: "clinical" },
@@ -163,7 +161,7 @@ export async function fetchBiophysicalAnalysis(
                 offsetMs: offsetMs + taskOffset,
                 durationMs: taskDurationMs,
                 status: isFail ? "failed" : isUnavailable ? "unavailable" : "success",
-                meta: { serviceKey: key, status: statuses?.[key] || "ok", tier: key === "esm2" ? "fast-triage" : undefined }
+                meta: { serviceKey: key, status: statuses?.[key] || "ok" }
               });
             }
           });
@@ -315,7 +313,7 @@ export function fetchProgressivePpi(
 }
 
 export function fetchProgressiveStructuralAssessments(
-  params: BiophysicalAnalysisParams & { acmgWeighting?: any; saprotEngine?: string },
+  params: BiophysicalAnalysisParams & { acmgWeighting?: any },
   apiClient: any,
   signal: AbortSignal,
   setAnalysisState: (fn: any) => void,
@@ -331,125 +329,39 @@ export function fetchProgressiveStructuralAssessments(
   }
   setIsStructuralLoading?.(true);
   const structuralStart = performance.now();
-  const addStructuralSpan = (status: "success" | "failed" | "unavailable", error?: string) => {
+  const addStructuralSpan = (status: "success" | "failed", error?: string) => {
     if (!traceContext?.activeTraceId) return;
     const durationMs = Math.round(performance.now() - structuralStart);
     traceContext.addTraceSpan({
-      traceId: traceContext.activeTraceId, name: "Deep Language Models (ESM3, ESMC, ESM-2, SaProt)",
+      traceId: traceContext.activeTraceId, name: "Structural refresh (burial and rule insights)",
       stage: "biophysics", startTime: Date.now() - durationMs,
       offsetMs: Math.max(0, Math.round(structuralStart - traceContext.traceStart)), durationMs, status, ...(error ? { error } : {})
     });
   };
-  /**
-   * The models the server has already delivered. Each is merged into the state the moment it arrives,
-   * so a fast model is on screen while a slow one is still running — and if the request later fails or
-   * times out, only the models that NEVER arrived are marked failed. (The old code marked all four,
-   * so a timer firing one second after ESM-2 finished showed ESM-2 as timed out.)
-   */
-  const arrived = new Set<StructuralModelKey>();
   return apiClient
-    .getStructuralAssessments(params, signal, (frame: { key: StructuralModelKey; evaluation: unknown; status: string }) => {
-      if (getActiveRequestId() !== requestId || signal.aborted) return;
-      arrived.add(frame.key);
-      setAnalysisState((prev: any) => mergeResultPatch(prev, {
-        [STRUCTURAL_MODEL_FIELDS[frame.key]]: frame.evaluation,
-        serviceStatus: { [frame.key]: frame.status }
-      }, undefined, "structural"));
-    })
+    .getStructuralAssessments(params, signal)
     .then((structRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
       if (!structRes || typeof structRes !== "object") throw new Error("Structural evaluation returned no result");
       setIsStructuralLoading?.(false);
-
-      // A model counts as computed only when it returned a reading and no error, not on HTTP 200.
-      const modelEntries = [
-        ["saprot", "SaProt", structRes.saprotEval], ["esm2Eval", "ESM-2", structRes.esm2Eval],
-        ["esmc", "ESM-C", structRes.esmcEval], ["esm3", "ESM3", structRes.esm3Eval]
-      ] as const;
-      const failedModels: string[] = [];
-      const timings = structRes.structuralTimings ?? structRes.metadata?.structuralTimings;
-      const offsets = structRes.structuralTimingOffsets ?? structRes.metadata?.structuralTimingOffsets;
-      for (const [key, source, evaluation] of modelEntries) {
-        const computed = !evaluation?.error && (Number.isFinite(evaluation?.llr) || typeof evaluation?.structuralChangeLevel === "string");
-        const outcome = structRes.serviceStatus?.[key] ?? evaluation?.status ?? (computed ? "computed" : "no-result");
-        if (!computed) {
-          failedModels.push(`${source} (${outcome})`);
-          console.warn(`[StructuralModel] ${source}: ${evaluation?.error || outcome}`);
-        }
-        const durationMs = timings?.[key];
-        if (traceContext?.activeTraceId && Number.isFinite(durationMs) && durationMs >= 0) {
-          const startOffset = Number.isFinite(offsets?.[key]) ? Math.max(0, offsets[key] - durationMs) : 0;
-          const clientOffset = Math.max(0, structuralStart - traceContext.traceStart);
-          traceContext.addTraceSpan({
-            traceId: traceContext.activeTraceId, name: `↳ ${source}`, stage: "biophysics",
-            startTime: Date.now() - (performance.now() - structuralStart) + startOffset,
-            offsetMs: Math.round(clientOffset + startOffset), durationMs,
-            status: computed ? "success" : outcome === "error" || outcome === "timeout" ? "failed" : "unavailable",
-            meta: { serviceKey: key, status: outcome, modelProvenance: typeof evaluation?.provenance === "string" ? evaluation.provenance : null }
-          });
-        }
-      }
-      if ((structRes.esm2Eval?.state === "computed" || typeof structRes.esm2Eval?.llr === "number") && traceContext?.activeTraceId && traceContext.updateTraceSpan) {
-        traceContext.updateTraceSpan(traceContext.activeTraceId, "↳ Zero-Shot ESM-2 Masked Marginal Likelihood", {
-          status: "success",
-          name: "↳ Zero-Shot ESM-2 Masked Marginal Likelihood (superseded by ESM-2 650M)",
-          meta: { serviceKey: "esm2", status: "superseded", supersededBy: "esm2Eval" }
-        });
-      }
-      addStructuralSpan(failedModels.length === modelEntries.length ? "unavailable" : "success");
-
-      if (failedModels.length === modelEntries.length) {
-        console.error(
-          `[StructuralAnalysis] All deep language model evaluations failed or timed out.\n` +
-          `Failed models: ${failedModels.join(", ")}\n` +
-          `Remedy (Local): Run 'python -m uv run --project tools python tools/model_server.py'\n` +
-          `Remedy (OCI): Set SIDECAR_URL=http://<oci-private-or-public-ip>:8000 in your .env or system environment.`
-        );
-      }
-
+      addStructuralSpan("success");
       applyStagePatch(params, setAnalysisState, {
         ...(structRes.disruptionPredictor ? { disruptionPredictor: structRes.disruptionPredictor } : {}),
-        esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
-        esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
-        metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
         serviceStatus: structRes.serviceStatus ?? {},
         ...(structRes.ruleBasedInsights ? { ruleBasedInsights: structRes.ruleBasedInsights } : {})
-      }, "structural", failedModels.length ? "degraded" : "complete");
+      }, "structural", "complete");
     })
     .catch((structErr: any) => {
       // A replaced run no longer owns the flag: the run after it reset it and may have raised it again.
       if (getActiveRequestId() !== requestId || signal.aborted) return;
       setIsStructuralLoading?.(false);
       if (structErr.name === "AbortError") return;
-
       const isTimeout = structErr.name === "TimeoutError" || structErr.message?.includes("timed out");
       const errMessage = isTimeout
         ? "Structural evaluation timed out (server busy) — click Check & Retry to resume."
         : (structErr.message || "Failed");
-
       addStructuralSpan("failed", errMessage);
       console.error("[BiophysicalService Error] Progressive structural assessments fetch failed:", structErr);
-      // Only the models that never arrived failed; the ones already merged above are real results.
-      const unfinished = STRUCTURAL_MODEL_KEYS.filter(key => !arrived.has(key));
-      const failure = { error: errMessage, status: isTimeout ? "timeout" : "error" };
-      setAnalysisState((prev: any) => {
-        if (!prev.result) return prev;
-        const failureStatus = Object.fromEntries(unfinished.map(key => [key, failure.status]));
-        const failedEvaluations = Object.fromEntries(unfinished.map(key => [STRUCTURAL_MODEL_FIELDS[key], failure]));
-        const mergedServiceStatus = { ...serviceStatusOf(prev.result), ...failureStatus };
-        return {
-          ...prev,
-          result: {
-            ...prev.result,
-            ...failedEvaluations,
-            serviceStatus: mergedServiceStatus,
-            metadata: {
-              ...(prev.result.metadata || {}),
-              serviceStatus: mergedServiceStatus,
-              pipelineStages: { ...prev.result.metadata?.pipelineStages, structural: arrived.size > 0 ? "degraded" : "error" }
-            }
-          }
-        };
-      });
+      setAnalysisState((prev: any) => mergeResultPatch(prev, {}, undefined, "structural", "error"));
     });
 }

@@ -10,7 +10,6 @@ import type { UserSettings } from "../../types/ui";
 export interface AnalysisCacheContext {
   uniprotId: string;
   acmgWeighting: string;
-  saprotEngine: string;
   assembly: string;
   genomicCoordinates: string;
   resolvedAssembly: string;
@@ -89,6 +88,25 @@ export function biophysicsContextOf(conditions?: unknown): string {
   });
 }
 
+/**
+ * The scientific inputs of a run that every request about it must carry: the ACMG weighting, the genome
+ * build and coordinates the reader submitted, the verified lifted coordinates, and the numbering the
+ * reader chose. The server uses them to pick the allele; a request without them can be about another one
+ * when a protein change has several possible DNA changes. The first run and a later retry both read them
+ * from the run's saved context, so the two cannot disagree. A field the run did not have is left out, and
+ * coordinates travel only with their build.
+ */
+export function requestFieldsOf(context: AnalysisCacheContext) {
+  return {
+    acmgWeighting: context.acmgWeighting as "standard" | "conservative" | "strict-structural",
+    ...(context.assembly ? { assembly: context.assembly as "GRCh37" | "GRCh38" } : {}),
+    ...(context.genomicCoordinates && context.assembly ? { genomicCoordinates: context.genomicCoordinates } : {}),
+    ...(context.resolvedAssembly ? { resolvedAssembly: context.resolvedAssembly as "GRCh37" | "GRCh38" } : {}),
+    ...(context.liftedGenomicCoordinates ? { liftedGenomicCoordinates: context.liftedGenomicCoordinates } : {}),
+    ...(context.numberingBasis ? { numberingBasis: context.numberingBasis } : {})
+  };
+}
+
 /** Conditions stay `unknown` here because `biophysicsContextOf` is what checks them. */
 type CacheContextSettings = Omit<Partial<UserSettings>, "biophysicsConditions"> & { biophysicsConditions?: unknown };
 
@@ -97,7 +115,6 @@ export function createAnalysisCacheContext(uniprotId: string, settings: CacheCon
   return {
     uniprotId: uniprotId.trim().toUpperCase(),
     acmgWeighting: ["standard", "conservative", "strict-structural"].includes(settings.acmgWeighting as string) ? settings.acmgWeighting as string : "standard",
-    saprotEngine: settings.saprotEngine || "saprot-650m",
     assembly: notation.assembly || "",
     genomicCoordinates: notation.genomicCoordinates || "",
     resolvedAssembly: notation.resolvedAssembly || "",

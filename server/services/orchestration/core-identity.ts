@@ -50,7 +50,7 @@ import crypto from "crypto";
 import { credentialSourceTag } from "../infra/credentials.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
-/** Which identity a payload is being judged against. Structural runs add model choices. */
+/** Which identity a payload is being judged against: the core run or the structural refresh. */
 export type IdentityScope = "core" | "structural";
 
 export interface CoreCapabilitySummary {
@@ -75,11 +75,6 @@ export interface CoreEndpointIdentity {
   alphagenome: string | null;
 }
 
-export interface CoreModelChoice {
-  /** SaProt checkpoint the caller asked for; changes which numbers a structural run reports. */
-  saprotEngine: string | null;
-}
-
 /**
  * The identity record written into a payload under `_internal`.
  *
@@ -87,11 +82,8 @@ export interface CoreModelChoice {
  * replayable for a month and readable by anyone with the database, so it records which identity
  * produced it without restating how the residue was modelled.
  *
- * The `capabilityHash` means "the providers and model choices this run used", and WHICH model
- * choices are included depends on the scope: the core block covers the evidence providers only (so
- * switching SaProt checkpoints does not invalidate a core payload that is engine-independent),
- * while the structural block adds the model choice (so a structural result computed with the 650M
- * checkpoint is never read back as this request's 35M evidence).
+ * The `capabilityHash` means "the providers this run used". Both scopes record the same digest; the
+ * structural scope also mixed in its SaProt checkpoint until the language models were retired.
  */
 export interface PayloadIdentityRecord {
   version: 1;
@@ -110,12 +102,13 @@ export interface CoreIdentity {
    */
   flightKey: string;
   scienceHash: string;
-  /** Provider-configuration digest WITHOUT the structural model choice (the core payload's scope). */
+  /**
+   * Provider-configuration digest, for both scopes. The structural scope added its model choice (the
+   * SaProt checkpoint) until the language models were retired on 2026-11-18; a structural row written
+   * before that therefore no longer matches and is recomputed once.
+   */
   capabilityHash: string;
-  /** Provider-configuration digest INCLUDING the structural model choice (the structural payload's scope). */
-  structuralCapabilityHash: string;
   sequenceHash: string | null;
-  model: CoreModelChoice;
   capability: CoreCapabilitySummary;
   endpoints: CoreEndpointIdentity;
 }
@@ -242,10 +235,6 @@ function capabilitySummary(context: ParsedVariantContext): CoreCapabilitySummary
   };
 }
 
-function modelChoice(context: ParsedVariantContext): CoreModelChoice {
-  return { saprotEngine: context.saprotEngine ?? null };
-}
-
 /**
  * Provider credentials, reduced to process-local fingerprints.
  *
@@ -270,7 +259,6 @@ function providerFingerprints(context: ParsedVariantContext): Record<string, str
 export function coreIdentityOf(context: ParsedVariantContext): CoreIdentity {
   const scienceHash = hashValue(scienceDimensions(context));
   const capability = capabilitySummary(context);
-  const model = modelChoice(context);
   /** Which provider endpoints the run would call — keyed digests, never the URLs (see `endpointIdentity`). */
   const endpoints: CoreEndpointIdentity = {
     gpn: endpointIdentity(context.gpnApiUrl),
@@ -286,20 +274,6 @@ export function coreIdentityOf(context: ParsedVariantContext): CoreIdentity {
      * must not be shared or replayed).
      */
     capabilityHash: hashValue({ capability, endpoints }),
-    /** The same, plus the structural model choice (which changes what the deep models compute). */
-    structuralCapabilityHash: hashValue({ capability, endpoints, model }),
-    /**
-     * Shares a run across the SaProt checkpoint — deliberately, and this is the one place the model
-     * choice is EXCLUDED from a sharing key.
-     *
-     * The CORE graph does not run SaProt (it is a `structural-model-fetcher` model), so two requests
-     * that differ only in `saprotEngine` are the same core evidence. Including it here split them, and
-     * the client makes that split systematic: the structural tab forwards `saprotEngine`, the core and
-     * stream requests do not, so every non-default checkpoint produced two flight keys and two full
-     * core fetches for the same variant. The checkpoint still travels in
-     * `structuralCapabilityHash`, so the persisted STRUCTURAL identity keeps splitting model choices —
-     * which is where the choice actually changes the evidence.
-     */
     flightKey: hashValue({
       scienceHash,
       capability,
@@ -314,7 +288,6 @@ export function coreIdentityOf(context: ParsedVariantContext): CoreIdentity {
       /** Process-local only. Two distinct personal tokens never share an in-flight run. */
       credentials: providerFingerprints(context)
     }),
-    model,
     capability,
     endpoints
   };
@@ -334,7 +307,7 @@ export function payloadIdentityRecordOf(
   return {
     version: 1,
     scienceHash: identity.scienceHash,
-    capabilityHash: scope === "structural" ? identity.structuralCapabilityHash : identity.capabilityHash,
+    capabilityHash: identity.capabilityHash,
     sequenceHash: identity.sequenceHash
   };
 }
@@ -397,8 +370,7 @@ export function checkPayloadCompatibility(
   }
 
   const identity = coreIdentityOf(context);
-  const expectedCapabilityHash =
-    scope === "structural" ? identity.structuralCapabilityHash : identity.capabilityHash;
+  const expectedCapabilityHash = identity.capabilityHash;
 
   if (recorded.scienceHash !== identity.scienceHash) {
     return {
@@ -415,10 +387,7 @@ export function checkPayloadCompatibility(
       compatible: false,
       recorded: true,
       reason:
-        scope === "structural"
-          ? "persisted payload was computed under a different provider/auth capability set or a " +
-            "different structural model choice than this request"
-          : "persisted payload was computed under a different provider/auth capability set than this request"
+        "persisted payload was computed under a different provider/auth capability set than this request"
     };
   }
 

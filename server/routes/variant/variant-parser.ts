@@ -94,7 +94,6 @@ export const analyzeVariantSchema = z.object({
   alphagenomeApiKey: z.string().optional(),
   alphagenomeApiUrl: z.string().url().max(512).optional(),
   spliceaiDistance: z.number().int().min(50).max(10000).optional(),
-  saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
 export const sanitizeToken = (val: unknown): string | null => {
@@ -115,14 +114,6 @@ export const sanitizeUrl = (val: unknown): string | null => {
   if (typeof raw !== "string") return null;
   const result = validateSafeCustomEndpointUrl(raw);
   return result.valid ? result.url : null;
-};
-
-export const getEngine = (val: unknown): string | undefined => {
-  if (!val) return undefined;
-  const raw = Array.isArray(val) ? val[0] : val;
-  if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim().toLowerCase();
-  return trimmed === "local" || trimmed === "remote" ? trimmed : undefined;
 };
 
 export interface ParsedVariantContext {
@@ -182,7 +173,6 @@ export interface ParsedVariantContext {
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window the caller asked for; null leaves the client's default. */
   spliceaiDistance?: number | null;
-  saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
 /**
@@ -613,7 +603,6 @@ export async function validateAndParseVariantRequest(
         alphagenomeApiUrl: requestUrl || (process.env.ALPHAGENOME_API_URL?.trim() || null),
       };
     })(),
-    spliceaiDistance: normaliseSpliceAiDistance(req.headers["x-spliceai-distance"]) ?? normaliseSpliceAiDistance(req.body?.spliceaiDistance),
-    saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
+    spliceaiDistance: normaliseSpliceAiDistance(req.headers["x-spliceai-distance"]) ?? normaliseSpliceAiDistance(req.body?.spliceaiDistance)
   };
 }

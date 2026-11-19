@@ -274,7 +274,9 @@ export const energeticsDataSchema = z.object({
 export type EnergeticsData = z.infer<typeof energeticsDataSchema>;
 
 // ============================================================================
-// 3. Language Model Evaluations (ESM-C, ESM-2, SaProt)
+// 3. Language Model Evaluations (ESM-C, ESM-2, SaProt) — LEGACY. These models were retired on
+//    2026-11-18 (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md); no run writes these fields any more. The
+//    schemas stay so analyses saved before then still parse.
 // ============================================================================
 export const esmcPreferenceSchema = z.object({
   aa: z.string(),

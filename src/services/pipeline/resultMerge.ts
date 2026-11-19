@@ -10,11 +10,7 @@ const enrichmentOwners: Record<string, PipelineStage> = {
   landscapeData: "landscape",
   landscapeMeta: "landscape",
   multimerData: "multimer",
-  ppiBindingData: "ppi",
-  esm3Eval: "structural",
-  esmcEval: "structural",
-  esm2Eval: "structural",
-  saprotEval: "structural"
+  ppiBindingData: "ppi"
 };
 
 /**
@@ -36,7 +32,10 @@ export function settleUnreportedStages(result: any): PipelineStages | null {
   for (const [stage, outcome] of Object.entries(stages)) {
     if (outcome !== "running" || stage === "coordinates") continue;
     const fields = Object.keys(enrichmentOwners).filter(field => enrichmentOwners[field] === stage);
-    stages[stage] = fields.length === 0 || fields.some(field => result?.[field] != null) ? "complete" : "error";
+    // The structural refresh owns no field of its own (it refines the core's burial and rule
+    // insights), so an interrupted one cannot be told from a finished one: it is re-run.
+    stages[stage] = stage === "structural" ? "error"
+      : fields.length === 0 || fields.some(field => result?.[field] != null) ? "complete" : "error";
     changed = true;
   }
   return changed ? stages : null;

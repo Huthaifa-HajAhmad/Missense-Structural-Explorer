@@ -2,7 +2,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import asyncio
 import os
-from tools.model_server_app.routers.vesm import REMOTE_REQUEST_TIMEOUT_S, REMOTE_MAX_RETRY_ATTEMPTS
+
+# Per-request ceiling for the remote SDK. Its own default is 120 s with 5 retries and waits of up to
+# 10 s, which alone can outlast the time the Node layer allows the whole sidecar call.
+REMOTE_REQUEST_TIMEOUT_S = int(os.environ.get("REMOTE_REQUEST_TIMEOUT_S", "20"))
+REMOTE_MAX_RETRY_ATTEMPTS = int(os.environ.get("REMOTE_MAX_RETRY_ATTEMPTS", "2"))
 from tools.model_server_app.engine_resilience import raise_if_sdk_error, run_with_deadline
 
 router = APIRouter()

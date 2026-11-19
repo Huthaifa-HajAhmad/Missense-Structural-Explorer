@@ -80,7 +80,6 @@ export interface UserSettings {
   saveHistory: boolean;
   reducedMotion: boolean;
   defaultStructureModel: "alphafold" | "esmfold";
-  saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf";
   /**
    * SpliceAI's reporting window (-D): how far from the variant a gained or lost splice site may be
    * reported. Sent with each analysis; the server clamps it to the service's 50–10,000 bp range.

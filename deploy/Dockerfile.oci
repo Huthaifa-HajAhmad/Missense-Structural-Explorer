@@ -66,10 +66,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # the VM came from, on a disk that was 73% full.
 #
 # The RUNNER stage still does `COPY tools/ ./tools/` straight from the build context, so p2rank,
-# vesm, foldx, thermompnn and model_server_app keep reaching the image exactly as they did before.
+# foldx, thermompnn and model_server_app keep reaching the image exactly as they did before.
+# (tools/vesm is excluded in .dockerignore: its model was retired on 2026-11-18.)
 # Only the builder stops carrying the ones it never reads.
 #
-# The two tools/**/*.ts entry points and the two geometry harnesses ARE included: `tsc --noEmit` has
+# The tools/**/*.ts entry point and the two geometry harnesses ARE included: `tsc --noEmit` has
 # no `include` in tsconfig.json, so it type-checks every .ts/.tsx under the root, and dropping them
 # would quietly narrow that gate rather than merely speed it up.
 COPY src ./src
@@ -79,7 +80,7 @@ COPY assets ./assets
 COPY data ./data
 COPY tools/header-geometry ./tools/header-geometry
 COPY tools/function-track-geometry ./tools/function-track-geometry
-COPY tools/ingest_dbnsfp.ts tools/run_proteingym_benchmark.ts ./tools/
+COPY tools/ingest_dbnsfp.ts ./tools/
 COPY index.html tsconfig.json vite.config.ts server.ts ecosystem.config.cjs ./
 
 # The only gate that may run here is the artifact-level type-check.

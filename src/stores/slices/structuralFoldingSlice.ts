@@ -10,6 +10,8 @@ export interface StructuralFoldingState {
   foldxMetrics: StructuralMetrics | null;
   isEsmFolding: boolean;
   esmFoldingError: string | null;
+  /** Counts the reader's "Retry folding" requests; the ESMFold view folds again when it changes. */
+  esmFoldRetryNonce: number;
   active3dModelTab: "alphafold2" | "esmfold2" | "esm3";
   /** Which engine folded each de novo structure, as the `/esmfold` route reported it (null: not reported). */
   esmFoldEngines: { wildType: string | null; variant: string | null } | null;
@@ -42,6 +44,8 @@ export interface StructuralFoldingActions {
   setStructureRepresentation: (representation: StructuralFoldingState["structureRepresentation"]) => void;
   setCustomPdbEntry: (entry: LoadedEntry | null) => void;
   resetEsmFoldState: () => void;
+  /** Clears the recorded fold failure and asks the ESMFold view to fold the current variant again. */
+  requestEsmFoldRetry: () => void;
 }
 
 export type StructuralFoldingSlice = StructuralFoldingState & StructuralFoldingActions;
@@ -59,6 +63,7 @@ export const createStructuralFoldingSlice: StateCreator<
   foldxMetrics: null,
   isEsmFolding: false,
   esmFoldingError: null,
+  esmFoldRetryNonce: 0,
   active3dModelTab: "alphafold2",
   esmFoldEngines: null,
   esmFoldSingleStructure: false,
@@ -90,5 +95,6 @@ export const createStructuralFoldingSlice: StateCreator<
     esmFoldingError: null,
     esmFoldEngines: null,
     esmFoldSingleStructure: false
-  })
+  }),
+  requestEsmFoldRetry: () => set(state => ({ esmFoldingError: null, esmFoldRetryNonce: state.esmFoldRetryNonce + 1 }))
 });

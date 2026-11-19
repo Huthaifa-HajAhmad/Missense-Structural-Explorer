@@ -79,6 +79,27 @@ trace the tab displayed. Both corrections are reflected above. The advisor recom
    Measure end-to-end time and memory on the VM before claiming a saving.
 3. **Keep the physical result.** Packing & geometry (FoldX local geometry, clash and contact counts) moves to Energetics.
 
+## Measured effect of stopping the models (2026-11-19)
+
+Measured on the production VM (2 OCPUs, 12 GB), each build in its own container from the production image
+(`main` at `59c3c1e4` against this change), with empty databases, one analysis per variant, the core and
+structural requests sent together as the app sends them. Another session's test container shared the CPUs,
+and each variant ran once, so treat the timings as indicative.
+
+| | `main` (models running) | models retired |
+|---|---|---|
+| Sidecar memory after start-up (RSS) | 1,090 MB | 373 MB |
+| Container memory after start-up | 1,917 MiB | 952 MiB |
+| Container peak memory over the three analyses | 4,510 MiB | 1,457 MiB |
+| PAH p.Arg408Trp, core + structural done | 56.2 s | 44.2 s |
+| TP53 p.Arg175His, core + structural done | 38.6 s | 2.6 s |
+| SOD1 p.Ala5Val, core + structural done | 14.4 s | 3.8 s |
+| Calls to retired model routes | 15 | 0 |
+
+Both builds returned the same rule-based verdicts and burial readings for the three variants. PAH was the
+first variant in each container, so its 44 s core time (in both builds) reflects cold provider lookups,
+not the models. FoldX and the other stability engines were not part of these requests and are unchanged.
+
 ## What would reopen this
 
 - A reliable gain over AlphaMissense on independent, release-dated clinical data, at a threshold curators actually use. A

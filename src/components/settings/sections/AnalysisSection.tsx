@@ -39,12 +39,6 @@ const SPLICEAI_DESCRIPTIONS: Record<number, string> = {
   2000: "The widest reach the splice map draws; slowest request."
 };
 
-const SAPROT_DESCRIPTIONS: Record<string, string> = {
-  "saprot-650m": "Local 650M on CPU — most accurate, ~3.5 s per variant.",
-  "saprot-35m": "Local 35M — ~200 ms per variant with a low memory footprint.",
-  "remote-hf": "Hugging Face inference — requires an HF token under Connections."
-};
-
 export function AnalysisSection() {
   const { settings, updateSetting } = useSettings();
 
@@ -61,7 +55,6 @@ export function AnalysisSection() {
     settings.biophysicsConditions.temperature === PHYSIOLOGICAL.temperature &&
     settings.biophysicsConditions.ionicStrength === PHYSIOLOGICAL.ionicStrength;
 
-  const saprotEngine = settings.saprotEngine || "saprot-650m";
   const spliceaiWindow = (SPLICEAI_WINDOWS as readonly number[]).includes(settings.spliceaiWindow ?? 500) ? (settings.spliceaiWindow ?? 500) : 500;
 
   return (
@@ -129,19 +122,6 @@ export function AnalysisSection() {
             options={[
               { value: "alphafold", label: "AlphaFold2" },
               { value: "esmfold", label: "ESMFold" }
-            ]}
-          />
-        </SettingsRow>
-        <SettingsRow stacked label="SaProt execution tier" description={SAPROT_DESCRIPTIONS[saprotEngine]}>
-          <SegmentedControl
-            fullWidth
-            ariaLabel="SaProt execution tier"
-            value={saprotEngine}
-            onChange={(value) => updateSetting("saprotEngine", value)}
-            options={[
-              { value: "saprot-650m", label: "650M · Accurate" },
-              { value: "saprot-35m", label: "35M · Fast" },
-              { value: "remote-hf", label: "Cloud · HF" }
             ]}
           />
         </SettingsRow>

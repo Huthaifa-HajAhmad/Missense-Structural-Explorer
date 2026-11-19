@@ -136,7 +136,6 @@ NODE_ENV,server/services/prediction/landscape.ts
 NODE_ENV,server/services/stability/biophysics-pool.ts
 NODE_ENV,server/services/stability/foldx/runner.ts
 NODE_ENV,server/services/structure/pocket/runner.ts
-NODE_ENV,server/services/structure/structural-diff/evaluator.ts
 NODE_ENV,server/services/translation/shadow-tiers.ts
 NODE_ENV,server/utils/security.ts
 NODE_ENV,src/test/setup.ts
@@ -170,18 +169,13 @@ SHARED_TOKEN_SHARE_PER_HOUR,server/services/infra/credentials.ts
 SHUTDOWN_WATCHDOG_MS,server/config.ts
 SIDECAR_HEALTH_MS,server/config.ts
 SIDECAR_SECRET,server/config.ts
-SIDECAR_SECRET,server/services/external-api/esm3_forge.ts
-SIDECAR_SECRET,server/services/external-api/lmSidecar.ts
 SIDECAR_SECRET,server/services/stability/energy-models.ts
 SIDECAR_SECRET,server/services/stability/stabilityoracle.ts
 SIDECAR_SECRET,server/services/structure/esmfold.ts
-SIDECAR_SECRET,server/services/structure/folding-engines.ts
-SIDECAR_SECRET,server/services/structure/structural-diff/evaluator.ts
 SIDECAR_SECRET,server/sidecar-supervisor.ts
 SIDECAR_URL,server/config.ts
 SOURCE_COMMIT,server/routes/health.ts
 STRUCTURAL_TAIL_TIMEOUT_MS,server/config.ts
-STRUCTURAL_TIMEOUT_MS,server/config.ts
 SystemRoot,server/agent/tools.ts
 THERMOMPNN_PROVIDER,server/routes/capabilities.ts
 THERMOMPNN_PROVIDER,server/services/stability/energy-models.ts

@@ -45,24 +45,12 @@ export const PROVENANCE_DATA_SOURCES = {
    */
 };
 
-export const PROVENANCE_MODEL_REVISIONS = {
-  "esm2-650m": {
-    model: "facebook/esm2_t33_650M_UR50D",
-    commitSha: "cd0e03e0586e3f2ff1129b0a1d4fb0fbff87a93a"
-  },
-  "esm2-150m": {
-    model: "facebook/esm2_t30_150M_UR50D",
-    commitSha: "1da72517de693da8f869818816c7cf54c46f4ebc"
-  },
-  "saprot-650m": {
-    model: "westlake-repl/SaProt_650M_AF2",
-    commitSha: "7ab10f272e276da35154378f44ff5fa3693e5072"
-  },
-  "vesm-150m": {
-    model: "ntranoslab/vesm",
-    weights: "VESM_150M.pth"
-  }
-};
+/**
+ * Pinned foundation-model weights the app downloads and runs. Empty since 2026-11-18: the only entries
+ * were the protein language models (ESM-2, SaProt, VESM), which were retired
+ * (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md).
+ */
+export const PROVENANCE_MODEL_REVISIONS: Record<string, { model: string; commitSha?: string; weights?: string }> = {};
 
 export interface ProvenanceManifest {
   manifestVersion: string;

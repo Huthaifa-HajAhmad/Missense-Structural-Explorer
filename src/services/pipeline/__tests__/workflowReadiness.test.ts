@@ -77,23 +77,28 @@ describe("foreground readiness and stage ownership", () => {
     vi.mocked(fetchProgressiveLandscape).mockImplementationOnce(async (_params, _api, _signal, update) => {
       update((prev: any) => mergeResultPatch(prev, { landscapeData: [{ position: 408 }] }, undefined, "landscape", "complete"));
     });
-    vi.mocked(fetchProgressiveStructuralAssessments).mockImplementationOnce(async (_params, _api, _signal, update) => {
-      update((prev: any) => mergeResultPatch(prev, { esm2Eval: { llr: -2 } }, undefined, "structural", "complete"));
-    });
     const fixtureState = fixture();
     const work = fixtureState.run();
     await vi.waitFor(() => expect(fixtureState.state.result?.landscapeData?.length).toBe(1));
-    held.resolve({ ...core, landscapeData: null, esm2Eval: null });
+    held.resolve({ ...core, landscapeData: null });
     await work;
     expect(fixtureState.state.result.landscapeData).toEqual([{ position: 408 }]);
-    expect(fixtureState.state.result.esm2Eval).toEqual({ llr: -2 });
     expect(getCachedVariant("PAH", "p.Arg408Trp")?.analysisResult.landscapeData).toEqual([{ position: 408 }]);
   });
-  it("refreshes a poisoned completed-model cache containing loading placeholders", async () => {
+  it("does not re-run a finished structural stage for a retired model's leftover loading placeholder", async () => {
+    // Saved before 2026-11-18 with `esm2Eval: { loading: true }`: those models were retired, so the
+    // structural stage's own record ("complete") decides, and nothing is re-run.
     const fixtureState = fixture();
     cacheCore(fixtureState.settings, { esm2Eval: { loading: true } });
     await fixtureState.run();
     expect(fetchBiophysicalAnalysis).not.toHaveBeenCalled();
+    expect(fetchProgressiveStructuralAssessments).not.toHaveBeenCalled();
+  });
+
+  it("resumes a structural refresh that a saved run left unfinished", async () => {
+    const fixtureState = fixture();
+    cacheCore(fixtureState.settings, { metadata: { ...core.metadata, pipelineContext: createAnalysisCacheContext("P00439", fixtureState.settings), pipelineStages: { core: "complete", structural: "error", landscape: "complete", multimer: "complete" } } });
+    await fixtureState.run();
     expect(fetchProgressiveStructuralAssessments).toHaveBeenCalledOnce();
   });
   it("settles absent coordinates without failing independent core evidence", async () => {

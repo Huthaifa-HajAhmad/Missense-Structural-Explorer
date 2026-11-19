@@ -107,5 +107,5 @@ fallback then returned PDBe's first row, 9R2Q:K, the incomplete chain this rule 
 - For a mutating engine, the homolog tier refuses any hit with 95% or more sequence identity: that is the
   same protein, which only Tier 1 and this rule may judge. Before, it refused only the one entry Tier 1
   had named, so an engineered chain the rule refused could return as a "homolog" when AlphaFold was down.
-- Every chain choice carries the rule version (`STRUCTURE_SELECTION_VERSION`, now `select-v4`, also the
-  memo key). A choice saved in an analysis under an earlier rule is not reused; the chain is chosen again.
+- Every chain choice carries the rule version (`STRUCTURE_SELECTION_VERSION`, now `select-v4`), which is
+  also the resolver's memo key, so a choice remembered under an earlier rule is never reused.

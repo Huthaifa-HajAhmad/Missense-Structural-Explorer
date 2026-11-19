@@ -26,9 +26,8 @@ import {
 } from "../external-api/core-data-fetcher.ts";
 import { findRunningCoreFetch, runSharedCoreFetch } from "./core-singleflight.ts";
 import { BUDGET_EXPIRED, createTimeoutScope } from "./timeout-scope.ts";
-import type { StructuralModelFrame, StructuralStreamFrame } from "../../../src/shared/structuralStream.ts";
+import type { StructuralStreamFrame } from "../../../src/shared/structuralStream.ts";
 import { checkPayloadCompatibility, structuralIdentityRecordOf, type IdentityScope } from "./core-identity.ts";
-import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
 import { predictorCoordinateFromContext, isBuildDegradedResult, type PredictorData, type GnomadCandidateReading } from "../../../src/shared/contracts.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
@@ -36,11 +35,10 @@ import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-id
 import { CONFIG } from "../../config.ts";
 import { credentialAvailable } from "../infra/credentials.ts";
 
-export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData, StructuralAnalysisData };
+export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData };
 export {
   healCachedAnalysisIfPossible,
   fetchCoreVariantData,
-  fetchStructuralModelData,
   assembleCoreResponsePayload,
   persistVariantAnalysisPayload,
   buildAnalysisPayload,
@@ -223,29 +221,6 @@ function isUsableCachedPayload(
     return false;
   }
   return true;
-}
-
-/**
- * Merges the structural models' outcomes into the payload's status map WITHOUT losing the core's.
- *
- * The two maps collided on `esm2`: the core run records its VESM-150M triage evaluation there
- * (`core-data-fetcher.ts` status rules), and the structural run recorded its ESM-2 650M outcome
- * under the same key. A plain spread therefore replaced a measured core outcome with a deep-model
- * one, so the same source read `timeout` on one surface and `ok` on another depending on which
- * route answered last. The structural producer now reports `esm2Eval`; this function additionally
- * refuses to let ANY `esm2` key in the structural map overwrite the core's, so a stale or
- * third-party producer cannot reintroduce the collision through the merge.
- */
-export function mergeStructuralServiceStatus(
-  coreStatus: Record<string, string> | null | undefined,
-  structuralStatus: Record<string, string> | null | undefined
-): Record<string, string> {
-  const merged: Record<string, string> = { ...(coreStatus || {}) };
-  for (const [key, value] of Object.entries(structuralStatus || {})) {
-    if (key === "esm2") continue;
-    merged[key] = value;
-  }
-  return merged;
 }
 
 /**
@@ -519,7 +494,6 @@ async function runStream(
       uniprotFeatures: "pending" as any,
       stringInteractions: "pending" as any,
       disruptionPredictor: "pending" as any,
-      esm2: "pending" as any,
       pdbMapping: "pending" as any
     };
 
@@ -596,17 +570,16 @@ async function runStream(
 }
 
 /**
- * High-level orchestration for /analyze-variant/structural endpoint.
+ * High-level orchestration for /analyze-variant/structural endpoint: the core evidence's rule
+ * insights and, when the core run found no accessibility value, a best-effort burial refresh.
  *
- * `options.onModel` hears about each deep model as it settles (see `fetchStructuralModelData`), and
- * `options.signal` lets a caller whose reader has left skip the best-effort burial refresh. Both are
- * optional: called with three arguments this behaves exactly as it always did.
+ * It ran four protein language models until 2026-11-18; they were retired
+ * (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md). `options.signal` lets a caller whose reader has left
+ * skip the burial refresh.
  */
 export async function runStructuralAnalysis(
   context: ParsedVariantContext,
-  biohubToken: string | null,
-  hfToken: string | null,
-  options?: { onModel?: (frame: StructuralModelFrame) => void; signal?: AbortSignal }
+  options?: { signal?: AbortSignal }
 ) {
   const {
     gene,
@@ -620,36 +593,16 @@ export async function runStructuralAnalysis(
   const cached = await db.getVariantAnalysisAsync(gene, variant, acmgWeighting);
 
   /**
-   * CACHE GATES for the structural route, which used to trust any row it found.
-   *
-   * Two things were reused from it unconditionally: the assembled core payload as this run's core
-   * evidence, and `_internal.pdbMapping` as the structure the deep models would read. A row can be
-   * stale (a source a configured provider can now answer), or belong to a DIFFERENT context (another
-   * build trail, weighting, capability or model set) — and a mapping from another context can sit
-   * outside this residue's position, which is the one error a structure-reading model cannot detect
-   * for itself. Both gates are applied before either value is handed on.
+   * CACHE GATE: the assembled core payload is reused as this run's core evidence only when it is
+   * current and belongs to THIS context (build trail, weighting, capability). A cache miss shares a
+   * running core fetch rather than repeating it: the UI opens the stream for the same variant moments
+   * before (or after) this request. See `core-singleflight.ts`.
    */
   const cachedPayload = cached?.payload ?? null;
   const cachedCoreUsable = isUsableCachedPayload(cachedPayload, context, cached?.updatedAt, "core");
-  const cachedPdbMapping = cachedCoreUsable ? (cachedPayload?._internal?.pdbMapping ?? null) : null;
-
-  // Run deep models concurrently with core data fetching (or reuse a VALIDATED existing payload).
-  //
-  // A cache miss here shares a running core fetch rather than repeating it: the UI opens the stream
-  // for the same variant moments before (or after) this request, and both would otherwise miss the
-  // same row and ask all eleven providers twice. See `core-singleflight.ts`.
-  const [structuralData, coreData] = await Promise.all([
-    fetchStructuralModelData(context, biohubToken, hfToken, CONFIG.timeouts.structuralModelsMs, {
-      /**
-       * A validated mapping saves the PDBe round trip. An unusable one is left OUT of the object
-       * entirely rather than sent as `null`: the fetcher reads an explicit `null` as "this mapping
-       * is the answer, and there is none", which skipped the structure lookup altogether and
-       * silently demoted the run to AlphaFold.
-       */
-      pdbMapping: cachedPdbMapping ?? undefined
-    }, options?.onModel),
-    cachedCoreUsable ? Promise.resolve(cachedPayload) : runSharedCoreFetch(context, { timeoutMs: CONFIG.timeouts.coreAnalysisMs })
-  ]);
+  const coreData = cachedCoreUsable
+    ? cachedPayload
+    : await runSharedCoreFetch(context, { timeoutMs: CONFIG.timeouts.coreAnalysisMs });
 
   const ruleBasedInsights = computeRuleBasedACMG({
     gene,
@@ -668,13 +621,9 @@ export async function runStructuralAnalysis(
     serviceStatus: coreData.serviceStatus
   });
 
-  // The retry used to refresh language models only, leaving missing burial data unchanged.
-  // This is a best-effort extra: if it fails, runs out of time, or still finds no accessibility value,
-  // the reading the core run produced is kept, so the language-model retry never fails because of it.
-  //
-  // It has its own deadline (`structuralTailMs`). It used to have none: an AlphaFold download (up to
-  // six candidate URLs, each retried) plus an accessibility run could hold the answer long after every
-  // model had settled. A reader that has already left skips it altogether.
+  // A best-effort burial refresh: if it fails, runs out of time, or still finds no accessibility value,
+  // the reading the core run produced is kept, so the structural route never fails because of it.
+  // It has its own deadline (`structuralTailMs`), and a reader that has already left skips it.
   let disruptionPredictor = coreData.disruptionPredictor;
   if (disruptionPredictor?.rsa == null && !options?.signal?.aborted) {
     const tailBudget = createTimeoutScope();
@@ -699,53 +648,16 @@ export async function runStructuralAnalysis(
   }
 
   const basePayload = cachedCoreUsable && cachedPayload ? cachedPayload : assembleCoreResponsePayload(coreData, context);
-
-  /**
-   * The merge keeps the CORE's `esm2` (its VESM-150M outcome) and records the structural ESM-2 650M
-   * outcome under `esm2Eval`. The old spread put both under `esm2`, so a finished deep model replaced
-   * a measured core source and the Evidence Lineage could list one source twice, disagreeing with
-   * itself. See `mergeStructuralServiceStatus`.
-   */
-  const mergedServiceStatus = mergeStructuralServiceStatus(
-    basePayload.serviceStatus || coreData.serviceStatus || {},
-    structuralData.serviceStatus || {}
-  );
-
-  /**
-   * The structural models' OWN spans, under structural names.
-   *
-   * `updatedPayload` spreads `basePayload`, which carries the CORE `serviceTimings` /
-   * `serviceTimingOffsets`; these are written beside them, never over them — a payload that mixed the
-   * two would have a waterfall of one run labelled with another's sources.
-   */
-  const structuralTimings = structuralData.structuralTimings || {};
-  const structuralTimingOffsets = structuralData.structuralTimingOffsets || {};
+  const serviceStatus = basePayload.serviceStatus || coreData.serviceStatus || {};
 
   const updatedPayload = {
     ...basePayload,
     disruptionPredictor,
-    esm3Eval: structuralData.esm3Eval,
-    esmcEval: structuralData.esmcEval,
-    esm2Eval: structuralData.esm2Eval,
-    saprotEval: structuralData.saprotEval,
-    serviceStatus: mergedServiceStatus,
+    serviceStatus,
     ruleBasedInsights,
-    structuralTimings,
-    structuralTimingOffsets,
-    metadata: {
-      ...((basePayload?.metadata as Record<string, unknown>) || {}),
-      structuralTimings,
-      structuralTimingOffsets
-    },
     _internal: {
       ...(basePayload?._internal || {}),
-      /**
-       * WHICH structural run produced the four deep-model fields above — recorded, in the payload,
-       * under the same non-migrating guard the core block uses. A later structural read of this row
-       * can therefore refuse to present a checkpoint's numbers as another checkpoint's (the
-       * capability digest in this record includes the SaProt model choice, which the core record
-       * deliberately does not).
-       */
+      /** WHICH structural run last wrote this row, under the same non-migrating guard the core block uses. */
       structuralIdentity: structuralIdentityRecordOf(context)
     }
   };
@@ -753,35 +665,18 @@ export async function runStructuralAnalysis(
   /** Deliberately NOT awaited — the response is the reader's, and it must not wait on the write. */
   void persistVariantAnalysisPayload(context, updatedPayload, ruleBasedInsights?.acmgVerdict || null);
 
-  return {
-    disruptionPredictor,
-    esm3Eval: structuralData.esm3Eval,
-    esmcEval: structuralData.esmcEval,
-    esm2Eval: structuralData.esm2Eval,
-    saprotEval: structuralData.saprotEval,
-    serviceStatus: mergedServiceStatus,
-    ruleBasedInsights,
-    /** Readable straight off the response: a span per model, including the ones that failed. */
-    structuralTimings,
-    structuralTimingOffsets
-  };
+  return { disruptionPredictor, serviceStatus, ruleBasedInsights };
 }
 
 /**
  * The streaming form of {@link runStructuralAnalysis}, for `POST /analyze-variant/structural` when the
  * caller asks for NDJSON (frame shapes: `src/shared/structuralStream.ts`).
  *
- * Why it streams: the route used to answer once, with one JSON body, when the SLOWEST of four models
- * had settled or run out of time. A model that finished at 20 s waited for one that needed 120 s, and
- * when the caller's own timer fired first, every finished model was thrown away with the slow one.
- * Now each model is written the moment it settles, a heartbeat keeps a slow run from looking dead, and
- * the `final` frame carries exactly the object the buffered route returns (the authority; the model
- * frames are early copies of its fields).
+ * A heartbeat keeps a slow burial refresh from looking dead, and the `final` frame carries exactly the
+ * object the buffered route returns.
  */
 export async function streamStructuralAnalysis(
   context: ParsedVariantContext,
-  biohubToken: string | null,
-  hfToken: string | null,
   onFrame: (frame: StructuralStreamFrame) => void,
   signal?: AbortSignal
 ): Promise<Awaited<ReturnType<typeof runStructuralAnalysis>> | null> {
@@ -791,7 +686,7 @@ export async function streamStructuralAnalysis(
     () => onFrame({ type: "heartbeat" }),
     signal,
     async () => {
-      const result = await runStructuralAnalysis(context, biohubToken, hfToken, { onModel: onFrame, signal });
+      const result = await runStructuralAnalysis(context, { signal });
       onFrame({ type: "final", data: result });
       return result;
     }

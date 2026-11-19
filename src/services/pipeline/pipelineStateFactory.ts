@@ -213,11 +213,6 @@ export function createPlaceholderAnalysisState(params: PipelineStateBaseParams) 
       ...resultProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
-      esm2: null,
-      esm3Eval: null,
-      esmcEval: null,
-      esm2Eval: null,
-      saprotEval: null
     }
   };
 }
@@ -270,11 +265,6 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       // The inheritance the frequency rules read, so the tab explains the ceiling the engine used.
       curatedInheritance: resResult.curatedInheritance ?? null,
       curatedLofMechanism: resResult.curatedLofMechanism ?? null,
-      esm2: resResult.esm2 || null,
-      esm3Eval: { loading: true },
-      esmcEval: { loading: true },
-      esm2Eval: { loading: true },
-      saprotEval: { loading: true }
     }
   };
 }
@@ -336,11 +326,6 @@ export function createBiophysicalErrorAnalysisState(
       ...refusalAttachments(extra, variant),
       gnomadFrequency: null,
       aouFrequency: null,
-      esm2: null,
-      esm3Eval: null,
-      esmcEval: null,
-      esm2Eval: null,
-      saprotEval: null
     }
   };
 }
@@ -433,11 +418,6 @@ export function createDemoFallbackAnalysisState(
       ...resultProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
-      esm2: null,
-      esm3Eval: null,
-      esmcEval: null,
-      esm2Eval: null,
-      saprotEval: null
     }
   };
 }

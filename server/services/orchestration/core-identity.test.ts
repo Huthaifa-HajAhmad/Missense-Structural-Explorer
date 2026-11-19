@@ -71,36 +71,6 @@ describe("coreIdentityOf", () => {
   });
 
   /**
-   * THE SAPROT SPLIT — the one dimension the CORE flight key must ignore.
-   *
-   * The core graph does not run SaProt. The client forwards `saprotEngine` on the structural request
-   * and NOT on the core or stream request, so including it in the flight key made every non-default
-   * checkpoint produce two keys and two full core fetches for one variant. The choice still travels in
-   * the PERSISTED structural identity, which is where it changes the evidence.
-   */
-  it("shares a core flight across the SaProt checkpoint, while the structural identity keeps splitting on it", () => {
-    const defaultEngine = coreIdentityOf(base);
-    const saprot35 = coreIdentityOf({ ...base, saprotEngine: "saprot-35m" });
-    const saprot650 = coreIdentityOf({ ...base, saprotEngine: "saprot-650m" });
-
-    expect(saprot35.flightKey, "the core run is checkpoint-independent").toBe(defaultEngine.flightKey);
-    expect(saprot650.flightKey).toBe(defaultEngine.flightKey);
-    expect(saprot35.flightKey).toBe(saprot650.flightKey);
-    expect(
-      saprot35.capabilityHash,
-      "the persisted CORE identity is checkpoint-independent too"
-    ).toBe(defaultEngine.capabilityHash);
-
-    // ...but the STRUCTURAL record is not: a 650M result must never be read back as this request's 35M evidence.
-    expect(payloadIdentityRecordOf({ ...base, saprotEngine: "saprot-35m" }, "structural").capabilityHash).not.toBe(
-      payloadIdentityRecordOf({ ...base, saprotEngine: "saprot-650m" }, "structural").capabilityHash
-    );
-    expect(payloadIdentityRecordOf({ ...base, saprotEngine: "saprot-35m" }, "structural").capabilityHash).not.toBe(
-      payloadIdentityRecordOf(base, "structural").capabilityHash
-    );
-  });
-
-  /**
    * Endpoint A and endpoint B are different evidence sources, including when they share a host and
    * differ only in the query string — the case a boolean "a custom endpoint was used" cannot see.
    */
@@ -167,16 +137,9 @@ describe("the persisted identity record", () => {
     expect(payloadIdentityRecordOf(context).capabilityHash).not.toBe(payloadIdentityRecordOf(base).capabilityHash);
   });
 
-  it("scopes the structural record by the model choice, and the core record deliberately not", () => {
-    const asCore = payloadIdentityRecordOf({ ...base, saprotEngine: "saprot-35m" }, "core");
-    const asCoreDefault = payloadIdentityRecordOf(base, "core");
-    expect(asCore.capabilityHash, "a core payload is engine-independent").toBe(asCoreDefault.capabilityHash);
-
-    const asStructural = structuralIdentityRecordOf({ ...base, saprotEngine: "saprot-35m" });
-    const asStructuralDefault = structuralIdentityRecordOf(base);
-    expect(asStructural.capabilityHash, "a structural result is NOT engine-independent").not.toBe(
-      asStructuralDefault.capabilityHash
-    );
+  it("records the same provider digest for the core and the structural scope", () => {
+    // The structural scope mixed in the SaProt checkpoint until the language models were retired.
+    expect(structuralIdentityRecordOf(base).capabilityHash).toBe(payloadIdentityRecordOf(base, "core").capabilityHash);
   });
 });
 
@@ -253,17 +216,11 @@ describe("checkPayloadCompatibility", () => {
   });
 
   it("judges the structural scope by the structural record, and the core scope by the core one", () => {
-    const stored = {
-      _internal: {
-        coreIdentity: payloadIdentityRecordOf(base, "core"),
-        structuralIdentity: structuralIdentityRecordOf({ ...base, saprotEngine: "saprot-650m" })
-      }
-    };
-
-    // A different SaProt checkpoint: the core payload is still this context's, the structural block is not.
-    const requested = { ...base, saprotEngine: "saprot-35m" };
-    expect(checkPayloadCompatibility(stored, requested, "core").compatible).toBe(true);
-    expect(checkPayloadCompatibility(stored, requested, "structural").compatible).toBe(false);
-    expect(checkPayloadCompatibility(stored, { ...base, saprotEngine: "saprot-650m" }, "structural").compatible).toBe(true);
+    const stored = { _internal: { coreIdentity: payloadIdentityRecordOf(base, "core") } };
+    // A row with no structural record has never been written by a structural run: core yes, structural no.
+    expect(checkPayloadCompatibility(stored, base, "core").compatible).toBe(true);
+    expect(checkPayloadCompatibility(stored, base, "structural").compatible).toBe(false);
+    const both = { _internal: { ...stored._internal, structuralIdentity: structuralIdentityRecordOf(base) } };
+    expect(checkPayloadCompatibility(both, base, "structural").compatible).toBe(true);
   });
 });
