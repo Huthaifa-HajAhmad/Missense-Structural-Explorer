@@ -451,11 +451,31 @@ interface RepairRun {
   repairedPdb?: string;
 }
 
+/** Signals that mean the FoldX process crashed (not a timeout, not the system ending it for memory). */
+const REPAIR_CRASH_SIGNALS = new Set(["SIGBUS", "SIGSEGV"]);
+
+type RepairInput = Parameters<typeof runRepairPdbOnce>[0];
+
+/**
+ * RepairPDB, run once more when a crash signal killed it, within what is left of the same budget.
+ * A crash is not a property of the structure: SIGBUS was seen when a deploy rewrote the FoldX binary
+ * under a running repair, and the same repair then succeeded. SIGKILL (out of memory) is not retried.
+ */
+async function runRepairPdb(input: RepairInput): Promise<RepairRun> {
+  const first = await runRepairPdbOnce(input);
+  const { outcome, signal, elapsedMs } = first.diagnostic;
+  // An unknown elapsed time leaves no budget to retry in.
+  const remainingMs = input.budgetMs - (elapsedMs ?? input.budgetMs);
+  if (outcome !== "failed" || !REPAIR_CRASH_SIGNALS.has(signal ?? "") || remainingMs <= 0) return first;
+  console.warn(`[Biophysical Modeling] RepairPDB was killed by ${signal}; running it once more within the remaining ${(remainingMs / 1000).toFixed(0)} s.`);
+  return runRepairPdbOnce({ ...input, budgetMs: remainingMs });
+}
+
 /**
  * One RepairPDB invocation in `jobDir` (which holds `wt.pdb`). A FoldX failure is returned as a
  * diagnostic, never thrown; only an abort is rethrown, because the caller must stop too.
  */
-async function runRepairPdb(input: {
+async function runRepairPdbOnce(input: {
   foldxBin: string;
   extraArgs: string[];
   jobDir: string;

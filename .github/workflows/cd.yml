@@ -319,8 +319,8 @@ jobs:
             # first deploy after the untracking commit.
             #
             # This survives because a filesystem copy is taken before the switch and put back after
-            # it. It is unconditional and idempotent: on a revision where these paths are still
-            # tracked the copy is simply restored over itself.
+            # it. It is unconditional and idempotent: a file the checkout left in place is not copied
+            # back, so only what the switch removed is restored.
             ASSET_PATHS="tools/foldx tools/foldx_linux tools/thermompnn/models tools/thermompnn/vanilla_model_weights tools/model_server_app/checkpoints doc/DEPLOYMENT_OCI.md"
             ASSET_SAFE="$HOME/.mse-untracked-assets"
             rm -rf "$ASSET_SAFE"
@@ -340,8 +340,12 @@ jobs:
               if [ -e "$ASSET_SAFE/$p" ]; then
                 # Copy AS the destination without deleting bind-mounted files from the serving app.
                 # -T avoids repeated directory nesting on every subsequent deployment.
+                # --update=none puts back only files the checkout removed and never rewrites one that is
+                # still there. The serving app runs FoldX from this bind-mounted binary: copying over it
+                # rewrites the running program's file in place, and the FoldX run then dies with SIGBUS
+                # (seen 2026-11-19, a RepairPDB that crashed 5 s after a deploy started).
                 mkdir -p "$(dirname "$p")"
-                cp -aT "$ASSET_SAFE/$p" "$p"
+                cp -aT --update=none "$ASSET_SAFE/$p" "$p"
                 echo "[CD] restored $p"
               fi
             done

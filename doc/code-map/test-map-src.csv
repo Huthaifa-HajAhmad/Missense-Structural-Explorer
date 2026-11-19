@@ -426,6 +426,7 @@ src/shared/providerStatus.ts,client,src/shared/__tests__/providerStatus.test.ts
 src/shared/quickEntry.ts,client,src/shared/__tests__/quickEntry.test.ts
 src/shared/raspIndex.ts,client,src/shared/__tests__/raspIndex.test.ts
 src/shared/redactSecrets.ts,client,src/components/__tests__/consoleUtils.test.ts;src/shared/__tests__/redactSecrets.test.ts
+src/shared/refusedTemplate.ts,client,src/shared/__tests__/refusedTemplate.test.ts
 src/shared/reportDocument.ts,client,src/components/__tests__/reportDraftPersistence.test.ts;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts
 src/shared/reportInput.ts,client,src/stores/__tests__/handleCopyReport.test.ts
 src/shared/reportRender.ts,client,src/shared/__tests__/reportDocument.test.ts;src/stores/__tests__/handleCopyReport.test.ts

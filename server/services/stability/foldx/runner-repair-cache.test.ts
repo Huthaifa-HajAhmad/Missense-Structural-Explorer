@@ -17,6 +17,8 @@ const foldxLog: string[] = [];
 let rejectCachedInput: "none" | "execution" | "missing-output" | "timeout" | "abort" = "none";
 /** RepairPDB runs and writes no `wt_Repair.pdb`, the way a run that dies does. */
 let repairWritesNothing = false;
+/** How many RepairPDB runs die from a crash signal (SIGBUS) before one succeeds. */
+let repairCrashes = 0;
 vi.mock("child_process", () => ({
   execFile: (
     _file: string,
@@ -32,6 +34,12 @@ vi.mock("child_process", () => ({
     foldxLog.push(`${command} pdb=${pdbArg} repairPresent=${fs.existsSync(repairPath)}${fixFile ? ` fix=${fs.readFileSync(path.join(cwd, fixFile.split("=")[1]), "utf8")}` : ""}`);
 
     if (command === "RepairPDB") {
+      if (repairCrashes > 0) {
+        repairCrashes -= 1;
+        const crash = Object.assign(new Error("Command failed"), { signal: "SIGBUS", code: null });
+        queueMicrotask(() => callback(crash, "partial output", ""));
+        return { pid: undefined };
+      }
       if (repairWritesNothing) { callback(null, "RepairPDB done, no file", ""); return; }
       fs.writeFileSync(repairPath, fs.readFileSync(path.join(cwd, pdbArg), "utf8") + "\nREMARK  99 REPAIRED\n");
     } else if (command === "BuildModel") {
@@ -218,6 +226,7 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     foldxLog.length = 0;
     rejectCachedInput = "none";
     repairWritesNothing = false;
+    repairCrashes = 0;
     repairedStructureCache.clear();
     mutantCache.clear();
   });
@@ -445,6 +454,25 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     expect(foldxLog.filter(line => line.startsWith("BuildModel"))).toHaveLength(1);
     // A user abort is not evidence that repaired coordinates are bad.
     expect(Boolean(await getRepairedStructureFromCache(key))).toBe(failure === "abort");
+  });
+
+  it("runs a repair that a crash signal killed once more, and keeps the repaired template", async () => {
+    // A FoldX process dies with SIGBUS when its binary is rewritten under it; the next run is fine.
+    repairCrashes = 1;
+    const result = await runFoldx(makeWildTypePdb("CRASH-ONCE"), []);
+    expect(foldxLog.filter(l => l.startsWith("RepairPDB"))).toHaveLength(2);
+    expect(result.energetics.foldxRepairFailed).toBe(false);
+  });
+
+  it("does not try a crashed repair a third time", async () => {
+    repairCrashes = 2;
+    const pdb = makeWildTypePdb("CRASH-TWICE");
+    const result = await runFoldx(pdb, []);
+    expect(foldxLog.filter(l => l.startsWith("RepairPDB"))).toHaveLength(2);
+    expect(result.energetics.foldxRepairFailed).toBe(true);
+    // The failure is remembered per structure; forget it so the next test repairs this structure again.
+    const pdbHash = crypto.createHash("sha256").update(cleanPdbForFoldX(pdb)).digest("hex");
+    clearRepairFailure(getRepairCacheKey(pdbHash, { seed: 12345 }));
   });
 
   it("does not invoke RepairPDB a second time for a different variant on the same structure", async () => {
