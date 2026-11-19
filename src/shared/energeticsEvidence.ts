@@ -451,8 +451,11 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   const protvarValue = num(e?.protvar);
   const protvarPlddt = num(e?.protvarPlddt);
   const protvarModel = typeof e?.protvarModel === "string" ? e.protvarModel : null;
+  // The local run has ended without a value only once FoldX reports a final status, or the whole job
+  // is over. While it still works, ProtVar keeps its own row rather than taking FoldX's place.
+  const localFoldxEnded = !isFolding || input.foldingStatus === "failed" || input.foldingStatus === "unavailable";
   const standIn: FoldxStandIn | null =
-    localFoldxMean === null && localFoldxDdg === null && protvarValue !== null && prov?.source === "alphafold"
+    localFoldxEnded && localFoldxMean === null && localFoldxDdg === null && protvarValue !== null && prov?.source === "alphafold"
       ? { model: protvarModel, plddt: protvarPlddt }
       : null;
 

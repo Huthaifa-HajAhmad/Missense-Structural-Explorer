@@ -35,6 +35,7 @@
  */
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
+import { otherRefusedChainsText } from "./refusedTemplate";
 import {
   LOCAL_ALIGNMENT_FIT_WINDOW,
   LOCAL_STRUCTURAL_WINDOW,
@@ -70,7 +71,7 @@ export interface CoordinateProvenance {
   /** Where a kept experimental chain departs from UniProt ("D86G (engineered mutation)"). */
   sequenceDifferences?: string[] | null;
   /** The experimental entry a mutating engine refused because it is not the wild type (or could not be verified as one). */
-  excludedExperimental?: { pdbId: string; chainId?: string | null; differences: string[]; unverified?: boolean } | null;
+  excludedExperimental?: { pdbId: string; chainId?: string | null; differences: string[]; unverified?: boolean; otherChainsRefused?: number } | null;
 }
 
 /** The engine ids the `/esmfold` route reports (`server/services/structure/esmfold.ts`). */
@@ -559,6 +560,7 @@ export function identifyFromProvenance(
             ? `used because ${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""} could not be checked against UniProt`
             : `used because ${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""} is not the wild type: ${refused.differences.join(", ")}`
           : null,
+        refused ? otherRefusedChainsText(refused) : null,
       ].filter(Boolean).join(" · "),
       href: acc ? `https://alphafold.ebi.ac.uk/entry/${acc}` : null,
       channel: plddtChannel(100, "AlphaFold"),
@@ -1249,7 +1251,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       title: refusedTemplate.unverified ? "The experimental entry could not be verified as the wild type" : "The experimental entry is not the wild type",
       body: refusedTemplate.unverified
         ? `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} could not be checked against UniProt (the sequence was unavailable), so a mutating engine will not build on it. FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`
-        : `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} differs from UniProt at ${refusedTemplate.differences.join(", ")}, so a mutating engine cannot build on it. FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`,
+        : `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} differs from UniProt at ${refusedTemplate.differences.join(", ")}, so a mutating engine cannot build on it. ${otherRefusedChainsText(refusedTemplate)}${refusedTemplate.otherChainsRefused ? " " : ""}FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`,
     });
   }
   if (isAf && foldxTemplate && comparison.canvasWildTypeIsNotTemplate && effectiveMode !== "wildtype") {

@@ -509,6 +509,20 @@ describe("FoldX on two templates", () => {
       }
     });
 
+    it("does NOT apply while the local FoldX run is still working: ProtVar keeps its own row", () => {
+      // ProtVar's table answers within seconds; the local run can take minutes. Until the local run has
+      // ended without a value there is nothing for ProtVar to stand in for.
+      const ev = build({ foldx: null, foldxMean: null, protvar: 1.9, structureProvenance: alphafold }, { isFolding: true, foldingStatus: null });
+      expect(ev.foldxStandIn).toBeNull();
+      expect(ev.readings.find(r => r.key === "foldx")!.ddg).toBeNull();
+      expect(ev.readings.find(r => r.key === "protvar")!.ddg).toBe(1.9);
+    });
+
+    it("applies once the local run has ended without a value, even while other engines still work", () => {
+      const ev = build({ foldx: null, foldxMean: null, protvar: 1.9, structureProvenance: alphafold }, { isFolding: true, foldingStatus: "failed" });
+      expect(ev.foldxStandIn).not.toBeNull();
+    });
+
     it("does NOT apply when the template is unknown", () => {
       expect(build({ foldx: null, protvar: 1.9 }).foldxStandIn).toBeNull();
     });

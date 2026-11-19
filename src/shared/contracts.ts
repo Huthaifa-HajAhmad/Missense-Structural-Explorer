@@ -148,7 +148,12 @@ export const structureProvenanceSchema = z.object({
        * fetched): the entry is then not known to be a mutant — only unverified. The screen must say
        * "could not be checked", never "is not the wild type".
        */
-      unverified: z.boolean().optional()
+      unverified: z.boolean().optional(),
+      /**
+       * Set when the local-quality rule examined several chains and none qualified: this entry is the
+       * first refused, and this many other examined chains were not usable either.
+       */
+      otherChainsRefused: z.number().int().nonnegative().optional()
     })
     .optional()
 });

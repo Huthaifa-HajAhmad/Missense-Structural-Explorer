@@ -52,16 +52,25 @@ describe("chooseBestChain", () => {
     const rows = Array.from({ length: 8 }, (_, i) => row(`${i + 1}abc`, "A", 1 + i * 0.1));
     const engineered = new Set(["1abc", "2abc", "3abc", "4abc"]);
     const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
-    const choice = await chooseBestChain(rows, 10, "R", verify, (r) => !engineered.has(r.pdb_id));
+    const choice = await chooseBestChain(rows, 10, "R", verify, (r) => (engineered.has(r.pdb_id) ? ["N239Y"] : []));
     expect(choice.best?.row.pdb_id).toBe("5abc");
     expect(choice.notWildType).toBe(4);
     expect(verify.mock.calls.length).toBeLessThanOrEqual(MAX_CHAINS_DOWNLOADED);
   });
 
+  it("names the first refused chain in the fixed order, with its differences, so the screen can say why", async () => {
+    // Listed out of order on purpose: the record must not depend on PDBe's order or on which download ends first.
+    const rows = [row("3ccc", "A", 1.5), row("1aaa", "A", 1.2), row("2bbb", "A", 1.3)];
+    const verify = async (r: BestStructureRow) => chain(r.chain_id);
+    const choice = await chooseBestChain(rows, 10, "R", verify, (r) => (r.pdb_id === "2bbb" ? [] : [`${r.pdb_id}-diff`]));
+    expect(choice.firstNotWildType).toEqual({ row: rows[1], differences: ["1aaa-diff"] });
+    expect(choice.best?.row.pdb_id).toBe("2bbb");
+  });
+
   it("stops downloading after a fixed number of chains even when few are eligible", async () => {
     const rows = Array.from({ length: 30 }, (_, i) => row(`${String(i).padStart(2, "0")}zz`, "A", 1 + i * 0.01));
     const verify = vi.fn(async (r: BestStructureRow) => chain(r.chain_id));
-    const choice = await chooseBestChain(rows, 10, "R", verify, () => false);
+    const choice = await chooseBestChain(rows, 10, "R", verify, () => ["N239Y"]);
     expect(choice.best).toBeNull();
     expect(verify).toHaveBeenCalledTimes(MAX_CHAINS_DOWNLOADED);
   });

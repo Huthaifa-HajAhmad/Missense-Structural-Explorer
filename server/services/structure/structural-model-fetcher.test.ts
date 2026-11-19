@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fetchStructuralModelData, isPdbMappingCompatibleWithContext } from "./structural-model-fetcher.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
+import { STRUCTURE_SELECTION_VERSION } from "./structure-fetcher.ts";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -54,29 +55,37 @@ const baseContext: ParsedVariantContext = {
 describe("isPdbMappingCompatibleWithContext", () => {
   it("accepts a mapping whose UniProt numbering can contain the residue", () => {
     expect(
-      isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 0, unpStart: 1, structStart: 1 }, { pos: 408 })
+      isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 0, unpStart: 1, structStart: 1, selection: STRUCTURE_SELECTION_VERSION }, { pos: 408 })
     ).toBe(true);
   });
 
   it("refuses a mapping numbered past the residue, a corrupt shift, and an unknown position", () => {
     expect(
-      isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 0, unpStart: 900, structStart: 1 }, { pos: 408 }),
+      isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 0, unpStart: 900, structStart: 1, selection: STRUCTURE_SELECTION_VERSION }, { pos: 408 }),
       "a structure whose numbering starts at 900 cannot contain residue 408"
     ).toBe(false);
 
     expect(
-      isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 5, unpStart: 100, structStart: 1 }, { pos: 408 }),
+      isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 5, unpStart: 100, structStart: 1, selection: STRUCTURE_SELECTION_VERSION }, { pos: 408 }),
       "the retained shift must equal unpStart - structStart, or every residue number is mislabelled"
     ).toBe(false);
 
-    expect(isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 0, unpStart: 1, structStart: 1 }, {})).toBe(false);
+    expect(isPdbMappingCompatibleWithContext({ pdbId: "2pah", chainId: "A", shift: 0, unpStart: 1, structStart: 1, selection: STRUCTURE_SELECTION_VERSION }, {})).toBe(false);
     expect(isPdbMappingCompatibleWithContext(null, { pos: 408 })).toBe(false);
+  });
+
+  it("refuses a mapping chosen under an older structure rule, so a saved analysis cannot replay a chain the rule now refuses", () => {
+    // Analyses are kept for 30 days; one saved before the local-quality rule carries TP53's 9R2Q:K.
+    const current = { pdbId: "9r2q", chainId: "K", shift: 0, unpStart: 1, structStart: 1 };
+    expect(isPdbMappingCompatibleWithContext(current, { pos: 175 })).toBe(false);
+    expect(isPdbMappingCompatibleWithContext({ ...current, selection: "select-v3" }, { pos: 175 })).toBe(false);
+    expect(isPdbMappingCompatibleWithContext({ ...current, selection: STRUCTURE_SELECTION_VERSION }, { pos: 175 })).toBe(true);
   });
 
   it("falls back to the context's residueIndex when no numeric position is carried", () => {
     // `shift` must equal unpStart - structStart, so these fixtures are internally consistent
     // (400 - 1 = 399). The only property under test is whether the residue is covered.
-    const mapping = { pdbId: "2pah", chainId: "A", shift: 399, unpStart: 400, structStart: 1 };
+    const mapping = { pdbId: "2pah", chainId: "A", shift: 399, unpStart: 400, structStart: 1, selection: STRUCTURE_SELECTION_VERSION };
     expect(isPdbMappingCompatibleWithContext(mapping, { residueIndex: "408" })).toBe(true);
     expect(isPdbMappingCompatibleWithContext(mapping, { residueIndex: "300" })).toBe(false);
   });
@@ -102,7 +111,7 @@ describe("fetchStructuralModelData", () => {
     const { fetchBestPdbStructure } = await import("../external.ts");
     vi.mocked(fetchBestPdbStructure).mockClear();
 
-    const mapping = { pdbId: "2pah", chainId: "A", shift: 0, unpStart: 1, structStart: 1 };
+    const mapping = { pdbId: "2pah", chainId: "A", shift: 0, unpStart: 1, structStart: 1, selection: STRUCTURE_SELECTION_VERSION };
     const result = await fetchStructuralModelData(baseContext, null, null, 5_000, { pdbMapping: mapping });
 
     expect(fetchBestPdbStructure).not.toHaveBeenCalled();
@@ -114,7 +123,7 @@ describe("fetchStructuralModelData", () => {
     vi.mocked(fetchBestPdbStructure).mockClear();
     vi.mocked(fetchPdbFromRcsb).mockClear();
 
-    const stale = { pdbId: "1xyz", chainId: "B", shift: 0, unpStart: 900, structStart: 1 };
+    const stale = { pdbId: "1xyz", chainId: "B", shift: 0, unpStart: 900, structStart: 1, selection: STRUCTURE_SELECTION_VERSION };
     const result = await fetchStructuralModelData(baseContext, null, null, 5_000, { pdbMapping: stale });
 
     expect(fetchBestPdbStructure, "an unusable mapping must not be taken as final").toHaveBeenCalledWith("P00439", 408);

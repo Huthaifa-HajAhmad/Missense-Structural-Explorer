@@ -3,6 +3,7 @@ import { ExternalLink, GitBranch } from "lucide-react";
 import type { EnergyUnit } from "../../shared/engineStatus";
 import { AGREEMENT_CHIP, absenceText, listNames, signedDdg, type EnergeticsEvidence } from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import { otherRefusedChainsText } from "../../shared/refusedTemplate";
 
 type StepState = "done" | "warn" | "idle";
 
@@ -72,6 +73,7 @@ export function EnergeticsRuleTrace({ evidence, unit }: { evidence: EnergeticsEv
                   `the ${structure.label.toLowerCase()}`
                 )}
                 .
+                {structure.excludedExperimental.otherChainsRefused ? ` ${otherRefusedChainsText(structure.excludedExperimental)}` : ""}
               </span>
             )}
             {structure && structure.sequenceDifferences.length > 0 && (

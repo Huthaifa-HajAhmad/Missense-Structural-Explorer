@@ -34,6 +34,19 @@ describe("queue hold", () => {
     expect(q.getHold()).toBeNull();
   });
 
+  it("is not held, and does not warn, when there is nothing waiting to start", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const q = new SQLiteQueue(":memory:", 2, async () => "ok");
+      open.push(q);
+      await tick(1_300);
+      expect(q.getHold()).toBeNull();
+      expect(warn.mock.calls.some(([m]) => String(m).includes("High memory pressure"))).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("gives a queued job the same position in the jobs list as in its own poll", async () => {
     freeRam.bytes = 8 * 1024 ** 3;
     const previous = process.env.BIOPHYSICAL_CONCURRENCY;

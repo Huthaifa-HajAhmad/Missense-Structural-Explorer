@@ -1291,7 +1291,17 @@ export class SQLiteQueue {
     while (this.runningCount < this.concurrency) {
       if (this.isShutdown || this.processingPaused) return;
 
-      // Check container-aware memory pressure (backpressure protection)
+      const row = this.pickNext(this.serverFoldxCoresRunning() >= resolveFoldxConcurrency());
+
+      if (!row) {
+        // Nothing is waiting, so nothing is held back. A standby may enqueue into the shared database
+        // without waking this process.
+        this.hold = null;
+        this.scheduleNext(1000);
+        return;
+      }
+
+      // Check container-aware memory pressure (backpressure protection), only when a job would start.
       const freeMem = freeRamBytes();
       const memoryLimit = CONFIG.memory.minFreeBytes;
       if (freeMem < memoryLimit) {
@@ -1301,14 +1311,6 @@ export class SQLiteQueue {
         return;
       }
       this.hold = null;
-
-      const row = this.pickNext(this.serverFoldxCoresRunning() >= resolveFoldxConcurrency());
-
-      if (!row) {
-        // A standby may enqueue into the shared database without waking this process.
-        this.scheduleNext(1000);
-        return;
-      }
 
       const jobId = row.id;
       const type = row.type;

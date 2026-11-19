@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { signedDdg, type EnergeticsEvidence, type EnergeticsReading } from "../../shared/energeticsEvidence";
 import type { EnergyUnit } from "../../shared/engineStatus";
 import { returnedEnergyEstimates } from "../../shared/energeticsComparison";
+import { otherRefusedChainsText } from "../../shared/refusedTemplate";
 
 /** Engines as a tally: one segment per engine, grouped by call, each name once. */
 const TALLY_GROUPS = [
@@ -120,6 +121,7 @@ export function StructureFact({ evidence }: { evidence: EnergeticsEvidence }) {
           {s.excludedExperimental.unverified
             ? "it could not be checked against UniProt."
             : `${s.excludedExperimental.differences.join(", ")} — not the wild type.`}
+          {s.excludedExperimental.otherChainsRefused ? ` ${otherRefusedChainsText(s.excludedExperimental)}` : ""}
         </span>
       )}
       {s.sequenceDifferences.length > 0 && (

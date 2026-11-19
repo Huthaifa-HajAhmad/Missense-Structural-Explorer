@@ -35,6 +35,8 @@ import {
   fetchBestPdbStructure,
   fetchAlphafoldPdb,
   fetchPdbFromRcsb,
+  selectionRefusal,
+  STRUCTURE_SELECTION_VERSION,
   fetchPdbHomologs,
   fetchVerifiedExperimentalChain,
   selectionWasIncomplete,
@@ -121,6 +123,9 @@ const structureResolutionCache = new LRUCache<string, ChosenStructure>({
 });
 defaultCacheRegistry.registerCache("structureResolution", structureResolutionCache, { ttlDesc: "6h" });
 
+/** Sequence identity at or above which a homolog-search hit is the same protein, not a homolog. */
+const SAME_PROTEIN_IDENTITY_PCT = 95;
+
 /**
  * Walks the ladder ONCE and returns the choice together with the coordinates it was made from.
  *
@@ -132,6 +137,8 @@ async function probeStructure(uniprotId: string, pos?: number, options: ResolveS
   // ─── Tier 1: PDBe best experimental structure (direct UniProt mapping) ────────
   try {
     const pdbMapping = await fetchBestPdbStructure(uniprotId, pos);
+    // No chain was offered because every examined one was refused: the model used instead says why.
+    if (!pdbMapping) excluded = selectionRefusal(uniprotId, pos) ?? undefined;
     if (pdbMapping) {
       /**
        * The chain is offered only after residue-by-residue verification against the UniProt sequence.
@@ -247,19 +254,20 @@ async function probeStructure(uniprotId: string, pos?: number, options: ResolveS
         continue;
       }
       /**
-       * requireWildType: the entry the Tier-1 gate refused must not re-enter through the homolog
-       * door. The RCSB search is per-protein, so a refused same-protein crystal (1R3S) sits at the
-       * top of this ranking; serving it here would hand a mutating engine the exact mutant
-       * background the gate exists to refuse — with a provenance record claiming it was refused.
+       * requireWildType: an entry of the same protein never enters through the homolog door. The RCSB
+       * search is per-protein, so the crystals Tier 1 refused (1R3S, the D86G mutant), and the ones its
+       * rule refused or never downloaded (TP53's engineered constructs), sit at the top of this ranking.
+       * Serving one would hand a mutating engine the mutant background Tier 1 exists to refuse, under a
+       * "homolog" label. A same-protein chain is Tier 1's to judge, so it is refused here by identity.
        *
        * A genuinely different protein (a homolog at a clearly lower identity) is kept: it is
        * disclosed as a homolog with its identity %, and a background that differs from UniProt is
        * intrinsic to what a homolog template is.
        */
-      if (options.requireWildType && excluded && best.pdbId.toUpperCase() === excluded.pdbId) {
+      if (options.requireWildType && (best.identity ?? 0) >= SAME_PROTEIN_IDENTITY_PCT) {
         console.warn(
-          `[resolveStructure] Tier 3: ${excluded.pdbId} was refused at Tier 1 (not the wild type: ` +
-          `${excluded.differences.join(", ") || "unverified"}); it is not re-admitted as a "homolog".`
+          `[resolveStructure] Tier 3: ${best.pdbId.toUpperCase()} is the same protein (${best.identity}% identity); ` +
+          `a mutating engine takes the same protein only from Tier 1, so it is not used as a "homolog".`
         );
         continue;
       }
@@ -374,7 +382,7 @@ export async function resolveStructure(
   // The wild-type requirement changes the answer, so it is part of the memo's key.
   // `select-v4`: the experimental chain is chosen by local quality (STRUCTURE_SELECTION_RULE.md); choices
   // remembered under the earlier rule must not be served for six hours after the change.
-  const memoKey = `structure-resolution:select-v4:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
+  const memoKey = `structure-resolution:${STRUCTURE_SELECTION_VERSION}:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
 
   /**
    * The coordinates the probe just fetched, captured per CALL rather than per module.

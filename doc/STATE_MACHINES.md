@@ -69,7 +69,7 @@ States: `queued`, `running`, `completed`, `failed`. `completed` and `failed` are
 | --- | --- | --- | --- |
 | (none) | `queued` | submit | `addJob` |
 | `queued` | `running` | the server picks the job (a FoldX job only when a FoldX slot is free, R9) | `processQueue` → `pickNext` |
-| `queued` | `queued` | no job starts while available memory (`freeRamBytes`, `services/infra/available-memory.ts`: the kernel's available memory, leaving out reclaimable file cache) is below `MIN_FREE_MEMORY_MB` (500); the queue checks again shortly and reports `getHold()` = `"memory"` (poll `queueHold`, jobs list `hold`, both via `holdFor`, which leaves jobs placed on a paired computer out), so no start time is promised. The hold is the scheduling process's own: during a handover the standby reports none | `processQueue` |
+| `queued` | `queued` | no job starts while available memory (`freeRamBytes`, `services/infra/available-memory.ts`: the kernel's available memory, leaving out reclaimable file cache) is below `MIN_FREE_MEMORY_MB` (500); the queue checks again shortly and reports `getHold()` = `"memory"` (poll `queueHold`, jobs list `hold`, both via `holdFor`, which leaves jobs placed on a paired computer out), so no start time is promised. The hold is the scheduling process's own: during a handover the standby reports none. Memory is checked only when a job would start, so an idle queue is never reported held | `processQueue` |
 | `queued` | `running` | a paired computer claims it | `claimForAgent` |
 | `queued` | `failed` | corrupt job payload JSON | `processQueue`, `claimForAgent` |
 | `queued` | `failed` | a learned memory ceiling refuses it | `processQueue` |

@@ -27,6 +27,8 @@ vi.mock("./structure-fetcher.ts", () => ({
   fetchPdbHomologs: vi.fn(),
   fetchVerifiedExperimentalChain: vi.fn(),
   getResolvedAlphafoldVersion: vi.fn(() => "v4"),
+  STRUCTURE_SELECTION_VERSION: "select-v4",
+  selectionRefusal: vi.fn(() => null),
   selectionWasIncomplete: vi.fn(() => false)
 }));
 

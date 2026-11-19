@@ -4,6 +4,7 @@ import {
   fetchPdbFromRcsb,
   type PdbBestStructureMapping
 } from "../external.ts";
+import { STRUCTURE_SELECTION_VERSION } from "./structure-fetcher.ts";
 import { fetchEsm3StructureEval, type ESM3StructureEvalResult } from "../external-api/esm3_forge.ts";
 import { runEsmcAnalysis, type EsmcEvalResult, type ModelEvalError } from "../external-api/esmc.ts";
 import { runEsm2Analysis } from "../external-api/esm2.ts";
@@ -68,6 +69,8 @@ export function isPdbMappingCompatibleWithContext(
   context: { pos?: number | null; residueIndex?: string | null }
 ): boolean {
   if (!mapping || !mapping.pdbId || !mapping.chainId) return false;
+  // A chain chosen under an earlier rule may be one the rule now refuses (TP53's 9R2Q:K): choose again.
+  if (mapping.selection !== STRUCTURE_SELECTION_VERSION) return false;
 
   const unpStart = mapping.unpStart;
   const structStart = mapping.structStart;

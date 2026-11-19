@@ -36,6 +36,8 @@ export interface BestChainOutcome {
   notWildType: number;
   /** Examined chains that did not verify against UniProt (a mismatch, or a lookup that failed). */
   unverified: number;
+  /** The first chain, in the examination order, refused as not the wild type, and how it differs. */
+  firstNotWildType: { row: BestStructureRow; differences: string[] } | null;
 }
 
 const measured = (x: number | null | undefined) => (typeof x === "number" && Number.isFinite(x) ? x : null);
@@ -54,7 +56,8 @@ export async function chooseBestChain(
   position: number,
   wildType: string,
   verify: (row: BestStructureRow) => Promise<string | null>,
-  isWildType: (row: BestStructureRow, pdbText: string) => boolean = () => true
+  /** How the chain differs from the UniProt wild type ("N239Y"); empty for a wild-type chain. */
+  sequenceDifferences: (row: BestStructureRow, pdbText: string) => string[] = () => []
 ): Promise<BestChainOutcome> {
   // Sorted before duplicates collapse, so the same row survives whatever order PDBe returned.
   const distinct: BestStructureRow[] = [];
@@ -67,20 +70,32 @@ export async function chooseBestChain(
   let examined = 0;
   let notWildType = 0;
   let unverified = 0;
+  // Keyed by examination index, so the first refused chain does not depend on which download ends first.
+  let firstNotWildType: { index: number; row: BestStructureRow; differences: string[] } | null = null;
   // In batches, in the fixed order, until enough eligible chains are found or the download cap is reached.
   while (eligible.length < MAX_CHAINS_EXAMINED && examined < Math.min(distinct.length, MAX_CHAINS_DOWNLOADED)) {
     // Only as many as the eligible slots still open, so a chain past the first four eligible never competes.
     const batch = distinct.slice(examined, Math.min(examined + MAX_CHAINS_EXAMINED - eligible.length, MAX_CHAINS_DOWNLOADED));
     examined += batch.length;
-    const results = await Promise.all(batch.map(async row => {
+    const batchStart = examined - batch.length;
+    const results = await Promise.all(batch.map(async (row, i) => {
       const pdbText = await verify(row).catch(() => null);
       if (!pdbText) { unverified += 1; return null; }
-      if (!isWildType(row, pdbText)) { notWildType += 1; return null; }
+      const differences = sequenceDifferences(row, pdbText);
+      if (differences.length > 0) {
+        notWildType += 1;
+        if (!firstNotWildType || batchStart + i < firstNotWildType.index) firstNotWildType = { index: batchStart + i, row, differences };
+        return null;
+      }
       const quality = scoreLocalQuality(pdbText, row.chain_id, position, wildType);
       return quality ? { row, quality: { ...quality, pdbId: row.pdb_id.toLowerCase(), chainId: row.chain_id, resolution: measured(row.resolution), coverage: measured(row.coverage) } } : null;
     }));
     for (const r of results) if (r) eligible.push(r);
   }
   const best = eligible.sort((a, b) => compareChainCandidates(a.quality, b.quality))[0] ?? null;
-  return { best, examined, omitted: distinct.length - examined, notWildType, unverified };
+  const refused = firstNotWildType as { row: BestStructureRow; differences: string[] } | null;
+  return {
+    best, examined, omitted: distinct.length - examined, notWildType, unverified,
+    firstNotWildType: refused ? { row: refused.row, differences: refused.differences } : null,
+  };
 }

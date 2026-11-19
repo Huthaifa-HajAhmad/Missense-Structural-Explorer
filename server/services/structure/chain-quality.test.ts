@@ -36,6 +36,14 @@ describe("scoreLocalQuality", () => {
     expect(scoreLocalQuality(pdb, "A", 10, "R")!.targetComplete).toBe(false);
   });
 
+  it("reads only the first model of a multi-model (NMR) file, the one FoldX builds on", () => {
+    // Model 1 lacks the target's guanidinium group; model 2 has it. Model 2 must not fill the gap.
+    const model1 = [residue("ALA", 9), residue("ARG", 10, "A", ["NH1", "NH2", "CZ"]), residue("VAL", 11)].flat();
+    const model2 = [residue("ALA", 9), residue("ARG", 10), residue("VAL", 11)].flat();
+    const pdb = ["MODEL        1", ...model1, "ENDMDL", "MODEL        2", ...model2, "ENDMDL", "END"].join("\n");
+    expect(scoreLocalQuality(pdb, "A", 10, "R")!.targetComplete).toBe(false);
+  });
+
   it("counts incomplete neighbours against the 90% mark", () => {
     const pdb = chainOf([residue("ALA", 9, "A", ["CB"]), residue("ARG", 10), residue("VAL", 11)]);
     const q = scoreLocalQuality(pdb, "A", 10, "R")!;

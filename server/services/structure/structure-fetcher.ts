@@ -4,9 +4,15 @@ import { fetchWithRetry } from "../infra/http-client.ts";
 import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "../infra/cache.ts";
 import { fetchUniprotSequence } from "../external-api/uniprot.ts";
 import { chooseBestChain, type BestStructureRow } from "./best-chain.ts";
-import { templateSequenceDifferences } from "./template-identity.ts";
+import { formatTemplateDifference, templateSequenceDifferences } from "./template-identity.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import type { PdbHomolog } from "../../../src/shared/contracts.ts";
+
+/**
+ * The version of the experimental-chain rule (doc/energetics-release/STRUCTURE_SELECTION_RULE.md). It is
+ * stamped on every chain choice, so a choice saved under an earlier rule is recognised and made again.
+ */
+export const STRUCTURE_SELECTION_VERSION = "select-v4";
 
 export interface PdbBestStructureMapping {
   pdbId: string;
@@ -14,6 +20,8 @@ export interface PdbBestStructureMapping {
   shift: number;
   unpStart: number;
   structStart: number;
+  /** The rule version this chain was chosen under; absent on a choice saved before versions were stamped. */
+  selection?: string;
 }
 
 function singleFlightPdb(key: string, fetcher: () => Promise<string | null>): Promise<string | null> {
@@ -157,6 +165,23 @@ export function getResolvedAlphafoldVersion(uniprotId: string): string | undefin
 /** UniProt:position pairs whose last chain examination could not complete; their fallback must not be remembered. */
 const incompleteSelections = new Set<string>();
 
+/** The chain refused as not the wild type when no examined chain qualified, kept so the model used instead can say why. */
+export interface SelectionRefusal {
+  pdbId: string;
+  chainId: string;
+  differences: string[];
+  /** The other examined chains, none of which qualified either. */
+  otherChainsRefused: number;
+}
+
+/** UniProt:position pairs whose last examination found no chain that qualifies, with the first one refused. */
+const refusedSelections = new Map<string, SelectionRefusal>();
+
+/** Why no experimental chain was offered for this variant, when the last examination refused them all. */
+export function selectionRefusal(uniprotId: string, pos: number | undefined): SelectionRefusal | null {
+  return pos === undefined ? null : refusedSelections.get(`${uniprotId.toUpperCase()}:${pos}`) ?? null;
+}
+
 /** Whether the last chain examination for this variant could not complete (see `rankByLocalQuality`). */
 export function selectionWasIncomplete(uniprotId: string, pos: number | undefined): boolean {
   return pos !== undefined && incompleteSelections.has(`${uniprotId.toUpperCase()}:${pos}`);
@@ -175,7 +200,7 @@ async function rankByLocalQuality(uniprotId: string, pos: number, rows: BestStru
     rows, pos, wildType,
     async row => (await fetchVerifiedExperimentalChain(row.pdb_id.toLowerCase(), row.chain_id, uniprotId, pos, row.unp_start, row.start))?.pdbText ?? null,
     // An engineered construct (stabilising mutations elsewhere in the chain) is not the wild type.
-    (row, pdbText) => templateSequenceDifferences(pdbText, row.chain_id, sequence).length === 0
+    (row, pdbText) => templateSequenceDifferences(pdbText, row.chain_id, sequence).map(formatTemplateDifference)
   );
   const counts = `examined ${outcome.examined}, not the wild type ${outcome.notWildType}, did not verify ${outcome.unverified}, not examined ${outcome.omitted}`;
   if (outcome.best) {
@@ -192,6 +217,17 @@ async function rankByLocalQuality(uniprotId: string, pos: number, rows: BestStru
     return "incomplete";
   }
   console.log(`[PDB Prioritizer] ${uniprotId} ${pos}: AlphaFold model used. None of the ${outcome.examined} experimental chains examined met the selection rule (${counts}).`);
+  const refused = outcome.firstNotWildType;
+  const selectionKey = `${uniprotId.toUpperCase()}:${pos}`;
+  if (!refused) refusedSelections.delete(selectionKey);
+  else {
+    refusedSelections.set(selectionKey, {
+      pdbId: refused.row.pdb_id.toUpperCase(),
+      chainId: refused.row.chain_id,
+      differences: refused.differences,
+      otherChainsRefused: outcome.examined - 1,
+    });
+  }
   return "none";
 }
 
@@ -232,6 +268,7 @@ export async function fetchBestPdbStructure(
     const ranked = pos !== undefined && covering.length ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
     if (pos !== undefined) {
       const selectionKey = `${validatedUniprot.toUpperCase()}:${pos}`;
+      if (ranked !== "none") refusedSelections.delete(selectionKey);
       if (ranked === "incomplete") incompleteSelections.add(selectionKey);
       else incompleteSelections.delete(selectionKey);
     }
@@ -248,7 +285,8 @@ export async function fetchBestPdbStructure(
         chainId: item.chain_id, 
         shift,
         unpStart: item.unp_start,
-        structStart: item.start
+        structStart: item.start,
+        selection: STRUCTURE_SELECTION_VERSION
       };
       bestPdbCache.set(cacheKey, mapping);
       return mapping;

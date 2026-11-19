@@ -35,10 +35,13 @@ interface Residue {
   atoms: Map<string, [number, number, number]>;
 }
 
-/** Residues of one chain, keyed by residue number (insertion codes kept apart), first alternate location only. */
+/** Residues of one chain in the first model, keyed by residue number (insertion codes kept apart), first alternate location only. */
 function readChain(pdbText: string, chainId: string): Map<string, Residue> {
   const residues = new Map<string, Residue>();
   for (const line of pdbText.split("\n")) {
+    // Only the first model of a multi-model (NMR) file: it is the one FoldX builds on, and a later model
+    // must not fill in atoms the first one lacks.
+    if (line.startsWith("ENDMDL")) break;
     if (!line.startsWith("ATOM") && !line.startsWith("HETATM")) continue;
     if (line.charAt(21) !== chainId) continue;
     const element = line.substring(76, 78).trim().toUpperCase();
