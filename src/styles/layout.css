@@ -1032,16 +1032,17 @@
 /* Narrow strip: drop verdict words, then micro-tracks and the source, then the
    title. Labels never drop — a bare number is not a reading — so when three
    labelled chips still do not fit, the chip row scrolls sideways instead. */
-/* Recovery has priority over repeated prose and decorative tracks, even in a nominally wide
+/* A chip with no reading keeps its verdict at every width: the verdict is the only thing that says why there is no value.
+   Recovery has priority over repeated prose and decorative tracks, even in a nominally wide
    strip. Keep measured values (each still opens its card); never overprint the actionable recovery chrome. */
-.variant-header:has(.vcs-runstate) .vcs-chip-verdict,
+.variant-header:has(.vcs-runstate) .vcs-chip-verdict:not([data-unmeasured]),
 .variant-header:has(.vcs-runstate) .vcs-mini,
 .variant-header:has(.vcs-runstate) .vcs-source { display: none; }
 .variant-header:has(.vcs-runstate) .vcs-chips { overflow-x: auto; scrollbar-width: none; }
 @container (min-width: 760px) {
   .variant-header:has(.vcs-runstate) .vcs-chips { flex-shrink: 0; }
 }
-@container (max-width: 980px) { .vcs-chip-verdict { display: none; } }
+@container (max-width: 980px) { .vcs-chip-verdict:not([data-unmeasured]) { display: none; } }
 @container (max-width: 900px) {
   .vcs-runstate[data-recovery-action="provide-allele"] .vcs-runstate-label { display: none; }
 }

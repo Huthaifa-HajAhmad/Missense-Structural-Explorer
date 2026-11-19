@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PredictorData } from "../../../../src/shared/contracts.ts";
-import { verifiedPopulationCoordinate } from "./allele-identity.ts";
+import { verifiedCandidateCoordinates, verifiedPopulationCoordinate } from "./allele-identity.ts";
 import { LOCUS_POLICY_VERSION } from "../../../../src/shared/locusResolution.ts";
 
 const healthy = { available: true, gnomadVariantId: "1-100-C-A", gnomadVariantAssembly: "GRCh38", source: "Ensembl VEP API" } as PredictorData;
@@ -23,5 +23,27 @@ describe("verified cohort allele identity", () => {
     expect(verifiedPopulationCoordinate({ ...healthy, locusResolution: {
       route: "fallback", canonicalBy: "dbnsfp-grch38", retryable: false, policyVersion: 2, failureKind, steps: [],
     } })).toBeNull();
+  });
+});
+
+describe("verified candidate alleles", () => {
+  const lifted = (id: string | null) => ({ id, grch37Id: null, canonicalBy: id ? "protvar" as const : null, retryable: false });
+  it("reads every candidate's GRCh38 coordinate, keeping each allele", () => {
+    expect(verifiedCandidateCoordinates([lifted("4-1804392-G-A"), lifted("4-1804392-G-C")])).toEqual([
+      { chrom: "4", pos: 1804392, ref: "G", alt: "A", assembly: "GRCh38" },
+      { chrom: "4", pos: 1804392, ref: "G", alt: "C", assembly: "GRCh38" },
+    ]);
+  });
+  it("gives none when any candidate has no verified GRCh38 position", () => {
+    expect(verifiedCandidateCoordinates([lifted("4-1804392-G-A"), lifted(null)])).toBeNull();
+  });
+  it.each(["4-1804392junk-G-A", "4-1804392-N-A", "4-1804392-G-G", "4-1804392-GG-A"])("gives none for the malformed id %s", id => {
+    expect(verifiedCandidateCoordinates([lifted("4-1804392-G-C"), lifted(id)])).toBeNull();
+  });
+  it.each(["4:1804392:G:C", "4-1804392-G>C"])("reads the id %s the way the single-allele path does", id => {
+    expect(verifiedCandidateCoordinates([lifted(id)])).toEqual([{ chrom: "4", pos: 1804392, ref: "G", alt: "C", assembly: "GRCh38" }]);
+  });
+  it("gives none for an empty list", () => {
+    expect(verifiedCandidateCoordinates([])).toBeNull();
   });
 });

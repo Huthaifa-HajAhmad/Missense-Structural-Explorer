@@ -159,7 +159,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
                       {m.value}
                     </span>
                     <MiniTrack metric={m} />
-                    <span className="vcs-chip-verdict" data-tone={m.tone}>
+                    <span className="vcs-chip-verdict" data-tone={m.tone} data-unmeasured={m.marker === null || undefined}>
                       {m.verdict}
                     </span>
                     {tag && <span className="vcs-chip-release">{tag}</span>}

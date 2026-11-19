@@ -333,6 +333,7 @@ export const REGIONAL_STATUS_WORDS: Record<string, string> = {
   "transcript-mismatch": "transcript not in the release",
   "failed-qc": "interval failed QC",
   "invalid-data": "invalid interval data",
+  "candidates-differ": "candidate alleles in different intervals",
   "no-regions": "no intervals for this transcript",
   "outside-region": "outside every interval",
 };

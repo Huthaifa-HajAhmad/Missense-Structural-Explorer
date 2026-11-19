@@ -61,6 +61,29 @@ describe("context strip", () => {
     expect(chips[0].querySelector(".vcs-mini-dot")).not.toBeNull();
   });
 
+  /**
+   * A chip with no reading has nothing but its verdict to say why. The strip hides verdicts beside a run state
+   * (e.g. "Several candidate alleles") to save room, so the chip must mark it as one to keep.
+   */
+  it("marks the verdict of a chip that has no reading, and only that one", () => {
+    const unverified = { ...clean, gnomadConstraint: { ...constraint, hasRegionalData: true, regionalStatus: "unverified-locus" } } as unknown as AnalysisResult;
+    render(<VariantHeader {...props(unverified)} />);
+    const chips = within(screen.getByRole("list", { name: "Gene constraint, gnomAD v4.1.2" })).getAllByRole("listitem");
+    const verdict = (chip: HTMLElement) => chip.querySelector(".vcs-chip-verdict")!;
+    const regional = chips.find(chip => chip.textContent?.includes("Regional O/E"))!;
+    expect(verdict(regional)).toHaveTextContent("Unverified locus");
+    expect(verdict(regional)).toHaveAttribute("data-unmeasured");
+    expect(verdict(chips[0])).not.toHaveAttribute("data-unmeasured");
+  });
+
+  it("says the candidate alleles fall in different intervals, instead of calling the data invalid", () => {
+    const split = { ...clean, gnomadConstraint: { ...constraint, hasRegionalData: true, regionalStatus: "candidates-differ" } } as unknown as AnalysisResult;
+    render(<VariantHeader {...props(split)} />);
+    const regional = within(screen.getByRole("list", { name: "Gene constraint, gnomAD v4.1.2" })).getAllByRole("listitem").find(chip => chip.textContent?.includes("Regional O/E"))!;
+    expect(regional).toHaveTextContent("Candidates differ");
+    expect(regional).not.toHaveTextContent("Invalid data");
+  });
+
   it("opens a reading's card on a click, and a second click closes it", () => {
     render(<VariantHeader {...props(clean)} />);
     const chip = screen.getByRole("button", { name: /^LOEUF/ });

@@ -52,6 +52,7 @@ import {
 import { CONFIG } from "../../config.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
 import { alleleCandidatesToQuery, fetchCandidateFrequencies } from "./candidate-frequencies.ts";
+import { fetchRefinedGeneConstraint } from "./candidate-constraint.ts";
 import { makeLocusRunner, speculativeCoordinateLocus, speculativeLocusMode } from "../prediction/predictors/speculative-locus.ts";
 
 /** The single-allele fields of a candidate run's gnomAD payload: empty, because no allele was selected. */
@@ -396,8 +397,7 @@ async function runCoreFetch(
     return null;
   });
   /** Built (not awaited) beside the gene-level read; merged below. */
-  const constraintRefinedPromise = locusRunner.run(locus => locus.then(pred =>
-    fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) }))
+  const constraintRefinedPromise = locusRunner.run(locus => locus.then(pred => fetchRefinedGeneConstraint(gene, pos, pred))
   ).catch(err => {
     console.warn("[Gnomad Constraint Warning] Failed to fetch the refined gnomad constraint:", err);
     return null;
