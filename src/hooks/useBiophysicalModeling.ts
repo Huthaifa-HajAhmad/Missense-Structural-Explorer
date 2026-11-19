@@ -13,7 +13,14 @@ import { computeStabilityConsensus } from "../shared/thresholds";
  * the screen. It also carried the retired probability fields forward; they are dropped here.
  */
 function withStabilityConsensus<T extends Record<string, any>>(merged: T): T {
-  const c = computeStabilityConsensus(merged);
+  // Read when the verdict is computed: this runs inside updaters that fire long after the hook rendered,
+  // and the pipeline (not this hook) writes the run state. Whether local FoldX is still working decides
+  // the ProtVar stand-in, so the stored verdict matches the one the screen computes.
+  const { primaryBiophysics, isFolding, foldingStatus } = useVariantAnalysisStore.getState();
+  const c = computeStabilityConsensus(merged, {
+    isFolding: primaryBiophysics?.isFolding ?? isFolding,
+    foldingStatus: primaryBiophysics?.foldingStatus ?? foldingStatus,
+  });
   const { consensusProbability: _p, consensusConfMin: _lo, consensusConfMax: _hi, ...rest } = merged as any;
   return {
     ...rest,

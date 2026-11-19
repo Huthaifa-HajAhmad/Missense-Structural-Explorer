@@ -135,6 +135,38 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     expect(energetics.consensusEnginesCounted).toBe(2);
   });
 
+  it("does not count ProtVar as FoldX in the stored verdict while local FoldX is still running", async () => {
+    const fetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "DONE", prediction: 1.5 })
+    });
+
+    renderHook(
+      () => useBiophysicalModeling({} as any, vi.fn(), {}, fetchWithAuth),
+      { wrapper }
+    );
+
+    // ProtVar answered within seconds; local FoldX has no value yet and is still working.
+    act(() => {
+      useVariantAnalysisStore.getState().setIsFolding(true);
+      useVariantAnalysisStore.getState().setFoldingEnergetics({
+        foldx: null, foldxMean: null, protvar: 1.9, structureProvenance: { source: "alphafold" }, pendingTools: ["ThermoMPNN"]
+      } as any);
+      useVariantAnalysisStore.getState().setThermompnnStatus("pending");
+      useVariantAnalysisStore.getState().setThermompnnJobId("tm-2");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const energetics = useVariantAnalysisStore.getState().foldingEnergetics as any;
+    expect(energetics.thermompnn).toBe(1.5);
+    // Only ThermoMPNN counts; ProtVar waits for local FoldX to end.
+    expect(energetics.consensusEnginesCounted).toBe(1);
+  });
+
   it("does not carry one job's 'still listening' flag onto a retried job", async () => {
     /**
      * Job 1 enters the slow "keep listening" mode (the provider answered UNAVAILABLE but retryable),

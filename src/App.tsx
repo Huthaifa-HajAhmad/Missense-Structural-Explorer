@@ -17,6 +17,8 @@ import { useRetiredEvidenceTabRedirect } from "./hooks/useRetiredEvidenceTabRedi
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import OnboardingModal, { hasCompletedOnboarding, type OnboardingPreset } from "./components/modals/OnboardingModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
+import { NewVersionBanner } from "./components/NewVersionBanner";
+import { useAppStale } from "./hooks/useAppStale";
 import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/VariantAnalysisContext";
 import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
@@ -28,6 +30,7 @@ import { invalidateCachedVariant } from "./services/pipeline/variantCache";
 export default function App() {
   const { actions } = useVariantAnalysis();
   const { fetchWithAuth } = useApiClient();
+  const appIsStale = useAppStale();
   const { state: consoleState, dispatch: consoleDispatch, pushErrorEntry } = useDevConsole();
   const {
     settings,
@@ -384,6 +387,8 @@ export default function App() {
             selectedResidueIndex={selectedResidueIndex}
             gene={gene}
           />
+
+          <NewVersionBanner stale={appIsStale} onReload={() => window.location.reload()} />
 
           {/* Floating Notifications Toast Container */}
           <NotificationToastContainer
