@@ -58,7 +58,7 @@ export function useAlphaGenomeRegion({ chrom, genomicPos, spliceProximity }: Alp
     }
     setLoading(true);
     setError(null);
-    (async () => {
+    void (async () => {
       try {
         const response = await fetchRef.current("/api/v1/alphagenome/region-saturation", {
           method: "POST",

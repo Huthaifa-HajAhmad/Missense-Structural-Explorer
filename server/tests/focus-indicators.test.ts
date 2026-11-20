@@ -172,7 +172,7 @@ describe("the real repository", () => {
     expect(without.allowed).toEqual([]);
     expect(without.violations).toHaveLength(annotated.allowed.length);
     // Line numbers shift when the annotation lines are removed, so the files are what is comparable.
-    expect(without.violations.map((v) => v.file).sort()).toEqual(annotated.allowed.map((a) => a.file).sort());
+    expect(without.violations.map((v) => v.file).sort((x, y) => x.localeCompare(y))).toEqual(annotated.allowed.map((a) => a.file).sort((x, y) => x.localeCompare(y)));
     expect(without.violations.every((v) => v.kind === "NO_REPLACEMENT")).toBe(true);
   });
 });

@@ -182,7 +182,7 @@ describe("biophysicalService", () => {
         state = typeof updater === "function" ? updater(state) : updater;
       });
 
-      fetchProgressiveLandscape(
+      void fetchProgressiveLandscape(
         { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
         mockApiClient,
         new AbortController().signal,
@@ -213,7 +213,7 @@ describe("biophysicalService", () => {
         state = typeof updater === "function" ? updater(state) : updater;
       });
 
-      fetchProgressiveStructuralAssessments(
+      void fetchProgressiveStructuralAssessments(
         { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
         mockApiClient,
         new AbortController().signal,

@@ -584,9 +584,8 @@ function VariantSearchPanel({
       evidenceTabsLoading: loadingEvidenceTabs
     });
     /**
-     * Display labels for the workflow states. "In Progress" was retired — it is in
-     * `LEGACY_ENGINE_LABELS` (`engineStatus.ts`), which bans it precisely because it implies waiting
-     * forever, and a stalled stage rendered with it looked identical to a working one.
+     * Display labels for the workflow states. "In Progress" is avoided because it implies waiting
+     * forever, and a stalled stage rendered with it looks identical to a working one.
      *
      * Callers branch on `rawStatus`, never on the display word.
      */
@@ -1186,7 +1185,7 @@ function VariantSearchPanel({
     const ro = body && typeof ResizeObserver !== "undefined" ? new ResizeObserver(consider) : null;
     if (ro && body) ro.observe(body);
     window.addEventListener("resize", onResize);
-    document.fonts?.ready?.then(() => { if (!disposed) consider(); });
+    void document.fonts?.ready?.then(() => { if (!disposed) consider(); });
     return () => {
       // A frame scheduled by this run must never write after it: `disposed` alone would leave the
       // callback to fire against refs a later run has replaced, so both are cancelled outright.

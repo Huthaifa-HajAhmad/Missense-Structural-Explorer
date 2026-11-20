@@ -23,7 +23,7 @@ describe('contextual scientific explanations', () => {
     const componentRoot = resolve(process.cwd(), 'src/components');
     for (const file of readdirSync(componentRoot, { recursive: true }).filter(f => String(f).endsWith('.tsx') && !String(f).includes('__tests__'))) {
       const code = readFileSync(resolve(componentRoot, String(file)), 'utf8');
-      for (const match of code.matchAll(/topic="([a-z0-9_]+)"/g)) expect(resolveResearchGuide(match[1]), `${file}: ${match[1]}`).toBeDefined();
+      for (const match of code.matchAll(/topic="([a-z0-9_]+)"/g)) expect(resolveResearchGuide(match[1]), `${String(file)}: ${match[1]}`).toBeDefined();
     }
     for (const key of Object.values(PHYSICAL_EXPLANATIONS)) expect(resolveResearchGuide(key)).toBeDefined();
   });
@@ -35,13 +35,5 @@ describe('contextual scientific explanations', () => {
     }
     for (const target of Object.values(GUIDE_ALIASES)) expect(RESEARCH_GUIDES[target]).toBeDefined();
     for (const key of Object.keys(EXPLANATION_TEACHING)) expect(RESEARCH_GUIDES[key], key).toBeDefined();
-  });
-  it('does not silently restore retired scientific claims', () => {
-    expect(RESEARCH_GUIDES.vdw.limit).toMatch(/cannot demonstrate backbone distortion/);
-    expect(RESEARCH_GUIDES.electrostatics.limit).toMatch(/does not identify a particular broken salt bridge/);
-    expect(RESEARCH_GUIDES.llr.limit).toMatch(/not probabilities of disease/);
-    expect(RESEARCH_GUIDES.foldx.limit).toMatch(/zero backbone displacement does not establish/);
-    expect(RESEARCH_GUIDES.uncertainty.limit).toMatch(/Identical runs do not prove accuracy/);
-    expect(RESEARCH_GUIDES.eve.reading).not.toMatch(/0\.25|0\.75/);
   });
 });

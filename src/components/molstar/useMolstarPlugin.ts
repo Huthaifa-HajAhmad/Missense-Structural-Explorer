@@ -221,7 +221,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
       }
     }
 
-    initPlugin();
+    void initPlugin();
 
     return () => {
       active = false;

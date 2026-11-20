@@ -176,7 +176,7 @@ function entryGeneSymbols(entry: unknown): string[] {
 function entryMatchesQuery(entry: unknown, gene: string, accession: string): true | string {
   const organism = (entry as { organism?: { taxonId?: unknown } } | null)?.organism;
   if (organism?.taxonId !== 9606) {
-    const taxon = organism?.taxonId ?? "unknown";
+    const taxon = String(organism?.taxonId ?? "unknown");
     return `UniProt entry ${accession} is not human (taxon ${taxon}).`;
   }
   const symbols = entryGeneSymbols(entry);

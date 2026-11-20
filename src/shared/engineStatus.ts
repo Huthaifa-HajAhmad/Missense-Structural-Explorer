@@ -1191,51 +1191,12 @@ export function describeProvenance(
 }
 
 // ---------------------------------------------------------------------------
-// Migration guardrail
+// Source scanning
 // ---------------------------------------------------------------------------
 
 /**
- * The ad-hoc status strings this module replaced. They must not reappear as string literals in
- * any Energetics surface: each one either duplicated another, described a state the code never
- * established, or leaked infrastructure naming to a clinical user.
- *
- * Only *unambiguous status labels* belong here. Taxonomy phrases such as "Graph Deep Learning /
- * Transformers" or "ProteinMPNN Embeddings / Deep Learning" are deliberately excluded because
- * they are legitimate `Type`-column text as well as having once been used as status strings —
- * including them would flag correct code. Consolidating those taxonomies onto
- * `ENERGY_ENGINES[].taxonomy` is tracked separately.
- */
-export const LEGACY_ENGINE_LABELS: readonly string[] = [
-  "Not in Zenodo DB",
-  "Upstream Congested",
-  "Coverage Limited",
-  "Unavailable (No Heuristics)",
-  "API Limit / Failed",
-  "Skipped by User",
-  "Not Installed (Mount Binary)",
-  "BioSig Queue / Unavailable",
-  "Not Available",
-  "Not Computed",
-  "Simulation Failed",
-  "Biophysical Simulation Failed",
-  "Repacking sidechains",
-  "Remote NMA Server",
-  "Initializing",
-  "Standby",
-  "Offline",
-  "Idle",
-  "In Progress",
-  "N/A",
-];
-
-export interface LegacyLabelHit {
-  label: string;
-  line: number;
-}
-
-/**
- * Removes comments while preserving line numbering, so a hit reports a usable line and a
- * comment that *documents* a legacy label is not itself a violation.
+ * Removes comments while preserving line numbering, so a reported line number stays
+ * usable and a comment is never mistaken for code.
  *
  * MUST be string-aware. The previous implementation was two regexes — `/\/\*[\s\S]*?\*\//g` then
  * `/\/\/.*$/gm` — and both were wrong in ways that made this scanner **blind** rather than noisy:
@@ -1303,32 +1264,4 @@ export function stripCommentsForScan(source: string): string {
   }
 
   return out;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Returns every legacy label present as a **string literal** in `source`, with its 1-based line
- * number.
- *
- * Matching is restricted to quoted text (single, double or backtick, on one line) so that:
- *   • a label embedded in a longer message is still caught ("Repacking sidechains..."),
- *   • an identifier that merely contains a label is not (the old `isAsyncOffline` variable),
- *   • a comment documenting the migration is not.
- *
- * JSX text nodes are out of scope; every legacy label in this codebase was a quoted value in a
- * badge/status object, which is what the guard is designed to protect.
- */
-export function findLegacyLabels(source: string): LegacyLabelHit[] {
-  const clean = stripCommentsForScan(source);
-  const hits: LegacyLabelHit[] = [];
-  clean.split("\n").forEach((line, index) => {
-    for (const label of LEGACY_ENGINE_LABELS) {
-      const quoted = new RegExp(`(["'\`])[^"'\`\\n]*${escapeRegExp(label)}[^"'\`\\n]*\\1`);
-      if (quoted.test(line)) hits.push({ label, line: index + 1 });
-    }
-  });
-  return hits;
 }

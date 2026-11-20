@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc"],
+  // Only the rules listed below run. Oxlint's own "correctness" group stays off, so an Oxlint upgrade cannot add
+  // rules and fail the build on its own.
+  "categories": { "correctness": "off" },
+  "ignorePatterns": [".e2e/**", "scratch/**", "temp_jobs/**", "dist/**", "coverage/**", "node_modules/**", "tools/**", ".*/**"],
+  "rules": {
+    // Only the checks for a promise used as a condition or spread stay on. Passing an async function where
+    // a plain one is expected (Express routes, React handlers) is how this app is written. A rejected async
+    // route is passed to the error handler by server/async-route-errors.ts.
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": false }],
+    "typescript/await-thenable": "error",
+    "typescript/require-array-sort-compare": "error",
+    "typescript/restrict-template-expressions": "error",
+    // A `default` branch counts as handling the other members: the switches here use it on purpose.
+    "typescript/switch-exhaustiveness-check": ["error", { "considerDefaultExhaustiveForUnions": true }],
+    "typescript/unbound-method": "error",
+    // `== null` is the one loose comparison kept: it tests for null and undefined together.
+    "eqeqeq": ["error", "always", { "null": "ignore" }]
+  },
+  "overrides": [
+    {
+      // The calibrated stability consensus is computed in one place on the server: enrichBiophysicalResult sees all
+      // six engines. A second computation over a smaller set made the exported verdict disagree with the screen.
+      // If a server file needs a consensus, take it from the enriched result instead of computing it again.
+      "files": ["server/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": ["error", { "patterns": [{ "group": ["**/thresholds", "**/thresholds.ts", "**/thresholds/*"], "importNames": ["computeStabilityConsensus", "computeConsensusVerdict"], "message": "The stability consensus is computed only in server/services/stability/energy-models.ts." }, { "group": ["**/stabilityConsensus", "**/stabilityConsensus.ts"], "message": "The stability consensus is computed only in server/services/stability/energy-models.ts." }] }]
+      }
+    },
+    {
+      "files": ["server/services/stability/energy-models.ts", "server/**/*.test.ts", "server/tests/**/*.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
+}

@@ -25,7 +25,7 @@ describe("queue hold", () => {
     await tick();
     expect(started).toEqual([]);
     expect(q.getHold()).toBe("memory");
-    expect((await q.listFor("X"))[0].hold).toBe("memory");
+    expect(q.listFor("X")[0].hold).toBe("memory");
     expect(q.holdFor("a")).toBe("memory");
 
     freeRam.bytes = 8 * 1024 ** 3;
@@ -59,7 +59,7 @@ describe("queue hold", () => {
       await q.addJob("p1", "p2rank", { name: "p1" }, { ownerId: "B" });
       await tick();
       await q.addJob("f2", "foldx", { name: "f2" }, { ownerId: "X" });
-      const listed = (await q.listFor("X")).find((j) => j.id === "f2")!;
+      const listed = q.listFor("X").find((j) => j.id === "f2")!;
       expect(listed.queuedAhead).toBe(q.getQueuePosition("f2"));
       expect(listed.queuedAhead).toBe(1);
       release.forEach((r) => r());

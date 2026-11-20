@@ -93,7 +93,7 @@ describe("requestBackgroundRepair under concurrent requests", () => {
     const pdb = structure("simultaneous");
     const [a, b] = await Promise.all([requestBackgroundRepair({ wtPdb: pdb }, h.deps), requestBackgroundRepair({ wtPdb: pdb }, h.deps)]);
     expect([a.status, b.status].sort()).toEqual(["already-known", "scheduled"]);
-    await Promise.all([a, b].map(r => (r.status === "scheduled" ? r.finished : undefined)));
+    await Promise.all([a, b].map(r => (r.status === "scheduled" ? r.finished : Promise.resolve())));
     expect(h.repairCalls).toBe(1);
     expect(backgroundRepairStatus()).toHaveLength(1);
   });
@@ -212,7 +212,7 @@ describe("requestBackgroundRepair, shared slot (no spare core)", () => {
     const a = await requestBackgroundRepair({ wtPdb: pdb, options: { pH: 7.4 } }, h.deps);
     const b = await requestBackgroundRepair({ wtPdb: pdb, options: { pH: 5 } }, h.deps);
     expect([a.status, b.status]).toEqual(["scheduled", "scheduled"]);
-    await Promise.all([a, b].map(r => (r.status === "scheduled" ? r.finished : undefined)));
+    await Promise.all([a, b].map(r => (r.status === "scheduled" ? r.finished : Promise.resolve())));
     expect(h.repairCalls).toBe(2);
   });
 
@@ -298,7 +298,7 @@ describe("requestBackgroundRepair, spare core", () => {
     await new Promise(resolve => setTimeout(resolve, 10));
     expect(h.repairCalls).toBe(1);
     release();
-    await Promise.all([a, b].map(r => (r.status === "scheduled" ? r.finished : undefined)));
+    await Promise.all([a, b].map(r => (r.status === "scheduled" ? r.finished : Promise.resolve())));
     expect([a.status, b.status]).toEqual(["scheduled", "scheduled"]);
     expect(h.repairCalls).toBe(2);
     expect(peak).toBe(1);

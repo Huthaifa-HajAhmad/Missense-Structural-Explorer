@@ -49,7 +49,7 @@ describe("createTimeoutScope", () => {
     const scope = createTimeoutScope();
 
     const never = new Promise<string>(() => {});
-    scope.race(never, 45_000);
+    void scope.race(never, 45_000);
     expect(scope.pending()).toBe(1);
 
     scope.dispose();

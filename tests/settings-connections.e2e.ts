@@ -68,6 +68,7 @@ test('an autofill write into the settings filter is refused and the box stays em
   const after = await browser.evaluate(() => {
     const input = document.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]')!;
     input.blur();
+    // oxlint-disable-next-line typescript/unbound-method -- the setter is called below with the input as `this`
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
     setValue.call(input, 'reviewer@example.test');
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText' }));

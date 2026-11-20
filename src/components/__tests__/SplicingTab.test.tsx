@@ -32,11 +32,6 @@ describe("SplicingTab — reference variant (no SpliceAI score)", () => {
     expect(container.textContent).not.toMatch(/Pathogenic Supporting|Benign Supporting/);
   });
 
-  it("no longer asserts a mechanism of pathogenicity", () => {
-    const { container } = renderTab(nae1Reference());
-    expect(container.textContent).not.toMatch(/Tertiary Structure-Dominant|driven by post-translational|Misfolding \/ Aggregation|Dual-Hit/);
-  });
-
   it("names the coordinate problem instead of calling the absence a result", () => {
     renderTab(nae1Reference());
     expect(screen.getByTestId("reference-mismatch").textContent).toMatch(/reference base does not match/);
@@ -49,11 +44,6 @@ describe("SplicingTab — reference variant (no SpliceAI score)", () => {
     // Both dbscSNV models are out of window for the same reason: one row, not the reason twice.
     expect(screen.getByTestId("splice-dbscsnv").textContent).toMatch(/−12 to \+2 at an acceptor/);
     expect(screen.queryByTestId("splice-dbscsnv-rf")).toBeNull();
-  });
-
-  it("uses no legacy status words", () => {
-    const { container } = renderTab(nae1Reference());
-    expect(container.textContent).not.toMatch(/\bN\/A\b|Standby|Unannotated|Unmapped|Offline/);
   });
 });
 

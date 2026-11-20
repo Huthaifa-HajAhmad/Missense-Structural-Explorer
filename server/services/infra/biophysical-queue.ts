@@ -1763,7 +1763,7 @@ export class BiophysicalJobQueue {
 
   static resetForTesting() {
     if (BiophysicalJobQueue.instance) {
-      BiophysicalJobQueue.instance.shutdown();
+      void BiophysicalJobQueue.instance.shutdown();
       BiophysicalJobQueue.instance = null;
     }
   }
@@ -2046,7 +2046,7 @@ export class BiophysicalJobQueue {
     );
     const settled = run.then(() => undefined, () => undefined);
     this.jobWriteChains.set(id, settled);
-    settled.then(() => {
+    void settled.then(() => {
       // Bounded: the chain entry is dropped once no further write is queued behind it.
       if (this.jobWriteChains.get(id) === settled) this.jobWriteChains.delete(id);
     });

@@ -116,4 +116,4 @@ async function runCanary(): Promise<void> {
   }
 }
 
-runCanary();
+void runCanary();

@@ -30,23 +30,11 @@ import {
   type StabilityVerdict,
 } from "../energeticsEvidence.ts";
 
-/** The closed set of verdicts. Kept under this name for the closed-set guard and older imports. */
+/** The closed set of verdicts. Kept under this name for older imports. */
 export const CONSENSUS_VERDICTS = STABILITY_VERDICTS;
 
 /** The closed set of verdicts, as a type. A comparison with any other literal fails `tsc` (TS2367). */
 export type ConsensusVerdict = StabilityVerdict;
-
-/** All verdict strings, for exhaustive iteration in tests and guards. */
-export const CONSENSUS_VERDICT_VALUES: readonly string[] = Object.values(CONSENSUS_VERDICTS);
-
-/**
- * True when `literal` is a legitimate way to inspect a verdict — a whole verdict or a fragment of one
- * (`includes("Disagree")`), matched case-sensitively as string comparisons are.
- */
-export function isConsensusVerdictFragment(literal: string): boolean {
-  if (!literal) return false;
-  return CONSENSUS_VERDICT_VALUES.some(verdict => verdict.includes(literal));
-}
 
 /** The engine values the consensus reads. Raw provider values: the sign is normalized per engine. */
 export interface StabilityConsensusInput {

@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 async function signedIn(email: string) {
-  const user = await createUser({ email, displayName: "Owner", passwordHash: await hashPassword(PASSWORD), role: "member", now: Date.now() });
+  const user = createUser({ email, displayName: "Owner", passwordHash: await hashPassword(PASSWORD), role: "member", now: Date.now() });
   const res = await fetch(`${base}/api/v1/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password: PASSWORD }) });
   const cookie = res.headers.getSetCookie().find((c) => c.startsWith("mse_session="))!.split(";")[0];
   return { id: user.id, cookie };

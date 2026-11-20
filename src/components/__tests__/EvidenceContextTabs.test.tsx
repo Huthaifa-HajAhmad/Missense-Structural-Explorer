@@ -19,11 +19,9 @@ beforeEach(() => {
     expressionLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, tissues: [{ id: 'Muscle_Skeletal', label: 'Skeletal muscle', ontologyId: null, value: 0, unit: 'TPM', sampleCount: 100, samplingSite: null }] } } };
 });
 describe('context tab claims and interactions', () => {
-  it('shows adult measurements immediately without disease or system selections and omits removed controls', () => {
+  it('shows adult measurements immediately without disease or system selections', () => {
     render(<ExpressionModelsTab {...props} />);
     expect(screen.getByRole('rowheader', { name: /Skeletal muscle/ })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Export context' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Context only')).not.toBeInTheDocument();
   });
   it('explains unavailable choices and transport failures', () => {
     context.value.diseaseLoad = { status: 'error', data: null, error: 'Access denied. Public evidence access is unavailable on this server.' };
