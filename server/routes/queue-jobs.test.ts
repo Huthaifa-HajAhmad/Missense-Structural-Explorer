@@ -68,7 +68,7 @@ async function call(method: string, path: string, opts: { cookie?: string; token
 }
 
 async function person(email: string, role: "admin" | "member" = "member") {
-  const user = await createUser({ email, displayName: email.split("@")[0], passwordHash: await hashPassword(PASSWORD), role, now: Date.now() });
+  const user = createUser({ email, displayName: email.split("@")[0], passwordHash: await hashPassword(PASSWORD), role, now: Date.now() });
   const login = await call("POST", "/auth/login", { body: { email, password: PASSWORD } });
   expect(login.status).toBe(200);
   return { id: user.id, cookie: login.cookie as string };

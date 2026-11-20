@@ -182,7 +182,7 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
       if (!res.ok) throw new Error(data.error?.message || data.error || `HTTP ${res.status}`);
       clearClientVariantCache();
       flashStatus("All server and client variant caches purged.");
-      refresh();
+      void refresh();
     } catch (err) {
       flashStatus(err instanceof Error ? err.message : "Server cache purge failed.");
     }
@@ -220,7 +220,7 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
               aria-label="Import settings JSON file"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) importSettings(file);
+                if (file) void importSettings(file);
                 e.target.value = "";
               }}
             />

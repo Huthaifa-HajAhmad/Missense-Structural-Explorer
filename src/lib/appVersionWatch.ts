@@ -15,8 +15,9 @@ export interface VersionWatch {
   check(): Promise<void>;
   /** Called for every answered request; a request refused as malformed may mean the page is out of date. */
   noteRejectedRequest(status: number): void;
-  isStale(): boolean;
-  subscribe(listener: (stale: boolean) => void): () => void;
+  /** Property form: neither reads `this`, so React may take them as bare functions. */
+  isStale: () => boolean;
+  subscribe: (listener: (stale: boolean) => void) => () => void;
 }
 
 /** Least time between checks started by refused requests, so a burst of failures reads the version once. */

@@ -234,7 +234,7 @@ export function healCachedAnalysisIfPossible(
     payload.ruleBasedInsights = updatedInsights;
 
     try {
-      persistVariantAnalysisPayload(context, payload, updatedInsights?.acmgVerdict || null);
+      void persistVariantAnalysisPayload(context, payload, updatedInsights?.acmgVerdict || null);
       console.log(`[Self-Healing] Successfully healed and re-saved analysis for ${context.gene} ${context.variant}`);
     } catch (err: any) {
       console.warn(`[Self-Healing Warning] Failed to persist healed analysis: ${err.message}`);

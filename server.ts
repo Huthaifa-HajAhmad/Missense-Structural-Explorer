@@ -138,7 +138,7 @@ async function startServer(): Promise<void> {
 
   // Start background janitor & load RaSP SQLite database
   runTempJobsJanitor();
-  initializeRaspDatabase();
+  void initializeRaspDatabase().catch((err) => console.error("[RaSP] The startup index check failed:", err));
 
   // Initialize job worker queue & ML model sidecar
   initBiophysicalJobQueue();
@@ -182,4 +182,8 @@ async function startServer(): Promise<void> {
 }
 
 keepRunningOnUnhandledRejection();
-startServer();
+startServer().catch((err) => {
+  // Without this the process stays alive but never listens, and the platform never restarts it.
+  console.error("[FATAL] The server could not start:", err);
+  process.exit(1);
+});

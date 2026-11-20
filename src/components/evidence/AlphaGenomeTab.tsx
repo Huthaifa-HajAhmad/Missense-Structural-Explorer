@@ -329,9 +329,11 @@ function AlphaGenomeTabBody({
   const openConnections = () => (onOpenSettings ? onOpenSettings() : openSettingsTab("connections"));
 
   const handleCopy = useCallback((text: string) => {
-    navigator.clipboard?.writeText(text).then(() => {
+    void navigator.clipboard?.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }, () => {
+      // The browser refused clipboard access: the button simply does not confirm a copy.
     });
   }, []);
 

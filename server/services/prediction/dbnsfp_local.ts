@@ -155,7 +155,7 @@ function currentProbe(): StoreProbe {
   // The env flag is part of the key: flipping ENABLE_LOCAL_DBNSFP must take effect without touching the file.
   const signature = `${stat ? `${stat.size}:${stat.mtimeMs}` : 'absent'}|off=${explicitlyDisabled()}`;
   if (probe && probe.path === dbPath && probe.signature === signature) return probe;
-  closeProbe();
+  void closeProbe();
   probe = buildProbe(dbPath, stat, signature);
   return probe;
 }

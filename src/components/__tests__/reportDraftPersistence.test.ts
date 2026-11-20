@@ -56,7 +56,7 @@ describe("identity-bound report drafts", () => {
     const { rerender, unmount } = renderHook(({ variant }) => useReportDraftPersistence("SOD1", "P00441", variant), { initialProps: { variant: "p.Ala5Val" } });
     act(() => useVariantAnalysisStore.getState().setReportEdit("notes", "Variant A notes", ""));
     rerender({ variant: "p.Gly94Ala" });
-    act(() => vi.advanceTimersByTime(350));
+    act(() => { vi.advanceTimersByTime(350); });
     expect(readReportDraft(a)?.edits.notes?.text).toBe("Variant A notes");
     expect(readReportDraft(b)?.meta.title).toBe("Variant B");
     expect(readReportDraft(b)?.edits.notes?.text).toBe("");
@@ -68,7 +68,7 @@ describe("identity-bound report drafts", () => {
     vi.useFakeTimers();
     const blocked = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Blocked"); });
     const { unmount } = renderHook(() => useReportDraftPersistence("SOD1", "P00441", "p.Ala5Val"));
-    act(() => vi.advanceTimersByTime(350));
+    act(() => { vi.advanceTimersByTime(350); });
     expect(useVariantAnalysisStore.getState().reportDraftStatus).toBe("session-only");
     unmount();
     blocked.mockRestore();
@@ -177,7 +177,7 @@ describe("identity-bound report drafts", () => {
     const { unmount } = renderHook(() => useReportDraftPersistence("SOD1", "P00441", "p.Ala5Val"));
     act(() => useVariantAnalysisStore.getState().loadReportDraft(draft()));
     act(() => setResult(a));
-    act(() => vi.advanceTimersByTime(350));
+    act(() => { vi.advanceTimersByTime(350); });
     expect(currentDraft()).toEqual(draft());
     expect(readReportDraft(keys(a).key)).toEqual(saved);
     expect(useVariantAnalysisStore.getState().reportDraftRecovery?.saved).toEqual(saved);
@@ -185,7 +185,7 @@ describe("identity-bound report drafts", () => {
       if (choice === "saved") useVariantAnalysisStore.getState().loadReportDraft(saved);
       useVariantAnalysisStore.getState().setReportDraftRecovery(null);
     });
-    act(() => vi.advanceTimersByTime(350));
+    act(() => { vi.advanceTimersByTime(350); });
     expect(readReportDraft(keys(a).key)).toEqual(choice === "saved" ? saved : draft());
     expect(readReportDraft(keys(a).baseKey)).toBeNull();
     unmount();
