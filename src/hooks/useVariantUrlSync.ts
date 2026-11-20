@@ -15,7 +15,8 @@ export function useVariantUrlSync(): void {
   const analysisResult = useVariantAnalysisStore(s => s.analysisState.result);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    // Keep the incoming allele until the reload effect has read it and a result is available.
+    if (typeof window === "undefined" || !analysisResult) return;
     try {
       const next = withVariantParams(
         window.location.href,

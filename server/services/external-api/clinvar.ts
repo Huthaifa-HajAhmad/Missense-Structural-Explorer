@@ -32,11 +32,14 @@ function contigOfRefSeq(accession: string): string | null {
  * Whether a summary's variation_set describes exactly this allele.
  * `null` = the summary states no comparable SPDI (cannot verify); true/false otherwise.
  */
-function entryDescribesAllele(entry: any, coordinate: ClinVarAlleleCoordinate): boolean | null {
-  const set: any[] = Array.isArray(entry?.variation_set) ? entry.variation_set : [];
+function entryDescribesAllele(
+  entry: { variation_set?: Array<{ canonical_spdi?: string }> },
+  coordinate: ClinVarAlleleCoordinate
+): boolean | null {
+  const set = entry.variation_set ?? [];
   let comparable = false;
   for (const v of set) {
-    const [seq, position, del, ins] = String(v?.canonical_spdi ?? "").split(":");
+    const [seq, position, del, ins] = (v.canonical_spdi ?? "").split(":");
     const contig = seq ? contigOfRefSeq(seq) : null;
     if (!contig || !/^[ACGT]$/i.test(del ?? "") || !/^[ACGT]$/i.test(ins ?? "")) continue;
     comparable = true;
@@ -296,16 +299,16 @@ export async function fetchClinVarData(
         }
       }
     }
-    // Exact-allele gate: a record that states a different GRCh38 allele is never this variant's record.
-    if (isMatch && alleleCoordinate && !isDirectIdSearch && entryDescribesAllele(entry, alleleCoordinate) === false) {
-      isMatch = false;
-    }
     if (isMatch) {
       matchingEntries.push({ id, entry, cleanTitle: title });
     }
   }
 
-  if (matchingEntries.length === 0) {
+  // Selecting this allele requires a verified match. Other protein matches remain available for PS1.
+  const alleleEntries = alleleCoordinate
+    ? matchingEntries.filter(({ entry }) => entryDescribesAllele(entry, alleleCoordinate) === true)
+    : matchingEntries;
+  if (alleleEntries.length === 0) {
     (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
     return defaultRes;
   }
@@ -316,23 +319,23 @@ export async function fetchClinVarData(
     const cleanNotation = options.originalNotation.trim().toLowerCase();
     const escapedNotation = cleanNotation.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
     const exactRegex = new RegExp(`(?:^|[^a-z0-9])${escapedNotation}(?![a-z0-9*]|fs)`, 'i');
-    let idx = matchingEntries.findIndex(m => exactRegex.test(m.cleanTitle));
+    let idx = alleleEntries.findIndex(m => exactRegex.test(m.cleanTitle));
     if (idx === -1) {
-      idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+      idx = alleleEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
     }
     if (idx !== -1) {
       matchedIdx = idx;
     }
   }
 
-  const { id: matchedId, entry: matchedEntry } = matchingEntries[matchedIdx];
-  const matchedTitle = matchingEntries[matchedIdx].cleanTitle;
+  const { id: matchedId, entry: matchedEntry } = alleleEntries[matchedIdx];
+  const matchedTitle = alleleEntries[matchedIdx].cleanTitle;
   const matchedC = getCodingNotation(matchedTitle);
 
   // Check if there is another entry that is pathogenic/likely pathogenic
   let hasOtherPathogenicVariantSameAA = false;
   for (let i = 0; i < matchingEntries.length; i++) {
-    if (i === matchedIdx) continue;
+    if (matchingEntries[i].id === matchedId) continue;
     // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
     if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
       const otherC = getCodingNotation(matchingEntries[i].cleanTitle);

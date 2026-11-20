@@ -31,7 +31,8 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
  */
 // v9 retires rounded v2 gene constraint and transcript-unverified regional calls.
 // v10 retires pre-remediation payloads (exact-allele ClinVar binding, conditional FGFR3 multimer, BS1/BS2 removal).
-export const CACHE_SCHEMA_VERSION = "v10";
+// v11 removes allele-unverified ClinVar selections and restores alternate-allele PS1 comparisons.
+export const CACHE_SCHEMA_VERSION = "v11";
 
 /**
  * Cache key for a gnomAD allele-frequency lookup.
