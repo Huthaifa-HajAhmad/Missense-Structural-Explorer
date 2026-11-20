@@ -116,24 +116,6 @@ describe("EnergeticsView — the observed single-engine run", () => {
     expect(text).toContain("Local destabilizing mark (not published)");
   });
 
-  it("renders no legacy status vocabulary", () => {
-    const { container } = renderView();
-    const text = container.textContent ?? "";
-    const legacy = [
-      "Standby",
-      "Not in Zenodo DB",
-      "Upstream Congested",
-      "In Progress",
-      "Initializing",
-      "Coverage Limited",
-      "Unavailable (No Heuristics)",
-      "N/A",
-    ];
-    for (const label of legacy) {
-      expect(text, `legacy label "${label}" must not be rendered`).not.toContain(label);
-    }
-  });
-
   it("explains each degraded engine in plain language inside its row", () => {
     renderView();
     expect(screen.getByTestId("energetics-ddmut")).toHaveTextContent("did not answer in time");

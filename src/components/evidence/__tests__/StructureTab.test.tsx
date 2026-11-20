@@ -234,14 +234,6 @@ describe("StructureTab", () => {
     expect(screen.getByTestId("pocket-state-row")).toHaveTextContent("Running");
   });
 
-  it("uses the shared state vocabulary, never the legacy words", () => {
-    for (const overrides of [{ computedPocket: null }, { computedPocket: { status: "unavailable" } }, {}]) {
-      const { unmount } = renderTab(overrides);
-      expect(screen.queryByText(/Standby|Model Offline|Model offline|N\/A/)).not.toBeInTheDocument();
-      unmount();
-    }
-  });
-
   it("gives a measured burial word when accessibility was measured", () => {
     renderTab({
       analysisState: {

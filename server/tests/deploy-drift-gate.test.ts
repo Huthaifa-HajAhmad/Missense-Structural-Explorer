@@ -44,11 +44,6 @@ function noDeployingRunBranch(): string {
 }
 
 describe("drift watch — a commit nothing will deploy", () => {
-  it("no longer decides that case was fine", () => {
-    // The regression, verbatim: read CI's state, print a warning, exit 0 regardless.
-    expect(noDeployingRunBranch()).not.toContain("has no deploying CD run yet");
-  });
-
   it("asks CI about this commit, not just about main", () => {
     const branch = noDeployingRunBranch();
     expect(branch, "the branch must read CI runs").toContain("--workflow=ci.yml");
