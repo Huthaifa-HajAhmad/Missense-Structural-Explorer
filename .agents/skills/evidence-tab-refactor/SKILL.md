@@ -77,9 +77,9 @@ them before turning step 2's findings into edits.
   implementations of one rule will disagree on screen.
 - **Absence is a state, not a value.** Missing ≠ 0 ≠ benign. Use `shared/evidenceAvailability`
   (`resolveSourceAvailability`) and the `ENGINE_STATE_LABELS` vocabulary ("Running", "No result",
-  "Not available here", "Provider error"…). The legacy words in `LEGACY_ENGINE_LABELS`
-  ("Standby", "N/A", "Offline"…) are banned; `energeticsLabels.guard.test.ts` lists guarded files —
-  add your tab there.
+  "Not available here", "Provider error"…). Do not write words like "Standby", "N/A" or
+  "Offline" for a state; `energeticsLabels.guard.test.ts` lists the files that must take state
+  words from `engineStatus` — add your tab there.
 - **Name what actually served a number.** Read `provenance` / `fallbackReason` from the payload; a
   fallback model's score must not wear the preferred model's name.
 - **Say what a score is.** Conservation is constraint, not pathogenicity. A rank/percentile is not a

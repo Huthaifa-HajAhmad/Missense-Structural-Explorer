@@ -584,9 +584,8 @@ function VariantSearchPanel({
       evidenceTabsLoading: loadingEvidenceTabs
     });
     /**
-     * Display labels for the workflow states. "In Progress" was retired — it is in
-     * `LEGACY_ENGINE_LABELS` (`engineStatus.ts`), which bans it precisely because it implies waiting
-     * forever, and a stalled stage rendered with it looked identical to a working one.
+     * Display labels for the workflow states. "In Progress" is avoided because it implies waiting
+     * forever, and a stalled stage rendered with it looks identical to a working one.
      *
      * Callers branch on `rawStatus`, never on the display word.
      */

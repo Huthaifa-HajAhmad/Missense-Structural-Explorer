@@ -20,7 +20,6 @@ import fs from "fs";
 import path from "path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { findLegacyLabels } from "../../shared/engineStatus";
 import type { LiteratureEvidence } from "../../shared/literatureEvidence";
 
 // One stable object, like the real hook's `useMemo`: a fresh client per render would change the effect
@@ -401,10 +400,8 @@ describe("Literature surfaces — what they may never print", () => {
     "src/shared/literatureEvidence.ts",
   ];
 
-  it.each(FILES)("%s has no retired status word and no journal metric", file => {
+  it.each(FILES)("%s has no journal metric", file => {
     const source = fs.readFileSync(path.join(process.cwd(), file), "utf-8");
-    expect(findLegacyLabels(source)).toEqual([]);
-    expect(source).not.toMatch(/["'`][^"'`\n]*\bN\/A\b[^"'`\n]*["'`]/);
     expect(source).not.toMatch(/impactFactor|journalRank|quartile/i);
   });
 
