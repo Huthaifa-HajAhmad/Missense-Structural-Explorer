@@ -36,6 +36,10 @@ their reasons are in `.oxlintrc.json`. They find real bugs, not style:
 The rules that need type information run on `tsrs`, a dev dependency that Oxlint finds by name in `node_modules`.
 Nothing imports it, but do not remove it: `lint:rules` then fails with "Failed to find type-aware linter".
 
+A route may be `async` without its own `try`/`catch`: `server/async-route-errors.ts` passes a rejection to the
+JSON error handler, as Express 5 does. A route that must reply in its own way (a stream, a custom status) still
+catches the error itself.
+
 If a hit is a false alarm, add `// oxlint-disable-next-line <rule> -- <reason>` on the line above it.
 Do not turn a rule off in the config without a stated reason.
 

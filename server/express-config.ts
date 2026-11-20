@@ -12,6 +12,7 @@ import { sendError } from "./utils.ts";
 import { createSpaShellHandler, setStaticShellHeaders } from "./spa-shell-cache.ts";
 import { CONFIG, validateStartupEnvironment } from "./config.ts";
 import { installDeploymentControl } from "./deployment-control.ts";
+import { forwardAsyncRouteErrors } from "./async-route-errors.ts";
 import { STALE_DATA_HEADER } from "../src/shared/providerLimits.ts";
 import { CREDENTIALS_HEADER } from "../src/shared/credentials.ts";
 
@@ -65,10 +66,13 @@ export function jsonErrorHandler(err: any, _req: express.Request, res: express.R
   const code = parseFailure ? "BAD_REQUEST" : err.code || "INTERNAL_SERVER_ERROR";
   const message = parseFailure ? "Request body is not valid JSON." : err.message || "An internal server error occurred.";
   sendError(res, status, code, message);
+  // A reply that failed part-way (a stream) cannot take an error body. End it so the browser is not left waiting.
+  if (res.headersSent && !res.writableEnded) res.end();
 }
 
 export async function createExpressApp(): Promise<express.Express> {
   validateStartupEnvironment();
+  forwardAsyncRouteErrors();
 
   const app = express();
   installDeploymentControl(app);

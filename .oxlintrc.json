@@ -7,8 +7,8 @@
   "ignorePatterns": [".e2e/**", "scratch/**", "temp_jobs/**", "dist/**", "coverage/**", "node_modules/**", "tools/**", ".*/**"],
   "rules": {
     // Only the checks for a promise used as a condition or spread stay on. Passing an async function where
-    // a plain one is expected (Express routes, React handlers) is how this app is written. Express 4 does
-    // not catch a rejection in an async route, so a route must handle its own errors.
+    // a plain one is expected (Express routes, React handlers) is how this app is written. A rejected async
+    // route is passed to the error handler by server/async-route-errors.ts.
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": ["error", { "checksVoidReturn": false }],
     "typescript/await-thenable": "error",
