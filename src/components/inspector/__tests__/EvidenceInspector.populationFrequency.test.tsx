@@ -252,11 +252,11 @@ describe("EvidenceInspector — clinical pane, UROD from gnomAD r4", () => {
     expect(screen.getByTestId("ceiling-basis").textContent).toMatch(/curated GenCC inheritance includes Autosomal dominant/);
   });
 
-  it("marks BS1 as this variant's cut-point", () => {
+  it("marks BS1 as above reference (not applied) rather than counting it", () => {
     render(<EvidenceInspector analysisResult={UROD_REMOTE} activeEvidenceTab="clinical" />);
     const active = screen.getByTestId("cut-points").querySelectorAll("[data-active]");
-    expect(active.length).toBe(1);
-    expect(active[0].textContent).toMatch(/^BS1/);
+    expect(active.length).toBe(0);
+    expect(screen.getByTestId("cut-points").textContent).toContain("above reference (not applied)");
   });
 
   it("marks the PM2 ceiling as this verdict's threshold when no criterion fired between the cut-points", () => {

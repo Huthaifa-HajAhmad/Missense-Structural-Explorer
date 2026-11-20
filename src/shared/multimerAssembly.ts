@@ -235,6 +235,46 @@ export function subunitStatements(text: string | null | undefined, ownGene?: str
   return out;
 }
 
+/**
+ * Resolves a conditional assembly state (e.g., FGFR3 P22607: "Monomer. Homodimer after binding to
+ * ligand.") so an earlier "Monomer" statement does not suppress a ligand-induced or solved oligomeric
+ * state. Leaves pure monomers as monomers when neither SUBUNIT nor solved structures indicate an oligomer.
+ */
+export function resolveConditionalAssembly(
+  parsed: SubunitAssembly,
+  statements: ReadonlyArray<SubunitStatement>,
+  opts?: { hasSolvedHomomer?: boolean },
+): SubunitAssembly {
+  if (parsed.kind !== "monomer") return parsed;
+  const oligStmt = statements.find(s => s.kind === "homomer" || s.kind === "heteromer");
+  if (oligStmt) {
+    const word = oligStmt.label.toLowerCase();
+    const prefixMatch = word.match(/^(?:homo|hetero)([a-z]+)mer$/);
+    const copies = prefixMatch ? (COUNT_PREFIX[prefixMatch[1]] ?? 2) : 2;
+    const alsoStated = ["Monomer", ...parsed.alsoStated.filter(w => w.toLowerCase() !== word)];
+    return {
+      kind: oligStmt.kind,
+      label: `${oligStmt.label} (conditional)`,
+      copies,
+      homoAssumed: false,
+      partnerGenes: oligStmt.partnerGenes,
+      sentence: oligStmt.sentence,
+      alsoStated,
+      qualifier: oligStmt.qualifier ?? parsed.qualifier,
+    };
+  }
+  if (opts?.hasSolvedHomomer) {
+    return {
+      ...parsed,
+      kind: "homomer",
+      label: "Homodimer (solved construct)",
+      copies: 2,
+      alsoStated: ["Monomer", ...parsed.alsoStated.filter(w => w.toLowerCase() !== "homodimer")],
+    };
+  }
+  return parsed;
+}
+
 /** Whether the annotation states more than one chain: the one `isMultimer` rule. */
 export function statesMultimer(assembly: SubunitAssembly): boolean {
   return assembly.kind === "homomer" || assembly.kind === "heteromer" || assembly.kind === "complex";

@@ -501,7 +501,11 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
           <div role="status" className="pop-callout pop-callout--banner" data-tone="warning">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span>
-              {evidence.recoveryAction === "provide-allele"
+              {evidence.coreFailure?.kind === "rate-limited"
+                ? `Analysis rate limited${evidence.coreFailure.retryAfterSeconds ? ` — try again in ${evidence.coreFailure.retryAfterSeconds}s` : " — try again shortly"}, so population sources were not read.`
+                : evidence.coreFailure
+                ? "The core evidence request failed or was interrupted, so population sources were not read."
+                : evidence.recoveryAction === "provide-allele"
                 ? "Coordinate-based evidence needs the original nucleotide allele before it can be queried."
                 : evidence.hasProviderFault
                 ? "At least one source did not deliver a reading for this run, so the figures above may be incomplete."

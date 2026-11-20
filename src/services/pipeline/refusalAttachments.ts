@@ -83,15 +83,27 @@ export function refusalAttachmentsFromError(error: unknown, fallbackNotation: st
     };
   }
 
-  if (code !== REFUSAL_CODES.ambiguousProteinNumbering) return {};
+  if (code === REFUSAL_CODES.ambiguousProteinNumbering) {
+    // Bounded like every other server-supplied array: a compromised or buggy response must not be able
+    // to make the UI render an unbounded list of buttons (the server emits at most one per isoform).
+    const parsed = numberingChoiceSchema.array().max(16).safeParse(details?.candidates);
+    if (!parsed.success || parsed.data.length === 0) return {};
 
-  // Bounded like every other server-supplied array: a compromised or buggy response must not be able
-  // to make the UI render an unbounded list of buttons (the server emits at most one per isoform).
-  const parsed = numberingChoiceSchema.array().max(16).safeParse(details?.candidates);
-  if (!parsed.success || parsed.data.length === 0) return {};
+    return {
+      numberingChoices: parsed.data,
+      numberingNotation: typeof details?.notation === "string" ? details.notation : fallbackNotation,
+    };
+  }
 
+  const status = typeof (error as any)?.status === "number" ? (error as any).status : undefined;
+  const retryAfterSeconds = typeof (error as any)?.retryAfterSeconds === "number" ? (error as any).retryAfterSeconds : undefined;
+  const message = typeof (error as any)?.message === "string" ? (error as any).message : String(error ?? "");
+  const isRateLimited = status === 429 || /too many.*requests|rate.?limit/i.test(message);
   return {
-    numberingChoices: parsed.data,
-    numberingNotation: typeof details?.notation === "string" ? details.notation : fallbackNotation,
+    coreFailure: {
+      kind: isRateLimited ? "rate-limited" : "request-failed",
+      message,
+      ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+    },
   };
 }

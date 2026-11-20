@@ -4,6 +4,7 @@ import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { getBiophysicsAttemptedAt, getCachedVariant } from "../services/pipeline/variantCache";
 import { createAnalysisCacheContext, narrativeModeOf } from "../services/pipeline/analysisContext";
 import { reloadMayPaint, restoreStoredArtifacts } from "../services/pipeline/storedAnalysis";
+import { readUrlAlleleNotation } from "../shared/shareLink";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 
 interface UseAppEffectsParams {
@@ -82,15 +83,20 @@ export function useAppEffects({
        * setting, a failed stage, FoldX still owed) goes through the run, which paints the same saved
        * result and repairs only what is missing.
        */
-      if (cached && reloadMayPaint(cached, context, attemptedAt, narrativeModeOf(settings))) {
+      const urlAllele = readUrlAlleleNotation(typeof window !== "undefined" ? window.location.search : "");
+      const cachedMatchesUrlAllele = !urlAllele.allele ||
+        cached?.analysisResult?.predictorData?.gnomadVariantId === urlAllele.allele ||
+        cached?.analysisResult?.liftedGenomicCoordinates === urlAllele.allele ||
+        cached?.analysisResult?.coordinateLift?.submittedCoordinates === urlAllele.allele;
+      if (cached && cachedMatchesUrlAllele && reloadMayPaint(cached, context, attemptedAt, narrativeModeOf(settings))) {
         store.setAnalysisState({ result: cached.analysisResult, isLoading: false, error: null });
         restoreStoredArtifacts(cached, store, store);
         return;
       }
 
-      // The URL holds the resolved notation. Replaying the submission keeps a coordinate on its own build.
+      // The URL holds the resolved notation (and exact allele when resolved). Replaying the allele or submission keeps a coordinate on its own build.
       const prior = store.history.find(h => h.gene === gene && (h.variant === variant || h.query === variant));
-      executeAnalysisRef.current?.(gene, prior?.query ?? variant, uniprotId);
+      executeAnalysisRef.current?.(gene, urlAllele.notation ?? prior?.query ?? variant, uniprotId);
     }
   }, [gene, variant, uniprotId, analysisState.result, analysisState.isLoading]);
 

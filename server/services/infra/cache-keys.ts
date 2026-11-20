@@ -30,7 +30,8 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
  * 30 days.
  */
 // v9 retires rounded v2 gene constraint and transcript-unverified regional calls.
-export const CACHE_SCHEMA_VERSION = "v9";
+// v10 retires pre-remediation payloads (exact-allele ClinVar binding, conditional FGFR3 multimer, BS1/BS2 removal).
+export const CACHE_SCHEMA_VERSION = "v10";
 
 /**
  * Cache key for a gnomAD allele-frequency lookup.
@@ -45,12 +46,21 @@ export function buildGnomadFreqKey(variantId: string, assembly?: string | null):
   return `gnomad_freq_${clean}_${assembly ?? "unknown"}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
-export function buildClinvarKey(gene: string, variant: string, notation?: string): string {
+export function buildClinvarKey(
+  gene: string,
+  variant: string,
+  notation?: string,
+  coord?: { chrom: string; pos: number; ref: string; alt: string } | null
+): string {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   const notStr = notation ? `_${notation.trim()}` : "";
-  // Retire only ClinVar payloads that predate the full variant record (every condition, each with its own record).
-  return `clinvar_${normGene}_${cleanVar}${notStr}_condition-records1_schema:${CACHE_SCHEMA_VERSION}`;
+  // The allele participates: one protein change can come from several nucleotide alleles, each its own record.
+  const alleleStr = coord
+    ? `_allele_${coord.chrom.replace(/^chr/i, "").toUpperCase()}:${coord.pos}:${coord.ref.toUpperCase()}>${coord.alt.toUpperCase()}`
+    : "_noallele";
+  // `allele1`: records written before the key carried the allele may belong to another allele.
+  return `clinvar_${normGene}_${cleanVar}${notStr}${alleleStr}_condition-records1_allele1_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildGenosKey(gene: string, variant: string, gnomadVarId?: string): string {

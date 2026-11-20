@@ -29,11 +29,11 @@ const UROD_INHERITANCE = { source: "GenCC", modes: ["Autosomal dominant", "Autos
 const codes = (input: any) => computeRuleBasedACMG(input).acmgCriteria.map(c => c.code);
 
 describe("ACMG frequency rules — UROD p.Gly318Arg", () => {
-  it("records BS1 from gnomAD's FAF95 (1.62%, afr), and names the statistic in the reason", () => {
+  it("withholds BS1 above 1% FAF95 (1.62%, afr) because the app-wide cut-point is not disease-specific", () => {
     const res = computeRuleBasedACMG({ ...base, gnomadFrequency: UROD_REMOTE, curatedInheritance: UROD_INHERITANCE });
-    const bs1 = res.acmgCriteria.find(c => c.code === "BS1");
-    expect(bs1?.reason).toMatch(/filtering allele frequency \(FAF95\) 1\.618%/);
+    expect(codes({ ...base, gnomadFrequency: UROD_REMOTE })).not.toContain("BS1");
     expect(codes({ ...base, gnomadFrequency: UROD_REMOTE })).not.toContain("PM2");
+    expect(res.partialEvidence.unavailable.some(u => /^BS1 \(not applied:.*filtering allele frequency \(FAF95\) 1\.618%/.test(u))).toBe(true);
   });
 
   it("reads the local combined figure as 'between the cut-points', and says what it lacks", () => {
@@ -42,8 +42,10 @@ describe("ACMG frequency rules — UROD p.Gly318Arg", () => {
     expect(res.acmgCriteria.map(c => c.code)).not.toContain("PM2");
   });
 
-  it("records BS2 from 15 autosomal homozygotes, and not from homozygotes on chromosome X", () => {
-    expect(codes({ ...base, gnomadFrequency: UROD_REMOTE })).toContain("BS2");
+  it("withholds BS2 from 15 autosomal homozygotes (gnomAD lacks unaffected phenotype) as well as on chromosome X", () => {
+    const auto = computeRuleBasedACMG({ ...base, gnomadFrequency: UROD_REMOTE });
+    expect(auto.acmgCriteria.map(c => c.code)).not.toContain("BS2");
+    expect(auto.partialEvidence.unavailable.some(u => /^BS2 \(not applied:/.test(u))).toBe(true);
     const onX = computeRuleBasedACMG({ ...base, predictorData: { available: true, gnomadVariantId: "X-1000-G-A" }, gnomadFrequency: UROD_REMOTE });
     expect(onX.acmgCriteria.map(c => c.code)).not.toContain("BS2");
     expect(onX.partialEvidence.unavailable.some(u => /^BS2 \(homozygote count not applied: the variant is on chromosome X/.test(u))).toBe(true);
@@ -103,12 +105,14 @@ describe("ACMG frequency rules — protein change with several candidate alleles
     expect(res.acmgCriteria.find(c => c.code === "PM2")?.reason).toMatch(/every candidate allele \(2: 4-1804392-G-A, 4-1804392-G-C\)/);
   });
 
-  it("applies BS1 when every candidate is above the BS1 cut-point on its own FAF95", () => {
-    expect(frequencyCodes(run([found("A", 0.03, { faf95: 0.02 }), found("C", 0.04, { faf95: 0.015 })]))).toEqual(["BS1"]);
+  it("withholds BS1 even when every candidate is above the 1% reference cut-point on its own FAF95", () => {
+    const res = run([found("A", 0.03, { faf95: 0.02 }), found("C", 0.04, { faf95: 0.015 })]);
+    expect(frequencyCodes(res)).toEqual([]);
+    expect(res.partialEvidence.unavailable.some(u => u.startsWith("BS1 (not applied:"))).toBe(true);
   });
 
-  it("applies BS1, not BA1, when every candidate is above the BS1 cut-point but only one is above BA1", () => {
-    expect(frequencyCodes(run([found("A", 0.07, { faf95: 0.06 }), found("C", 0.04, { faf95: 0.03 })]))).toEqual(["BS1"]);
+  it("withholds BS1 and BA1 when every candidate is above 1% but only one is above BA1", () => {
+    expect(frequencyCodes(run([found("A", 0.07, { faf95: 0.06 }), found("C", 0.04, { faf95: 0.03 })]))).toEqual([]);
   });
 
   it("applies no frequency criterion when the candidates disagree, and records why", () => {
@@ -123,8 +127,32 @@ describe("ACMG frequency rules — protein change with several candidate alleles
     expect(res.partialEvidence.unavailable.some(u => u.includes("4-1804392-G-C"))).toBe(true);
   });
 
-  it("applies BS2 only when every candidate has two or more homozygotes", () => {
-    expect(frequencyCodes(run([found("A", 0.006, { nHomozygous: 3 }), found("C", 0.006, { nHomozygous: 2 })]))).toContain("BS2");
+  it("withholds BS2 even when every candidate has two or more homozygotes without unaffected phenotype", () => {
+    const res = run([found("A", 0.006, { nHomozygous: 3 }), found("C", 0.006, { nHomozygous: 2 })]);
+    expect(frequencyCodes(res)).not.toContain("BS2");
+    expect(res.partialEvidence.unavailable.some(u => u.startsWith("BS2 (not applied:"))).toBe(true);
     expect(frequencyCodes(run([found("A", 0.006, { nHomozygous: 3 }), found("C", 0.006, { nHomozygous: 1 })]))).not.toContain("BS2");
+  });
+
+  it("HbS regression (missense#13): HBB p.Glu7Val (4.82% FAF95, 40 homozygotes, ClinVar Pathogenic) is NOT classified Benign", () => {
+    const hbs = computeRuleBasedACMG({
+      gene: "HBB",
+      variant: "p.Glu7Val",
+      clinvar: { classification: "Pathogenic", uid: "15333", reviewStatus: "reviewed by expert panel", trait: "Sickle cell disease" },
+      predictorData: { available: true, gnomadVariantId: "11-5227002-T-A", amPathogenicity: 0.25, caddPhred: 12 },
+      conservationData: { available: true, revel: 0.2, metarnn: 0.1, clinpred: 0.1 },
+      gnomadConstraint: { pli: 0.0, missense_z: 0.67, oe_mis: 0.88, isPP2Constrained: false },
+      gnomadFrequency: {
+        maxAF: 0.0495, groupMaxAF: 0.0495, genomeAF: 0.01272, exomeAF: 0.001601,
+        nHomozygous: 40, dataset: "gnomad_r4", groupMaxPopulation: "afr",
+        faf95: 0.04816, faf95Population: "afr",
+      },
+      acmgWeighting: "standard",
+    });
+    expect(hbs.acmgCriteria.map(c => c.code)).not.toContain("BS1");
+    expect(hbs.acmgCriteria.map(c => c.code)).not.toContain("BS2");
+    expect(hbs.acmgVerdict).not.toBe("Benign");
+    expect(hbs.acmgVerdict).not.toBe("Likely Benign");
+    expect(hbs.acmgVerdict).toBe("Variant of Uncertain Significance (VUS)");
   });
 });

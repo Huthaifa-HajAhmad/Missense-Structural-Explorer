@@ -7,7 +7,56 @@ import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import { buildClinvarKey } from "../infra/cache-keys.ts";
 import { parseVcvConditions, type ClinVarCondition } from "./clinvar-conditions.ts";
 
+/** The exact allele a record must describe. Only a GRCh38 coordinate can be compared with ClinVar's canonical SPDI. */
+export interface ClinVarAlleleCoordinate {
+  chrom: string;
+  pos: number;
+  ref: string;
+  alt: string;
+  assembly?: string | null;
+}
+
+/** RefSeq GRCh38 chromosome accession → contig name. */
+function contigOfRefSeq(accession: string): string | null {
+  const m = accession.match(/^NC_0000(\d{2})\.\d+$/i);
+  if (m) {
+    const n = Number.parseInt(m[1], 10);
+    if (n >= 1 && n <= 22) return String(n);
+    if (n === 23) return "X";
+    if (n === 24) return "Y";
+  }
+  return /^NC_012920\.\d+$/i.test(accession) ? "MT" : null;
+}
+
+/**
+ * Whether a summary's variation_set describes exactly this allele.
+ * `null` = the summary states no comparable SPDI (cannot verify); true/false otherwise.
+ */
+function entryDescribesAllele(entry: any, coordinate: ClinVarAlleleCoordinate): boolean | null {
+  const set: any[] = Array.isArray(entry?.variation_set) ? entry.variation_set : [];
+  let comparable = false;
+  for (const v of set) {
+    const [seq, position, del, ins] = String(v?.canonical_spdi ?? "").split(":");
+    const contig = seq ? contigOfRefSeq(seq) : null;
+    if (!contig || !/^[ACGT]$/i.test(del ?? "") || !/^[ACGT]$/i.test(ins ?? "")) continue;
+    comparable = true;
+    if (
+      contig === coordinate.chrom.replace(/^chr/i, "").toUpperCase() &&
+      Number.parseInt(position, 10) + 1 === coordinate.pos &&
+      del.toUpperCase() === coordinate.ref.toUpperCase() &&
+      ins.toUpperCase() === coordinate.alt.toUpperCase()
+    ) return true;
+  }
+  return comparable ? false : null;
+}
+
 export interface FetchClinVarOptions {
+  /**
+   * The exact nucleotide allele of this run. A protein change can come from several alleles (FGFR3
+   * p.Gly380Arg: G>A is VCV000016327, G>C is VCV000016328), so the protein name alone must never pick
+   * the record. Part of the cache key.
+   */
+  coordinate?: ClinVarAlleleCoordinate | null;
   originalNotation?: string;
   l1Cache?: LRUCache<string, any>;
   bypassSqlite?: boolean;
@@ -38,6 +87,7 @@ const clinvarSummaryResponseSchema = z.object({
   }).catchall(
     z.object({
       title: z.string().optional(),
+      variation_set: z.array(z.object({ canonical_spdi: z.string().optional() }).passthrough()).optional(),
       germline_classification: z.object({
         description: z.string().optional(),
         last_evaluated: z.string().optional(),
@@ -95,7 +145,8 @@ export async function fetchClinVarData(
 
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = variant.replace(/^p\./i, "").trim();
-  const cacheKey = buildClinvarKey(gene, variant, options.originalNotation);
+  const alleleCoordinate = options.coordinate && (options.coordinate.assembly ?? "GRCh38") === "GRCh38" ? options.coordinate : null;
+  const cacheKey = buildClinvarKey(gene, variant, options.originalNotation, alleleCoordinate);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -244,6 +295,10 @@ export async function fetchClinVarData(
           isMatch = true;
         }
       }
+    }
+    // Exact-allele gate: a record that states a different GRCh38 allele is never this variant's record.
+    if (isMatch && alleleCoordinate && !isDirectIdSearch && entryDescribesAllele(entry, alleleCoordinate) === false) {
+      isMatch = false;
     }
     if (isMatch) {
       matchingEntries.push({ id, entry, cleanTitle: title });

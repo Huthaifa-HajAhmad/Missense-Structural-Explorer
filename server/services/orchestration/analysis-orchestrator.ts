@@ -2,6 +2,7 @@ import { hasInterruptedPredictorReadings } from '../../../src/shared/predictorRe
 import { fetchAlphafoldPdb } from "../structure/structure-fetcher.ts";
 import { predictStructuralDisruption } from "../structure/pocket/disruption.ts";
 import { fetchClinVarData, type ClinVarData } from "../external-api/clinvar.ts";
+import { clinvarLookupOptions } from "../external-api/clinvar-lookup.ts";
 import { fetchPredictorData } from "../prediction/index.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
@@ -407,7 +408,7 @@ async function runStream(
     ? adoptedTriage.clinvar
     : (async () => {
         try {
-          const data = await fetchClinVarData(gene, variant, context.originalNotation);
+          const data = await fetchClinVarData(gene, variant, clinvarLookupOptions(context));
           const status: ServiceFetchStatus = data
             ? (data.classification === "Not found in ClinVar" ? "not_found" : "ok")
             : "not_found";

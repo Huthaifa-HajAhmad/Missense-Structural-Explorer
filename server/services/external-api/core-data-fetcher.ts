@@ -1,4 +1,5 @@
 import { fetchClinVarData, type ClinVarData } from "./clinvar.ts";
+import { clinvarLookupOptions } from "./clinvar-lookup.ts";
 import { readCuratedInheritance } from "../evidence-context/curatedInheritance.ts";
 import { readCuratedLofMechanism } from "../evidence-context/curatedLofMechanism.ts";
 import type { CuratedInheritance } from "../../../src/shared/inheritanceBasis.ts";
@@ -325,7 +326,7 @@ async function runCoreFetch(
   const CORE_BUDGET_MS = coreTimeoutMs;
 
   let clinvarHasError = false;
-  const clinvarPromise = timeTask("clinvar", (prefetched?.clinvarPromise || fetchClinVarData(gene, variant, originalNotation)).catch(err => {
+  const clinvarPromise = timeTask("clinvar", (prefetched?.clinvarPromise || fetchClinVarData(gene, variant, clinvarLookupOptions(context))).catch(err => {
     console.warn("[ClinVar Parallel Run Warning] Failed to fetch ClinVar data:", err);
     clinvarHasError = true;
     return null;

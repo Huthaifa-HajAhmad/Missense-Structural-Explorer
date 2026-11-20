@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useSettings } from "../context/SettingsContext";
-import { fetchWithRetry } from "../shared/fetch-retry";
+import { fetchWithRetry, parseRetryAfterMs } from "../shared/fetch-retry";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { STALE_DATA_HEADER, parseStaleData, type StaleDataNote } from "../shared/providerLimits";
 import { appVersionWatch } from "../lib/appVersionWatch";
@@ -246,19 +246,23 @@ export class ApiError extends Error {
   readonly code?: string;
   readonly details?: unknown;
   readonly status: number;
+  readonly retryAfterSeconds?: number;
 
-  constructor(message: string, options: { code?: string; details?: unknown; status: number }) {
+  constructor(message: string, options: { code?: string; details?: unknown; status: number; retryAfterSeconds?: number }) {
     super(message);
     this.name = "ApiError";
     this.code = options.code;
     this.details = options.details;
     this.status = options.status;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
-/** Reads the standard error envelope ONCE, keeping `code` and `details` beside the message. */
+/** Reads the standard error envelope ONCE, keeping `code`, `details`, and `Retry-After` beside the message. */
 export async function extractApiError(res: Response, fallbackPrefix: string): Promise<ApiError> {
   const status = res.status;
+  const retryAfterMs = parseRetryAfterMs(res.headers?.get?.("Retry-After") ?? null);
+  const retryAfterSeconds = retryAfterMs !== null ? Math.max(1, Math.ceil(retryAfterMs / 1000)) : undefined;
   try {
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -273,19 +277,20 @@ export async function extractApiError(res: Response, fallbackPrefix: string): Pr
           code: typeof data?.error?.code === "string" ? data.error.code : undefined,
           details: data?.error?.details ?? data?.details,
           status,
+          retryAfterSeconds,
         });
       }
     } else {
       const text = await res.text();
       if (text && text.trim().length > 0) {
-        return new ApiError(text.length > 250 ? `${text.slice(0, 250)}...` : text.trim(), { status });
+        return new ApiError(text.length > 250 ? `${text.slice(0, 250)}...` : text.trim(), { status, retryAfterSeconds });
       }
     }
   } catch (_) {
     // Ignore JSON/text body consumption errors
   }
   const statusInfo = status ? `(HTTP ${status}${res.statusText ? ` ${res.statusText}` : ""})` : "";
-  return new ApiError(`${fallbackPrefix} ${statusInfo}`.trim(), { status });
+  return new ApiError(`${fallbackPrefix} ${statusInfo}`.trim(), { status, retryAfterSeconds });
 }
 
 export type FetchWithAuth = (

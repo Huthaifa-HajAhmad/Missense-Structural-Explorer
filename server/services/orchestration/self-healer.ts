@@ -16,6 +16,12 @@ import {
   buildUniprotFeaturesKey
 } from "../infra/cache-keys.ts";
 
+/** The run's GRCh38 allele, as `fetchClinVarData` keys it; null when none is stated. */
+export function grch38Allele(context: ParsedVariantContext) {
+  const c = predictorCoordinateFromContext(context);
+  return c && c.assembly === "GRCh38" ? c : null;
+}
+
 /**
  * Self-healing on read: Checks if cached analysis has timed-out fields or missing SpliceAI
  * that have since settled into the SQLite external_cache, heals them, and updates variant_analyses.
@@ -77,7 +83,7 @@ export function healCachedAnalysisIfPossible(
     buildGenosKey(context.gene, context.variant, gnomadVarId || undefined)
   );
   const clinvarCache = db.getExternalCache<ClinVarData>(
-    buildClinvarKey(context.gene, context.variant, context.originalNotation)
+    buildClinvarKey(context.gene, context.variant, context.originalNotation, grch38Allele(context))
   );
 
   // 1. Genos & Conservation healing

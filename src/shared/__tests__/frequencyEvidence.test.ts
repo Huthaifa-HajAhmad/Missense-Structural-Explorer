@@ -293,11 +293,12 @@ describe("frequencyEvidence — cut-points come from the shared constants", () =
       );
 
     // BA1 is strictly greater than the stand-alone-benign frequency.
-    expect(at(FREQ.standAloneBenign).code).toBe("BS1");
+    expect(at(FREQ.standAloneBenign).code).toBe("none"); // above the BS1 reference, which is not counted
     expect(at(FREQ.standAloneBenign + 1e-6).code).toBe("BA1");
-    // BS1 is strictly greater than the too-common frequency.
+    // The BS1 reference is strictly greater than the too-common frequency, and is never counted as BS1.
     expect(at(FREQ.tooCommonForDisorder).code).toBe("none");
-    expect(at(FREQ.tooCommonForDisorder + 1e-6).code).toBe("BS1");
+    expect(at(FREQ.tooCommonForDisorder + 1e-6).code).toBe("none");
+    expect(at(FREQ.tooCommonForDisorder + 1e-6).statement).toContain("BS1 is not applied");
     // PM2 is at or below its ceiling.
     expect(at(FREQ.extremelyRare).code).toBe("PM2");
     expect(at(FREQ.extremelyRare * 1.5).code).toBe("none");
@@ -315,7 +316,7 @@ describe("frequencyEvidence — cut-points come from the shared constants", () =
       input({ gnomadFrequency: { ...GZF1_GNOMAD, maxAF: 0.02, groupMaxAF: 0.02 } }),
     );
     // One cut-point format on every surface (`formatCutPoint`): "1%", never "1.0%" here and "1%" there.
-    expect(tooCommon.statement).toContain("above the 1% BS1 cut-point");
+    expect(tooCommon.statement).toContain("above the 1% app-defined BS1 reference");
     expect(tooCommon.statement).not.toContain("0.1%");
     const pm2 = classifyAcmgFrequency(
       input({ gnomadFrequency: { ...GZF1_GNOMAD, maxAF: 0.00002, groupMaxAF: 0.00002 } }),
@@ -778,5 +779,40 @@ describe("frequencyEvidence — the local ingest's combined AF is not a grouped 
     const evidence = buildFrequencyEvidence(input());
     expect(evidence.criterion.combinedCohorts).toBe(false);
     expect(evidence.criterion.usedGroupMax).toBe(true);
+  });
+});
+
+describe("frequencyEvidence — failed and rate-limited evidence requests (missense#18)", () => {
+  it("distinguishes an interrupted/failed core request from a completed lookup with no frequency", () => {
+    const failed = buildFrequencyEvidence({
+      serviceStatus: { gnomadFrequency: "error", clinvar: "error" },
+      coreFailure: { kind: "request-failed", message: "Failed to fetch" },
+    });
+    expect(failed.criterion.code).toBe("withheld");
+    expect(failed.hasProviderFault).toBe(true);
+    expect(failed.retryable).toBe(true);
+    expect(failed.clinvar.availability.state).toBe("upstream-error");
+    expect(failed.observations.every(o => o.availability.state === "upstream-error")).toBe(true);
+    expect(failed.observations[0].availability.reason).not.toMatch(/no outcome was recorded/i);
+    expect(failed.observations[0].availability.reason).toMatch(/failed or was interrupted/i);
+
+    const absent = buildFrequencyEvidence({
+      serviceStatus: { gnomadFrequency: "not_found", clinvar: "not_found" },
+    });
+    expect(absent.criterion.code).toBe("PM2");
+    expect(absent.observations[0].availability.state).toBe("no-result");
+    expect(absent.observations[0].availability.reason).toMatch(/holds no record/i);
+  });
+
+  it("surfaces HTTP 429 rate-limit and retry window across dependent views", () => {
+    const limited = buildFrequencyEvidence({
+      serviceStatus: { gnomadFrequency: "error", clinvar: "error" },
+      coreFailure: { kind: "rate-limited", message: "Too many analysis requests", retryAfterSeconds: 29 },
+    });
+    expect(limited.criterion.code).toBe("withheld");
+    expect(limited.criterion.statement).toContain("retry in 29s");
+    expect(limited.clinvar.availability.reason).toContain("retry in 29s");
+    expect(limited.observations[0].availability.reason).toContain("retry in 29s");
+    expect(limited.coreFailure?.retryAfterSeconds).toBe(29);
   });
 });

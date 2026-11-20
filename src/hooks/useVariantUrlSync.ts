@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
-import { withVariantParams } from "../shared/shareLink";
+import { shareableQueryFromResult, withVariantParams } from "../shared/shareLink";
 
 /**
  * Keeps the address bar in step with the ACTIVE variant (the analysed gene/variant, not the
@@ -12,14 +12,18 @@ export function useVariantUrlSync(): void {
   const gene = useVariantAnalysisStore(s => s.gene ?? "");
   const variant = useVariantAnalysisStore(s => s.variant ?? "");
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId ?? "");
+  const analysisResult = useVariantAnalysisStore(s => s.analysisState.result);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const next = withVariantParams(window.location.href, { gene, variant, uniprotId });
+      const next = withVariantParams(
+        window.location.href,
+        shareableQueryFromResult(analysisResult, { gene, variant, uniprotId }),
+      );
       if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
     } catch {
       // A sandboxed frame can refuse replaceState; the link is a convenience, never load-bearing.
     }
-  }, [gene, variant, uniprotId]);
+  }, [gene, variant, uniprotId, analysisResult]);
 }

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * candidate-frequency.ts — PM2 / BS1 / BA1 / BS2 when a protein-only input can come from several
  * nucleotide alleles and gnomAD was read once per candidate (`GnomadFrequencyData.candidates`).
  *
@@ -9,6 +9,7 @@ import { THRESHOLDS } from "../../../../src/shared/thresholds.ts";
 import type { GnomadCandidateReading } from "../../../../src/shared/contracts.ts";
 import { candidateAlleleLabel, candidatesMeetBs2, decideCandidateFrequency } from "../../../../src/shared/candidateFrequency.ts";
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
+import { BS1_NOT_APPLIED_REASON, BS2_NOT_APPLIED_REASON } from "../../../../src/shared/frequencyRule.ts";
 import type { ACMGItem } from "./classifier.ts";
 
 export interface CandidateFrequencyContext {
@@ -41,7 +42,7 @@ export function candidateFrequencyCriteria(
   } else if (verdict.decision === "BA1") {
     criteria.push({ code: "BA1", reason: `Allele frequency is stand-alone benign for ${all}: each is above the ${(FREQ.standAloneBenign * 100).toFixed(1)}% cut-point on its own reading. Frequencies were not added together.` });
   } else if (verdict.decision === "BS1") {
-    criteria.push({ code: "BS1", reason: `Allele frequency greater than expected for the disorder for ${all}: each is above the ${(FREQ.tooCommonForDisorder * 100).toFixed(1)}% app-defined cut-point on its own reading. Frequencies were not added together.` });
+    unavailable.push(`BS1 (not applied: ${BS1_NOT_APPLIED_REASON}; every candidate allele is above the ${(FREQ.tooCommonForDisorder * 100).toFixed(1)}% reference cut-point)`);
   } else if (verdict.decision === "PM2" && !context.skipPathogenicComp) {
     criteria.push({ code: "PM2", reason: `Variant is extremely rare in population databases for ${all}: each is at or below the ${(ceiling.ceiling * 100).toFixed(2)}% app-defined threshold (${ceiling.text}); absence from gnomAD counts as zero. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).` });
   }
@@ -49,7 +50,7 @@ export function candidateFrequencyCriteria(
   const bs2Genotype = homozygotesInformBs2({ variantId: candidates.find(c => c.id)?.id ?? null, inheritance: context.curatedInheritance });
   if (candidatesMeetBs2(candidates) && !context.skipBenignComp) {
     if (bs2Genotype.applies) {
-      criteria.push({ code: "BS2", reason: `Observed in homozygous state in gnomAD for ${all}: each has two or more homozygotes. gnomAD does not phenotype its participants, and penetrance is not curated here.` });
+      unavailable.push(`BS2 (not applied: ${BS2_NOT_APPLIED_REASON}; each candidate has two or more homozygotes)`);
     } else {
       unavailable.push(`BS2 (homozygote count not applied: ${bs2Genotype.reason})`);
     }
