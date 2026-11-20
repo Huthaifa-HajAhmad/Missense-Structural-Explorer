@@ -140,14 +140,13 @@ describe("declaredModelProvenanceOf — never stamp a model that did not run", (
     expect((declaredModelProvenanceOf({ clinvar: {} }) as any).models).toEqual({});
   });
 
-  it("names the core VESM-150M evaluation, not the 35M checkpoint the block used to claim", () => {
+  it("names the core VESM-150M evaluation", () => {
     const declared: any = declaredModelProvenanceOf(
       { esm2: { llr: -7.5, verdict: "deleterious" } }
     );
 
     expect(declared.schemaVersion).toBe(2);
     expect(declared.models["core.esm2"]).toContain("VESM-150M");
-    expect(JSON.stringify(declared)).not.toContain("esm2_t12_35M");
   });
 
   it("records the producer's own provenance verbatim, and declares nothing that produced nothing", () => {

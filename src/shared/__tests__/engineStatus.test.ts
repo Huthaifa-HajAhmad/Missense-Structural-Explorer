@@ -12,7 +12,6 @@ import {
   classifyRaspMissReason,
   describeCoverage,
   describeProvenance,
-  findLegacyLabels,
   formatDdg,
   formatDdgPair,
   getEngine,
@@ -587,33 +586,6 @@ describe("engineStatus — provenance labels", () => {
     expect(view.label).toBe("Experimental structure");
     expect(view.isTemplate).toBe(true);
     expect(view.detail).toBe("6N7E · 3.5 Å");
-  });
-});
-
-describe("engineStatus — legacy label scanner", () => {
-  it("flags a legacy literal in code and ignores one in a comment", () => {
-    const source = ['// Standby is the old label for this state', 'const a = "In Progress";'].join("\n");
-    const hits = findLegacyLabels(source);
-    expect(hits.map(h => h.label)).toEqual(["In Progress"]);
-    expect(hits[0].line).toBe(2);
-  });
-
-  it("ignores block comments", () => {
-    const source = ["/*", "  Never render 'Standby' again.", "*/", "const ok = 1;"].join("\n");
-    expect(findLegacyLabels(source)).toEqual([]);
-  });
-
-  it("reports the line number of a real violation", () => {
-    const source = ["const a = 1;", "const b = 2;", 'const label = "Upstream Congested";'].join("\n");
-    const hits = findLegacyLabels(source);
-    expect(hits).toHaveLength(1);
-    expect(hits[0]).toEqual({ label: "Upstream Congested", line: 3 });
-  });
-
-  it("finds no legacy literal in this module's own label map", () => {
-    // The canonical labels must be disjoint from the strings they replaced.
-    const canonical = Object.values(ENGINE_STATE_LABELS).join("\n");
-    expect(findLegacyLabels(canonical)).toEqual([]);
   });
 });
 

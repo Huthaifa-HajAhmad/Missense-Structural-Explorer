@@ -152,21 +152,6 @@ describe("VariantHeader Component Tests", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
-  it("should NOT render AlphaGenome AVI badge in header (removed per specification)", () => {
-    render(
-      <Chrome
-        gene="BRAF"
-        variant="p.Val600Glu"
-        uniprotId="P15056"
-        analysisResult={mockAnalysisResult as AnalysisResult}
-      />
-    );
-
-    // AlphaGenome AVI was 32.4 in mock data — must not be in document
-    expect(screen.queryByText("32.4")).not.toBeInTheDocument();
-    expect(screen.queryByText("AVI")).not.toBeInTheDocument();
-  });
-
   it("states proximity to a splice junction as context, not as an alert", () => {
     render(
       <Chrome

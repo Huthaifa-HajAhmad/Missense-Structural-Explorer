@@ -6,6 +6,7 @@ import type { PredictorConcordance } from "./thresholds/concordance";
 import { CANONICAL_ASSEMBLY, statedAssemblyOf, type AssemblyTaggedCoordinate } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
 import { ENGINE_STATE_IDS, type EngineState } from "./engineStatus";
+import type { StabilityVerdict } from "./energeticsEvidence.ts";
 import {
   DEEP_EVIDENCE_MODEL_IDS,
   DEEP_MODEL_EVIDENCE_VERSION,
@@ -216,7 +217,11 @@ export const energeticsDataSchema = z.object({
   raspStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
   raspError: z.string().nullable().optional(),
   thermompnn: nullableFiniteNumber.optional(),
-  consensusVerdict: z.string().nullable().optional(),
+  /**
+   * Typed as the closed verdict set, so a comparison with a string the consensus cannot return fails `tsc`.
+   * Parsing stays lenient: a payload stored under an earlier verdict wording is kept as it is and matches no verdict.
+   */
+  consensusVerdict: z.string().nullable().optional() as unknown as z.ZodOptional<z.ZodNullable<z.ZodType<StabilityVerdict>>>,
   raspReason: z.string().optional(),
   /** Which RaSP table served `rasp` (see `shared/raspIndex.ts`). */
   raspSource: z.enum(["experimental", "alphafold"]).optional(),

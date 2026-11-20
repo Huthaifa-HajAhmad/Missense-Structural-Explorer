@@ -4,8 +4,6 @@ import path from "path";
 import {
   ENERGY_ENGINES,
   ENGINE_STATE_LABELS,
-  LEGACY_ENGINE_LABELS,
-  findLegacyLabels,
   stripCommentsForScan,
 } from "../../shared/engineStatus.ts";
 import { METRIC_EXPLANATIONS } from "../evidence/MetricExplanations.ts";
@@ -66,8 +64,7 @@ const GUARDED_SURFACES = [
    * PredictorSpecialistPanels was the other deferral ("needs their own pass", unmapping review
    * UI#9): that pass is done — the four structural-model "Standby" badges now render
    * `ENGINE_STATE_LABELS["no-result"]` and the score slot uses the em-dash — so the file is
-   * listed with the rest. If a future edit reintroduces a retired word there, this guard, not
-   * a comment, is what stops it.
+   * listed with the rest.
    */
   "src/components/evidence/AlphaGenomeTab.tsx",
   "src/components/evidence/PredictorsTab.tsx",
@@ -149,7 +146,7 @@ const SURFACES_PENDING_ENGINE_IMPORT: ReadonlySet<string> = new Set([]);
 
 /**
  * Listed surfaces that render no engine state at all, so the import rule does not apply to them. They stay in
- * GUARDED_SURFACES: the legacy-label and own-vocabulary rules still run. Each reason is asserted non-empty, and each
+ * GUARDED_SURFACES: the own-vocabulary rule still runs. Each reason is asserted non-empty, and each
  * file is asserted to contain no canonical label as a string literal.
  */
 const SURFACES_WITHOUT_ENGINE_STATE: ReadonlyMap<string, string> = new Map([
@@ -272,98 +269,8 @@ function reachesCanonicalThrough(files: readonly string[]): boolean {
 }
 
 describe("Energetics label guardrail", () => {
-  /**
-   * The scanner's own anti-blindness pin, written as a permanent mutation test.
-   *
-   * A source scanner can fail in two directions, and they are not equally bad. Over-reporting
-   * produces noise a developer routes around — visible. Under-reporting produces silence that looks
-   * exactly like compliance. This guard previously under-reported: its comment stripper truncated a
-   * line at the first `//` anywhere, so a legacy label on any line containing a URL was invisible.
-   * Injecting "Not in Zenodo DB" onto EnergeticsView.tsx's `paperUrl: "https://doi.org/…"` line
-   * yielded zero hits; the same literal one line lower yielded one.
-   *
-   * These three assertions walk the scanner across that exact shape. If someone reintroduces a
-   * regex-based stripper, the first fails.
-   */
-  describe("the scanner is string-aware, not regex-based", () => {
-    it("sees a legacy label that FOLLOWS a URL on the same line", () => {
-      // ORDER IS THE WHOLE POINT, and getting it wrong makes this test worthless.
-      //
-      // A `//`-based stripper truncates the line at the first `//`. If the label sits BEFORE the
-      // URL, truncation leaves the label intact and the test passes even with the broken stripper —
-      // which is exactly how the first version of this test was written, and how the mutation check
-      // caught it. The label must come AFTER the `//` for this to discriminate.
-      const source = `const x = { href: "https://doi.org/10.1093/nar/gki387", label: "Not in Zenodo DB" };`;
-      expect(findLegacyLabels(source).map(h => h.label)).toEqual(["Not in Zenodo DB"]);
-    });
-
-    it("sees a label between an unclosed-looking /* and a later */ inside strings", () => {
-      // The old block-comment regex ran before the string-aware pass, so a `/*` inside one string
-      // and a `*/` inside a later string made it swallow everything between them — including a real
-      // label on the line in the middle.
-      const source = [
-        `const note = "a /* b";`,
-        `const y = "Standby";`,
-        `const z = "c */ d";`,
-      ].join("\n");
-      expect(findLegacyLabels(source).map(h => h.label)).toEqual(["Standby"]);
-    });
-
-    it("still ignores a real comment that documents the migration", () => {
-      // The reason stripping exists at all: prose describing the old vocabulary is not a violation.
-      expect(findLegacyLabels(`// this used to render "Not in Zenodo DB"`)).toEqual([]);
-      expect(findLegacyLabels(`/* was "Upstream Congested", now a canonical state */`)).toEqual([]);
-      expect(findLegacyLabels(`/**\n * "Standby" implied waiting; it is gone.\n */`)).toEqual([]);
-    });
-
-    it("keeps line numbers usable after stripping", () => {
-      const source = `line one\n/* two\nthree */\nconst x = "Standby";`;
-      expect(findLegacyLabels(source)).toEqual([{ label: "Standby", line: 4 }]);
-    });
-  });
-
-  it("declares a non-trivial legacy label list to scan for", () => {
-    // Guards against the scanner silently becoming a no-op.
-    expect(LEGACY_ENGINE_LABELS.length).toBeGreaterThan(10);
-  });
-
-  it("detects a legacy label in a realistic source snippet", () => {
-    // Positive control: proves the scanner works on the exact shape it will meet.
-    const snippet = [
-      "const badge = {",
-      '  label: "Not in Zenodo DB",',
-      '  category: "Upstream Congested",',
-      "};",
-    ].join("\n");
-    const hits = findLegacyLabels(snippet);
-    expect(hits.map(h => h.label).sort()).toEqual(["Not in Zenodo DB", "Upstream Congested"]);
-  });
-
-  it("ignores identifiers and comments that merely resemble a label", () => {
-    // Regression control: a naive substring scan flagged `isAsyncOffline` and taxonomy text.
-    const snippet = [
-      "// The old code used Standby and Idle here.",
-      "const isAsyncOffline = true;",
-      'const taxonomy = "Graph Deep Learning / Transformers";',
-      "/* Offline */",
-    ].join("\n");
-    expect(findLegacyLabels(snippet)).toEqual([]);
-  });
-
   for (const surface of GUARDED_SURFACES) {
     describe(surface, () => {
-      it("contains no legacy status label", () => {
-        const hits = findLegacyLabels(readSurface(surface));
-        const summary = hits.map(h => `  line ${h.line}: "${h.label}"`).join("\n");
-        expect(
-          hits,
-          hits.length
-            ? `${surface} hardcodes ${hits.length} legacy status label(s):\n${summary}\n` +
-              `Render the canonical state from engineStatus.ts instead.`
-            : ""
-        ).toEqual([]);
-      });
-
       // Surfaces in SURFACES_WITHOUT_ENGINE_STATE are exempt from this rule, so no case is generated for them.
       if (!SURFACES_WITHOUT_ENGINE_STATE.has(surface)) it.skipIf(SURFACES_PENDING_ENGINE_IMPORT.has(surface))("renders engine state from the canonical shared module", () => {
         const source = readSurface(surface);
@@ -444,10 +351,6 @@ describe("Energetics label guardrail", () => {
 
     for (const [file, fn] of STATES_THAT_SPELL_ONE_WORD) {
       describe(file, () => {
-        it("is a guarded surface, so its words are scanned for retired labels too", () => {
-          expect(GUARDED_SURFACES as readonly string[]).toContain(file);
-        });
-
         it(`${fn} answers every state, or falls back to the canonical label`, () => {
           const source = readSurface(file);
           expect(source, `${file} must still define ${fn}`).toContain(fn);

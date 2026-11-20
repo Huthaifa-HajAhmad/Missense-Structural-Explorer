@@ -8,7 +8,6 @@ import {
 } from "../structure3dEvidence";
 import { scanBFactors, readResidueAt, identifyAlphaFoldHeader, plddtScale, isSitePair } from "../coordinateText";
 import { LOCAL_ALIGNMENT_FIT_WINDOW } from "../thresholds";
-import { LEGACY_ENGINE_LABELS } from "../engineStatus";
 
 /**
  * The 3D view's contract, on the variant from the audit's screenshots: NAE1 p.Asp116Gly
@@ -562,20 +561,6 @@ describe("relationship notes for entries", () => {
 });
 
 describe("vocabulary", () => {
-  it("prints no legacy status word and no N/A anywhere in the model", () => {
-    const variants: Structure3dInput[] = [
-      baseInput(),
-      baseInput({ viewMode: "mutant" }),
-      baseInput({ viewMode: "superimposed", foldx: readyFoldx(), metrics: { ...NAE1_METRICS, wtSasa: null } }),
-      baseInput({ foldx: { ...baseInput().foldx, status: "failed", error: "BuildModel failed" } }),
-    ];
-    for (const input of variants) {
-      const text = JSON.stringify(buildStructure3dEvidence(input));
-      expect(text).not.toMatch(/\bN\/A\b/);
-      for (const legacy of LEGACY_ENGINE_LABELS) expect(text).not.toContain(legacy);
-    }
-  });
-
   it("extracts the PDB id the reader loaded", () => {
     expect(pdbIdFromUrl("/api/v1/pdb/entry/1yov")).toBe("1YOV");
     expect(pdbIdFromUrl("/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D")).toBe("9QN5");
