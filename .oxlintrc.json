@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc"],
+  // Only the rules listed below run. Oxlint's own "correctness" group stays off, so an Oxlint upgrade cannot add
+  // rules and fail the build on its own.
+  "categories": { "correctness": "off" },
+  "ignorePatterns": [".e2e/**", "scratch/**", "temp_jobs/**", "dist/**", "coverage/**", "node_modules/**", "tools/**", ".*/**"],
+  "rules": {
+    // Only the checks for a promise used as a condition or spread stay on. Passing an async function where
+    // a plain one is expected (Express routes, React handlers) is how this app is written. Express 4 does
+    // not catch a rejection in an async route, so a route must handle its own errors.
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": false }],
+    "typescript/await-thenable": "error",
+    "typescript/require-array-sort-compare": "error",
+    "typescript/restrict-template-expressions": "error",
+    // A `default` branch counts as handling the other members: the switches here use it on purpose.
+    "typescript/switch-exhaustiveness-check": ["error", { "considerDefaultExhaustiveForUnions": true }],
+    "typescript/unbound-method": "error",
+    // `== null` is the one loose comparison kept: it tests for null and undefined together.
+    "eqeqeq": ["error", "always", { "null": "ignore" }]
+  }
+}

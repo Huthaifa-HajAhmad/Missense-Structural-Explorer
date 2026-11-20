@@ -74,7 +74,7 @@ export function useProteinSequence(
     setIsLoading(true);
     setError(null);
 
-    (async () => {
+    void (async () => {
       try {
         const response = await fetchRef.current(
           `/api/v1/sequence/${encodeURIComponent(accession)}`,

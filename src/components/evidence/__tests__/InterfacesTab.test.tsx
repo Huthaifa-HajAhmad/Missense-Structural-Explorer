@@ -278,7 +278,7 @@ describe("InterfacesTab — request state", () => {
     const oldAsm = { ...SLC12A4.assembly, experimental: { status: "ok", partners: [{ accession: "Q9UP95", name: "x", residues: [867], pdbEntries: ["7aiq"], homomeric: true, variantAtInterface: true }] } };
     const oldPpi = { ...SLC12A4.ppi, string: undefined, lookups: { stringPartners: "ok", uniprot: "ok", pdbe: "ok" } };
     const { container } = renderTab({ ...RESULT, multimerData: oldAsm, ppiBindingData: oldPpi });
-    expect(fetchWithAuthMock.mock.calls.map(c => c[0]).sort()).toEqual(["/api/v1/ppi/binding-affinity", "/api/v1/structure/multimer"]);
+    expect(fetchWithAuthMock.mock.calls.map(c => c[0]).sort((x, y) => x.localeCompare(y))).toEqual(["/api/v1/ppi/binding-affinity", "/api/v1/structure/multimer"]);
     expect(JSON.parse(fetchWithAuthMock.mock.calls.find(c => c[0] === "/api/v1/structure/multimer")![1].body)).not.toHaveProperty("model");
     expect(screen.getByText("Reading partners")).toBeInTheDocument();
     expect(container).not.toHaveTextContent(/No partners listed/);

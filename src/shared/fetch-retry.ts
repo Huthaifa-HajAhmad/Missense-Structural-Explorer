@@ -439,7 +439,7 @@ export async function withTransientRetry<T>(
 
       if (options.deadlineAt !== undefined && options.deadlineAt - Date.now() - delay <= minAttemptMs) {
         console.warn(
-          `[Client Retry] Not retrying after "${(err as Error)?.message || err}": a ${delay}ms delay ` +
+          `[Client Retry] Not retrying after "${String((err as Error)?.message || err)}": a ${delay}ms delay ` +
             "leaves no meaningful attempt inside the caller's budget — surfacing the error instead."
         );
         throw err;

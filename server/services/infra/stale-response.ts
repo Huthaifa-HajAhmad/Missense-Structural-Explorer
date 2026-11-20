@@ -43,6 +43,7 @@ export function currentStaleNotes(): StaleDataNote[] {
 
 export const markStaleResponses: express.RequestHandler = (_req, res, next) => {
   const scope = newCacheScope();
+  // oxlint-disable-next-line typescript/unbound-method -- called below with the response as `this`
   const writeHead = res.writeHead;
   res.writeHead = function (this: express.Response, ...args: unknown[]) {
     if (scope.stale.length > 0 && !res.headersSent) {

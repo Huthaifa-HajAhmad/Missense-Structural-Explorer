@@ -12,6 +12,7 @@ import { currentCredentialUses, newCredentialRecord, runWithCredentialRecord } f
 
 export const reportCredentialUse: express.RequestHandler = (_req, res, next) => {
   const record = newCredentialRecord();
+  // oxlint-disable-next-line typescript/unbound-method -- called below with the response as `this`
   const writeHead = res.writeHead;
   res.writeHead = function (this: express.Response, ...args: unknown[]) {
     if (record.uses.size > 0 && !res.headersSent) {

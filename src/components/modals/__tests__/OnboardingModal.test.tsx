@@ -31,7 +31,7 @@ function renderTour(props: Partial<React.ComponentProps<typeof OnboardingModal>>
   return { ...utils, props: merged };
 }
 
-const next = () => fireEvent.click(screen.getByRole("button", { name: /^(show me around|next)/i }));
+const next = () => { fireEvent.click(screen.getByRole("button", { name: /^(show me around|next)/i })); };
 const goTo = (stepId: string) => {
   const target = TOUR_STEPS.findIndex((s) => s.id === stepId);
   for (let i = 0; i < target; i++) next();

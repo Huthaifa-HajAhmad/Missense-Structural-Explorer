@@ -526,7 +526,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       }
     }
 
-    load();
+    void load();
     return () => {
       active = false;
       isLoadingRef.current = false;
@@ -790,7 +790,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       }
     }
 
-    highlight();
+    void highlight();
     return () => {
       active = false;
       // The attribute is the proof harness's readout of what is drawn; a stale "on" after the set is

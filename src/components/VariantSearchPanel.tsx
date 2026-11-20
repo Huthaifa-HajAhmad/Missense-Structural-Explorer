@@ -1186,7 +1186,7 @@ function VariantSearchPanel({
     const ro = body && typeof ResizeObserver !== "undefined" ? new ResizeObserver(consider) : null;
     if (ro && body) ro.observe(body);
     window.addEventListener("resize", onResize);
-    document.fonts?.ready?.then(() => { if (!disposed) consider(); });
+    void document.fonts?.ready?.then(() => { if (!disposed) consider(); });
     return () => {
       // A frame scheduled by this run must never write after it: `disposed` alone would leave the
       // callback to fire against refs a later run has replaced, so both are cancelled outright.

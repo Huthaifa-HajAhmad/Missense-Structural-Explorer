@@ -127,7 +127,7 @@ export function useFoldxSuperposition(apiClient: any): void {
     store.setFoldxReference({ state: "loading", reason: null, provenance: template, basis: null }, null);
     store.setFoldxAlignedPdb(null);
 
-    (async () => {
+    void (async () => {
       try {
         const apiClient = apiClientRef.current;
         // FoldX's own wild type, when the run kept it and it really is this variant's pair.

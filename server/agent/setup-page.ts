@@ -21,7 +21,7 @@ import { MAX_ARCHIVE_BYTES } from "../services/infra/foldx-archive.ts";
 export interface SetupPage {
   url: string;
   port: number;
-  close(): Promise<void>;
+  close: () => Promise<void>;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);

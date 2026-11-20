@@ -23,7 +23,7 @@ describe('contextual scientific explanations', () => {
     const componentRoot = resolve(process.cwd(), 'src/components');
     for (const file of readdirSync(componentRoot, { recursive: true }).filter(f => String(f).endsWith('.tsx') && !String(f).includes('__tests__'))) {
       const code = readFileSync(resolve(componentRoot, String(file)), 'utf8');
-      for (const match of code.matchAll(/topic="([a-z0-9_]+)"/g)) expect(resolveResearchGuide(match[1]), `${file}: ${match[1]}`).toBeDefined();
+      for (const match of code.matchAll(/topic="([a-z0-9_]+)"/g)) expect(resolveResearchGuide(match[1]), `${String(file)}: ${match[1]}`).toBeDefined();
     }
     for (const key of Object.values(PHYSICAL_EXPLANATIONS)) expect(resolveResearchGuide(key)).toBeDefined();
   });

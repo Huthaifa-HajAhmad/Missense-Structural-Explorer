@@ -348,7 +348,7 @@ export async function executeFullAnalysisWorkflow({
         clearAnalysisActivity();
 
         if ((!cached.homologs || cached.homologs.length === 0) && targetUniprot) {
-          fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
+          void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
         }
         if (!cached.pdbText) {
           markCoordinates("running");
@@ -523,7 +523,7 @@ export async function executeFullAnalysisWorkflow({
         structureSink.setPdbTextProvenance(provenance);
       }
       if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
-        fetchPocketData(
+        void fetchPocketData(
           targetUniprot,
           residueIndex,
           coordinates,
