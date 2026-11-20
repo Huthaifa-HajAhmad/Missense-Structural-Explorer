@@ -97,9 +97,13 @@ describe("build hint reaches the analysis state", () => {
     expect(state.result.buildHint).toEqual(hint);
   });
 
-  it("ignores every other error, and a malformed hint", () => {
-    expect(refusalAttachmentsFromError(new Error("boom"), "chr1:g.1A>G")).toEqual({});
-    expect(refusalAttachmentsFromError({ code: "TRANSLATION_FAILED" }, "chr1:g.1A>G")).toEqual({});
+  it("records other request failures without a build hint, and rejects malformed hints", () => {
+    expect(refusalAttachmentsFromError(new Error("boom"), "chr1:g.1A>G")).toEqual({
+      coreFailure: { kind: "request-failed", message: "boom" },
+    });
+    expect(refusalAttachmentsFromError({ code: "TRANSLATION_FAILED", message: "Translation failed" }, "chr1:g.1A>G")).toEqual({
+      coreFailure: { kind: "request-failed", message: "Translation failed" },
+    });
 
     /**
      * The hint is re-validated rather than trusted: a button that submits a coordinate nobody composed

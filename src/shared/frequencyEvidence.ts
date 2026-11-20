@@ -466,13 +466,14 @@ export function frequencyObservationName(observation: Pick<FrequencyObservation,
 
 /** Where the rule's frequency came from, named so the number can be traced to a dataset. */
 export function frequencySourceLabel(evidence: FrequencyEvidence): string {
-  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, inputs, groupMaxPopulation, faf95Population, candidateAlleles } = evidence.criterion;
+  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, af, inputs, groupMaxPopulation, faf95Population, candidateAlleles } = evidence.criterion;
   if (candidateAlleles) return `gnomAD, read for each of ${candidateAlleles} candidate alleles`;
   // A recorded absence has no statistic behind it; naming "the global maximum" invented one.
   if (sourceId === "gnomad-group" && absent) return "gnomAD — no record (absence read as 0)";
   if (sourceId === "gnomad-group" && combinedCohorts) return "gnomAD combined frequency (no ancestry groups in this source)";
-  // BA1/BS1 decided on FAF95: name it, and its group.
-  if (sourceId === "gnomad-group" && (code === "BA1" || code === "BS1") && inputs?.benignStatistic === "faf95") {
+  // A withheld BS1 reference still displays FAF95, so keep its statistic and group in the label.
+  const readsBenignFrequency = code === "BA1" || code === "BS1" || (code === "none" && af === inputs?.benignAf);
+  if (sourceId === "gnomad-group" && readsBenignFrequency && inputs?.benignStatistic === "faf95") {
     const group = gnomadGroupLabel(faf95Population);
     return `gnomAD filtering allele frequency (FAF95)${group ? ` · ${group}` : ""}`;
   }
