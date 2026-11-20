@@ -19,5 +19,20 @@
     "typescript/unbound-method": "error",
     // `== null` is the one loose comparison kept: it tests for null and undefined together.
     "eqeqeq": ["error", "always", { "null": "ignore" }]
-  }
+  },
+  "overrides": [
+    {
+      // The calibrated stability consensus is computed in one place on the server: enrichBiophysicalResult sees all
+      // six engines. A second computation over a smaller set made the exported verdict disagree with the screen.
+      // If a server file needs a consensus, take it from the enriched result instead of computing it again.
+      "files": ["server/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": ["error", { "patterns": [{ "group": ["**/thresholds", "**/thresholds.ts", "**/thresholds/*"], "importNames": ["computeStabilityConsensus", "computeConsensusVerdict"], "message": "The stability consensus is computed only in server/services/stability/energy-models.ts." }, { "group": ["**/stabilityConsensus", "**/stabilityConsensus.ts"], "message": "The stability consensus is computed only in server/services/stability/energy-models.ts." }] }]
+      }
+    },
+    {
+      "files": ["server/services/stability/energy-models.ts", "server/**/*.test.ts", "server/tests/**/*.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
 }
