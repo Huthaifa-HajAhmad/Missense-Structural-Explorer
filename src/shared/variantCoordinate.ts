@@ -45,6 +45,37 @@ export function cleanVariantString(input: string): string {
 }
 
 /**
+ * Builds the canonical VariantCoordinate from parsed substitution parts.
+ * Shared by the FoldX, 3-letter and 1-letter parse branches so notation
+ * formatting stays consistent across formats.
+ */
+function buildCoordinate(
+  parts: { wt1: string; wt3: string; mut1: string; mut3: string; pos: number; insCode?: string; chain: string },
+  options?: { gene?: string; transcriptId?: string; uniprotId?: string }
+): VariantCoordinate {
+  const { wt1, wt3, mut1, mut3, pos, insCode, chain } = parts;
+  const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
+  return {
+    gene: options?.gene?.trim().toUpperCase(),
+    pos,
+    insCode,
+    wt1,
+    wt3,
+    mut1,
+    mut3,
+    foldxCode: `${wt1}${chain}${posStr}${mut1}`,
+    hgvsp1: `p.${wt1}${posStr}${mut1}`,
+    hgvsp3: `p.${wt3}${posStr}${mut3}`,
+    notation1: `${wt1}${posStr}${mut1}`,
+    notation3: `${wt3}${posStr}${mut3}`,
+    isSynonymous: wt1 === mut1,
+    chain,
+    transcriptId: options?.transcriptId,
+    uniprotId: options?.uniprotId
+  };
+}
+
+/**
  * Parses and validates an amino acid substitution into a canonical VariantCoordinate object.
  * Supports:
  * - 3-letter HGVS (e.g., "p.Arg408Trp", "Arg408Trp", "arg408trp")
@@ -100,25 +131,7 @@ export function parseVariantCoordinate(
     const mut3 = AMINO_ACID_1_TO_3_TITLE[mut1];
 
     if (wt3 && mut3) {
-      const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
-      return {
-        gene: options?.gene?.trim().toUpperCase(),
-        pos,
-        insCode,
-        wt1,
-        wt3,
-        mut1,
-        mut3,
-        foldxCode: `${wt1}${chain}${posStr}${mut1}`,
-        hgvsp1: `p.${wt1}${posStr}${mut1}`,
-        hgvsp3: `p.${wt3}${posStr}${mut3}`,
-        notation1: `${wt1}${posStr}${mut1}`,
-        notation3: `${wt3}${posStr}${mut3}`,
-        isSynonymous: wt1 === mut1,
-        chain,
-        transcriptId: options?.transcriptId,
-        uniprotId: options?.uniprotId
-      };
+      return buildCoordinate({ wt1, wt3, mut1, mut3, pos, insCode, chain }, options);
     }
   }
 
@@ -142,26 +155,7 @@ export function parseVariantCoordinate(
 
     const wt3 = AMINO_ACID_1_TO_3_TITLE[wt1] || rawWt3;
     const mut3 = AMINO_ACID_1_TO_3_TITLE[mut1] || rawMut3;
-    const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
-
-    return {
-      gene: options?.gene?.trim().toUpperCase(),
-      pos,
-      insCode,
-      wt1,
-      wt3,
-      mut1,
-      mut3,
-      foldxCode: `${wt1}${defaultChain}${posStr}${mut1}`,
-      hgvsp1: `p.${wt1}${posStr}${mut1}`,
-      hgvsp3: `p.${wt3}${posStr}${mut3}`,
-      notation1: `${wt1}${posStr}${mut1}`,
-      notation3: `${wt3}${posStr}${mut3}`,
-      isSynonymous: wt1 === mut1,
-      chain: defaultChain,
-      transcriptId: options?.transcriptId,
-      uniprotId: options?.uniprotId
-    };
+    return buildCoordinate({ wt1, wt3, mut1, mut3, pos, insCode, chain: defaultChain }, options);
   }
 
   // 3. Try 1-letter AA format (e.g. "R408W", "r408w", or with insCode "R408AW")
@@ -182,26 +176,7 @@ export function parseVariantCoordinate(
       );
     }
 
-    const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
-
-    return {
-      gene: options?.gene?.trim().toUpperCase(),
-      pos,
-      insCode,
-      wt1,
-      wt3,
-      mut1,
-      mut3,
-      foldxCode: `${wt1}${defaultChain}${posStr}${mut1}`,
-      hgvsp1: `p.${wt1}${posStr}${mut1}`,
-      hgvsp3: `p.${wt3}${posStr}${mut3}`,
-      notation1: `${wt1}${posStr}${mut1}`,
-      notation3: `${wt3}${posStr}${mut3}`,
-      isSynonymous: wt1 === mut1,
-      chain: defaultChain,
-      transcriptId: options?.transcriptId,
-      uniprotId: options?.uniprotId
-    };
+    return buildCoordinate({ wt1, wt3, mut1, mut3, pos, insCode, chain: defaultChain }, options);
   }
 
   throw new Error(

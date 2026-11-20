@@ -78,6 +78,7 @@ const {
   repairedStructureCache,
   mutantCache,
   getFoldxCacheKey,
+  settleCacheWritesForTests,
 } = await import("./cache.ts");
 const { cleanPdbForFoldX } = await import("./pdb-utils.ts");
 const { FIX_SHELL_MODE } = await import("../../../../src/shared/foldxRepairMode.ts");
@@ -233,7 +234,10 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     mutantCache.clear();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // The runner saves results to the disk cache without waiting. Let those saves finish first, so no
+    // file is created while the folder is being removed below.
+    await settleCacheWritesForTests();
     for (const [key, value] of Object.entries(originalEnv)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -242,19 +246,17 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     repairedStructureCache.clear();
     mutantCache.clear();
     /**
-     * The retries are not decoration.
-     *
-     * `runner.ts:147` calls `writeMutantToCache(cacheKey, result)` WITHOUT awaiting it, which is
+     * `runner.ts` calls `writeMutantToCache(cacheKey, result)` WITHOUT awaiting it, which is
      * deliberate -- a FoldX result should not be held up by a cache write -- and that write goes to
-     * `getFoldxCacheDir()`. While that directory sat inside `workspace`, a write still in flight
-     * when this cleanup ran could create a file mid-removal and fail the test with
+     * `getFoldxCacheDir()`. A write still in flight when this cleanup ran could create a file
+     * mid-removal and fail the test with
      *
-     *   Error: ENOTEMPTY: directory not empty, rmdir '/tmp/foldx-runner-...'
+     *   Error: ENOTEMPTY: directory not empty, rmdir '/tmp/foldx-home-...'
      *
-     * which is what CI reported on 332e748. The failure said nothing about FoldX, and it did not
-     * reproduce in isolation because it needs the suite's timing. Two changes: the cache now lives
-     * in `foldxHome`, outside the tree being deleted, and the retries absorb the un-awaited
-     * `unlink`s in cache.ts that can likewise still be in flight.
+     * The failure said nothing about FoldX, and it did not reproduce in isolation because it needs
+     * the suite's timing. `settleCacheWritesForTests()` above waits for every queued write, and the
+     * cache lives in `foldxHome`, outside the tree being deleted. The retries remain for the
+     * un-awaited `unlink`s in cache.ts, which can still be in flight.
      */
     fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     fs.rmSync(foldxHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
