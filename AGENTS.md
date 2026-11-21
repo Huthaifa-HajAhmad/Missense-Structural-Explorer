@@ -15,7 +15,8 @@
 The tables are exact for the branch you are on, because `npm run lint` fails when they are out of date.
 After you change routes, tests, outside hosts, settings or database tables, stage new files first (`git add`),
 then run `npm run map` and commit `doc/code-map/` with your change. A git `pre-commit` hook (installed by
-`npm install` / `npm run hooks:install`) blocks commits with stale or unstaged `doc/code-map/` tables.
+`npm install` / `npm run hooks:install`) blocks commits with stale or unstaged `doc/code-map/` tables. If you already have your own `pre-commit` hook, the installer
+keeps it and the guard is off (it only prints a warning): run `npm run map:check` before committing.
 Details, columns and limits: `doc/code-map/README.md`.
 
 ## State machines

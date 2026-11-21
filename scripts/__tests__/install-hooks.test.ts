@@ -1,4 +1,4 @@
-import { execFileSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -21,6 +21,11 @@ function makeTempRepo(): string {
   return dir;
 }
 
+function prepareCommand(): string {
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"));
+  return pkg.scripts.prepare;
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -37,6 +42,35 @@ describe("installPreCommitHook", () => {
 
     const second = installPreCommitHook(repo);
     expect(second.status).toBe("unchanged");
+  });
+
+  it.skipIf(process.platform === "win32")("makes an unchanged managed hook executable again", () => {
+    const repo = makeTempRepo();
+    const hookPath = path.join(repo, ".git", "hooks", "pre-commit");
+    installPreCommitHook(repo);
+    fs.chmodSync(hookPath, 0o644);
+
+    expect(installPreCommitHook(repo).status).toBe("unchanged");
+    expect(fs.statSync(hookPath).mode & 0o111).not.toBe(0);
+  });
+
+  it("installs the hook when the package.json prepare script runs", () => {
+    const repo = makeTempRepo();
+    fs.copyFileSync(
+      path.resolve(process.cwd(), "scripts", "install-hooks.mjs"),
+      path.join(repo, "scripts", "install-hooks.mjs")
+    );
+
+    execSync(prepareCommand(), { cwd: repo, stdio: "ignore" });
+
+    expect(fs.existsSync(path.join(repo, ".git", "hooks", "pre-commit"))).toBe(true);
+  });
+
+  it("lets the prepare script exit cleanly when the installer file is absent", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mse-no-installer-"));
+    tempDirs.push(dir);
+
+    expect(() => execSync(prepareCommand(), { cwd: dir, stdio: "ignore" })).not.toThrow();
   });
 
   it("preserves an existing unmanaged pre-commit hook", () => {

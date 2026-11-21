@@ -37,18 +37,24 @@ export function installPreCommitHook(repoRoot = path.resolve(path.dirname(fileUR
       return { status: "preserved", path: targetHook };
     }
     if (existing.replace(/\r\n/g, "\n") === desired) {
+      makeExecutable(targetHook);
       return { status: "unchanged", path: targetHook };
     }
   }
 
   fs.mkdirSync(hooksDir, { recursive: true });
   fs.writeFileSync(targetHook, desired, { mode: 0o755 });
+  makeExecutable(targetHook);
+  return { status: "installed", path: targetHook };
+}
+
+// Git skips a hook that is not executable, so repair the mode on every run.
+function makeExecutable(hookPath) {
   try {
-    fs.chmodSync(targetHook, 0o755);
+    fs.chmodSync(hookPath, 0o755);
   } catch {
     // Windows filesystems ignore POSIX mode bits.
   }
-  return { status: "installed", path: targetHook };
 }
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -57,6 +63,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFil
   if (result.status === "installed") {
     console.log(`Installed pre-commit code-map guard at ${result.path}`);
   } else if (result.status === "preserved") {
-    console.warn(`Skipped installing pre-commit hook: existing unmanaged hook at ${result.path}`);
+    console.warn(
+      `Skipped installing pre-commit hook: existing unmanaged hook at ${result.path}. ` +
+        "The code-map guard is NOT active; run `npm run map:check` before committing."
+    );
   }
 }

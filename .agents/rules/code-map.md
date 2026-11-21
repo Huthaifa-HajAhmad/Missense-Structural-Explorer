@@ -23,7 +23,8 @@ Use them first for these questions:
    branch's tables match its own code. If you are unsure, `npm run map:check` answers in seconds.
 3. **Stage new files (`git add`), then run `npm run map` and keep `doc/code-map/` in the same change.**
    `scripts/code-map.ts` reads `git ls-files`, so untracked files are invisible until staged. A `pre-commit` hook
-   (`npm run hooks:install`, also run on `npm install`) blocks commits if `doc/code-map/` is stale or unstaged.
+   (`npm run hooks:install`, also run on `npm install`) blocks commits if `doc/code-map/` is stale or unstaged. If you already have your own `pre-commit` hook, the installer keeps
+   it and the guard is off (it only prints a warning): run `npm run map:check` before committing.
    Do not edit the CSV files by hand.
 4. **The map points to the file; it does not replace reading it.** Open the file named in a row before you edit it.
 5. **Read `conditional` and `?` as "maybe".** Read an empty `direct_tests` for a `barrel` or `types` file as
