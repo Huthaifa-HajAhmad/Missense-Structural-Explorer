@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry, extractChainFromPdb, fetchVerifiedExperimentalChain } from "./structure-fetcher.ts";
-import { pdbCache, afUrlCache } from "../infra/cache.ts";
+import { pdbCache, afUrlCache, bestPdbCache } from "../infra/cache.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { uniprotSeqCache } from "../external-api/uniprot.ts";
 
@@ -410,6 +410,154 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
     const homologs = await fetchPdbHomologs("Q9H1C1");
     const hit = homologs.find(h => h.pdbId === "5V3M") as any;
     expect(hit?.chainId).toBe("C");
+  });
+
+  it("merges direct PDBe mappings covering the site ahead of RCSB homologs without fabricating identity", async () => {
+    AnalysisDatabase.resetInstance(":memory:");
+    pdbCache.clear();
+    bestPdbCache.clear();
+    uniprotSeqCache.clear();
+    const mockSequence = "M".repeat(806);
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uniprotkb")) return new Response(`>sp|P22607|FGFR3_HUMAN\n${mockSequence}`, { status: 200 });
+      if (u.includes("pdbe/graph-api/mappings/best_structures/P22607")) {
+        return new Response(JSON.stringify({
+          P22607: [
+            { pdb_id: "2lzl", chain_id: "A", experimental_method: "Solution NMR", resolution: null, tax_id: 9606, unp_start: 357, unp_end: 399, start: 1, end: 43, coverage: 0.055 },
+            { pdb_id: "9eko", chain_id: "A", experimental_method: "X-ray diffraction", resolution: 2.901, tax_id: 9606, unp_start: 371, unp_end: 399, start: 447, end: 475, coverage: 0.037 },
+            { pdb_id: "1ry7", chain_id: "A", experimental_method: "X-ray diffraction", resolution: 3.2, tax_id: 9606, unp_start: 32, unp_end: 365, start: 1, end: 334, coverage: 0.41 },
+          ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("rcsbsearch")) {
+        return new Response(JSON.stringify({
+          result_set: [
+            { identifier: "8JQI_1", score: 0.9, services: [{ nodes: [{ match_context: [{ sequence_identity: 0.68, alignment_length: 725, query_beg: 74, query_end: 798 }] }] }] },
+            { identifier: "1RY7_1", score: 1.0, services: [{ nodes: [{ match_context: [{ sequence_identity: 1.0, alignment_length: 334, query_beg: 32, query_end: 365 }] }] }] },
+          ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("graphql")) {
+        return new Response(JSON.stringify({
+          data: {
+            entries: [
+              { rcsb_id: "8JQI", struct: { title: "FGFR1 complex" }, rcsb_entry_info: { experimental_method: "ELECTRON MICROSCOPY", resolution_combined: [4.1] }, polymer_entities: [{ rcsb_polymer_entity_container_identifiers: { entity_id: "1", auth_asym_ids: ["A"] }, rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }] },
+              { rcsb_id: "1RY7", struct: { title: "FGFR3 Ig domain" }, rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [3.2] }, polymer_entities: [{ rcsb_polymer_entity_container_identifiers: { entity_id: "1", auth_asym_ids: ["A"] }, rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }] },
+            ]
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    const homologs = await fetchPdbHomologs("P22607", 380);
+    expect(homologs.map(h => h.pdbId)).toEqual(["9EKO", "2LZL", "8JQI", "1RY7"]);
+    expect(homologs[0]).toMatchObject({
+      pdbId: "9EKO",
+      chainId: "A",
+      identity: null,
+      source: "pdbe",
+      directMapping: true,
+      querySeqFrom: 371,
+      querySeqTo: 399,
+      coversPosition: true,
+      resolution: 2.901,
+    });
+    expect(homologs[1]).toMatchObject({
+      pdbId: "2LZL",
+      source: "pdbe",
+      directMapping: true,
+      identity: null,
+      coversPosition: true,
+    });
+    expect(homologs[2]).toMatchObject({ pdbId: "8JQI", identity: 68, source: "rcsb" });
+    expect(homologs[3]).toMatchObject({ pdbId: "1RY7", identity: 100, source: "rcsb", directMapping: true });
+  });
+
+  it("does not duplicate an entry returned by both PDBe and RCSB and keeps RCSB metadata", async () => {
+    AnalysisDatabase.resetInstance(":memory:");
+    pdbCache.clear();
+    bestPdbCache.clear();
+    uniprotSeqCache.clear();
+    const mockSequence = "M".repeat(200);
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uniprotkb")) return new Response(`>sp|P99901|TEST\n${mockSequence}`, { status: 200 });
+      if (u.includes("pdbe/graph-api/mappings/best_structures/P99901")) {
+        return new Response(JSON.stringify({
+          P99901: [
+            { pdb_id: "1yov", chain_id: "A", experimental_method: "X-ray diffraction", resolution: 2.6, tax_id: 9606, unp_start: 1, unp_end: 200, start: 1, end: 200, coverage: 1.0 },
+          ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("rcsbsearch")) {
+        return new Response(JSON.stringify({
+          result_set: [
+            { identifier: "1YOV_1", score: 1.0, services: [{ nodes: [{ match_context: [{ sequence_identity: 1.0, alignment_length: 200, query_beg: 1, query_end: 200 }] }] }] },
+            { identifier: "1DUP_1", score: 0.9, services: [{ nodes: [{ match_context: [{ sequence_identity: 1.0, alignment_length: 200, query_beg: 1, query_end: 200 }] }] }] },
+          ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("graphql")) {
+        return new Response(JSON.stringify({
+          data: {
+            entries: [
+              { rcsb_id: "1YOV", struct: { title: "NAE1 crystal structure" }, rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.6] }, polymer_entities: [{ rcsb_polymer_entity_container_identifiers: { entity_id: "1", auth_asym_ids: ["A"] }, rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }] },
+              { rcsb_id: "1DUP", struct: { title: "Duplicate human crystal" }, rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.9] }, polymer_entities: [{ rcsb_polymer_entity_container_identifiers: { entity_id: "1", auth_asym_ids: ["A"] }, rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }] },
+            ]
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    const homologs = await fetchPdbHomologs("P99901", 116);
+    expect(homologs.map(h => h.pdbId)).toEqual(["1YOV"]);
+    expect(homologs[0]).toMatchObject({
+      pdbId: "1YOV",
+      title: "NAE1 crystal structure",
+      organism: "Homo sapiens",
+      identity: 100,
+      source: "rcsb",
+      directMapping: true,
+    });
+  });
+
+  it("still returns RCSB homologs when PDBe fails, without caching the degraded list", async () => {
+    AnalysisDatabase.resetInstance(":memory:");
+    pdbCache.clear();
+    bestPdbCache.clear();
+    uniprotSeqCache.clear();
+    const mockSequence = "M".repeat(200);
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uniprotkb")) return new Response(`>sp|P99902|TEST\n${mockSequence}`, { status: 200 });
+      if (u.includes("pdbe/graph-api/mappings/best_structures/P99902")) {
+        return new Response("unavailable", { status: 500 });
+      }
+      if (u.includes("rcsbsearch")) {
+        return new Response(JSON.stringify({
+          result_set: [
+            { identifier: "8JQI_1", score: 0.9, services: [{ nodes: [{ match_context: [{ sequence_identity: 0.68, alignment_length: 190, query_beg: 1, query_end: 190 }] }] }] },
+          ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("graphql")) {
+        return new Response(JSON.stringify({
+          data: {
+            entries: [
+              { rcsb_id: "8JQI", struct: { title: "Homolog" }, rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.5] }, polymer_entities: [{ rcsb_polymer_entity_container_identifiers: { entity_id: "1", auth_asym_ids: ["A"] }, rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }] },
+            ]
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    const homologs = await fetchPdbHomologs("P99902", 50);
+    expect(homologs.map(h => h.pdbId)).toEqual(["8JQI"]);
+    expect(pdbCache.has("homologs_v4_P99902_pos_50")).toBe(false);
   });
 });
 
