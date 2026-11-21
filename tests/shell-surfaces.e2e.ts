@@ -36,6 +36,8 @@ test('a long history scrolls inside its card and keeps the deck in place', { tag
     localStorage.setItem('variant_search_history', JSON.stringify(
       genes.map(gene => ({ gene, variant: 'p.Arg100Trp', query: `${gene} p.Arg100Trp` })),
     ));
+    // Ten recents survive only when the reader keeps more than the default five.
+    localStorage.setItem('missenseUserSettings', JSON.stringify({ saveHistory: true, maxHistoryItems: 20 }));
   });
   await browser.setViewport({ width: 1753, height: 981 });
   await app.open('/');
