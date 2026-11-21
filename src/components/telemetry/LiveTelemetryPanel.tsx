@@ -1,19 +1,17 @@
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useState } from "react";
 import { RefreshCw, Settings } from "lucide-react";
-import { useDiagnostics } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
 import { useApiConnections } from "../../hooks/useApiConnections";
-import { getAuthLapse, subscribeAuthLapse } from "../../api/authSession";
 import { ServiceRow } from "./ServiceRow";
 import {
   ageLabel,
   buildServiceCards,
-  isReadingStale,
   summarizeServices,
   summaryLabel,
   summaryTitle,
   type ServiceSummary
 } from "./serviceSummary";
+import { useServiceCardContext } from "./useServiceCardContext";
 import "../../styles/telemetry.css";
 
 export type { ServiceSummary };
@@ -30,18 +28,8 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   onSummary,
   className = ""
 }) => {
-  const { diagnostics, capabilities, loading, refresh, checkedAt, lastCheckFailed, coveragePending } = useDiagnostics({ live: true });
-  const { settings, serverGeminiReady, openSettingsTab } = useSettings();
-  const { linking, linkError, linkGeminiKey } = useApiConnections();
-
-  /** Moves the states that change with the clock: the Gemini session countdown and the reading's age. */
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const authLapse = useSyncExternalStore(subscribeAuthLapse, getAuthLapse, getAuthLapse);
+  const { openSettingsTab } = useSettings();
+  const gemini = useApiConnections();
 
   /**
    * Which row is open. One at a time, because the rail is narrow and two open explanations would
@@ -61,32 +49,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     }
   };
 
-  const isLoaded = Boolean(diagnostics);
-  const isChecking = !isLoaded && loading;
-  /**
-   * A check that failed before any reading arrived is "could not check", not "every service is down":
-   * every row would otherwise wear the danger state for a probe the server never answered. `isLoaded`
-   * is deliberately absent from this condition — the reading's age is not the only thing that makes it
-   * out of date; never having had one does too.
-   */
-  const stale = isReadingStale(lastCheckFailed, checkedAt, now);
-  const services = buildServiceCards({
-    diagnostics,
-    capabilities,
-    settings,
-    serverGeminiReady,
-    authLost: authLapse !== null,
-    linking,
-    linkError,
-    linkGeminiKey,
-    now,
-    isLoaded,
-    isChecking,
-    noReadout: !isLoaded && !loading,
-    coveragePending: Boolean(coveragePending),
-    refresh,
-    configure: handleConfigure
-  }, stale);
+  const { ctx, stale, sweptAtLabel, checkedAt, now, loading, refresh } = useServiceCardContext({ configure: handleConfigure, gemini });
+  const { isLoaded, isChecking } = ctx;
+  const services = buildServiceCards(ctx, stale);
   const summary = summarizeServices(services, isLoaded, isChecking, stale);
   const { online, total, tone } = summary;
   useEffect(() => {
@@ -98,13 +63,6 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     { id: "data", label: "Data sources", items: services.filter(s => s.category !== "compute") },
     { id: "compute", label: "Models & engines", items: services.filter(s => s.category === "compute") },
   ];
-
-  // Expanded service details retain the timestamp of their reachability check.
-  const sweptAtRaw = diagnostics?.timestamp ? new Date(diagnostics.timestamp) : null;
-  const sweptAtLabel =
-    sweptAtRaw && !isNaN(sweptAtRaw.getTime())
-      ? sweptAtRaw.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      : null;
 
   return (
     <div className={`telemetry-panel ${className}`}>

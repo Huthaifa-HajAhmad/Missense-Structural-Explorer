@@ -55,7 +55,7 @@ const SECTIONS: readonly SectionConfig[] = [
   { id: "sequence", group: "Display", label: "Sequence", description: "Ribbon coloring and residue window size.", icon: Dna, Component: SequenceSection },
   { id: "analysis", group: "Workflow", label: "Analysis", description: "Evidence weighting, default models, and simulation conditions.", icon: FlaskConical, Component: AnalysisSection },
   { id: "workspace", group: "Workflow", label: "Workspace", description: "Notifications and local search history.", icon: LayoutGrid, Component: WorkspaceSection },
-  { id: "connections", group: "System", label: "Connections", description: "API keys, AI session, and server service status.", icon: KeyRound, Component: ConnectionsSection },
+  { id: "connections", group: "System", label: "Connections", description: "Keys for AI and model services, each with its current state.", icon: KeyRound, Component: ConnectionsSection },
   { id: "data", group: "System", label: "Data & storage", description: "Backup, local caches, and lab-server storage.", icon: Database, Component: DataStorageSection }
 ] as const;
 

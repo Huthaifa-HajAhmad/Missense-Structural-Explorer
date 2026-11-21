@@ -28,7 +28,7 @@ export function isReadingStale(lastCheckFailed: boolean, checkedAt: number | nul
  * exempt while it reports something the browser knows for certain — a live session, a stored key — but
  * `unreachable` on such a row only ever comes from having no reading at all, so that one is marked.
  */
-function markOutOfDate(card: ServiceStatusCard): ServiceStatusCard {
+export function markOutOfDate(card: ServiceStatusCard): ServiceStatusCard {
   if (!["connected", "degraded", "unreachable"].includes(card.state)) return card;
   if (card.localState && card.state !== "unreachable") return card;
   return { ...card, state: "stale", emphasis: undefined, explain: OUT_OF_DATE_EXPLAIN };

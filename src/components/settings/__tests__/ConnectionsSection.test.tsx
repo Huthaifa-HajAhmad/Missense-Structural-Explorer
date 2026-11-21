@@ -53,7 +53,7 @@ function renderConnections() {
 }
 
 beforeEach(() => {
-  Object.assign(diag, { lastCheckFailed: false, loading: false });
+  Object.assign(diag, { diagnostics: null, lastCheckFailed: false, loading: false });
   localStorage.clear();
   sessionStorage.clear();
   account.user = { id: "u1" };
@@ -77,40 +77,46 @@ beforeEach(() => {
   global.fetch = vi.fn().mockRejectedValue(new Error("offline")) as unknown as typeof fetch;
 });
 
-describe("ConnectionsSection server services", () => {
-  it("says the check failed instead of 'Checking…' forever, and offers to check again", async () => {
-    const refresh = vi.fn();
-    Object.assign(diag, { lastCheckFailed: true, refresh });
+describe("ConnectionsSection — each key says how its service is doing", () => {
+  const statusOf = (id: string) => screen.getByTestId(`credential-status-${id}`).textContent ?? "";
+
+  it("does not repeat the status panel's list of every service", () => {
     renderConnections();
-    // Gemini too: with no client key or session, the server key is exactly what the failed check would have said.
-    expect(await screen.findAllByText("Could not check")).toHaveLength(3);
-    expect(screen.queryByText("Checking…")).toBeNull();
-    expect(screen.queryByText("Offline")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-    expect(refresh).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-service-id]")).toBeNull();
+    expect(screen.queryByText(/FoldX/)).toBeNull();
   });
 
-  it("still reports Gemini from what is known here when the server check failed", async () => {
+  it("puts the state line inside its own key's row group", () => {
+    renderConnections();
+    for (const [id, title] of [["gemini", "Google Gemini API key"], ["alphagenome", "AlphaGenome Atlas API key"]]) {
+      const field = document.querySelector(`[data-setting-title="${title}"]`)!;
+      expect(screen.getByTestId(`credential-status-${id}`).parentElement).toBe(field.parentElement);
+    }
+  });
+
+  it("says a key is needed when the server has none and none is typed here", () => {
+    Object.assign(diag, {
+      diagnostics: {
+        foldxReady: true, geminiReady: false, modelServerReady: true,
+        serviceHealth: { alphagenome: { healthy: false, latencyMs: 0, message: "no key", timestamp: "", keySource: "none" } }
+      }
+    });
+    renderConnections();
+    expect(statusOf("alphagenome")).toContain("Not configured");
+  });
+
+  it("names a Gemini key typed in this browser, even when the server check failed", () => {
     Object.assign(diag, { lastCheckFailed: true });
     localStorage.setItem("missenseUserSettings", "{}");
     sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ geminiApiKey: "AIza-test" }));
     renderConnections();
-    expect(await screen.findAllByText("Could not check")).toHaveLength(2);
-    expect(screen.getByText("Client key")).toBeTruthy();
+    expect(statusOf("gemini")).toContain("Configured · key stored in this browser");
   });
 
-  it("says 'Checking…' again while a retry runs, and hides the retry link", async () => {
-    Object.assign(diag, { lastCheckFailed: true, loading: true });
+  it("says 'Checking' while the first check runs", () => {
+    Object.assign(diag, { loading: true });
     renderConnections();
-    expect(await screen.findAllByText("Checking…")).toHaveLength(3);
-    expect(screen.queryByText("Could not check")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
-  });
-
-  it("still says 'Checking…' while the first check runs", async () => {
-    renderConnections();
-    expect(await screen.findAllByText("Checking…")).toHaveLength(3);
-    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+    expect(statusOf("alphagenome")).toContain("Checking");
   });
 });
 
