@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchProgressivePpi } from "../biophysicalService";
+import { CLIENT_PPI_LOOKUP_BUDGET_MS } from "../../../shared/timeouts";
 import { clearClientVariantCache, getCachedVariant, setCachedVariant } from "../variantCache";
 
 /**
@@ -37,7 +38,7 @@ describe("fetchProgressivePpi", () => {
 
     expect(fetchWithAuth).toHaveBeenCalledWith(
       "/api/v1/ppi/binding-affinity",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({ method: "POST", timeout: CLIENT_PPI_LOOKUP_BUDGET_MS })
     );
     expect(JSON.parse(fetchWithAuth.mock.calls[0][1].body)).toEqual(params);
     expect(s.get().result.ppiBindingData).toEqual(payload);

@@ -4,6 +4,7 @@ import { TraceContext } from "./types";
 import { getCachedVariant, setCachedVariant, type CachedVariantBundle } from "./variantCache";
 import { mergeResultPatch, type PipelineStage, type StageOutcome } from "./resultMerge";
 import { serviceStatusOf } from "../../shared/serviceStatus";
+import { CLIENT_PPI_LOOKUP_BUDGET_MS } from "../../shared/timeouts";
 
 export interface BiophysicalAnalysisParams {
   gene: string;
@@ -290,6 +291,7 @@ export function fetchProgressivePpi(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gene, variant, uniprotId }),
+      timeout: CLIENT_PPI_LOOKUP_BUDGET_MS,
       signal
     });
     if (!response.ok) {

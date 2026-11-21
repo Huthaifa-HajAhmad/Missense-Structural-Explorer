@@ -1,6 +1,12 @@
 import type { LRUCache } from "lru-cache";
 import { LRUCache as LRUCacheImpl } from "lru-cache";
-import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
+import {
+  normalizeGeneSymbol,
+  fetchWithRetry,
+  isCallerAbort,
+  throwIfCallerAborted,
+  type CallerBoundedOptions,
+} from "../infra/http-client.ts";
 import { stringCache, getCachedOrFetch } from "../infra/cache.ts";
 import { buildStringKey } from "../infra/cache-keys.ts";
 
@@ -146,15 +152,26 @@ export interface StringPartnerLists {
   minScore: number;
 }
 
+export type StringPartnerListsOptions = CallerBoundedOptions;
+
 const partnerListCache = new LRUCacheImpl<string, StringPartnerLists>({ max: 500, ttl: 14 * 24 * 60 * 60 * 1000 });
 
-async function partnersOf(gene: string, networkType: "physical" | "functional"): Promise<StringInteraction[] | null> {
+async function partnersOf(
+  gene: string,
+  networkType: "physical" | "functional",
+  options?: StringPartnerListsOptions
+): Promise<StringInteraction[] | null> {
   const url =
     `https://string-db.org/api/json/interaction_partners?identifiers=${encodeURIComponent(gene)}&species=9606` +
     `&network_type=${networkType}&required_score=${Math.round(STRING_MIN_SCORE * 1000)}&limit=${STRING_PARTNER_LIMIT}` +
     `&caller_identity=missense-structural-explorer`;
   try {
-    const res = await fetchWithRetry(url, { timeout: 15000 });
+    const res = await fetchWithRetry(url, {
+      timeout: 15000,
+      ...(options?.signal ? { signal: options.signal } : {}),
+      ...(options?.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
+      ...(options?.cappedByCaller !== undefined ? { cappedByCaller: options.cappedByCaller } : {}),
+    });
     if (!res.ok) return null;
     const data = (await res.json()) as any;
     if (!Array.isArray(data)) return null;
@@ -171,31 +188,42 @@ async function partnersOf(gene: string, networkType: "physical" | "functional"):
     }
     return [...best].map(([partner, score]) => ({ partner, score })).sort((x, y) => y.score - x.score);
   } catch (err: any) {
+    if (isCallerAbort(err, options?.signal)) throw err;
     console.warn(`[STRING] ${networkType} partners failed for ${gene}: ${err?.message}`);
     return null;
   }
 }
 
-async function stringVersion(): Promise<string | null> {
+async function stringVersion(options?: StringPartnerListsOptions): Promise<string | null> {
   try {
-    const res = await fetchWithRetry("https://string-db.org/api/json/version", { timeout: 10000 });
+    const res = await fetchWithRetry("https://string-db.org/api/json/version", {
+      timeout: 10000,
+      ...(options?.signal ? { signal: options.signal } : {}),
+      ...(options?.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
+      ...(options?.cappedByCaller !== undefined ? { cappedByCaller: options.cappedByCaller } : {}),
+    });
     if (!res.ok) return null;
     const data = (await res.json()) as any;
     const v = Array.isArray(data) ? data[0]?.string_version : data?.string_version;
     return typeof v === "string" ? v : null;
-  } catch {
+  } catch (err: any) {
+    if (isCallerAbort(err, options?.signal)) throw err;
     return null;
   }
 }
 
-export async function fetchStringPartnerLists(gene: string): Promise<StringPartnerLists> {
+export async function fetchStringPartnerLists(
+  gene: string,
+  options?: StringPartnerListsOptions
+): Promise<StringPartnerLists> {
+  throwIfCallerAborted(options?.signal);
   const normGene = normalizeGeneSymbol(gene);
   const hit = partnerListCache.get(normGene);
   if (hit) return hit;
   const [physical, functional, version] = await Promise.all([
-    partnersOf(normGene, "physical"),
-    partnersOf(normGene, "functional"),
-    stringVersion(),
+    partnersOf(normGene, "physical", options),
+    partnersOf(normGene, "functional", options),
+    stringVersion(options),
   ]);
   const lists: StringPartnerLists = { physical, functional, version, limit: STRING_PARTNER_LIMIT, minScore: STRING_MIN_SCORE };
   if (physical && functional) partnerListCache.set(normGene, lists);

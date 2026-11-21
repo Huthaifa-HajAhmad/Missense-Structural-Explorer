@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { analyzePpiBinding, analyzeBindingShift, readInteractionSites } from "./ppi.ts";
+import { fetchUniprotFeatures } from "./uniprot.ts";
+import { CONFIG } from "../../config.ts";
 import { clearBoltzJobs, clearJapanFoldCache } from "./japanfold-client.ts";
 import { clearPdbeInterfaceCache } from "./pdbe-interfaces.ts";
 import { parseIntactMitab } from "./intact.ts";
 import { clearAllCaches } from "../infra/cache.ts";
+import { resetHostStateForTests } from "../infra/http-client.ts";
 
 const url = (u: any) => (typeof u === "string" ? u : u.toString());
 const res = (body: unknown, status = 200) =>
@@ -90,6 +93,7 @@ describe("analyzePpiBinding", () => {
     clearAllCaches(true);
     clearJapanFoldCache();
     clearPdbeInterfaceCache();
+    resetHostStateForTests();
     vi.restoreAllMocks();
   });
 
@@ -149,6 +153,193 @@ describe("analyzePpiBinding", () => {
     );
     const result = await analyzePpiBinding("PPISKIPGENE", "p.Ala1Val", undefined);
     expect(result.lookups).toEqual({ stringPartners: "ok", stringPhysical: "ok", intact: "skipped", uniprot: "skipped" });
+  });
+
+  it("degrades only IntAct to failed when IntAct exceeds the server PPI lookup budget", async () => {
+    const origBudget = CONFIG.timeouts.ppiLookupBudgetMs;
+    (CONFIG.timeouts as any).ppiLookupBudgetMs = 120;
+    let intactAborted = false;
+    try {
+      vi.spyOn(globalThis, "fetch").mockImplementation((u: any, init: any) => {
+        const s = url(u);
+        if (s.includes("string-db.org/api/json/version")) return Promise.resolve(res([{ string_version: "12.5" }]));
+        if (s.includes("string-db.org")) {
+          return Promise.resolve(res([{ preferredName_A: "FGFR3", preferredName_B: "FGF1", score: 0.99 }]));
+        }
+        if (s.includes("rest.uniprot.org/uniprotkb")) return Promise.resolve(res(NAE1_JSON));
+        if (s.includes("rest.uniprot.org/uniparc") || s.includes("interpro")) return Promise.resolve(res({}, 404));
+        if (s.includes("psicquic")) {
+          return new Promise((_resolve, reject) => {
+            if (init?.signal?.aborted) {
+              intactAborted = true;
+              reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+              return;
+            }
+            init?.signal?.addEventListener("abort", () => {
+              intactAborted = true;
+              reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+            }, { once: true });
+          });
+        }
+        return Promise.resolve(res({}, 500));
+      });
+
+      const result = await analyzePpiBinding("FGFR3", "p.Gly380Arg", "P22607");
+      expect(intactAborted).toBe(true);
+      expect(result.status).toBe("success");
+      expect(result.string?.physical?.map(p => p.partner)).toEqual(["FGF1"]);
+      expect(result.curatedInteractions?.map(c => c.gene)).toEqual(["APP", "UBA3"]);
+      expect(result.lookups).toEqual({
+        stringPartners: "ok",
+        stringPhysical: "ok",
+        intact: "failed",
+        uniprot: "ok",
+      });
+    } finally {
+      (CONFIG.timeouts as any).ppiLookupBudgetMs = origBudget;
+    }
+  });
+
+  it("degrades STRING to failed when STRING exceeds the server PPI lookup budget while keeping UniProt and IntAct", async () => {
+    const origBudget = CONFIG.timeouts.ppiLookupBudgetMs;
+    (CONFIG.timeouts as any).ppiLookupBudgetMs = 120;
+    let stringAborts = 0;
+    try {
+      vi.spyOn(globalThis, "fetch").mockImplementation((u: any, init: any) => {
+        const s = url(u);
+        if (s.includes("string-db.org")) {
+          return new Promise((_resolve, reject) => {
+            if (init?.signal?.aborted) {
+              stringAborts++;
+              reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+              return;
+            }
+            init?.signal?.addEventListener("abort", () => {
+              stringAborts++;
+              reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+            }, { once: true });
+          });
+        }
+        if (s.includes("psicquic")) return Promise.resolve(res(mitab("P22608", "P05067", "anti tag coimmunoprecipitation", "111")));
+        if (s.includes("rest.uniprot.org/uniprotkb")) return Promise.resolve(res(NAE1_JSON));
+        if (s.includes("rest.uniprot.org/uniparc") || s.includes("interpro")) return Promise.resolve(res({}, 404));
+        return Promise.resolve(res({}, 500));
+      });
+
+      const result = await analyzePpiBinding("FGFR3DEGRADE", "p.Gly380Arg", "P22608");
+      expect(stringAborts).toBeGreaterThan(0);
+      expect(result.status).toBe("success");
+      expect(result.curatedInteractions?.find(c => c.gene === "APP")?.evidence).toMatchObject({ pubmed: ["111"] });
+      expect(result.lookups).toEqual({
+        stringPartners: "failed",
+        stringPhysical: "failed",
+        intact: "ok",
+        uniprot: "ok",
+      });
+    } finally {
+      (CONFIG.timeouts as any).ppiLookupBudgetMs = origBudget;
+    }
+  });
+
+  it("propagates caller signal abort without cancelling a shared UniProt cache fill", async () => {
+    const callerController = new AbortController();
+    let resolveUniprot: ((value: any) => void) | undefined;
+    let uniprotFetchAborted = false;
+    let upstreamAborts = 0;
+    let stringOrIntactCalls = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((u: any, init: any) => {
+      const s = url(u);
+      if (s.includes("rest.uniprot.org/uniprotkb")) {
+        init?.signal?.addEventListener("abort", () => {
+          uniprotFetchAborted = true;
+        }, { once: true });
+        return new Promise((resolve) => {
+          resolveUniprot = resolve;
+        });
+      }
+      if (s.includes("rest.uniprot.org/uniparc") || s.includes("interpro")) return Promise.resolve(res({}, 404));
+      if (s.includes("string-db.org") || s.includes("psicquic")) {
+        stringOrIntactCalls++;
+        return new Promise((_resolve, reject) => {
+          if (init?.signal?.aborted) {
+            upstreamAborts++;
+            reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          init?.signal?.addEventListener("abort", () => {
+            upstreamAborts++;
+            reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      return Promise.resolve(res({}, 500));
+    });
+
+    const sharedUniprotPromise = fetchUniprotFeatures("P22609");
+    const ppiPromise = analyzePpiBinding("FGFR3ABORT", "p.Gly380Arg", "P22609", callerController.signal);
+
+    await vi.waitFor(() => {
+      expect(resolveUniprot).toBeTypeOf("function");
+      expect(stringOrIntactCalls).toBeGreaterThan(0);
+    });
+    callerController.abort();
+
+    await expect(ppiPromise).rejects.toMatchObject({ name: "AbortError" });
+    expect(upstreamAborts).toBeGreaterThan(0);
+    expect(uniprotFetchAborted).toBe(false);
+
+    resolveUniprot!(res(NAE1_JSON));
+    const sharedFeatures = await sharedUniprotPromise;
+    expect(sharedFeatures?.sequenceLength).toBe(534);
+  });
+
+  it("settles with all lookups marked failed when STRING, UniProt, and IntAct all hang past the server budget", async () => {
+    const origBudget = CONFIG.timeouts.ppiLookupBudgetMs;
+    (CONFIG.timeouts as any).ppiLookupBudgetMs = 120;
+    let stringOrIntactAborts = 0;
+    let resolveUniprot: ((value: any) => void) | undefined;
+    try {
+      vi.spyOn(globalThis, "fetch").mockImplementation((u: any, init: any) => {
+        const s = url(u);
+        if (s.includes("rest.uniprot.org/uniprotkb")) {
+          return new Promise((resolve) => {
+            resolveUniprot = resolve;
+          });
+        }
+        if (s.includes("rest.uniprot.org/uniparc") || s.includes("interpro")) return Promise.resolve(res({}, 404));
+        if (s.includes("string-db.org") || s.includes("psicquic")) {
+          return new Promise((_resolve, reject) => {
+            if (init?.signal?.aborted) {
+              stringOrIntactAborts++;
+              reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+              return;
+            }
+            init?.signal?.addEventListener("abort", () => {
+              stringOrIntactAborts++;
+              reject(init.signal.reason ?? new DOMException("Aborted", "AbortError"));
+            }, { once: true });
+          });
+        }
+        return Promise.resolve(res({}, 500));
+      });
+
+      const result = await analyzePpiBinding("FGFR3ALLHANG", "p.Gly380Arg", "P22610");
+      expect(stringOrIntactAborts).toBeGreaterThan(0);
+      expect(result.status).toBe("success");
+      expect(result.stringPartners).toEqual([]);
+      expect(result.curatedInteractions).toEqual([]);
+      expect(result.interactionSites).toEqual([]);
+      expect(result.lookups).toEqual({
+        stringPartners: "failed",
+        stringPhysical: "failed",
+        intact: "failed",
+        uniprot: "failed",
+      });
+    } finally {
+      resolveUniprot?.(res({}, 500));
+      (CONFIG.timeouts as any).ppiLookupBudgetMs = origBudget;
+    }
   });
 });
 

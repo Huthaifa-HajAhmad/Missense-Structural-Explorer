@@ -12,18 +12,20 @@ export function anySignal(signals: (AbortSignal | undefined)[]): AbortSignal | u
   }
 
   const controller = new AbortController();
-  const onAbort = () => {
-    controller.abort();
-    cleanup();
-  };
   const cleanup = () => {
     for (const signal of activeSignals) {
       signal.removeEventListener("abort", onAbort);
     }
   };
+  const onAbort = (event: Event) => {
+    const source = event.target as AbortSignal | null;
+    controller.abort(source?.reason);
+    cleanup();
+  };
   for (const signal of activeSignals) {
     if (signal.aborted) {
-      controller.abort();
+      controller.abort(signal.reason);
+      cleanup();
       return controller.signal;
     }
     signal.addEventListener("abort", onAbort);

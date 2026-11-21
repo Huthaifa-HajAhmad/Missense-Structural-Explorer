@@ -27,6 +27,8 @@
  *     reported as "no residue-level interface annotation". Ranges were reduced to their start and
  *     the list was capped at five.
  */
+import { CONFIG } from "../../config.ts";
+import { anySignal } from "../../utils.ts";
 import { fetchStringPartnerLists } from "./string.ts";
 import { fetchUniprotFeatures, fetchUniprotSequence } from "./uniprot.ts";
 import { fetchPdbeInterfaces, observedFor } from "./pdbe-interfaces.ts";
@@ -86,16 +88,85 @@ export function readInteractionSites(
     .sort((a, b) => a.start - b.start);
 }
 
+function raceAgainstSignal<T>(
+  promise: Promise<T>,
+  lookupSignal: AbortSignal | undefined,
+  callerSignal: AbortSignal | undefined,
+  onDeadline: () => T
+): Promise<T> {
+  if (callerSignal?.aborted) {
+    return Promise.reject(callerSignal.reason ?? new DOMException("Aborted", "AbortError"));
+  }
+  if (lookupSignal?.aborted) {
+    return Promise.resolve(onDeadline());
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      lookupSignal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (callerSignal?.aborted) {
+        reject(callerSignal.reason ?? new DOMException("Aborted", "AbortError"));
+      } else {
+        resolve(onDeadline());
+      }
+    };
+    lookupSignal?.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      }
+    );
+  });
+}
+
 export async function analyzePpiBinding(
   gene: string,
   variant: string,
   uniprotId?: string,
   signal?: AbortSignal
 ): Promise<PpiBindingAffinityResult> {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
   const parsed = parseMutationParam(variant);
   const position = parsed?.posNum && parsed.posNum > 0 ? parsed.posNum : null;
 
-  const stringTask = fetchStringPartnerLists(gene).catch((err: any) => {
+  // Single timer owner (`deadlineController`): aborts underlying STRING/IntAct sockets at `budgetMs`
+  // and settles `raceAgainstSignal` (for shared UniProt fills and stalled bodies) without per-task timers.
+  // `deadlineAt` is also passed to `fetchWithRetry` so it avoids starting doomed retries past the budget.
+  const budgetMs = CONFIG.timeouts.ppiLookupBudgetMs;
+  const deadlineAt = Date.now() + budgetMs;
+  const deadlineController = new AbortController();
+  const deadlineTimer = setTimeout(() => {
+    deadlineController.abort(new DOMException(`PPI lookup budget of ${budgetMs}ms exceeded`, "TimeoutError"));
+  }, budgetMs);
+  const lookupSignal = anySignal([signal, deadlineController.signal]);
+
+  const stringTask = raceAgainstSignal(
+    fetchStringPartnerLists(gene, {
+      signal: lookupSignal,
+      deadlineAt,
+      cappedByCaller: true,
+    }),
+    lookupSignal,
+    signal,
+    () => null
+  ).catch((err: any) => {
+    if (signal?.aborted) throw err;
     console.warn(`[PPI Service] STRING lookup threw for ${gene}:`, err?.message);
     return null;
   });
@@ -103,9 +174,18 @@ export async function analyzePpiBinding(
   const uniprotTask = (async () => {
     if (!uniprotId) return { status: "skipped" as PpiLookupStatus, features: null };
     try {
-      const features = await fetchUniprotFeatures(uniprotId);
+      // Deliberately omit `signal` from `fetchUniprotFeatures`: `getCachedOrFetch` shares
+      // one in-flight fill across concurrent callers, so a single client disconnect must not
+      // abort another caller's fill. Instead, race the caller's signal and server deadline here.
+      const features = await raceAgainstSignal(
+        fetchUniprotFeatures(uniprotId),
+        lookupSignal,
+        signal,
+        () => null
+      );
       return { status: (features ? "ok" : "failed") as PpiLookupStatus, features };
     } catch (err: any) {
+      if (signal?.aborted) throw err;
       console.warn(`[PPI Service] UniProt features failed for ${uniprotId}:`, err?.message);
       return { status: "failed" as PpiLookupStatus, features: null };
     }
@@ -113,11 +193,27 @@ export async function analyzePpiBinding(
 
   const intactTask = (async (): Promise<{ status: PpiLookupStatus; byPartner: Map<string, IntactEvidence> }> => {
     if (!uniprotId) return { status: "skipped", byPartner: new Map() };
-    const r = await fetchIntactEvidence(uniprotId, signal);
+    const r = await raceAgainstSignal(
+      fetchIntactEvidence(uniprotId, {
+        signal: lookupSignal,
+        deadlineAt,
+        cappedByCaller: true,
+      }),
+      lookupSignal,
+      signal,
+      () => ({ status: "failed" as const, byPartner: new Map<string, IntactEvidence>() })
+    );
     return { status: r.status === "ok" ? "ok" : "failed", byPartner: r.byPartner };
   })();
 
-  const [lists, uniprotRes, intactRes] = await Promise.all([stringTask, uniprotTask, intactTask]);
+  let lists: Awaited<typeof stringTask>;
+  let uniprotRes: Awaited<typeof uniprotTask>;
+  let intactRes: Awaited<typeof intactTask>;
+  try {
+    [lists, uniprotRes, intactRes] = await Promise.all([stringTask, uniprotTask, intactTask]);
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
   const f = uniprotRes.features;
   const curated: PpiCuratedInteraction[] = (f?.interactionPartners ?? []).map(p => ({
     accession: p.accession,

@@ -6,6 +6,7 @@ import { InterfacesTab } from "../InterfacesTab";
 import { trackTicks } from "../interfaces/InterfaceTrack";
 import { InterfacesRail } from "../../inspector/InterfacesRail";
 import { resetInterfacesLive } from "../interfaces/interfacesLive";
+import { CLIENT_PPI_LOOKUP_BUDGET_MS } from "../../../shared/timeouts";
 import { SLC12A4 } from "../../../shared/__tests__/fixtures/slc12a4";
 
 /**
@@ -279,6 +280,10 @@ describe("InterfacesTab — request state", () => {
     const oldPpi = { ...SLC12A4.ppi, string: undefined, lookups: { stringPartners: "ok", uniprot: "ok", pdbe: "ok" } };
     const { container } = renderTab({ ...RESULT, multimerData: oldAsm, ppiBindingData: oldPpi });
     expect(fetchWithAuthMock.mock.calls.map(c => c[0]).sort((x, y) => x.localeCompare(y))).toEqual(["/api/v1/ppi/binding-affinity", "/api/v1/structure/multimer"]);
+    expect(fetchWithAuthMock).toHaveBeenCalledWith(
+      "/api/v1/ppi/binding-affinity",
+      expect.objectContaining({ method: "POST", timeout: CLIENT_PPI_LOOKUP_BUDGET_MS })
+    );
     expect(JSON.parse(fetchWithAuthMock.mock.calls.find(c => c[0] === "/api/v1/structure/multimer")![1].body)).not.toHaveProperty("model");
     expect(screen.getByText("Reading partners")).toBeInTheDocument();
     expect(container).not.toHaveTextContent(/No partners listed/);
