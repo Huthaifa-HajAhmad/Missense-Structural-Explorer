@@ -15,7 +15,6 @@ import {
   evaluatePopEve,
   evaluateAlphaGenomeAvi,
   evaluateEsm1b,
-  evaluateGpnStar
 } from "./evaluators.ts";
 
 export interface PredictorToolDetails {
@@ -54,7 +53,6 @@ export function countPredictorConcordance(
     eigenPhred?: number | null;
     dann?: number | null;
     popeve?: number | null;
-    gpnStar?: number | null;
     alphagenome?: AlphaGenomeAviData | null;
     /** Candidate-allele records from an ambiguous-locus run; CADD votes only when all candidates agree from one release. */
     caddCandidates?: ReadonlyArray<AlleleCandidate> | null;
@@ -163,13 +161,6 @@ export function countPredictorConcordance(
       name: "ESM-1b",
       signal: evaluateEsm1b(esmLlr),
       scoreLabel: esmLlr !== null && esmLlr !== undefined ? `${esmLlr.toFixed(2)}` : "—",
-      isInformationalOnly: true,
-    },
-    {
-      key: "gpn_star",
-      name: "GPN-Star",
-      signal: evaluateGpnStar(extra?.gpnStar),
-      scoreLabel: extra?.gpnStar !== null && extra?.gpnStar !== undefined ? `${extra.gpnStar.toFixed(2)}` : "—",
       isInformationalOnly: true,
     },
   ];

@@ -466,18 +466,6 @@ const MODEL_SOURCES: AttributionEntry[] = [
     usedBy: ["server/services/external-api/alphagenome-bridge.ts", "src/shared/assembly.ts"]
   },
   {
-    id: "gpn-star",
-    name: "GPN-Star",
-    provider: "Song Lab, University of California, Berkeley",
-    kind: "model",
-    role: "Phylogeny-aware genomic language-model LLR across vertebrate alignments — the conservation prior read at nucleotide resolution, including non-coding positions.",
-    url: "https://huggingface.co/datasets/songlab/gpn-msa-hg38-scores",
-    release: "hg38 score tracks (GRCh38 only)",
-    citation:
-      "Ye, C., Benegas, G., et al. (2025). Predicting functional constraints across evolutionary timescales with phylogeny-informed genomic language models. bioRxiv. https://doi.org/10.1101/2025.09.21.677619",
-    usedBy: ["server/services/external-api/gpn.ts", "src/shared/thresholds/evaluators.ts"]
-  },
-  {
     id: "eve",
     name: "EVE",
     provider: "Marks Lab, Harvard University",
@@ -841,7 +829,7 @@ export const QUERY_TRANSMISSION = {
     { host: "spliceai-38-xwkwwwxdwq-uc.a.run.app · spliceai-37-xwkwwwxdwq-uc.a.run.app", sent: "Genomic coordinate", note: "One endpoint per genome build. Named in full because the hostnames are opaque, which is also how a reader can recognise them in a network log." },
     { host: "query.genos.us", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace." },
     { host: "data.evemodel.org", sent: "RefSeq transcript id", note: null },
-    { host: "huggingface.co · api.japanfold.aiand.com · forge.evolutionaryscale.ai · biohub.ai", sent: "Sequence, structure payloads, model weight downloads", note: "GPN-Star scores, ESMFold2 folding and Boltz-2 complexes. The EvolutionaryScale tier is optional; without it ESMFold falls back to the keyless ESM Atlas. biohub.ai is reached only when you test a saved Biohub token." },
+    { host: "api.japanfold.aiand.com · forge.evolutionaryscale.ai · biohub.ai", sent: "Sequence, structure payloads", note: "ESMFold2 folding and Boltz-2 complexes. The EvolutionaryScale tier is optional; without it ESMFold falls back to the keyless ESM Atlas. biohub.ai is reached only when you test a saved Biohub token." },
     { host: "api.esmatlas.com", sent: "Amino-acid sequence", note: "Keyless de novo folding fallback, used when no Biohub token is configured." },
     { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },
     { host: "biosig.lab.uq.edu.au", sent: "Structure coordinates (PDB upload) and the mutation string", note: "DynaMut2, DDMut and DDMut-PPI. The whole modelled structure leaves the machine, uploaded to a server in Australia." },

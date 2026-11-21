@@ -6,7 +6,7 @@
  * declaration was a type (`LiftedCoordinate`) and a test — no code. The consequence was the
  * "unmapping defect": a variant whose coordinate arrives GRCh37-tagged (MyVariant.info fallback,
  * or an hg19-annotated user input) was REFUSED by every GRCh38-only source — splice-junction
- * geometry, AlphaGenome, PopEVE, GPN-Star, gnomAD r4 — permanently, with no recovery path.
+ * geometry, AlphaGenome, PopEVE, gnomAD r4 — permanently, with no recovery path.
  * See doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md (F-3).
  *
  * Verification is three-fold, and a lift that fails ANY of them yields `null` (never a flagged

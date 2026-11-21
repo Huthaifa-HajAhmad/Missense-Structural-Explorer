@@ -399,14 +399,13 @@ describe("refusal lookup is exact, not a substring", () => {
    */
   it("returns only the reason belonging to the requested source", () => {
     const refusals = [
-      { source: "gpn-star", reason: "gpn-star covers GRCh38 / hg38; this coordinate is GRCh37 / hg19." },
+      { source: "popEVE", reason: "popEVE covers GRCh38 / hg38; this coordinate is GRCh37 / hg19." },
       { source: "splice-proximity", reason: "splice-proximity covers GRCh38 / hg38; other." },
     ];
-    expect(refusalReasonFor(refusals, "gpn-star")).toMatch(/^GPN-Star covers/);
+    expect(refusalReasonFor(refusals, "popEVE")).toMatch(/^PopEVE covers/);
     expect(refusalReasonFor(refusals, "splice-proximity")).toMatch(/^Splice-junction geometry covers/);
-    // A key that is a substring of an existing one must not match it.
-    expect(refusalReasonFor(refusals, "popEVE")).toBeNull();
-    expect(refusalReasonFor([{ source: "alphagenome", reason: REFUSAL }], "gpn-star")).toBeNull();
+    expect(refusalReasonFor(refusals, "alphagenome")).toBeNull();
+    expect(refusalReasonFor([{ source: "alphagenome", reason: REFUSAL }], "popEVE")).toBeNull();
   });
 });
 

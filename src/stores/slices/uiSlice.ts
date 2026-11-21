@@ -34,6 +34,8 @@ export interface UiState {
   isHowToInspectOpen: boolean;
   isLegendOpen: boolean;
   notifications: NotificationItem[];
+  /** The reader's Settings choice: false holds back warning and error banners from background work. */
+  autoShowAlerts: boolean;
   reportSections: Record<ReportSectionKey, boolean>;
   /** The author's own text per block. Only prose can be edited; scores, facts and the verdict cannot. */
   reportEdits: Partial<Record<ReportSectionKey, ReportEdit>>;
@@ -64,7 +66,17 @@ export interface UiActions {
   setNotifications: (
     notifications: NotificationItem[] | ((prev: NotificationItem[]) => NotificationItem[])
   ) => void;
-  addNotification: (type: "success" | "info" | "error" | "warn", message: string, autoShowAlerts?: boolean) => void;
+  /**
+   * `background: true` marks a banner nobody asked for (a stability job finishing on its own). Those
+   * warnings and errors are held back when the reader turned automatic banners off; the result panel
+   * still shows the failure. Feedback on a click the reader just made always shows.
+   */
+  addNotification: (
+    type: "success" | "info" | "error" | "warn",
+    message: string,
+    options?: { background?: boolean }
+  ) => void;
+  setAutoShowAlerts: (autoShowAlerts: boolean) => void;
   removeNotification: (id: string) => void;
   toggleReportSection: (key: ReportSectionKey) => void;
   setReportSections: (sections: Record<ReportSectionKey, boolean>) => void;
@@ -86,11 +98,12 @@ export type UiSlice = UiState & UiActions;
 
 const notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
+export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set, get) => ({
   viewMode: "wildtype",
   isHowToInspectOpen: false,
   isLegendOpen: false,
   notifications: [],
+  autoShowAlerts: true,
   reportSections: { ...DEFAULT_REPORT_SECTIONS },
   reportEdits: {},
   reportDraftStatus: "session-only",
@@ -141,7 +154,9 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
     notifications: typeof updater === "function" ? updater(state.notifications) : updater
   })),
 
-  addNotification: (type, message, autoShowAlerts = true) => {
+  setAutoShowAlerts: (autoShowAlerts) => set({ autoShowAlerts }),
+
+  addNotification: (type, message, options) => {
     try {
       if (type === "error") {
         console.error(`[Notification Error] ${message}`);
@@ -154,7 +169,7 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
       }
     } catch (_) {}
 
-    if (!autoShowAlerts && (type === "warn" || type === "error")) {
+    if (options?.background && !get().autoShowAlerts && (type === "warn" || type === "error")) {
       return;
     }
 

@@ -41,7 +41,6 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       dann: 0.99,
       esm1b: -12.4,
       popeve: -6.1,
-      gpnStar: -3.2,
       consurf: 8,
       spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.02, max_ds: 0.02 },
       alphagenome: { status: 'live', aviPhred: 19.4, topModality: 'RNA_SEQ', acmgStrength: 'PP3_Supporting' }
@@ -56,7 +55,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     expect(analysisPrompt).toContain('DANN Score: 0.99');
     expect(analysisPrompt).toContain('ESM-1b LLR Score: -12.4');
     expect(analysisPrompt).toContain('PopEVE Score: -6.1');
-    expect(analysisPrompt).toContain('GPN-Star Score: -3.2');
+    expect(analysisPrompt).not.toContain('GPN');
     expect(analysisPrompt).toContain('SpliceAI Max Delta Score: 0.02');
     expect(analysisPrompt).toContain('AlphaGenome AVI Phred: 19.4 (top modality: RNA_SEQ)');
     for (const [request] of mockGenerateContent.mock.calls) {

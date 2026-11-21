@@ -28,7 +28,6 @@ import {
 } from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
-import { resolveGpnAccess } from "../../services/external-api/gpn.ts";
 import { resolveCredential } from "../../services/infra/credentials.ts";
 
 export const analyzeVariantSchema = z.object({
@@ -38,7 +37,7 @@ export const analyzeVariantSchema = z.object({
    * Genome build the caller's coordinate notation was expressed in.
    *
    * Carried explicitly because nearly every coordinate-consuming source downstream is
-   * single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, and
+   * single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, and
    * the SpliceAI Lookup client), and this application supports GRCh37 input by design.
    * Without it the build was silently assumed to be GRCh38. Defaults to GRCh38 so
    * existing clients keep their current behaviour.
@@ -89,8 +88,6 @@ export const analyzeVariantSchema = z.object({
    */
   numberingBasis: z.enum(["canonical"]).optional(),
   biohubToken: z.string().optional(),
-  hfToken: z.string().optional(),
-  gpnApiUrl: z.string().url().max(512).optional(),
   alphagenomeApiKey: z.string().optional(),
   alphagenomeApiUrl: z.string().url().max(512).optional(),
   spliceaiDistance: z.number().int().min(50).max(10000).optional(),
@@ -167,8 +164,6 @@ export interface ParsedVariantContext {
   /** Human-readable disclosure for the unverified case; surfaced with the analysis result. */
   numberingWarning?: string;
   biohubToken?: string | null;
-  hfToken?: string | null;
-  gpnApiUrl?: string | null;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window the caller asked for; null leaves the client's default. */
@@ -540,17 +535,6 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
-  /**
-   * The server's Hugging Face token only ever accompanies the endpoint the server is configured to
-   * use; a URL the request chose gets a request-supplied token or none (`resolveGpnAccess`, and the
-   * same rule for AlphaGenome below). The substring test this replaced let any URL that merely
-   * *mentioned* `.huggingface.co` collect the server token.
-   */
-  const gpnAccess = resolveGpnAccess(
-    sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken),
-    sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl),
-  );
-
   const numberingVerified = canonicalConfirmed || (numbering !== null && numbering.status === "canonical");
   const numberingWarning = numberingVerified
     ? undefined
@@ -588,8 +572,6 @@ export async function validateAndParseVariantRequest(
     // The request's token, else this person's saved one, else the team's under the lending policy (WP-I4).
     // Resolved once here, so the run's capability and every model it calls agree.
     biohubToken: sanitizeToken(resolveCredential("biohub", sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken)).token),
-    hfToken: gpnAccess.token,
-    gpnApiUrl: gpnAccess.endpoint,
     // The server's key never accompanies a URL the request chose (see resolveAlphaGenomeAccess).
     ...(() => {
       const requestUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl);

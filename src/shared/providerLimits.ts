@@ -47,7 +47,6 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   "app.tamarind.bio": "Tamarind Bio",
   "query.genos.us": "Genos",
   "zenodo.org": "Zenodo",
-  "gpn.hf.space": "GPN (Hugging Face Space)",
   "www.alliancegenome.org": "Alliance of Genome Resources",
   "rest.genenames.org": "HGNC",
   "api.genome.ucsc.edu": "UCSC Genome Browser",
@@ -60,7 +59,7 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
 
 /**
  * True for a provider this deployment calls on its own account. Anything else reached the server as a
- * request-chosen endpoint (a person's own AlphaGenome or GPN server), and its name is that person's
+ * request-chosen endpoint (a person's own AlphaGenome server), and its name is that person's
  * business: public health pages fold it into an anonymous count instead of naming it.
  */
 export function isKnownProviderHost(hostname: string): boolean {

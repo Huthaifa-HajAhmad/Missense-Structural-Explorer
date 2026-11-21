@@ -35,9 +35,10 @@ export function usesToAnnounce(
 }
 
 /**
- * After a result that called Biohub, Hugging Face or Tamarind, says whose token it ran on ("your token"
+ * After a result that called Biohub or Tamarind, says whose token it ran on ("your token"
  * or "the team token"), or why it did not run (WP-I4). All are information: nothing failed that the
- * reader must act on now, and the alert-banner preference still applies.
+ * reader must act on now. Info banners always show; the alert-banner preference only holds back
+ * warnings and errors from background jobs.
  */
 export function useCredentialUseNotice(): void {
   const addNotification = useVariantAnalysisStore(s => s.addNotification);

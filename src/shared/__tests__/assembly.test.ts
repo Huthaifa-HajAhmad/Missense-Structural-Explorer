@@ -33,7 +33,7 @@ describe("ASSEMBLY_SUPPORT — the declaration table", () => {
   it("pins the known single-build sources to GRCh38", () => {
     // If any of these ever gains GRCh37 support, this assertion should be updated
     // deliberately rather than the gate silently widening.
-    for (const source of ["gpn-star", "alphagenome", "dbnsfp-local", "genos", "dbnsfpOrg", "gnomad-variants"] as const) {
+    for (const source of ["alphagenome", "dbnsfp-local", "genos", "dbnsfpOrg", "gnomad-variants"] as const) {
       expect(supportedAssemblies(source)).toEqual(["GRCh38"]);
       expect(sourceSupportsAssembly(source, "GRCh38")).toBe(true);
       expect(sourceSupportsAssembly(source, "GRCh37")).toBe(false);
@@ -78,9 +78,9 @@ describe("sourceSupportsAssembly — the production gate", () => {
   });
 
   it("refuses another build's coordinate for a pinned source", () => {
-    // The whole point: GPN-Star is a GRCh38-only index, so a GRCh37 position must never
+    // The whole point: PopEVE is a GRCh38-only index, so a GRCh37 position must never
     // reach it — a silent miss is bad, a coincidental hit at the wrong locus is worse.
-    expect(sourceSupportsAssembly("gpn-star", "GRCh37")).toBe(false);
+    expect(sourceSupportsAssembly("popEVE", "GRCh37")).toBe(false);
     expect(sourceSupportsAssembly("dbnsfp-local", "GRCh37")).toBe(false);
     expect(sourceSupportsAssembly("genos", "GRCh37")).toBe(false);
     expect(sourceSupportsAssembly("alphagenome", "GRCh37")).toBe(false);
@@ -96,7 +96,7 @@ describe("sourceSupportsAssembly — the production gate", () => {
       original: { chrom: "7", pos: 140453136 },
       reverseVerified: true
     };
-    expect(sourceSupportsAssembly("gpn-star", lifted.assembly)).toBe(true);
+    expect(sourceSupportsAssembly("popEVE", lifted.assembly)).toBe(true);
     expect(sourceSupportsAssembly("alphagenome", lifted.assembly)).toBe(true);
   });
 
@@ -112,18 +112,18 @@ describe("sourceSupportsAssembly — the production gate", () => {
    */
   it("documents that the gate trusts the declared build, so producers must agree", () => {
     // A GRCh38 declaration opens every GRCh38-only source…
-    expect(sourceSupportsAssembly("gpn-star", "GRCh38")).toBe(true);
+    expect(sourceSupportsAssembly("popEVE", "GRCh38")).toBe(true);
     // …so a producer emitting hg19 coordinates while the request declares GRCh38 would
     // bypass the gate entirely. The build must therefore be established BEFORE it is
     // declared, not inferred from it.
-    expect(sourceSupportsAssembly("gpn-star", "GRCh37")).toBe(false);
+    expect(sourceSupportsAssembly("popEVE", "GRCh37")).toBe(false);
   });
 });
 
 describe("describeAssemblyRefusal — absence must be explained, not silent", () => {
   it("names the source, the builds it covers, and the build refused", () => {
-    const msg = describeAssemblyRefusal("gpn-star", "GRCh37");
-    expect(msg).toContain("gpn-star");
+    const msg = describeAssemblyRefusal("popEVE", "GRCh37");
+    expect(msg).toContain("popEVE");
     expect(msg).toContain(ASSEMBLY_LABELS.GRCh38);
     expect(msg).toContain(ASSEMBLY_LABELS.GRCh37);
     // Must read as "not scored", never as a negative result.

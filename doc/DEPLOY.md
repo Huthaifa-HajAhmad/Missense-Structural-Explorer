@@ -170,8 +170,7 @@ and WP-I1):
    holds somewhat more than before.
 
 Team tokens (WP-I4): `SHARED_TOKEN_FALLBACK` (`on`, `limited` or `off`; default `limited`) decides whether a person
-without their own Biohub, Hugging Face or Tamarind token may use the server's (`BIOHUB_API_TOKEN`, `HF_TOKEN`,
-`TAMARIND_API_KEY`). Under `limited` each signed-in person may make `SHARED_TOKEN_SHARE_PER_HOUR` (default 60)
+without their own Biohub or Tamarind token may use the server's (`BIOHUB_API_TOKEN`, `TAMARIND_API_KEY`). Under `limited` each signed-in person may make `SHARED_TOKEN_SHARE_PER_HOUR` (default 60)
 team-token calls per provider per hour; without accounts it behaves like `on`. `/capabilities` shows the policy
 under `egress.credentials`. People can save their own tokens to their account (Settings → Connections); that
 needs `APP_SESSION_SECRET`, and changing it makes saved tokens unreadable until re-entered.

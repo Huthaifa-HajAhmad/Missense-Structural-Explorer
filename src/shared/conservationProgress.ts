@@ -5,7 +5,7 @@ import { serviceStatusOf } from "./serviceStatus.ts";
  * Where one model inside the conservation composite stands, for a surface deciding between
  * "still running", "not assessed in time" and "answered".
  *
- * The composite (`conservationData`) streams: SpliceAI, AlphaGenome, GPN-Star and the dbNSFP base
+ * The composite (`conservationData`) streams: SpliceAI, AlphaGenome and the dbNSFP base
  * each publish as they answer, and the snapshot carries `modelStatus`. Precedence:
  *
  * 1. A settled composite status (`ok`, `not_found`, …) with no `modelStatus` is final: every model

@@ -191,7 +191,7 @@ const isAbsent = (value: unknown): boolean => value === null || value === undefi
  */
 const CONSERVATION_SCORE_FIELDS = [
   "revel", "gerp", "phylop", "consurf", "bayesdel", "metarnn", "clinpred", "eigenPhred", "dann",
-  "esm1b", "popeve", "gpnStar", "spliceai", "alphagenome"
+  "esm1b", "popeve", "spliceai", "alphagenome"
 ] as const;
 
 /**
@@ -257,8 +257,6 @@ async function runCoreFetch(
     wt1Letter,
     mut1Letter,
     biohubToken,
-    hfToken,
-    gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiDistance
@@ -588,7 +586,7 @@ async function runCoreFetch(
 
   /**
    * The composite's latest streamed snapshot, so a fast SpliceAI or AlphaGenome answer reaches the
-   * reader before dbNSFP, ConSurf or GPN-Star finish, and so a composite whose budget expires keeps
+   * reader before dbNSFP or ConSurf finish, and so a composite whose budget expires keeps
    * the models that DID answer instead of discarding all of them.
    */
   let conservationLatestSnapshot: ConservationData | null = null;
@@ -624,12 +622,9 @@ async function runCoreFetch(
       predictorPromise: locus,
       genosPromise,
       biohubToken,
-      hfToken,
-      gpnApiUrl,
       alphagenomeApiKey,
       alphagenomeApiUrl,
       spliceaiDistance,
-      sequence,
       onPartial: snapshot => onConservationSnapshot(attempt, snapshot)
     });
   }).then(withoutUnboundAou).catch(err => {
@@ -934,7 +929,7 @@ async function runCoreFetch(
   /**
    * A composite whose budget expired keeps every model that answered, each still labelled with its
    * own state, and the models that did not answer are marked `timeout` rather than dropped silently.
-   * Previously one slow model (an AlphaGenome or GPN-Star call) discarded REVEL, BayesDel and a
+   * Previously one slow model (an AlphaGenome call) discarded REVEL, BayesDel and a
    * SpliceAI score already in hand.
    */
   const conservationValue = (raw: unknown): ConservationData | null =>

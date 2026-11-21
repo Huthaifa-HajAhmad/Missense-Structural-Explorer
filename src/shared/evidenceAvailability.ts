@@ -134,9 +134,9 @@ function text(v: string | null | undefined): string | null {
  * A source's own reported status.
  *
  * Widened beyond AlphaGenome's three values deliberately. The first revision typed this as
- * `"live" | "unavailable" | "pending" | null`, which is AlphaGenome's contract — so GPN-Star, whose
- * `gpnStarStatus` also carries `"token_required"` (`contracts.ts`), could not call this module at
- * all and would have had to re-grow the hand-written ternary the module exists to replace. A module
+ * `"live" | "unavailable" | "pending" | null`, which is AlphaGenome's contract — so a source whose
+ * status also carries `"token_required"` could not call this module at all and would have had to
+ * re-grow the hand-written ternary the module exists to replace. A module
  * that only accepts one source's vocabulary recreates the defect one source later.
  *
  * The known values are enumerated for autocomplete and refactoring; the `(string & {})` arm keeps
@@ -342,7 +342,6 @@ export function resolveSourceAvailability(
  */
 const REFUSAL_SOURCE_DISPLAY: Record<AssemblyRefusalSource, string> = {
   alphagenome: "AlphaGenome Atlas",
-  "gpn-star": "GPN-Star",
   popEVE: "PopEVE",
   "splice-proximity": "Splice-junction geometry",
 };

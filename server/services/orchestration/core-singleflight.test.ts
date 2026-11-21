@@ -176,8 +176,8 @@ describe("core singleflight", () => {
    * Auth capability scoping, and the boundary that no key material crosses.
    *
    * A run made with a token is not the same evidence as a run made without one (the token gates
-   * GPN-Star, ESM-2 650M, VESM, SaProt, ESM3, and the live AlphaGenome score), so the two must not
-   * share. Two DIFFERENT Hugging Face or Biohub tokens do share (WP-I4): the answer does not depend on
+   * ESM3 and the live AlphaGenome score), so the two must not share. Two DIFFERENT Biohub tokens do
+   * share (WP-I4): the answer does not depend on
    * whose token asked, so two people make one upstream call. The flight key never contains a token.
    */
   it("scopes runs by whether a credential is present, not by which one, without putting it in the key", async () => {
@@ -185,21 +185,21 @@ describe("core singleflight", () => {
     const mocked = await fetchCore();
     mocked.mockImplementation(() => gate.promise);
 
-    const tokenA = "hf_secret_token_alpha_9000";
-    const tokenB = "hf_secret_token_beta_9001";
+    const tokenA = "bh_secret_token_alpha_9000";
+    const tokenB = "bh_secret_token_beta_9001";
 
     const withoutToken = runSharedCoreFetch(baseContext);
-    const withA = runSharedCoreFetch({ ...baseContext, hfToken: tokenA });
-    const withA2 = runSharedCoreFetch({ ...baseContext, hfToken: tokenA });
-    const withB = runSharedCoreFetch({ ...baseContext, hfToken: tokenB });
+    const withA = runSharedCoreFetch({ ...baseContext, biohubToken: tokenA });
+    const withA2 = runSharedCoreFetch({ ...baseContext, biohubToken: tokenA });
+    const withB = runSharedCoreFetch({ ...baseContext, biohubToken: tokenB });
 
     expect(mocked).toHaveBeenCalledTimes(2);
     expect(coreSingleflightStats()).toMatchObject({ started: 2, joined: 2 });
 
-    const keyWithA = coreSingleflightKey({ ...baseContext, hfToken: tokenA });
+    const keyWithA = coreSingleflightKey({ ...baseContext, biohubToken: tokenA });
     expect(keyWithA).not.toContain(tokenA);
-    expect(keyWithA).not.toContain("hf_secret_token");
-    expect(keyWithA).toBe(coreSingleflightKey({ ...baseContext, hfToken: tokenB }));
+    expect(keyWithA).not.toContain("bh_secret_token");
+    expect(keyWithA).toBe(coreSingleflightKey({ ...baseContext, biohubToken: tokenB }));
     expect(keyWithA).not.toBe(coreSingleflightKey(baseContext));
 
     gate.release({ clinvar: null, serviceStatus: {} });

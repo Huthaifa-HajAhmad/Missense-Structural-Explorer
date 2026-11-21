@@ -1,12 +1,6 @@
 /** Citation metadata only. Rendered teaching text lives in shared/researchGuides.ts. */
 export interface MetricExplanation { name: string; paperTitle: string; paperUrl: string; citation?: string }
 export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
-  gpn_star: {
-    name: "GPN-Star",
-    paperTitle: "Ye et al. bioRxiv (2025)",
-    paperUrl: "https://doi.org/10.1101/2025.09.21.677619",
-    citation: "Ye, C., Benegas, G., et al. (2025). Predicting functional constraints across evolutionary timescales with phylogeny-informed genomic language models. bioRxiv.",
-  },
   am: {
     name: "AlphaMissense",
     paperTitle: "Cheng et al. Science (2023)",

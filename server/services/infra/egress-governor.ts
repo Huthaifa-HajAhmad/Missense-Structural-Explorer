@@ -100,7 +100,7 @@ export const LEARNED_RATE_TTL_MS = 60 * 60_000;
 export const SYSTEM_AGING_MS = 30_000;
 /**
  * Hosts met at run time (not in the registry) kept at most. Request-chosen endpoints (a person's own
- * AlphaGenome or GPN server) reach the governor too; past this, idle ones are forgotten.
+ * AlphaGenome server) reach the governor too; past this, idle ones are forgotten.
  */
 export const MAX_RUNTIME_HOSTS = 200;
 
@@ -760,7 +760,7 @@ function healthOf(s: ProviderState): GovernorProviderHealth {
  *
  * `publicView` (the unauthenticated `/capabilities`): hosts that are neither in the registry nor a
  * provider this deployment calls on its own account are request-chosen endpoints (a person's own
- * AlphaGenome or GPN server), so they are summed into one unnamed `other` line.
+ * AlphaGenome server), so they are summed into one unnamed `other` line.
  */
 export function governorHealth(opts: { publicView?: boolean } = {}): GovernorProviderHealth[] {
   const named: GovernorProviderHealth[] = [];

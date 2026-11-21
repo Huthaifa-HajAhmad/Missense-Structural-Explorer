@@ -107,7 +107,7 @@ export function noteStaleDataHeader(value: string | null): void {
 }
 
 // ── Credential-use signal (WP-I4) ───────────────────────────────────────────────────────────────
-// Which token a response's Biohub, Hugging Face or Tamarind calls used ("your token" / "the team token"),
+// Which token a response's Biohub or Tamarind calls used ("your token" / "the team token"),
 // or why none was used. Read here for the same reason as the stale-data header; surfaces subscribe.
 
 export interface CredentialUseReport {
@@ -307,9 +307,7 @@ export function useAuthSession() {
     geminiApiKey, 
     appApiToken, 
     biohubApiToken, 
-    hfToken, 
     tamarindApiKey,
-    gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiWindow
@@ -565,14 +563,8 @@ export function useAuthSession() {
         if (biohubApiToken) {
           headers["x-biohub-token"] = biohubApiToken;
         }
-        if (hfToken) {
-          headers["x-hf-token"] = hfToken;
-        }
         if (tamarindApiKey) {
           headers["x-tamarind-api-key"] = tamarindApiKey;
-        }
-        if (gpnApiUrl) {
-          headers["x-gpn-api-url"] = gpnApiUrl;
         }
         if (alphagenomeApiKey) {
           headers["x-alphagenome-key"] = alphagenomeApiKey;
@@ -686,9 +678,7 @@ export function useAuthSession() {
     geminiApiKey, 
     appApiToken, 
     biohubApiToken, 
-    hfToken, 
     tamarindApiKey,
-    gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiWindow,

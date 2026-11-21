@@ -53,13 +53,23 @@ describe("SettingsContext (settings revamp)", () => {
     expect(ctx.settings.biophysicsConditions).toEqual(DEFAULT_USER_SETTINGS.biophysicsConditions);
   });
 
-  it("never persists any credential — including hf and gpnApiUrl — to localStorage", () => {
+  it("returns the theme to its default on reset, with the other preferences", () => {
+    let ctx!: ReturnType<typeof useSettings>;
+    renderProbe((c) => (ctx = c));
+    act(() => ctx.setTheme("dark"));
+    expect(ctx.theme).toBe("dark");
+
+    act(() => ctx.resetSettingsToDefault());
+
+    expect(ctx.theme).toBe("light");
+  });
+
+  it("never persists any credential to localStorage", () => {
     let ctx!: ReturnType<typeof useSettings>;
     renderProbe((c) => (ctx = c));
 
     act(() => {
-      ctx.updateSetting("gpnApiUrl", "https://custom.endpoint/predict");
-      ctx.updateSetting("hfToken", "hf_secret_456");
+      ctx.updateSetting("tamarindApiKey", "tam_secret_456");
       ctx.updateSetting("appApiToken", "app-secret");
       ctx.updateSetting("geminiApiKey", "gem-secret");
       ctx.updateSetting("biohubApiToken", "bio-secret");
@@ -68,8 +78,7 @@ describe("SettingsContext (settings revamp)", () => {
     });
 
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
-    expect(persisted.gpnApiUrl).toBeUndefined();
-    expect(persisted.hfToken).toBeUndefined();
+    expect(persisted.tamarindApiKey).toBeUndefined();
     expect(persisted.appApiToken).toBeUndefined();
     expect(persisted.geminiApiKey).toBeUndefined();
     expect(persisted.biohubApiToken).toBeUndefined();
@@ -78,14 +87,13 @@ describe("SettingsContext (settings revamp)", () => {
 
     // Survive only in transient sessionStorage.
     const transient = JSON.parse(sessionStorage.getItem("missenseTransientCredentials") || "{}");
-    expect(transient.gpnApiUrl).toBe("https://custom.endpoint/predict");
-    expect(transient.hfToken).toBe("hf_secret_456");
+    expect(transient.tamarindApiKey).toBe("tam_secret_456");
     expect(transient.appApiToken).toBe("app-secret");
     expect(transient.alphagenomeApiKey).toBe("ag-secret-123");
     expect(transient.alphagenomeApiUrl).toBe("https://custom.alphagenome/v1");
   });
 
-  it("scrubs legacy plaintext credentials from localStorage on load", () => {
+  it("scrubs legacy plaintext credentials, including retired GPN-MSA ones, from localStorage on load", () => {
     localStorage.setItem(
       "missenseUserSettings",
       JSON.stringify({ gpnApiUrl: "leaked", hfToken: "leaked-too", maxHistoryItems: 10 })
@@ -115,7 +123,7 @@ describe("SettingsContext (settings revamp)", () => {
     expect(sessionStorage.getItem("missenseTransientCredentials")).toBeNull();
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
     expect(persisted.residueColor).toBe(DEFAULT_USER_SETTINGS.residueColor);
-    expect(persisted.hfToken).toBeUndefined();
+    expect(persisted.tamarindApiKey).toBeUndefined();
   });
 
   it("lands on light for a first-time visitor, even when the OS prefers dark", () => {

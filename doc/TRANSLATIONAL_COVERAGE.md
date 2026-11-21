@@ -27,7 +27,7 @@ the following entry points, source-record links and related-concept routes make 
 |---|---|---|
 | Variant query | Beside “Analyse a variant” | Allele, transcript, assembly, accession and residue identity; links to missingness and mapping |
 | All 11 Evidence workspaces | Subject-specific “About…” control above the active workspace | Population, gene–disease, expression, species, predictors, AlphaGenome, residue properties, perturbation, function, splicing and interfaces |
-| Predictor records | Existing model notice controls and pinned-reading inspector | AlphaMissense, CADD, REVEL, BayesDel noAF, EVE, popEVE, MetaRNN, ClinPred, Eigen, DANN, ESM-1b, ESM C/VESM, SaProt, GPN-Star, phyloP, GERP++ and ConSurf |
+| Predictor records | Existing model notice controls and pinned-reading inspector | AlphaMissense, CADD, REVEL, BayesDel noAF, EVE, popEVE, MetaRNN, ClinPred, Eigen, DANN, ESM-1b, ESM C/VESM, SaProt, phyloP, GERP++ and ConSurf |
 | Population and AlphaGenome records | Pinned-reading inspector | AC/AN/AF and population-rule context; feature attribution/SHAP. Related topics explain constraint, coverage, ranks and PHRED |
 | Residue records | Pinned-reading inspector | Amino-acid properties, solvent accessibility/burial and P2Rank pockets |
 | Perturbation model rows | Beside each model | ESM-2, ESM C, VESM and SaProt; ESM3 representation analysis identifies its VESM fallback when present |

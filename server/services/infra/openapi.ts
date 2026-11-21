@@ -279,7 +279,7 @@ export function generateOpenApiSpec() {
                       "GRCh38"
                     ],
                     "default": "GRCh38",
-                    "description": "Genome build the caller's coordinate notation was expressed in. Nearly every coordinate-consuming source downstream is single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, AlphaGenome, splice-junction geometry), so the build is carried explicitly rather than assumed. Defaults to GRCh38 so existing clients keep their behaviour."
+                    "description": "Genome build the caller's coordinate notation was expressed in. Nearly every coordinate-consuming source downstream is single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, AlphaGenome, splice-junction geometry), so the build is carried explicitly rather than assumed. Defaults to GRCh38 so existing clients keep their behaviour."
                   },
                   "genomicCoordinates": {
                     "type": "string",

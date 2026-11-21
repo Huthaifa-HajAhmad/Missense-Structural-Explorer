@@ -67,6 +67,8 @@ describe('deck height cap', { tags: ['search'] }, () => {
       try {
         const genes = ['NAE1', 'PAH', 'TP53', 'BRCA1', 'SOD1', 'CFTR', 'LMNA', 'MYH7', 'GBA1', 'FGFR3'];
         localStorage.setItem('variant_search_history', JSON.stringify(genes.map(gene => ({ gene, variant: 'p.Arg100Trp', query: `${gene} p.Arg100Trp` }))));
+        // Ten recents survive only when the reader keeps more than the default five.
+        localStorage.setItem('missenseUserSettings', JSON.stringify({ saveHistory: true, maxHistoryItems: 20 }));
       } catch {
         // about:blank and opaque origins deny storage.
       }

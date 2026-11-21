@@ -16,7 +16,6 @@ services:
       - SIDECAR_SECRET=${SIDECAR_SECRET:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - BIOHUB_API_TOKEN=${BIOHUB_API_TOKEN:-}
-      - HF_TOKEN=${HF_TOKEN}
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     volumes:
       # Persistent SQLite databases (analyses.sqlite, landscape_cache.sqlite, rasp_precomputed.sqlite)

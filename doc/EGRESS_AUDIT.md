@@ -8,6 +8,8 @@ This file is the output of the I2 cache audit in `doc/COMPUTE_ROUTING_PLAN.md` (
 
 File:line references are to the worktree as it stood on this date. Test files are excluded.
 
+Later change (2026-11-21): the GPN-Star score (section 4.19, which actually read the GPN-MSA table) and the Hugging Face credential were retired. Their rows describe code that no longer exists.
+
 ## 1. Summary
 
 Counts (server TypeScript, tests excluded):

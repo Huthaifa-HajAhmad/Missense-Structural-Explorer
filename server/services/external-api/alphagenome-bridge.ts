@@ -100,8 +100,7 @@ export interface FetchAlphaGenomeOptions {
  *
  * The guard compares against the server key's VALUE, not where the argument came from, because several
  * callers merge the env key into `apiKey` before calling the bridge. Whatever they pass, the server key
- * cannot reach a foreign endpoint. The GPN path applies the same rule to `HF_TOKEN` through
- * `resolveGpnAccess` (`external-api/gpn.ts`).
+ * cannot reach a foreign endpoint.
  *
  * `customEndpoint` also keeps that proxy's answers out of the shared cache: a result from one user's
  * proxy must not be served to everyone for 30 days.

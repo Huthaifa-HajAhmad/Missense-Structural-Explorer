@@ -10,7 +10,6 @@
  * silently assumed GRCh38.
  *
  * That is not a cosmetic gap. Most of the evidence sources are single-build:
- *   GPN-Star            GRCh38-only Tabix index
  *   local dbNSFP        hg38 columns
  *   Genos               sends `genome_build: 'hg38'`
  *   dbnsfp.org          sends `genome_build: 'hg38'`
@@ -80,8 +79,6 @@ export const ASSEMBLY_SUPPORT = {
   "ensembl-vep": ["GRCh37", "GRCh38"],
   "variant-validator": ["GRCh37", "GRCh38"],
   "spliceai-lookup": ["GRCh37", "GRCh38"],
-  /** hg38-only Tabix index (songlab/gpn-msa-hg38-scores). */
-  "gpn-star": ["GRCh38"],
   /** AlphaGenome Atlas holds GRCh38 SNVs; the model inputs GRCh38 sequence. */
   alphagenome: ["GRCh38"],
   /** PopEVE is matched against `popeve_grch38.vcf.gz` on chrom/pos/ref/alt. */
@@ -365,7 +362,6 @@ export function withAssemblyAnnotation(notation: string, build: GenomeAssembly):
  */
 export const ASSEMBLY_REFUSAL_SOURCES = [
   "popEVE",
-  "gpn-star",
   "alphagenome",
   "splice-proximity"
 ] as const;

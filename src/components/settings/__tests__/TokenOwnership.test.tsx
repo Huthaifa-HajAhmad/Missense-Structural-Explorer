@@ -79,10 +79,10 @@ describe("AccountTokenControls", () => {
 
 describe("LastCredentialUse", () => {
   it("says whose token the last request ran on, or why it did not run", () => {
-    render(<LastCredentialUse kind="huggingface" />);
-    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "huggingface", source: "team" }])));
-    expect(screen.getByTestId("last-credential-use-huggingface").textContent).toMatch(/ran on the team token/);
-    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "huggingface", source: "none", refusal: "team-share-used" }])));
-    expect(screen.getByTestId("last-credential-use-huggingface").textContent).toMatch(/your hourly share of the team token is used/);
+    render(<LastCredentialUse kind="tamarind" />);
+    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "tamarind", source: "team" }])));
+    expect(screen.getByTestId("last-credential-use-tamarind").textContent).toMatch(/ran on the team token/);
+    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "tamarind", source: "none", refusal: "team-share-used" }])));
+    expect(screen.getByTestId("last-credential-use-tamarind").textContent).toMatch(/your hourly share of the team token is used/);
   });
 });

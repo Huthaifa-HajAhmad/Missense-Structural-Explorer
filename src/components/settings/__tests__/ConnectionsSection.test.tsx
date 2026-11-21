@@ -26,7 +26,7 @@ vi.mock("../../../hooks/useApiConnections", () => {
   const quiet = { testing: false, status: null };
   return {
     useApiConnections: () => ({
-      tests: { biohub: quiet, hf: quiet, alphagenome: quiet, tamarind: quiet },
+      tests: { biohub: quiet, alphagenome: quiet, tamarind: quiet },
       runTest: vi.fn(),
       linking: false,
       linkError: null,
@@ -61,7 +61,7 @@ beforeEach(() => {
     available: true,
     secrets: [
       { kind: "biohub", hint: "wvae", updatedAt: 1, readable: true },
-      { kind: "huggingface", hint: "PCMk", updatedAt: 1, readable: true },
+      { kind: "tamarind", hint: "PCMk", updatedAt: 1, readable: true },
     ],
   });
   vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
@@ -132,17 +132,17 @@ describe("ConnectionsSection token rows", () => {
 
     // The note for one token never sits under a different token's field.
     expect(field!.parentElement).not.toBe(
-      document.querySelector('[data-setting-title="Hugging Face access token"]')!.parentElement
+      document.querySelector('[data-setting-title="Tamarind Bio API key"]')!.parentElement
     );
   });
 
   it("keeps the last-request line with the token it belongs to", async () => {
-    noteCredentialHeader(encodeCredentialUse([{ kind: "huggingface", source: "team" }]));
+    noteCredentialHeader(encodeCredentialUse([{ kind: "tamarind", source: "team" }]));
     renderConnections();
 
-    const field = document.querySelector('[data-setting-title="Hugging Face access token"]')!;
-    const lastUse = await screen.findByTestId("last-credential-use-huggingface");
-    const strip = await screen.findByTestId("account-token-huggingface");
+    const field = document.querySelector('[data-setting-title="Tamarind Bio API key"]')!;
+    const lastUse = await screen.findByTestId("last-credential-use-tamarind");
+    const strip = await screen.findByTestId("account-token-tamarind");
 
     expect(field.parentElement).toHaveClass("settings-token-field");
     expect(lastUse.parentElement).toBe(field.parentElement);
@@ -151,5 +151,26 @@ describe("ConnectionsSection token rows", () => {
     expect(
       document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]')!.parentElement
     ).not.toBe(field.parentElement);
+  });
+});
+
+describe("ConnectionsSection optional providers", () => {
+  const sectionOf = (title: string) =>
+    document.querySelector(`[data-setting-title="${title}"]`)!.closest("section.settings-group");
+
+  it("keeps Tamarind apart from the credentials most people need, and offers no Hugging Face key", async () => {
+    renderConnections();
+    await screen.findByText(/Saved to your account \(ends …wvae\)/);
+
+    const optional = document.querySelector('section[data-setting-title="Optional providers"]');
+    expect(optional).not.toBeNull();
+    expect(sectionOf("Tamarind Bio API key")).toBe(optional);
+    expect(sectionOf("EvolutionaryScale (Forge) token")).not.toBe(optional);
+    expect(screen.queryByText(/Hugging Face/)).toBeNull();
+  });
+
+  it("says when the optional key is actually used", () => {
+    renderConnections();
+    expect(screen.getByText(/only when the lab's own ThermoMPNN service does not answer/i)).toBeTruthy();
   });
 });

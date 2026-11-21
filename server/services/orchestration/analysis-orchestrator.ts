@@ -34,7 +34,6 @@ import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
 import { CONFIG } from "../../config.ts";
-import { credentialAvailable } from "../infra/credentials.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData };
 export {
@@ -149,12 +148,6 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
     if (context?.spliceaiDistance && typeof scoredWindow === "number" && scoredWindow !== context.spliceaiDistance) {
       return true;
     }
-    // Invalidate stale cache if Hugging Face token is provided but cached payload lacks GPN-Star
-    const hasGpnToken = credentialAvailable("huggingface", context?.hfToken);
-    if (hasGpnToken) {
-      const gpnMissing = cons.gpnStar === null && (cons.gpnStarStatus === "token_required" || cons.gpnStarStatus === "unavailable" || !cons.gpnStarStatus);
-      if (gpnMissing) return true;
-    }
     // Invalidate stale cache if AlphaGenome key or endpoint is configured but cached payload lacks live AlphaGenome AVI score
     const hasAlphaGenomeKey = Boolean(
       context?.alphagenomeApiKey ||
@@ -189,7 +182,7 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
  * Two predicates, in this order:
  *
  *   1. the STALENESS predicate — a payload missing a source a configured provider can now answer
- *      (GPN-Star / ESM3 / AlphaGenome) is recomputed, which is what backfills a capability that was
+ *      (ESM3 / AlphaGenome) is recomputed, which is what backfills a capability that was
  *      unavailable when the row was written;
  *   2. the CONTEXT-IDENTITY guard — a payload that states a DIFFERENT scientific identity (another
  *      build trail, weighting, numbering decision, sequence, or provider/endpoint set) is refused, and

@@ -5,7 +5,6 @@ import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant, readLocalDbnsfpVersion
 import { queryGenosWebservice } from "../../external-api/genos_web.ts";
 import { resolveSpliceProximity } from "../splice_resolver.ts";
 import { buildConservationKey } from "../../infra/cache-keys.ts";
-import { fetchGpnStarScore, fetchGpnStarByCoordinate, type ModelInferenceResult as EvolutionaryScaleResult } from "../../external-api/gpn.ts";
 import { safeParseFloat, safeParseInt, toSingleAa, getFirstOrVal } from "./normalizer.ts";
 import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 import { fetchRealConsurfData } from "./consurf-resolver.ts";
@@ -126,27 +125,10 @@ export const myVariantResponseSchema = z.object({
       dbscsnv_ada_score: z.any().optional(),
       dbscsnv_rf_score: z.any().optional(),
       dbscSNV_ADA_SCORE: z.any().optional(),
-      dbscSNV_RF_SCORE: z.any().optional(),
-      gpn_star: z.any().optional(),
-      gpn: z.any().optional(),
-      gpn_msa: z.any().optional(),
-      gpnstar: z.any().optional()
+      dbscSNV_RF_SCORE: z.any().optional()
     }).optional()
   })).optional()
 });
-
-export function resolveGpnStarScore(
-  rawRecord: any,
-  _wtAa?: string,
-  _mutAa?: string,
-  _phylop?: number | null,
-  _gerp?: number | null
-): number | null {
-  const raw = rawRecord?.gpn_star ?? rawRecord?.gpn ?? rawRecord?.gpn_msa ?? rawRecord?.gpnStar;
-  const direct = safeParseFloat(Array.isArray(raw) ? raw[0] : raw);
-  if (direct !== null) return direct;
-  return null;
-}
 
 export async function fetchConservationData(
   gene: string,
@@ -162,15 +144,15 @@ export async function fetchConservationData(
   /**
    * Build that `gnomadVariantId`'s coordinates belong to, when known.
    *
-   * Participates in the cache key because this payload folds in single-build sources (GPN-Star,
-   * local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload built from one build's
+   * Participates in the cache key because this payload folds in single-build sources
+   * (local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload built from one build's
    * coordinate is not a valid answer for another's. Absent means "unknown", which is a distinct
    * key rather than a default.
    */
   assembly?: string | null,
   options?: {
     /**
-     * The caller fetches the coordinate-keyed enrichment itself (PopEVE tabix, GPN-Star, AlphaGenome)
+     * The caller fetches the coordinate-keyed enrichment itself (PopEVE tabix, AlphaGenome)
      * and overlays it — `fetchConservationDataProgressive` does, with the reader's own AlphaGenome
      * key. Skipping it here stops the same remote, quota-bound calls being made twice per run, the
      * second time without that key.
@@ -219,9 +201,6 @@ export async function fetchConservationData(
       const enrichCoordinateHere = !options?.coordinateEnrichmentByCaller;
       const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
         assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
-      const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
-      const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
-      const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
 
       const defaultRes: ConservationData = {
         available: false,
@@ -240,8 +219,6 @@ export async function fetchConservationData(
         esm1b: null,
         esm1bPred: null,
         popeve: null,
-        gpnStar: null,
-        gpnStarStatus: "unavailable",
         aouFrequency: null,
         spliceProximity,
         spliceai: null,
@@ -268,11 +245,10 @@ export async function fetchConservationData(
              * Same build gate as the progressive path, applied here too.
              *
              * This resolver is reachable with a coordinate (`gnomadVariantId` is a parameter), and
-             * PopEVE and GPN-Star match chrom/pos/ref/alt against GRCh38-only indexes. Gating only
+             * PopEVE matches chrom/pos/ref/alt against a GRCh38-only index. Gating only
              * the progressive call site would leave this one free to score the wrong locus the
              * moment anyone passes a coordinate in.
              */
-            const gpnUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("gpn-star");
             const popEVEUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("popEVE");
             const popEVEPromise = popEVEUsable
               ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
@@ -282,12 +258,8 @@ export async function fetchConservationData(
               ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
               : Promise.resolve(null);
 
-            const gpnTabixPromise = gpnUsable
-              ? fetchGpnStarByCoordinate(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
-              : Promise.resolve(null);
-
             // AlphaGenome is GRCh38-only — the same gate as its progressive-path sibling and
-            // the PopEVE/GPN calls in this very block. Gating only the progressive call site
+            // the PopEVE call in this very block. Gating only the progressive call site
             // left this one free to score an hg19 position against the GRCh38 model (review M-4).
             const alphaPromise = (enrichCoordinateHere && parsedGnomad && usableBy("alphagenome"))
               ? fetchAlphaGenome(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt, {
@@ -297,7 +269,7 @@ export async function fetchConservationData(
                 }).catch(() => null)
               : Promise.resolve(null);
 
-            const [popEVEScore, consurfVal, gpnTabixRes, alphaRes] = await Promise.all([popEVEPromise, consurfPromise, gpnTabixPromise, alphaPromise]);
+            const [popEVEScore, consurfVal, alphaRes] = await Promise.all([popEVEPromise, consurfPromise, alphaPromise]);
 
             let popEVEVal = rec.popeve ?? popEVEScore;
             if (popEVEVal === null && enrichCoordinateHere) {
@@ -305,9 +277,6 @@ export async function fetchConservationData(
               const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
               popEVEVal = await Promise.race([onlinePromise, fastTimeout]);
             }
-
-            const recGpn = resolveGpnStarScore(rec, wtAa, mutAa, rec.phylop, rec.gerp);
-            const finalGpn = recGpn ?? gpnTabixRes?.score ?? null;
 
             const resVal: ConservationData = {
               available: true,
@@ -327,9 +296,6 @@ export async function fetchConservationData(
               esm1b: rec.esm1b,
               esm1bPred: null,
               popeve: popEVEVal,
-              gpnStar: finalGpn,
-              gpnStarStatus: finalGpn !== null ? "live" : (gpnTabixRes?.status ?? "unavailable"),
-              gpnStarMessage: gpnTabixRes?.message ?? null,
               aouFrequency: (rec.aou_ac != null || rec.aou_an != null || rec.aou_het != null || rec.aou_hom != null) ? {
                 aouAC: rec.aou_ac,
                 aouAN: rec.aou_an ?? null,
@@ -398,8 +364,6 @@ export async function fetchConservationData(
             esm1b: activeGenosRec.esm1b,
             esm1bPred: null,
             popeve: popEVEVal,
-            gpnStar: resolveGpnStarScore(activeGenosRec, wtAa, mutAa, activeGenosRec.phylop, activeGenosRec.gerp),
-            gpnStarStatus: resolveGpnStarScore(activeGenosRec, wtAa, mutAa, activeGenosRec.phylop, activeGenosRec.gerp) !== null ? "live" : "unavailable",
             aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
               aouAC: activeGenosRec.aou_ac,
               aouAN: activeGenosRec.aou_an ?? null,
@@ -464,8 +428,6 @@ export async function fetchConservationData(
             esm1b: pubDbnsfp.esm1b ?? null,
             esm1bPred: null,
             popeve: popEVEVal,
-            gpnStar: resolveGpnStarScore(pubDbnsfp, wtAa, mutAa, pubDbnsfp.phylop ?? null, pubDbnsfp.gerp ?? null),
-            gpnStarStatus: resolveGpnStarScore(pubDbnsfp, wtAa, mutAa, pubDbnsfp.phylop ?? null, pubDbnsfp.gerp ?? null) !== null ? "live" : "unavailable",
             aouFrequency: null,
             spliceProximity,
             spliceai: null,
@@ -712,8 +674,6 @@ export async function fetchConservationData(
                 esm1b: esm1b,
                 esm1bPred: esm1bPred,
                 popeve: finalPopEVE,
-                gpnStar: isExactMatch ? resolveGpnStarScore(dbnsfp, wtAa, mutAa, phylop, gerp) : null,
-                gpnStarStatus: (isExactMatch && resolveGpnStarScore(dbnsfp, wtAa, mutAa, phylop, gerp) !== null) ? "live" : "unavailable",
                 aouFrequency: hasAou ? {
                   aouAC,
                   aouAN,
@@ -756,7 +716,7 @@ export interface ProgressiveConservationContext {
   uniprotId?: string | null;
   /**
    * Build the caller's notation was expressed in. Every coordinate-consuming source in
-   * this pipeline is single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4
+   * this pipeline is single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4
    * ids) or has a service per build (SpliceAI Lookup), so this decides routing — a
    * GRCh37 coordinate handed to a GRCh38 index either misses or, worse, resolves to a
    * different locus. Defaults to GRCh38, which is what every source here is pinned to.
@@ -766,16 +726,13 @@ export interface ProgressiveConservationContext {
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
   biohubToken?: string | null;
-  hfToken?: string | null;
-  gpnApiUrl?: string | null;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window (-D); defaults to `SPLICEAI_DEFAULT_DISTANCE`. */
   spliceaiDistance?: number | null;
-  sequence?: string | null;
   /**
    * Called with a cumulative snapshot each time one model inside the composite settles, so a fast
-   * SpliceAI or AlphaGenome answer is not held back behind dbNSFP, ConSurf or GPN-Star. Each snapshot
+   * SpliceAI or AlphaGenome answer is not held back behind dbNSFP or ConSurf. Each snapshot
    * carries `modelStatus`; a model that has not settled contributes NO value (not even a fallback
    * that its own answer might replace), so a snapshot never shows a number the final payload
    * contradicts. Not called for the final value, which is the function's return.
@@ -804,11 +761,9 @@ export interface ConservationParts {
   consurf?: number | null;
   locus?: ConservationLocus | null;
   popeve?: number | null;
-  gpnTabix?: EvolutionaryScaleResult | null;
   alphagenome?: AlphaGenomeAviData | null;
   liveSpliceAi?: SpliceAiOutcome | null;
   spliceProximity?: any;
-  gpn?: EvolutionaryScaleResult;
 }
 
 const settledPart = (parts: ConservationParts, key: keyof ConservationParts) =>
@@ -832,7 +787,6 @@ const UNSETTLED_BASE: ConservationData = {
   esm1b: null,
   esm1bPred: null,
   popeve: null,
-  gpnStar: null,
   aouFrequency: null,
   spliceProximity: null,
   spliceai: null,
@@ -852,7 +806,6 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
   const has = (k: keyof ConservationParts) => settledPart(parts, k);
   const base = has("base");
   const state = (done: boolean): "pending" | "settled" => (done ? "settled" : "pending");
-  const tabixScored = parts.gpnTabix?.score !== null && parts.gpnTabix?.score !== undefined;
   return {
     base: state(base),
     /**
@@ -866,10 +819,6 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
     // A returned protein-file score can be shown before the base lookup finishes.
     // An absent score still waits for the base before it is called settled.
     popeve: state(parts.popeve != null || (base && (parts.base!.popeve != null || has("popeve")))),
-    gpnStar: state(
-      (has("gpnTabix") && tabixScored) ||
-      (has("gpnTabix") && has("gpn") && (parts.gpn!.score != null || base))
-    ),
     spliceai: state(has("liveSpliceAi") && (Boolean(parts.liveSpliceAi?.record) || base))
   };
 }
@@ -877,19 +826,7 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
 /** The merged payload from whatever has settled. With every part settled this IS the final value. */
 function mergeConservationParts(parts: ConservationParts): ConservationData {
   const baseConservation = parts.base ?? UNSETTLED_BASE;
-  const gpnStarResult = parts.gpnTabix ?? null;
-  const gpnRes: Partial<EvolutionaryScaleResult> = parts.gpn ?? {};
   const assemblyRefusals = parts.locus?.assemblyRefusals ?? null;
-
-  const finalGpnScore = (gpnStarResult?.score !== null && gpnStarResult?.score !== undefined)
-    ? gpnStarResult.score
-    : (gpnRes.score ?? baseConservation.gpnStar);
-
-  const finalGpnStatus = (gpnStarResult?.score !== null && gpnStarResult?.score !== undefined)
-    ? "live"
-    : (gpnRes.status ?? baseConservation.gpnStarStatus ?? (finalGpnScore !== null ? "live" : "unavailable"));
-
-  const finalGpnMessage = gpnStarResult?.message ?? gpnRes.message ?? null;
 
   return applyLiveSpliceAi({
     ...baseConservation,
@@ -899,9 +836,6 @@ function mergeConservationParts(parts: ConservationParts): ConservationData {
     assemblyRefusals: assemblyRefusals && assemblyRefusals.length > 0
       ? assemblyRefusals
       : baseConservation.assemblyRefusals ?? null,
-    gpnStar: finalGpnScore,
-    gpnStarStatus: finalGpnStatus as ConservationData["gpnStarStatus"],
-    gpnStarMessage: finalGpnMessage,
     alphagenome: parts.alphagenome ?? baseConservation.alphagenome ?? null
   }, parts.liveSpliceAi ?? null);
 }
@@ -918,11 +852,6 @@ export function conservationSnapshot(parts: ConservationParts): ConservationData
   if (status.popeve !== "settled") merged.popeve = null;
   if (status.spliceProximity !== "settled") merged.spliceProximity = null;
   if (status.alphagenome !== "settled") merged.alphagenome = null;
-  if (status.gpnStar !== "settled") {
-    merged.gpnStar = null;
-    delete merged.gpnStarStatus;
-    merged.gpnStarMessage = null;
-  }
   if (status.spliceai !== "settled") {
     merged.spliceai = null;
     merged.spliceaiFailure = null;
@@ -959,12 +888,9 @@ export async function fetchConservationDataProgressive(
     pdbMappingPromise,
     predictorPromise,
     genosPromise,
-    hfToken,
-    gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiDistance,
-    sequence,
     onPartial
   } = context;
 
@@ -985,14 +911,10 @@ export async function fetchConservationDataProgressive(
         return match ? parseInt(match[0], 10) : null;
       })();
 
-  const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
-  const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
-  const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
-
   /**
    * Every model below settles on its own and is recorded the moment it does. They used to be joined
    * by one `Promise.all` (and the coordinate models by a second), so a SpliceAI answer in 2 s waited
-   * for the slowest of dbNSFP, ConSurf, GPN-Star and AlphaGenome before anyone saw it.
+   * for the slowest of dbNSFP, ConSurf and AlphaGenome before anyone saw it.
    */
   const parts: ConservationParts = {};
   let finished = false;
@@ -1110,9 +1032,6 @@ export async function fetchConservationDataProgressive(
     .then(score => score ?? coordinateModel(({ parsedCoord: c, usableBy }) =>
       usableBy("popEVE") ? fetchPopEVEScore(c.chrom, c.pos, c.ref, c.alt) : null))
     .catch(() => null));
-  // GPN-Star is a GRCh38-only Tabix index.
-  const gpnTabixTask = track("gpnTabix", coordinateModel(({ parsedCoord: c, usableBy }) =>
-    usableBy("gpn-star") ? fetchGpnStarByCoordinate(c.chrom, c.pos, c.ref, c.alt) : null));
   // AlphaGenome is GRCh38-only: the Atlas holds GRCh38 SNVs and the model is GRCh38.
   const alphagenomeTask = track("alphagenome", coordinateModel(({ parsedCoord: c, usableBy, coordinateAssembly }) =>
     usableBy("alphagenome")
@@ -1126,7 +1045,7 @@ export async function fetchConservationDataProgressive(
       : null));
   // Live SpliceAI runs a service per build, so it routes on the COORDINATE's build rather than the
   // request's. A caller abort makes the client throw; catching it per model keeps that abort from
-  // nulling PopEVE, GPN-Star and AlphaGenome.
+  // nulling PopEVE and AlphaGenome.
   const liveSpliceAiTask = track("liveSpliceAi", coordinateModel(({ parsedCoord: c, coordinateAssembly }) =>
     fetchLiveSpliceAiIfPossible(
       c.chrom, c.pos, c.ref, c.alt, coordinateAssembly,
@@ -1216,15 +1135,9 @@ export async function fetchConservationDataProgressive(
     );
   })());
 
-  // 5. Frontier genomic foundation model (Song Lab GPN-Star fallback).
-  const gpnToken = hfToken || null;
-  const gpnTask = track("gpn", (sequence && resolvedPos !== null && wtAa && mutAa)
-    ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, gpnToken, undefined, gpnApiUrl)
-    : Promise.resolve({ score: null, status: gpnToken ? "unavailable" : "token_required" } as EvolutionaryScaleResult));
-
   try {
-    // A base or GPN failure still fails the composite, as before; every coordinate model degrades to null.
-    await Promise.all([baseTask, consurfTask, locusTask, popeveTask, gpnTabixTask, alphagenomeTask, liveSpliceAiTask, spliceProximityTask, gpnTask]);
+    // A base failure still fails the composite, as before; every coordinate model degrades to null.
+    await Promise.all([baseTask, consurfTask, locusTask, popeveTask, alphagenomeTask, liveSpliceAiTask, spliceProximityTask]);
   } finally {
     finished = true;
   }

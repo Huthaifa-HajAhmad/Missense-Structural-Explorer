@@ -108,7 +108,7 @@ Accessible from the sidebar **Settings** action (and deep-linked from every "Con
 * **🧬 Sequence**: Residue color scheme and ribbon slice size — the slice size now genuinely seeds the landscape/ribbon window on startup.
 * **⚗️ Analysis**: ACMG weighting model, ΔΔG energy unit, **default structure source (AlphaFold2 / ESMFold)** and **default perturbation model (SaProt / ESM-2 / ESMc)** for new sessions, plus **simulation conditions (pH, temperature, ionic strength)** forwarded to biophysical stability requests.
 * **🖥️ Workspace**: Automatic alert banners toggle (suppresses warn/error toasts while still logging to the console) and opt-in search history with its retention limit.
-* **🔑 Connections**: All five credentials (App/Lab token, Biohub/Forge, Tamarind Bio, Hugging Face, Gemini) with per-credential connection tests, a live Gemini session pill with expiry countdown, and a server service-readiness strip (FoldX engine, model server, Gemini).
+* **🔑 Connections**: All credentials (App/Lab token, Biohub/Forge, AlphaGenome, Gemini, and Tamarind Bio under Optional providers) with per-credential connection tests, a live Gemini session pill with expiry countdown, and a server service-readiness strip (FoldX engine, model server, Gemini).
 * **ℹ️ About & data**: Live server version, pinned foundation-model revisions and data-source releases, settings export/import (JSON, credentials never included), search-history and client variant-cache purge, and the server cache purge control.
 
 Security model: credentials live only in `sessionStorage` for the tab lifetime; nothing secret is ever written to `localStorage` (including in exported settings files), and resets wipe transient credentials.

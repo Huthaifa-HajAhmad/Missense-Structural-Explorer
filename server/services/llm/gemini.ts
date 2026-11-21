@@ -914,7 +914,6 @@ Please use this database grounding to inform your pathogenicity assessment and A
         conservationData.dann,
         conservationData.esm1b,
         conservationData.popeve,
-        conservationData.gpnStar,
         conservationData.spliceai?.max_ds,
         conservationData.alphagenome?.aviPhred
       ].some(v => v != null)
@@ -936,7 +935,6 @@ Please use this database grounding to inform your pathogenicity assessment and A
 - DANN Score: ${conservationData.dann ?? "not measured"}
 - ESM-1b LLR Score: ${conservationData.esm1b ?? "not measured"}
 - PopEVE Score: ${conservationData.popeve ?? "not measured"}
-- GPN-Star Score: ${conservationData.gpnStar ?? "not measured"}
 - SpliceAI Max Delta Score: ${conservationData.spliceai?.max_ds ?? "not measured"}
 - AlphaGenome AVI Phred: ${agSummary}
 `;

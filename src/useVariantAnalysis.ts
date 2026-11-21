@@ -7,6 +7,7 @@ import { useBiophysicalModeling } from "./hooks/useBiophysicalModeling";
 import { useFoldxSuperposition } from "./hooks/useFoldxSuperposition";
 import { useStructuralFolding } from "./hooks/useStructuralFolding";
 import { useAnalysisPipeline } from "./hooks/useAnalysisPipeline";
+import { useStoreSettingsSync } from "./hooks/useStoreSettingsSync";
 import { getVariantStyles } from "./shared/variantStyles";
 import { firstDiagnosticsReading } from "./stores/diagnosticsStore";
 import { useVariantAnalysisStore } from "./stores/useVariantAnalysisStore";
@@ -36,6 +37,7 @@ export default function useVariantAnalysis() {
   } = useSettings();
 
   const { fetchWithAuth, apiClient } = useApiClient();
+  useStoreSettingsSync(settings);
 
   // Subsystem execution hooks
   const biophysical = useBiophysicalModeling(

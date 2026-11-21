@@ -41,7 +41,7 @@
  *     without carrying any material that would let a reader test a token guess offline.
  *
  * Endpoint URLs are persisted as a KEYED digest (HMAC with a deployment/process key), never as the
- * URL: a custom GPN/AlphaGenome endpoint can carry credentials or a tenant token in its query string,
+ * URL: a custom AlphaGenome endpoint can carry credentials or a tenant token in its query string,
  * and a bare hash of it would be an offline oracle for a guessed URL. The digest still separates URL
  * A from URL B — including two URLs that differ only in their query — because a different endpoint is
  * a different evidence source.
@@ -54,8 +54,6 @@ import type { ParsedVariantContext } from "../../routes/variant/variant-parser.t
 export type IdentityScope = "core" | "structural";
 
 export interface CoreCapabilitySummary {
-  /** A Hugging Face token was available to this run (GPN-Star, ESM-2, VESM, SaProt). */
-  hf: boolean;
   /** A BioHub / EvolutionaryScale token was available (ESM3, ESMC). */
   biohub: boolean;
   /** An AlphaGenome key was available (live AVI score). */
@@ -67,11 +65,10 @@ export interface CoreCapabilitySummary {
  * otherwise a salted digest (see {@link endpointIdentity}).
  *
  * A boolean "a custom endpoint was used" is NOT enough, and was the hole this closes: two different
- * custom GPN URLs — including two URLs of the same host that differ only in their query — are
+ * custom AlphaGenome URLs — including two URLs of the same host that differ only in their query — are
  * different evidence sources, so a row written against endpoint A must not be replayed for endpoint B.
  */
 export interface CoreEndpointIdentity {
-  gpn: string | null;
   alphagenome: string | null;
 }
 
@@ -138,7 +135,7 @@ const ENDPOINT_DIGEST_KEY: Buffer = (() => {
 /**
  * A caller-supplied provider endpoint as a KEYED digest.
  *
- * The URL itself must not be recoverable from a persisted row: a private GPN endpoint can carry
+ * The URL itself must not be recoverable from a persisted row: a private AlphaGenome endpoint can carry
  * credentials or a tenant token in its query string, and rows live for thirty days. A bare
  * `sha256(url)` is not enough either — it is an offline oracle, so anyone holding the row could test
  * a guessed URL against it. HMAC with a process/deployment key closes that.
@@ -220,16 +217,14 @@ function scienceDimensions(context: ParsedVariantContext): Record<string, unknow
  *
  * Read from the context, which the parser has already resolved (request header, body, then the
  * server's own environment), so this agrees with what the fetchers actually receive. There is no
- * second lookup of `process.env` here on purpose: `hfToken` in particular is deliberately NULL when
- * the caller pinned a custom GPN endpoint (the public GPN path is then the intended one), and
- * re-reading the environment would report a capability the run did not have.
+ * second lookup of `process.env` here on purpose: re-reading the environment would report a
+ * capability the run did not have.
  *
  * Endpoints are NOT here: "some custom endpoint was used" cannot distinguish URL A from URL B, which
  * is why they travel as {@link CoreEndpointIdentity} digests instead.
  */
 function capabilitySummary(context: ParsedVariantContext): CoreCapabilitySummary {
   return {
-    hf: Boolean(context.hfToken),
     biohub: Boolean(context.biohubToken),
     alphagenome: Boolean(context.alphagenomeApiKey)
   };
@@ -238,7 +233,7 @@ function capabilitySummary(context: ParsedVariantContext): CoreCapabilitySummary
 /**
  * Provider credentials, reduced to process-local fingerprints.
  *
- * Hugging Face and Biohub enter by SOURCE, never by token (WP-I4): everyone on the team token shares one
+ * Biohub enters by SOURCE, never by token (WP-I4): everyone on the team token shares one
  * run, which makes one upstream call; a person's own token (sent or saved) is spent only on that person's
  * requests, so their runs are scoped to them (`own:<owner>`). Two of one person's tokens share. The
  * AlphaGenome key keeps its fingerprint: it is not one of the credentials WP-I4 governs. A fingerprint
@@ -247,10 +242,8 @@ function capabilitySummary(context: ParsedVariantContext): CoreCapabilitySummary
  */
 function providerFingerprints(context: ParsedVariantContext): Record<string, string | null> {
   return {
-    hfSource: credentialSourceTag("huggingface", context.hfToken),
     biohubSource: credentialSourceTag("biohub", context.biohubToken),
     alphagenomeKey: credentialFingerprint(context.alphagenomeApiKey),
-    gpnEndpoint: credentialFingerprint(context.gpnApiUrl),
     alphagenomeEndpoint: credentialFingerprint(context.alphagenomeApiUrl)
   };
 }
@@ -261,7 +254,6 @@ export function coreIdentityOf(context: ParsedVariantContext): CoreIdentity {
   const capability = capabilitySummary(context);
   /** Which provider endpoints the run would call — keyed digests, never the URLs (see `endpointIdentity`). */
   const endpoints: CoreEndpointIdentity = {
-    gpn: endpointIdentity(context.gpnApiUrl),
     alphagenome: endpointIdentity(context.alphagenomeApiUrl)
   };
 
@@ -351,7 +343,7 @@ export function recordedIdentityOf(payload: any, scope: IdentityScope): PayloadI
  * Then the SCIENCE digest, because a payload about a different residue must be refused whatever its
  * capability set says. Then the capability digest — a payload computed without a token, or against a
  * different endpoint, is not evidence about the variant under a run that has one (this generalises the
- * per-source staleness rules the orchestrator already applies for GPN-Star, ESM3 and AlphaGenome).
+ * per-source staleness rules the orchestrator already applies for ESM3 and AlphaGenome).
  */
 export function checkPayloadCompatibility(
   payload: any,

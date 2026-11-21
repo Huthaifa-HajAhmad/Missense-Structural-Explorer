@@ -324,7 +324,7 @@ function ReadingRow({
           ) : (
             <>
               {reading.availability.reason ?? "No score reached this variant."}
-              {reading.availability.action === "configure-alphagenome" || reading.availability.action === "configure-gpn" ? (
+              {reading.availability.action === "configure-alphagenome" ? (
                 <>
                   {" "}
                   <button type="button" className="prd-link" onClick={() => onAction(reading.availability.action!)}>

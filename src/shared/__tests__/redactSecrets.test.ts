@@ -13,12 +13,12 @@ describe("redactSecrets", () => {
   it("masks token, secret, password and authorization fields at any depth", () => {
     expect(
       redactSecrets({
-        settings: { hfToken: "hf_x", biohubApiToken: "bh_x", alphagenomeApiKey: "k" },
+        settings: { tamarindApiKey: "t_x", biohubApiToken: "bh_x", alphagenomeApiKey: "k" },
         headers: { Authorization: "Bearer x", "x-client-secret": "s", password: "p" },
         list: [{ tamarindApiKey: "t" }],
       }),
     ).toEqual({
-      settings: { hfToken: "[redacted]", biohubApiToken: "[redacted]", alphagenomeApiKey: "[redacted]" },
+      settings: { tamarindApiKey: "[redacted]", biohubApiToken: "[redacted]", alphagenomeApiKey: "[redacted]" },
       headers: { Authorization: "[redacted]", "x-client-secret": "[redacted]", password: "[redacted]" },
       list: [{ tamarindApiKey: "[redacted]" }],
     });

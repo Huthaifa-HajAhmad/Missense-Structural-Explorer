@@ -146,7 +146,7 @@ export function buildPredictorsKey(
  * Cache key for a conservation payload.
  *
  * The build participates because several of the sources folded in here are single-build
- * (GPN-Star, local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload assembled from one
+ * (local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload assembled from one
  * build's coordinates is not a valid answer for another's. The coordinate id alone was not
  * sufficient: it is also empty on the progressive path, leaving the key build-blind in practice.
  */

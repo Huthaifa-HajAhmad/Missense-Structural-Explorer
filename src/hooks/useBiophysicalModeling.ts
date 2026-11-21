@@ -37,7 +37,11 @@ import { getCachedVariant, setCachedVariant } from "../services/pipeline/variant
 
 export function useBiophysicalModeling(
   settings: UserSettings,
-  addNotification: (type: "success" | "info" | "error" | "warn", message: string) => void,
+  addNotification: (
+    type: "success" | "info" | "error" | "warn",
+    message: string,
+    options?: { background?: boolean }
+  ) => void,
   apiClient: any,
   fetchWithAuth: (url: string, options?: any) => Promise<Response>
 ) {
@@ -155,7 +159,8 @@ export function useBiophysicalModeling(
   const notifyOnce = useCallback((key: string, type: "warn" | "error" | "success" | "info", msg: string) => {
     if (notifiedJobsRef.current.has(key)) return;
     notifiedJobsRef.current.add(key);
-    addNotification(type, msg);
+    // Job results arrive on their own, so the reader's "automatic banners" choice applies to them.
+    addNotification(type, msg, { background: true });
   }, [addNotification]);
 
   /**

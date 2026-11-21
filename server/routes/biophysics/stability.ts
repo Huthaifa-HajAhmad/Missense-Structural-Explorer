@@ -26,15 +26,10 @@ import {
 import {
   testTamarindConnection,
 } from "../../services/biophysics.ts";
-import { governedFetch } from "../../services/infra/http-client.ts";
-import { credentialForCall, ownCredential } from "../../services/infra/credentials.ts";
+import { ownCredential } from "../../services/infra/credentials.ts";
 
 const testTamarindConnectionSchema = z.object({
   tamarindApiKey: z.string().optional()
-});
-
-const testHfConnectionSchema = z.object({
-  hfToken: z.string().optional()
 });
 
 const verifyStabilitySchema = z.object({
@@ -65,36 +60,6 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       return res.json(result);
     } catch (err: any) {
       return sendError(res, 500, "INTERNAL_SERVER_ERROR", `Failed to test Tamarind connection: ${err.message}`);
-    }
-  });
-
-  apiRouter.post("/test-hf-connection", jsonParserRegular, async (req, res) => {
-    const parseResult = testHfConnectionSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
-      return;
-    }
-    try {
-      // Tests the person's own token (typed or saved), never the team's (WP-I4).
-      const hfToken = ownCredential("huggingface", (req.headers["x-hf-token"] as string) || req.body?.hfToken);
-      if (!hfToken) {
-        return res.json({ valid: false, message: "No Hugging Face token provided." });
-      }
-      const response = await governedFetch("https://huggingface.co/api/whoami-v2", {
-        headers: {
-          "Authorization": `Bearer ${hfToken}`
-        },
-        signal: AbortSignal.timeout(5000),
-        credential: credentialForCall("huggingface", hfToken, { charge: false })
-      });
-      if (response.ok) {
-        const data = await response.json() as any;
-        return res.json({ valid: true, message: `Connected as ${data.name} (${data.type})` });
-      } else {
-        return res.json({ valid: false, message: "Invalid Hugging Face Access Token." });
-      }
-    } catch (err: any) {
-      return res.json({ valid: false, message: `Connection failed: ${err.message}` });
     }
   });
 
