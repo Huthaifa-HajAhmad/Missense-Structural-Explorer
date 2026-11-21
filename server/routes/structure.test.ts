@@ -491,6 +491,131 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       expect(errorBody?.error?.message).toContain("1,024 aa");
       expect(errorBody?.error?.message).toContain("400 aa");
     });
+
+    it("surfaces the real Biohub/Forge failure instead of a missing-token 422 when a Biohub token was supplied", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+        const s = String(url);
+        if (s.includes("japanfold")) {
+          return {
+            ok: false,
+            status: 401,
+            text: async () => JSON.stringify({ detail: "No API key was sent." })
+          } as any;
+        }
+        if (s.includes("/predict/esmfold")) {
+          return {
+            ok: false,
+            status: 500,
+            text: async () => JSON.stringify({ detail: "HTTP 403: Forge model access denied" })
+          } as any;
+        }
+        if (s.includes("/health")) {
+          return { ok: true, status: 200, json: async () => ({ status: "healthy", state: "ready" }) } as any;
+        }
+        return { ok: false, status: 404, text: async () => "" } as any;
+      });
+
+      let statusCode = 0;
+      let errorBody: any = null;
+      const req: any = {
+        body: { sequence: "M".repeat(806) },
+        headers: { "x-biohub-token": "bh_valid_user_token_12345" }
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      try {
+        await handler(req, res);
+        expect(statusCode).toBe(502);
+        expect(errorBody?.error?.message).toContain("Forge model access denied");
+        expect(errorBody?.error?.message).not.toContain("requires an EvolutionaryScale/Biohub API token");
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("returns 504 GATEWAY_TIMEOUT when the Biohub/Forge sidecar times out", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+        const s = String(url);
+        if (s.includes("japanfold")) {
+          return {
+            ok: false,
+            status: 401,
+            text: async () => JSON.stringify({ detail: "No API key was sent." })
+          } as any;
+        }
+        if (s.includes("/predict/esmfold")) {
+          return {
+            ok: false,
+            status: 504,
+            text: async () => JSON.stringify({ detail: "ESMFold2 remote exceeded its 60s remote budget" })
+          } as any;
+        }
+        return { ok: false, status: 404, text: async () => "" } as any;
+      });
+
+      let statusCode = 0;
+      let errorBody: any = null;
+      const req: any = {
+        body: { sequence: "A".repeat(806) },
+        headers: { "x-biohub-token": "bh_valid_user_token_12345" }
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      try {
+        await handler(req, res);
+        expect(statusCode).toBe(504);
+        expect(errorBody?.error?.code).toBe("GATEWAY_TIMEOUT");
+        expect(errorBody?.error?.message).toContain("timed out");
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("POST /validate-japanfold-key", () => {
+    const validateRoute: any = apiRouter.stack.find(
+      (s: any) => s.route && (s.route.path === "/validate-japanfold-key" || (Array.isArray(s.route.path) && s.route.path.includes("/validate-japanfold-key")))
+    );
+    expect(validateRoute).toBeDefined();
+    const handler = validateRoute.route.stack[validateRoute.route.stack.length - 1].handle;
+
+    it("verifies a key against JapanFold /v1/account", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ email: "user@lab.org" })
+      } as any);
+
+      let body: any = null;
+      const req: any = { body: { apiKey: "jf_live_test_key_123456" }, headers: {} };
+      const res: any = { status: () => res, json: (d: any) => { body = d; return res; } };
+
+      try {
+        await handler(req, res);
+        expect(body?.valid).toBe(true);
+        expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("/v1/account");
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
   });
 
   describe("POST /structure/multimer", () => {

@@ -172,11 +172,11 @@ export const CONFIG = {
     /**
      * Biohub/EvolutionaryScale sidecar fold attempt, per sequence.
      *
-     * Named rather than left as the literal `30000` it was: `src/shared/timeouts.ts` budgets the
-     * CLIENT side of this call, and `server/tests/denovo-fold-timeout-budget.test.ts` can only assert
-     * that the client outlasts the server if the server's own numbers are readable from here.
+     * Must outlast the sidecar's own `ESMFOLD_REMOTE_BUDGET_S` (60 s in
+     * `tools/model_server_app/routers/esmfold.py`): a 30 s Node timeout previously killed slow
+     * 800+ aa Forge folds mid-flight and turned them into a misleading 422 length-limit error.
      */
-    esmfoldSidecarMs: parseInt(process.env.ESMFOLD_SIDECAR_TIMEOUT_MS || "30000", 10),
+    esmfoldSidecarMs: parseInt(process.env.ESMFOLD_SIDECAR_TIMEOUT_MS || "65000", 10),
     /** Keyless public ESM Atlas fold attempt (was a literal `15000` inside `esmfold.ts`). */
     esmAtlasMs: parseInt(process.env.ESM_ATLAS_TIMEOUT_MS || "15000", 10),
     /**

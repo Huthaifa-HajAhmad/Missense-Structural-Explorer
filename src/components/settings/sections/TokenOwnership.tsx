@@ -16,7 +16,7 @@ export function TokenOwnershipIntro() {
   return (
     <SettingsBlock className="!py-3">
       <p className="text-[12px] leading-relaxed text-cs-text-secondary" data-testid="token-ownership-intro">
-        With your own Biohub and Tamarind tokens, your requests use <strong>your</strong> allowance at
+        With your own JapanFold, Biohub, and Tamarind tokens, your requests use <strong>your</strong> allowance at
         those services instead of the team's. Without one, this server may lend the team token, which everyone
         shares. When a result calls one of these services, you are told which token it ran on.
       </p>

@@ -19,7 +19,7 @@ const ALLOWED: Record<string, { count: number; why: string }> = {
   "server/services/infra/http-client.ts": { count: 3, why: "the governed implementations themselves" },
   "server/services/external-api/adapters/service-adapters.ts": { count: 1, why: "sidecar /health (loopback)" },
   "server/services/stability/stabilityoracle.ts": { count: 1, why: "model sidecar (loopback)" },
-  "server/routes/capabilities.ts": { count: 3, why: "sidecar /health, and the JapanFold reachability probe (a monitor)" },
+  "server/routes/capabilities.ts": { count: 2, why: "sidecar /health, and the JapanFold reachability probe (a monitor)" },
   "server/routes/health.ts": { count: 1, why: "sidecar /health (loopback)" },
   "server/routes/structure.ts": { count: 2, why: "sidecar /health (loopback)" },
   "server/routes/variant/alphagenome.ts": { count: 1, why: "the user's own AlphaGenome connection test, to their URL" },

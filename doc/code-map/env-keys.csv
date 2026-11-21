@@ -103,7 +103,6 @@ HOME,server/services/structure/pocket/java-detector.ts
 HTTP_DEFAULT_TIMEOUT_MS,server/config.ts
 JAPANFOLD_API_KEY,server/config.ts
 JAPANFOLD_API_URL,server/config.ts
-JAPANFOLD_API_URL,server/routes/capabilities.ts
 JAPANFOLD_FOLDING_TIMEOUT_MS,server/config.ts
 JAPANFOLD_URL,server/config.ts
 JAPANFOLD_ZEROSHOT_TIMEOUT_MS,server/config.ts

@@ -27,12 +27,23 @@ function sidecarDetailRows(ctx: ServiceCardContext): ServiceDetailRow[] {
       tone: status === "ready" ? "ready" : status === "warming_up" ? "warming" : "absent"
     });
   }
-  const japanFold = statusOf("japanfold");
+  const japanFoldEngine = ctx.capabilities?.engines?.find(e => e.id === "japanfold");
+  const japanFold = japanFoldEngine?.status;
   if (japanFold) {
+    const reachable = japanFoldEngine?.details?.reachable !== false;
+    const hasOwnKey = Boolean(ctx.settings?.japanfoldApiKey?.trim());
+    const readyWithOwnKey = japanFold !== "ready" && reachable && hasOwnKey;
+    const needsKey = japanFold !== "ready" && reachable && !hasOwnKey && japanFoldEngine?.details?.apiKeyConfigured === false;
     rows.push({
       label: "Cloud structure folding (JapanFold)",
-      value: japanFold === "ready" ? "Available" : "Not available",
-      tone: japanFold === "ready" ? "ready" : "absent"
+      value: japanFold === "ready"
+        ? "Available"
+        : readyWithOwnKey
+          ? "Available (your key)"
+          : needsKey
+            ? "Key required (Settings → Connections)"
+            : "Not available",
+      tone: japanFold === "ready" || readyWithOwnKey ? "ready" : "absent"
     });
   }
   rows.push({ label: "Technical name", value: "Python ML sidecar", tone: "info" });
@@ -82,7 +93,10 @@ export function sidecarCard(ctx: ServiceCardContext): ServiceStatusCard {
     health?.state === "warming_up" ||
     capabilities?.engines?.some(e => (e.id === "thermompnn" || e.id === "stabilityoracle") && e.status === "warming_up") === true;
   const ready = !warming && Boolean(diagnostics?.modelServerReady || health?.healthy);
-  const japanFoldReady = capabilities?.engines?.find(e => e.id === "japanfold")?.status === "ready";
+  const japanFoldEngine = capabilities?.engines?.find(e => e.id === "japanfold");
+  const japanFoldReady =
+    japanFoldEngine?.status === "ready" ||
+    (japanFoldEngine?.details?.reachable !== false && Boolean(ctx.settings?.japanfoldApiKey?.trim()));
   // Without any record, "not running" would be a claim about a probe that never reported.
   const reported = Boolean(health) || typeof diagnostics?.modelServerReady === "boolean" || diagnostics?.modelServerState !== undefined;
   const state: ProviderState = ctx.isChecking

@@ -377,6 +377,10 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     token: z.string().min(8).optional()
   });
 
+  const validateJapanFoldKeySchema = z.object({
+    apiKey: z.string().min(8).optional()
+  });
+
   const structuralDiffSchema = z.object({
     wtPdb: z.string(),
     mutPdb: z.string(),
@@ -393,8 +397,10 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     try {
       let { sequence, uniprotId, variant, wtSeq, mutSeq } = parseResult.data;
       const headerVal = req.headers["x-biohub-token"];
+      const jfHeaderVal = req.headers["x-japanfold-api-key"];
       // The request's token, else this person's saved one, else the team's under the lending policy (WP-I4).
       const token = resolveCredential("biohub", Array.isArray(headerVal) ? headerVal[0] : headerVal).token;
+      const japanfoldKey = resolveCredential("japanfold", Array.isArray(jfHeaderVal) ? jfHeaderVal[0] : jfHeaderVal).token;
 
       if (!sequence && !wtSeq) {
         if (!uniprotId) {
@@ -448,15 +454,15 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         // Two independent predictions, so there is nothing to wait for between them: folding them one
         // after the other doubled the wait for a fresh pair (the wild type is often a cache hit).
         const [wt, mut] = await Promise.all([
-          foldSequenceWithProvenance(wtSequence, token),
-          foldSequenceWithProvenance(mutatedSequence, token),
+          foldSequenceWithProvenance(wtSequence, token, japanfoldKey),
+          foldSequenceWithProvenance(mutatedSequence, token, japanfoldKey),
         ]);
         // Each structure names its engine: a Tier-1 outage between the two folds can hand the
         // variant to a different model than the wild type, and the viewer must be able to say so.
         res.json({ wtPdb: wt.pdb, mutPdb: mut.pdb, chain: "A", status: "success", engines: { wildType: wt.engine, variant: mut.engine } });
       } else if (wtSequence) {
         console.log(`[ESMFold] Folding single WT sequence`);
-        const wt = await foldSequenceWithProvenance(wtSequence, token);
+        const wt = await foldSequenceWithProvenance(wtSequence, token, japanfoldKey);
         res.json({ pdb: wt.pdb, status: "success", engines: { wildType: wt.engine, variant: null } });
       } else {
         throw new Error("No sequence resolved for ESMFold query.");
@@ -467,9 +473,12 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
       // Only check sidecar health if the error was not an explicit domain error (such as sequence length limits)
       const isExplicitDomainError = err.message?.includes("Sequence length") || err.message?.includes("No sequence resolved");
+      const isTimeoutError = err?.name === "TimeoutError" || /timed out/i.test(String(err?.message ?? ""));
 
       if (isExplicitDomainError) {
         statusCode = 422;
+      } else if (isTimeoutError) {
+        statusCode = 504;
       } else {
         // Inspect sidecar health status to provide extremely clear researcher feedback
         try {
@@ -491,7 +500,67 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         }
       }
 
-      sendError(res, statusCode, statusCode === 503 ? "SERVICE_UNAVAILABLE" : isExplicitDomainError ? "UNPROCESSABLE_ENTITY" : "BAD_GATEWAY", customMessage);
+      sendError(
+        res,
+        statusCode,
+        statusCode === 503
+          ? "SERVICE_UNAVAILABLE"
+          : statusCode === 504
+            ? "GATEWAY_TIMEOUT"
+            : isExplicitDomainError
+              ? "UNPROCESSABLE_ENTITY"
+              : "BAD_GATEWAY",
+        customMessage
+      );
+    }
+  });
+
+  apiRouter.post("/validate-japanfold-key", jsonParserRegular, async (req, res) => {
+    const parseResult = validateJapanFoldKeySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    try {
+      const supplied =
+        parseResult.data.apiKey ||
+        (Array.isArray(req.headers["x-japanfold-api-key"])
+          ? req.headers["x-japanfold-api-key"][0]
+          : req.headers["x-japanfold-api-key"]);
+      const token = ownCredential("japanfold", typeof supplied === "string" ? supplied : null);
+      if (!token || typeof token !== "string" || token.trim().length < 8) {
+        res.json({ valid: false, message: "Key format invalid (must be at least 8 characters)." });
+        return;
+      }
+
+      try {
+        const probeCredential = credentialForCall("japanfold", token.trim(), { charge: false });
+        const testRes = await governedFetch(`${CONFIG.services.japanfoldBaseUrl}/v1/account`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${token.trim()}`,
+            "X-API-Key": token.trim(),
+            "User-Agent": "MissenseResolve/1.0"
+          },
+          signal: AbortSignal.timeout(6000),
+          credential: probeCredential
+        });
+
+        if (testRes.status === 200) {
+          res.json({ valid: true, message: "JapanFold API key verified & active." });
+          return;
+        } else if (testRes.status === 401 || testRes.status === 403) {
+          res.json({ valid: false, message: "Invalid or unauthorized JapanFold API key (HTTP 401/403)." });
+          return;
+        } else {
+          res.json({ valid: false, message: `JapanFold verification returned unexpected HTTP ${testRes.status}.` });
+          return;
+        }
+      } catch (netErr: any) {
+        res.json({ valid: false, message: `JapanFold endpoint unreachable (${netErr.message || "Network Timeout"}).` });
+      }
+    } catch (err: any) {
+      res.json({ valid: false, message: err.message || "Validation failed." });
     }
   });
 
@@ -686,9 +755,12 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       const validVariant = validateVariant(parseResult.data.variant);
       const validUniprot = validateUniProt(parseResult.data.uniprotId);
 
+      const jfHeaderVal = req.headers?.["x-japanfold-api-key"];
+      const japanfoldApiKey = resolveCredential("japanfold", Array.isArray(jfHeaderVal) ? jfHeaderVal[0] : jfHeaderVal).token;
       const result = await analyzeMultimerStructure(validGene, validVariant, validUniprot, clientAbortController.signal, {
         model: parseResult.data.model === true,
         handoff: parseResult.data.handoff === true,
+        japanfoldApiKey,
       });
       res.json(result);
     } catch (err: any) {

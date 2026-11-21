@@ -26,7 +26,7 @@ vi.mock("../../../hooks/useApiConnections", () => {
   const quiet = { testing: false, status: null };
   return {
     useApiConnections: () => ({
-      tests: { biohub: quiet, alphagenome: quiet, tamarind: quiet },
+      tests: { biohub: quiet, japanfold: quiet, alphagenome: quiet, tamarind: quiet },
       runTest: vi.fn(),
       linking: false,
       linkError: null,
@@ -178,5 +178,13 @@ describe("ConnectionsSection optional providers", () => {
   it("says when the optional key is actually used", () => {
     renderConnections();
     expect(screen.getByText(/only when the lab's own ThermoMPNN service does not answer/i)).toBeTruthy();
+  });
+
+  it("offers a JapanFold API key input and instructions for getting one", () => {
+    renderConnections();
+    expect(document.querySelector('[data-setting-title="JapanFold API key"]')).not.toBeNull();
+    expect(screen.getByText(/How to get a JapanFold API key/i)).toBeTruthy();
+    const link = screen.getByRole("link", { name: /japanfold\.aiand\.com\/account\/token/i });
+    expect(link.getAttribute("href")).toBe("https://japanfold.aiand.com/account/token");
   });
 });

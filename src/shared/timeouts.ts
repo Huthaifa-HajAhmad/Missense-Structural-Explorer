@@ -172,7 +172,7 @@ export const CLIENT_STRUCTURAL_REQUEST_BUDGET_MS = 90_000; // 90 s
  * and each fold may try three tiers before giving up:
  *
  *   Tier-1 JapanFold ESMFold-2   CONFIG.timeouts.japanfoldFoldingMs   (60 s)
- *   Biohub sidecar, with a token CONFIG.timeouts.esmfoldSidecarMs     (30 s)
+ *   Biohub sidecar, with a token CONFIG.timeouts.esmfoldSidecarMs     (65 s)
  *   keyless public ESM Atlas     CONFIG.timeouts.esmAtlasMs           (15 s)
  *
  * `server/tests/denovo-fold-timeout-budget.test.ts` imports both sides and fails the build if this
@@ -180,7 +180,7 @@ export const CLIENT_STRUCTURAL_REQUEST_BUDGET_MS = 90_000; // 90 s
  * it does not make a healthy fold slower: it only decides how long the spinner tolerates a provider
  * that is not answering.
  */
-export const CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS = 240_000; // 240 s
+export const CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS = 300_000; // 300 s
 
 /**
  * Whole-call client budget for `POST /api/v1/ppi/binding-affinity`.

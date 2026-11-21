@@ -307,6 +307,7 @@ export function useAuthSession() {
     geminiApiKey, 
     appApiToken, 
     biohubApiToken, 
+    japanfoldApiKey,
     tamarindApiKey,
     alphagenomeApiKey,
     alphagenomeApiUrl,
@@ -563,6 +564,9 @@ export function useAuthSession() {
         if (biohubApiToken) {
           headers["x-biohub-token"] = biohubApiToken;
         }
+        if (japanfoldApiKey) {
+          headers["x-japanfold-api-key"] = japanfoldApiKey;
+        }
         if (tamarindApiKey) {
           headers["x-tamarind-api-key"] = tamarindApiKey;
         }
@@ -678,6 +682,7 @@ export function useAuthSession() {
     geminiApiKey, 
     appApiToken, 
     biohubApiToken, 
+    japanfoldApiKey,
     tamarindApiKey,
     alphagenomeApiKey,
     alphagenomeApiUrl,

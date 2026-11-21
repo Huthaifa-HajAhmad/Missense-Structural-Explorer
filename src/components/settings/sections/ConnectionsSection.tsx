@@ -93,6 +93,45 @@ export function ConnectionsSection() {
         />
         <TokenField>
           <SecretInput
+            label="JapanFold API key"
+            placeholder="Enter JAPANFOLD_API_KEY…"
+            value={settings.japanfoldApiKey || ""}
+            onChange={(value) => updateSetting("japanfoldApiKey", value)}
+            description="Enables Tier-1 ESMFold2-Fast (up to 1,024 aa) and Boltz-2 multimer folding on api.japanfold.aiand.com."
+            action={{
+              label: "Test connection",
+              busyLabel: "Testing…",
+              busy: tests.japanfold.testing,
+              disabled: !settings.japanfoldApiKey?.trim() && !secrets.saved?.japanfold?.readable,
+              run: () => runTest("japanfold", { useSaved: !settings.japanfoldApiKey?.trim() })
+            }}
+            status={tests.japanfold.status}
+          />
+          <AccountTokenControls kind="japanfold" label="JapanFold" browserToken={settings.japanfoldApiKey || ""} clearBrowserToken={() => updateSetting("japanfoldApiKey", "")} secrets={secrets} />
+          <LastCredentialUse kind="japanfold" />
+        </TokenField>
+        <SettingsBlock className="!py-3">
+          <HowTo title="How to get a JapanFold API key">
+            <ol className="list-decimal pl-4 space-y-1">
+              <li>
+                Visit{" "}
+                <a
+                  href="https://japanfold.aiand.com/account/token"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 font-medium text-cs-text-accent hover:opacity-80"
+                >
+                  japanfold.aiand.com/account/token
+                </a>{" "}
+                and sign in with an email address (new accounts include $100 in starter credits).
+              </li>
+              <li>Create or copy your API key from the token page.</li>
+              <li>Paste the key above and press “Test connection” (or save it to your account if signed in).</li>
+            </ol>
+          </HowTo>
+        </SettingsBlock>
+        <TokenField>
+          <SecretInput
             label="EvolutionaryScale (Forge) token"
             placeholder="Enter EvolutionaryScale Forge API key…"
             value={settings.biohubApiToken || ""}
