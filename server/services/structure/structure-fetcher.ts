@@ -231,6 +231,47 @@ async function rankByLocalQuality(uniprotId: string, pos: number, rows: BestStru
   return "none";
 }
 
+interface PdbeBestStructureRow extends BestStructureRow {
+  experimental_method?: string | null;
+  tax_id?: number | null;
+  end?: number | null;
+}
+
+const MAX_DIRECT_PDBE_ENTRIES = 4;
+
+/**
+ * Queries PDBe's direct UniProt→PDB best-structures mapping once per accession at a time.
+ * Uses `singleFlight` only (no separate L1 cache) so callers preserve WP-I2 cache hygiene.
+ */
+async function fetchPdbeBestStructuresRows(
+  validatedUniprot: string,
+  rawUniprot?: string
+): Promise<{ status: number; rows: PdbeBestStructureRow[] | null }> {
+  const url = `https://www.ebi.ac.uk/pdbe/graph-api/mappings/best_structures/${validatedUniprot}`;
+  return singleFlight(`pdbe_best_rows_${validatedUniprot}`, async () => {
+    try {
+      const response = await fetchWithRetry(url, {
+        headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
+        timeout: 15000
+      });
+      if (!response.ok) {
+        return { status: response.status, rows: null };
+      }
+      const data = (await response.json()) as any;
+      const structures =
+        data?.[validatedUniprot] ||
+        (rawUniprot ? data?.[rawUniprot.toUpperCase()] ?? data?.[rawUniprot] : undefined);
+      return {
+        status: response.status,
+        rows: Array.isArray(structures) ? (structures as PdbeBestStructureRow[]) : null,
+      };
+    } catch (err: any) {
+      console.warn(`[PDBe Best Structures] Error querying ${validatedUniprot}:`, err?.message || err);
+      return { status: 0, rows: null };
+    }
+  });
+}
+
 export async function fetchBestPdbStructure(
   uniprotId: string,
   pos?: number
@@ -243,24 +284,18 @@ export async function fetchBestPdbStructure(
   // (PDBe unreachable), no refusal is reported for an examination that did not happen.
   if (pos !== undefined) refusedSelections.delete(`${validatedUniprot.toUpperCase()}:${pos}`);
 
-  const url = `https://www.ebi.ac.uk/pdbe/graph-api/mappings/best_structures/${validatedUniprot}`;
   try {
     console.log(`[PDB Prioritizer] Querying best structures for UniProt accession ${validatedUniprot}...`);
-    const response = await fetchWithRetry(url, {
-      headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
-      timeout: 15000
-    });
-    if (!response.ok) {
-      console.warn(`[PDB Prioritizer] Failed to query PDBe best structures (status: ${response.status})`);
+    const { status, rows: structures } = await fetchPdbeBestStructuresRows(validatedUniprot, uniprotId);
+    if (!structures) {
+      if (status !== 200 && status !== 404 && status !== 0) {
+        console.warn(`[PDB Prioritizer] Failed to query PDBe best structures (status: ${status})`);
+      }
       // PDBe answers 404 for an accession with no experimental structure: definitive. A 429 or 5xx
       // is asked again next time (WP-I2: no negative caching of errors).
-      if (response.status === 404) bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
-      return null;
-    }
-    const data = await response.json() as any;
-    const structures = data[validatedUniprot] || data[uniprotId];
-    if (!Array.isArray(structures)) {
-      bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
+      if (status === 404 || (status >= 200 && status < 300)) {
+        bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
+      }
       return null;
     }
     const covering = structures.filter((item: any) =>
@@ -883,9 +918,9 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
 
 export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
   const validatedUniprot = validateUniProt(uniprotId);
-  // v3: matches `raw_homologs_v3` — v2 payloads carry no entity -> chain mapping, so a Tier-3
-  // resolution reading one would have to refuse it.
-  const posCacheKey = `homologs_v3_${validatedUniprot}_pos_${pos ?? "none"}`;
+  // v4: merges PDBe direct UniProt→PDB mappings (`best_structures`) ahead of RCSB sequence hits so
+  // short-domain entries (e.g. FGFR3 TM domain) are not buried past RCSB's top 30 hits or collapsed.
+  const posCacheKey = `homologs_v4_${validatedUniprot}_pos_${pos ?? "none"}`;
   const cachedData = pdbCache.get(posCacheKey);
   if (cachedData) {
     try {
@@ -903,26 +938,87 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
     }
   } catch (_) {}
 
-  const rawCandidates = await fetchRawHomologCandidates(validatedUniprot);
-  if (!rawCandidates || rawCandidates.length === 0) {
+  const [rawCandidates, pdbeResult] = await Promise.all([
+    fetchRawHomologCandidates(validatedUniprot),
+    fetchPdbeBestStructuresRows(validatedUniprot, uniprotId),
+  ]);
+  const pdbeRows = pdbeResult.rows ?? [];
+  const pdbeDegraded = pdbeResult.status !== 200 && pdbeResult.status !== 404;
+  if (rawCandidates.length === 0 && pdbeRows.length === 0) {
     return [];
   }
 
   try {
-    const candidates = rawCandidates.map(c => {
+    const rowCoversPos = (r: PdbeBestStructureRow): boolean =>
+      pos !== undefined &&
+      typeof r.unp_start === "number" &&
+      typeof r.unp_end === "number" &&
+      pos >= r.unp_start &&
+      pos <= r.unp_end;
+
+    const isBetterPdbeRow = (candidate: PdbeBestStructureRow, current: PdbeBestStructureRow): boolean => {
+      const covDiff = Number(rowCoversPos(candidate)) - Number(rowCoversPos(current));
+      if (covDiff !== 0) return covDiff > 0;
+      const resA = typeof candidate.resolution === "number" && Number.isFinite(candidate.resolution) ? candidate.resolution : Number.POSITIVE_INFINITY;
+      const resB = typeof current.resolution === "number" && Number.isFinite(current.resolution) ? current.resolution : Number.POSITIVE_INFINITY;
+      if (resA !== resB) return resA < resB;
+      const covA = typeof candidate.coverage === "number" && Number.isFinite(candidate.coverage) ? candidate.coverage : -1;
+      const covB = typeof current.coverage === "number" && Number.isFinite(current.coverage) ? current.coverage : -1;
+      if (covA !== covB) return covA > covB;
+      return candidate.chain_id < current.chain_id;
+    };
+
+    const pdbeById = new Map<string, PdbeBestStructureRow>();
+    for (const row of pdbeRows) {
+      if (!row?.pdb_id || !row?.chain_id) continue;
+      const upperId = row.pdb_id.toUpperCase();
+      const prev = pdbeById.get(upperId);
+      if (!prev || isBetterPdbeRow(row, prev)) {
+        pdbeById.set(upperId, row);
+      }
+    }
+
+    const cachedBestPdbId = bestPdbCache.get(`${validatedUniprot}:${pos ?? "any"}`)?.pdbId?.toUpperCase() ?? null;
+    const directPool = [...pdbeById.values()].filter(r => (pos !== undefined ? rowCoversPos(r) : true));
+    directPool.sort((a, b) => {
+      const isBestA = cachedBestPdbId !== null && a.pdb_id.toUpperCase() === cachedBestPdbId;
+      const isBestB = cachedBestPdbId !== null && b.pdb_id.toUpperCase() === cachedBestPdbId;
+      if (isBestA !== isBestB) return Number(isBestB) - Number(isBestA);
+      const resA = typeof a.resolution === "number" && Number.isFinite(a.resolution) ? a.resolution : Number.POSITIVE_INFINITY;
+      const resB = typeof b.resolution === "number" && Number.isFinite(b.resolution) ? b.resolution : Number.POSITIVE_INFINITY;
+      if (resA !== resB) return resA - resB;
+      const covA = typeof a.coverage === "number" && Number.isFinite(a.coverage) ? a.coverage : -1;
+      const covB = typeof b.coverage === "number" && Number.isFinite(b.coverage) ? b.coverage : -1;
+      if (covB !== covA) return covB - covA;
+      return a.pdb_id < b.pdb_id ? -1 : a.pdb_id > b.pdb_id ? 1 : 0;
+    });
+    const selectedDirect = directPool.slice(0, MAX_DIRECT_PDBE_ENTRIES);
+
+    const rcsbCandidates: PdbHomolog[] = rawCandidates.map(c => {
+      const pdbeRow = pdbeById.get(c.pdbId.toUpperCase());
+      const querySeqFrom =
+        c.querySeqFrom ?? (typeof pdbeRow?.unp_start === "number" ? pdbeRow.unp_start : undefined);
+      const querySeqTo =
+        c.querySeqTo ?? (typeof pdbeRow?.unp_end === "number" ? pdbeRow.unp_end : undefined);
       // Unknown when the alignment range was not reported — never assumed true.
-      const coversPos = (pos !== undefined && c.querySeqFrom !== undefined && c.querySeqTo !== undefined)
-        ? (pos >= c.querySeqFrom && pos <= c.querySeqTo)
-        : undefined;
+      const coversPos =
+        pos !== undefined && querySeqFrom !== undefined && querySeqTo !== undefined
+          ? pos >= querySeqFrom && pos <= querySeqTo
+          : undefined;
       return {
         ...c,
-        coversPosition: coversPos
+        querySeqFrom,
+        querySeqTo,
+        coversPosition: coversPos,
+        source: "rcsb" as const,
+        ...(pdbeRow ? { directMapping: true } : {}),
       };
     });
+    const rcsbById = new Map<string, PdbHomolog>(rcsbCandidates.map(c => [c.pdbId.toUpperCase(), c]));
 
     // Sort priority: 1. Covers variant position, 2. Identity descending (unreported last), 3. Better resolution
     const coverRank = (v: boolean | undefined) => (v === true ? 0 : v === undefined ? 1 : 2);
-    candidates.sort((a, b) => {
+    rcsbCandidates.sort((a, b) => {
       if (coverRank(a.coversPosition) !== coverRank(b.coversPosition)) return coverRank(a.coversPosition) - coverRank(b.coversPosition);
       const idA = a.identity ?? -1;
       const idB = b.identity ?? -1;
@@ -942,9 +1038,59 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
     const seenOrganisms = new Map<string, number[]>();
     const seenTitleRoots = new Set<string>();
     const seenSelfOrganisms = new Set<string>();
+    const includedPdbIds = new Set<string>();
     const homologs: PdbHomolog[] = [];
 
-    for (const h of candidates) {
+    for (const row of selectedDirect) {
+      const upperPdb = row.pdb_id.toUpperCase();
+      if (includedPdbIds.has(upperPdb)) continue;
+      const rcsbHit = rcsbById.get(upperPdb);
+      if (rcsbHit) {
+        homologs.push({ ...rcsbHit, directMapping: true });
+        includedPdbIds.add(upperPdb);
+        const orgNorm = rcsbHit.organism.toLowerCase().trim();
+        if (rcsbHit.identity !== null && rcsbHit.identity >= 95) {
+          seenSelfOrganisms.add(orgNorm);
+        }
+        if (!seenOrganisms.has(orgNorm)) {
+          seenOrganisms.set(orgNorm, []);
+        }
+        if (rcsbHit.identity !== null) seenOrganisms.get(orgNorm)!.push(rcsbHit.identity);
+        seenTitleRoots.add(`${getTitleRoot(rcsbHit.title)}_${orgNorm}`);
+      } else {
+        const coveragePct =
+          typeof row.coverage === "number" && Number.isFinite(row.coverage)
+            ? Math.min(100, Math.round(row.coverage * 100))
+            : null;
+        const isHuman = row.tax_id === 9606;
+        homologs.push({
+          pdbId: upperPdb,
+          chainId: row.chain_id,
+          score: 1,
+          identity: null,
+          coverage: coveragePct,
+          title: "",
+          organism: isHuman ? "Homo sapiens" : "",
+          method: row.experimental_method || "Experimental",
+          resolution: typeof row.resolution === "number" && Number.isFinite(row.resolution) ? row.resolution : null,
+          isHuman,
+          unpStart: row.unp_start,
+          structStart: row.start,
+          querySeqFrom: row.unp_start,
+          querySeqTo: row.unp_end,
+          coversPosition: pos !== undefined ? rowCoversPos(row) : undefined,
+          source: "pdbe",
+          directMapping: true,
+        });
+        includedPdbIds.add(upperPdb);
+      }
+    }
+
+    for (const h of rcsbCandidates) {
+      if (homologs.length >= 8) break;
+      const upperPdb = h.pdbId.toUpperCase();
+      if (includedPdbIds.has(upperPdb)) continue;
+
       const orgNorm = h.organism.toLowerCase().trim();
       const titleRoot = getTitleRoot(h.title);
 
@@ -973,15 +1119,16 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       if (h.identity !== null) existingIdentities.push(h.identity);
       seenTitleRoots.add(titleClusterKey);
       homologs.push(h);
-
-      if (homologs.length >= 8) break;
+      includedPdbIds.add(upperPdb);
     }
 
-    pdbCache.set(posCacheKey, JSON.stringify(homologs));
-    try {
-      const db = AnalysisDatabase.getInstance();
-      await db.saveExternalCacheAsync(posCacheKey, homologs, "RCSB Homologs Filtered", 7 * 24 * 60 * 60);
-    } catch (_) {}
+    if (!pdbeDegraded) {
+      pdbCache.set(posCacheKey, JSON.stringify(homologs));
+      try {
+        const db = AnalysisDatabase.getInstance();
+        await db.saveExternalCacheAsync(posCacheKey, homologs, "RCSB Homologs Filtered", 7 * 24 * 60 * 60);
+      } catch (_) {}
+    }
     return homologs;
 
   } catch (err: any) {

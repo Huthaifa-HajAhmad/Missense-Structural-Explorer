@@ -2025,6 +2025,10 @@ export interface PdbHomolog {
   querySeqFrom?: number;
   querySeqTo?: number;
   coversPosition?: boolean;
+  /** How this entry was discovered: direct UniProt→PDB mapping (PDBe) or sequence search (RCSB). */
+  source?: "pdbe" | "rcsb";
+  /** True when PDBe directly maps this PDB entry to the queried UniProt accession. */
+  directMapping?: boolean;
 }
 
 /**
