@@ -13,7 +13,12 @@
  * Columns used: 0/1 interactor ids, 6 detection method, 8 publication ids.
  */
 import { LRUCache } from "lru-cache";
-import { fetchWithRetry } from "../infra/http-client.ts";
+import {
+  fetchWithRetry,
+  isCallerAbort,
+  throwIfCallerAborted,
+  type CallerBoundedOptions,
+} from "../infra/http-client.ts";
 import type { IntactEvidence } from "../../../src/shared/contracts.ts";
 
 const cache = new LRUCache<string, Map<string, IntactEvidence>>({ max: 300, ttl: 7 * 24 * 60 * 60 * 1000 });
@@ -59,14 +64,29 @@ export function parseIntactMitab(text: string, accession: string): Map<string, I
 
 export type IntactLookup = { status: "ok"; byPartner: Map<string, IntactEvidence> } | { status: "failed"; byPartner: Map<string, IntactEvidence> };
 
-export async function fetchIntactEvidence(accession: string, signal?: AbortSignal): Promise<IntactLookup> {
+export type FetchIntactOptions = CallerBoundedOptions;
+
+export async function fetchIntactEvidence(
+  accession: string,
+  signalOrOptions?: AbortSignal | FetchIntactOptions
+): Promise<IntactLookup> {
+  const options: FetchIntactOptions =
+    signalOrOptions && "aborted" in signalOrOptions
+      ? { signal: signalOrOptions }
+      : (signalOrOptions ?? {});
+  throwIfCallerAborted(options.signal);
   const key = accession.toUpperCase().replace(/-\d+$/, "");
   const hit = cache.get(key);
   if (hit) return { status: "ok", byPartner: hit };
   try {
     const res = await fetchWithRetry(
       `https://www.ebi.ac.uk/Tools/webservices/psicquic/intact/webservices/current/search/interactor/${key}?format=tab25&maxResults=${MAX_ROWS}`,
-      { timeout: 20000, signal }
+      {
+        timeout: 20000,
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
+        ...(options.cappedByCaller !== undefined ? { cappedByCaller: options.cappedByCaller } : {}),
+      }
     );
     // PSICQUIC answers 200 with an empty body for a protein with no interactions.
     if (!res.ok) return { status: "failed", byPartner: new Map() };
@@ -74,7 +94,7 @@ export async function fetchIntactEvidence(accession: string, signal?: AbortSigna
     cache.set(key, byPartner);
     return { status: "ok", byPartner };
   } catch (err: any) {
-    if (err?.name === "AbortError") throw err;
+    if (isCallerAbort(err, options.signal)) throw err;
     return { status: "failed", byPartner: new Map() };
   }
 }

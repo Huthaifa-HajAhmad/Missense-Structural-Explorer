@@ -6,6 +6,7 @@ import { getDeduplicatedPromise } from "../../../variantAnalysisUtils";
 import { setCachedVariant } from "../../../services/pipeline/variantCache";
 import { isStaleAssembly, isStalePpi, type LoadState } from "../../../shared/interfacesEvidence";
 import { CLIENT_LOCALFOLD_REQUEST_BUDGET_MS } from "../../../shared/multimerHandoff";
+import { CLIENT_PPI_LOOKUP_BUDGET_MS } from "../../../shared/timeouts";
 import { publishInterfacesLive } from "./interfacesLive";
 
 /**
@@ -229,6 +230,7 @@ export function useInterfacesData(result: any) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ gene, variant, uniprotId }),
+            timeout: CLIENT_PPI_LOOKUP_BUDGET_MS,
             signal,
           });
           if (!response.ok) throw new Error(await extractErrorMessage(response, "The interaction lookups did not answer."));

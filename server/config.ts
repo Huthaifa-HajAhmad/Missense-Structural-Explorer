@@ -8,6 +8,7 @@
 import crypto from "crypto";
 import os from "os";
 import { authEnvironmentProblems } from "./auth/config.ts";
+import { CLIENT_PPI_LOOKUP_BUDGET_MS } from "../src/shared/timeouts.ts";
 
 /**
  * Ensures a valid, cryptographically secure SIDECAR_SECRET exists in process.env.
@@ -48,6 +49,16 @@ export function resolveFoldxConcurrency(): number {
   const explicit = positiveInt(process.env.BIOPHYSICAL_CONCURRENCY, 0);
   if (explicit > 0) return explicit;
   return Math.min(resolveBiophysicalConcurrency(), Math.max(1, os.cpus().length - 1));
+}
+
+/**
+ * Server budget for `POST /api/v1/ppi/binding-affinity` upstream lookups.
+ * Clamped strictly below `CLIENT_PPI_LOOKUP_BUDGET_MS` so an env override cannot invert the
+ * client/server nesting and reintroduce the 60 s client timeout/retry loop.
+ */
+export function resolvePpiLookupBudgetMs(raw: string | undefined = process.env.PPI_LOOKUP_BUDGET_MS): number {
+  const parsed = positiveInt(raw, 35_000);
+  return Math.min(parsed, CLIENT_PPI_LOOKUP_BUDGET_MS - 1_000);
 }
 
 export const CONFIG = {
@@ -168,6 +179,13 @@ export const CONFIG = {
     esmfoldSidecarMs: parseInt(process.env.ESMFOLD_SIDECAR_TIMEOUT_MS || "30000", 10),
     /** Keyless public ESM Atlas fold attempt (was a literal `15000` inside `esmfold.ts`). */
     esmAtlasMs: parseInt(process.env.ESM_ATLAS_TIMEOUT_MS || "15000", 10),
+    /**
+     * Whole-call server budget for `POST /api/v1/ppi/binding-affinity` upstream lookups
+     * (STRING, UniProt features/UniParc, IntAct). Must sit strictly below `CLIENT_PPI_LOOKUP_BUDGET_MS`
+     * in `src/shared/timeouts.ts` so slow providers degrade individually within the server budget
+     * instead of timing out the entire client request (`server/tests/ppi-timeout-budget.test.ts`).
+     */
+    ppiLookupBudgetMs: resolvePpiLookupBudgetMs(),
   },
   memory: {
     minFreeBytes: process.env.NODE_ENV === "test"

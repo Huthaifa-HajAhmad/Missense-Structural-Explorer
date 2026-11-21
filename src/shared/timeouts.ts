@@ -181,3 +181,13 @@ export const CLIENT_STRUCTURAL_REQUEST_BUDGET_MS = 90_000; // 90 s
  * that is not answering.
  */
 export const CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS = 240_000; // 240 s
+
+/**
+ * Whole-call client budget for `POST /api/v1/ppi/binding-affinity`.
+ *
+ * Must strictly exceed `CONFIG.timeouts.ppiLookupBudgetMs` (35 s) so a slow upstream lookup
+ * (IntAct, STRING, UniProt) degrades to `status: "failed"` on the server and returns partial data
+ * inside the client's window, instead of hitting `fetchWithRetry`'s 60 s default and triggering a
+ * client-side retry storm. Asserted by `server/tests/ppi-timeout-budget.test.ts`.
+ */
+export const CLIENT_PPI_LOOKUP_BUDGET_MS = 50_000; // 50 s

@@ -270,6 +270,28 @@ export interface FetchWithRetryOptions extends RequestInit {
   deadlineAt?: number;
 }
 
+export type CallerBoundedOptions = Pick<FetchWithRetryOptions, "signal" | "deadlineAt" | "cappedByCaller">;
+
+/**
+ * True when an error reflects an explicit caller-disconnect abort rather than an internal
+ * deadline/attempt `TimeoutError` or an upstream/network failure.
+ */
+export function isCallerAbort(err: unknown, signal?: AbortSignal | null): boolean {
+  const errName = (err as { name?: string } | null | undefined)?.name;
+  const reasonName = (signal?.reason as { name?: string } | null | undefined)?.name;
+  if (errName === "TimeoutError" || reasonName === "TimeoutError") return false;
+  return Boolean(signal?.aborted) || errName === "AbortError";
+}
+
+/**
+ * Throws immediately when `signal` is already aborted by the caller (non-`TimeoutError`).
+ */
+export function throwIfCallerAborted(signal?: AbortSignal | null): void {
+  if (signal?.aborted && (signal.reason as { name?: string } | undefined)?.name !== "TimeoutError") {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
+}
+
 export async function fetchWithRetry(url: string, options: FetchWithRetryOptions = {}, retries = 3, delay = 1000): Promise<Response> {
   let hostname = "unknown";
   try {
