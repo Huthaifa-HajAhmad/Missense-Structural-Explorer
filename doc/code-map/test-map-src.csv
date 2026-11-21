@@ -227,6 +227,7 @@ src/components/settings/sections/AccountSection.tsx,component,
 src/components/settings/sections/AnalysisSection.tsx,component,
 src/components/settings/sections/AppearanceSection.tsx,component,
 src/components/settings/sections/ConnectionsSection.tsx,component,src/components/settings/__tests__/ConnectionsSection.test.tsx
+src/components/settings/sections/CredentialStatus.tsx,component,
 src/components/settings/sections/DataStorageSection.tsx,component,src/components/settings/__tests__/DataStorageSection.test.tsx
 src/components/settings/sections/OptionalProviders.tsx,component,
 src/components/settings/sections/SequenceSection.tsx,component,
@@ -249,6 +250,7 @@ src/components/telemetry/dataSourceCards.tsx,component,
 src/components/telemetry/serviceCardModel.ts,client,
 src/components/telemetry/serviceSummary.ts,client,
 src/components/telemetry/sidecarCard.ts,client,
+src/components/telemetry/useServiceCardContext.ts,client,
 src/components/ui/AnalysisEmptyState.tsx,component,src/components/inspector/__tests__/EvidenceRailRouting.test.tsx
 src/components/ui/BrandMark.tsx,component,src/components/ui/__tests__/BrandMark.test.tsx
 src/components/ui/ChoiceMenu.tsx,component,
