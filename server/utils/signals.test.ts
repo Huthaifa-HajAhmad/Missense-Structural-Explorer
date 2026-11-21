@@ -2,18 +2,22 @@ import { describe, it, expect, afterEach } from "vitest";
 import { anySignal } from "./signals.ts";
 
 describe("anySignal", () => {
-  const originalAny = AbortSignal.any;
+  const originalAnyDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, "any");
 
   afterEach(() => {
-    (AbortSignal as any).any = originalAny;
+    if (originalAnyDescriptor) {
+      Object.defineProperty(AbortSignal, "any", originalAnyDescriptor);
+    } else {
+      delete (AbortSignal as { any?: unknown }).any;
+    }
   });
 
   it("preserves the source abort reason in both native and fallback paths", () => {
     for (const useFallback of [false, true]) {
       if (useFallback) {
-        (AbortSignal as any).any = undefined;
-      } else {
-        (AbortSignal as any).any = originalAny;
+        Object.defineProperty(AbortSignal, "any", { value: undefined, configurable: true, writable: true });
+      } else if (originalAnyDescriptor) {
+        Object.defineProperty(AbortSignal, "any", originalAnyDescriptor);
       }
 
       const a = new AbortController();
@@ -29,7 +33,7 @@ describe("anySignal", () => {
   });
 
   it("preserves the reason when one input signal is already aborted in the fallback path", () => {
-    (AbortSignal as any).any = undefined;
+    Object.defineProperty(AbortSignal, "any", { value: undefined, configurable: true, writable: true });
     const a = new AbortController();
     const b = new AbortController();
     const reason = new DOMException("already timed out", "TimeoutError");

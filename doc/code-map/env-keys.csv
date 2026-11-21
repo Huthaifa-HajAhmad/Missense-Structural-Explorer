@@ -147,6 +147,7 @@ P2RANK_TIMEOUT_S,server/config.ts
 P2RANK_TIMEOUT_S,server/services/structure/pocket/p2rank.ts
 PATH,server/sidecar-supervisor.ts
 PORT,server/config.ts
+PPI_LOOKUP_BUDGET_MS,server/config.ts
 PREDICTOR_SPECULATIVE_LOCUS,server/services/prediction/predictors/speculative-locus.ts
 PUBLIC_BASE_URL,server/auth/config.ts
 QUEUE_MAX_TOTAL,server/config.ts
