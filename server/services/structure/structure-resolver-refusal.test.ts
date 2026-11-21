@@ -77,4 +77,22 @@ describe("no examined chain is the wild type", () => {
 
     expect(resolved?.provenance.pdbId).toBe("8abc");
   });
+
+  it("ignores source: 'pdbe' entries in Tier 3 homolog resolution", async () => {
+    vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([
+      { pdbId: "9EKO", chainId: "A", identity: null, resolution: 2.9, method: "X-ray diffraction", organism: "Homo sapiens", coversPosition: true, source: "pdbe", directMapping: true } as any,
+      { pdbId: "8JQI", chainId: "A", identity: 68, resolution: 4.1, method: "ELECTRON MICROSCOPY", organism: "Homo sapiens", coversPosition: true, source: "rcsb" } as any,
+    ]);
+    vi.mocked(fetchers.fetchPdbFromRcsb).mockResolvedValue("8JQI_PDB" as any);
+
+    for (const opts of [{}, { requireWildType: true }] as const) {
+      AnalysisDatabase.resetInstance(":memory:");
+      vi.mocked(fetchers.fetchPdbFromRcsb).mockClear();
+      const resolved = await resolveStructure("P22607", 380, opts);
+      expect(resolved?.provenance.source).toBe("homolog");
+      expect(resolved?.provenance.pdbId).toBe("8JQI");
+      expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalledWith("9EKO", "A");
+    }
+  });
 });

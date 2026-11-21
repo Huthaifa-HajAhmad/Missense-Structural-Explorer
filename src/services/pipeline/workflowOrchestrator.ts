@@ -347,7 +347,17 @@ export async function executeFullAnalysisWorkflow({
         analysisSink.setLoadingStep("Analysis complete!");
         clearAnalysisActivity();
 
-        if ((!cached.homologs || cached.homologs.length === 0) && targetUniprot) {
+        const cachedTemplateProv = cached.foldingEnergetics?.structureProvenance;
+        const cachedTemplatePdb =
+          (cachedTemplateProv?.source === "experimental" || cachedTemplateProv?.source === "homolog") &&
+          typeof cachedTemplateProv?.pdbId === "string"
+            ? cachedTemplateProv.pdbId.toUpperCase()
+            : null;
+        const missingTemplate =
+          Boolean(cachedTemplatePdb) &&
+          (!Array.isArray(cached.homologs) ||
+            !cached.homologs.some((h: any) => typeof h?.pdbId === "string" && h.pdbId.toUpperCase() === cachedTemplatePdb));
+        if ((!cached.homologs || cached.homologs.length === 0 || missingTemplate) && targetUniprot) {
           void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
         }
         if (!cached.pdbText) {

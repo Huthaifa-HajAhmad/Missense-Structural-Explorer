@@ -131,6 +131,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
             ? foldingEnergetics!.rawDdGs!.length
             : null,
         template: foldingEnergetics?.structureProvenance ?? null,
+        templateExtent: foldingEnergetics?.templateExtent ?? null,
         repairSkipped: Boolean(foldingEnergetics?.foldxRepairSkipped),
         repairSkippedReason: foldingEnergetics?.foldxRepairSkippedReason ?? null,
         repairFailed: Boolean(foldingEnergetics?.foldxRepairFailed),
