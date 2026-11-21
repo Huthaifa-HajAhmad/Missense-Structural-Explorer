@@ -63,6 +63,13 @@ describe("de novo folding budgets nest", () => {
     ).toBeGreaterThan(CONFIG.timeouts.japanfoldFoldingMs);
   });
 
+  it("outlasts the sidecar's own 60 s remote ESMFold budget", () => {
+    expect(
+      CONFIG.timeouts.esmfoldSidecarMs,
+      "Node's sidecar timeout must outlast ESMFOLD_REMOTE_BUDGET_S (60 s) in tools/model_server_app/routers/esmfold.py"
+    ).toBeGreaterThan(60 * SEC);
+  });
+
   it("still bounds the spinner", () => {
     // A nesting fix must not become an unbounded wait: the budget is a ceiling, not a promise.
     expect(CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS).toBeLessThanOrEqual(5 * 60 * SEC);

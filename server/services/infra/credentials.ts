@@ -46,12 +46,14 @@ import { LEGACY_OWNER } from "./queue-owners.ts";
 const TEAM_ENV: Readonly<Record<CredentialKind, readonly string[]>> = {
   biohub: ["BIOHUB_API_TOKEN", "ESM3_FORGE_API_KEY"],
   tamarind: ["TAMARIND_API_KEY"],
+  japanfold: ["JAPANFOLD_API_KEY"],
 };
 
 /** The host each kind's calls count against (the sidecar's calls are governed as this host). */
 export const CREDENTIAL_HOSTS: Readonly<Record<CredentialKind, string>> = {
   biohub: "forge.evolutionaryscale.ai",
   tamarind: "app.tamarind.bio",
+  japanfold: "api.japanfold.aiand.com",
 };
 
 export const DEFAULT_SHARE_PER_HOUR = 60;
@@ -428,6 +430,7 @@ export function credentialPolicyHealth(): {
     teamTokens: {
       biohub: Boolean(teamToken("biohub")),
       tamarind: Boolean(teamToken("tamarind")),
+      japanfold: Boolean(teamToken("japanfold")),
     },
   };
 }

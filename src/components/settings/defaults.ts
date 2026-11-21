@@ -18,6 +18,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   geminiSessionExpiresAt: 0,
   appApiToken: "",
   biohubApiToken: "",
+  japanfoldApiKey: "",
   tamarindApiKey: "",
   alphagenomeApiKey: "",
   alphagenomeApiUrl: "",
@@ -53,6 +54,7 @@ export const TRANSIENT_SETTING_KEYS = [
   "geminiSessionExpiresAt",
   "appApiToken",
   "biohubApiToken",
+  "japanfoldApiKey",
   "tamarindApiKey",
   "alphagenomeApiKey",
   "alphagenomeApiUrl"
