@@ -43,7 +43,7 @@
  * scripts/check-boundaries.ts).
  */
 import { THRESHOLDS } from "./thresholds/constants.ts";
-import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, type FrequencyRuleInputs, type FrequencyStatistic } from "./frequencyRule.ts";
+import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, BS1_COUNTED_AUTOMATICALLY, BS1_NOT_APPLIED_REASON, BS2_COUNTED_AUTOMATICALLY, BS2_NOT_APPLIED_REASON, type FrequencyRuleInputs, type FrequencyStatistic } from "./frequencyRule.ts";
 import { pm2CeilingFor, homozygotesInformBs2, type CuratedInheritance, type Pm2CeilingBasis } from "./inheritanceBasis.ts";
 import { gnomadGroupLabel } from "./gnomadGroups.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
@@ -281,6 +281,8 @@ export interface FrequencyEvidence {
     /** Why it is not applicable, in the engine's words. */
     reason: string | null;
   };
+  /** Set when the whole core evidence request failed or was rate limited before sources could be read. */
+  coreFailure?: { kind: "rate-limited" | "request-failed"; message?: string; retryAfterSeconds?: number } | null;
 }
 
 export interface FrequencyEvidenceInput {
@@ -320,6 +322,8 @@ export interface FrequencyEvidenceInput {
   locus?: LocusResultLike | null;
   /** What the All of Us lookup consulted (`analysisResult.aouLookup`), so an empty row names its absence. */
   aouLookup?: AouLookup | null;
+  /** Core request failure metadata when `/analyze-variant/stream` failed or returned HTTP 429. */
+  coreFailure?: { kind: "rate-limited" | "request-failed"; message?: string; retryAfterSeconds?: number } | null;
 }
 
 /** The structural slice of an analysis result `frequencyEvidenceInputFromResult` reads. */
@@ -328,7 +332,11 @@ export interface FrequencyResultLike extends LocusResultLike {
   aouFrequency?: AouFrequencyData | null;
   aouLookup?: AouLookup | null;
   serviceStatus?: Record<string, string> | null;
-  metadata?: { serviceStatus?: Record<string, string> | null; acmgWeighting?: string | null } | null;
+  metadata?: {
+    serviceStatus?: Record<string, string> | null;
+    acmgWeighting?: string | null;
+    coreFailure?: { kind: "rate-limited" | "request-failed"; message?: string; retryAfterSeconds?: number } | null;
+  } | null;
   clinvar?: {
     classification?: string | null;
     alleleFrequencies?: ReadonlyArray<{ source?: string | null; value?: unknown }> | null;
@@ -365,6 +373,7 @@ export function frequencyEvidenceInputFromResult(
     engineCriteria: result.ruleBasedInsights?.acmgCriteria ?? result.insights?.acmgCriteria ?? null,
     acmgWeighting: result.metadata?.acmgWeighting ?? null,
     locus: { predictorData: result.predictorData ?? null, coordinateLift: result.coordinateLift ?? null },
+    coreFailure: result.metadata?.coreFailure ?? null,
     ...overrides,
   };
 }
@@ -457,13 +466,14 @@ export function frequencyObservationName(observation: Pick<FrequencyObservation,
 
 /** Where the rule's frequency came from, named so the number can be traced to a dataset. */
 export function frequencySourceLabel(evidence: FrequencyEvidence): string {
-  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, inputs, groupMaxPopulation, faf95Population, candidateAlleles } = evidence.criterion;
+  const { sourceId, usedGroupMax, fallback, combinedCohorts, absent, code, af, inputs, groupMaxPopulation, faf95Population, candidateAlleles } = evidence.criterion;
   if (candidateAlleles) return `gnomAD, read for each of ${candidateAlleles} candidate alleles`;
   // A recorded absence has no statistic behind it; naming "the global maximum" invented one.
   if (sourceId === "gnomad-group" && absent) return "gnomAD — no record (absence read as 0)";
   if (sourceId === "gnomad-group" && combinedCohorts) return "gnomAD combined frequency (no ancestry groups in this source)";
-  // BA1/BS1 decided on FAF95: name it, and its group.
-  if (sourceId === "gnomad-group" && (code === "BA1" || code === "BS1") && inputs?.benignStatistic === "faf95") {
+  // A withheld BS1 reference still displays FAF95, so keep its statistic and group in the label.
+  const readsBenignFrequency = code === "BA1" || code === "BS1" || (code === "none" && af === inputs?.benignAf);
+  if (sourceId === "gnomad-group" && readsBenignFrequency && inputs?.benignStatistic === "faf95") {
     const group = gnomadGroupLabel(faf95Population);
     return `gnomAD filtering allele frequency (FAF95)${group ? ` · ${group}` : ""}`;
   }
@@ -630,6 +640,19 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   //      (the FGFR3 run: VEP's ladder consumed the budget, gnomAD answered 3/3 within 300 ms).
   const candidateRun = isCandidateRun(input);
   const locusUnresolved = !input.locus?.predictorData?.gnomadVariantId && !candidateRun;
+  const cf = input.coreFailure ?? null;
+  if (cf && (status === "error" || !status)) {
+    const wait = cf.kind === "rate-limited" && cf.retryAfterSeconds ? ` (retry in ${cf.retryAfterSeconds}s)` : "";
+    return {
+      ...base,
+      code: "withheld",
+      af: null,
+      sourceId: null,
+      statement: cf.kind === "rate-limited"
+        ? `Population-frequency evidence was withheld: the analysis request was rate limited${wait}. No frequency criterion (PM2, BS1 or BA1) was applied.`
+        : "Population-frequency evidence was withheld: the core evidence request failed or was interrupted, so population sources were not read. No frequency criterion (PM2, BS1 or BA1) was applied.",
+    };
+  }
   if (status === "timeout" || status === "error") {
     return {
       ...base,
@@ -740,9 +763,11 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
     return { ...shared, code: "BA1", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)}${benignNote} is ${predicate}.` };
   }
   if (decision === "BS1") {
-    const headline = "Too common for the disorder";
-    const predicate = `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point`;
-    return { ...shared, code: "BS1", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)}${benignNote} is ${predicate}.` };
+    // Above the app-wide reference cut-point. Not counted (see BS1_COUNTED_AUTOMATICALLY): the cut-point is
+    // not a condition-specific maximum credible allele frequency, so the reading is context, not a criterion.
+    const headline = "Above the app's BS1 reference";
+    const predicate = `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} app-defined BS1 reference, but BS1 is not applied: ${BS1_NOT_APPLIED_REASON}`;
+    return { ...shared, code: BS1_COUNTED_AUTOMATICALLY ? "BS1" : "none", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)}${benignNote} is ${predicate}.` };
   }
   if (decision === "PM2") {
     const headline = "Extremely rare";
@@ -820,7 +845,17 @@ function gnomadAbsence(
   datasetLabel: string,
   buildRefusal: string | null,
   locusUnresolved = false,
+  coreFailure: FrequencyEvidenceInput["coreFailure"] = null,
 ): EvidenceAvailability {
+  if (coreFailure && (status === "error" || !status)) {
+    const wait = coreFailure.kind === "rate-limited" && coreFailure.retryAfterSeconds ? ` (retry in ${coreFailure.retryAfterSeconds}s)` : "";
+    return resolveEvidenceAvailability({
+      status: "unavailable",
+      message: coreFailure.kind === "rate-limited"
+        ? `The analysis request was rate limited${wait}, so ${datasetLabel} was not read.`
+        : `The core evidence request failed or was interrupted, so ${datasetLabel} was not read.`,
+    });
+  }
   if (buildRefusal || status === "unsupported-build") {
     return resolveEvidenceAvailability({
       status: "live",
@@ -898,12 +933,22 @@ function gnomadAbsence(
 function clinvarAvailability(
   classification: string | null,
   status: string | undefined,
+  coreFailure: FrequencyEvidenceInput["coreFailure"] = null,
 ): EvidenceAvailability {
   const recordedNegative = Boolean(classification && /not found/i.test(classification));
   if (classification && !recordedNegative) {
     // The resolver's `value` is a measured value; for ClinVar the measurement is the classification
     // string, which is either there or not, so the sentinel only encodes its presence.
     return resolveEvidenceAvailability({ value: 1 });
+  }
+  if (coreFailure && (status === "error" || !status)) {
+    const wait = coreFailure.kind === "rate-limited" && coreFailure.retryAfterSeconds ? ` (retry in ${coreFailure.retryAfterSeconds}s)` : "";
+    return resolveEvidenceAvailability({
+      status: "unavailable",
+      message: coreFailure.kind === "rate-limited"
+        ? `The analysis request was rate limited${wait}, so ClinVar could not be read.`
+        : "The core evidence request failed or was interrupted, so ClinVar could not be read.",
+    });
   }
   if (status === "timeout" || status === "error") {
     return resolveEvidenceAvailability({
@@ -1092,6 +1137,7 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
               label.toLowerCase(),
               buildRefusal,
               !input.locus?.predictorData?.gnomadVariantId,
+              input.coreFailure ?? null,
             ),
     };
   };
@@ -1167,6 +1213,12 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     aouReason = candidateRows?.some(r => r.allOfUs)
       ? "All of Us is read for each candidate allele; see the candidate rows."
       : `All of Us frequency was not assessed: ${fallbackCause(assembly, false, "multiple-candidates")}`;
+  } else if (!aouHasEntry && !aouLookup && input.coreFailure) {
+    const wait = input.coreFailure.kind === "rate-limited" && input.coreFailure.retryAfterSeconds ? ` (retry in ${input.coreFailure.retryAfterSeconds}s)` : "";
+    aouFault = true;
+    aouReason = input.coreFailure.kind === "rate-limited"
+      ? `The analysis request was rate limited${wait}, so All of Us was not read.`
+      : "The core evidence request failed or was interrupted, so All of Us was not read.";
   } else if (!aouHasEntry) {
     const said = aouAbsenceReason(aouLookup);
     aouFault = said.fault;
@@ -1273,24 +1325,25 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     applied: readAppliedCriterion(input),
     clinvar: {
       classification: clinvarClassification,
-      availability: clinvarAvailability(clinvarClassification, serviceStatus?.clinvar),
+      availability: clinvarAvailability(clinvarClassification, serviceStatus?.clinvar, input.coreFailure ?? null),
     },
     candidates: candidateRows,
     observations,
     contributing,
     gnomadRelease: dataset !== "release not reported" ? dataset : null,
     gnomadHomozygotes: candidateRun ? candidateHomozygotes : finite(gnomadFrequency?.nHomozygous),
-    hasProviderFault,
-    retryable: hasProviderFault || Boolean(fallback?.retryable) || locusRetry || candidateRetry,
+    hasProviderFault: hasProviderFault || Boolean(input.coreFailure),
+    retryable: hasProviderFault || Boolean(input.coreFailure) || Boolean(fallback?.retryable) || locusRetry || candidateRetry,
     recoveryAction: fallback?.recoveryAction === "provide-allele" || candidateAction === "provide-allele"
       ? "provide-allele"
-      : hasProviderFault || fallback?.retryable || locusRetry || candidateRetry ? "retry" : null,
+      : hasProviderFault || Boolean(input.coreFailure) || fallback?.retryable || locusRetry || candidateRetry ? "retry" : null,
+    coreFailure: input.coreFailure ?? null,
     hasPendingSource,
     homozygoteCriterion: {
       code: "BS2",
       ...(() => {
         const g = homozygotesInformBs2({ variantId: bs2VariantId, inheritance: input.curatedInheritance ?? null });
-        return { applicable: g.applies, reason: g.reason };
+        return { applicable: g.applies && BS2_COUNTED_AUTOMATICALLY, reason: g.applies ? (BS2_COUNTED_AUTOMATICALLY ? null : BS2_NOT_APPLIED_REASON) : g.reason };
       })(),
       recorded: input.engineCriteria
         ? input.engineCriteria.some(c => typeof c?.code === "string" && c.code.toUpperCase() === "BS2")

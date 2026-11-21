@@ -5,7 +5,7 @@ import {
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
 import { commandPaletteHint } from "../shared/platform";
-import { isShareable, withVariantParams } from "../shared/shareLink";
+import { isShareable, shareableQueryFromResult, withVariantParams } from "../shared/shareLink";
 import { CHROME_DIVIDER, HEADER_ICON_BUTTON } from "./ui/chrome";
 import { VariantIdentity } from "./header/VariantIdentity";
 import { useVariantHeaderModel, type VariantHeaderInput } from "./header/variantHeaderModel";
@@ -77,6 +77,7 @@ export function HeaderBar({
   const gene = useVariantAnalysisStore(s => s.gene ?? "");
   const variant = useVariantAnalysisStore(s => s.variant ?? "");
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId ?? "");
+  const analysisResult = useVariantAnalysisStore(s => s.analysisState.result);
   const canShare = isShareable({ gene, variant });
 
   /* Copy-link feedback: the icon turns into a check for 1.6s. Announced politely for AT. */
@@ -85,7 +86,10 @@ export function HeaderBar({
   useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
   const copyLink = async () => {
     try {
-      const href = withVariantParams(window.location.href, { gene, variant, uniprotId });
+      const href = withVariantParams(
+        window.location.href,
+        shareableQueryFromResult(analysisResult, { gene, variant, uniprotId }),
+      );
       await navigator.clipboard.writeText(href);
       setCopied(true);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);

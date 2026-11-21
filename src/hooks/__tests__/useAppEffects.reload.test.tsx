@@ -94,6 +94,14 @@ describe("reloading the page on a saved analysis", () => {
     const { executeAnalysis } = reload();
     expect(executeAnalysis).toHaveBeenCalledWith(GENE, "12-100-A-G", UNIPROT);
   });
+
+  it("replays the exact genomic allele from a share URL in a fresh context (missense#14)", () => {
+    window.history.replaceState({}, "", "/?gene=FGFR3&variant=p.Gly380Arg&uniprot=P22607&allele=4-1804392-G-A&assembly=GRCh38&transcript=NM_000142.5");
+    useVariantAnalysisStore.setState({ gene: "FGFR3", variant: "p.Gly380Arg", uniprotId: "P22607", history: [] } as any);
+    const { executeAnalysis } = reload();
+    expect(executeAnalysis).toHaveBeenCalledWith("FGFR3", "Chr4(GRCh38):g.1804392G>A", "P22607");
+    window.history.replaceState({}, "", "/");
+  });
 });
 
 describe("entering the ESMFold 3D view", () => {

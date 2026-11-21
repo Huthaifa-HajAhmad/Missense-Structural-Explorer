@@ -1222,6 +1222,8 @@ function VariantSearchPanel({
    * of leaving "Analyse" as the only thing a reader can do with a variant that is already loaded.
    */
   const loadedMatchesQuery = Boolean(
+    !analysisState.error &&
+    result?.metadata?.pipelineStages?.core !== "error" &&
     result && gene && variant && changeNotation && (
       history.some(item => item.gene === gene && item.variant === variant && (item.query ?? "").trim() === changeNotation) ||
       (customGene.trim().toUpperCase() === gene.toUpperCase() &&

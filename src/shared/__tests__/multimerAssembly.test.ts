@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { interfaceFootprint, parseSubunitAssembly, statesMultimer, variantContacts } from "../multimerAssembly";
+import { interfaceFootprint, parseSubunitAssembly, resolveConditionalAssembly, statesMultimer, subunitStatements, variantContacts } from "../multimerAssembly";
 
 describe("parseSubunitAssembly", () => {
   it("reads NAE1's record as a heterodimer with UBA3, and not the complex it binds", () => {
@@ -54,6 +54,17 @@ describe("parseSubunitAssembly", () => {
     const a = parseSubunitAssembly("Monomer; homodimerizes upon activation. Homodimer in the crystal.");
     expect(a.kind).toBe("monomer");
     expect(a.alsoStated).toContain("Homodimer");
+  });
+
+  it("promotes conditional oligomers (e.g. FGFR3 P22607 monomer -> homodimer upon ligand binding) for complex modelling (missense#15)", () => {
+    const text = "Monomer. Homodimer after binding to ligand (By similarity). Homodimer (Probable).";
+    const parsed = parseSubunitAssembly(text, "FGFR3");
+    const statements = subunitStatements(text, "FGFR3");
+    const resolved = resolveConditionalAssembly(parsed, statements);
+    expect(resolved.kind).toBe("homomer");
+    expect(resolved.copies).toBe(2);
+    expect(resolved.label).toContain("Homodimer");
+    expect(resolved.alsoStated).toContain("Monomer");
   });
 });
 

@@ -33,6 +33,7 @@ import { sanitizeErrorMessage } from "../../utils/security.ts";
 import {
   MAX_MODELLED_CHAINS,
   parseSubunitAssembly,
+  resolveConditionalAssembly,
   subunitStatements,
   variantContacts,
   type SubunitAssembly,
@@ -189,10 +190,14 @@ async function planMultimer(
       fetchUniprotSequence(uniprotId).catch(() => ""),
     ]);
     const subunitComment = features?.subunitComment ?? null;
-    const assembly = parseSubunitAssembly(subunitComment, gene);
+    const statements = subunitStatements(subunitComment, gene);
+    const experimental = await experimentalTask;
+    const hasSolvedHomomer = experimental.status === "ok" && experimental.partners.some(
+      p => !p.artefact && p.context !== "fibril" && p.context !== "crystal" && p.accession.toUpperCase() === uniprotId.toUpperCase()
+    );
+    const assembly = resolveConditionalAssembly(parseSubunitAssembly(subunitComment, gene), statements, { hasSolvedHomomer });
     const partners = await resolvePartners(assembly, features?.interactionPartners ?? []);
     const record = toRecord(assembly, partners, subunitComment, gene);
-    const experimental = await experimentalTask;
 
     // The chain list the reader sees is on every outcome, model or not.
     const common: MultimerData = {

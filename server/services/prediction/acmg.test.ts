@@ -21,7 +21,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(res.acmgVerdict).toBeDefined();
   });
 
-  it("should count BS1 as strong benign and class as Likely Benign with BP4", () => {
+  it("does not count BS1 from the app-wide cut-point (HbS regression): the reading is shown, BS1 is not counted", () => {
     const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
@@ -33,8 +33,8 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       acmgWeighting: "standard"
     });
     expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
-    expect(res.acmgCriteria.some(c => c.code === "BS1")).toBe(true);
-    expect(res.acmgVerdict).toBe("Likely Benign");
+    expect(res.acmgCriteria.some(c => c.code === "BS1")).toBe(false);
+    expect(res.acmgVerdict).not.toBe("Likely Benign");
   });
 
   it("should include bayesdel in PP3/BP4 predictor concordance", () => {
@@ -251,7 +251,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(activeCount).toBe(0);
   });
 
-  it("should assign BS2 when variant is observed in homozygous state in population reference", () => {
+  it("does not assign BS2 from gnomAD homozygote counts alone (no documented unaffected status)", () => {
     const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
@@ -270,9 +270,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       acmgWeighting: "standard"
     });
 
-    const bs2 = res.acmgCriteria.find(c => c.code === "BS2");
-    expect(bs2).toBeDefined();
-    expect(bs2?.reason).toContain("Observed in homozygous state in 4 individuals");
+    expect(res.acmgCriteria.find(c => c.code === "BS2")).toBeUndefined();
   });
 
   it("never applies BP1 from gene constraint alone: pLI is not a curated truncating-variant mechanism", () => {

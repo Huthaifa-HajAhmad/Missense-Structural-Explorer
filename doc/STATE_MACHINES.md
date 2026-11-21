@@ -364,8 +364,10 @@ logged and the evidence stays. A stage with no outcome after core finished shows
 Restoring a saved result (`storedAnalysis.ts`): every route asks `isServableStoredResult`. `restoreStoredArtifacts`
 replaces all viewer data as one step, writing empty for anything not saved, so one variant's structure or ΔΔG
 cannot stay beside another. A page reload paints without a run only when `reloadMayPaint` says a run would have
-nothing to do; it compares settings only, because the URL cannot carry the coordinate, directions or numbering
-answer. Otherwise the reload replays the original submission from Recents.
+nothing to do and the cached allele matches any exact allele carried by the URL. Address-bar synchronization
+waits for a result, so it preserves the incoming allele until reload restoration reads it. Otherwise the reload
+replays the URL's exact coordinate when present, or the original submission from Recents. Directions and
+numbering answers remain part of the saved context.
 
 Evidence written by both core and structural (`ruleBasedInsights`, `disruptionPredictor`): once structural has
 written, core may not replace it, so the order of the two responses does not matter. The narrative flag is

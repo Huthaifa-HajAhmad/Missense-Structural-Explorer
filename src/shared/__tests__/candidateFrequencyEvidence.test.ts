@@ -104,7 +104,7 @@ describe("frequency evidence for several candidate alleles", () => {
       },
     });
     expect(bs2.gnomadHomozygotes).toBe(2);
-    expect(bs2.homozygoteCriterion).toMatchObject({ applicable: true, recorded: true });
+    expect(bs2.homozygoteCriterion).toMatchObject({ applicable: false, recorded: true });
 
     const xChrom = buildFrequencyEvidence({
       gnomadFrequency: {

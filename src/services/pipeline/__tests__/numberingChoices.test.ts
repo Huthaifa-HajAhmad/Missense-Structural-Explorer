@@ -92,9 +92,13 @@ describe("numbering choices reach the analysis state", () => {
     expect(state.result.nonMissenseRefusal?.hasCodon).toBe(false);
   });
 
-  it("ignores every other error, and a malformed payload", () => {
-    expect(refusalAttachmentsFromError(new Error("boom"), "p.Ala1Val")).toEqual({});
-    expect(refusalAttachmentsFromError({ code: "UNPROCESSABLE_ENTITY" }, "p.Ala1Val")).toEqual({});
+  it("records other request failures without numbering choices, and rejects malformed choices", () => {
+    expect(refusalAttachmentsFromError(new Error("boom"), "p.Ala1Val")).toEqual({
+      coreFailure: { kind: "request-failed", message: "boom" },
+    });
+    expect(refusalAttachmentsFromError({ code: "UNPROCESSABLE_ENTITY", message: "Invalid query" }, "p.Ala1Val")).toEqual({
+      coreFailure: { kind: "request-failed", message: "Invalid query" },
+    });
     expect(
       refusalAttachmentsFromError({ code: "AMBIGUOUS_PROTEIN_NUMBERING", details: { candidates: "nope" } }, "p.Ala1Val")
     ).toEqual({});

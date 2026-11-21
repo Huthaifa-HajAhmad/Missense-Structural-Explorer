@@ -216,6 +216,30 @@ describe("the composer knows what is already loaded", () => {
     expect(onViewChange).toHaveBeenCalledWith("evidence");
   });
 
+  it("does not mark a rejected query (e.g. PAH p.Gly408Trp residue mismatch) as loaded or offer Open evidence", () => {
+    act(() => {
+      useVariantAnalysisStore.setState({
+        gene: "PAH",
+        variant: "p.Gly408Trp",
+        customGene: "PAH",
+        customVariant: "p.Gly408Trp",
+        analysisState: {
+          isLoading: false,
+          error: "Biophysical predictor data query failed: Wild-type residue mismatch at position 408 for P00439. Expected R, but query specified G (Gly).",
+          result: {
+            analysis: "Biophysical analysis data unavailable.",
+            metadata: { gene: "PAH", variant: "p.Gly408Trp", uniprotId: "P00439", pipelineStages: { core: "error" } },
+          } as any,
+        },
+      });
+    });
+
+    renderPanel({ onViewChange: vi.fn() });
+    expect(screen.queryByTestId("quick-entry-loaded")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open evidence/ })).toBeNull();
+    expect(screen.getByText(/Wild-type residue mismatch at position 408/)).toBeInTheDocument();
+  });
+
   it("matches a typed protein change to the loaded run, however it is spelled", () => {
     act(() => {
       useVariantAnalysisStore.setState({

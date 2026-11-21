@@ -84,7 +84,8 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   /** The PM2 ceiling exists on every classification with a frequency, but the engine only
    *  consulted it where PM2 was reachable: benign-side decisions (BA1/BS1) fired before any
    *  ceiling was read. "Ceiling applied" may only mark a row where that is actually true. */
-  const pm2Reached = criterion.code === "PM2" || criterion.code === "none";
+  const aboveBenignRef = Boolean(criterion.inputs && criterion.inputs.benignAf > FREQ.tooCommonForDisorder);
+  const pm2Reached = (criterion.code === "PM2" || criterion.code === "none") && !aboveBenignRef;
   const standIn = analysisResult.gnomadFrequency?.standIn ?? null;
   const gnomadRelease = evidence.gnomadRelease;
   const ruleFrom = reading.ruleSource.startsWith("gnomAD") && gnomadRelease
@@ -144,7 +145,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
    */
   const cutPoints: ReadonlyArray<{ key: string; code: "BA1" | "BS1" | "PM2"; ceiling?: number; rule: string; meaning: string; tone: string }> = [
     { key: "BA1", code: "BA1", rule: `> ${formatCutPoint(FREQ.standAloneBenign)}`, meaning: "Stand-alone benign · read on FAF95 when gnomAD reports it", tone: "good" },
-    { key: "BS1", code: "BS1", rule: `> ${formatCutPoint(FREQ.tooCommonForDisorder)}`, meaning: "Greater than expected for the disorder · app-defined, not disease-specific", tone: "good" },
+    { key: "BS1", code: "BS1", rule: `> ${formatCutPoint(FREQ.tooCommonForDisorder)}`, meaning: "Greater than expected for the disorder · app-defined, not disease-specific (reference only, not counted)", tone: "good" },
     { key: "PM2-low", code: "PM2", ceiling: FREQ.extremelyRare, rule: `≤ ${formatCutPoint(FREQ.extremelyRare)}`, meaning: "Supporting · lower ceiling: any curated dominant-acting inheritance, or pLI ≥ 0.9 without one", tone: "danger" },
     { key: "PM2-high", code: "PM2", ceiling: FREQ.extremelyRareRecessive, rule: `≤ ${formatCutPoint(FREQ.extremelyRareRecessive)}`, meaning: `Supporting · higher ceiling: curated autosomal recessive only, or pLI < ${FREQ.recessivePlI} without curated inheritance`, tone: "danger" },
   ];
@@ -261,6 +262,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           {cutPoints.map(cp => {
             const appliedCeiling = cp.ceiling !== undefined && pm2Reached && criterion.pm2Ceiling === cp.ceiling;
             const active = criterion.code === cp.code && (cp.ceiling === undefined || appliedCeiling);
+            const bs1ReferenceHit = cp.code === "BS1" && !active && aboveBenignRef && criterion.code !== "BA1";
             return (
               <li key={cp.key} className="rail-cut" data-active={active || undefined}>
                 <span className="ev-tier chip-code" data-tone={active ? cp.tone : "muted"}>{cp.code}</span>
@@ -268,6 +270,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
                 <span className="rail-cut__meaning">
                   {cp.meaning}
                   {active && <span className="rail-cut__here"> · this variant</span>}
+                  {bs1ReferenceHit && <span className="rail-cut__here"> · above reference (not applied)</span>}
                   {!active && appliedCeiling && <span className="rail-cut__here"> · ceiling applied</span>}
                 </span>
               </li>

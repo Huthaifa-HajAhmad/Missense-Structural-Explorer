@@ -107,7 +107,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
   const c = evidence.criterion;
   if (c.af !== null) {
     const candidateStat = c.candidateAlleles && c.inputs
-      ? ((c.code === 'BA1' || c.code === 'BS1') && c.inputs.benignStatistic === 'faf95'
+      ? ((c.code === 'BA1' || c.code === 'BS1' || c.af === c.inputs.benignAf) && c.inputs.benignStatistic === 'faf95'
           ? 'Filtering allele frequency (FAF95)'
           : c.inputs.pm2Statistic === 'group-max' ? 'Ancestry-grouped maximum'
           : c.inputs.pm2Statistic === 'global' ? 'Global maximum'

@@ -85,4 +85,14 @@ describe("extractApiError", () => {
     expect(empty.status).toBe(503);
     expect(empty.message).toContain("503");
   });
+
+  it("extracts Retry-After seconds from HTTP 429 rate-limit responses (missense#18)", async () => {
+    const res = new Response(
+      JSON.stringify({ message: "Too many analysis requests. Please try again after a minute." }),
+      { status: 429, headers: { "content-type": "application/json", "Retry-After": "29" } }
+    );
+    const err = await extractApiError(res, "Rate limited");
+    expect(err.status).toBe(429);
+    expect(err.retryAfterSeconds).toBe(29);
+  });
 });

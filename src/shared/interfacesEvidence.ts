@@ -1373,6 +1373,12 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   const curationFailed = !subunitText && !curationPending && ((input.assemblyStatus === "error" && !asmData) || (input.ppiStatus === "error" && !ppi));
   const partnersFailed = sections.uniprot.state === "failed";
   const stringFailed = sections.stringPhysical.state === "failed";
+  const hasMonomerAndOligomer = statements.some(s => s.kind === "monomer") && statements.some(s => s.kind === "homomer" || s.kind === "heteromer");
+  const curationSub = hasMonomerAndOligomer
+    ? "Conditional assembly: both monomeric and oligomeric states are annotated; complex modelling uses the oligomeric state when applicable."
+    : statements.length > 1
+      ? "Multiple assembly states are annotated; all statements are preserved."
+      : subunitText ? undefined : curationFailed ? "UniProt did not answer, so the assembly statement could not be read." : "Read as not stated, never as a monomer.";
   const trace: TraceStep[] = [
     {
       label: "Curation",
@@ -1381,7 +1387,7 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
         : statements.length
           ? statements.map(s => `${s.label}${s.qualifier ? ` (${s.qualifier.toLowerCase()})` : ""}${s.family ? ` with ${s.family}` : s.partnerGenes.length ? ` with ${s.partnerGenes.join(", ")}` : ""}`).join("; ")
           : curationFailed ? ENGINE_STATE_LABELS["upstream-error"] : subunitText ? "SUBUNIT names no assembly" : "No SUBUNIT record",
-      sub: statements.length > 1 ? "The first statement decides the assembly; the others are shown, not dropped." : subunitText ? undefined : curationFailed ? "UniProt did not answer, so the assembly statement could not be read." : "Read as not stated, never as a monomer.",
+      sub: curationSub,
       state: curationPending ? "pending" : curationFailed ? "failed" : "done",
     },
     {

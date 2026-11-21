@@ -42,6 +42,8 @@ export interface RefusalAttachments {
   buildTrail?: RefusalBuildTrail;
   /** Structured non-missense refusal metadata */
   nonMissenseRefusal?: NonMissenseRefusal;
+  /** Core request failure metadata (network/abort or HTTP 429 rate limit with Retry-After). */
+  coreFailure?: { kind: "rate-limited" | "request-failed"; message: string; retryAfterSeconds?: number };
 }
 
 /** Attachments a refusal asked the UI to render, in the shape every analysis result expects. */
@@ -283,15 +285,35 @@ export function createBiophysicalErrorAnalysisState(
   extra?: RefusalAttachments
 ) {
   const { gene, variant, uniprotId, residueIndex, wildType, mutant, transcriptMeta } = params;
+  const coreFailure = extra?.coreFailure ?? {
+    kind: (/too many.*requests|rate.?limit/i.test(errorMessage) ? "rate-limited" : "request-failed") as "rate-limited" | "request-failed",
+    message: errorMessage || "Unknown error",
+  };
+  const retrySuffix =
+    coreFailure.kind === "rate-limited" && coreFailure.retryAfterSeconds && !/\d+\s*s(ec|econds?)?\b/i.test(errorMessage)
+      ? ` (retry in ${coreFailure.retryAfterSeconds}s)`
+      : "";
+  const errorServiceStatus = {
+    clinvar: "error",
+    predictorData: "error",
+    conservationData: "error",
+    stringInteractions: "error",
+    disruptionPredictor: "error",
+    gnomadConstraint: "error",
+    gnomadFrequency: "error",
+    uniprotFeatures: "error",
+    pdbMapping: "error",
+  };
 
   return {
     isLoading: false,
-    error: `Biophysical predictor data query failed: ${errorMessage || "Unknown error"}`,
+    error: `Biophysical predictor data query failed: ${errorMessage || "Unknown error"}${retrySuffix}`,
     result: {
       analysis: "Biophysical analysis data unavailable.",
       insights: null,
       isDemoData: false,
       ruleBasedInsights: null,
+      serviceStatus: errorServiceStatus,
       metadata: {
         gene,
         variant,
@@ -299,7 +321,10 @@ export function createBiophysicalErrorAnalysisState(
         residueIndex: residueIndex ?? null,
         wildType: wildType || "",
         mutant: mutant || "",
-        analysisVersion: createAnalysisVersion()
+        analysisVersion: createAnalysisVersion(),
+        pipelineStages: { core: "error" },
+        serviceStatus: errorServiceStatus,
+        coreFailure,
       },
       predictorData: null,
       conservationData: null,

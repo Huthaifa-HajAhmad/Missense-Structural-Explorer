@@ -59,6 +59,24 @@ export function singleRuleInput(af: number, statistic: FrequencyStatistic): Freq
 
 export type FrequencyDecision = 'BA1' | 'BS1' | 'PM2' | 'none';
 
+/**
+ * BS1 and BS2 are NOT counted automatically (owner decision, 2026-11-20; HbS regression, missense#13).
+ *
+ * BS1 means "greater than expected for the DISORDER": it needs a condition-specific maximum credible
+ * allele frequency (Whiffin 2017), and the app only has one app-wide cut-point. Counting it made
+ * HbS (HBB p.Glu7Val, ClinVar Pathogenic) Benign: carrier frequency 4.8% in African ancestry sits far
+ * above 1%, yet the allele is pathogenic in the homozygous state. BS2 needs individuals known to be
+ * unaffected, and gnomAD does not phenotype its participants (40 homozygotes for HbS are not healthy
+ * controls). The observed frequencies and counts stay visible; only the criteria are withheld.
+ * `decideFrequencyCriterion` still reports 'BS1' meaning "above the app reference cut-point".
+ */
+export const BS1_COUNTED_AUTOMATICALLY = false;
+export const BS2_COUNTED_AUTOMATICALLY = false;
+export const BS1_NOT_APPLIED_REASON =
+  'BS1 needs a condition-specific maximum credible allele frequency; the app-wide cut-point is not one, so it is shown as a reference and not counted';
+export const BS2_NOT_APPLIED_REASON =
+  'BS2 needs homozygous or hemizygous individuals documented as unaffected; gnomAD does not phenotype its participants, so the count is shown and not counted';
+
 export function decideFrequencyCriterion(
   inputs: FrequencyRuleInputs,
   cut: { standAloneBenign: number; tooCommonForDisorder: number; pm2Ceiling: number },

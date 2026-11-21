@@ -1,4 +1,4 @@
-/**
+﻿/**
  * candidateFrequencyEvidence.ts — the Population tab's reading for a protein-only input that several
  * nucleotide alleles can produce, with gnomAD read once per candidate (`GnomadFrequencyData.candidates`).
  *
@@ -11,7 +11,7 @@
  */
 import type { CandidateAllOfUs, GnomadCandidateReading } from "./contracts.ts";
 import type { FrequencyCriterion } from "./frequencyEvidence.ts";
-import type { FrequencyDecision, FrequencyStatistic } from "./frequencyRule.ts";
+import { BS1_COUNTED_AUTOMATICALLY, BS1_NOT_APPLIED_REASON, type FrequencyDecision, type FrequencyStatistic } from "./frequencyRule.ts";
 import { candidateAlleleLabel, candidateNucleotideChange, decideCandidateFrequency, type CandidateDecision } from "./candidateFrequency.ts";
 import { formatAlleleFrequency, formatCount, formatCutPoint } from "./frequencyFormat.ts";
 import { pm2CeilingFor, type CuratedInheritance } from "./inheritanceBasis.ts";
@@ -162,12 +162,12 @@ function criterionFor(verdict: ReturnType<typeof decideCandidates>, count: numbe
   const absent = verdict.readings.every(r => r.candidate.outcome === "not-found");
   const [headline, clause] =
     verdict.decision === "BA1" ? ["Stand-alone benign", `above the ${formatCutPoint(FREQ.standAloneBenign)} BA1 cut-point`]
-    : verdict.decision === "BS1" ? ["Too common for the disorder", `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point`]
+    : verdict.decision === "BS1" ? ["Above the app's BS1 reference", `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} app-defined BS1 reference, but BS1 is not applied: ${BS1_NOT_APPLIED_REASON}`]
     : verdict.decision === "PM2" ? ["Extremely rare", `at or below the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling under the app-defined policy: ${ceiling.text}`]
     : ["Between the cut-points", `between the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling and the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point, so no frequency criterion applies`];
   const predicate = `${all} is ${clause}; frequencies were not added together`;
   return {
-    ...shared, code: verdict.decision, af, absent, inputs, headline, predicate,
+    ...shared, code: verdict.decision === "BS1" && !BS1_COUNTED_AUTOMATICALLY ? "none" : verdict.decision, af, absent, inputs, headline, predicate,
     statement: `${headline}: ${predicate} (closest to the cut-point: ${candidateAlleleLabel(binding.candidate)} at ${formatAlleleFrequency(af)}).`,
   };
 }

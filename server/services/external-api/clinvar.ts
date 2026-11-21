@@ -7,7 +7,59 @@ import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import { buildClinvarKey } from "../infra/cache-keys.ts";
 import { parseVcvConditions, type ClinVarCondition } from "./clinvar-conditions.ts";
 
+/** The exact allele a record must describe. Only a GRCh38 coordinate can be compared with ClinVar's canonical SPDI. */
+export interface ClinVarAlleleCoordinate {
+  chrom: string;
+  pos: number;
+  ref: string;
+  alt: string;
+  assembly?: string | null;
+}
+
+/** RefSeq GRCh38 chromosome accession → contig name. */
+function contigOfRefSeq(accession: string): string | null {
+  const m = accession.match(/^NC_0000(\d{2})\.\d+$/i);
+  if (m) {
+    const n = Number.parseInt(m[1], 10);
+    if (n >= 1 && n <= 22) return String(n);
+    if (n === 23) return "X";
+    if (n === 24) return "Y";
+  }
+  return /^NC_012920\.\d+$/i.test(accession) ? "MT" : null;
+}
+
+/**
+ * Whether a summary's variation_set describes exactly this allele.
+ * `null` = the summary states no comparable SPDI (cannot verify); true/false otherwise.
+ */
+function entryDescribesAllele(
+  entry: { variation_set?: Array<{ canonical_spdi?: string }> },
+  coordinate: ClinVarAlleleCoordinate
+): boolean | null {
+  const set = entry.variation_set ?? [];
+  let comparable = false;
+  for (const v of set) {
+    const [seq, position, del, ins] = (v.canonical_spdi ?? "").split(":");
+    const contig = seq ? contigOfRefSeq(seq) : null;
+    if (!contig || !/^[ACGT]$/i.test(del ?? "") || !/^[ACGT]$/i.test(ins ?? "")) continue;
+    comparable = true;
+    if (
+      contig === coordinate.chrom.replace(/^chr/i, "").toUpperCase() &&
+      Number.parseInt(position, 10) + 1 === coordinate.pos &&
+      del.toUpperCase() === coordinate.ref.toUpperCase() &&
+      ins.toUpperCase() === coordinate.alt.toUpperCase()
+    ) return true;
+  }
+  return comparable ? false : null;
+}
+
 export interface FetchClinVarOptions {
+  /**
+   * The exact nucleotide allele of this run. A protein change can come from several alleles (FGFR3
+   * p.Gly380Arg: G>A is VCV000016327, G>C is VCV000016328), so the protein name alone must never pick
+   * the record. Part of the cache key.
+   */
+  coordinate?: ClinVarAlleleCoordinate | null;
   originalNotation?: string;
   l1Cache?: LRUCache<string, any>;
   bypassSqlite?: boolean;
@@ -38,6 +90,7 @@ const clinvarSummaryResponseSchema = z.object({
   }).catchall(
     z.object({
       title: z.string().optional(),
+      variation_set: z.array(z.object({ canonical_spdi: z.string().optional() }).passthrough()).optional(),
       germline_classification: z.object({
         description: z.string().optional(),
         last_evaluated: z.string().optional(),
@@ -95,7 +148,8 @@ export async function fetchClinVarData(
 
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = variant.replace(/^p\./i, "").trim();
-  const cacheKey = buildClinvarKey(gene, variant, options.originalNotation);
+  const alleleCoordinate = options.coordinate && (options.coordinate.assembly ?? "GRCh38") === "GRCh38" ? options.coordinate : null;
+  const cacheKey = buildClinvarKey(gene, variant, options.originalNotation, alleleCoordinate);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -250,7 +304,11 @@ export async function fetchClinVarData(
     }
   }
 
-  if (matchingEntries.length === 0) {
+  // Selecting this allele requires a verified match. Other protein matches remain available for PS1.
+  const alleleEntries = alleleCoordinate
+    ? matchingEntries.filter(({ entry }) => entryDescribesAllele(entry, alleleCoordinate) === true)
+    : matchingEntries;
+  if (alleleEntries.length === 0) {
     (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
     return defaultRes;
   }
@@ -261,23 +319,23 @@ export async function fetchClinVarData(
     const cleanNotation = options.originalNotation.trim().toLowerCase();
     const escapedNotation = cleanNotation.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
     const exactRegex = new RegExp(`(?:^|[^a-z0-9])${escapedNotation}(?![a-z0-9*]|fs)`, 'i');
-    let idx = matchingEntries.findIndex(m => exactRegex.test(m.cleanTitle));
+    let idx = alleleEntries.findIndex(m => exactRegex.test(m.cleanTitle));
     if (idx === -1) {
-      idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+      idx = alleleEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
     }
     if (idx !== -1) {
       matchedIdx = idx;
     }
   }
 
-  const { id: matchedId, entry: matchedEntry } = matchingEntries[matchedIdx];
-  const matchedTitle = matchingEntries[matchedIdx].cleanTitle;
+  const { id: matchedId, entry: matchedEntry } = alleleEntries[matchedIdx];
+  const matchedTitle = alleleEntries[matchedIdx].cleanTitle;
   const matchedC = getCodingNotation(matchedTitle);
 
   // Check if there is another entry that is pathogenic/likely pathogenic
   let hasOtherPathogenicVariantSameAA = false;
   for (let i = 0; i < matchingEntries.length; i++) {
-    if (i === matchedIdx) continue;
+    if (matchingEntries[i].id === matchedId) continue;
     // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
     if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
       const otherC = getCodingNotation(matchingEntries[i].cleanTitle);

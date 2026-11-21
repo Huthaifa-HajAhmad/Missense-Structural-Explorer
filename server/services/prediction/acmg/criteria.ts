@@ -14,7 +14,7 @@ import { isNullVariant, isInFrameIndel, isIndelInRepeatRegion } from "./syntax.t
 import type { ACMGItem } from "./classifier.ts";
 import { assessPm1, featureCoversResidue } from "../../../../src/shared/functionalSites.ts";
 import { classifyClinvar } from "../../../../src/shared/clinvarClassification.ts";
-import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
+import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, BS1_NOT_APPLIED_REASON, BS2_NOT_APPLIED_REASON, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
 import type { CuratedLofMechanism } from "../../../../src/shared/lofMechanismBasis.ts";
 import { candidateFrequencyCriteria } from "./candidate-frequency.ts";
@@ -395,10 +395,9 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         reason: `Allele frequency is stand-alone benign (${benignName} ${pct(ruleInputs.benignAf, 3)} > ${pct(FREQ.standAloneBenign, 1)})${fallbackSuffix}${combinedSuffix}.`,
       });
     } else if (decision === "BS1") {
-      criteria.push({
-        code: "BS1",
-        reason: `Allele frequency greater than expected for the disorder (${benignName} ${pct(ruleInputs.benignAf, 3)} > ${pct(FREQ.tooCommonForDisorder, 1)} app-defined cut-point; not a disease-specific maximum credible allele frequency)${fallbackSuffix}${combinedSuffix}.`,
-      });
+      // Above the app-wide reference cut-point, which is not a disease-specific maximum credible allele
+      // frequency: shown, not counted (see BS1_COUNTED_AUTOMATICALLY). The reading stays on the payload.
+      unavailable.push(`BS1 (not applied: ${BS1_NOT_APPLIED_REASON}; ${benignName} ${pct(ruleInputs.benignAf, 3)} > ${pct(FREQ.tooCommonForDisorder, 1)})`);
     } else if (decision === "PM2" && !skipPathogenicComp) {
       criteria.push({
         code: "PM2",
@@ -425,10 +424,10 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     !skipBenignComp
   ) {
     if (bs2Genotype.applies) {
-      criteria.push({
-        code: "BS2",
-        reason: `Observed in homozygous state in ${gnomadFrequency.nHomozygous} individuals in gnomAD general population reference cohort, arguing against fully penetrant severe pathogenic disease causality. gnomAD does not phenotype its participants, and penetrance is not curated here.`
-      });
+      // The count is a reading, not BS2: gnomAD does not phenotype its participants (BS2_COUNTED_AUTOMATICALLY).
+      if (!unavailable.some(u => u.startsWith("BS2"))) {
+        unavailable.push(`BS2 (not applied: ${BS2_NOT_APPLIED_REASON}; ${gnomadFrequency.nHomozygous} homozygotes observed)`);
+      }
     } else if (!unavailable.some(u => u.startsWith("BS2"))) {
       unavailable.push(`BS2 (homozygote count not applied: ${bs2Genotype.reason})`);
     }

@@ -310,6 +310,53 @@ describe("fetchClinVarData", () => {
     });
   });
 
+  describe("exact-allele binding (FGFR3 p.Gly380Arg: G>A is 16327, G>C is 16328)", () => {
+    const entry = (cdna: string, spdi: string, description = "Pathogenic") => ({
+      title: `NM_000142.5(FGFR3):${cdna} (p.Gly380Arg)`,
+      variation_set: [{ canonical_spdi: spdi }],
+      germline_classification: { description, last_evaluated: "2026-06-23", review_status: "x", trait_set: [] },
+      allele_freq_set: [],
+    });
+    const both = () => {
+      const spy = vi.spyOn(global, "fetch");
+      spy.mockResolvedValueOnce({ ok: true, json: async () => ({ esearchresult: { idlist: ["16328", "16327"] } }) } as any);
+      spy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: { uids: ["16328", "16327"],
+          "16328": entry("c.1138G>C", "NC_000004.12:1804391:G:C"),
+          "16327": entry("c.1138G>A", "NC_000004.12:1804391:G:A") } }),
+      } as any);
+      noVariantRecord(spy);
+      return spy;
+    };
+
+    it("returns the record of the requested alternate allele, whatever the search order", async () => {
+      both();
+      const a = await fetchClinVarData("FGFR3", "p.Gly380Arg", { coordinate: { chrom: "4", pos: 1804392, ref: "G", alt: "A", assembly: "GRCh38" } });
+      expect(a.uid).toBe("16327");
+      clearAllCaches(true);
+      both();
+      const c = await fetchClinVarData("FGFR3", "p.Gly380Arg", { coordinate: { chrom: "4", pos: 1804392, ref: "G", alt: "C", assembly: "GRCh38" } });
+      expect(c.uid).toBe("16328");
+    });
+
+    it("does not share a cache entry between the two alleles", async () => {
+      both();
+      await fetchClinVarData("FGFR3", "p.Gly380Arg", { coordinate: { chrom: "4", pos: 1804392, ref: "G", alt: "C", assembly: "GRCh38" } });
+      clearAllCaches(false);
+      both();
+      const a = await fetchClinVarData("FGFR3", "p.Gly380Arg", { coordinate: { chrom: "4", pos: 1804392, ref: "G", alt: "A", assembly: "GRCh38" } });
+      expect(a.uid).toBe("16327");
+    });
+
+    it("withholds a record that states a different allele rather than showing it", async () => {
+      both();
+      const t = await fetchClinVarData("FGFR3", "p.Gly380Arg", { coordinate: { chrom: "4", pos: 1804392, ref: "G", alt: "T", assembly: "GRCh38" } });
+      expect(t.uid).toBeNull();
+      expect(t.classification).toBe("Not found in ClinVar");
+    });
+  });
+
   it("rejects a direct Variation/VCV lookup whose ClinVar gene mismatches the queried gene", async () => {
     const fetchSpy = vi.spyOn(global, "fetch");
     fetchSpy.mockResolvedValueOnce({

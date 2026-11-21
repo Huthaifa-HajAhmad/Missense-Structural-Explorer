@@ -77,7 +77,9 @@ import { settleStagesForStorage } from "./resultMerge";
 //   NMR files. Engine names did not change, so a stored bundle would show the old values as if they were corrected.
 // v4.11 discards bundles from before the local-quality structure choice (STRUCTURE_SELECTION_RULE.md). A stored
 //   bundle would show its old stability values next to a structure fetched under the new choice.
-export const CACHE_VERSION = "v4.11";
+// v4.12 discards bundles written before exact-allele ClinVar binding (missense#16) and HbS BS1/BS2 removal (missense#13).
+// v4.13 discards snapshots with unverified ClinVar selections or missing alternate-allele PS1 evidence.
+export const CACHE_VERSION = "v4.13";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 
