@@ -6,8 +6,8 @@ import { DEFAULT_UI_BIOPHYSICS_CONDITIONS } from "../../shared/biophysicsConditi
  *
  * Both the SettingsContext initializer and resetSettingsToDefault() consume
  * this constant. Previously the defaults literal was duplicated inline in the
- * two code paths and drifted apart (hfToken was missing from both copies,
- * tamarindApiKey from the reset copy), which is how settings could end up
+ * two code paths and drifted apart (tamarindApiKey was missing from the
+ * reset copy), which is how settings could end up
  * undefined after a reset.
  */
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -18,9 +18,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   geminiSessionExpiresAt: 0,
   appApiToken: "",
   biohubApiToken: "",
-  hfToken: "",
   tamarindApiKey: "",
-  gpnApiUrl: "",
   alphagenomeApiKey: "",
   alphagenomeApiUrl: "",
   cameraDuration: 1200,
@@ -55,9 +53,7 @@ export const TRANSIENT_SETTING_KEYS = [
   "geminiSessionExpiresAt",
   "appApiToken",
   "biohubApiToken",
-  "hfToken",
   "tamarindApiKey",
-  "gpnApiUrl",
   "alphagenomeApiKey",
   "alphagenomeApiUrl"
 ] as const;

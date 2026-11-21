@@ -1154,7 +1154,7 @@ export const predictorDataSchema = z.object({
    * REQUIRED TO BE EXPLICIT, and deliberately nullable. The id is produced two ways and they
    * disagree: the Ensembl VEP path queries the GRCh38 host, while the MyVariant.info fallback
    * parses `hit._id`, which is hg19 by default and carries no build marker. Several downstream
-   * sources are single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4, AlphaGenome,
+   * sources are single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4, AlphaGenome,
    * and one SpliceAI service per build), and a wrong-build coordinate does not merely miss —
    * when the other build's base at that numeric position coincides, it scores a DIFFERENT LOCUS
    * and the result is attributed to this variant.
@@ -1403,7 +1403,7 @@ export function generateAtlasUrls(
 export const conservationModelStateSchema = z.enum(["pending", "settled", "timeout"]);
 export type ConservationModelState = z.infer<typeof conservationModelStateSchema>;
 /** The models of the conservation composite; `modelStatus` is keyed by exactly these. */
-export const CONSERVATION_MODEL_KEYS = ["base", "consurf", "spliceai", "spliceProximity", "alphagenome", "gpnStar", "popeve"] as const;
+export const CONSERVATION_MODEL_KEYS = ["base", "consurf", "spliceai", "spliceProximity", "alphagenome", "popeve"] as const;
 export type ConservationModelKey = (typeof CONSERVATION_MODEL_KEYS)[number];
 
 export const conservationDataSchema = z.object({
@@ -1428,9 +1428,6 @@ export const conservationDataSchema = z.object({
   esm1b: z.number().nullable().optional(),
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
-  gpnStar: z.number().nullable().optional(),
-  gpnStarStatus: z.enum(["live", "token_required", "unavailable"]).optional(),
-  gpnStarMessage: z.string().nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),
@@ -1557,7 +1554,13 @@ export const conservationDataSchema = z.object({
    * field means "not yet assessed"; a `timeout` model's null means "not assessed in time". Neither is
    * a measured absence.
    */
-  modelStatus: z.partialRecord(z.enum(CONSERVATION_MODEL_KEYS), conservationModelStateSchema).optional()
+  modelStatus: z
+    .record(z.string(), conservationModelStateSchema)
+    // Stored results can name a model the app has since retired (GPN-MSA's `gpnStar`); keep the rest.
+    .transform((status) => Object.fromEntries(
+      Object.entries(status).filter(([key]) => (CONSERVATION_MODEL_KEYS as readonly string[]).includes(key))
+    ) as Partial<Record<ConservationModelKey, ConservationModelState>>)
+    .optional()
 });
 
 export type PredictorData = z.infer<typeof predictorDataSchema>;

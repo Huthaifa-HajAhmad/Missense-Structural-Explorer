@@ -59,9 +59,7 @@ export interface UserSettings {
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
   biohubApiToken?: string;
-  hfToken?: string;
   tamarindApiKey?: string;
-  gpnApiUrl?: string;
   alphagenomeApiKey?: string;
   alphagenomeApiUrl?: string;
   cameraDuration: number; // e.g., 1200

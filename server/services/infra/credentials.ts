@@ -1,8 +1,8 @@
 /**
  * credentials.ts — which token a remote model call uses, and whose allowance it spends (WP-I4).
  *
- * Biohub (EvolutionaryScale Forge), Hugging Face and Tamarind count calls against the token that made them.
- * The server holds a team token for each (`BIOHUB_API_TOKEN`, `HF_TOKEN`, `TAMARIND_API_KEY`), and a person
+ * Biohub (EvolutionaryScale Forge) and Tamarind count calls against the token that made them.
+ * The server holds a team token for each (`BIOHUB_API_TOKEN`, `TAMARIND_API_KEY`), and a person
  * may bring their own: in the request (Settings → Connections, this browser) or saved to their account
  * (`auth/user-secrets.ts`). {@link resolveCredential} decides, in this order:
  *
@@ -45,14 +45,12 @@ import { LEGACY_OWNER } from "./queue-owners.ts";
 /** The server's team token for each kind, by environment variable in order of preference. */
 const TEAM_ENV: Readonly<Record<CredentialKind, readonly string[]>> = {
   biohub: ["BIOHUB_API_TOKEN", "ESM3_FORGE_API_KEY"],
-  huggingface: ["HF_TOKEN", "HUGGINGFACE_API_KEY"],
   tamarind: ["TAMARIND_API_KEY"],
 };
 
 /** The host each kind's calls count against (the sidecar's calls are governed as this host). */
 export const CREDENTIAL_HOSTS: Readonly<Record<CredentialKind, string>> = {
   biohub: "forge.evolutionaryscale.ai",
-  huggingface: "huggingface.co",
   tamarind: "app.tamarind.bio",
 };
 
@@ -394,7 +392,7 @@ export function credentialForCall(
 /**
  * Run `fn`, a call that reaches `kind`'s provider with `token`, as a governed call to that provider. For
  * calls that leave through the Python sidecar (ESM3, ESMC, ESMFold, ESM-2, SaProt): the request Node makes
- * is to loopback, but with a token the sidecar calls Biohub or Hugging Face, so that is what is counted.
+ * is to loopback, but with a token the sidecar calls Biohub, so that is what is counted.
  * Without a token the sidecar stays local and `fn` runs ungoverned; if that is because the team token was
  * refused, the refusal is reported (unless `noteRefusal: false`: the call would not have used a token).
  */
@@ -429,7 +427,6 @@ export function credentialPolicyHealth(): {
     sharePerHour: teamSharePerHour(),
     teamTokens: {
       biohub: Boolean(teamToken("biohub")),
-      huggingface: Boolean(teamToken("huggingface")),
       tamarind: Boolean(teamToken("tamarind")),
     },
   };

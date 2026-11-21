@@ -37,7 +37,6 @@ function gzf1(overrides: Record<string, any> = {}) {
       gerp: 5.0,
       phylop: 4.91,
       consurf: null,
-      gpnStar: -8.81,
       alphagenome: { status: "live", aviPhred: 26.4, topPercentile: 0.23, topModality: "AlphaMissense", acmgStrength: "PP3_Moderate" },
       source: "Public dbNSFP (dbnsfp.org)",
     },
@@ -171,7 +170,7 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
 
   it("never lets an informational tool vote", () => {
     for (const r of evidence.readings.filter(x => !x.votes)) {
-      expect(["alphagenome", "eigen", "dann", "esm", "gpn_star", "phylop", "gerp", "consurf"]).toContain(r.key);
+      expect(["alphagenome", "eigen", "dann", "esm", "phylop", "gerp", "consurf"]).toContain(r.key);
     }
     const avi = evidence.readings.find(r => r.key === "alphagenome")!;
     expect(avi.callLabel).toBe("Informational");

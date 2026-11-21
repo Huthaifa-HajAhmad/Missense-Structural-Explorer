@@ -34,6 +34,7 @@ export default function App() {
   const { state: consoleState, dispatch: consoleDispatch, pushErrorEntry } = useDevConsole();
   const {
     settings,
+    updateSetting,
     isDark,
     toggleTheme,
     isSettingsOpen,
@@ -87,7 +88,9 @@ export default function App() {
 
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");
-  const [windowSize, setWindowSize] = useState<number>(() => settings.seqScrollStep || 31);
+  // The ribbon width is the Settings value, so a change in either place shows in both at once.
+  const windowSize = settings.seqScrollStep || 31;
+  const setWindowSize = useCallback((size: number) => updateSetting("seqScrollStep", size), [updateSetting]);
   const [activeEvidenceTab, setActiveEvidenceTabRaw] = useState<string>("clinical");
   const setActiveEvidenceTab = useCallback((tab: string) => setActiveEvidenceTabRaw(normalizeEvidenceTab(tab)), []);
   useRetiredEvidenceTabRedirect(masterView, activeEvidenceTab, setActiveEvidenceTabRaw, setMasterView);

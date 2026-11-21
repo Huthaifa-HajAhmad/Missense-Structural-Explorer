@@ -136,7 +136,7 @@ export interface PredictorReading {
     state: "available" | "pending" | "absent";
     label: string | null;
     reason: string | null;
-    action: "configure-alphagenome" | "configure-gpn" | "retry" | null;
+    action: "configure-alphagenome" | "retry" | null;
   };
   source: string;
   knowledgeKey: string | null;
@@ -280,7 +280,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const gerp = finite(cd?.gerp);
   const phylop = finite(cd?.phylop);
   const consurf = finite(cd?.consurf);
-  const gpn = finite(cd?.gpnStar);
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
 
@@ -290,7 +289,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     eigenPhred: eigen,
     dann,
     popeve,
-    gpnStar: gpn,
     alphagenome,
     caddCandidates: candidateCaddList,
     assemblyRefusals: refusals,
@@ -612,48 +610,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       source: "Google DeepMind AlphaGenome",
       knowledgeKey: "alphagenome",
       link: { tab: "alphagenome", label: "Open AlphaGenome" },
-    });
-  }
-  {
-    const status = cd?.gpnStarStatus ?? (gpn !== null ? "live" : null);
-    const gpnAvail = resolveSourceAvailability({
-      source: "gpn-star",
-      refusals,
-      value: gpn,
-      status,
-      message: cd?.gpnStarMessage ?? null,
-      configured: status === "token_required" ? false : undefined,
-    });
-    readings.push({
-      key: "gpn_star",
-      name: "GPN-Star",
-      description: "Genomic language model over a vertebrate alignment.",
-      group: "genome",
-      votes: false,
-      score: gpn,
-      scoreText: fmt(gpn, 2),
-      unit: "LLR",
-      scale: { min: -10, max: 2 },
-      orientation: "lower",
-      cutpoints: {
-        kind: "local",
-        source: null,
-        bands: [],
-        marks: [
-          { value: THRESHOLDS.gpnStar.pathogenic, side: "path", label: "−2.5" },
-          { value: THRESHOLDS.gpnStar.benign, side: "benign", label: "0" },
-        ],
-      },
-      signal: gpn === null ? "unavailable" : "vus",
-      calibrated: null,
-      callLabel: gpn === null ? NO_RESULT : "Informational",
-      callTone: "muted",
-      caveats: [],
-      note: null,
-      availability: statusAware(gpn, "gpnStar", () => fromAvailability(gpnAvail, "configure-gpn")),
-      source: "Song lab GPN-Star",
-      knowledgeKey: "gpn_star",
-      link: null,
     });
   }
   readings.push({

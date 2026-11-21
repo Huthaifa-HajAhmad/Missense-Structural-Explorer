@@ -75,6 +75,12 @@ export interface SearchState {
   copied: boolean;
   history: SearchHistoryItem[];
   /**
+   * The reader's Settings choice for Recents. `save: false` keeps recents in this tab's memory only;
+   * `save: true` also writes them to this browser's localStorage. Settings pushes it in on load and
+   * on every change (see `useStoreSettingsSync`).
+   */
+  historyPolicy: HistoryPolicy;
+  /**
    * Incremented to ask the shell to re-run the current variant. The pipeline lives in the
    * `useVariantAnalysis` hook App owns, so a surface deep in the tree (the Population card, the
    * header's run-state slot) requests the re-run here and App performs it.
@@ -106,8 +112,8 @@ export interface SearchActions {
   setUserDirections: (directions: string) => void;
   setNumberingBasis: (basis: "canonical" | null) => void;
   setCopied: (copied: boolean) => void;
-  setHistory: (history: SearchHistoryItem[] | ((prev: SearchHistoryItem[]) => SearchHistoryItem[])) => void;
-  addToHistory: (item: SearchHistoryItem, maxItems?: number, saveHistory?: boolean) => void;
+  setHistoryPolicy: (policy: HistoryPolicy) => void;
+  addToHistory: (item: SearchHistoryItem) => void;
   /** Ask the shell to re-run the variant on screen (see `rerunNonce`). */
   requestRerun: () => void;
   clearHistory: () => void;
@@ -158,10 +164,30 @@ const initialResidueIndex = (() => {
   return m ? parseInt(m[0], 10) : null;
 })();
 
+const HISTORY_KEY = "variant_search_history";
+/** Keys older builds wrote; cleared with the current one so "Clear history" leaves nothing behind. */
+const LEGACY_HISTORY_KEYS = ["variantHistory", "variantHistoryObfuscated"];
+
+export interface HistoryPolicy {
+  save: boolean;
+  limit: number;
+}
+
+/** Writes recents to localStorage, or removes every stored copy when given `null`. */
+function writeStoredHistory(history: SearchHistoryItem[] | null): void {
+  try {
+    if (history) {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      return;
+    }
+    for (const key of [HISTORY_KEY, ...LEGACY_HISTORY_KEYS]) localStorage.removeItem(key);
+  } catch (_) {}
+}
+
 const loadInitialHistory = (): SearchHistoryItem[] => {
   if (typeof window === "undefined") return [];
   try {
-    const saved = localStorage.getItem("variant_search_history");
+    const saved = localStorage.getItem(HISTORY_KEY);
     return saved ? JSON.parse(saved) : [];
   } catch {
     return [];
@@ -197,6 +223,7 @@ export const createSearchSlice: StateCreator<
   numberingBasis: null,
   copied: false,
   history: loadInitialHistory(),
+  historyPolicy: { save: false, limit: 5 },
   rerunNonce: 0,
 
   setGene: (gene) => set({ gene }),
@@ -235,16 +262,14 @@ export const createSearchSlice: StateCreator<
   setNumberingBasis: (numberingBasis) => set({ numberingBasis }),
   setCopied: (copied) => set({ copied }),
 
-  setHistory: (historyUpdater) => set((state) => {
-    const newHistory = typeof historyUpdater === "function" ? historyUpdater(state.history) : historyUpdater;
-    try {
-      localStorage.setItem("variant_search_history", JSON.stringify(newHistory));
-    } catch (_) {}
-    return { history: newHistory };
+  setHistoryPolicy: (historyPolicy) => set((state) => {
+    const history = state.history.slice(0, historyPolicy.limit);
+    writeStoredHistory(historyPolicy.save ? history : null);
+    return { historyPolicy, history };
   }),
 
-  addToHistory: (item, maxItems = 10, saveHistory = true) => {
-    if (!saveHistory || !item.gene || !item.variant) return;
+  addToHistory: (item) => {
+    if (!item.gene || !item.variant) return;
     set((state) => {
       const filtered = state.history.filter(
         (h) => !(h.gene === item.gene && h.variant === item.variant)
@@ -264,10 +289,8 @@ export const createSearchSlice: StateCreator<
       const withQuery = retained.query === "" ? { ...retained, query: undefined } : retained;
       // An empty accession means "this save did not know it", so the one already stored survives.
       const entry = withQuery.uniprotId || !previous?.uniprotId ? withQuery : { ...withQuery, uniprotId: previous.uniprotId };
-      const updated = [entry, ...filtered].slice(0, maxItems);
-      try {
-        localStorage.setItem("variant_search_history", JSON.stringify(updated));
-      } catch (_) {}
+      const updated = [entry, ...filtered].slice(0, state.historyPolicy.limit);
+      if (state.historyPolicy.save) writeStoredHistory(updated);
       return { history: updated };
     });
   },
@@ -275,9 +298,7 @@ export const createSearchSlice: StateCreator<
   requestRerun: () => set((state) => ({ rerunNonce: state.rerunNonce + 1 })),
 
   clearHistory: () => {
-    try {
-      localStorage.removeItem("variant_search_history");
-    } catch (_) {}
+    writeStoredHistory(null);
     set({ history: [] });
   },
 

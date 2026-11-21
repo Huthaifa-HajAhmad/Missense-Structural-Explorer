@@ -102,17 +102,6 @@ export function evaluateEsm1b(llr: number | null | undefined): PredictorSignal {
   return signalFromCall(calibratedCall("esm1b", llr));
 }
 
-/**
- * GPN-Star has no published clinical cut-point. The −2.5 / 0.0 pair is local and is labelled as
- * such wherever it is drawn; the tool is informational in the concordance.
- */
-export function evaluateGpnStar(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
-  if (score <= THRESHOLDS.gpnStar.pathogenic) return "pathogenic";
-  if (score >= THRESHOLDS.gpnStar.benign) return "benign";
-  return "vus";
-}
-
 /** MetaRNN — the authors' 0.5 cut (Li et al. 2022). Uncalibrated, and its features include gnomAD AF. */
 export function evaluateMetaRnn(score: number | null | undefined): PredictorSignal {
   if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";

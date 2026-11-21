@@ -30,6 +30,8 @@ import { DataStorageSection } from "./sections/DataStorageSection";
 import { AccountSection } from "./sections/AccountSection";
 import { TeamSection } from "./sections/TeamSection";
 import { useOptionalAccount } from "../../context/AccountContext";
+import { resetLossNote } from "./settingsBackup";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 const FOCUSABLE_SELECTOR =
   'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, object, embed, [tabindex="0"], [contenteditable]';
@@ -89,15 +91,14 @@ const SEARCHABLE_SETTINGS: SearchableItem[] = [
   { id: "energy-unit", sectionId: "analysis", sectionLabel: "Analysis", title: "ΔΔG energy unit", description: "Stability free energy in kcal/mol or kJ/mol", keywords: "ddg delta delta g energy unit kcal kj mol stability", anchor: "ΔΔG energy unit" },
   { id: "default-structure", sectionId: "analysis", sectionLabel: "Analysis", title: "Default structure model", description: "AlphaFold2 or ESMFold as primary 3D source", keywords: "alphafold esmfold structure pdb model 3d", anchor: "Structure source" },
   { id: "simulation-conditions", sectionId: "analysis", sectionLabel: "Analysis", title: "Simulation conditions", description: "pH, temperature (°C), and ionic strength (mM) for FoldX", keywords: "ph temperature ionic conditions salt foldx simulation biophysics physiological", anchor: "Simulation conditions" },
-  { id: "auto-alerts", sectionId: "workspace", sectionLabel: "Workspace", title: "Show alert banners automatically", description: "Raises warning and error banners as analysis arrives", keywords: "alerts notifications warnings banners", anchor: "Show alert banners automatically" },
-  { id: "search-history-toggle", sectionId: "workspace", sectionLabel: "Workspace", title: "Save variant search history", description: "Stores recent queries locally (obfuscated at rest)", keywords: "history save recent queries privacy", anchor: "Save variant search history" },
+  { id: "auto-alerts", sectionId: "workspace", sectionLabel: "Workspace", title: "Show alert banners automatically", description: "Banners when a background job fails", keywords: "alerts notifications warnings banners", anchor: "Show alert banners automatically" },
+  { id: "search-history-toggle", sectionId: "workspace", sectionLabel: "Workspace", title: "Save variant search history", description: "Keeps recent searches in this browser between visits", keywords: "history save recent queries privacy", anchor: "Save variant search history" },
   { id: "history-limit", sectionId: "workspace", sectionLabel: "Workspace", title: "History limit", description: "Maximum number of recent queries kept (5–50)", keywords: "history limit max items recent", anchor: "History limit" },
   { id: "gemini-key", sectionId: "connections", sectionLabel: "Connections", title: "Google Gemini API key", description: "Session token for AI clinical interpretation and literature synthesis", keywords: "gemini api key ai token llm clinical interpretation session", anchor: "Google Gemini API key" },
   { id: "app-token", sectionId: "connections", sectionLabel: "Connections", title: "Lab server API token", description: "Authorizes structural mutations and AlphaFold proxies", keywords: "app api token lab server credential auth", anchor: "Application / Lab API token" },
   { id: "forge-token", sectionId: "connections", sectionLabel: "Connections", title: "EvolutionaryScale Forge token", description: "ESMFold2 de novo structures", keywords: "esmfold forge evolutionaryscale biohub token", anchor: "EvolutionaryScale (Forge) token" },
-  { id: "hf-token", sectionId: "connections", sectionLabel: "Connections", title: "Hugging Face access token", description: "GPN-Star inference", keywords: "hugging face hf token gpn inference", anchor: "Hugging Face access token" },
   { id: "alphagenome-key", sectionId: "connections", sectionLabel: "Connections", title: "AlphaGenome Atlas API key", description: "Variant impact scoring and SHAP attributions", keywords: "alphagenome deepmind atlas avi shap splicing key", anchor: "AlphaGenome Atlas API key" },
-  { id: "tamarind-key", sectionId: "connections", sectionLabel: "Connections", title: "Tamarind Bio API key", description: "Remote ThermoMPNN ΔΔG predictions", keywords: "tamarind thermompnn ddg stability remote key", anchor: "Tamarind Bio API key" },
+  { id: "tamarind-key", sectionId: "connections", sectionLabel: "Connections", title: "Tamarind Bio API key", description: "ThermoMPNN cloud fallback", keywords: "tamarind thermompnn ddg stability remote key optional fallback", anchor: "Tamarind Bio API key" },
   { id: "settings-backup", sectionId: "data", sectionLabel: "Data & storage", title: "Settings backup", description: "Export or import preferences JSON file", keywords: "export import backup json restore settings", anchor: "Settings backup" },
   { id: "clear-history", sectionId: "data", sectionLabel: "Data & storage", title: "Clear search history", description: "Remove locally stored variant queries", keywords: "clear delete history queries privacy local", anchor: "Search query history" },
   { id: "purge-cache", sectionId: "data", sectionLabel: "Data & storage", title: "Purge client & server caches", description: "Clear local variant snapshots and compute server caches", keywords: "cache clear purge delete storage disk memory server", anchor: "Pipeline registries" }
@@ -386,10 +387,14 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
     e.preventDefault();
   };
 
+  const resetNote = resetLossNote(settings);
+  // Matches Tailwind's `md:` breakpoint, where the section list turns from a row into a column.
+  const navIsColumn = useMediaQuery("(min-width: 768px)");
+
   const handleResetClick = () => {
     if (!confirmingReset) {
       setConfirmingReset(true);
-      resetTimer.current = window.setTimeout(() => setConfirmingReset(false), 3000);
+      resetTimer.current = window.setTimeout(() => setConfirmingReset(false), 5000);
       return;
     }
     window.clearTimeout(resetTimer.current);
@@ -501,7 +506,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                 <nav
                   role="tablist"
                   aria-label="Settings sections"
-                  aria-orientation="vertical"
+                  aria-orientation={navIsColumn ? "vertical" : "horizontal"}
                   onKeyDown={handleNavKeyDown}
                   className="settings-nav flex md:flex-col gap-0.5 px-3 pb-3 md:pb-4 overflow-x-auto md:overflow-x-visible md:overflow-y-auto"
                 >
@@ -555,8 +560,8 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                         <span className="relative">{section.label}</span>
                         {hasStatusDot && (
                           <span
-                            title="Connection active"
-                            aria-label="Active"
+                            title="Gemini AI synthesis ready"
+                            aria-label="Gemini AI synthesis ready"
                             className="relative ml-auto w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)] shrink-0"
                           />
                         )}
@@ -682,6 +687,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                   >
                     {confirmingReset ? <Check className="w-3.5 h-3.5" /> : <RotateCcw className="w-3.5 h-3.5" />}
                     {confirmingReset ? "Confirm reset" : "Reset defaults"}
+                    {confirmingReset && resetNote && <span className="font-normal">— {resetNote}</span>}
                   </button>
 
                   <button

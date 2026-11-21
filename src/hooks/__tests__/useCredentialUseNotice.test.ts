@@ -16,11 +16,11 @@ describe("X-MSE-Credentials", () => {
     const value = encodeCredentialUse([
       { kind: "biohub", source: "team" },
       { kind: "biohub", source: "own" },
-      { kind: "huggingface", source: "none", refusal: "team-share-used" },
+      { kind: "tamarind", source: "none", refusal: "team-share-used" },
     ]);
     expect(parseCredentialUse(value)).toEqual([
       { kind: "biohub", source: "own" },
-      { kind: "huggingface", source: "none", refusal: "team-share-used" },
+      { kind: "tamarind", source: "none", refusal: "team-share-used" },
     ]);
     expect(parseCredentialUse("nope")).toEqual([]);
     expect(parseCredentialUse('[{"kind":"openai","source":"own"},{"kind":"biohub","source":"stolen"},{"kind":"tamarind","source":"none","refusal":"x"}]')).toEqual([]);
@@ -29,8 +29,8 @@ describe("X-MSE-Credentials", () => {
 
   it("reads as a plain sentence, and says nothing when there is nothing to say", () => {
     expect(credentialUseSentence({ kind: "biohub", source: "own" })).toBe("Biohub ran on your token.");
-    expect(credentialUseSentence({ kind: "huggingface", source: "team" })).toMatch(
-      /^Hugging Face ran on the team token\. Add your own in Settings → Connections/
+    expect(credentialUseSentence({ kind: "tamarind", source: "team" })).toMatch(
+      /^Tamarind ran on the team token\. Add your own in Settings → Connections/
     );
     expect(credentialUseSentence({ kind: "tamarind", source: "none", refusal: "team-share-used" })).toMatch(
       /^Tamarind was not run: you have used your share of the team token this hour\./
@@ -43,7 +43,7 @@ describe("X-MSE-Credentials", () => {
 
 describe("usesToAnnounce", () => {
   const own: CredentialUse = { kind: "biohub", source: "own" };
-  const refused: CredentialUse = { kind: "huggingface", source: "none", refusal: "team-share-used" };
+  const refused: CredentialUse = { kind: "tamarind", source: "none", refusal: "team-share-used" };
 
   it("names each use once per quiet period, and repeats a refusal sooner", () => {
     const shown = new Map<string, number>();

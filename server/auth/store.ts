@@ -131,8 +131,17 @@ export function accountsDb(): DatabaseSync {
   opened.exec("PRAGMA foreign_keys = ON;");
   opened.exec(SCHEMA);
   migrateAgentTokens(opened);
+  purgeRetiredSecrets(opened);
   db = opened;
   return db;
+}
+
+/**
+ * Deletes saved tokens for providers the app no longer calls (Hugging Face, retired with GPN-MSA), so an
+ * unused encrypted secret does not stay in the database. Runs on every open; it is a no-op once done.
+ */
+export function purgeRetiredSecrets(d: DatabaseSync): void {
+  d.prepare("DELETE FROM user_secrets WHERE kind = 'huggingface'").run();
 }
 
 /**

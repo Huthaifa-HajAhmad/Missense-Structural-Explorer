@@ -61,7 +61,7 @@ function getBox64Status(): { hasBox64: boolean; box64Version: string | null } {
 function egressHealth() {
   const pause = providerHealth();
   // This route is public. A host that is not one of the deployment's own providers was chosen by a
-  // person (their own AlphaGenome or GPN server), so it is not named here.
+  // person (their own AlphaGenome server), so it is not named here.
   // A person's own token paused at a provider is that person's business (WP-I4): not listed, not counted.
   const teamPauses = pause.providers.filter(p => !p.hostname.includes("#own:"));
   const named = teamPauses.filter(p => isKnownProviderHost(p.hostname));
@@ -74,7 +74,7 @@ function egressHealth() {
     // Expired cache entries served (`on`) or that would have been (`shadow`) while a provider limited
     // requests, by cache source (WP-I2). Source labels and counts only.
     staleServes: defaultCacheRegistry.staleServeCounts(),
-    // How the team's Biohub, Hugging Face and Tamarind tokens are lent (WP-I4): the policy, the hourly
+    // How the team's Biohub and Tamarind tokens are lent (WP-I4): the policy, the hourly
     // share, and which team tokens exist. No tokens, hashes or per-person counts.
     credentials: credentialPolicyHealth(),
   };
@@ -240,7 +240,6 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
 
     // The same lookup the resolver uses (WP-I4), aliases included.
     const tamarindConfigured = Boolean(teamToken("tamarind"));
-    const hfConfigured = Boolean(teamToken("huggingface"));
 
     const exposeHostDetails =
       !CONFIG.server.isProduction ||

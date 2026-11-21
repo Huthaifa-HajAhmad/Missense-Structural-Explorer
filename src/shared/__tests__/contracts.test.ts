@@ -578,3 +578,13 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.serviceStatus?.pdbMapping).toBe("ok");
   });
 });
+
+describe("conservation model status from older stored results", () => {
+  it("drops a model the app no longer runs instead of rejecting the whole payload", async () => {
+    const { conservationDataSchema } = await import("../contracts");
+    expect(conservationDataSchema.shape.modelStatus.parse({ base: "settled", gpnStar: "pending" }))
+      .toEqual({ base: "settled" });
+    // The score field itself is gone; zod drops unknown keys from the object.
+    expect("gpnStar" in conservationDataSchema.shape).toBe(false);
+  });
+});

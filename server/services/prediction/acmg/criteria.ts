@@ -209,7 +209,6 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       eigenPhred: conservationData?.eigenPhred,
       dann: conservationData?.dann,
       popeve: conservationData?.popeve,
-      gpnStar: conservationData?.gpnStar ?? null,
       alphagenome: conservationData?.alphagenome,
       caddCandidates: predictorData?.locusResolution?.failureKind === "multiple-candidates" ? predictorData.locusResolution.candidates : null,
       // So a source the build gate declined is named in the consensus coverage line rather than

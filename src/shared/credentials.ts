@@ -1,7 +1,7 @@
 /**
  * credentials.ts — whose token a remote model call used, in words a reader understands (WP-I4).
  *
- * Biohub (EvolutionaryScale Forge), Hugging Face and Tamarind each count calls against the token that
+ * Biohub (EvolutionaryScale Forge) and Tamarind each count calls against the token that
  * made them. A person's own token uses their own allowance; without one, the server may lend the team's
  * token, which everyone shares. The server reports which one each response used (`X-MSE-Credentials`) and
  * the client says so after the result, so a reader knows when adding their own token would help the team.
@@ -9,7 +9,7 @@
  * Purity is a boundary requirement: `src/shared` may not import from outside itself.
  */
 
-export const CREDENTIAL_KINDS = ["biohub", "huggingface", "tamarind"] as const;
+export const CREDENTIAL_KINDS = ["biohub", "tamarind"] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 
 /** `own`: the person's token (sent with the request or saved to their account). `team`: the server's. */
@@ -23,7 +23,6 @@ export type SharedTokenFallback = "on" | "limited" | "off";
 
 export const CREDENTIAL_LABELS: Readonly<Record<CredentialKind, string>> = {
   biohub: "Biohub",
-  huggingface: "Hugging Face",
   tamarind: "Tamarind",
 };
 

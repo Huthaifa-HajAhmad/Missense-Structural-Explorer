@@ -18,7 +18,7 @@ the two panels beside it were telling a third and fourth story about the same ru
 The sentence names "Sovereign JapanFold inference engine configured in Settings". There is no engine
 selector in Settings and never has been. `src/components/settings/sections/ConnectionsSection.tsx`
 offers exactly six credentials — Gemini, the lab server token, the EvolutionaryScale (Forge) /
-`biohubApiToken`, Hugging Face, AlphaGenome and Tamarind — and a repo-wide search for "Sovereign" finds
+`biohubApiToken`, Hugging Face (retired 2026-11-21 with GPN-MSA), AlphaGenome and Tamarind — and a repo-wide search for "Sovereign" finds
 only a capability *label* (`server/routes/capabilities.ts`), a telemetry *name*
 (`LiveTelemetryPanel.tsx`) and a code comment about the local Kuhlman-Lab sidecar
 (`server/services/stability/energy-models.ts`).

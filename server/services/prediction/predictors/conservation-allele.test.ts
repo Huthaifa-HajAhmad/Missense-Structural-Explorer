@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   genos: vi.fn(),
   dbnsfpOrg: vi.fn(),
   alphagenome: vi.fn(),
-  gpnByCoordinate: vi.fn(),
 }));
 vi.mock("../../external-api/genos_web.ts", () => ({ queryGenosWebservice: mocks.genos }));
 vi.mock("./dbnsfp-query.ts", () => ({ queryDbnsfpOrg: mocks.dbnsfpOrg }));
@@ -14,11 +13,6 @@ vi.mock("../dbnsfp_local.ts", () => ({
   readLocalDbnsfpVersion: () => "dbNSFP 5.3a",
 }));
 vi.mock("../../external-api/alphagenome-bridge.ts", () => ({ fetchAlphaGenome: mocks.alphagenome }));
-vi.mock("../../external-api/gpn.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../external-api/gpn.ts")>()),
-  fetchGpnStarByCoordinate: mocks.gpnByCoordinate,
-  fetchGpnStarScore: vi.fn(async () => ({ score: null, status: "unavailable" })),
-}));
 
 import { fetchConservationData, fetchConservationDataProgressive } from "./conservation-orchestrator.ts";
 import { clearAllCaches } from "../../infra/cache.ts";
@@ -39,7 +33,6 @@ describe("conservation scores are keyed to the analysed allele", () => {
     mocks.genos.mockResolvedValue(null);
     mocks.dbnsfpOrg.mockResolvedValue(null);
     mocks.alphagenome.mockResolvedValue({ status: "unavailable" });
-    mocks.gpnByCoordinate.mockResolvedValue({ score: null, status: "unavailable" });
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -88,7 +81,6 @@ describe("conservation scores are keyed to the analysed allele", () => {
     await run({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" });
     // Once each, from the progressive enrichment — not a second time from the local-store branch.
     expect(mocks.alphagenome).toHaveBeenCalledTimes(1);
-    expect(mocks.gpnByCoordinate).toHaveBeenCalledTimes(1);
   });
 
   it("asks the local store for the GRCh38 allele, so a protein change with two alleles still resolves", async () => {
@@ -109,7 +101,6 @@ describe("conservation scores are keyed to the analysed allele", () => {
   it("still enriches by coordinate when called directly (no caller to do it)", async () => {
     await fetchConservationData("TP53", "p.Arg273His", null, null, 273, "17-7673802-C-T", null, null, null, null, "GRCh38");
     expect(mocks.alphagenome).toHaveBeenCalledTimes(1);
-    expect(mocks.gpnByCoordinate).toHaveBeenCalledTimes(1);
   });
 
   it("omits aouFrequency when local dbNSFP record has only null AoU fields", async () => {

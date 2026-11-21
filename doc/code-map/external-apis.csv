@@ -36,8 +36,6 @@ gnomad.broadinstitute.org,server/services/prediction/landscape-context.ts
 grch37.rest.ensembl.org,server/services/translation/coordinate-resolver.ts
 grch37.rest.ensembl.org,server/services/translation/liftover.ts
 gtexportal.org,server/services/evidence-context/gtex.ts
-huggingface.co,server/routes/biophysics/stability.ts
-huggingface.co,server/services/external-api/gpn.ts
 missense-resolve.duckdns.org,server/agent/setup-page.ts
 missense-resolve.duckdns.org,server/auth/config.ts
 missense-resolve.duckdns.org,server/express-config.ts

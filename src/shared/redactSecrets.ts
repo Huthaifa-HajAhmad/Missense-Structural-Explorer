@@ -1,4 +1,4 @@
-/** Field names that carry a credential: `apiKey`, `alphagenomeApiKey`, `hfToken`, `password`, ... */
+/** Field names that carry a credential: `apiKey`, `alphagenomeApiKey`, `password`, ... */
 const SECRET_FIELD = /api[-_]?key|token|secret|password|authorization/i;
 
 /**

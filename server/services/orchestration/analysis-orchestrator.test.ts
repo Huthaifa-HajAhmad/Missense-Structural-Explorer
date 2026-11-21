@@ -294,7 +294,6 @@ describe("Analysis Orchestrator Unit Tests", () => {
       clinvar: { classification: "Pathogenic" },
       conservationData: {
         available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12,
-        gpnStar: -0.2, gpnStarStatus: "live",
         // This cached fixture is otherwise fresh even when provider credentials exist in the test env.
         assemblyRefusals: [{ source: "alphagenome", reason: "No verified allele", retryable: false }],
       },
@@ -596,35 +595,6 @@ describe("Analysis Orchestrator Unit Tests", () => {
     expect(write.payload.esm2Eval).toEqual({ llr: -3.8, provenance: "ESM-2 650M (Local)" });
     // The provenance of the numbers the row keeps is still declared, not erased.
     expect(write.modelVersions.models["structural.esm2Eval"]).toBe("ESM-2 650M (Local)");
-  });
-
-  it("should invalidate cached analysis when HF token is provided but cached data lacks GPN-Star", async () => {
-    const cachedPayloadLackingGpn = {
-      metadata: { gene: "PAH", variant: "p.Arg408Trp" },
-      clinvar: { classification: "Pathogenic" },
-      conservationData: {
-        available: true,
-        dann: 0.9,
-        bayesdel: 0.5,
-        clinpred: 0.8,
-        eigenPhred: 12.0,
-        gpnStar: null,
-        gpnStarStatus: "token_required"
-      }
-    };
-    const contextWithHfToken: ParsedVariantContext = {
-      ...baseContext,
-      hfToken: "hf_test_token"
-    };
-    // Stamped with the context that will READ it, so the ONLY reason for the recompute is staleness.
-    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(cachedPayloadLackingGpn, contextWithHfToken), id: "1" });
-
-    const result = await runCoreAnalysis(contextWithHfToken);
-
-    expect(result).toBeDefined();
-    // Cache was invalidated -> fetched fresh core data
-    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
-    expect(fetchCoreVariantData).toHaveBeenCalled();
   });
 
   it("should invalidate stale cache when AlphaGenome API key is provided and cached payload lacks live AlphaGenome score", async () => {
@@ -1004,8 +974,6 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
       revel: 0.8,
       gerp: 4.1,
       phylop: 5.0,
-      gpnStar: -1.1,
-      gpnStarStatus: "live",
       assemblyRefusals: [{ source: "alphagenome", reason: "No verified allele", retryable: false }]
     };
     const withNullCells: any = {
@@ -1029,7 +997,6 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
       predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
       conservationData: {
         available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0,
-        gpnStar: -1.0, gpnStarStatus: "live",
         alphagenome: { status: "unavailable", aviPhred: null, message: "503 upstream timeout" }
       },
       serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }

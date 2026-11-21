@@ -15,7 +15,7 @@ server/auth/password.ts,server,server/agent/agent.test.ts;server/routes/agent.te
 server/auth/principal.ts,server,
 server/auth/providers/password.ts,server,
 server/auth/sessions.ts,server,
-server/auth/store.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/credentials.http.test.ts;server/routes/live-routing.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/services/infra/credentials.test.ts
+server/auth/store.ts,server,server/agent/agent.test.ts;server/auth/retired-secrets.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/credentials.http.test.ts;server/routes/live-routing.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/services/infra/credentials.test.ts
 server/auth/throttle.ts,server,
 server/auth/user-secrets.ts,server,server/routes/credentials.http.test.ts;server/services/infra/credentials.test.ts
 server/config.ts,server,server/routes/health.test.ts;server/routes/state-prewarm-registry.test.ts;server/routes/structure.test.ts;server/services/infra/prewarm-manager.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/stability/foldx/budget.test.ts;server/services/stability/foldx/runner-background-repair.test.ts;server/tests/concurrency-defaults.test.ts;server/tests/denovo-fold-timeout-budget.test.ts;server/tests/foldx-timeout-budget.test.ts;server/tests/sidecar-supervisor.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts
@@ -112,7 +112,6 @@ server/services/external-api/core-data-fetcher.ts,server,server/services/externa
 server/services/external-api/genos_web.ts,server,server/services/external-api/genos_web.test.ts
 server/services/external-api/gnomad-gene-constraint.ts,server,
 server/services/external-api/gnomad.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/external-api/gnomad.test.ts;server/services/external-api/gnomadFrequency.test.ts;server/services/prediction/landscape-context.test.ts
-server/services/external-api/gpn.ts,server,server/services/external-api/evolutionaryscale.test.ts;server/services/external-api/gpn.test.ts
 server/services/external-api/index.ts,barrel,
 server/services/external-api/intact.ts,server,server/services/external-api/ppi.test.ts
 server/services/external-api/japanfold-client.ts,server,server/services/external-api/japanfold-client.test.ts;server/services/external-api/ppi.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/structure/multimer.test.ts
@@ -131,7 +130,6 @@ server/services/foldx.ts,barrel,server/services/stability/foldx.test.ts
 server/services/gemini.ts,barrel,server/routes/biophysics.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
 server/services/genos_web.ts,barrel,
 server/services/gnomad.ts,barrel,server/tests/smoke.test.ts
-server/services/gpn.ts,barrel,
 server/services/http-client.ts,barrel,
 server/services/infra/admission.ts,server,server/services/infra/admission.test.ts;server/services/infra/host-probe.test.ts
 server/services/infra/agent-jobs.ts,server,
@@ -209,7 +207,7 @@ server/services/prediction/landscape.ts,server,server/services/external-api/core
 server/services/prediction/local-population.ts,server,server/services/prediction/local-population.test.ts
 server/services/prediction/predictors/allele-candidates.ts,server,
 server/services/prediction/predictors/allele-identity.ts,server,server/services/prediction/predictors/allele-identity.test.ts
-server/services/prediction/predictors/conservation-orchestrator.ts,server,server/services/prediction/predictors/conservation-allele.test.ts;server/services/prediction/predictors/conservation-streaming.test.ts;server/services/prediction/predictors/predictors-modules.test.ts
+server/services/prediction/predictors/conservation-orchestrator.ts,server,server/services/prediction/predictors/conservation-allele.test.ts;server/services/prediction/predictors/conservation-streaming.test.ts
 server/services/prediction/predictors/consurf-resolver.ts,server,
 server/services/prediction/predictors/dbnsfp-query.ts,server,server/services/prediction/predictors/predictors-modules.test.ts
 server/services/prediction/predictors/index.ts,barrel,

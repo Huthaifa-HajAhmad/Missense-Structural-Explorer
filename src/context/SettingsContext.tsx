@@ -94,7 +94,8 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
     // Scrub any credential that an older release may have persisted in
     // plaintext (tamarindApiKey and hfToken were leaked here historically).
     let needsPersistOnMount = false;
-    for (const key of TRANSIENT_SETTING_KEYS) {
+    // `hfToken` and `gpnApiUrl` belonged to the retired GPN-MSA integration.
+    for (const key of [...TRANSIENT_SETTING_KEYS, "hfToken", "gpnApiUrl"]) {
       if (parsed[key] !== undefined) {
         delete parsed[key];
         if (saved) needsPersistOnMount = true;
@@ -124,9 +125,7 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
       geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
       appApiToken: transient.appApiToken || "",
       biohubApiToken: transient.biohubApiToken || "",
-      hfToken: transient.hfToken || "",
       tamarindApiKey: transient.tamarindApiKey || "",
-      gpnApiUrl: transient.gpnApiUrl || "",
       alphagenomeApiKey: transient.alphagenomeApiKey || "",
       alphagenomeApiUrl: transient.alphagenomeApiUrl || "",
       show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
@@ -306,6 +305,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       biophysicsConditions: { ...DEFAULT_USER_SETTINGS.biophysicsConditions }
     });
     setShowPolarContacts(true);
+    // Theme is stored apart from the other settings but is still a preference a reset returns.
+    setTheme("light");
     try {
       sessionStorage.removeItem(TRANSIENT_STORAGE_KEY);
     } catch (e) {}

@@ -1,14 +1,16 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { clearInvalidApiKey } from "../api/authSession";
 
-type TestId = "biohub" | "hf" | "alphagenome" | "tamarind";
+type TestId = "biohub" | "alphagenome" | "tamarind";
 
 interface TestState {
   testing: boolean;
   status: ValidationStatus | null;
+  /** The key (and, for AlphaGenome, the endpoint) the status describes; once either changes it no longer applies. */
+  testedInput?: string;
 }
 
 const IDLE_TEST: TestState = { testing: false, status: null };
@@ -24,11 +26,6 @@ const ENDPOINTS: Record<TestId, EndpointSpec> = {
     endpoint: "/api/v1/validate-biohub-token",
     payload: (token) => ({ token }),
     emptyMessage: "No Biohub API token entered."
-  },
-  hf: {
-    endpoint: "/api/v1/test-hf-connection",
-    payload: (token) => ({ hfToken: token }),
-    emptyMessage: "No Hugging Face token entered."
   },
   alphagenome: {
     endpoint: "/api/v1/alphagenome/verify-connection",
@@ -55,7 +52,6 @@ export function useApiConnections() {
   const { settings, updateSetting } = useSettings();
   const [tests, setTests] = useState<Record<TestId, TestState>>({
     biohub: IDLE_TEST,
-    hf: IDLE_TEST,
     alphagenome: IDLE_TEST,
     tamarind: IDLE_TEST
   });
@@ -66,6 +62,17 @@ export function useApiConnections() {
     setTests((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   };
 
+  const tokenFor = (id: TestId): string | undefined =>
+    id === "biohub"
+      ? settings.biohubApiToken
+      : id === "tamarind"
+        ? settings.tamarindApiKey
+        : settings.alphagenomeApiKey;
+
+  // What a test result is about. AlphaGenome is tested against a key AND an endpoint.
+  const inputFor = (id: TestId): string =>
+    id === "alphagenome" ? `${settings.alphagenomeApiKey ?? ""}\n${settings.alphagenomeApiUrl ?? ""}` : tokenFor(id) ?? "";
+
   const runTest = useCallback(
     /**
      * `useSaved`: no token is typed in this browser, but one is saved to the account (WP-I4b). The request
@@ -73,21 +80,14 @@ export function useApiConnections() {
      */
     async (id: TestId, opts: { useSaved?: boolean } = {}) => {
       const spec = ENDPOINTS[id];
-      const token =
-        id === "biohub"
-          ? settings.biohubApiToken
-          : id === "hf"
-            ? settings.hfToken
-            : id === "tamarind"
-              ? settings.tamarindApiKey
-              : settings.alphagenomeApiKey;
+      const token = tokenFor(id);
 
       if (!token && !opts.useSaved && !(id === "alphagenome" && settings.alphagenomeApiUrl)) {
-        patchTest(id, { status: { valid: false, message: spec.emptyMessage } });
+        patchTest(id, { status: { valid: false, message: spec.emptyMessage }, testedInput: inputFor(id) });
         return;
       }
 
-      patchTest(id, { testing: true, status: null });
+      patchTest(id, { testing: true, status: null, testedInput: inputFor(id) });
       try {
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (settings.appApiToken) {
@@ -125,6 +125,7 @@ export function useApiConnections() {
           const message =
             (typeof data.error === "object" && data.error?.message) ||
             (typeof data.error === "string" && data.error) ||
+            (res.status !== 401 && data.message) ||
             (res.status === 401
               ? "App authorization failed. Please check your App API Token."
               : "Connection test failed.");
@@ -140,7 +141,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.biohubApiToken, settings.hfToken, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
+    [settings.biohubApiToken, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {
@@ -194,8 +195,18 @@ export function useApiConnections() {
 
   const clearLinkError = useCallback(() => setLinkError(null), []);
 
+  const currentTests = useMemo(() => {
+    const current = { ...tests };
+    for (const id of Object.keys(current) as TestId[]) {
+      if (current[id].status && current[id].testedInput !== inputFor(id)) current[id] = { ...current[id], status: null };
+    }
+    return current;
+    // inputFor reads only the settings listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tests, settings.biohubApiToken, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
+
   return {
-    tests,
+    tests: currentTests,
     runTest,
     linking,
     linkError,

@@ -187,11 +187,6 @@ export const THRESHOLDS = {
     pathogenic: 0.96,
     benign: 0.96,
   },
-  /** Local cut-points — GPN-Star publishes none. Informational only. */
-  gpnStar: {
-    pathogenic: -2.5,
-    benign: 0.0,
-  },
   /**
    * popEVE (Orenbuch et al., Nat Genet 2025). The authors publish two cut-points, both on the
    * deleterious side: ≤ −5.056 "highly deleterious" (99.99% posterior) and ≤ −4.617 "moderately
@@ -467,8 +462,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
   esm1b:
     "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
-  gpnStar:
-    "GPN-Star (Song lab, bioRxiv 2025). Phylogeny-aware genomic language model LLR over a vertebrate alignment. No published clinical cut-point; the −2.5 / 0.0 marks are local. Informational only.",
   metaRnn:
     "MetaRNN (Li 2022). Authors' cut: ≥ 0.5 deleterious. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
   clinPred:

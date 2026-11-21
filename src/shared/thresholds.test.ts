@@ -6,7 +6,6 @@ import {
   evaluatePopEve,
   evaluateBayesdel,
   evaluateEsm1b,
-  evaluateGpnStar,
   evaluateSplicePredictor,
   evaluateAlphaGenomeAvi,
   countPredictorConcordance,
@@ -65,13 +64,6 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateEsm1b(-11.0)).toBe("pathogenic");
       expect(evaluateEsm1b(-8.0)).toBe("vus");
       expect(evaluateEsm1b(-4.0)).toBe("benign");
-    });
-
-    it("should evaluate GPN-Star scores correctly using phylogeny LLR thresholds", () => {
-      expect(evaluateGpnStar(-3.5)).toBe("pathogenic");
-      expect(evaluateGpnStar(-1.2)).toBe("vus");
-      expect(evaluateGpnStar(0.5)).toBe("benign");
-      expect(evaluateGpnStar(null)).toBe("unavailable");
     });
 
     it("applies the splicing rule on SpliceAI alone: >= 0.2 PP3, < 0.1 BP4 (Walker 2023)", () => {
@@ -164,27 +156,6 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       // DANN has no published clinical cut-point: informational, never a call.
       expect(res.signals.dann).toBe("vus");
       expect(res.nPathogenic).toBe(2); // BayesDel 0.25 and ClinPred 0.95 vote; DANN and Eigen do not
-    });
-
-    it("should include GPN-Star as an informational model without skewing voting counts", () => {
-      const res = countPredictorConcordance(
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        {
-          gpnStar: -4.5
-        }
-      );
-
-      expect(res.available).toContain("GPN-STAR");
-      expect(res.signals.gpn_star).toBe("pathogenic");
-      // Must not count toward active voting tallies (informational only)
-      expect(res.nPathogenic).toBe(0);
-      expect(res.nBenign).toBe(0);
-      expect(res.nVus).toBe(0);
     });
 
     it("should list AlphaGenome AVI as informational, never as a vote", () => {

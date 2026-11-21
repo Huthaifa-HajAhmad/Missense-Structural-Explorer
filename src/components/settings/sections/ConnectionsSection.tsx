@@ -4,9 +4,10 @@ import { useApiConnections } from "../../../hooks/useApiConnections";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
 import { SecretInput } from "../ui/SecretInput";
 import { SettingsBlock, SettingsSection } from "../ui/Section";
-import { ChevronRight } from "lucide-react";
 import { clearInvalidApiKey } from "../../../api/authSession";
 import { AccountTokenControls, LastCredentialUse, TokenOwnershipIntro, useSavedSecrets } from "./TokenOwnership";
+import { HowTo, TokenField } from "./connectionParts";
+import { OptionalProviders } from "./OptionalProviders";
 
 /** `ready` is undefined until the server answers; `unchecked` says the check failed, so it is not "Checking…" forever. */
 function ServicePill({ name, ready, detail, unchecked = false }: { name: string; ready: boolean | undefined; detail?: string; unchecked?: boolean }) {
@@ -31,27 +32,6 @@ function ServicePill({ name, ready, detail, unchecked = false }: { name: string;
       </div>
     </div>
   );
-}
-
-function HowTo({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <details className="group">
-      <summary className="flex items-center gap-1.5 cursor-pointer list-none text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary select-none [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
-        {title}
-      </summary>
-      <div className="mt-2 pl-5 text-[12px] leading-relaxed text-cs-text-secondary">{children}</div>
-    </details>
-  );
-}
-
-/**
- * A token field with the notes that belong to it — the saved-to-account strip and the last-request
- * line. The card's hairlines are drawn between token fields, never between a field and its own
- * notes, which otherwise land on the note text and read as a strike-through.
- */
-function TokenField({ children }: { children: React.ReactNode }) {
-  return <div className="settings-token-field">{children}</div>;
 }
 
 export function ConnectionsSection() {
@@ -208,26 +188,6 @@ export function ConnectionsSection() {
           <AccountTokenControls kind="biohub" label="Biohub" browserToken={settings.biohubApiToken || ""} clearBrowserToken={() => updateSetting("biohubApiToken", "")} secrets={secrets} />
           <LastCredentialUse kind="biohub" />
         </TokenField>
-        <TokenField>
-          <SecretInput
-            label="Hugging Face access token"
-            placeholder="Enter HF_TOKEN…"
-            value={settings.hfToken || ""}
-            onChange={(value) => updateSetting("hfToken", value)}
-            description="Enables GPN-Star phylogeny scores via Hugging Face inference."
-            action={{
-              label: "Test connection",
-              busyLabel: "Testing…",
-              busy: tests.hf.testing,
-              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-              disabled: !settings.hfToken?.trim() && !secrets.saved?.huggingface?.readable,
-              run: () => runTest("hf", { useSaved: !settings.hfToken?.trim() })
-            }}
-            status={tests.hf.status}
-          />
-          <AccountTokenControls kind="huggingface" label="Hugging Face" browserToken={settings.hfToken || ""} clearBrowserToken={() => updateSetting("hfToken", "")} secrets={secrets} />
-          <LastCredentialUse kind="huggingface" />
-        </TokenField>
         <SecretInput
           label="AlphaGenome Atlas API key"
           placeholder="Enter ALPHAGENOME_API_KEY…"
@@ -243,40 +203,6 @@ export function ConnectionsSection() {
           }}
           status={tests.alphagenome.status}
         />
-        <TokenField>
-          <SecretInput
-            label="Tamarind Bio API key"
-            placeholder="Enter TAMARIND_API_KEY…"
-            value={settings.tamarindApiKey || ""}
-            onChange={(value) => updateSetting("tamarindApiKey", value)}
-            description="Remote execution and fallback for ThermoMPNN ΔΔG stability predictions on app.tamarind.bio."
-            action={{
-              label: "Test connection",
-              busyLabel: "Testing…",
-              busy: tests.tamarind.testing,
-              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-              disabled: !settings.tamarindApiKey?.trim() && !secrets.saved?.tamarind?.readable,
-              run: () => runTest("tamarind", { useSaved: !settings.tamarindApiKey?.trim() })
-            }}
-            status={tests.tamarind.status}
-          />
-          <AccountTokenControls kind="tamarind" label="Tamarind" browserToken={settings.tamarindApiKey || ""} clearBrowserToken={() => updateSetting("tamarindApiKey", "")} secrets={secrets} />
-          <LastCredentialUse kind="tamarind" />
-        </TokenField>
-        <SettingsBlock className="!py-3">
-          <HowTo title="How to get a Tamarind Bio API key">
-            Visit{" "}
-            <a
-              href="https://app.tamarind.bio/settings/api"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 font-medium text-cs-text-accent hover:opacity-80"
-            >
-              app.tamarind.bio/settings/api
-            </a>{" "}
-            to create an account and generate a key for remote biophysical prediction jobs.
-          </HowTo>
-        </SettingsBlock>
       </SettingsSection>
 
       <SettingsSection
@@ -305,6 +231,8 @@ export function ConnectionsSection() {
           )}
         </SettingsBlock>
       </SettingsSection>
+
+      <OptionalProviders tests={tests} runTest={runTest} secrets={secrets} />
     </div>
   );
 }

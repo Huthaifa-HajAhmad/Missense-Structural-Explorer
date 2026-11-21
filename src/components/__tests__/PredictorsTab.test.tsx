@@ -22,7 +22,9 @@ function gzf1(overrides: Record<string, any> = {}) {
     predictorData: { caddPhred: 29.5, amPathogenicity: 0.835, amClass: "likely_pathogenic" },
     conservationData: {
       revel: 0.234, bayesdel: 0.092, metarnn: 0.767, clinpred: 0.998, eigenPhred: 6.3, dann: 0.999,
-      popeve: -3.931, gerp: 5.0, phylop: 4.91, consurf: null, gpnStar: -8.81,
+      popeve: -3.931, gerp: 5.0, phylop: 4.91, consurf: null,
+      // A result stored before GPN-MSA was retired still carries its score; the tab must ignore it.
+      gpnStar: -8.81,
       alphagenome: { status: "live", aviPhred: 26.4, topPercentile: 0.23, topModality: "AlphaMissense" },
     },
     esmcEval: { llr: -9.55, provenance: "VESM-150M (local sidecar)" },
@@ -56,9 +58,11 @@ describe("PredictorsTab", () => {
     expect(within(groups).queryByRole("button", { name: /ESM-2|VESM|SaProt/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).textContent).toContain("No result");
     // Numeric readings split at the decimal point so the column lines up; states keep the muted "absent" treatment.
-    const gpn = within(groups).getByRole("button", { name: /GPN-Star/ });
-    expect(gpn.querySelector(".prd-dec__int")!.textContent).toBe("-8");
-    expect(gpn.querySelector(".prd-dec__frac")!.textContent).toBe(".81");
+    const eigen = within(groups).getByRole("button", { name: /Eigen/ });
+    expect(eigen.querySelector(".prd-dec__int")!.textContent).toBe("6");
+    expect(eigen.querySelector(".prd-dec__frac")!.textContent).toBe(".30");
+    // GPN-MSA was retired: no row for it, even with an old stored score.
+    expect(within(groups).queryByRole("button", { name: /GPN/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).querySelector("strong[data-state='absent']")).toBeTruthy();
   });
 

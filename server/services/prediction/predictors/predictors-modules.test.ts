@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { safeParseFloat, safeParseInt, toSingleAa, getFirstOrVal } from "./normalizer.ts";
-import { resolveGpnStarScore } from "./conservation-orchestrator.ts";
 import { UNIPROT_ACCESSION_REGEX, getTranscriptsForProtein, transcriptMappingCache } from "./transcript-resolver.ts";
 import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 
@@ -142,16 +141,6 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
         global.fetch = origFetch;
         transcriptMappingCache.clear();
       }
-    });
-  });
-
-  describe("gpn-star score resolver", () => {
-    it("extracts score from varied field conventions", () => {
-      expect(resolveGpnStarScore({ gpn_star: "-1.25" })).toBe(-1.25);
-      expect(resolveGpnStarScore({ gpn: -0.8 })).toBe(-0.8);
-      expect(resolveGpnStarScore({ gpn_msa: ["-2.1"] })).toBe(-2.1);
-      expect(resolveGpnStarScore({ gpnStar: -0.5 })).toBe(-0.5);
-      expect(resolveGpnStarScore({})).toBeNull();
     });
   });
 

@@ -81,7 +81,7 @@ describe("locus outcome reconciliation", () => {
   });
 
   it("coordinate-based source refusals use typed input requirements and preserve value/pending precedence", () => {
-    for (const source of ["alphagenome", "gpn-star", "popEVE", "splice-proximity"] as const) {
+    for (const source of ["alphagenome", "popEVE", "splice-proximity"] as const) {
       const refusals = [{ source, reason: `${source} was not queried: original allele needed.`, retryable: false, inputRequired: true, failureKind: "ambiguous-allele" as const }];
       expect(resolveSourceAvailability({ source, refusals })).toMatchObject({ state: "no-result", action: "provide-allele" });
       expect(resolveSourceAvailability({ source, refusals, value: 0 })).toMatchObject({ state: "available", action: null });

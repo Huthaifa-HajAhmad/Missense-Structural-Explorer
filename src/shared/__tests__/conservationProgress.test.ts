@@ -141,14 +141,14 @@ describe("AlphaGenome re-evaluation touches only AlphaGenome", () => {
   it("replaces the reading and its refusal, and keeps every other model of the current run", () => {
     const current: any = {
       revel: 0.9, spliceai: { max_ds: 0.01 }, alphagenome: { status: "unavailable" },
-      assemblyRefusals: [{ source: "alphagenome", reason: "old" }, { source: "gpn-star", reason: "kept" }],
+      assemblyRefusals: [{ source: "alphagenome", reason: "old" }, { source: "popEVE", reason: "kept" }],
       modelStatus: { base: "settled", alphagenome: "timeout" },
     };
     const merged = mergeAlphaGenomeReevaluation(current, fresh);
     expect(merged.alphagenome?.aviPhred).toBe(40);
     expect(merged.revel).toBe(0.9);
     expect(merged.spliceai?.max_ds).toBe(0.01);
-    expect(merged.assemblyRefusals).toEqual([{ source: "gpn-star", reason: "kept" }, { source: "alphagenome", reason: "fresh" }]);
+    expect(merged.assemblyRefusals).toEqual([{ source: "popEVE", reason: "kept" }, { source: "alphagenome", reason: "fresh" }]);
     // Every model has now answered, so the lifecycle is no longer carried.
     expect(merged.modelStatus).toBeUndefined();
   });

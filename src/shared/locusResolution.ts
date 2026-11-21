@@ -4,7 +4,7 @@
  *
  * WHY THIS MODULE EXISTS
  * ----------------------
- * Every coordinate-keyed source (gnomAD r4, AlphaGenome, GPN-Star, PopEVE, splice geometry) reads
+ * Every coordinate-keyed source (gnomAD r4, AlphaGenome, PopEVE, splice geometry) reads
  * `predictorData.gnomadVariantId` and refuses it unless it is on GRCh38. That id is produced by a
  * ladder: Ensembl VEP by coordinate, then by protein HGVS, then a MyVariant.info fallback whose ids
  * are always GRCh37, lifted onto GRCh38 when it can be verified.

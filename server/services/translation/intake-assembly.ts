@@ -18,7 +18,7 @@
  * canonical build instead makes a GRCh37 and a GRCh38 spelling of one variant converge on the
  * SAME answer — which is what every consumer below this layer already assumes:
  * `ASSEMBLY_SUPPORT` pins eight sources (gnomAD r4, dbNSFP-local, Genos, dbnsfp.org, AlphaGenome,
- * PopEVE, GPN-Star, splice geometry) to GRCh38, and the predictor path already lifts.
+ * PopEVE, splice geometry) to GRCh38, and the predictor path already lifts.
  *
  * WHAT IT DOES NOT DO
  * -------------------

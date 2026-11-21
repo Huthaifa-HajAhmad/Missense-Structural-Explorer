@@ -123,10 +123,8 @@ export function createAnalysisCacheContext(uniprotId: string, settings: CacheCon
     userDirections: opaqueInputIdentity(userDirections.trim()),
     simulationConditions: biophysicsContextOf(settings.biophysicsConditions),
     providerConfiguration: JSON.stringify({
-      hf: Boolean(settings.hfToken),
       biohub: Boolean(settings.biohubApiToken),
       alphagenome: Boolean(settings.alphagenomeApiKey),
-      gpnEndpoint: opaqueInputIdentity(settings.gpnApiUrl || ""),
       alphagenomeEndpoint: opaqueInputIdentity(settings.alphagenomeApiUrl || "")
     })
   };

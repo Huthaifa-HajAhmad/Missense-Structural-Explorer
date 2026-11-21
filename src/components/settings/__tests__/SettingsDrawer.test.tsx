@@ -274,12 +274,12 @@ describe("SettingsDrawer (settings revamp)", () => {
 
     const searchInput = screen.getByPlaceholderText(/search settings/i);
     act(() => searchInput.focus());
-    fireEvent.change(searchInput, { target: { value: "hugging" } });
-    fireEvent.click(screen.getByRole("button", { name: /configure hugging face access token/i }));
+    fireEvent.change(searchInput, { target: { value: "tamarind" } });
+    fireEvent.click(screen.getByRole("button", { name: /configure tamarind bio api key/i }));
 
     expect(screen.getByRole("tab", { name: /connections/i })).toHaveAttribute("aria-selected", "true");
     await waitFor(() => {
-      const row = document.querySelector('[data-setting-title="Hugging Face access token"]');
+      const row = document.querySelector('[data-setting-title="Tamarind Bio API key"]');
       expect(row).toHaveClass("settings-flash");
     });
   });

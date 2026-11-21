@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   local: vi.fn(),
   popeveOnline: vi.fn(),
   alphagenome: vi.fn(),
-  gpnByCoordinate: vi.fn(),
   spliceai: vi.fn(),
 }));
 vi.mock("../../external-api/genos_web.ts", () => ({ queryGenosWebservice: vi.fn(async () => null) }));
@@ -22,11 +21,6 @@ vi.mock("../../external-api/alphagenome-bridge.ts", () => ({ fetchAlphaGenome: m
 vi.mock("../../external-api/spliceai_broad.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../external-api/spliceai_broad.ts")>()),
   fetchSpliceAiBroadOutcome: mocks.spliceai,
-}));
-vi.mock("../../external-api/gpn.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../external-api/gpn.ts")>()),
-  fetchGpnStarByCoordinate: mocks.gpnByCoordinate,
-  fetchGpnStarScore: vi.fn(async () => ({ score: null, status: "unavailable" })),
 }));
 
 import {
@@ -52,7 +46,7 @@ const liveRecord = {
 };
 
 /**
- * The conservation composite used to join dbNSFP, ConSurf, PopEVE, GPN-Star, AlphaGenome and live
+ * The conservation composite used to join dbNSFP, ConSurf, PopEVE, AlphaGenome and live
  * SpliceAI with `Promise.all`, so a SpliceAI answer in two seconds waited for the slowest of them.
  */
 describe("conservation models stream independently", () => {
@@ -61,7 +55,6 @@ describe("conservation models stream independently", () => {
     vi.clearAllMocks();
     mocks.popeveOnline.mockResolvedValue(null);
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
-    mocks.gpnByCoordinate.mockResolvedValue({ score: null, status: "unavailable" });
   });
   afterEach(() => {
     vi.unstubAllGlobals();

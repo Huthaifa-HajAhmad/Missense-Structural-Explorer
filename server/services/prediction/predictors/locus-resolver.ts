@@ -8,7 +8,7 @@
  * shares Ensembl's host and circuit breaker with the VEP queries whose failure is the only reason
  * the fallback runs at all. One Ensembl outage therefore disabled the primary lookup AND its
  * recovery (`liftover.ts` skips itself while the breaker is open), and the run kept an hg19 locus
- * every GRCh38-only source refused: gnomAD r4, AlphaGenome, GPN-Star, PopEVE, splice geometry.
+ * every GRCh38-only source refused: gnomAD r4, AlphaGenome, PopEVE, splice geometry.
  *
  * THE LADDER — every rung independent of the one before it
  * --------------------------------------------------------

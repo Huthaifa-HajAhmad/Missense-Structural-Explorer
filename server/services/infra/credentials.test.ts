@@ -29,7 +29,7 @@ import { coreIdentityOf } from "../orchestration/core-identity.ts";
 
 const TEAM = "team-biohub-token-0123456789";
 const OWN = "own-biohub-token-abcdefghij";
-const ENV_KEYS = ["BIOHUB_API_TOKEN", "ESM3_FORGE_API_KEY", "HF_TOKEN", "TAMARIND_API_KEY", "SHARED_TOKEN_FALLBACK", "SHARED_TOKEN_SHARE_PER_HOUR", "EGRESS_GOVERNOR", "APP_SESSION_SECRET", "EGRESS_PROVIDER_LIMITS_JSON"] as const;
+const ENV_KEYS = ["BIOHUB_API_TOKEN", "ESM3_FORGE_API_KEY", "TAMARIND_API_KEY", "SHARED_TOKEN_FALLBACK", "SHARED_TOKEN_SHARE_PER_HOUR", "EGRESS_GOVERNOR", "APP_SESSION_SECRET", "EGRESS_PROVIDER_LIMITS_JSON"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -158,10 +158,10 @@ describe("the response record", () => {
       noteRefusal("biohub");
       expect(currentCredentialUses()).toEqual([{ kind: "biohub", source: "none", refusal: "team-token-off" }]);
       await governedForCredential("biohub", OWN, async () => 1);
-      await governedForCredential("huggingface", "own-hf-token-123456", async () => 1);
+      await governedForCredential("tamarind", "own-tamarind-key-123456", async () => 1);
       expect(currentCredentialUses()).toEqual([
         { kind: "biohub", source: "own" },
-        { kind: "huggingface", source: "own" },
+        { kind: "tamarind", source: "own" },
       ]);
     });
   });
@@ -273,18 +273,18 @@ describe("changing the user or the token never changes a cache key (property)", 
       for (const token of tokens) {
         if (token) process.env.BIOHUB_API_TOKEN = token;
         else delete process.env.BIOHUB_API_TOKEN;
-        process.env.HF_TOKEN = token ?? "";
+        process.env.TAMARIND_API_KEY = token ?? "";
         expect(runWithEgressOwner(owner, allKeys)).toEqual(baseline);
       }
     }
   });
 
-  it("holds for the core analysis flight key across different Biohub and Hugging Face tokens", () => {
+  it("holds for the core analysis flight key across different Biohub tokens", () => {
     const ctx = { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", originalNotation: "p.Arg408Trp", acmgWeighting: "standard", sequence: "MKV", pos: 408, residueIndex: "408", wildType: "Arg", mutant: "Trp", wt1Letter: "R", mut1Letter: "W" } as any;
     // Two own tokens of the same owner share a flight key; own and team tokens have distinct keys so they never cross-spend.
-    const ownKeys = [OWN, "zz-third-token-000000"].map(t => coreIdentityOf({ ...ctx, hfToken: t, biohubToken: t }).flightKey);
+    const ownKeys = [OWN, "zz-third-token-000000"].map(t => coreIdentityOf({ ...ctx, biohubToken: t }).flightKey);
     expect(new Set(ownKeys).size).toBe(1);
-    const teamKey = coreIdentityOf({ ...ctx, hfToken: TEAM, biohubToken: TEAM }).flightKey;
+    const teamKey = coreIdentityOf({ ...ctx, biohubToken: TEAM }).flightKey;
     expect(teamKey).not.toBe(ownKeys[0]);
   });
 });

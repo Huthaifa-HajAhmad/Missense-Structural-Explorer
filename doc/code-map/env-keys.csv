@@ -99,7 +99,6 @@ GENCC_CONTEXT_PATH,server/services/evidence-context/store.ts
 GENOS_ACCESS_KEY,server/services/external-api/genos_web.ts
 GENOS_EMAIL,server/services/external-api/genos_web.ts
 GIT_COMMIT,server/routes/health.ts
-GPN_API_URL,server/services/external-api/gpn.ts
 HOME,server/services/structure/pocket/java-detector.ts
 HTTP_DEFAULT_TIMEOUT_MS,server/config.ts
 JAPANFOLD_API_KEY,server/config.ts

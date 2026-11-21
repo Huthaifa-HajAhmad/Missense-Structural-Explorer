@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import { z } from "zod";
+import { useRef, useState } from "react";
 import {
+  AlertCircle,
   ArrowUpRight,
   Check,
   Database,
@@ -12,19 +12,14 @@ import {
   Upload
 } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
+import { useOptionalAccount } from "../../../context/AccountContext";
+import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 import { downloadBlob } from "../../../lib/download";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
 import { useAppVersion, versionLabel } from "../../../hooks/useAppVersion";
 import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
-import { DEFAULT_USER_SETTINGS, TRANSIENT_SETTING_KEYS } from "../defaults";
+import { readSettingsBackup, writeSettingsBackup } from "../settingsBackup";
 import { clearClientVariantCache } from "../../../services/pipeline/variantCache";
-import type { UserSettings } from "../../../types";
-
-const IMPORT_SCHEMA = z.object({
-  __type: z.string().optional(),
-  version: z.number().optional(),
-  settings: z.record(z.string(), z.unknown()).optional()
-}).passthrough();
 
 function ActionButton({
   onClick,
@@ -52,95 +47,51 @@ function ActionButton({
 }
 
 export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () => void }) {
-  const { settings, applySettings } = useSettings();
+  const { settings, applySettings, theme, setTheme } = useSettings();
   const { diagnostics, refresh } = useDiagnostics();
   const version = useAppVersion();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [dataStatus, setDataStatus] = useState<string | null>(null);
+  const account = useOptionalAccount();
+  // The server lets an admin purge, or anyone holding the server token (the no-accounts setup).
+  const canPurgeServer = !account?.accountsEnabled || account.user?.role === "admin";
+  const history = useVariantAnalysisStore((s) => s.history);
+  const clearHistory = useVariantAnalysisStore((s) => s.clearHistory);
+
+  const [dataStatus, setDataStatus] = useState<{ message: string; failed: boolean } | null>(null);
   const [confirmServerPurge, setConfirmServerPurge] = useState(false);
   const [confirmHistoryClear, setConfirmHistoryClear] = useState(false);
 
-  const flashStatus = (message: string) => {
-    setDataStatus(message);
-    window.setTimeout(() => setDataStatus(null), 4000);
+  const statusTimer = useRef<number | undefined>(undefined);
+  // Success notes fade; a failure stays until the next action so the reader can act on it. Each new
+  // note cancels the previous note's timer, so an old success cannot clear a newer error.
+  const flashStatus = (message: string, failed = false) => {
+    window.clearTimeout(statusTimer.current);
+    setDataStatus({ message, failed });
+    if (!failed) statusTimer.current = window.setTimeout(() => setDataStatus(null), 4000);
   };
 
-  const historyStats = useMemo(() => {
-    try {
-      const raw = localStorage.getItem("variantHistoryObfuscated")
-        || localStorage.getItem("variant_search_history")
-        || localStorage.getItem("variantHistory")
-        || "";
-      if (!raw) return { count: 0, bytes: "0" };
-
-      let parsed: unknown = null;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        try {
-          parsed = JSON.parse(decodeURIComponent(escape(atob(raw))));
-        } catch {
-          parsed = null;
-        }
-      }
-
-      const count = Array.isArray(parsed) ? parsed.length : 0;
-      const bytes = new Blob([raw]).size;
-      return { count, bytes: (bytes / 1024).toFixed(1) };
-    } catch {
-      return { count: 0, bytes: "0" };
-    }
-  }, [dataStatus]);
-
   const exportSettings = () => {
-    const payload: Record<string, unknown> = {};
-    for (const key of Object.keys(DEFAULT_USER_SETTINGS)) {
-      if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key)) continue;
-      payload[key] = (settings as unknown as Record<string, unknown>)[key];
-    }
-    downloadBlob(
-      "missense-settings.json",
-      "application/json",
-      JSON.stringify({ __type: "missense-settings", version: 1, settings: payload }, null, 2)
-    );
+    downloadBlob("missense-settings.json", "application/json", writeSettingsBackup(settings, theme));
     flashStatus("Settings exported. API tokens and credentials are never included.");
   };
 
   const importSettings = async (file: File) => {
     try {
-      const parsed = IMPORT_SCHEMA.parse(JSON.parse(await file.text()));
-      const incoming = parsed.settings && Object.keys(parsed.settings).length > 0
-        ? parsed.settings
-        : (() => {
-            const { __type: _t, version: _v, settings: _s, ...rest } = parsed as Record<string, unknown>;
-            return rest;
-          })();
-
-      const whitelisted: Partial<UserSettings> = {};
-      const defaultsRecord = DEFAULT_USER_SETTINGS as unknown as Record<string, unknown>;
-      for (const key of Object.keys(DEFAULT_USER_SETTINGS)) {
-        if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key)) continue;
-        const value = incoming[key];
-        if (value === undefined) continue;
-        const expected = defaultsRecord[key];
-        if (typeof expected === "object" && expected !== null) {
-          if (typeof value === "object" && value !== null) {
-            (whitelisted as unknown as Record<string, unknown>)[key] = value;
-          }
-        } else if (typeof value === typeof expected) {
-          (whitelisted as unknown as Record<string, unknown>)[key] = value;
-        }
-      }
-      const applied = Object.keys(whitelisted).length;
+      const backup = readSettingsBackup(await file.text());
+      const applied = Object.keys(backup.settings).length + (backup.theme ? 1 : 0);
+      const skippedNote = backup.skipped.length > 0
+        ? ` Skipped ${backup.skipped.length} with a value this version does not offer: ${backup.skipped.join(", ")}.`
+        : "";
       if (applied === 0) {
-        flashStatus("No recognizable settings found in that file.");
+        flashStatus(`No usable settings found in that file.${skippedNote}`, true);
         return;
       }
-      applySettings(whitelisted);
-      flashStatus(`Imported ${applied} setting${applied === 1 ? "" : "s"} successfully.`);
+      applySettings(backup.settings);
+      if (backup.theme) setTheme(backup.theme);
+      flashStatus(`Imported ${applied} setting${applied === 1 ? "" : "s"}.${skippedNote}`);
     } catch {
-      flashStatus("Import failed — file is not a valid settings export.");
+      flashStatus("Import failed — file is not a valid settings export.", true);
     }
   };
 
@@ -151,14 +102,8 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
       return;
     }
     setConfirmHistoryClear(false);
-    try {
-      localStorage.removeItem("variantHistoryObfuscated");
-      localStorage.removeItem("variant_search_history");
-      localStorage.removeItem("variantHistory");
-      flashStatus("Search history cleared from this browser.");
-    } catch {
-      flashStatus("Could not clear search history.");
-    }
+    clearHistory();
+    flashStatus("Search history cleared from this browser.");
   };
 
   const purgeClientCache = () => {
@@ -184,7 +129,7 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
       flashStatus("All server and client variant caches purged.");
       void refresh();
     } catch (err) {
-      flashStatus(err instanceof Error ? err.message : "Server cache purge failed.");
+      flashStatus(err instanceof Error ? err.message : "Server cache purge failed.", true);
     }
   };
 
@@ -235,7 +180,9 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
       >
         <SettingsRow
           label="Search query history"
-          description={`${historyStats.count} item${historyStats.count === 1 ? "" : "s"} stored locally · ${historyStats.bytes} KB`}
+          description={`${history.length} recent search${history.length === 1 ? "" : "es"} · ${
+            settings.saveHistory ? "saved in this browser" : "kept until you reload"
+          }`}
         >
           <button type="button" onClick={handleClearSearchHistory} className={dangerBtn(confirmHistoryClear)}>
             {confirmHistoryClear ? <Check className="w-3.5 h-3.5" /> : <Eraser className="w-3.5 h-3.5" />}
@@ -254,33 +201,37 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
       </SettingsSection>
 
       {/* ── Server caches ── */}
-      <SettingsSection
-        title="Lab server cache"
-        hint="In-memory, FoldX repacking, and persistent SQLite lookup caches on the compute server."
-      >
-        <SettingsRow
-          label="Pipeline registries"
-          description={
-            totalCached !== null
-              ? `${diagnostics?.cacheDiagnostics ? Object.keys(diagnostics.cacheDiagnostics).length : 0} registries · ${totalCached} cached entries`
-              : "Clear in-memory and disk caches on the lab server."
-          }
+      {canPurgeServer && (
+        <SettingsSection
+          title="Lab server cache"
+          hint="Clears lookup caches, saved FoldX and AI results, and the job list for every user of this server. Jobs that are running lose their status."
         >
-          <button type="button" onClick={purgeServerCaches} className={dangerBtn(confirmServerPurge)}>
-            {confirmServerPurge ? <Check className="w-3.5 h-3.5" /> : <Database className="w-3.5 h-3.5" />}
-            {confirmServerPurge ? "Confirm purge" : "Purge server caches"}
-          </button>
-        </SettingsRow>
-      </SettingsSection>
+          <SettingsRow
+            label="Pipeline registries"
+            description={
+              totalCached !== null
+                ? `${diagnostics?.cacheDiagnostics ? Object.keys(diagnostics.cacheDiagnostics).length : 0} registries · ${totalCached} cached entries`
+                : "Clear in-memory and disk caches on the lab server."
+            }
+          >
+            <button type="button" onClick={purgeServerCaches} className={dangerBtn(confirmServerPurge)}>
+              {confirmServerPurge ? <Check className="w-3.5 h-3.5" /> : <Database className="w-3.5 h-3.5" />}
+              {confirmServerPurge ? "Confirm purge for everyone" : "Purge server caches"}
+            </button>
+          </SettingsRow>
+        </SettingsSection>
+      )}
 
       {dataStatus && (
         <p
-          role="status"
-          aria-live="polite"
+          role={dataStatus.failed ? "alert" : "status"}
+          aria-live={dataStatus.failed ? "assertive" : "polite"}
           className="flex items-center gap-2 rounded-lg border border-cs-border-subtle bg-cs-surface px-3 py-2 text-[12px] text-cs-text-secondary"
         >
-          <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          {dataStatus}
+          {dataStatus.failed
+            ? <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+            : <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+          {dataStatus.message}
         </p>
       )}
 

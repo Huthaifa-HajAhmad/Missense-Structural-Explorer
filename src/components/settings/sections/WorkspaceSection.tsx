@@ -11,37 +11,32 @@ export function WorkspaceSection() {
       <SettingsSection title="Notifications">
         <Switch
           label="Show alert banners automatically"
-          description="Raises warning and error banners as analysis results arrive. Turn off to review issues only from the notification tray."
+          description="Shows a banner when a background job, such as a stability prediction, fails. When off, the failure still shows in its result panel."
           checked={settings.autoShowAlerts}
           onChange={(value) => updateSetting("autoShowAlerts", value)}
         />
       </SettingsSection>
 
-      <SettingsSection title="Search history" hint="History is opt-in and never leaves this device.">
+      <SettingsSection title="Search history" hint="Recent searches never leave this device.">
         <Switch
           label="Save variant search history"
-          description="Stores recent queries locally for autocomplete and quick recall (obfuscated at rest). Off by default for PHI hygiene."
+          description="Keeps recent searches in this browser between visits. When off, recents last only until you reload the page."
           checked={settings.saveHistory}
           onChange={(value) => updateSetting("saveHistory", value)}
         />
-        <div
-          className={`transition-opacity ${settings.saveHistory ? "" : "opacity-50"}`}
-          aria-disabled={!settings.saveHistory || undefined}
-        >
-          <SettingsRow label="History limit" description="Even the highest limit stays well under 50 KB.">
-            <SegmentedControl
-              ariaLabel="History item limit"
-              value={settings.maxHistoryItems}
-              onChange={(value) => updateSetting("maxHistoryItems", value)}
-              options={[
-                { value: 5, label: "5" },
-                { value: 10, label: "10" },
-                { value: 20, label: "20" },
-                { value: 50, label: "50" }
-              ]}
-            />
-          </SettingsRow>
-        </div>
+        <SettingsRow label="History limit" description="How many recent searches to keep.">
+          <SegmentedControl
+            ariaLabel="History item limit"
+            value={settings.maxHistoryItems}
+            onChange={(value) => updateSetting("maxHistoryItems", value)}
+            options={[
+              { value: 5, label: "5" },
+              { value: 10, label: "10" },
+              { value: 20, label: "20" },
+              { value: 50, label: "50" }
+            ]}
+          />
+        </SettingsRow>
       </SettingsSection>
     </div>
   );

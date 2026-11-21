@@ -49,7 +49,7 @@ interface AppViewsProps {
   metricMode: "mean" | "max";
   setMetricMode: React.Dispatch<React.SetStateAction<"mean" | "max">>;
   windowSize: number;
-  setWindowSize: React.Dispatch<React.SetStateAction<number>>;
+  setWindowSize: (size: number) => void;
   classCardTitle: string;
   classCardHeader: string;
   classBorderSec: string;

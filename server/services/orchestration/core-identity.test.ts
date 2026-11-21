@@ -64,10 +64,9 @@ describe("coreIdentityOf", () => {
 
   it("moves with a provider capability, because that changes the evidence", () => {
     const baseKey = coreIdentityOf(base).flightKey;
-    expect(coreIdentityOf({ ...base, hfToken: "hf_x" }).flightKey).not.toBe(baseKey);
     expect(coreIdentityOf({ ...base, biohubToken: "bh_x" }).flightKey).not.toBe(baseKey);
     expect(coreIdentityOf({ ...base, alphagenomeApiKey: "ag_x" }).flightKey).not.toBe(baseKey);
-    expect(coreIdentityOf({ ...base, gpnApiUrl: "https://example.org/gpn" }).flightKey).not.toBe(baseKey);
+    expect(coreIdentityOf({ ...base, alphagenomeApiUrl: "https://example.org/ag" }).flightKey).not.toBe(baseKey);
   });
 
   /**
@@ -75,11 +74,11 @@ describe("coreIdentityOf", () => {
    * differ only in the query string — the case a boolean "a custom endpoint was used" cannot see.
    */
   it("separates two different custom endpoints, including two that differ only in the query", () => {
-    const defaultEndpoint = coreIdentityOf({ ...base, gpnApiUrl: undefined });
-    const endpointA = coreIdentityOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores" });
-    const endpointB = coreIdentityOf({ ...base, gpnApiUrl: "https://gpn.example.org/other" });
-    const tenantA = coreIdentityOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=A" });
-    const tenantB = coreIdentityOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=B" });
+    const defaultEndpoint = coreIdentityOf({ ...base, alphagenomeApiUrl: undefined });
+    const endpointA = coreIdentityOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores" });
+    const endpointB = coreIdentityOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/other" });
+    const tenantA = coreIdentityOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=A" });
+    const tenantB = coreIdentityOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=B" });
 
     for (const identity of [endpointA, endpointB, tenantA, tenantB]) {
       expect(identity.flightKey).not.toBe(defaultEndpoint.flightKey);
@@ -91,20 +90,19 @@ describe("coreIdentityOf", () => {
     // ...and the PERSISTED digest carries the distinction without carrying the URL.
     expect(tenantA.capabilityHash).not.toBe(tenantB.capabilityHash);
     expect(tenantA.capabilityHash).not.toBe(endpointA.capabilityHash);
-    expect(payloadIdentityRecordOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=A" }).capabilityHash)
-      .not.toBe(payloadIdentityRecordOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=B" }).capabilityHash);
+    expect(payloadIdentityRecordOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=A" }).capabilityHash)
+      .not.toBe(payloadIdentityRecordOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=B" }).capabilityHash);
   });
 
   it("shares one run between two DIFFERENT credentials of the same kind (WP-I4), and never embeds either", () => {
-    const withA = coreIdentityOf({ ...base, hfToken: "hf_token_alpha" });
-    const withB = coreIdentityOf({ ...base, hfToken: "hf_token_beta" });
+    const withA = coreIdentityOf({ ...base, biohubToken: "bh_token_alpha" });
+    const withB = coreIdentityOf({ ...base, biohubToken: "bh_token_beta" });
 
     // Whose token asked does not change the answer, so it does not change the key.
     expect(withA.flightKey).toBe(withB.flightKey);
-    expect(coreIdentityOf({ ...base, biohubToken: "bh_a" }).flightKey).toBe(coreIdentityOf({ ...base, biohubToken: "bh_b" }).flightKey);
     for (const key of [withA.flightKey, withB.flightKey, JSON.stringify(withA.capability)]) {
-      expect(key).not.toContain("hf_token_alpha");
-      expect(key).not.toContain("hf_token_beta");
+      expect(key).not.toContain("bh_token_alpha");
+      expect(key).not.toContain("bh_token_beta");
     }
   });
 });
@@ -113,17 +111,14 @@ describe("the persisted identity record", () => {
   it("carries digests and booleans only — never a token, a URL or a key-derived value", () => {
     const context: ParsedVariantContext = {
       ...base,
-      hfToken: "hf_super_secret_value",
       biohubToken: "biohub_super_secret_value",
       alphagenomeApiKey: "ag_super_secret_value",
-      gpnApiUrl: "https://user:password@gpn.example.org/scores?token=embedded_secret",
-      alphagenomeApiUrl: "https://ag.example.org/score?key=embedded_secret"
+      alphagenomeApiUrl: "https://user:password@ag.example.org/score?key=embedded_secret"
     };
 
     const serialized = JSON.stringify(payloadIdentityRecordOf(context));
 
     for (const secret of [
-      "hf_super_secret_value",
       "biohub_super_secret_value",
       "ag_super_secret_value",
       "password",
@@ -175,11 +170,11 @@ describe("checkPayloadCompatibility", () => {
 
   it("refuses a payload resolved against a different endpoint, including a query-only difference", () => {
     const storedForTenantA = {
-      _internal: { coreIdentity: payloadIdentityRecordOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=A" }) }
+      _internal: { coreIdentity: payloadIdentityRecordOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=A" }) }
     };
 
     expect(
-      checkPayloadCompatibility(storedForTenantA, { ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=B" }, "core").compatible,
+      checkPayloadCompatibility(storedForTenantA, { ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=B" }, "core").compatible,
       "a different tenant is a different evidence source"
     ).toBe(false);
     expect(
@@ -187,7 +182,7 @@ describe("checkPayloadCompatibility", () => {
       "the same row must not be replayed against the default endpoint either"
     ).toBe(false);
     expect(
-      checkPayloadCompatibility(storedForTenantA, { ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=A" }, "core").compatible
+      checkPayloadCompatibility(storedForTenantA, { ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=A" }, "core").compatible
     ).toBe(true);
   });
 
@@ -211,7 +206,7 @@ describe("checkPayloadCompatibility", () => {
     const storedWithoutToken = payloadFor(base);
     expect(checkPayloadCompatibility(storedWithoutToken, { ...base, biohubToken: "bh_x" }, "core").compatible).toBe(false);
 
-    const storedWithToken = payloadFor({ ...base, hfToken: "hf_x" });
+    const storedWithToken = payloadFor({ ...base, alphagenomeApiKey: "ag_x" });
     expect(checkPayloadCompatibility(storedWithToken, base, "core").compatible).toBe(false);
   });
 

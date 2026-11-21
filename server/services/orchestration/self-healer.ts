@@ -122,7 +122,6 @@ export function healCachedAnalysisIfPossible(
       nextConservation.spliceai,
       nextConservation.dbscsnv,
       (nextConservation as Record<string, unknown>).consurf,
-      (nextConservation as Record<string, unknown>).gpnStar,
       (nextConservation as Record<string, unknown>).alphagenome
     ].some(v => v != null);
     if (hasAnyConservationMetric || payload.conservationData != null) {

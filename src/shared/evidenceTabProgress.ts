@@ -41,9 +41,9 @@ export function isEvidenceTabLoading(
     // Per model: a streamed SpliceAI or AlphaGenome answer stops its own tab's indicator.
     case "alphagenome": return !result?.conservationData?.alphagenome && isConservationModelPending(result, "alphagenome", isBiophysicalLoading);
     case "splicing": return !result?.conservationData?.spliceai && isConservationModelPending(result, "spliceai", isBiophysicalLoading);
-    // The predictor table also carries PopEVE, GPN-Star and the AVI row, each a model of its own.
+    // The predictor table also carries PopEVE and the AVI row, each a model of its own.
     case "predictors": return pending("predictorData") ||
-      (["base", "popeve", "gpnStar", "alphagenome"] as const).some(model => isConservationModelPending(result, model, isBiophysicalLoading));
+      (["base", "popeve", "alphagenome"] as const).some(model => isConservationModelPending(result, model, isBiophysicalLoading));
     case "structure":
     case "interfaces": return stages?.multimer === "running" || stages?.ppi === "running";
     default: return false;
