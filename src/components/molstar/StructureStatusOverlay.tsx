@@ -71,6 +71,10 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
       const residues = reported ?? p.proteinLength;
       const isLength = isFoldingLengthLimitError(p.deNovoError);
       const isTimeout = isFoldingTimeoutError(p.deNovoError);
+      const isAuthOrKeyError = Boolean(
+        p.deNovoError &&
+        /api key|biohub token|japanfold.*401|401|403|unauthorized/i.test(p.deNovoError)
+      );
       // Only a proven length excess counts: it is what lets the card say the AlphaFold2 view will
       // not hold predicted coordinates either, instead of implying it is the full-length way out.
       const beyondAlphaFold = alphafoldDbCoverage(residues) === "beyond-limit";
@@ -81,9 +85,11 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
           : `Too long for the public ESM Atlas (${ESM_ATLAS_PUBLIC_MAX_AA} aa ceiling)`
         : isTimeout
           ? "De novo folding timed out"
-          : p.deNovoError
-            ? "De novo folding did not return coordinates"
-            : ENGINE_STATE_LABELS["no-result"];
+          : isAuthOrKeyError
+            ? "De novo folding requires a valid API key"
+            : p.deNovoError
+              ? "De novo folding did not return coordinates"
+              : ENGINE_STATE_LABELS["no-result"];
       const body = isTimeout
         ? describeDeNovoFoldTimeout({ residues, verbosity: "detailed" })
         : p.deNovoError ?? "No de novo structure has been produced for this variant.";
@@ -117,10 +123,10 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
               {!isLength && p.onRetryFolding && (
                 <button type="button" className="s3d-btn" onClick={p.onRetryFolding}>Retry folding</button>
               )}
-              {isLength && p.onOpenSettings && (
+              {(isLength || isAuthOrKeyError) && p.onOpenSettings && (
                 <button type="button" className="s3d-btn" onClick={p.onOpenSettings}>
                   <Settings aria-hidden="true" />
-                  Add a Biohub token
+                  {isLength ? "Add an API key" : "Open Connections settings"}
                 </button>
               )}
             </div>

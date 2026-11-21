@@ -6,7 +6,6 @@ api.esmatlas.com,server/services/structure/esmfold.ts
 api.genome.ucsc.edu,server/services/prediction/predictors/locus-resolver.ts
 api.genome.ucsc.edu,server/services/prediction/splice_resolver.ts
 api.japanfold.aiand.com,server/config.ts
-api.japanfold.aiand.com,server/routes/capabilities.ts
 app.tamarind.bio,server/services/stability/energy-models.ts
 biohub.ai,server/routes/structure.ts
 biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts

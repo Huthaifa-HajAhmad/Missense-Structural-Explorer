@@ -81,9 +81,13 @@ describe("GET /capabilities — egress", () => {
   });
 
   it("checks JapanFold at most once a minute, however often the page is read", async () => {
-    await capabilities();
+    const body = await capabilities();
     await capabilities();
     await capabilities();
     expect(japanFoldCalls).toBe(1);
+    const jf = body.engines.find((e: any) => e.id === "japanfold");
+    expect(jf?.details?.keyless).toBe(false);
+    expect(jf?.details?.reachable).toBe(true);
+    expect(typeof jf?.details?.apiKeyConfigured).toBe("boolean");
   });
 });

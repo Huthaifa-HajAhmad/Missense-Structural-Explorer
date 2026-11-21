@@ -142,6 +142,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/structural-align",
   "/validate-biohub-token",
   "/api/v1/validate-biohub-token",
+  "/validate-japanfold-key",
+  "/api/v1/validate-japanfold-key",
   "/test-tamarind-connection",
   "/api/v1/test-tamarind-connection",
   "/biophysics/verify-stability",

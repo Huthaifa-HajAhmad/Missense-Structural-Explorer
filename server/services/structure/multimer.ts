@@ -288,7 +288,7 @@ export async function analyzeMultimerStructure(
   variant: string,
   uniprotId: string,
   signal?: AbortSignal,
-  { model = false, waitMs, handoff = false }: { model?: boolean; waitMs?: number; handoff?: boolean } = {}
+  { model = false, waitMs, handoff = false, japanfoldApiKey }: { model?: boolean; waitMs?: number; handoff?: boolean; japanfoldApiKey?: string | null } = {}
 ): Promise<MultimerAnalysisResult> {
   const planned = await planMultimer(gene, variant, uniprotId, signal);
   if (!planned.ok) return planned.result;
@@ -304,7 +304,7 @@ export async function analyzeMultimerStructure(
   if (!model) return withHandoff({ ...plan.modelled, status: "not-requested" });
 
   try {
-    const outcome = await runBoltz2Multimer(plan.chainSpecs, signal, waitMs ? { waitMs } : undefined);
+    const outcome = await runBoltz2Multimer(plan.chainSpecs, signal, { ...(waitMs ? { waitMs } : {}), ...(japanfoldApiKey ? { apiKey: japanfoldApiKey } : {}) });
 
     if (outcome.status === "done") {
       const boltz = outcome.result;
