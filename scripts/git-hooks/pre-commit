@@ -1,0 +1,33 @@
+#!/bin/sh
+# managed-by: scripts/install-hooks.mjs
+# Option A: fail fast when staged server/src/code-map changes leave doc/code-map/ stale or unstaged.
+set -e
+
+# Git runs hooks from the repo root already. Going there first keeps the paths below
+# correct when someone runs this script by hand from a subfolder.
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+staged=$(git diff --cached --name-only --diff-filter=ACMRTD -- server src doc/code-map)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+if [ ! -d "$repo_root/node_modules/tsx" ]; then
+  exit 0
+fi
+
+if ! npm run --silent map:check; then
+  echo "" >&2
+  echo "Commit blocked: doc/code-map/ is out of date with the staged tree." >&2
+  echo "Run: npm run map && git add doc/code-map/" >&2
+  exit 1
+fi
+
+unstaged_map=$(git diff --name-only -- doc/code-map)
+if [ -n "$unstaged_map" ]; then
+  echo "" >&2
+  echo "Commit blocked: doc/code-map/ has unstaged updates ($unstaged_map)." >&2
+  echo "Stage them before committing: git add doc/code-map/" >&2
+  exit 1
+fi

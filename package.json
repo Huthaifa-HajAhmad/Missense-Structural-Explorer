@@ -20,6 +20,8 @@
     "build:user-admin": "esbuild scripts/user-admin.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/user-admin.cjs",
     "map": "tsx scripts/code-map.ts",
     "map:check": "tsx scripts/code-map.ts --check",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "prepare": "node -e \"try{if(require('fs').existsSync('scripts/install-hooks.mjs'))require('child_process').execFileSync(process.execPath,['scripts/install-hooks.mjs'],{stdio:'inherit'})}catch{}\"",
     "agent": "tsx server/agent/main.ts",
     "build:agent": "esbuild server/agent/main.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/agent/agent.cjs",
     "build:agent-bundle": "tsx scripts/build-agent-bundle.ts",
