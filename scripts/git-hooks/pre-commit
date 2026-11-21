@@ -1,0 +1,30 @@
+#!/bin/sh
+# managed-by: scripts/install-hooks.mjs
+# Option A: fail fast when staged server/src/code-map changes leave doc/code-map/ stale or unstaged.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMRTD -- server src doc/code-map)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+if [ ! -d "$repo_root/node_modules/tsx" ]; then
+  exit 0
+fi
+
+cd "$repo_root"
+if ! npm run --silent map:check; then
+  echo "" >&2
+  echo "Commit blocked: doc/code-map/ is out of date with the staged tree." >&2
+  echo "Run: npm run map && git add doc/code-map/" >&2
+  exit 1
+fi
+
+unstaged_map=$(git diff --name-only -- doc/code-map)
+if [ -n "$unstaged_map" ]; then
+  echo "" >&2
+  echo "Commit blocked: doc/code-map/ has unstaged updates ($unstaged_map)." >&2
+  echo "Stage them before committing: git add doc/code-map/" >&2
+  exit 1
+fi

@@ -13,8 +13,10 @@
 | Which file creates a database table? | `db-tables.csv` |
 
 The tables are exact for the branch you are on, because `npm run lint` fails when they are out of date.
-After you change routes, tests, outside hosts, settings or database tables, run `npm run map` and commit
-`doc/code-map/` with your change. Details, columns and limits: `doc/code-map/README.md`.
+After you change routes, tests, outside hosts, settings or database tables, stage new files first (`git add`),
+then run `npm run map` and commit `doc/code-map/` with your change. A git `pre-commit` hook (installed by
+`npm install` / `npm run hooks:install`) blocks commits with stale or unstaged `doc/code-map/` tables.
+Details, columns and limits: `doc/code-map/README.md`.
 
 ## State machines
 
