@@ -104,6 +104,22 @@ describe("SettingsContext (settings revamp)", () => {
     expect(persisted.maxHistoryItems).toBe(10);
   });
 
+  it("scrubs a retired Biohub token that an older release left in this tab's session storage", () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({ biohubApiToken: "bio-old", tamarindApiKey: "tam-keep" })
+    );
+    let ctx!: ReturnType<typeof useSettings>;
+    renderProbe((c) => (ctx = c));
+    expect(ctx.settings.tamarindApiKey).toBe("tam-keep");
+    expect(sessionStorage.getItem("missenseTransientCredentials")).not.toContain("biohubApiToken");
+    // A later credential write must not bring it back.
+    act(() => ctx.updateSetting("tamarindApiKey", "tam-new"));
+    const stored = JSON.parse(sessionStorage.getItem("missenseTransientCredentials") || "{}");
+    expect(stored.biohubApiToken).toBeUndefined();
+    expect(stored.tamarindApiKey).toBe("tam-new");
+  });
+
   it("reset restores the full defaults object and wipes transient credentials", () => {
     localStorage.setItem("missenseUserSettings", JSON.stringify({ residueColor: "#101010" }));
     sessionStorage.setItem(

@@ -20,8 +20,7 @@ import { drawContextLayer } from "./drawContextLayer";
  *
  * It used to: `customPdbData` was assumed to be an AlphaFold model unless a PDB id happened to be in
  * local state, so crystal temperature factors were drawn with pLDDT colours and cut by the pLDDT
- * filter; and an ESMFold view with no fold loaded fetched the resolver's structure (a crystal entry)
- * and drew it under the ESMFold label.
+ * filter.
  */
 
 export type PlddtFilter = "none" | "50" | "70";
@@ -403,7 +402,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
 
         if (!text) {
-          // Nothing to draw here (an ESMFold view still folding, or with no fold): an empty canvas,
+          // Nothing to draw here (no coordinates yet): an empty canvas,
           // never a stand-in structure under the wrong name.
           isLoadingRef.current = false;
           setLoading(false);

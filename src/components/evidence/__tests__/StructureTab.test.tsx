@@ -13,7 +13,6 @@ function tabProps(overrides: Record<string, unknown> = {}) {
     computedPocket: NAE1_POCKET,
     isPocketLoading: false,
     pocketError: null,
-    active3dModelTab: "alphafold2" as const,
     onRetryPocket: vi.fn(),
     onSelectResidue: vi.fn(),
     onNavigateToView: vi.fn(),

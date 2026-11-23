@@ -16,6 +16,8 @@ dependencies = [
   "biotite>=1.7.1",
   "mini3di",
   "pdb2pqr>=3.8.0",
+  # The FastAPI test client (tools/test_model_server.py) needs it; it used to arrive through `esm`.
+  "httpx>=0.27",
 ]
 
 [[tool.uv.index]]

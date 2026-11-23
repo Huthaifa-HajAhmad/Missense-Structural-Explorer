@@ -171,7 +171,7 @@ is in `doc/AGENT.md`.
 
 ## Provider tokens
 
-Biohub and Tamarind count calls against the token that makes them. With their own token, a
+Tamarind counts calls against the token that makes them. With their own token, a
 person's requests use their own allowance and do not slow the team; without one, the server may lend its team
 token (`SHARED_TOKEN_FALLBACK`, see below), and after each result the app says which one it ran on. A signed-in
 person can save their tokens to their account (Settings → Connections → Save to my account): they are stored
@@ -207,7 +207,7 @@ All optional unless marked. `.env.example` has the same list with comments.
 | `TOOL_BUNDLES_DIR` | `data/tool-bundles` | The team FoldX bundle (doc/AGENT.md). |
 | `AGENT_BUNDLE_DIR` | `data/agent-bundles` | Agent zips offered for download in Settings → Account. |
 | `AGENT_ACCEPTED_FOLDX_VERSIONS`, `AGENT_ACCEPTED_P2RANK_VERSIONS` | none | Comma-separated; refuse computers' results from other versions. |
-| `SHARED_TOKEN_FALLBACK` | `limited` | `on`, `limited`, `off`: lending the team's Biohub and Tamarind tokens to people without their own. |
+| `SHARED_TOKEN_FALLBACK` | `limited` | `on`, `limited`, `off`: lending the team's Tamarind token to people without their own. |
 | `SHARED_TOKEN_SHARE_PER_HOUR` | 60 | Under `limited`: team-token calls per signed-in person, per provider, per hour. |
 
 The startup check refuses to start on an unknown `AUTH_MODE`, a short `ADMIN_SETUP_SECRET` or an

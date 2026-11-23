@@ -104,6 +104,16 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
     }
 
     const transient = readTransientCredentials();
+    // A Biohub token an older release kept for this tab: drop it from the stored copy too, so a later
+    // credential write does not carry it forward.
+    if ("biohubApiToken" in transient) {
+      delete (transient as Record<string, unknown>).biohubApiToken;
+      try {
+        sessionStorage.setItem(TRANSIENT_STORAGE_KEY, JSON.stringify(transient));
+      } catch {
+        // Session storage may be blocked; the token is then not stored either.
+      }
+    }
     // Legacy settings migration: ensure autoZoomOnSelect defaults to false
     // unless explicitly enabled by the user in this version.
     const legacyAutoZoomMigrated = parsed.__autoZoomMigrated === true;

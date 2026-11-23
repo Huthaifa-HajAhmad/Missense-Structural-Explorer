@@ -92,9 +92,6 @@ APP_SESSION_SECRET="generated-32-byte-session-secret"
 # Secret key for sidecar inter-process authentication (optional, auto-generated at startup if left blank)
 SIDECAR_SECRET=""
 
-# Optional token used to authenticate requests to the BioHub ESM3 API
-BIOHUB_API_TOKEN="your_biohub_api_token_here"
-
 # Accounts: start in legacy, create the first admin at /setup, then step to accounts.
 # The full procedure and every related setting are in doc/ACCOUNTS.md.
 AUTH_MODE="legacy"
@@ -170,7 +167,7 @@ and WP-I1):
    holds somewhat more than before.
 
 Team tokens (WP-I4): `SHARED_TOKEN_FALLBACK` (`on`, `limited` or `off`; default `limited`) decides whether a person
-without their own Biohub or Tamarind token may use the server's (`BIOHUB_API_TOKEN`, `TAMARIND_API_KEY`). Under `limited` each signed-in person may make `SHARED_TOKEN_SHARE_PER_HOUR` (default 60)
+without their own Tamarind token may use the server's (`TAMARIND_API_KEY`). Under `limited` each signed-in person may make `SHARED_TOKEN_SHARE_PER_HOUR` (default 60)
 team-token calls per provider per hour; without accounts it behaves like `on`. `/capabilities` shows the policy
 under `egress.credentials`. People can save their own tokens to their account (Settings → Connections); that
 needs `APP_SESSION_SECRET`, and changing it makes saved tokens unreadable until re-entered.

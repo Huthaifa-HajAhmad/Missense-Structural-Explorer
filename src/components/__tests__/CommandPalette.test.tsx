@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
     isRunning: false,
   },
   settings: {
-    settings: { defaultStructureModel: "alphafold" },
+    settings: {},
     isDark: false,
     toggleTheme: vi.fn(),
     setIsSettingsOpen: vi.fn(),
