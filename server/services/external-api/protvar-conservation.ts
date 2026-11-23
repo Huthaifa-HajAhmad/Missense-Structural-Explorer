@@ -12,8 +12,10 @@
  *
  * NUMBERING. The answer carries no reference residue, so it cannot be checked against the variant.
  * The accession is therefore sent as given: an isoform accession (`P04637-2`) is answered with
- * nothing, never with the canonical residue at the same number. `position` must be canonical
- * UniProt numbering, which the analysis pipeline verifies before any engine runs.
+ * nothing, never with the canonical residue at the same number. `position` is read as canonical
+ * UniProt numbering. The pipeline confirms that numbering when it can; when it cannot, the run
+ * continues with a "numbering not verified" warning, after the wild-type residue was matched against
+ * the canonical sequence. In that case this score may describe another residue.
  */
 import { LRUCache } from "lru-cache";
 import { defaultCacheRegistry } from "../infra/cache.ts";
