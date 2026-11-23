@@ -256,21 +256,16 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   const rawVote = insilicoVoteOutcome(concordance);
 
   /**
-   * A salvaged composite (its budget expired) carries `modelStatus`. Two of its models VOTE — the
-   * dbNSFP ensemble and PopEVE — so a vote taken while either is unanswered is a vote over a
-   * known-incomplete ensemble: a missing benign PopEVE turns a 2–2 tie into PP3. The criterion is
-   * withheld, in the same way a timed-out gnomAD withdraws PM2, and the verdict stays revisable on a
-   * re-run. AlphaGenome is informational in the concordance (`isInformationalOnly`) and SpliceAI does
-   * not vote, so their absence cannot change the tally and must not withhold it. The status is read from the
+   * A salvaged composite (its budget expired) carries `modelStatus`. Only one of its models VOTES —
+   * the dbNSFP ensemble — so a vote taken while it is unanswered is a vote over a known-incomplete
+   * ensemble. The criterion is withheld, in the same way a timed-out gnomAD withdraws PM2, and the
+   * verdict stays revisable on a re-run. popEVE and AlphaGenome are informational in the concordance
+   * (`isInformationalOnly`) and SpliceAI does not vote, so their absence cannot change the tally and
+   * must not withhold it. The status is read from the
    * payload, so every producer (stream, healer, structural recompute) applies the same rule.
    */
-  const votingModelStatus = conservationData?.modelStatus;
-  const ensembleIncomplete = Boolean(
-    votingModelStatus && (["base", "popeve"] as const).some(model => {
-      const state = votingModelStatus[model];
-      return state !== undefined && state !== "settled";
-    })
-  );
+  const baseStatus = conservationData?.modelStatus?.base;
+  const ensembleIncomplete = baseStatus !== undefined && baseStatus !== "settled";
   const vote = ensembleIncomplete ? { ...rawVote, code: null } : rawVote;
 
   if (vote.code === "PP3" && !skipPathogenicComp) {

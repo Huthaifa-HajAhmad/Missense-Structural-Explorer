@@ -298,8 +298,9 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               calibrated reference on the tab is the reading ClinGen would apply.
             </li>
             <li>
-              REVEL, BayesDel, CADD and AlphaMissense vote on ClinGen&apos;s calibrated bands. MetaRNN, ClinPred
-              and popEVE vote on their authors&apos; cut-points, which are not calibrated.
+              REVEL, BayesDel, CADD and AlphaMissense vote on ClinGen&apos;s calibrated bands. MetaRNN and ClinPred
+              vote on their authors&apos; cut-points, which are not calibrated. popEVE is shown but not counted: its
+              authors publish no benign cut-point.
             </li>
             <li>
               MetaRNN and ClinPred take gnomAD allele frequency as a feature and are trained on ClinVar:

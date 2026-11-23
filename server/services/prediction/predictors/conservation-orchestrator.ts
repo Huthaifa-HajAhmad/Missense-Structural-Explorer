@@ -111,7 +111,6 @@ export const myVariantResponseSchema = z.object({
       eigen: z.any().optional(),
       dann: z.any().optional(),
       esm1b: z.any().optional(),
-      eve: z.any().optional(),
       aou_ac: z.any().optional(),
       aou_an: z.any().optional(),
       aou_het: z.any().optional(),
@@ -607,13 +606,9 @@ export async function fetchConservationData(
                 esm1bPred = typeof ep === "string" ? ep : null;
               }
 
+              // EVE is never a stand-in for popEVE: EVE runs 0 to 1 (higher = harmful), popEVE is a
+              // negative proteome-wide scale.
               let finalPopEVE = popEVEScore;
-              if (isExactMatch && finalPopEVE === null && dbnsfp.eve?.score !== undefined) {
-                let eVal = dbnsfp.eve.score;
-                if (Array.isArray(eVal)) eVal = eVal[0];
-                const parsed = safeParseFloat(eVal);
-                if (parsed !== null) finalPopEVE = parsed;
-              }
               // When the progressive caller owns enrichment, it already started the online
               // protein-file lookup; asking again here races it (the resolver caches only after a
               // response, so both requests would go out). Its result is merged as `parts.popeve`.

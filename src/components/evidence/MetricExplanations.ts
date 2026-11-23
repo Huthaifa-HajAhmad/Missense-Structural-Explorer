@@ -17,11 +17,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Ioannidis et al. Am J Hum Genet (2016)",
     paperUrl: "https://doi.org/10.1016/j.ajhg.2016.08.016",
   },
-  eve: {
-    name: "EVE Model",
-    paperTitle: "Frazer et al. Nature (2021)",
-    paperUrl: "https://doi.org/10.1038/s41586-021-04043-8",
-  },
   foldx: {
     name: "FoldX ddG",
     paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",

@@ -15,7 +15,6 @@ export const EXPLANATION_TEACHING: Record<string, TeachingFigure> = {
   revel: flow('Multiple missense predictor annotations.', 'Combine the annotations in an ensemble model.', 'One REVEL score. Its components are not extra independent evidence.'),
   bayesdel: flow('Predictive annotations in the noAF model, without an allele-frequency feature.', 'Combine the annotations using the BayesDel method.', 'A noAF score; use the calibration for that version.'),
   cadd: flow('Conservation and other genomic annotations.', 'Score the substitution and rank it in the method’s reference distribution.', 'A PHRED-scaled rank, distinct from the raw model score.'),
-  eve: flow('An alignment of related protein sequences.', 'Learn the sequence family’s patterns of variation.', 'An evolutionary variant-effect score and source classifications where provided.'),
   popeve: flow('Evolutionary model outputs and human population information.', 'Place scores on a proteome-wide scale.', 'A deleteriousness ranking; crossing neither deleterious mark does not create a benign call.'),
   metarnn: flow('Predictor scores, conservation and population-frequency features.', 'Apply a neural ensemble trained using clinical variant labels.', 'An author-defined deleteriousness score with overlapping evidence inputs.'),
   clinpred: flow('Variant annotations and population-frequency features.', 'Apply an ensemble trained on clinical variant labels.', 'A predicted class score; inspect overlap with ClinVar and frequency evidence.'),

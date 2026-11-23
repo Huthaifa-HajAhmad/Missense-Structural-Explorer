@@ -45,10 +45,11 @@ import { fmtPercentAbove } from "./alphagenomeEvidence.ts";
 /** The canonical absence word — the engine-status vocabulary, not a local synonym. */
 const NO_RESULT = ENGINE_STATE_LABELS["no-result"];
 
-export type PredictorGroup = "vote" | "protein-lm" | "genome" | "conservation";
+export type PredictorGroup = "vote" | "severity" | "protein-lm" | "genome" | "conservation";
 
 export const PREDICTOR_GROUP_LABEL: Record<PredictorGroup, string> = {
   vote: "Voting tools",
+  severity: "Cross-gene severity",
   "protein-lm": "Protein language models",
   genome: "Genome-wide models",
   conservation: "Conservation",
@@ -56,6 +57,7 @@ export const PREDICTOR_GROUP_LABEL: Record<PredictorGroup, string> = {
 
 export const PREDICTOR_GROUP_NOTE: Record<PredictorGroup, string> = {
   vote: "Counted by the PP3/BP4 rule",
+  severity: "Informational · not counted",
   "protein-lm": "Informational · not counted",
   genome: "Informational · not counted",
   conservation: "Constraint, not pathogenicity · not counted",
@@ -513,8 +515,8 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       key: "popeve",
       name: "popEVE",
       description: "EVE and ESM-1v on one proteome-wide scale, calibrated with human population data.",
-      group: "vote",
-      votes: true,
+      group: "severity",
+      votes: false,
       score: popeve,
       scoreText: fmt(popeve, 3),
       unit: null,
@@ -771,7 +773,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
 
 /** Readings grouped for the table, in display order. Empty groups are dropped. */
 export function groupReadings(readings: PredictorReading[]): Array<{ group: PredictorGroup; rows: PredictorReading[] }> {
-  const order: PredictorGroup[] = ["vote", "protein-lm", "genome", "conservation"];
+  const order: PredictorGroup[] = ["vote", "severity", "protein-lm", "genome", "conservation"];
   return order
     .map(group => ({ group, rows: readings.filter(x => x.group === group) }))
     .filter(g => g.rows.length > 0);
@@ -959,6 +961,11 @@ function noCriterion(vote: InsilicoVoteOutcome): string {
 export type InformationalGroup = Exclude<PredictorGroup, "vote">;
 
 export const INFORMATIONAL_FAMILY: Record<InformationalGroup, { what: string; why: string; read: string }> = {
+  severity: {
+    what: "popEVE places every possible missense change in the human proteome on one scale, so a variant can be compared with variants in other genes. It combines an evolutionary model (EVE) and a protein language model (ESM-1v), adjusted with human population data.",
+    why: "Its authors publish cut-points for deleterious changes only, so in a count it could add pathogenic votes but never a benign one. It also uses population data, which PM2 and BS1 already count.",
+    read: "More negative means more severe. At or below −4.617 the authors call the change deleterious, and at or below −5.056 highly deleterious. A score above these is not a benign call.",
+  },
   "protein-lm": {
     what: "Trained on millions of natural protein sequences to learn which amino acids evolution tolerates at each position. The score is a log-likelihood ratio (LLR): how much less likely the substituted residue is than the original.",
     why: "ESM1b has a published evidence calibration, but ClinGen has not adopted any language model for PP3/BP4, so it is not counted.",
@@ -990,7 +997,7 @@ export interface InformationalFamilySummary {
 }
 
 export function informationalSummary(evidence: PredictorEvidence): InformationalFamilySummary[] {
-  const groups: InformationalGroup[] = ["protein-lm", "genome", "conservation"];
+  const groups: InformationalGroup[] = ["severity", "protein-lm", "genome", "conservation"];
   return groups
     .map(group => {
       const readings = evidence.readings.filter(r => r.group === group);

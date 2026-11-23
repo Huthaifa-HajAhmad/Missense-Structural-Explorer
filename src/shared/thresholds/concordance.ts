@@ -141,6 +141,12 @@ export function countPredictorConcordance(
       name: "popEVE",
       signal: evaluatePopEve(extra?.popeve),
       scoreLabel: extra?.popeve !== null && extra?.popeve !== undefined ? `${extra.popeve.toFixed(3)}` : "—",
+      /**
+       * Informational. popEVE publishes deleterious cut-points only, so in a count it could add
+       * pathogenic votes but never a benign one, which pushed the count toward PP3. It is also
+       * trained with human population data, which PM2/BS1 already use.
+       */
+      isInformationalOnly: true,
     },
     {
       key: "alphagenome",

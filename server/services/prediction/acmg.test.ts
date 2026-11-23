@@ -102,7 +102,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(pp3?.reason).not.toContain("agree");
   });
 
-  it("should respect popEVE scores in ACMG PP3/BP4 concordance calculations", () => {
+  it("shows popEVE beside the PP3/BP4 vote without counting it", () => {
     const res = computeRuleBasedACMG({
       gene: "GBA1",
       variant: "p.Asn370Ser",
@@ -119,11 +119,22 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
         popeve: -3.775,
       }
     });
-    // −3.775 is above popEVE's published −4.617 cut-point, so it is indeterminate, not pathogenic.
+    // popEVE publishes no benign cut-point, so it can only ever add pathogenic votes: it is shown, not counted.
     const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
     expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("2/4 predictors agree");
-    expect(pp3?.reason).toContain("indeterminate: popEVE -3.775");
+    expect(pp3?.reason).toContain("2/3 predictors agree");
+    expect(pp3?.reason).toContain("Informational, not counted: popEVE -3.775");
+  });
+
+  it("does not let a deleterious popEVE break a tie toward PP3", () => {
+    const res = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      clinvar: null,
+      predictorData: { available: true, caddPhred: 26 },
+      conservationData: { available: true, revel: 0.1, popeve: -5.2 },
+    });
+    expect(res.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(false);
   });
 
   it("should respect acmgWeighting parameter (conservative & strict-structural modes)", () => {
@@ -669,12 +680,12 @@ describe("PP3/BP4 over a salvaged conservation composite", () => {
     expect(run({ base: "settled", popeve: "settled", alphagenome: "settled" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
   });
 
-  it.each(["base", "popeve"])("withholds PP3 when %s timed out, because the ensemble is incomplete", (model) => {
-    const res = run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" });
+  it("withholds PP3 when the dbNSFP ensemble timed out, because the vote is incomplete", () => {
+    const res = run({ base: "timeout", popeve: "settled", alphagenome: "settled" });
     expect(res.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(false);
   });
 
-  it.each(["spliceai", "alphagenome"])("is unaffected by a non-voting model (%s) that timed out", (model) => {
+  it.each(["spliceai", "alphagenome", "popeve"])("is unaffected by a non-voting model (%s) that timed out", (model) => {
     expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
   });
 });

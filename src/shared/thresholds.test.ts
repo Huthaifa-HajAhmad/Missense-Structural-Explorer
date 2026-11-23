@@ -114,8 +114,8 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
   });
 
   describe("Predictor Concordance Counts", () => {
-    it("should count concordance correctly and exclude ESM from active consensus voting counts", () => {
-      // 3 pathogenic tools (CADD, REVEL, AM) + 1 vus (BayesDel) + 1 pathogenic popEVE + 1 pathogenic informational ESM-1b
+    it("should count concordance correctly and exclude ESM-1b and popEVE from the vote", () => {
+      // 3 pathogenic voters (CADD, REVEL, AM) + 1 vus (BayesDel); popEVE and ESM-1b are pathogenic but informational
       const res = countPredictorConcordance(
         28, // CADD -> pathogenic
         0.8, // REVEL -> pathogenic
@@ -125,8 +125,9 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         { popeve: -4.9 } // popEVE -> pathogenic (≤ −4.617)
       );
 
-      expect(res.nPathogenic).toBe(4);
-      expect(res.nDeleterious).toBe(4);
+      expect(res.nPathogenic).toBe(3);
+      expect(res.nDeleterious).toBe(3);
+      expect(res.signals.popeve).toBe("pathogenic");
       expect(res.nBenign).toBe(0);
       expect(res.nTolerated).toBe(0);
       expect(res.signals.esm).toBe("pathogenic");

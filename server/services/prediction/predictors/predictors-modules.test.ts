@@ -165,6 +165,20 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
       }
     });
 
+    it("never reads BayesDel_addAF as BayesDel: the calibrated bands are for the noAF score", async () => {
+      const origFetch = global.fetch;
+      global.fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+        tabs: { function_prediction: { rows: [{ BayesDel_addAF_score: "0.31", REVEL_score: "0.5" }] } }
+      }), { status: 200 }));
+      try {
+        const res = await queryDbnsfpOrg("BRAF", "V600E");
+        expect(res?.revel).toBe(0.5);
+        expect(res?.bayesdel).toBeNull();
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
     it("withholds non-GRCh38 coordinates and falls back to protein query while accepting GRCh38 coordinates", async () => {
       const origFetch = global.fetch;
       const seenBodies: any[] = [];
