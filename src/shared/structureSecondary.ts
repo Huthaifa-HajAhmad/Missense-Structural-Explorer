@@ -6,7 +6,7 @@
  * the cartoon can never disagree. It then merges consecutive residues into segments.
  *
  * WHERE THE ASSIGNMENT COMES FROM
- *   - A predicted model (AlphaFold DB, ESMFold, a FoldX variant) carries no helix or sheet records.
+ *   - A predicted model (AlphaFold DB, a FoldX variant) carries no helix or sheet records.
  *     Mol* computes DSSP on the drawn coordinates (Kabsch & Sander 1983): hydrogen-bond energies
  *     between backbone atoms, not a guess from the sequence.
  *   - Mol* uses the depositors' HELIX/SHEET records only for mmCIF input from the PDB archive. This

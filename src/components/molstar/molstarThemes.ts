@@ -133,34 +133,9 @@ export const BFactorQuartileColorThemeProvider: ColorTheme.Provider<any, any> = 
   isApplicable: (ctx: any) => !!ctx.structure,
 };
 
-/* ── Cα displacement after superposition (the aligner writes Å into B) ─── */
-
-export function displacementColor(value: number): Color {
-  if (!Number.isFinite(value)) return NONE;
-  const band = STRUCTURE_COLOUR_BANDS.displacement.find(b => value < b.max) ?? STRUCTURE_COLOUR_BANDS.displacement[4];
-  return Color(band.color);
-}
-
-export function DisplacementColorTheme(ctx: any, props: any) {
-  return atomTheme(ctx, props, DisplacementColorTheme, "Cα displacement after superposition (app-defined bands)", (unit, element) =>
-    displacementColor(unit.model.atomicConformation.B_iso_or_equiv.value(element))
-  );
-}
-
-export const DisplacementColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: "backbone-displacement",
-  label: "Cα displacement (app-defined bands)",
-  category: ColorThemeCategory.Validation,
-  factory: DisplacementColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure,
-};
-
 export const STRUCTURE_THEME_PROVIDERS = [
   PlddtColorThemeProvider,
   BFactorQuartileColorThemeProvider,
-  DisplacementColorThemeProvider,
 ];
 
 export function isValidPdbUrl(url: string): boolean {

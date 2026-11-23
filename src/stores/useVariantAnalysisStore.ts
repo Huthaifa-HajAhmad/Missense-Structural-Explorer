@@ -31,7 +31,7 @@ export const useVariantAnalysisStore = create<VariantAnalysisStore>()((set, get,
 
   resetVariantAnalysisState: () => {
     get().resetViewerState();
-    get().resetEsmFoldState();
+    get().resetFoldxMetrics();
     set({
       analysisState: {
         result: null,

@@ -64,7 +64,6 @@ describe("coreIdentityOf", () => {
 
   it("moves with a provider capability, because that changes the evidence", () => {
     const baseKey = coreIdentityOf(base).flightKey;
-    expect(coreIdentityOf({ ...base, biohubToken: "bh_x" }).flightKey).not.toBe(baseKey);
     expect(coreIdentityOf({ ...base, alphagenomeApiKey: "ag_x" }).flightKey).not.toBe(baseKey);
     expect(coreIdentityOf({ ...base, alphagenomeApiUrl: "https://example.org/ag" }).flightKey).not.toBe(baseKey);
   });
@@ -94,16 +93,12 @@ describe("coreIdentityOf", () => {
       .not.toBe(payloadIdentityRecordOf({ ...base, alphagenomeApiUrl: "https://ag.example.org/scores?tenant=B" }).capabilityHash);
   });
 
-  it("shares one run between two DIFFERENT credentials of the same kind (WP-I4), and never embeds either", () => {
-    const withA = coreIdentityOf({ ...base, biohubToken: "bh_token_alpha" });
-    const withB = coreIdentityOf({ ...base, biohubToken: "bh_token_beta" });
-
-    // Whose token asked does not change the answer, so it does not change the key.
-    expect(withA.flightKey).toBe(withB.flightKey);
-    for (const key of [withA.flightKey, withB.flightKey, JSON.stringify(withA.capability)]) {
-      expect(key).not.toContain("bh_token_alpha");
-      expect(key).not.toContain("bh_token_beta");
-    }
+  it("records only the AlphaGenome capability: Biohub was retired and no longer shapes a run", () => {
+    expect(coreIdentityOf(base).capability).toEqual({ alphagenome: false });
+    // A request that still sends a Biohub token (an older client) gets the same run as one that does not.
+    const legacy = { ...base, biohubToken: "bh_token_alpha" } as ParsedVariantContext;
+    expect(coreIdentityOf(legacy).flightKey).toBe(coreIdentityOf(base).flightKey);
+    expect(coreIdentityOf(legacy).capabilityHash).toBe(coreIdentityOf(base).capabilityHash);
   });
 });
 
@@ -111,7 +106,6 @@ describe("the persisted identity record", () => {
   it("carries digests and booleans only — never a token, a URL or a key-derived value", () => {
     const context: ParsedVariantContext = {
       ...base,
-      biohubToken: "biohub_super_secret_value",
       alphagenomeApiKey: "ag_super_secret_value",
       alphagenomeApiUrl: "https://user:password@ag.example.org/score?key=embedded_secret"
     };
@@ -119,7 +113,6 @@ describe("the persisted identity record", () => {
     const serialized = JSON.stringify(payloadIdentityRecordOf(context));
 
     for (const secret of [
-      "biohub_super_secret_value",
       "ag_super_secret_value",
       "password",
       "embedded_secret",
@@ -204,7 +197,7 @@ describe("checkPayloadCompatibility", () => {
 
   it("refuses a payload computed under a different capability set, in either direction", () => {
     const storedWithoutToken = payloadFor(base);
-    expect(checkPayloadCompatibility(storedWithoutToken, { ...base, biohubToken: "bh_x" }, "core").compatible).toBe(false);
+    expect(checkPayloadCompatibility(storedWithoutToken, { ...base, alphagenomeApiKey: "ag_x" }, "core").compatible).toBe(false);
 
     const storedWithToken = payloadFor({ ...base, alphagenomeApiKey: "ag_x" });
     expect(checkPayloadCompatibility(storedWithToken, base, "core").compatible).toBe(false);

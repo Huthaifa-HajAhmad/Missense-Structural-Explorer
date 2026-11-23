@@ -9,7 +9,6 @@ import {
   nearestResiduesResponseSchema,
   pocketFinderResponseSchema,
   biophysicalAnalysisResponseSchema,
-  esmFoldResponseSchema,
   structuralAlignResponseSchema,
   clinVarDataSchema,
   energeticsDataSchema,
@@ -433,31 +432,6 @@ describe("Shared Zod API Contracts", () => {
     expect((parsed.metadata as any)?.somethingAddedLater).toBe("kept");
   });
 
-  it("should validate esmFoldResponseSchema successfully", () => {
-    const validSinglePayload = {
-      pdb: "ATOM 1...",
-      chain: "A",
-      status: "success" as const
-    };
-
-    const parsedSingle = esmFoldResponseSchema.parse(validSinglePayload);
-    expect(parsedSingle.pdb).toBe("ATOM 1...");
-    expect(parsedSingle.status).toBe("success");
-
-    const validDualPayload = {
-      wtPdb: "ATOM 1...",
-      mutPdb: "ATOM 2...",
-      chain: "A",
-      status: "success" as const
-    };
-
-    const parsedDual = esmFoldResponseSchema.parse(validDualPayload);
-    expect(parsedDual.wtPdb).toBe("ATOM 1...");
-    expect(parsedDual.mutPdb).toBe("ATOM 2...");
-    expect(parsedDual.chain).toBe("A");
-    expect(parsedDual.status).toBe("success");
-  });
-
   it("should validate structuralAlignResponseSchema successfully", () => {
     const validPayload = {
       alignedPdb: "ATOM 1...",
@@ -586,5 +560,17 @@ describe("conservation model status from older stored results", () => {
       .toEqual({ base: "settled" });
     // The score field itself is gone; zod drops unknown keys from the object.
     expect("gpnStar" in conservationDataSchema.shape).toBe(false);
+  });
+
+  it("still parses an analysis saved with the retired dbscSNV, DANN and Eigen fields, and drops them", async () => {
+    const { conservationDataSchema } = await import("../contracts");
+    const parsed = conservationDataSchema.parse({
+      revel: 0.5, gerp: 4, phylop: 3, bayesdel: 0.1,
+      dbscsnv: { ada_score: 0.9, rf_score: 0.4 }, dann: 0.99, eigenPhred: 6.8, eigenRaw: 0.7,
+    });
+    expect(parsed.revel).toBe(0.5);
+    for (const retired of ["dbscsnv", "dann", "eigenPhred", "eigenRaw"]) {
+      expect(parsed).not.toHaveProperty(retired);
+    }
   });
 });

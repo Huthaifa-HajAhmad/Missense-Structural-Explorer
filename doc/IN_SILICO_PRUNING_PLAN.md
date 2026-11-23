@@ -1,6 +1,6 @@
 # In-silico tools: pruning and repair plan
 
-Status: plan, 2026-11-23. Nothing here is built yet.
+Status: plan, 2026-11-23. Phases 0 to 3 are built (see each phase below); Phases 4 to 6 are not.
 
 ## Principle
 
@@ -29,7 +29,7 @@ its reading is wrong, never arrives, or repeats a stronger reading already on th
 | D2 was decided "keep bare Supporting PP3" | `INDEPENDENT_AUDIT_RESPONSE.md` |
 | ConSurf scrapes an HTML page from `consurfdb.tau.ac.il`, only for PDB entries, matches residues by raw number, and has a 3 s timeout; from the dev machine the secure connection never completes | `predictors/consurf-resolver.ts` |
 | `/biophysics/verify-stability` has no caller in `src/` (route removed in Phase 2) | `server/routes/biophysics/stability.ts` |
-| Biohub / Forge tokens now serve only ESMFold (ESM3 and ESMC are retired) | `structure/esmfold.ts`, `orchestration/core-identity.ts` |
+| Biohub / Forge tokens now serve only ESMFold (ESM3 and ESMC are retired; all three removed in Phase 3) | `structure/esmfold.ts`, `orchestration/core-identity.ts` |
 | All of Us frequencies come from Genos or the VM's local dbNSFP store | `external-api/genos_web.ts:279`, `prediction/dbnsfp_local.ts:65` |
 
 ## Phases
@@ -90,13 +90,27 @@ What was done:
 Kept, unlike the Gemini review's list: **GERP** (it has calibrated BP4 bands) and the **AlphaGenome AVI row**
 (already informational; rule 4).
 
-### Phase 3 — ESMFold and the Biohub credential system
+### Phase 3 — ESMFold and the Biohub credential system (done on `chore/retire-esmfold-biohub`)
 
 Retire the comparison of wild-type and mutant ESMFold folds. Folding models give nearly the same structure
 for a single missense change, and ESMFold's 1,024-residue limit does not cover the proteins AlphaFold DB is
 missing. This removes `api.esmatlas.com`, `forge.evolutionaryscale.ai`, `biohub.ai`, the Biohub token
 settings, token checks and lending, the sidecar `esmfold` router and the `esm` SDK, `foldingLimits.ts`, and
 the `structure_esmfold` view. JapanFold stays for Boltz-2.
+
+What was done:
+
+- The ESMFold view, its store state, the folding hook and effects, the `/esmfold` and `/validate-biohub-token`
+  routes, `structure/esmfold.ts`, JapanFold's ESMFold-2 call, the sidecar `esmfold` router, its remote-SDK
+  helpers and the `esm` package (53 packages fewer in `tools/uv.lock`) are gone.
+- The 3D model (`structure3dEvidence.ts`) now has one family: AlphaFold DB or a PDB entry, with the FoldX
+  variant. The de novo inputs, engines, citations, Cα-displacement colouring and fit-scope toggle went with it.
+- `foldingLimits.ts` is gone; `formatResidueCount` and `readProteinLength` moved to `alphafoldAvailability.ts`.
+- The credential system keeps its lending rules with one kind, Tamarind. Saved `biohub` rows in
+  `user_secrets` are deleted at startup (`purgeRetiredSecrets`). A browser's stored Biohub token and
+  default-structure setting are scrubbed on load.
+- The run identity no longer records a Biohub capability, so each saved analysis is recomputed once when
+  next opened (owner decision).
 
 ### Phase 4 — Genos and the dbNSFP fallback chain
 

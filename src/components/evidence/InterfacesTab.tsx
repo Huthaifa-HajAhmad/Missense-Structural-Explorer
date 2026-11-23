@@ -264,7 +264,7 @@ function ArtefactRow({ p }: { p: ObservedView }) {
   );
 }
 
-export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue, onNavigateToView }: TabComponentProps) {
+export function InterfacesTab({ analysisState, onSelectResidue, onNavigateToView }: TabComponentProps) {
   const result = analysisState.result;
   const data = useInterfacesData(result);
   const workspace = useEvidenceWorkspace('interfaces');
@@ -366,7 +366,7 @@ export function InterfacesTab({ analysisState, active3dModelTab, onSelectResidue
         const selection = interfaceSelection(p, ev.position);
         if (!selection) return;
         onSelectResidue(selection.index, selection.focus);
-        onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
+        onNavigateToView("structure_alphafold");
       }
     : null;
   // When nothing on the track is a chart — no solved, fibril or predicted lane — the card says why

@@ -107,7 +107,7 @@ export function noteStaleDataHeader(value: string | null): void {
 }
 
 // ── Credential-use signal (WP-I4) ───────────────────────────────────────────────────────────────
-// Which token a response's Biohub or Tamarind calls used ("your token" / "the team token"),
+// Which token a response's Tamarind calls used ("your token" / "the team token"),
 // or why none was used. Read here for the same reason as the stale-data header; surfaces subscribe.
 
 export interface CredentialUseReport {
@@ -306,7 +306,6 @@ export function useAuthSession() {
     geminiSessionExpiresAt, 
     geminiApiKey, 
     appApiToken, 
-    biohubApiToken, 
     japanfoldApiKey,
     tamarindApiKey,
     alphagenomeApiKey,
@@ -561,9 +560,6 @@ export function useAuthSession() {
         if (appApiToken) {
           headers["Authorization"] = `Bearer ${appApiToken}`;
         }
-        if (biohubApiToken) {
-          headers["x-biohub-token"] = biohubApiToken;
-        }
         if (japanfoldApiKey) {
           headers["x-japanfold-api-key"] = japanfoldApiKey;
         }
@@ -681,7 +677,6 @@ export function useAuthSession() {
     geminiSessionExpiresAt, 
     geminiApiKey, 
     appApiToken, 
-    biohubApiToken, 
     japanfoldApiKey,
     tamarindApiKey,
     alphagenomeApiKey,

@@ -8,10 +8,10 @@
  * ----------
  *  1. Identity comes from provenance, never from the numbers in the file. Each structure on the canvas
  *     is named by the endpoint or engine that produced it (AlphaFold DB, a PDB entry, FoldX on a named
- *     template, an ESMFold engine). The B-factor column's meaning follows from that identity.
+ *     template). The B-factor column's meaning follows from that identity.
  *  2. One colour channel per structure, stated. pLDDT is coloured with AlphaFold DB's published bands;
  *     crystallographic B-factors RELATIVE to their own entry (quartiles), never with absolute cut-points;
- *     displacement and ESM3 marks are labelled app-defined. A pLDDT filter exists only for a pLDDT column.
+ *     app-defined marks are labelled as such. A pLDDT filter exists only for a pLDDT column.
  *  3. A wild-type/variant comparison is shown only when both structures descend from the same coordinates.
  *     FoldX builds its variant on a template that is often NOT the AlphaFold model shown as wild type;
  *     the comparison then pairs the variant with its own template, or says why it cannot.
@@ -29,7 +29,6 @@
  *    Cα displacement, so the two structures sat apart, both "severely displaced".
  *  - pLDDT colours and the pLDDT ≥ 70 filter applied to crystal B-factors (which keeps the MOST mobile
  *    atoms), and to ESM Atlas files whose pLDDT is on a 0–1 scale (which removed everything).
- *  - "ESMFold-2 … (Lin et al. 2023)": Lin 2023 is ESMFold v1; the Tier-1 engine is ESMFold2-Fast.
  *  - "Allosteric heatmap" for an embedding distance, banded at 0.05/0.15/0.35 while the engine used
  *    0.08/0.22/0.38; "±15 residue" for a ±5 window; χ1 "0.0°" for a glycine.
  */
@@ -37,8 +36,6 @@
 import { ENGINE_STATE_LABELS } from "./engineStatus";
 import { otherRefusedChainsText } from "./refusedTemplate";
 import {
-  LOCAL_ALIGNMENT_FIT_WINDOW,
-  LOCAL_STRUCTURAL_WINDOW,
   STRUCTURE_COLOUR_BANDS,
   THRESHOLDS,
 } from "./thresholds";
@@ -47,7 +44,6 @@ import { diffSideChains, type SideChainDiff } from "./sideChainTopology";
 import { granthamDistance } from "./residueScales";
 import { backboneCaveat, granthamClass, type GranthamClass } from "./residueContextEvidence";
 import type { BFactorScan, ResidueAt } from "./coordinateText";
-import { describeDeNovoFoldTimeout, isFoldingTimeoutError } from "./foldingLimits";
 import { alphafoldDbCoverage, type AlphaFoldDbCoverage } from "./alphafoldAvailability";
 import { SECONDARY_COLOURS, SECONDARY_LABELS, SECONDARY_ORDER, type SecondarySource } from "./structureSecondary";
 
@@ -55,9 +51,8 @@ import { SECONDARY_COLOURS, SECONDARY_LABELS, SECONDARY_ORDER, type SecondarySou
  * Types
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export type ModelFamily = "alphafold" | "esmfold";
 export type ViewMode = "wildtype" | "mutant" | "superimposed";
-export type RepresentationId = "confidence" | "plain" | "pair" | "displacement" | "secondary";
+export type RepresentationId = "confidence" | "plain" | "pair" | "secondary";
 export type AlignmentScope = "local" | "global";
 
 export interface CoordinateProvenance {
@@ -74,19 +69,15 @@ export interface CoordinateProvenance {
   excludedExperimental?: { pdbId: string; chainId?: string | null; differences: string[]; unverified?: boolean; otherChainsRefused?: number } | null;
 }
 
-/** The engine ids the `/esmfold` route reports (`server/services/structure/esmfold.ts`). */
-export type DeNovoEngineId = "japanfold-esmfold2-fast" | "forge-esmfold2-fast" | "esm-atlas-esmfold";
-
 export type CoordinateOrigin =
   | "afdb"
   | "pdb-entry"
   | "pdb-homolog"
   | "foldx-variant"
-  | "de-novo"
   | "client"
   | "unknown";
 
-export type ChannelKind = "plddt" | "temperature-factor" | "displacement" | "unknown";
+export type ChannelKind = "plddt" | "temperature-factor" | "unknown";
 
 export interface BFactorChannel {
   kind: ChannelKind;
@@ -167,7 +158,6 @@ export interface HomologLike {
 export type ReferenceState = "idle" | "loading" | "ready" | "unavailable";
 
 export interface Structure3dInput {
-  family: ModelFamily;
   viewMode: ViewMode;
   /** The representation the reader picked; the model falls back when it is not valid here. */
   representation: RepresentationId;
@@ -223,19 +213,6 @@ export interface Structure3dInput {
     aligned: boolean;
     referenceSite: ResidueAt | null;
   };
-  deNovo: {
-    folding: boolean;
-    error: string | null;
-    wildTypeLoaded: boolean;
-    variantLoaded: boolean;
-    /** The server returned ONE structure; there is no separate variant model. */
-    singleStructure: boolean;
-    engines: { wildType: string | null; variant: string | null } | null;
-    scan: BFactorScan | null;
-    aligned: boolean;
-    site: ResidueAt | null;
-  };
-  alignmentScope: AlignmentScope;
   metrics: StructuralMetricsLike | null;
   burial: { rsa: number | null; label: string | null; structure: string | null } | null;
   homologs: HomologLike[];
@@ -263,7 +240,6 @@ export interface RepresentationOption {
 export type ThemePlan =
   | { theme: "plddt"; scale: 1 | 100 }
   | { theme: "bfactor-quartile" }
-  | { theme: "displacement" }
   | { theme: "secondary-structure" }
   | { theme: "uniform"; color: number; alpha: number };
 
@@ -297,7 +273,6 @@ export interface Comparison {
   reason: string | null;
   template: CoordinateIdentity | null;
   variant: CoordinateIdentity | null;
-  rigidBackbone: boolean;
   fit: string | null;
   /** The AlphaFold model shown as wild type is not the structure FoldX built on. */
   canvasWildTypeIsNotTemplate: boolean;
@@ -371,7 +346,6 @@ export interface ExperimentalRow {
 }
 
 export interface Structure3dEvidence {
-  family: ModelFamily;
   viewMode: ViewMode;
   canvas: {
     primary: CoordinateIdentity | null;
@@ -385,7 +359,6 @@ export interface Structure3dEvidence {
   colour: ColourPlan;
   legend: Legend | null;
   plddtFilter: { available: boolean; reason: string | null; scale: 1 | 100 | null };
-  alignment: { scopeToggle: boolean; scope: AlignmentScope; measuredScope: AlignmentScope; fitLabel: string };
   comparison: Comparison;
   readings: Reading[];
   site: SiteContext;
@@ -408,19 +381,11 @@ export interface Structure3dEvidence {
  * Vocabulary
  * ──────────────────────────────────────────────────────────────────────────── */
 
-const DE_NOVO_ENGINES: Record<DeNovoEngineId, { name: string; model: string; scale: 1 | 100 | null }> = {
-  "japanfold-esmfold2-fast": { name: "ESMFold2-Fast via JapanFold", model: "ESMFold2-Fast", scale: null },
-  "forge-esmfold2-fast": { name: "ESMFold2-Fast via EvolutionaryScale Forge", model: "ESMFold2-Fast", scale: null },
-  "esm-atlas-esmfold": { name: "ESMFold v1 via the ESM Atlas", model: "ESMFold", scale: 1 },
-};
-
 export const STRUCTURE_SOURCES = {
   jumper2021: { citation: "Jumper et al. 2021, Nature — AlphaFold2 and pLDDT", doi: "10.1038/s41586-021-03819-2" },
   varadi2022: { citation: "Varadi et al. 2022, Nucleic Acids Res — AlphaFold DB and its pLDDT bands", doi: "10.1093/nar/gkab1061" },
   delgado2019: { citation: "Delgado et al. 2019, Bioinformatics — FoldX 5.0", doi: "10.1093/bioinformatics/btz184" },
   schymkowitz2005: { citation: "Schymkowitz et al. 2005, Nucleic Acids Res — the FoldX force field", doi: "10.1093/nar/gki387" },
-  lin2023: { citation: "Lin et al. 2023, Science — ESM-2 and ESMFold (v1)", doi: "10.1126/science.ade2574" },
-  candido2026: { citation: "Candido et al. 2026, bioRxiv — ESMC and ESMFold2", doi: "10.64898/2026.06.03.729735" },
   kabsch1976: { citation: "Kabsch 1976, Acta Cryst A — least-squares superposition", doi: "10.1107/S0567739476001873" },
   sun2019: { citation: "Sun et al. 2019, Chem Rev — interpreting and normalising B-factors", doi: "10.1021/acs.chemrev.8b00290" },
   sehnal2021: { citation: "Sehnal et al. 2021, Nucleic Acids Res — Mol* Viewer", doi: "10.1093/nar/gkab314" },
@@ -433,7 +398,6 @@ const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   confidence: "Confidence",
   plain: "Plain cartoon",
   pair: "Wild type and variant",
-  displacement: "Cα displacement",
   secondary: "Secondary structure",
 };
 
@@ -676,33 +640,12 @@ function identifyFoldxVariant(template: CoordinateIdentity, runs: number | null)
   };
 }
 
-export function describeDeNovoEngine(engine: string | null | undefined): { name: string; model: string; scale: 1 | 100 | null } | null {
-  if (!engine) return null;
-  return (DE_NOVO_ENGINES as Record<string, { name: string; model: string; scale: 1 | 100 | null }>)[engine] ?? null;
-}
-
-function identifyDeNovo(role: "wild type" | "variant", engine: string | null, scale: 1 | 100 | null): CoordinateIdentity {
-  const known = describeDeNovoEngine(engine);
-  const effectiveScale = known?.scale ?? scale;
-  return {
-    origin: "de-novo",
-    role,
-    name: known ? `${known.model} ${role}` : `De novo ${role}`,
-    kind: "Single-sequence de novo prediction",
-    detail: known ? `Folded by ${known.name}` : "The folding engine was not reported by the server",
-    href: null,
-    channel: plddtChannel(effectiveScale, known?.model ?? "de novo"),
-    numbering: "uniprot",
-  };
-}
-
 /* ────────────────────────────────────────────────────────────────────────────
  * The model
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEvidence {
-  const { family, viewMode, variant, foldx, deNovo, metrics } = input;
-  const isAf = family === "alphafold";
+  const { viewMode, variant, foldx, metrics } = input;
   const proteinLength =
     typeof input.proteinLength === "number" && Number.isFinite(input.proteinLength) && input.proteinLength > 0
       ? input.proteinLength
@@ -715,30 +658,19 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const wt1 = toOne(variant.wildType);
 
   /* ── Structures ──────────────────────────────────────────────────────── */
-  /** De novo pLDDT scale as read from the file; an engine known to write 0–1 overrides it. */
-  const deNovoScale: 1 | 100 | null =
-    deNovo.scan?.max === null || deNovo.scan?.max === undefined ? null : deNovo.scan.max <= 1 ? 1 : 100;
-  const canvasWildType: CoordinateIdentity | null = isAf
-    ? input.wildType.customPdbUrl
-      ? identifyLoadedEntry(
-          input.wildType.customPdbUrl,
-          input.homologs,
-          input.wildType.entry ?? null,
-          [foldx.template, input.wildType.provenance]
-        )
-      : identifyFromProvenance(input.wildType.provenance, variant.uniprotId, "wild type", input.wildType.headerSaysAlphaFold)
-    : deNovo.wildTypeLoaded
-      ? identifyDeNovo("wild type", deNovo.engines?.wildType ?? null, deNovoScale)
-      : null;
+  const canvasWildType: CoordinateIdentity | null = input.wildType.customPdbUrl
+    ? identifyLoadedEntry(
+        input.wildType.customPdbUrl,
+        input.homologs,
+        input.wildType.entry ?? null,
+        [foldx.template, input.wildType.provenance]
+      )
+    : identifyFromProvenance(input.wildType.provenance, variant.uniprotId, "wild type", input.wildType.headerSaysAlphaFold);
 
   const foldxTemplate: CoordinateIdentity | null =
-    isAf && foldx.template ? identifyFromProvenance(foldx.template, variant.uniprotId, "template") : null;
+    foldx.template ? identifyFromProvenance(foldx.template, variant.uniprotId, "template") : null;
   const foldxVariant: CoordinateIdentity | null =
-    isAf && foldx.status === "success" && foldxTemplate ? identifyFoldxVariant(foldxTemplate, foldx.runs) : null;
-  const deNovoVariant: CoordinateIdentity | null =
-    !isAf && deNovo.variantLoaded && !deNovo.singleStructure
-      ? identifyDeNovo("variant", deNovo.engines?.variant ?? null, deNovoScale)
-      : null;
+    foldx.status === "success" && foldxTemplate ? identifyFoldxVariant(foldxTemplate, foldx.runs) : null;
 
   /** Does the AlphaFold model on the canvas descend from the same coordinates FoldX used? */
   const templateIsCanvasWildType =
@@ -749,75 +681,61 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     (foldxTemplate.origin === "afdb" || upper(foldx.template?.pdbId) === upper(input.wildType.provenance?.pdbId));
 
   /* ── Modes ───────────────────────────────────────────────────────────── */
-  const mutantReason: string | null = isAf
-    ? foldx.running
-      ? `FoldX is running${foldx.phaseLabel ? `: ${foldx.phaseLabel.toLowerCase()}` : ""}.`
-      : foldx.status === "success"
-        ? foldxTemplate
-          ? null
-          : "FoldX did not report which structure it built on, so its model is not shown."
-        : foldx.status === "unavailable"
-          ? "FoldX is not available on this server."
-          : foldx.status === "failed"
-            ? `FoldX did not produce a variant model${foldx.error ? `: ${foldx.error}` : "."}`
-            : "FoldX has not run for this variant."
-    : deNovo.folding
-      ? "Folding the wild type and the variant."
-      : deNovo.error
-        ? "De novo folding did not return coordinates."
-        : deNovo.singleStructure
-          ? "The server returned one structure, so there is no separate variant model."
-          : deNovo.variantLoaded
-            ? null
-            : "No de novo variant model yet.";
+  const mutantReason: string | null = foldx.running
+    ? `FoldX is running${foldx.phaseLabel ? `: ${foldx.phaseLabel.toLowerCase()}` : ""}.`
+    : foldx.status === "success"
+      ? foldxTemplate
+        ? null
+        : "FoldX did not report which structure it built on, so its model is not shown."
+      : foldx.status === "unavailable"
+        ? "FoldX is not available on this server."
+        : foldx.status === "failed"
+          ? `FoldX did not produce a variant model${foldx.error ? `: ${foldx.error}` : "."}`
+          : "FoldX has not run for this variant.";
 
-  const referenceReady = isAf ? foldx.reference.state === "ready" && foldx.aligned : deNovo.aligned;
+  const referenceReady = foldx.reference.state === "ready" && foldx.aligned;
   const superReason: string | null =
     mutantReason ??
-    (isAf
-      ? foldx.reference.state === "loading" || (foldx.reference.state === "ready" && !foldx.aligned)
-        ? "Superposing the variant on its template."
-        : foldx.reference.state === "unavailable"
-          ? foldx.reference.reason ?? "The template FoldX used could not be loaded."
-          : referenceReady
-            ? null
-            : "The superposition has not been computed."
-      : referenceReady
-        ? null
-        : "The superposition has not been computed.");
+    (foldx.reference.state === "loading" || (foldx.reference.state === "ready" && !foldx.aligned)
+      ? "Superposing the variant on its template."
+      : foldx.reference.state === "unavailable"
+        ? foldx.reference.reason ?? "The template FoldX used could not be loaded."
+        : referenceReady
+          ? null
+          : "The superposition has not been computed.");
 
   const modes: ModeOption[] = [
     {
       id: "wildtype",
       label: "Wild type",
-      available: isAf ? true : deNovo.wildTypeLoaded,
-      reason: isAf ? null : deNovo.wildTypeLoaded ? null : deNovo.folding ? "Folding the wild type." : "No de novo wild-type model.",
-      busy: !isAf && deNovo.folding,
+      available: true,
+      reason: null,
+      busy: false,
     },
     {
       id: "mutant",
       label: "Variant",
       available: mutantReason === null,
       reason: mutantReason,
-      busy: isAf ? foldx.running : deNovo.folding,
+      busy: foldx.running,
     },
     {
       id: "superimposed",
       label: "Superposition",
       available: superReason === null,
       reason: superReason,
-      busy: isAf ? foldx.running || foldx.reference.state === "loading" : deNovo.folding,
+      busy: foldx.running || foldx.reference.state === "loading",
     },
   ];
   const effectiveMode: ViewMode = modes.find(m => m.id === viewMode)?.available ? viewMode : "wildtype";
 
   /* ── What is on the canvas in this mode ───────────────────────────────── */
-  const template: CoordinateIdentity | null = isAf ? foldxTemplate : canvasWildType;
-  const variantModel: CoordinateIdentity | null = isAf ? foldxVariant : deNovoVariant;
+  const template: CoordinateIdentity | null = foldxTemplate;
+  const variantModel: CoordinateIdentity | null = foldxVariant;
   let primary: CoordinateIdentity | null = canvasWildType;
   let secondary: CoordinateIdentity | null = null;
   if (effectiveMode === "mutant") primary = variantModel;
-  const pairedByFoldx = isAf && foldx.reference.state === "ready" && foldx.reference.basis === "foldx-paired";
+  const pairedByFoldx = foldx.reference.state === "ready" && foldx.reference.basis === "foldx-paired";
   if (effectiveMode === "superimposed") {
     primary = template
       ? pairedByFoldx
@@ -827,14 +745,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     secondary = variantModel
       ? {
           ...variantModel,
-          channel: isAf
-            ? { ...variantModel.channel, note: "FoldX keeps the template backbone fixed; its Cα displacement is not a variant measurement." }
-            : {
-                kind: "displacement",
-                inherited: false,
-                scale: null,
-                note: "B-factor column rewritten by the superposition: each residue's Cα displacement in Å.",
-              },
+          channel: { ...variantModel.channel, note: "FoldX keeps the template backbone fixed; its Cα displacement is not a variant measurement." },
         }
       : null;
   }
@@ -851,7 +762,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
           ? "Template B-factor (copied)"
           : "B-factor, relative"
         : "Confidence";
-  const rigid = isAf;
   const representations: RepresentationOption[] = [
     {
       id: "confidence",
@@ -868,16 +778,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       available: true,
       reason: null,
     },
-    ...(effectiveMode === "superimposed" && !rigid
-      ? [
-          {
-            id: "displacement" as const,
-            label: REPRESENTATION_LABELS.displacement,
-            available: referenceReady,
-            reason: referenceReady ? null : "No superposition to measure.",
-          },
-        ]
-      : []),
     {
       id: "secondary",
       label: REPRESENTATION_LABELS.secondary,
@@ -889,13 +789,13 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const preferred: RepresentationId =
     effectiveMode === "superimposed" && input.representation === "plain"
       ? "pair"
-      : effectiveMode !== "superimposed" && (input.representation === "pair" || input.representation === "displacement")
+      : effectiveMode !== "superimposed" && input.representation === "pair"
         ? "confidence"
         : input.representation;
   const chosen = representations.find(r => r.id === preferred && r.available);
   const fallback =
     effectiveMode === "superimposed"
-      ? representations.find(r => r.id === "displacement" && r.available) ?? representations.find(r => r.id === "pair")!
+      ? representations.find(r => r.id === "pair")!
       : representations.find(r => r.id === "confidence" && r.available) ?? representations.find(r => r.id === "plain")!;
   const representation = (chosen ?? fallback).id;
 
@@ -912,9 +812,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const plddtLegend = (inherited: boolean, scale: 1 | 100 | null): Legend => ({
     title: inherited ? "Template pLDDT, copied onto the variant" : "pLDDT",
     provenance: "published",
-    provenanceNote: isAf
-      ? `AlphaFold DB bands (Jumper 2021; Varadi 2022)${scale === 1 ? " · file stores 0–1, read ×100" : ""}`
-      : `pLDDT bands used as a display convention; this de novo engine's confidence is not AlphaFold DB confidence${scale === 1 ? " · file stores 0–1, read ×100" : ""}`,
+    provenanceNote: `AlphaFold DB bands (Jumper 2021; Varadi 2022)${scale === 1 ? " · file stores 0–1, read ×100" : ""}`,
     entries: STRUCTURE_COLOUR_BANDS.plddt.map(b => ({ label: b.label, range: b.range, color: b.color })),
   });
   const quartileLegend = (inherited: boolean): Legend => ({
@@ -928,7 +826,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     colour = {
       primary: confidenceTheme(primaryChannel),
       secondary: secondary ? { theme: "uniform", color: PAIR_COLOURS.variant, alpha: 0.85 } : null,
-      secondaryCartoon: !rigid,
+      secondaryCartoon: false,
     };
     legend =
       primaryChannel.kind === "plddt"
@@ -937,45 +835,28 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
           ? quartileLegend(primaryChannel.inherited)
           : null;
     if (legend && secondary) {
-      legend.entries = [...legend.entries, { label: rigid ? "Variant residue" : "Variant", range: null, color: PAIR_COLOURS.variant }];
+      legend.entries = [...legend.entries, { label: "Variant residue", range: null, color: PAIR_COLOURS.variant }];
     }
   } else if (representation === "pair") {
     colour = {
-      primary: { theme: "uniform", color: PAIR_COLOURS.template, alpha: rigid ? 1 : 0.55 },
+      primary: { theme: "uniform", color: PAIR_COLOURS.template, alpha: 1 },
       secondary: { theme: "uniform", color: PAIR_COLOURS.variant, alpha: 1 },
-      secondaryCartoon: !rigid,
+      secondaryCartoon: false,
     };
     legend = {
       title: "Superposition",
       provenance: "pair",
-      provenanceNote: rigid
-        ? "Colours identify the two structures only. The backbones coincide, so the variant is drawn at its residue"
-        : "Colours identify the two structures only",
+      provenanceNote: "Colours identify the two structures only. The backbones coincide, so the variant is drawn at its residue",
       entries: [
-        { label: isAf ? "Template (wild type)" : "Wild type", range: null, color: PAIR_COLOURS.template },
-        { label: rigid ? "Variant residue" : "Variant", range: null, color: PAIR_COLOURS.variant },
-      ],
-    };
-  } else if (representation === "displacement") {
-    colour = {
-      primary: { theme: "uniform", color: PAIR_COLOURS.template, alpha: 0.35 },
-      secondary: { theme: "displacement" },
-      secondaryCartoon: true,
-    };
-    legend = {
-      title: "Cα displacement after superposition",
-      provenance: "app-defined",
-      provenanceNote: "This app's own marks, not published cut-points",
-      entries: [
-        ...STRUCTURE_COLOUR_BANDS.displacement.map(b => ({ label: b.label, range: null, color: b.color })),
-        { label: "Wild type", range: null, color: PAIR_COLOURS.template },
+        { label: "Template (wild type)", range: null, color: PAIR_COLOURS.template },
+        { label: "Variant residue", range: null, color: PAIR_COLOURS.variant },
       ],
     };
   } else if (representation === "secondary") {
     colour = {
       primary: { theme: "secondary-structure" },
       secondary: secondary ? { theme: "uniform", color: PAIR_COLOURS.variant, alpha: 0.85 } : null,
-      secondaryCartoon: !rigid,
+      secondaryCartoon: false,
     };
     legend = {
       title: "Secondary structure",
@@ -987,7 +868,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
           : "No secondary-structure assignment has been read from this model yet · colours are this app's",
       entries: [
         ...SECONDARY_ORDER.map(cls => ({ label: SECONDARY_LABELS[cls], range: null, color: SECONDARY_COLOURS[cls] })),
-        ...(secondary ? [{ label: rigid ? "Variant residue" : "Variant", range: null, color: PAIR_COLOURS.variant }] : []),
+        ...(secondary ? [{ label: "Variant residue", range: null, color: PAIR_COLOURS.variant }] : []),
       ],
     };
   } else {
@@ -1009,114 +890,49 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   };
 
   /* ── Comparison ───────────────────────────────────────────────────────── */
-  const scope: AlignmentScope = isAf ? "global" : input.alignmentScope;
-  // The readings and the drawn pair describe the fit the aligner applied, which trails the
-  // toggle while a new fit runs (and is whole-chain when a local fit had too few pairs).
-  const measuredScope: AlignmentScope = isAf ? "global" : metrics?.alignmentScope ?? scope;
-  const fitWords = (s: AlignmentScope) => (s === "global" ? "whole chain" : `±${LOCAL_ALIGNMENT_FIT_WINDOW} residues around ${position ?? "the site"}`);
-  const fitLabel = fitWords(measuredScope);
   let comparison: Comparison;
-  if (isAf) {
-    const canvasWildTypeIsNotTemplate = !!foldxTemplate && !templateIsCanvasWildType;
-    if (foldx.status !== "success" || !foldxVariant) {
-      comparison = {
-        state: foldx.running ? "pending" : "unavailable",
-        headline: foldx.running ? "Waiting for the FoldX model" : "No variant model to compare",
-        reason: mutantReason,
-        template: foldxTemplate,
-        variant: null,
-        rigidBackbone: true,
-        fit: null,
-        canvasWildTypeIsNotTemplate,
-      };
-    } else if (!referenceReady) {
-      comparison = {
-        state: foldx.reference.state === "unavailable" ? "unavailable" : "pending",
-        headline: foldx.reference.state === "unavailable" ? "The template could not be paired" : "Superposing on the template",
-        reason: superReason,
-        template: foldxTemplate,
-        variant: foldxVariant,
-        rigidBackbone: true,
-        fit: null,
-        canvasWildTypeIsNotTemplate,
-      };
-    } else {
-      comparison = {
-        state: "ready",
-        headline: pairedByFoldx
-          ? `Variant against FoldX's own wild type on ${foldxTemplate!.name}`
-          : `Variant against its own template, ${foldxTemplate!.name}`,
-        reason: null,
-        template: foldxTemplate,
-        variant: foldxVariant,
-        rigidBackbone: true,
-        fit: "whole chain",
-        canvasWildTypeIsNotTemplate,
-      };
-    }
+  const canvasWildTypeIsNotTemplate = !!foldxTemplate && !templateIsCanvasWildType;
+  if (foldx.status !== "success" || !foldxVariant) {
+    comparison = {
+      state: foldx.running ? "pending" : "unavailable",
+      headline: foldx.running ? "Waiting for the FoldX model" : "No variant model to compare",
+      reason: mutantReason,
+      template: foldxTemplate,
+      variant: null,
+      fit: null,
+      canvasWildTypeIsNotTemplate,
+    };
+  } else if (!referenceReady) {
+    comparison = {
+      state: foldx.reference.state === "unavailable" ? "unavailable" : "pending",
+      headline: foldx.reference.state === "unavailable" ? "The template could not be paired" : "Superposing on the template",
+      reason: superReason,
+      template: foldxTemplate,
+      variant: foldxVariant,
+      fit: null,
+      canvasWildTypeIsNotTemplate,
+    };
   } else {
-    comparison =
-      deNovoVariant && deNovo.aligned
-        ? {
-            state: "ready",
-            headline: "Two independent de novo predictions",
-            reason: null,
-            template: canvasWildType,
-            variant: deNovoVariant,
-            rigidBackbone: false,
-            fit: fitWords(measuredScope),
-            canvasWildTypeIsNotTemplate: false,
-          }
-        : {
-            state: deNovo.folding ? "pending" : "unavailable",
-            headline: deNovo.folding ? "Folding" : "No de novo pair to compare",
-            reason: mutantReason ?? superReason,
-            template: canvasWildType,
-            variant: deNovoVariant,
-            rigidBackbone: false,
-            fit: null,
-            canvasWildTypeIsNotTemplate: false,
-          };
+    comparison = {
+      state: "ready",
+      headline: pairedByFoldx
+        ? `Variant against FoldX's own wild type on ${foldxTemplate!.name}`
+        : `Variant against its own template, ${foldxTemplate!.name}`,
+      reason: null,
+      template: foldxTemplate,
+      variant: foldxVariant,
+      fit: "whole chain",
+      canvasWildTypeIsNotTemplate,
+    };
   }
 
   /* ── Readings ─────────────────────────────────────────────────────────── */
   const readings: Reading[] = [];
   if (comparison.state === "ready" && metrics) {
-    if (!comparison.rigidBackbone) {
-      const local = fmt(metrics.localWindowRmsd, 2);
-      readings.push({
-        key: "local-rmsd",
-        label: "Local Cα RMSD",
-        note: `±${LOCAL_STRUCTURAL_WINDOW} residues around ${position ?? "the site"}`,
-        value: local ? `${local} Å` : null,
-        state: local ? "measured" : "not-measured",
-        caveat: measuredScope === "local"
-          ? `Measured inside the ±${LOCAL_ALIGNMENT_FIT_WINDOW} fitted window, so small by construction.`
-          : null,
-      });
-      const global = fmt(metrics.globalRmsd, 2);
-      readings.push({
-        key: "global-rmsd",
-        label: "Whole-chain Cα RMSD",
-        note: measuredScope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
-        value: global ? `${global} Å` : null,
-        state: global ? "measured" : "not-measured",
-        caveat: "Two separate predictions: part of any difference can come from the predictions, not the substitution.",
-      });
-      const shift = fmt(metrics.maxCaDisplacement, 2);
-      readings.push({
-        key: "max-shift",
-        label: "Largest Cα shift",
-        note: `within ±${LOCAL_STRUCTURAL_WINDOW} residues`,
-        value: shift ? `${shift} Å` : null,
-        state: shift ? "measured" : "not-measured",
-        caveat: null,
-      });
-    }
     // Older results carry no paired wild type: the variant is then read against the template as
     // fetched, before RepairPDB, and the repair's own side-chain moves count as differences.
     const unrepaired =
-      isAf && foldx.reference.basis === "template"
+      foldx.reference.basis === "template"
         ? "Read against the template before RepairPDB, so part of this can be the repair's side-chain changes rather than the substitution's."
         : null;
     const noChi = (code: string | null) => code === "G" || code === "A";
@@ -1166,7 +982,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   }
 
   /* ── Site ─────────────────────────────────────────────────────────────── */
-  const siteStructure = isAf ? input.wildType.site : deNovo.site;
+  const siteStructure = input.wildType.site;
   const siteIdentity = canvasWildType;
   const hasVerifiedNumbering = siteIdentity?.numbering === "uniprot";
   const expected = wt3 ? wt3.toUpperCase() : null;
@@ -1188,7 +1004,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     };
   }
   const templateAddressesSite =
-    isAf &&
     effectiveMode !== "wildtype" &&
     foldx.status === "success" &&
     Boolean(
@@ -1208,12 +1023,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       kind: "plddt",
       value,
       text: `pLDDT ${value.toFixed(1)} · ${band.label.toLowerCase()}`,
-      note: isAf
-        ? `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`
-        : `From ${siteIdentity!.name}, this view's wild type; displayed in the ${band.label.toLowerCase()} pLDDT band, not an AlphaFold DB classification.`,
+      note: `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`,
     };
   } else if (siteB !== null && canAddressVariantSite && channel?.kind === "temperature-factor") {
-    const scan = isAf ? input.wildType.scan : null;
+    const scan = input.wildType.scan;
     const q = quartileOf(siteB, scan);
     confidence = {
       kind: "b-factor",
@@ -1262,7 +1075,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
    * The mutating engines' template is not the crystal because the crystal is not the wild type.
    * Said on its own line: the choice of template is an input to every ΔΔG on the Energetics tab.
    */
-  const refusedTemplate = isAf ? foldx.template?.excludedExperimental ?? null : null;
+  const refusedTemplate = foldx.template?.excludedExperimental ?? null;
   if (refusedTemplate) {
     notices.push({
       key: "excluded-template",
@@ -1273,7 +1086,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         : `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} differs from UniProt at ${refusedTemplate.differences.join(", ")}, so a mutating engine cannot build on it. ${otherRefusedChainsText(refusedTemplate)}${refusedTemplate.otherChainsRefused ? " " : ""}FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`,
     });
   }
-  if (isAf && foldxTemplate && comparison.canvasWildTypeIsNotTemplate && effectiveMode !== "wildtype") {
+  if (foldxTemplate && comparison.canvasWildTypeIsNotTemplate && effectiveMode !== "wildtype") {
     notices.push({
       key: "template",
       tone: "info",
@@ -1290,7 +1103,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
    * shown — with the residues that differ named, and a pointer to the separate template the mutating
    * engines use (Energetics names it on its structure row).
    */
-  const pipelineDiffs = isAf && !input.wildType.customPdbUrl
+  const pipelineDiffs = !input.wildType.customPdbUrl
     ? (input.wildType.provenance?.sequenceDifferences ?? []).filter((d): d is string => typeof d === "string" && d.trim().length > 0)
     : [];
   if (pipelineDiffs.length) {
@@ -1301,23 +1114,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       body: `${canvasWildType?.name ?? "The entry"} differs from UniProt at ${pipelineDiffs.join(", ")}. The coordinates are shown as deposited, so read its side chains as that construct; the stability engines build on their own template, named in Energetics.`,
     });
   }
-  if (!isAf && deNovo.engines?.wildType && deNovo.engines?.variant && deNovo.engines.wildType !== deNovo.engines.variant) {
-    notices.push({
-      key: "engines",
-      tone: "warning",
-      title: "Wild type and variant came from different engines",
-      body: `The wild type was folded by ${describeDeNovoEngine(deNovo.engines.wildType)?.name ?? deNovo.engines.wildType} and the variant by ${describeDeNovoEngine(deNovo.engines.variant)?.name ?? deNovo.engines.variant}. Their differences mix two models' behaviour with the substitution; do not read the superposition as the variant's effect.`,
-    });
-  }
-  if (!isAf && deNovo.singleStructure) {
-    notices.push({
-      key: "single",
-      tone: "info",
-      title: "One structure returned",
-      body: "The folding service returned a single structure. It is shown as the wild type; there is no variant model to compare.",
-    });
-  }
-  if (input.wildType.customPdbUrl && isAf) {
+  if (input.wildType.customPdbUrl) {
     const entry = input.wildType.entry ?? null;
     notices.push({
       key: "entry",
@@ -1338,62 +1135,35 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   trace.push({
     n: 1,
     label: "Wild-type coordinates",
-    value: canvasWildType ? canvasWildType.name : isAf ? "Loading" : deNovo.folding ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"],
+    value: canvasWildType ? canvasWildType.name : "Loading",
     sub: canvasWildType ? [canvasWildType.kind, canvasWildType.detail].filter(Boolean).join(" · ") : null,
     state: canvasWildType ? (canvasWildType.origin === "unknown" ? "warn" : "done") : "idle",
     warn: canvasWildType?.origin === "unknown" ? "The server did not say where these coordinates came from." : null,
   });
-  if (isAf) {
-    const ddG = foldx.ddG;
-    trace.push({
-      n: 2,
-      label: "Variant model",
-      value: foldxVariant
-        ? `FoldX on ${foldxTemplate!.name}`
-        : foldx.running
-          ? `FoldX ${foldx.phaseLabel ? foldx.phaseLabel.toLowerCase() : "running"}`
-          : mutantReason ?? ENGINE_STATE_LABELS["no-result"],
-      sub: foldxVariant
-        ? [
-            ddG !== null ? `ΔΔG ${signed(ddG, 2)}${foldx.ddGSd !== null ? ` ± ${foldx.ddGSd.toFixed(2)}` : ""} kcal/mol${foldx.runs ? ` over ${foldx.runs} runs` : ""} — a stability estimate, not pathogenicity` : null,
-            foldx.repairSkipped
-              ? `Template not repaired${foldx.repairSkippedReason === "alphafold-plddt" ? " (legacy AlphaFold repair policy)" : foldx.repairSkippedReason === "large-structure" ? " (large structure)" : foldx.repairSkippedReason === "repair-exceeds-budget" ? " (repair too slow on this server)" : foldx.repairSkippedReason === "cached-repair-rejected" ? " (cached repair rejected; original template used)" : ""}`
-              : foldx.repairFailed
-                ? "RepairPDB failed; built on the unrepaired template"
-                : "Built on the RepairPDB-minimised template",
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : null,
-      state: foldxVariant ? "done" : foldx.status === "failed" ? "warn" : "idle",
-      warn: null,
-    });
-  } else {
-    const engineName = describeDeNovoEngine(deNovo.engines?.variant ?? deNovo.engines?.wildType)?.name ?? null;
-    // The failure's own explanation, hedged for a timeout: a client abort carries no information
-    // about the provider's load (see `describeDeNovoFoldTimeout`).
-    const failure = deNovo.error
-      ? isFoldingTimeoutError(deNovo.error)
-        ? describeDeNovoFoldTimeout({ verbosity: "brief" })
-        : deNovo.error
-      : null;
-    trace.push({
-      n: 2,
-      label: "Variant model",
-      value: deNovoVariant
-        ? deNovoVariant.name
-        : deNovo.folding
-          ? ENGINE_STATE_LABELS.running
-          : deNovo.error
-            ? "De novo folding failed"
-            : mutantReason ?? ENGINE_STATE_LABELS["no-result"],
-      sub: deNovoVariant
-        ? `${engineName ? `Folded by ${engineName}` : "Engine not reported"} · the variant sequence folded separately from the wild type`
-        : failure,
-      state: deNovoVariant ? (notices.some(n => n.key === "engines") ? "warn" : "done") : deNovo.error ? "warn" : "idle",
-      warn: notices.some(n => n.key === "engines") ? "Different engines folded the two sequences." : null,
-    });
-  }
+  const ddG = foldx.ddG;
+  trace.push({
+    n: 2,
+    label: "Variant model",
+    value: foldxVariant
+      ? `FoldX on ${foldxTemplate!.name}`
+      : foldx.running
+        ? `FoldX ${foldx.phaseLabel ? foldx.phaseLabel.toLowerCase() : "running"}`
+        : mutantReason ?? ENGINE_STATE_LABELS["no-result"],
+    sub: foldxVariant
+      ? [
+          ddG !== null ? `ΔΔG ${signed(ddG, 2)}${foldx.ddGSd !== null ? ` ± ${foldx.ddGSd.toFixed(2)}` : ""} kcal/mol${foldx.runs ? ` over ${foldx.runs} runs` : ""} — a stability estimate, not pathogenicity` : null,
+          foldx.repairSkipped
+            ? `Template not repaired${foldx.repairSkippedReason === "alphafold-plddt" ? " (legacy AlphaFold repair policy)" : foldx.repairSkippedReason === "large-structure" ? " (large structure)" : foldx.repairSkippedReason === "repair-exceeds-budget" ? " (repair too slow on this server)" : foldx.repairSkippedReason === "cached-repair-rejected" ? " (cached repair rejected; original template used)" : ""}`
+            : foldx.repairFailed
+              ? "RepairPDB failed; built on the unrepaired template"
+              : "Built on the RepairPDB-minimised template",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null,
+    state: foldxVariant ? "done" : foldx.status === "failed" ? "warn" : "idle",
+    warn: null,
+  });
   trace.push({
     n: 3,
     label: "Superposition",
@@ -1405,13 +1175,11 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
           : "Not computed",
     sub:
       comparison.state === "ready"
-        ? comparison.rigidBackbone
-          ? pairedByFoldx
-            ? `FoldX's own wild type and variant on ${comparison.template?.name ?? "the template"}, from one run. The backbone is fixed, so only side chains can differ.`
-            : `${comparison.template?.name ?? "Template"} as fetched + FoldX variant. The backbone is fixed, so only side chains can differ; the template was not repaired, so RepairPDB's side-chain changes count as differences too.`
-          : "Wild-type and variant predictions."
+        ? pairedByFoldx
+          ? `FoldX's own wild type and variant on ${comparison.template?.name ?? "the template"}, from one run. The backbone is fixed, so only side chains can differ.`
+          : `${comparison.template?.name ?? "Template"} as fetched + FoldX variant. The backbone is fixed, so only side chains can differ; the template was not repaired, so RepairPDB's side-chain changes count as differences too.`
         : comparison.reason,
-    state: comparison.state === "ready" ? "done" : comparison.state === "unavailable" && (isAf ? foldx.status === "success" : deNovo.variantLoaded) ? "warn" : "idle",
+    state: comparison.state === "ready" ? "done" : comparison.state === "unavailable" && foldx.status === "success" ? "warn" : "idle",
     warn: comparison.canvasWildTypeIsNotTemplate && comparison.state === "ready"
       ? `Paired with ${pairedByFoldx ? "FoldX's own wild type" : "FoldX's template"}, not with ${canvasWildType?.name ?? "the wild type on the canvas"}.`
       : null,
@@ -1443,7 +1211,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       : `/api/v1/pdb/entry/${id}`;
 
   const foldxTemplatePdbId =
-    isAf && isExperimentalSource(foldx.template?.source) && foldx.template?.pdbId
+    isExperimentalSource(foldx.template?.source) && foldx.template?.pdbId
       ? upper(foldx.template.pdbId)
       : null;
 
@@ -1559,7 +1327,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     }
   }
 
-  if (isAf && isExperimentalSource(input.wildType.provenance?.source) && input.wildType.provenance?.pdbId) {
+  if (isExperimentalSource(input.wildType.provenance?.source) && input.wildType.provenance?.pdbId) {
     const wtPdbId = upper(input.wildType.provenance.pdbId);
     if (wtPdbId && !rows.some(r => r.pdbId === wtPdbId)) {
       const synth = synthesizeTemplateRow(input.wildType.provenance, false, null);
@@ -1589,10 +1357,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     }
     return (a.m.resolution ?? 99) - (b.m.resolution ?? 99);
   });
-  const best = isAf ? bestCandidates[0]?.row ?? null : null;
+  const best = bestCandidates[0]?.row ?? null;
   const loadedRow = rows.find(row => row.loaded);
   const relationshipNote =
-    isAf && effectiveMode === "wildtype" && input.wildType.customPdbUrl && loadedRow
+    effectiveMode === "wildtype" && input.wildType.customPdbUrl && loadedRow
       ? loadedRow.identity === "100%"
         ? "This experimental entry and AlphaFold represent the same wild-type protein sequence across the aligned range. A similar ribbon fold is expected; this view has not calculated an AlphaFold–PDB coordinate RMSD."
         : loadedRow.directMapping
@@ -1606,28 +1374,18 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const addSource = (key: keyof typeof STRUCTURE_SOURCES) => {
     if (!sources.some(s => s.doi === STRUCTURE_SOURCES[key].doi)) sources.push(STRUCTURE_SOURCES[key]);
   };
-  if (isAf) {
-    notes.push("pLDDT is AlphaFold's per-residue estimate of local accuracy. It says how far to trust the coordinates, not whether the residue matters.");
-    addSource("jumper2021");
-    addSource("varadi2022");
-    if (foldxTemplate?.channel.kind === "temperature-factor" || canvasWildType?.channel.kind === "temperature-factor") {
-      notes.push("Crystallographic B-factors depend on resolution and refinement, so they are coloured by quartile within their own entry, never against fixed cut-points.");
-      addSource("sun2019");
-    }
-    notes.push("FoldX BuildModel mutates the residue and repacks nearby side chains on the template's fixed backbone. Cα positions cannot move, so backbone measures are zero by construction; the model shows side-chain changes only.");
-    notes.push("ΔΔG is FoldX's folding free-energy change. Destabilisation is not pathogenicity, and FoldX's error is of the order of 1 kcal/mol.");
-    addSource("schymkowitz2005");
-    addSource("delgado2019");
-  } else {
-    notes.push("The wild type and the variant are folded as two separate single-sequence predictions. Nothing ties their coordinate errors together, so part of any difference between them can come from the predictions rather than the substitution.");
-    notes.push("De novo pLDDT is the folding model's own confidence; ESMFold v1 via the ESM Atlas stores it on a 0–1 scale, which the view reads ×100.");
-    const engineIds = [deNovo.engines?.wildType, deNovo.engines?.variant].filter(Boolean) as string[];
-    if (engineIds.length === 0 || engineIds.some(e => e !== "esm-atlas-esmfold")) addSource("candido2026");
-    if (engineIds.length === 0 || engineIds.includes("esm-atlas-esmfold")) addSource("lin2023");
+  notes.push("pLDDT is AlphaFold's per-residue estimate of local accuracy. It says how far to trust the coordinates, not whether the residue matters.");
+  addSource("jumper2021");
+  addSource("varadi2022");
+  if (foldxTemplate?.channel.kind === "temperature-factor" || canvasWildType?.channel.kind === "temperature-factor") {
+    notes.push("Crystallographic B-factors depend on resolution and refinement, so they are coloured by quartile within their own entry, never against fixed cut-points.");
+    addSource("sun2019");
   }
-  notes.push(
-    `Superposition is a Kabsch least-squares fit on matched Cα atoms. "Local" fits ±${LOCAL_ALIGNMENT_FIT_WINDOW} residues around the site; the local RMSD is read over ±${LOCAL_STRUCTURAL_WINDOW}, inside that fit.`
-  );
+  notes.push("FoldX BuildModel mutates the residue and repacks nearby side chains on the template's fixed backbone. Cα positions cannot move, so backbone measures are zero by construction; the model shows side-chain changes only.");
+  notes.push("ΔΔG is FoldX's folding free-energy change. Destabilisation is not pathogenicity, and FoldX's error is of the order of 1 kcal/mol.");
+  addSource("schymkowitz2005");
+  addSource("delgado2019");
+  notes.push("Superposition is a Kabsch least-squares fit on matched Cα atoms over the whole chain.");
   addSource("kabsch1976");
   addSource("sehnal2021");
 
@@ -1646,10 +1404,9 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
                 ? ("none" as const)
                 : ("predicted" as const),
       }
-    : { label: isAf ? "Loading structure" : deNovo.folding ? "Folding" : "No structure", title: "", tone: "none" as const };
+    : { label: "Loading structure", title: "", tone: "none" as const };
 
   return {
-    family,
     viewMode: effectiveMode,
     canvas: { primary, secondary, chip, relationshipNote },
     modes,
@@ -1658,12 +1415,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     colour,
     legend,
     plddtFilter,
-    alignment: {
-      scopeToggle: !isAf && effectiveMode === "superimposed",
-      scope,
-      measuredScope,
-      fitLabel,
-    },
     comparison,
     readings,
     site,

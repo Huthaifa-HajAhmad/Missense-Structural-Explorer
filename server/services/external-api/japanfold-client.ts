@@ -1,9 +1,7 @@
 /**
  * server/services/japanfold-client.ts — Unified API client for JapanFold sovereign drug discovery platform.
  *
- * Provides:
- * - ESMFold-2: De novo 3D coordinate generation (up to 1,024 residues)
- * - Boltz-2: quaternary complex modelling (submitted, then followed as a job)
+ * Provides Boltz-2: quaternary complex modelling (submitted, then followed as a job).
  */
 
 import crypto from "crypto";
@@ -11,17 +9,7 @@ import { LRUCache } from "lru-cache";
 import { CONFIG } from "../../config.ts";
 import { anySignal } from "../../utils/signals.ts";
 import { governedFetch } from "../infra/http-client.ts";
-import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
 import { credentialForCall } from "../infra/credentials.ts";
-
-export type Esmfold2Outcome =
-  | { status: "done"; pdb: string }
-  | {
-      status: "failed";
-      kind: "auth" | "http" | "timeout" | "network" | "job-failed" | "no-model";
-      httpStatus?: number | null;
-      detail?: string | null;
-    };
 
 export interface JapanFoldMultimerResult {
   status: "success" | "failed";
@@ -44,10 +32,6 @@ const japanFoldCache = new LRUCache<string, any>({
   ttl: 1000 * 60 * 60 * 24 * 14 // 14 days
 });
 
-const PERMANENT_AUTH_STATUSES = new Set([401, 402, 403, 451]);
-const AUTH_REFUSAL_TTL_MS = 10 * 60 * 1000;
-const japanFoldAuthRefusedUntil = new Map<string, number>();
-
 function effectiveApiKey(apiKey?: string | null): string | null {
   const supplied = typeof apiKey === "string" ? apiKey.trim() : "";
   if (supplied) return supplied;
@@ -55,33 +39,8 @@ function effectiveApiKey(apiKey?: string | null): string | null {
   return configured || null;
 }
 
-function authCircuitKey(apiKey?: string | null): string {
-  const key = effectiveApiKey(apiKey);
-  const keyHash = key ? crypto.createHash("sha256").update(key).digest("hex").slice(0, 12) : "none";
-  return `${CONFIG.services.japanfoldBaseUrl || ""}|${keyHash}`;
-}
-
-function isJapanFoldAuthBlocked(apiKey?: string | null): boolean {
-  const key = authCircuitKey(apiKey);
-  const until = japanFoldAuthRefusedUntil.get(key);
-  if (until === undefined) return false;
-  if (Date.now() >= until) {
-    japanFoldAuthRefusedUntil.delete(key);
-    return false;
-  }
-  return true;
-}
-
-function recordJapanFoldStatus(status: number, apiKey?: string | null): void {
-  if (PERMANENT_AUTH_STATUSES.has(status)) {
-    japanFoldAuthRefusedUntil.set(authCircuitKey(apiKey), Date.now() + AUTH_REFUSAL_TTL_MS);
-  }
-}
-
 export function clearJapanFoldCache(): void {
   japanFoldCache.clear();
-  japanFoldFlights.clear();
-  japanFoldAuthRefusedUntil.clear();
 }
 
 function getAuthHeaders(apiKey?: string | null): Record<string, string> {
@@ -96,173 +55,6 @@ function getAuthHeaders(apiKey?: string | null): Record<string, string> {
   return headers;
 }
 
-/** ESMFold-2 calls in flight, keyed by sequence and API-key hash. */
-const japanFoldFlights: SharedFlights<any> = new Map();
-
-/**
- * One JapanFold call per cache key for every concurrent caller (WP-I2). A caller whose signal aborts
- * gets null, like any other failed call, while the shared call carries on and fills the cache.
- */
-async function joinJapanFold<T>(key: string, run: () => Promise<T | null>, signal?: AbortSignal): Promise<T | null> {
-  try {
-    return await sharedFlight(japanFoldFlights, key, run, { signal });
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Tier-1: Query JapanFold ESMFold-2 for de novo 3D structure generation, returning a structured
- * outcome so callers can distinguish auth refusal (401/403) from timeouts and upstream faults.
- */
-export async function queryEsmfold2WithOutcome(
-  sequence: string,
-  signal?: AbortSignal,
-  apiKey?: string | null
-): Promise<Esmfold2Outcome> {
-  const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
-  const cacheKey = `japanfold:esmfold2:${seqHash}`;
-  const cached = japanFoldCache.get(cacheKey);
-  if (cached) return { status: "done", pdb: cached };
-
-  const key = effectiveApiKey(apiKey);
-  if (isJapanFoldAuthBlocked(key)) {
-    return {
-      status: "failed",
-      kind: "auth",
-      httpStatus: 401,
-      detail: key
-        ? "JapanFold API key was recently rejected (HTTP 401/403)."
-        : "JapanFold requires an API key (JAPANFOLD_API_KEY).",
-    };
-  }
-
-  const flightKey = `${cacheKey}:${key ? crypto.createHash("sha256").update(key).digest("hex").slice(0, 8) : "nokey"}`;
-  const outcome = await joinJapanFold<Esmfold2Outcome>(flightKey, async () => {
-    const timeoutMs = CONFIG.timeouts.japanfoldFoldingMs || 60000;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    // Bounded by its own timeout, not by the caller's signal: the call is shared (see joinJapanFold).
-    const effectiveSignal = timeoutSignal;
-    const credential = key ? credentialForCall("japanfold", key) : undefined;
-
-    try {
-      const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-      const response = await governedFetch(url, {
-        // A fold holds its request open until the model answers; its own lane keeps short calls moving.
-        lane: "compute",
-        method: "POST",
-        headers: getAuthHeaders(key),
-        body: JSON.stringify({
-          model: "esmfold2-fast",
-          sequence,
-          params: {
-            output_format: "pdb"
-          }
-        }),
-        signal: effectiveSignal,
-        ...(credential ? { credential } : {}),
-      });
-
-      if (response.status === 200) {
-        const data = (await response.json()) as any;
-        const pdb = data?.pdb || data?.structure || (typeof data === "string" && data.includes("ATOM") ? data : null);
-        if (pdb) {
-          japanFoldCache.set(cacheKey, pdb);
-          return { status: "done", pdb };
-        }
-        return { status: "failed", kind: "no-model", httpStatus: 200, detail: "JapanFold returned 200 without PDB coordinates." };
-      } else if (response.status === 202) {
-        const jobData = (await response.json()) as any;
-        const jobId = jobData?.id;
-        const resultsPath = jobData?.links?.results || (jobId ? `/v1/jobs/${jobId}/results` : null);
-
-        if (resultsPath) {
-          const resultsUrl = resolveResultsUrl(String(resultsPath));
-          if (!resultsUrl) {
-            return { status: "failed", kind: "no-model", httpStatus: 202, detail: "JapanFold returned a results URL on another host." };
-          }
-          const startTime = Date.now();
-
-          while (Date.now() - startTime < timeoutMs && !effectiveSignal?.aborted) {
-            await new Promise((resolve) => setTimeout(resolve, 2500));
-            if (effectiveSignal?.aborted) break;
-
-            try {
-              const pollRes = await governedFetch(resultsUrl, {
-                headers: getAuthHeaders(key),
-                signal: effectiveSignal
-              });
-              if (!pollRes.ok) {
-                if ([400, 401, 403, 404].includes(pollRes.status)) {
-                  recordJapanFoldStatus(pollRes.status, key);
-                  const detail = await detailOf(pollRes);
-                  console.warn(`[JapanFold Client] Polling failed with non-transient HTTP ${pollRes.status}. Aborting.`);
-                  return {
-                    status: "failed",
-                    kind: PERMANENT_AUTH_STATUSES.has(pollRes.status) ? "auth" : "http",
-                    httpStatus: pollRes.status,
-                    detail,
-                  };
-                }
-              } else {
-                const pollData = (await pollRes.json()) as any;
-                if (pollData.ready || pollData.status === "completed" || pollData.status === "succeeded") {
-                  const pdb = pollData?.pdb || pollData?.structure || (typeof pollData === "string" && pollData.includes("ATOM") ? pollData : null);
-                  if (pdb) {
-                    japanFoldCache.set(cacheKey, pdb);
-                    return { status: "done", pdb };
-                  }
-                  return { status: "failed", kind: "no-model", httpStatus: 200, detail: "JapanFold job completed without PDB coordinates." };
-                } else if (pollData.status === "failed" || pollData.status === "error") {
-                  const errMsg = pollData.error || "Unknown error";
-                  console.warn(`[JapanFold Client] ESMFold-2 job failed: ${errMsg}`);
-                  return { status: "failed", kind: "job-failed", detail: String(errMsg) };
-                }
-              }
-            } catch (pollErr: any) {
-              console.warn(`[JapanFold Client] Polling error: ${pollErr.message}`);
-            }
-          }
-          return { status: "failed", kind: "timeout", detail: `JapanFold ESMFold-2 timed out after ${Math.round(timeoutMs / 1000)}s.` };
-        }
-        return { status: "failed", kind: "no-model", httpStatus: 202, detail: "JapanFold accepted job without a results link." };
-      } else {
-        recordJapanFoldStatus(response.status, key);
-        const detail = await detailOf(response);
-        console.warn(`[JapanFold Client] ESMFold-2 query failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
-        return {
-          status: "failed",
-          kind: PERMANENT_AUTH_STATUSES.has(response.status) ? "auth" : "http",
-          httpStatus: response.status,
-          detail,
-        };
-      }
-    } catch (err: any) {
-      const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
-      console.warn(`[JapanFold Client] ESMFold-2 invocation error: ${err.message}`);
-      return {
-        status: "failed",
-        kind: isTimeout ? "timeout" : "network",
-        detail: err?.message ?? null,
-      };
-    }
-  }, signal);
-
-  return outcome ?? { status: "failed", kind: "network", detail: "Request aborted." };
-}
-
-/**
- * Tier-1: Query JapanFold ESMFold-2 for de novo 3D structure generation.
- */
-export async function queryEsmfold2(
-  sequence: string,
-  signal?: AbortSignal,
-  apiKey?: string | null
-): Promise<string | null> {
-  const outcome = await queryEsmfold2WithOutcome(sequence, signal, apiKey);
-  return outcome.status === "done" ? outcome.pdb : null;
-}
-
 /**
  * Boltz-2 complex prediction on JapanFold, submitted and then followed until it finishes.
  *
@@ -270,7 +62,7 @@ export async function queryEsmfold2(
  * 15 s fallback). A complex of two 1085-residue chains does not fold in a minute, so every large
  * assembly came back "Provider error", and a 202 job id was read as "no model". That is a false
  * negative made by the client, not by the model. Now:
- *   • a 202 (or a 200 carrying a job id) is followed by polling, the way ESMFold-2 is;
+ *   • a 202 (or a 200 carrying a job id) is followed by polling;
  *   • when this call's wait runs out the job is KEPT (`pendingBoltzJobs`) and reported "running":
  *     the next call resumes it instead of submitting again;
  *   • each failure keeps its kind (timeout, HTTP status, rejected input, network, job failed), so the

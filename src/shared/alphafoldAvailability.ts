@@ -13,8 +13,6 @@
  *   • the structure rail, on the experimental entry that the resolver had actually produced, told
  *     the reader to "switch to a UniProt-numbered model (e.g. AlphaFold)" — a model that does not
  *     exist for this protein;
- *   • the de novo folding notice promised "AlphaFold2 coordinates are the full-length option" for
- *     the same protein.
  *
  * The length rule is public and purely arithmetic, so it is stated once here and read by the server
  * (to explain its 404), the inspector (to stop promising coordinates that cannot exist), and the
@@ -63,4 +61,44 @@ export type AlphaFoldAbsenceReason = (typeof ALPHAFOLD_ABSENCE_REASONS)[number];
 
 export function isAlphaFoldAbsenceReason(value: string | null | undefined): value is AlphaFoldAbsenceReason {
   return typeof value === "string" && (ALPHAFOLD_ABSENCE_REASONS as readonly string[]).includes(value);
+}
+
+/** "1024" → "1,024", deterministically — no `toLocaleString`, which varies with the ICU build. */
+export function formatResidueCount(residues: number): string {
+  return String(residues).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+export interface ProteinLengthReading {
+  residues: number | null;
+  /**
+   * Which field the number came from. Not printed anywhere — it exists so a test can pin the
+   * precedence instead of inferring it from a rendered label.
+   */
+  source: "mutatedSequence" | "sequence" | "unavailable";
+}
+
+/**
+ * The analysed protein's full-length residue count.
+ *
+ * Prefers the mutant translation when present, then the canonical sequence.
+ * Structural typing rather than a contract import keeps this callable from a component that holds
+ * only `metadata`, and keeps `src/shared` self-contained.
+ *
+ * Callers must NOT substitute a scan-window length (`landscapeData.length` covers a window around the
+ * variant). That substitution is how this screen came to report a 711 aa protein as 51 aa.
+ */
+export function readProteinLength(
+  metadata: { mutatedSequence?: string | null; sequence?: string | null } | null | undefined
+): ProteinLengthReading {
+  const mutated = metadata?.mutatedSequence;
+  if (typeof mutated === "string" && mutated.length > 0) {
+    return { residues: mutated.length, source: "mutatedSequence" };
+  }
+
+  const canonical = metadata?.sequence;
+  if (typeof canonical === "string" && canonical.length > 0) {
+    return { residues: canonical.length, source: "sequence" };
+  }
+
+  return { residues: null, source: "unavailable" };
 }

@@ -170,16 +170,6 @@ export const CONFIG = {
     japanfoldZeroShotMs: parseInt(process.env.JAPANFOLD_ZEROSHOT_TIMEOUT_MS || "3500", 10),
     japanfoldFoldingMs: parseInt(process.env.JAPANFOLD_FOLDING_TIMEOUT_MS || "60000", 10),
     /**
-     * Biohub/EvolutionaryScale sidecar fold attempt, per sequence.
-     *
-     * Must outlast the sidecar's own `ESMFOLD_REMOTE_BUDGET_S` (60 s in
-     * `tools/model_server_app/routers/esmfold.py`): a 30 s Node timeout previously killed slow
-     * 800+ aa Forge folds mid-flight and turned them into a misleading 422 length-limit error.
-     */
-    esmfoldSidecarMs: parseInt(process.env.ESMFOLD_SIDECAR_TIMEOUT_MS || "65000", 10),
-    /** Keyless public ESM Atlas fold attempt (was a literal `15000` inside `esmfold.ts`). */
-    esmAtlasMs: parseInt(process.env.ESM_ATLAS_TIMEOUT_MS || "15000", 10),
-    /**
      * Whole-call server budget for `POST /api/v1/ppi/binding-affinity` upstream lookups
      * (STRING, UniProt features/UniParc, IntAct). Must sit strictly below `CLIENT_PPI_LOOKUP_BUDGET_MS`
      * in `src/shared/timeouts.ts` so slow providers degrade individually within the server budget

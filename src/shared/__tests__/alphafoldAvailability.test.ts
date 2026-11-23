@@ -4,7 +4,9 @@ import {
   ALPHAFOLD_ABSENCE_REASONS,
   ALPHAFOLD_DB_MAX_MODELLED_AA,
   alphafoldDbCoverage,
+  formatResidueCount,
   isAlphaFoldAbsenceReason,
+  readProteinLength,
 } from "../alphafoldAvailability";
 
 /**
@@ -49,5 +51,34 @@ describe("the absence marker", () => {
   it("fixes the header name and the reason vocabulary in one place", () => {
     expect(ALPHAFOLD_ABSENCE_HEADER).toBe("X-Alphafold-Absence");
     expect(ALPHAFOLD_ABSENCE_REASONS).toEqual(["beyond-length-limit"]);
+  });
+});
+
+describe("formatting a residue count", () => {
+  it("formats residue counts without depending on the ICU build", () => {
+    expect(formatResidueCount(400)).toBe("400");
+    expect(formatResidueCount(711)).toBe("711");
+    expect(formatResidueCount(1024)).toBe("1,024");
+    expect(formatResidueCount(12345)).toBe("12,345");
+  });
+});
+
+describe("reading the protein length", () => {
+  it("prefers the mutant translation, then the canonical sequence", () => {
+    expect(readProteinLength({ mutatedSequence: "M".repeat(711), sequence: "M".repeat(700) })).toEqual({
+      residues: 711,
+      source: "mutatedSequence",
+    });
+    expect(readProteinLength({ sequence: "M".repeat(700) })).toEqual({
+      residues: 700,
+      source: "sequence",
+    });
+  });
+
+  it("treats absent, null and empty sequences as unknown rather than as zero", () => {
+    // `0` would render as "Protein Length: 0 aa" and read as a measurement.
+    for (const metadata of [null, undefined, {}, { mutatedSequence: null }, { mutatedSequence: "" }, { sequence: "" }]) {
+      expect(readProteinLength(metadata as any)).toEqual({ residues: null, source: "unavailable" });
+    }
   });
 });

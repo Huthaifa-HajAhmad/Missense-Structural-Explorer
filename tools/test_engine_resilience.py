@@ -9,22 +9,8 @@ from tools.model_server_app.engine_resilience import (
     GateDeadlineExceeded,
     PriorityCpuGate,
     request_deadline,
-    RemoteDeadlineExceeded,
     SingleFlightCache,
-    raise_if_sdk_error,
-    run_with_deadline,
 )
-
-
-class SdkReturnedErrorTests(unittest.TestCase):
-    class _ReturnedError(Exception):
-        error_code = 451
-        error_msg = "Unavailable For Legal Reasons"
-
-
-    def test_ordinary_values_pass_through(self):
-        for value in (None, {"a": 1}, [1, 2], "tensor"):
-            self.assertEqual(raise_if_sdk_error(value), value)
 
 
 class SingleFlightCacheTests(unittest.TestCase):
@@ -57,17 +43,6 @@ class SingleFlightCacheTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             cache.get_or_compute("k", lambda: (_ for _ in ()).throw(RuntimeError("fail")))
         self.assertEqual(cache.get_or_compute("k", lambda: {"ok": True}), {"ok": True})
-
-
-class DeadlineTests(unittest.TestCase):
-    def test_slow_call_raises_deadline_exceeded(self):
-        with self.assertRaises(RemoteDeadlineExceeded):
-            run_with_deadline(lambda: time.sleep(0.5), 0.05, "ESM3 remote")
-
-    def test_fast_call_returns_value_and_propagates_errors(self):
-        self.assertEqual(run_with_deadline(lambda: 7, 1, "x"), 7)
-        with self.assertRaises(ValueError):
-            run_with_deadline(lambda: (_ for _ in ()).throw(ValueError("v")), 1, "x")
 
 
 class PriorityCpuGateTests(unittest.TestCase):

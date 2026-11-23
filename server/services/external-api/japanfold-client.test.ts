@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  queryEsmfold2,
-  queryEsmfold2WithOutcome,
   queryBoltz2Multimer,
   runBoltz2Multimer,
   resolveResultsUrl,
@@ -14,61 +12,6 @@ describe("JapanFold API Client", () => {
     clearJapanFoldCache();
     clearBoltzJobs();
     vi.restoreAllMocks();
-  });
-
-  describe("queryEsmfold2", () => {
-    it("returns PDB coordinate string on successful 3D folding", async () => {
-      const mockPdb = "ATOM      1  N   MET A   1       0.000   0.000   0.000  1.00 90.00           N\nTER";
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "success", pdb: mockPdb })
-      } as any);
-
-      const pdb = await queryEsmfold2("MSLSK");
-      expect(pdb).toBe(mockPdb);
-    });
-
-    it("returns null when folding request fails or returns non-200", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        statusText: "Service Unavailable"
-      } as any);
-
-      const pdb = await queryEsmfold2("MSLSK");
-      expect(pdb).toBeNull();
-    });
-
-    it("returns auth failure on 401 and remembers it across repeated calls with the same key", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-        ok: false,
-        status: 401,
-        text: async () => JSON.stringify({ detail: "No API key was sent." })
-      } as any);
-
-      const first = await queryEsmfold2WithOutcome("MSLSK", undefined, null);
-      expect(first).toMatchObject({ status: "failed", kind: "auth", httpStatus: 401 });
-
-      const second = await queryEsmfold2WithOutcome("MSLSK2", undefined, null);
-      expect(second).toMatchObject({ status: "failed", kind: "auth", httpStatus: 401 });
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it("sends a supplied per-call apiKey in Authorization and X-API-Key headers", async () => {
-      const mockPdb = "ATOM      1  N   MET A   1       0.000   0.000   0.000  1.00 90.00           N\nTER";
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "success", pdb: mockPdb })
-      } as any);
-
-      const outcome = await queryEsmfold2WithOutcome("MSLSK", undefined, "jf_user_key_123456");
-      expect(outcome).toEqual({ status: "done", pdb: mockPdb });
-      const init = fetchSpy.mock.calls[0]?.[1] as { headers?: Record<string, string> };
-      expect(init?.headers?.["Authorization"]).toBe("Bearer jf_user_key_123456");
-      expect(init?.headers?.["X-API-Key"]).toBe("jf_user_key_123456");
-    });
   });
 
   describe("queryBoltz2Multimer", () => {
@@ -129,6 +72,14 @@ describe("JapanFold API Client", () => {
     ];
     const reply = (body: unknown, status = 200) =>
       ({ ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as any;
+
+    it("sends a supplied per-call apiKey in the Authorization and X-API-Key headers", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(reply({ id: "job-key" }, 202));
+      await runBoltz2Multimer(CHAINS, undefined, { waitMs: 20, pollMs: 10, apiKey: "jf_user_key_123456" });
+      const init = fetchSpy.mock.calls[0]?.[1] as { headers?: Record<string, string> };
+      expect(init?.headers?.["Authorization"]).toBe("Bearer jf_user_key_123456");
+      expect(init?.headers?.["X-API-Key"]).toBe("jf_user_key_123456");
+    });
 
     it("submits ONCE when two requests for the same complex arrive together", async () => {
       // The job is only recorded after the service answers; without a shared in-flight submission both

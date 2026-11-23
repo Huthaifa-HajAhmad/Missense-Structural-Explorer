@@ -15,7 +15,6 @@ services:
       - APP_SESSION_SECRET=${APP_SESSION_SECRET:?Set APP_SESSION_SECRET}
       - SIDECAR_SECRET=${SIDECAR_SECRET:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - BIOHUB_API_TOKEN=${BIOHUB_API_TOKEN:-}
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     volumes:
       # Persistent SQLite databases (analyses.sqlite, landscape_cache.sqlite, rasp_precomputed.sqlite)

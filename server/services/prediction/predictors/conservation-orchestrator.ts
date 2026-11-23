@@ -661,7 +661,6 @@ export interface ProgressiveConservationContext {
   assembly?: GenomeAssembly;
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
-  biohubToken?: string | null;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window (-D); defaults to `SPLICEAI_DEFAULT_DISTANCE`. */

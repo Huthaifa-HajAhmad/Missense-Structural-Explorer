@@ -1,6 +1,6 @@
 import { indexStructureResidues } from './coordinateText';
 import type { CaTrace, ResidueAt } from './coordinateText';
-import { formatResidueCount } from './foldingLimits';
+import { formatResidueCount } from './alphafoldAvailability';
 import { ALPHAFOLD_DB_MAX_MODELLED_AA } from './alphafoldAvailability';
 import { AMINO_ACID_3_TO_1, AMINO_ACID_FULL_NAME } from './aminoAcids';
 import { plddtBand } from './structure3dEvidence';

@@ -3,11 +3,10 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { PDB_SOURCE_RCSB } from "../shared/contracts";
 import { describeFoldxPhase } from "../shared/foldxPhase";
 import { identifyAlphaFoldHeader, readResidueAt, scanBFactors } from "../shared/coordinateText";
-import { readProteinLength } from "../shared/foldingLimits";
+import { readProteinLength } from "../shared/alphafoldAvailability";
 import { regionsAt } from "../shared/residueRegions";
 import {
   buildStructure3dEvidence,
-  type ModelFamily,
   type Structure3dEvidence,
   type Structure3dInput,
 } from "../shared/structure3dEvidence";
@@ -22,13 +21,9 @@ import {
  *
  * Scans of the PDB texts are memoised on the text itself; they re-run only when coordinates change.
  */
-export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3dEvidence {
-  const active3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
-  const family: ModelFamily = familyOverride ?? (active3dModelTab === "alphafold2" ? "alphafold" : "esmfold");
-
+export function useStructure3dEvidence(): Structure3dEvidence {
   const viewMode = useVariantAnalysisStore(s => s.viewMode);
   const representation = useVariantAnalysisStore(s => s.structureRepresentation);
-  const esmAlignmentScope = useVariantAnalysisStore(s => s.esmAlignmentScope);
   const selectedResidueIndex = useVariantAnalysisStore(s => s.selectedResidueIndex);
 
   const metadata = useVariantAnalysisStore(s => s.analysisState?.result?.metadata);
@@ -70,15 +65,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const foldxAlignedPdb = useVariantAnalysisStore(s => s.foldxAlignedPdb);
   const foldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
 
-  const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
-  const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
-  const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
-  const esmFoldMutPdb = useVariantAnalysisStore(s => s.esmFoldMutPdb);
-  const esmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
-  const esmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
-  const esmFoldEngines = useVariantAnalysisStore(s => s.esmFoldEngines);
-  const esmFoldSingleStructure = useVariantAnalysisStore(s => s.esmFoldSingleStructure);
-
   const position = metadata?.residueIndex ?? null;
   const proteinLength = readProteinLength(metadata).residues;
   const templateChain = foldingEnergetics?.structureProvenance?.chainId ?? null;
@@ -88,8 +74,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const wildTypeSite = useMemo(() => readResidueAt(wildTypeText, position), [wildTypeText, position]);
   const headerSaysAlphaFold = useMemo(() => identifyAlphaFoldHeader(pdbText), [pdbText]);
   const referenceSite = useMemo(() => readResidueAt(foldxReferencePdb, position, templateChain), [foldxReferencePdb, position, templateChain]);
-  const deNovoScan = useMemo(() => scanBFactors(esmFoldWtPdb), [esmFoldWtPdb]);
-  const deNovoSite = useMemo(() => readResidueAt(esmFoldWtPdb, position), [esmFoldWtPdb, position]);
 
   const secondarySource = useVariantAnalysisStore(s => s.canvasSecondary?.source ?? null);
 
@@ -98,7 +82,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
       metadata?.pdbSource === PDB_SOURCE_RCSB && metadata?.pdbId ? `PDB ${metadata.pdbId}` : "the AlphaFold model";
 
     const input: Structure3dInput = {
-      family,
       viewMode,
       representation,
       variant: {
@@ -139,19 +122,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
         aligned: Boolean(foldxAlignedPdb && foldxReferencePdb),
         referenceSite,
       },
-      deNovo: {
-        folding: isEsmFolding,
-        error: esmFoldingError ?? null,
-        wildTypeLoaded: Boolean(esmFoldWtPdb),
-        variantLoaded: Boolean(esmFoldMutPdb),
-        singleStructure: esmFoldSingleStructure,
-        engines: esmFoldEngines,
-        scan: deNovoScan,
-        aligned: Boolean(esmFoldAlignedPdb && esmFoldMutPdb),
-        site: deNovoSite,
-      },
-      alignmentScope: esmAlignmentScope,
-      metrics: family === "alphafold" ? (foldxMetrics as any) : (esmFoldMetrics as any),
+      metrics: foldxMetrics as any,
       burial: disruption
         ? {
             rsa: typeof disruption.rsa === "number" ? disruption.rsa : null,
@@ -171,11 +142,10 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
     };
     return buildStructure3dEvidence(input);
   }, [
-    family, viewMode, representation, esmAlignmentScope, selectedResidueIndex, metadata, uniprotFromSearch, gene,
+    viewMode, representation, selectedResidueIndex, metadata, uniprotFromSearch, gene,
     disruption, pdbTextProvenance, headerSaysAlphaFold, customPdbUrl, entryMeta, wildTypeScan, wildTypeSite,
     isFolding, foldingProgress, foldingStatus, foldingError, foldingDdG, foldingEnergetics, foldxReference,
-    foldxAlignedPdb, foldxReferencePdb, referenceSite, isEsmFolding, esmFoldingError, esmFoldWtPdb, esmFoldMutPdb,
-    esmFoldSingleStructure, esmFoldEngines, deNovoScan, esmFoldAlignedPdb, deNovoSite, foldxMetrics, esmFoldMetrics,
+    foldxAlignedPdb, foldxReferencePdb, referenceSite, foldxMetrics,
     homologs, homologsLoading, position, proteinLength, secondarySource,
   ]);
 }

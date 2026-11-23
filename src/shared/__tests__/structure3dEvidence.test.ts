@@ -61,7 +61,6 @@ const ATLAS_TEXT = [atom(1, "CA", "ASP", "A", 116, 0.81), atom(2, "CA", "GLY", "
 
 function baseInput(overrides: Partial<Structure3dInput> = {}): Structure3dInput {
   return {
-    family: "alphafold",
     viewMode: "wildtype",
     representation: "confidence",
     variant: { position: 116, wildType: "Asp", mutant: "Gly", uniprotId: "Q13564", gene: "NAE1" },
@@ -88,18 +87,6 @@ function baseInput(overrides: Partial<Structure3dInput> = {}): Structure3dInput 
       aligned: false,
       referenceSite: null,
     },
-    deNovo: {
-      folding: false,
-      error: null,
-      wildTypeLoaded: false,
-      variantLoaded: false,
-      singleStructure: false,
-      engines: null,
-      scan: null,
-      aligned: false,
-      site: null,
-    },
-    alignmentScope: "global",
     metrics: null,
     burial: null,
     homologs: [
@@ -309,17 +296,17 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(failed.comparison.state).toBe("unavailable");
   });
 
-  it("pairs the FoldX variant with 1YOV, not with the AlphaFold wild type, and never offers a rigid-backbone displacement map", () => {
-    const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx: readyFoldx(), metrics: NAE1_METRICS, representation: "displacement" }));
+  it("pairs the FoldX variant with 1YOV, not with the AlphaFold wild type, with no displacement map or fit-scope choice", () => {
+    const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx: readyFoldx(), metrics: NAE1_METRICS, representation: "plain" }));
     expect(m.viewMode).toBe("superimposed");
     expect(m.canvas.primary?.name).toBe("PDB 1YOV chain A");
     expect(m.canvas.secondary?.channel.kind).toBe("temperature-factor");
     expect(m.comparison.state).toBe("ready");
     expect(m.comparison.canvasWildTypeIsNotTemplate).toBe(true);
-    const disp = m.representations.find(r => r.id === "displacement");
-    expect(disp).toBeUndefined();
+    // Cα displacement and the fit-scope toggle served only the retired ESMFold pair.
+    expect(m.representations.map(r => r.id)).not.toContain("displacement");
     expect(m.representation).toBe("pair");
-    expect(m.alignment.scopeToggle).toBe(false);
+    expect("alignment" in m).toBe(false);
   });
 
   it("names FoldX's own paired wild type when the run returned it, and caveats nothing about repair", () => {
@@ -456,76 +443,6 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.notices.find(n => n.key === "entry")?.body).toBe(
       "The entry keeps its own residue numbering and all of its chains: no chain of 9QN5 carries D116 under a verified mapping to Q13564. The variant model and the superposition still refer to FoldX's template."
     );
-  });
-});
-
-describe("structure3dEvidence — ESMFold view", () => {
-  const deNovoInput = (engines: { wildType: string | null; variant: string | null } | null, text = ATLAS_TEXT) =>
-    baseInput({
-      family: "esmfold",
-      deNovo: {
-        folding: false,
-        error: null,
-        wildTypeLoaded: true,
-        variantLoaded: true,
-        singleStructure: false,
-        engines,
-        scan: scanBFactors(text),
-        aligned: true,
-        site: readResidueAt(text, 116),
-      },
-    });
-
-  it("reads ESM Atlas pLDDT on its 0–1 scale and cites ESMFold v1, not ESMFold2", () => {
-    const m = buildStructure3dEvidence(deNovoInput({ wildType: "esm-atlas-esmfold", variant: "esm-atlas-esmfold" }));
-    expect(m.colour.primary).toEqual({ theme: "plddt", scale: 1 });
-    expect(m.site.confidence.text).toBe("pLDDT 81.0 · confident");
-    expect(m.sources.map(s => s.doi)).toContain("10.1126/science.ade2574");
-    expect(m.sources.map(s => s.doi)).not.toContain("10.64898/2026.06.03.729735");
-  });
-
-  it("cites ESMFold2 for the JapanFold engine and never pairs it with Lin et al. 2023", () => {
-    const m = buildStructure3dEvidence(deNovoInput({ wildType: "japanfold-esmfold2-fast", variant: "japanfold-esmfold2-fast" }, AF_TEXT));
-    expect(m.canvas.primary?.detail).toBe("Folded by ESMFold2-Fast via JapanFold");
-    expect(m.sources.map(s => s.doi)).toContain("10.64898/2026.06.03.729735");
-    expect(m.sources.map(s => s.doi)).not.toContain("10.1126/science.ade2574");
-  });
-
-  it("warns when the wild type and the variant came from different engines", () => {
-    const m = buildStructure3dEvidence(deNovoInput({ wildType: "japanfold-esmfold2-fast", variant: "esm-atlas-esmfold" }));
-    expect(m.notices.find(n => n.key === "engines")?.tone).toBe("warning");
-  });
-
-  it("does not offer a variant or superposition when the server returned one structure", () => {
-    const input = deNovoInput(null);
-    input.deNovo.singleStructure = true;
-    const m = buildStructure3dEvidence({ ...input, viewMode: "superimposed" });
-    expect(m.modes.find(x => x.id === "mutant")?.available).toBe(false);
-    expect(m.viewMode).toBe("wildtype");
-  });
-
-  it("offers the alignment-scope toggle for de novo pairs, with the local-fit caveat", () => {
-    const input = deNovoInput({ wildType: "esm-atlas-esmfold", variant: "esm-atlas-esmfold" });
-    const m = buildStructure3dEvidence({ ...input, viewMode: "superimposed", alignmentScope: "local", metrics: { localWindowRmsd: 0.4, globalRmsd: 6.1 } });
-    expect(m.alignment.scopeToggle).toBe(true);
-    expect(m.readings.find(r => r.key === "local-rmsd")?.caveat).toBe(`Measured inside the ±${LOCAL_ALIGNMENT_FIT_WINDOW} fitted window, so small by construction.`);
-    expect(m.readings.find(r => r.key === "global-rmsd")?.note).toMatch(/not a whole-chain fit/);
-    expect(m.representations.find(r => r.id === "displacement")?.available).toBe(true);
-  });
-
-  it("describes the readings by the fit that was measured, not the toggle's pending choice", () => {
-    const input = deNovoInput({ wildType: "esm-atlas-esmfold", variant: "esm-atlas-esmfold" });
-    // The toggle says local; the metrics on screen are still the whole-chain fit's.
-    const m = buildStructure3dEvidence({
-      ...input,
-      viewMode: "superimposed",
-      alignmentScope: "local",
-      metrics: { localWindowRmsd: 1.2, globalRmsd: 6.1, alignmentScope: "global" },
-    });
-    expect(m.alignment.scope).toBe("local");
-    expect(m.comparison.fit).toBe("whole chain");
-    expect(m.readings.find(r => r.key === "global-rmsd")?.note).toBe("after a whole-chain fit");
-    expect(m.readings.find(r => r.key === "local-rmsd")?.caveat).toBeNull();
   });
 });
 

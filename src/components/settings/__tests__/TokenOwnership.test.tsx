@@ -23,7 +23,7 @@ import { encodeCredentialUse } from "../../../shared/credentials";
 
 function Harness({ browserToken, onClear = () => {} }: { browserToken: string; onClear?: () => void }) {
   const secrets = useSavedSecrets();
-  return <AccountTokenControls kind="biohub" label="Biohub" browserToken={browserToken} clearBrowserToken={onClear} secrets={secrets} />;
+  return <AccountTokenControls kind="tamarind" label="Tamarind" browserToken={browserToken} clearBrowserToken={onClear} secrets={secrets} />;
 }
 
 beforeEach(() => {
@@ -48,23 +48,23 @@ describe("AccountTokenControls", () => {
     render(<Harness browserToken="tok_typed_12345678" onClear={onClear} />);
     const button = await screen.findByRole("button", { name: /save/i });
     await act(async () => fireEvent.click(button));
-    expect(api.saveSecret).toHaveBeenCalledWith("biohub", "tok_typed_12345678");
+    expect(api.saveSecret).toHaveBeenCalledWith("tamarind", "tok_typed_12345678");
     expect(onClear).toHaveBeenCalled();
     expect(await screen.findByText(/Saved to your account \(ends …5678\)/)).toBeTruthy();
     expect(screen.getByRole("status").className).toContain("sr-only");
   });
 
   it("shows a saved token by its last four characters and removes it", async () => {
-    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "biohub", hint: "wxyz", updatedAt: 1, readable: true }] });
+    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "tamarind", hint: "wxyz", updatedAt: 1, readable: true }] });
     render(<Harness browserToken="" />);
     expect(await screen.findByText(/ends …wxyz/)).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /remove/i })));
-    expect(api.removeSecret).toHaveBeenCalledWith("biohub");
+    expect(api.removeSecret).toHaveBeenCalledWith("tamarind");
     await waitFor(() => expect(screen.queryByText(/ends …wxyz/)).toBeNull());
   });
 
   it("asks for the token again when the server can no longer read it", async () => {
-    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "biohub", hint: "wxyz", updatedAt: 1, readable: false }] });
+    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "tamarind", hint: "wxyz", updatedAt: 1, readable: false }] });
     render(<Harness browserToken="" />);
     expect(await screen.findByText(/can no longer be read by the server; save it again/)).toBeTruthy();
   });

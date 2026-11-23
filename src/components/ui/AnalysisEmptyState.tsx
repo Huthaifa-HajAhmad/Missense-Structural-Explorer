@@ -31,10 +31,10 @@ export function emptyWorkspace(view: MasterView, evidenceTab: string): EmptyWork
     const tab = findEvidenceTab(evidenceTab) ?? findEvidenceTab('clinical')!;
     return { ...EVIDENCE[tab.id], title: tab.label, Icon: BarChart2 };
   }
-  if (view === 'structure' || view === 'structure_alphafold' || view === 'structure_esmfold') return {
+  if (view === 'structure' || view === 'structure_alphafold') return {
     title: '3D structure', Icon: Layers,
     description: 'Inspect the variant in a three-dimensional model and compare available wild-type and variant structures.',
-    topics: [view === 'structure_esmfold' ? 'ESMFold models' : 'AlphaFold & FoldX models', 'Residue environment', 'Structure comparison'],
+    topics: ['AlphaFold & FoldX models', 'Residue environment', 'Structure comparison'],
   };
   return WORKSPACES[view] ?? null;
 }

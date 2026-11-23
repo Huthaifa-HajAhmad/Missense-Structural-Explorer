@@ -25,7 +25,6 @@ describe("classifyLogSource", () => {
     ["[StructuralModel] SaProt failed", "biophysics"],
     ["[StructuralAnalysis] All deep language model evaluations failed", "biophysics"],
     ["[DynaMut2] job", "biophysics"],
-    ["[ESMFold] De novo folding unavailable", "structure-3d"],
     ["[Pocket Detection Error]:", "structure-3d"],
     ["[Pocket Finder] notice", "structure-3d"],
     ["[StructureService] fetch", "structure-3d"],

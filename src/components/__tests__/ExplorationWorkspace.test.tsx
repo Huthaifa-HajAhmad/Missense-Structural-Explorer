@@ -12,11 +12,10 @@ import { SOD1_LANDSCAPE_CONTEXT } from '../../shared/__tests__/fixtures/sod1Land
 vi.mock('../../hooks/useProteinSequence', () => ({ useProteinSequence: () => ({ sequence: 'MAAAAVAAAA', isLoading: false, error: null }) }));
 vi.mock('../LiteratureView', () => ({ default: () => null }));
 vi.mock('../telemetry/LiveTelemetryPanel', () => ({ default: () => null }));
-vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; onReturnToVariant?: () => void; view: { model: { family: string } } }) => <div data-testid="canvas-instance">
+vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; onReturnToVariant?: () => void; view: unknown }) => <div data-testid="canvas-instance">
   <button onClick={() => props.onResidueClick(8)}>Pick structure residue 8</button>
   <button onClick={() => props.onResidueClick(5)}>Pick structure residue 5</button>
   <button onClick={() => props.onReturnToVariant?.()}>Return to variant</button>
-  <span>Canvas family: {props.view.model.family}</span>
 </div> }));
 afterEach(cleanup);
 
@@ -34,7 +33,7 @@ const seed = () => store.setState({ gene: 'TEST', variant: 'p.Ala5Val', uniprotI
   landscapeSelection: { key, kind: 'substitution', pos: 5, alt: 'V' },
   landscapeOverview: { key, status: 'ready', error: null, data: { positions: [], context: SOD1_LANDSCAPE_CONTEXT } as any },
   analysisState: { isLoading: false, error: null, result: { metadata: { residueIndex: 5, wildType: 'Ala', mutant: 'Val' }, landscapeData: [] } } as any,
-  pdbText: null, customPdbUrl: null, esmFoldWtPdb: null, esmFoldMutPdb: null, viewMode: 'wildtype',
+  pdbText: null, customPdbUrl: null, viewMode: 'wildtype',
 });
 beforeEach(seed);
 
@@ -75,16 +74,16 @@ async function openStructure(ui: ReturnType<typeof render>) {
   return ui.findByTestId('canvas-instance', undefined, { timeout: 6000 });
 }
 
-it('defers the canvas, then keeps its identity, family and the Landscape tab across navigation', async () => {
+it('defers the canvas, then keeps its identity and the Landscape tab across navigation', async () => {
   const ui = render(<Workspace />);
   expect(ui.queryByTestId('canvas-instance')).toBeNull();
   const canvas = await openStructure(ui);
-  fireEvent.click(ui.getByRole('tab', { name: 'ESMFold' }));
   fireEvent.click(ui.getByRole('button', { name: 'Sidebar: Landscape' }));
   expect(ui.getByRole('tab', { name: 'Focus residue' }).getAttribute('aria-selected')).toBe('true');
   expect(ui.getByTestId('canvas-instance')).toBe(canvas);
   fireEvent.click(ui.getByRole('button', { name: 'Inspect in 3D' }));
-  expect(ui.getByRole('tab', { name: 'ESMFold' }).getAttribute('aria-selected')).toBe('true');
+  // The 3D view has one model; no ESMFold tab is offered.
+  expect(ui.queryByRole('tab', { name: 'ESMFold' })).toBeNull();
   expect(ui.getByTestId('canvas-instance')).toBe(canvas);
 });
 

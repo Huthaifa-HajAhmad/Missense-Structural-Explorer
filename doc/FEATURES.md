@@ -28,9 +28,6 @@ Two views share one canvas, toolbar, colour key and inspector trace, all rendere
   residue by residue (residues with no UniProt position, such as tags, are left out and counted)
   when the wild-type residue is verified at the variant's position; otherwise the whole entry in its
   own numbering, with the reason, and the view checks the residue at the variant position.
-* **ESMFold view**: wild type and variant folded concurrently, as two separate single-sequence predictions. The
-  server names the engine that answered for each (ESMFold2-Fast via JapanFold or EvolutionaryScale
-  Forge, or ESMFold v1 via the public ESM Atlas), and the view warns when the two differ.
 * The toolbar names the structure, the variant site (click to frame it) and any residue you
   clicked, and switches wild type / variant / superposition.
 
@@ -106,9 +103,9 @@ Accessible from the sidebar **Settings** action (and deep-linked from every "Con
 * **🎨 Appearance**: Light / Dark / **System** color scheme (system follows the OS preference live), workspace accent color, **Reduce motion** (first-run default honors the OS accessibility setting and gates both CSS and spring animations), and **High-contrast viewport** (enlarges the mutated-residue highlight and adds a translucent halo in the 3D viewer).
 * **🔬 Viewport**: Target residue highlight swatches (vibrant + muted families), camera transition speed, auto-zoom on selection, 3D residue labels, and polar-contact rendering (the site environment within 5 Å).
 * **🧬 Sequence**: Residue color scheme and ribbon slice size — the slice size now genuinely seeds the landscape/ribbon window on startup.
-* **⚗️ Analysis**: ACMG weighting model, ΔΔG energy unit, **default structure source (AlphaFold2 / ESMFold)** and **default perturbation model (SaProt / ESM-2 / ESMc)** for new sessions, plus **simulation conditions (pH, temperature, ionic strength)** forwarded to biophysical stability requests.
+* **⚗️ Analysis**: ACMG weighting model, ΔΔG energy unit, plus **simulation conditions (pH, temperature, ionic strength)** forwarded to biophysical stability requests.
 * **🖥️ Workspace**: Automatic alert banners toggle (suppresses warn/error toasts while still logging to the console) and opt-in search history with its retention limit.
-* **🔑 Connections**: All credentials (App/Lab token, Biohub/Forge, AlphaGenome, Gemini, and Tamarind Bio under Optional providers) with per-credential connection tests, a live Gemini session pill with expiry countdown, and a server service-readiness strip (FoldX engine, model server, Gemini).
+* **🔑 Connections**: All credentials (App/Lab token, AlphaGenome, Gemini, and Tamarind Bio under Optional providers) with per-credential connection tests, a live Gemini session pill with expiry countdown, and a server service-readiness strip (FoldX engine, model server, Gemini).
 * **ℹ️ About & data**: Live server version, pinned foundation-model revisions and data-source releases, settings export/import (JSON, credentials never included), search-history and client variant-cache purge, and the server cache purge control.
 
 Security model: credentials live only in `sessionStorage` for the tab lifetime; nothing secret is ever written to `localStorage` (including in exported settings files), and resets wipe transient credentials.

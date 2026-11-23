@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
     isRunning: false,
   },
   settings: {
-    settings: { defaultStructureModel: "alphafold" },
+    settings: {},
     isDark: false,
     toggleTheme: vi.fn(),
     setIsSettingsOpen: vi.fn(),
@@ -224,8 +224,8 @@ describe("CommandPalette — browse mode", () => {
     expect(screen.getByText("current")).toBeInTheDocument();
   });
 
-  it("badges the merged structure row while an ESMFold tab is showing", () => {
-    render(<CommandPalette {...setup({ activeView: "structure_esmfold" })} />);
+  it("badges the merged structure row while the AlphaFold tab is showing", () => {
+    render(<CommandPalette {...setup({ activeView: "structure_alphafold" })} />);
     expect(screen.getByText("current")).toBeInTheDocument();
   });
 

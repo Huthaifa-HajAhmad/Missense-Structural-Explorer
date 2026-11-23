@@ -1,8 +1,8 @@
 /**
  * credentials.ts — which token a remote model call uses, and whose allowance it spends (WP-I4).
  *
- * Biohub (EvolutionaryScale Forge) and Tamarind count calls against the token that made them.
- * The server holds a team token for each (`BIOHUB_API_TOKEN`, `TAMARIND_API_KEY`), and a person
+ * Tamarind counts calls against the token that made them. The server holds a team token
+ * (`TAMARIND_API_KEY`), and a person
  * may bring their own: in the request (Settings → Connections, this browser) or saved to their account
  * (`auth/user-secrets.ts`). {@link resolveCredential} decides, in this order:
  *
@@ -44,14 +44,12 @@ import { LEGACY_OWNER } from "./queue-owners.ts";
 
 /** The server's team token for each kind, by environment variable in order of preference. */
 const TEAM_ENV: Readonly<Record<CredentialKind, readonly string[]>> = {
-  biohub: ["BIOHUB_API_TOKEN", "ESM3_FORGE_API_KEY"],
   tamarind: ["TAMARIND_API_KEY"],
   japanfold: ["JAPANFOLD_API_KEY"],
 };
 
 /** The host each kind's calls count against (the sidecar's calls are governed as this host). */
 export const CREDENTIAL_HOSTS: Readonly<Record<CredentialKind, string>> = {
-  biohub: "forge.evolutionaryscale.ai",
   tamarind: "app.tamarind.bio",
   japanfold: "api.japanfold.aiand.com",
 };
@@ -139,7 +137,7 @@ function noteUse(use: CredentialUse): void {
 /**
  * Work several callers share (the core analysis run, a shared Tamarind submission) runs in a record of
  * its own; each caller then copies its uses into theirs, so every response says whose token the shared
- * call ran on (its source is the same for all of them: see {@link credentialSourceTag}).
+ * call ran on (its source is the same for all of them).
  */
 export function startWithOwnCredentialRecord<T>(fn: () => Promise<T>): { promise: Promise<T>; record: CredentialRecord } {
   const record = newCredentialRecord();
@@ -296,18 +294,6 @@ export function credentialAvailable(kind: CredentialKind, supplied?: string | nu
   return Boolean(team) && canLendTeamToken(owner) && sharedTokenFallback() !== "off" && teamShareLeft(kind, owner) > 0;
 }
 
-/**
- * Which kind of token a call for `kind` carrying `token` spends, for the key of work several callers share:
- * `none`, `team`, or `own:<owner>`. Callers on the team token share one run; a person's own token serves
- * only that person's requests (it is never spent on someone else's), so it is scoped to the owner. Never
- * the token, nor anything derived from it.
- */
-export function credentialSourceTag(kind: CredentialKind, token: string | null | undefined): string {
-  const given = typeof token === "string" ? token.trim() : "";
-  if (!given) return "none";
-  return given === teamToken(kind) ? "team" : `own:${currentEgressOwner()}`;
-}
-
 // ── Calls ───────────────────────────────────────────────────────────────────────────────────────
 
 /** Opaque bucket ids for own tokens: random, keyed by a digest held only in this map (bounded, LRU). */
@@ -393,9 +379,8 @@ export function credentialForCall(
 
 /**
  * Run `fn`, a call that reaches `kind`'s provider with `token`, as a governed call to that provider. For
- * calls that leave through the Python sidecar (ESM3, ESMC, ESMFold, ESM-2, SaProt): the request Node makes
- * is to loopback, but with a token the sidecar calls Biohub, so that is what is counted.
- * Without a token the sidecar stays local and `fn` runs ungoverned; if that is because the team token was
+ * calls that leave through another service, the call is counted against `kind`'s provider host.
+ * Without a token the call runs and `fn` runs ungoverned; if that is because the team token was
  * refused, the refusal is reported (unless `noteRefusal: false`: the call would not have used a token).
  */
 export async function governedForCredential<T>(
@@ -428,7 +413,6 @@ export function credentialPolicyHealth(): {
     fallback: sharedTokenFallback(),
     sharePerHour: teamSharePerHour(),
     teamTokens: {
-      biohub: Boolean(teamToken("biohub")),
       tamarind: Boolean(teamToken("tamarind")),
       japanfold: Boolean(teamToken("japanfold")),
     },

@@ -3,7 +3,7 @@
  *
  * One place, so the jobs panel, the Energetics progress card and Settings → Account say the same thing
  * about the same state, and so an agent changing the wording changes it everywhere. Pure (no imports),
- * like `foldxPhase.ts` and `foldingLimits.ts`; enforced by `scripts/check-boundaries.ts`.
+ * like `foldxPhase.ts`; enforced by `scripts/check-boundaries.ts`.
  *
  * The server's numbers are estimates and are presented as such ("about"); a missing estimate is said
  * plainly rather than replaced by a guess.

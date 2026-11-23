@@ -531,22 +531,6 @@ nor released it. **Fix:** `add` respects a live SQLite claim and `delete` releas
 
 ---
 
-## 18. De novo folding timers and JapanFold auth circuit
-
-Code: `server/services/external-api/japanfold-client.ts` (`queryEsmfold2WithOutcome`,
-`isJapanFoldAuthBlocked`, `recordJapanFoldStatus`), `server/services/structure/esmfold.ts`
-(`foldSequenceWithProvenance`), `server/config.ts` (`esmfoldSidecarMs`), `src/shared/timeouts.ts`
-(`CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS`). **Tested** (`japanfold-client.test.ts`,
-`denovo-fold-timeout-budget.test.ts`).
-
-* **Auth refusal circuit (`AUTH_REFUSAL_TTL_MS`, 10 min):** A `401`, `402`, `403`, or `451` from
-  JapanFold opens a 10-minute cooldown keyed on `(japanfoldBaseUrl, sha256(apiKey))` (never storing
-  the raw key), so repeated wild-type/mutant folds do not send doomed unauthenticated requests.
-  `clearJapanFoldCache` clears it.
-* **Nested timeout budgets:** `esmfoldSidecarMs` (65 s) strictly outlasts the Python sidecar's
-  `ESMFOLD_REMOTE_BUDGET_S` (60 s), and `CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS` (300 s) strictly
-  outlasts two full-waterfall folds (`2 × (60 s + 65 s + 15 s) = 280 s`).
-
 ## Keeping this file current
 
 When you change a status field, a lock, a retry rule, a timer or a lease: update the section here in the

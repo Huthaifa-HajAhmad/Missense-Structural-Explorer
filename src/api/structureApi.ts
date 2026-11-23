@@ -5,13 +5,11 @@ import {
   translateVariantResponseSchema,
   nearestResiduesResponseSchema,
   pocketFinderResponseSchema,
-  esmFoldResponseSchema,
   structuralAlignResponseSchema,
   structuralDiffResponseSchema,
   TranslateVariantResponse,
   NearestResiduesResponse,
   PocketFinderResponse,
-  EsmFoldResponse,
   StructuralAlignResponse,
   StructuralDiffResponse,
   StructureProvenance
@@ -19,7 +17,6 @@ import {
 import type { PdbHomolog } from "../types";
 import { CLIENT_SEQUENCE_LOOKUP_BUDGET_MS, CLIENT_HOMOLOG_LOOKUP_BUDGET_MS, CLIENT_GENE_RESOLVE_BUDGET_MS } from "../shared/structureLookupBudgets";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
-import { CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS } from "../shared/timeouts";
 import { STRUCTURE_REF_HEADER, isStructureRef } from "../shared/structureRefs";
 import { ALPHAFOLD_ABSENCE_HEADER, isAlphaFoldAbsenceReason, type AlphaFoldAbsenceReason } from "../shared/alphafoldAvailability";
 import { resolveStructureRefForPdb } from "./structureRefRegistry";
@@ -363,28 +360,6 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         ...params,
         targetIndex: params.targetIndex ?? params.mutIndex ?? 1
       }, signal);
-    },
-
-    async foldSequence(params: { sequence?: string, uniprotId?: string, variant?: string }, signal?: AbortSignal): Promise<EsmFoldResponse> {
-      const res = await fetchWithAuth("/api/v1/esmfold", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-        /**
-         * Was a literal `45000` — SHORTER than the server's own 60 s Tier-1 fold budget, so the client
-         * always aborted first and reported a timeout for work the server was still doing. The number
-         * and its justification now live in `src/shared/timeouts.ts`, and
-         * `server/tests/denovo-fold-timeout-budget.test.ts` fails if the nesting is ever broken.
-         */
-        timeout: CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS,
-        signal
-      });
-      if (!res.ok) {
-        const errorMsg = await extractErrorMessage(res, "Failed to run ESMFold");
-        throw new Error(errorMsg);
-      }
-      const data = await res.json();
-      return esmFoldResponseSchema.parse(data);
     },
 
     async structuralAlign(params: { pdb1: string, pdb2: string, targetIndex?: number, alignmentScope?: "local" | "global" }, signal?: AbortSignal): Promise<StructuralAlignResponse> {

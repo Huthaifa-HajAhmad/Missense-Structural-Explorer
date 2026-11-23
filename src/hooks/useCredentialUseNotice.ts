@@ -3,7 +3,7 @@ import { subscribeCredentialUse } from "../api/authSession";
 import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
 import { credentialUseSentence, type CredentialUse } from "../shared/credentials";
 
-/** The same use ("Biohub on your token") is not repeated for this long. */
+/** The same use ("Tamarind on your token") is not repeated for this long. */
 export const CREDENTIAL_NOTICE_QUIET_MS = 30 * 60_000;
 /** A refusal (no token was used) is repeated sooner: it is something the reader can fix. */
 export const CREDENTIAL_REFUSAL_QUIET_MS = 5 * 60_000;
@@ -35,7 +35,7 @@ export function usesToAnnounce(
 }
 
 /**
- * After a result that called Biohub or Tamarind, says whose token it ran on ("your token"
+ * After a result that called Tamarind, says whose token it ran on ("your token"
  * or "the team token"), or why it did not run (WP-I4). All are information: nothing failed that the
  * reader must act on now. Info banners always show; the alert-banner preference only holds back
  * warnings and errors from background jobs.

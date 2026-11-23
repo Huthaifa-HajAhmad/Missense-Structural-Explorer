@@ -20,7 +20,7 @@ sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from tools.model_server_app import models, utils
 from tools.model_server_app.engine_resilience import BudgetHeaderMiddleware, register_refusal_handler
-from tools.model_server_app.routers import esmfold, stabilityoracle, thermompnn
+from tools.model_server_app.routers import stabilityoracle, thermompnn
 
 # Re-export helper functions for backward compatibility (e.g. unit tests)
 validate_missense_residues = utils.validate_missense_residues
@@ -111,7 +111,6 @@ def clear_model_cache():
     return {"status": "success", "message": "GPU memory cache cleared"}
 
 # Register model sub-routers
-app.include_router(esmfold.router)
 app.include_router(stabilityoracle.router)
 app.include_router(thermompnn.router)
 

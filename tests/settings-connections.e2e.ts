@@ -13,20 +13,20 @@ test('a token note sits in its own group, under no hairline', { tags: ['shell'],
   await browser.setViewport({ width: 1440, height: 900 });
   await browser.route('**/api/v1/auth/session', route => route.fulfill({ json: SIGNED_IN }));
   await browser.route('**/api/v1/me/secrets', route => route.fulfill({
-    json: { available: true, secrets: [{ kind: 'biohub', hint: 'wvae', updatedAt: 1, readable: true }] },
+    json: { available: true, secrets: [{ kind: 'tamarind', hint: 'wvae', updatedAt: 1, readable: true }] },
   }));
   await app.open('/');
   await screen.getByRole('button', 'Open settings').tap();
   await screen.getByRole('tab', /^Connections/).tap();
-  await expect(screen.getByRole('button', 'Remove the Biohub token saved to your account')).toBeVisible();
+  await expect(screen.getByRole('button', 'Remove the Tamarind token saved to your account')).toBeVisible();
 
   const layout = await browser.evaluate(() => {
     const rule = (el: Element) => {
       const s = getComputedStyle(el);
       return s.borderBottomStyle !== 'none' && parseFloat(s.borderBottomWidth) > 0;
     };
-    const field = document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]')!;
-    const strip = document.querySelector('[data-testid="account-token-biohub"]')!;
+    const field = document.querySelector('[data-setting-title="Tamarind Bio API key"]')!;
+    const strip = document.querySelector('[data-testid="account-token-tamarind"]')!;
     const group = field.parentElement!;
     const stripBox = strip.getBoundingClientRect();
     const groupBox = group.getBoundingClientRect();
@@ -49,7 +49,7 @@ test('a token note sits in its own group, under no hairline', { tags: ['shell'],
   expect(layout.stripText).toMatch(/Saved to your account \(ends …wvae\)/);
 
   await browser.evaluate(() => {
-    document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]')!.scrollIntoView({ block: 'center' });
+    document.querySelector('[data-setting-title="Tamarind Bio API key"]')!.scrollIntoView({ block: 'center' });
     return true;
   });
   await app.screenshot('settings-connections-credentials');
@@ -62,7 +62,7 @@ test('an autofill write into the settings filter is refused and the box stays em
   await app.open('/');
   await screen.getByRole('button', 'Open settings').tap();
   await screen.getByRole('tab', /^Connections/).tap();
-  await expect(screen.getByRole('button', 'Show EvolutionaryScale (Forge) token')).toBeVisible();
+  await expect(screen.getByRole('button', 'Show Tamarind Bio API key')).toBeVisible();
 
   // What a password manager does: write an address into the field with no one typing in it.
   const after = await browser.evaluate(() => {

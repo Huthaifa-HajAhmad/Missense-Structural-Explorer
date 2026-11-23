@@ -12,7 +12,6 @@ vi.mock("../hooks/useBiophysicalModeling", () => ({
   useBiophysicalModeling: () => ({ clearDynaMutPoll: vi.fn(), clearDdmutPoll: vi.fn(), clearThermoMpnnPoll: vi.fn() }),
 }));
 vi.mock("../hooks/useFoldxSuperposition", () => ({ useFoldxSuperposition: vi.fn() }));
-vi.mock("../hooks/useStructuralFolding", () => ({ useStructuralFolding: () => ({ resetEsmFoldState: vi.fn() }) }));
 vi.mock("../hooks/useAnalysisPipeline", () => ({ useAnalysisPipeline: () => ({ executeAnalysis: vi.fn(), activeRequestIdRef: { current: 0 } }) }));
 
 import useVariantAnalysis from "../useVariantAnalysis";

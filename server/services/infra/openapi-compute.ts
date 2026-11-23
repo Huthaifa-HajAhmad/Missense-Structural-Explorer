@@ -139,7 +139,7 @@ export const COMPUTE_SCHEMAS = {
     type: "object",
     description: "A provider token saved to an account (WP-I4b). The token itself is never returned.",
     properties: {
-      kind: { type: "string", enum: ["biohub", "tamarind"] },
+      kind: { type: "string", enum: ["tamarind"] },
       hint: { type: "string", description: "The token's last four characters." },
       updatedAt: { type: "integer", description: "Epoch ms." },
       readable: { type: "boolean", description: "False when the server can no longer decrypt it: save it again." },
@@ -534,7 +534,7 @@ export const COMPUTE_PATHS = {
       tags: ["Accounts"],
       summary: "Provider tokens saved to your account (WP-I4b)",
       description:
-        "Biohub and Tamarind tokens saved encrypted (AES-256-GCM) so they follow you to other browsers. " +
+        "Tamarind tokens saved encrypted (AES-256-GCM) so they follow you to other browsers. " +
         "Never returns a token: only its kind, last four characters and when it was saved. `available` is false when the " +
         "server cannot encrypt (no APP_SESSION_SECRET); `readable` is false for a row it can no longer decrypt.",
       operationId: "listSavedSecrets",
@@ -558,7 +558,7 @@ export const COMPUTE_PATHS = {
       description: "A token sent with a request is used before a saved one; a saved one before the team's.",
       operationId: "saveSecret",
       security: signedIn,
-      parameters: [{ name: "kind", in: "path", required: true, schema: { type: "string", enum: ["biohub", "tamarind"] } }],
+      parameters: [{ name: "kind", in: "path", required: true, schema: { type: "string", enum: ["tamarind"] } }],
       requestBody: body({ type: "object", required: ["token"], properties: { token: { type: "string", minLength: 8, maxLength: 512 } } }),
       responses: {
         "200": json(ref("SavedSecret")),
@@ -572,7 +572,7 @@ export const COMPUTE_PATHS = {
       summary: "Remove a saved provider token",
       operationId: "removeSecret",
       security: signedIn,
-      parameters: [{ name: "kind", in: "path", required: true, schema: { type: "string", enum: ["biohub", "tamarind"] } }],
+      parameters: [{ name: "kind", in: "path", required: true, schema: { type: "string", enum: ["tamarind"] } }],
       responses: { "204": { description: "Removed." }, "400": error("BAD_REQUEST: unknown kind."), "401": signInRequired, "404": error("NOT_FOUND: none saved.") },
     },
   },

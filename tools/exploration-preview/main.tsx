@@ -31,8 +31,8 @@ store.setState({ gene: 'SOD1', variant: 'p.Ala5Val', uniprotId: 'P00441', select
   landscapeOverview: { key, status: 'ready', error: null, data: { positions: SOD1_LANDSCAPE_ROWS, context: SOD1_LANDSCAPE_CONTEXT, meta: {} } as any },
   analysisState: { result, error: null, isLoading: false } as any,
   pdbText: pdb, pdbTextProvenance: { source: 'alphafold', afdbVersion: 'fixture' },
-  esmFoldWtPdb: pdb, esmFoldMutPdb: null, viewMode: 'wildtype', structureRepresentation: 'confidence',
-  foldingStatus: 'unavailable', isFolding: false, isEsmFolding: false,
+  viewMode: 'wildtype', structureRepresentation: 'confidence',
+  foldingStatus: 'unavailable', isFolding: false,
 });
 const nativeFetch = window.fetch;
 window.fetch = async (input, init) => {

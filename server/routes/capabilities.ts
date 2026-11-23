@@ -74,7 +74,7 @@ function egressHealth() {
     // Expired cache entries served (`on`) or that would have been (`shadow`) while a provider limited
     // requests, by cache source (WP-I2). Source labels and counts only.
     staleServes: defaultCacheRegistry.staleServeCounts(),
-    // How the team's Biohub and Tamarind tokens are lent (WP-I4): the policy, the hourly
+    // How the team's Tamarind token is lent (WP-I4): the policy, the hourly
     // share, and which team tokens exist. No tokens, hashes or per-person counts.
     credentials: credentialPolicyHealth(),
   };
@@ -354,7 +354,8 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
           endpoint: `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`,
           keyless: false,
           apiKeyConfigured: Boolean(CONFIG.services.japanfoldApiKey),
-          supportedModels: ["esmfold2-fast", "esmfold2", "boltz2", "openfold3"],
+          // The JapanFold model this app calls (complex modelling); de novo folding was retired.
+          usedModels: ["boltz2"],
           reachable: japanFoldReachable
         }
       },

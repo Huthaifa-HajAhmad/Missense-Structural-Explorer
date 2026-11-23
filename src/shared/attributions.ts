@@ -394,30 +394,6 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
  */
 const MODEL_SOURCES: AttributionEntry[] = [
   {
-    id: "esm3-esmc",
-    name: "EvolutionaryScale Forge",
-    provider: "EvolutionaryScale (served through the Biohub Platform)",
-    kind: "model",
-    role: "De novo folding requests for the ESMFold view, when a Biohub token is saved.",
-    url: "https://www.evolutionaryscale.ai/",
-    release: "Served by the remote platform — the workspace pins no revision",
-    citation:
-      "Hayes, T., et al. (2025). Simulating 500 million years of evolution with a language model. Science 387, 850–858. https://doi.org/10.1126/science.ads0018",
-    usedBy: ["server/services/structure/esmfold.ts"]
-  },
-  {
-    id: "esmfold",
-    name: "ESMFold",
-    provider: "Meta FAIR (Fundamental AI Research)",
-    kind: "model",
-    role: "De novo wild-type folding for the ESMFold view, from sequence alone. Served by JapanFold or EvolutionaryScale Forge when available, falling back to the keyless ESM Metagenomic Atlas endpoint; the engine that answered is recorded with the structure.",
-    url: "https://esmatlas.com/about",
-    release: "Engine recorded per structure — the workspace pins no revision",
-    citation:
-      "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science 379, 1123–1130. https://doi.org/10.1126/science.ade2574",
-    usedBy: ["server/services/structure/esmfold.ts"]
-  },
-  {
     id: "boltz2",
     name: "Boltz-2",
     provider: "Boltz team (MIT Jameel Clinic) with Recursion",
@@ -676,10 +652,10 @@ const SYNTHESIS_SOURCES: AttributionEntry[] = [
   },
   {
     id: "japanfold",
-    name: "JapanFold (Boltz-2, ESMFold2)",
+    name: "JapanFold (Boltz-2)",
     provider: "Tenstorrent Galaxy™ execution tier",
     kind: "service",
-    role: "Primary remote execution for structure models: Boltz-2 models complexes on request (the variant complex on the Interfaces & PPI tab, and a wild-type complex for DDMut-PPI when no solved one exists), and ESMFold2 folds the ESMFold view.",
+    role: "Primary remote execution for structure models: Boltz-2 models complexes on request (the variant complex on the Interfaces & PPI tab, and a wild-type complex for DDMut-PPI when no solved one exists).",
     url: "https://api.japanfold.aiand.com",
     release: "Live endpoint configured by JAPANFOLD_URL",
     citation: null,
@@ -792,8 +768,7 @@ export const QUERY_TRANSMISSION = {
     { host: "spliceai-38-xwkwwwxdwq-uc.a.run.app · spliceai-37-xwkwwwxdwq-uc.a.run.app", sent: "Genomic coordinate", note: "One endpoint per genome build. Named in full because the hostnames are opaque, which is also how a reader can recognise them in a network log." },
     { host: "query.genos.us", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace." },
     { host: "data.evemodel.org", sent: "RefSeq transcript id", note: null },
-    { host: "api.japanfold.aiand.com · forge.evolutionaryscale.ai · biohub.ai", sent: "Sequence, structure payloads", note: "ESMFold2 folding and Boltz-2 complexes. The EvolutionaryScale tier is optional; without it ESMFold falls back to the keyless ESM Atlas. biohub.ai is reached only when you test a saved Biohub token." },
-    { host: "api.esmatlas.com", sent: "Amino-acid sequence", note: "Keyless de novo folding fallback, used when no Biohub token is configured." },
+    { host: "api.japanfold.aiand.com", sent: "Sequence, structure payloads", note: "Boltz-2 complexes." },
     { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },
     { host: "biosig.lab.uq.edu.au", sent: "Structure coordinates (PDB upload) and the mutation string", note: "DynaMut2, DDMut and DDMut-PPI. The whole modelled structure leaves the machine, uploaded to a server in Australia." },
     { host: "deepmind.google.com", sent: "GRCh38 interval", note: "GRCh38 only — a GRCh37 coordinate is refused here rather than sent." },

@@ -10,6 +10,7 @@ describe("purgeRetiredSecrets", () => {
       "INSERT INTO user_secrets (user_id, kind, ciphertext, hint, updated_at) VALUES (?, ?, 'x', 'abcd', 1)"
     );
     insert.run(user, "huggingface");
+    insert.run(user, "biohub");
     insert.run(user, "tamarind");
 
     purgeRetiredSecrets(accountsDb());

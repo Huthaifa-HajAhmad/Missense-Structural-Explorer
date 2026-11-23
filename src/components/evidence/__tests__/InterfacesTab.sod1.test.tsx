@@ -81,7 +81,7 @@ describe("InterfacesTab — Show interface in 3D", () => {
   function renderWith3d() {
     const onSelectResidue = vi.fn();
     const onNavigateToView = vi.fn();
-    const props = { analysisState: { result: RESULT, isLoading: false }, active3dModelTab: "alphafold2", onSelectResidue, onNavigateToView } as any;
+    const props = { analysisState: { result: RESULT, isLoading: false }, onSelectResidue, onNavigateToView } as any;
     render(<InterfacesTab {...props} />);
     return { onSelectResidue, onNavigateToView };
   }

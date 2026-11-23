@@ -28,7 +28,6 @@ const IMPORTABLE = {
   show3DLabels: z.boolean(),
   saveHistory: z.boolean(),
   reducedMotion: z.boolean(),
-  defaultStructureModel: oneOf(["alphafold", "esmfold"] as const),
   spliceaiWindow: oneOf(SPLICEAI_WINDOWS),
   // The ranges the Analysis section's inputs allow.
   biophysicsConditions: z.object({
@@ -84,7 +83,7 @@ export function writeSettingsBackup(settings: UserSettings, theme: ThemeMode): s
 }
 
 /** Credential fields a reader types; the Gemini session fields are derived from the Gemini key. */
-const TYPED_KEYS = ["geminiApiKey", "appApiToken", "biohubApiToken", "japanfoldApiKey", "tamarindApiKey", "alphagenomeApiKey"] as const;
+const TYPED_KEYS = ["geminiApiKey", "appApiToken", "japanfoldApiKey", "tamarindApiKey", "alphagenomeApiKey"] as const;
 
 /** What a reset deletes beyond preferences, for its confirmation; null when it deletes nothing else. */
 export function resetLossNote(settings: UserSettings): string | null {

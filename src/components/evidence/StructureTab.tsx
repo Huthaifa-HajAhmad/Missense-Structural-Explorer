@@ -375,7 +375,6 @@ export function StructureTab({
   isPocketLoading,
   pocketError,
   isBiophysicalLoading,
-  active3dModelTab,
   onRetryPocket,
   onRetryStructural,
   onSelectResidue,
@@ -391,7 +390,7 @@ export function StructureTab({
   const viewIn3d = onNavigateToView
     ? () => {
         if (firstResidue) onSelectResidue?.(firstResidue.index);
-        onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
+        onNavigateToView("structure_alphafold");
       }
     : undefined;
 

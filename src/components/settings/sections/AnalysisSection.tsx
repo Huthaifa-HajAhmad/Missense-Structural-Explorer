@@ -113,20 +113,6 @@ export function AnalysisSection() {
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection title="Default models" hint="Pre-selected when starting a new analysis.">
-        <SettingsRow label="Structure source" description="Primary coordinate source for 3D viewing and repacking.">
-          <SegmentedControl
-            ariaLabel="Default structure model"
-            value={settings.defaultStructureModel}
-            onChange={(value) => updateSetting("defaultStructureModel", value)}
-            options={[
-              { value: "alphafold", label: "AlphaFold2" },
-              { value: "esmfold", label: "ESMFold" }
-            ]}
-          />
-        </SettingsRow>
-      </SettingsSection>
-
       <SettingsSection
         title="Simulation conditions"
         hint="Environment for FoldX force-field repacking and biophysical solvers."

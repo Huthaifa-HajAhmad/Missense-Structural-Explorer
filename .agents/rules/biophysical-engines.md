@@ -1,6 +1,6 @@
 ---
 trigger: always_on
-description: Biophysical stability engines protocol — rules for FoldX, ThermoMPNN, StabilityOracle, RaSP, ESMFold and JapanFold execution.
+description: Biophysical stability engines protocol — rules for FoldX, ThermoMPNN, StabilityOracle, RaSP and JapanFold execution.
 ---
 
 # Biophysical Stability Engines Protocol
@@ -41,7 +41,7 @@ Never assume a single binary path or hardcoded operating system architecture.
 
 ### Retired: runtime protein language models
 * ESM-2, SaProt, VESM-150M, ESMC and the ESM3 embedding reading were retired on 2026-11-18 (`doc/PROTEIN_LANGUAGE_MODELS_DECISION.md`). The sidecar no longer serves `/predict/esm2`, `/predict/esm3`, `/predict/saprot` or `/predict/vesm`, and nothing in the app calls them. Do not reintroduce them without meeting that document's reopen criteria. ESM1b stays on Predictors from precomputed dbNSFP scores.
-* EvolutionaryScale Forge remains in use for ESMFold structures only (`tools/model_server_app/routers/esmfold.py`).
+* ESMFold de novo folding, EvolutionaryScale Forge and the Biohub token were retired on 2026-11-23 (`doc/IN_SILICO_PRUNING_PLAN.md`, Phase 3). JapanFold remains for Boltz-2 complexes.
 
 ## 2. Capabilities Diagnostic Endpoint
 

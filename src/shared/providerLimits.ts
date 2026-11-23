@@ -35,13 +35,11 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   "string-db.org": "STRING",
   "version-12-0.string-db.org": "STRING",
   "gtexportal.org": "GTEx",
-  "api.esmatlas.com": "ESM Atlas",
   "alphafold.ebi.ac.uk": "AlphaFold DB",
   "files.rcsb.org": "RCSB PDB",
   "data.rcsb.org": "RCSB PDB",
   "api-inference.huggingface.co": "Hugging Face",
   "router.huggingface.co": "Hugging Face",
-  "forge.evolutionaryscale.ai": "Biohub Forge",
   "api.japanfold.aiand.com": "JapanFold",
   "myvariant.info": "MyVariant.info",
   "app.tamarind.bio": "Tamarind Bio",
@@ -54,7 +52,6 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   "ontology.jax.org": "HPO (JAX)",
   "www.proteinatlas.org": "Human Protein Atlas",
   "huggingface.co": "Hugging Face",
-  "biohub.ai": "Biohub",
 };
 
 /**

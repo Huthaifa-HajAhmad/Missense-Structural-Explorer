@@ -60,16 +60,9 @@ function seed(overrides: Record<string, unknown> = {}) {
       { pdbId: "9QN5", score: 0.05, identity: null, coverage: null, title: "", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 1.97, isHuman: true },
     ],
     isHomologsLoading: false,
-    esmFoldWtPdb: null,
-    esmFoldMutPdb: null,
-    esmFoldingError: null,
-    isEsmFolding: false,
     ...overrides,
   } as any);
 }
-
-/** Local coordinates so the ESMFold family can offer its variant and superposition modes. */
-const ESM_COORDINATES = { esmFoldWtPdb: AF, esmFoldMutPdb: MUTANT, esmFoldAlignedPdb: MUTANT };
 
 beforeEach(() => {
   cleanup();
@@ -77,51 +70,15 @@ beforeEach(() => {
 });
 
 describe("coordinate load recovery", () => {
-  it("retries the canvas load without silently refolding", () => {
+  it("retries the canvas load, and offers no folding of its own", () => {
     const retryLoad = vi.fn();
-    const retryFolding = vi.fn();
-    const { getByRole } = render(<StructureStatusOverlay
-      family="alphafold" hasVariant loading={false} loadError="Coordinate parse failed"
-      deNovoFolding={false} deNovoError={null} deNovoLoaded={false}
-      proteinLength={null} scanWindowLength={null} customEntryLoaded={false}
-      onRetryLoad={retryLoad} onRetryFolding={retryFolding}
+    const { getByRole, queryByRole } = render(<StructureStatusOverlay
+      hasVariant loading={false} loadError="Coordinate parse failed" customEntryLoaded={false} onRetryLoad={retryLoad}
     />);
     fireEvent.click(getByRole("button", { name: "Retry loading coordinates" }));
     expect(retryLoad).toHaveBeenCalledOnce();
-    expect(retryFolding).not.toHaveBeenCalled();
-  });
-
-  it("offers Retry folding after a failed ESMFold run, and it asks to fold again", () => {
-    const retryFolding = vi.fn();
-    const { getByRole } = render(<StructureStatusOverlay
-      family="esmfold" hasVariant loading={false} loadError={null}
-      deNovoFolding={false} deNovoError="Folding engine unavailable" deNovoLoaded={false}
-      proteinLength={450} scanWindowLength={null} customEntryLoaded={false} onRetryFolding={retryFolding}
-    />);
-    fireEvent.click(getByRole("button", { name: "Retry folding" }));
-    expect(retryFolding).toHaveBeenCalledOnce();
-  });
-});
-
-describe("de novo overlay for a protein past AlphaFold DB's ceiling", () => {
-  const base = {
-    family: "esmfold" as const, hasVariant: true, loading: false, loadError: null,
-    deNovoFolding: false, deNovoError: null, deNovoLoaded: false, scanWindowLength: null,
-    customEntryLoaded: false, onSwitchToAlphaFold: () => {},
-  };
-  it("says AlphaFold DB has no model either, and labels the fallback honestly", () => {
-    const { container, getByRole } = render(<StructureStatusOverlay {...base} proteinLength={4302} />);
-    expect(container.textContent).toContain("no full-length model for a protein this long either");
-    expect(container.textContent).toContain("2,700 aa");
-    expect(getByRole("button", { name: "Open the AlphaFold2 view (experimental entry)" })).toBeTruthy();
-  });
-  it("makes no AlphaFold claim for a protein inside the ceiling or of unknown length", () => {
-    for (const proteinLength of [900, null]) {
-      cleanup();
-      const { container, getByRole } = render(<StructureStatusOverlay {...base} proteinLength={proteinLength} />);
-      expect(container.textContent).not.toContain("either");
-      expect(getByRole("button", { name: "Open the AlphaFold2 view" })).toBeTruthy();
-    }
+    // ESMFold de novo folding was retired: no overlay offers to fold a structure.
+    expect(queryByRole("button", { name: /fold/i })).toBeNull();
   });
 });
 
@@ -133,21 +90,21 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
     HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
     seed(overrides);
-    const view = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const view = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     fireEvent.click(view.getByRole('button', { name: trigger }));
     expect(view.getByRole('dialog').getAttribute('aria-labelledby')).toBeTruthy();
     expect(within(view.getByRole('dialog')).getByRole('heading', { level: 2 }).textContent).toContain(title);
   });
   it("keeps the guide on the AlphaFold model's own confidence measure while its coordinates are still loading", () => {
     seed({ pdbText: null });
-    const view = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const view = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const guide = view.getByRole("button", { name: "Explain this structure confidence measure" });
     expect(guide.getAttribute("data-explanation-topic")).toBe("plddt");
     expect(view.container.textContent).not.toMatch(/N\/A/);
   });
 
   it("names the AlphaFold model as the wild type and never calls 1YOV's B-factor pLDDT", () => {
-    const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const text = container.textContent ?? "";
     expect(within(container.querySelector("[data-testid='structure-rail-canvas']") as HTMLElement).getByText("AF-Q13564-F1 v6")).toBeTruthy();
     expect(text).not.toMatch(/pLDDT 94\.5/);
@@ -158,7 +115,7 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
 
   it("describes the FoldX variant by its template and states that ΔΔG is not pathogenicity", () => {
     seed({ viewMode: "mutant" });
-    const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const text = container.textContent ?? "";
     expect(text).toContain("FoldX variant on PDB 1YOV chain A");
     expect(text).toContain("The variant is not built on the wild type shown");
@@ -169,7 +126,7 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
 
   it("prints χ1 as not applicable for the glycine, and never 0.0°", () => {
     seed({ viewMode: "superimposed" });
-    const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const readings = container.querySelector("[data-testid='structure-readings']") as HTMLElement;
     expect(readings).toBeTruthy();
     expect(readings.textContent).toContain("Not applicable");
@@ -180,7 +137,7 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
   });
 
   it("lists experimental entries without inventing identity or coverage", () => {
-    const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const entries = container.querySelector("[data-testid='structure-entries']") as HTMLElement;
     expect(entries.textContent).toContain("identity not reported");
     expect(entries.textContent).toContain("range not reported");
@@ -210,7 +167,7 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
         { pdbId: "9QN5", score: 0.05, identity: null, coverage: null, title: "", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 1.97, isHuman: true, source: "rcsb" },
       ],
     });
-    const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const items = Array.from(container.querySelectorAll("[data-testid='structure-entries'] > li"));
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("9EKO");
@@ -241,7 +198,7 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
       },
       homologs: [],
     });
-    const synthView = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const synthView = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const synthItems = Array.from(synthView.container.querySelectorAll("[data-testid='structure-entries'] > li"));
     expect(synthItems).toHaveLength(1);
     expect(synthItems[0].textContent).toContain("chain A · mapped to this protein");
@@ -249,7 +206,7 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
   });
 
   it("cites AlphaFold and FoldX in the AlphaFold view, and ends the trace with the engine record", () => {
-    const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const sources = container.querySelector("[data-testid='structure-sources']") as HTMLElement;
     expect(sources.textContent).toContain("10.1038/s41586-021-03819-2");
     expect(sources.textContent).toContain("10.1093/bioinformatics/btz184");
@@ -262,7 +219,6 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
 
 describe("3D toolbar and legend", () => {
   const input = (overrides: Partial<Structure3dInput> = {}): Structure3dInput => ({
-    family: "alphafold",
     viewMode: "wildtype",
     representation: "confidence",
     variant: { position: 116, wildType: "Asp", mutant: "Gly", uniprotId: "Q13564", gene: "NAE1" },
@@ -273,8 +229,6 @@ describe("3D toolbar and legend", () => {
       template: null, repairSkipped: false, repairSkippedReason: null, repairFailed: false,
       reference: { state: "idle", reason: null, provenance: null }, aligned: false, referenceSite: null,
     },
-    deNovo: { folding: false, error: null, wildTypeLoaded: false, variantLoaded: false, singleStructure: false, engines: null, scan: null, aligned: false, site: null },
-    alignmentScope: "global",
     metrics: null,
     burial: null,
     homologs: [],
@@ -413,7 +367,7 @@ describe("3D toolbar and legend", () => {
     expect(legend.getAttribute("data-collapsed")).toBe("true");
   });
 
-  it("keeps the Close-up toggle and omits the redundant side-chain diagram in both model families", () => {
+  it("keeps the Close-up toggle and omits the redundant side-chain diagram in every mode", () => {
     const onToggleSiteCloseUp = vi.fn();
     const { container: barContainer } = toolbar(buildStructure3dEvidence(input()), {
       siteCloseUp: true,
@@ -425,19 +379,17 @@ describe("3D toolbar and legend", () => {
     fireEvent.click(closeUpBtn);
     expect(onToggleSiteCloseUp).toHaveBeenCalledTimes(1);
 
-    for (const family of ["alphafold", "esmfold"] as const) {
-      for (const viewMode of ["wildtype", "mutant", "superimposed"] as const) {
-        seed({ viewMode, ...ESM_COORDINATES });
-        // The mode must really be on screen: an unavailable mode falls back to wild type and would make this loop vacuous.
-        expect(renderHook(() => useStructure3dEvidence(family)).result.current.viewMode).toBe(viewMode);
-        const view = render(<StructureInspector family={family} setCustomPdbUrl={() => {}} />);
-        expect(view.container.querySelector("[data-testid='structure-sidechain-card']")).toBeNull();
-        view.unmount();
-      }
+    for (const viewMode of ["wildtype", "mutant", "superimposed"] as const) {
+      seed({ viewMode });
+      // The mode must really be on screen: an unavailable mode falls back to wild type and would make this loop vacuous.
+      expect(renderHook(() => useStructure3dEvidence()).result.current.viewMode).toBe(viewMode);
+      const view = render(<StructureInspector setCustomPdbUrl={() => {}} />);
+      expect(view.container.querySelector("[data-testid='structure-sidechain-card']")).toBeNull();
+      view.unmount();
     }
   });
 
-  it("exposes a Reset view camera control and surfaces active pLDDT filter and measured local fit badges on Display", () => {
+  it("exposes a Reset view camera control and surfaces the active pLDDT filter badge on Display", () => {
     const onResetCamera = vi.fn();
     const wt = toolbar(buildStructure3dEvidence(input()), {
       plddtFilter: "70",
@@ -459,51 +411,15 @@ describe("3D toolbar and legend", () => {
     });
     expect(disabledReset.container.querySelector<HTMLButtonElement>("[data-testid='structure-reset-view']")!.disabled).toBe(true);
     disabledReset.unmount();
-
-    const base = input();
-    const deNovoSuperimposed = buildStructure3dEvidence(
-      input({
-        family: "esmfold",
-        viewMode: "superimposed",
-        alignmentScope: "local",
-        deNovo: {
-          ...base.deNovo,
-          wildTypeLoaded: true,
-          variantLoaded: true,
-          aligned: true,
-          scan: scanBFactors(AF),
-          site: readResidueAt(AF, 116),
-        },
-      }),
-    );
-    const sup = toolbar(deNovoSuperimposed, { plddtFilter: "none" });
-    const supPills = Array.from(sup.container.querySelectorAll(".s3d-btn__pill")).map(el => el.textContent);
-    expect(supPills).toEqual(["±15 fit"]);
-    sup.unmount();
-
-    // When local alignment falls back to global (measuredScope: "global"), ±15 fit is not certified on the pill
-    const fallbackGlobal = {
-      ...deNovoSuperimposed,
-      alignment: {
-        ...deNovoSuperimposed.alignment,
-        scope: "local" as const,
-        measuredScope: "global" as const,
-      },
-    };
-    const fallbackBar = toolbar(fallbackGlobal, { plddtFilter: "none" });
-    expect(fallbackBar.container.querySelectorAll(".s3d-btn__pill")).toHaveLength(0);
-    fallbackBar.unmount();
   });
 
   it("distinguishes the queried variant site from off-site or unverified selections in the inspector card", () => {
     seed({
-      ...ESM_COORDINATES,
       selectedResidueIndex: 200,
       hoveredResidueIndex: 150,
     });
     const atSite = render(
       <StructureInspector
-        family="alphafold"
         setCustomPdbUrl={() => {}}
         selection={{
           position: 116,
@@ -524,7 +440,6 @@ describe("3D toolbar and legend", () => {
     // Unmapped selection at the variant position must not claim "Queried site" and must keep the caveat note
     const unmappedAtSite = render(
       <StructureInspector
-        family="alphafold"
         setCustomPdbUrl={() => {}}
         selection={{
           position: 116,
@@ -546,7 +461,6 @@ describe("3D toolbar and legend", () => {
     // Unmapped selection away from the site labels the action "Return to position 116" without a substitution
     const unmappedAway = render(
       <StructureInspector
-        family="alphafold"
         setCustomPdbUrl={() => {}}
         selection={{
           position: 200,
@@ -565,7 +479,6 @@ describe("3D toolbar and legend", () => {
 
     const awayFromSite = render(
       <StructureInspector
-        family="alphafold"
         setCustomPdbUrl={() => {}}
         selection={{
           position: 200,

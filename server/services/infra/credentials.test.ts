@@ -25,17 +25,16 @@ import { governedFetch } from "./http-client.ts";
 import { closeAccountsDb, createUser } from "../../auth/store.ts";
 import { saveUserSecret } from "../../auth/user-secrets.ts";
 import * as cacheKeys from "./cache-keys.ts";
-import { coreIdentityOf } from "../orchestration/core-identity.ts";
 
-const TEAM = "team-biohub-token-0123456789";
-const OWN = "own-biohub-token-abcdefghij";
-const ENV_KEYS = ["BIOHUB_API_TOKEN", "ESM3_FORGE_API_KEY", "TAMARIND_API_KEY", "SHARED_TOKEN_FALLBACK", "SHARED_TOKEN_SHARE_PER_HOUR", "EGRESS_GOVERNOR", "APP_SESSION_SECRET", "EGRESS_PROVIDER_LIMITS_JSON"] as const;
+const TEAM = "team-tamarind-token-0123456789";
+const OWN = "own-tamarind-token-abcdefghij";
+const ENV_KEYS = ["TAMARIND_API_KEY", "SHARED_TOKEN_FALLBACK", "SHARED_TOKEN_SHARE_PER_HOUR", "EGRESS_GOVERNOR", "APP_SESSION_SECRET", "EGRESS_PROVIDER_LIMITS_JSON"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
   saved = Object.fromEntries(ENV_KEYS.map(k => [k, process.env[k]]));
   for (const k of ENV_KEYS) delete process.env[k];
-  process.env.BIOHUB_API_TOKEN = TEAM;
+  process.env.TAMARIND_API_KEY = TEAM;
   process.env.APP_SESSION_SECRET = "test-session-secret-fixed-32-chars!";
   resetCredentialsForTests();
   resetEgressGovernorForTests();
@@ -55,35 +54,35 @@ const person = () => createUser({ email: `p${Math.random()}@lab.org`, displayNam
 
 describe("resolveCredential", () => {
   it("uses the request's own token, and classifies the team token by value", () => {
-    expect(resolveCredential("biohub", OWN)).toMatchObject({ token: OWN, source: "own" });
-    expect(resolveCredential("biohub", TEAM)).toMatchObject({ token: TEAM, source: "team" });
+    expect(resolveCredential("tamarind", OWN)).toMatchObject({ token: OWN, source: "own" });
+    expect(resolveCredential("tamarind", TEAM)).toMatchObject({ token: TEAM, source: "team" });
   });
 
   it("uses a person's saved token before the team's, and never lends the team token to an anonymous legacy caller", () => {
     const id = person();
-    saveUserSecret(id, "biohub", OWN);
-    expect(runWithEgressOwner(id, () => resolveCredential("biohub"))).toMatchObject({ token: OWN, source: "own" });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub"))).toEqual({
-      kind: "biohub",
+    saveUserSecret(id, "tamarind", OWN);
+    expect(runWithEgressOwner(id, () => resolveCredential("tamarind"))).toMatchObject({ token: OWN, source: "own" });
+    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind"))).toEqual({
+      kind: "tamarind",
       token: null,
       source: "none",
       refusal: "team-signin-required",
     });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub", OWN))).toMatchObject({ token: OWN, source: "own" });
-    expect(runWithEgressOwner("legacy", () => credentialAvailable("biohub"))).toBe(false);
-    expect(runWithEgressOwner("legacy", () => teamShareLeft("biohub"))).toBe(0);
+    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind", OWN))).toMatchObject({ token: OWN, source: "own" });
+    expect(runWithEgressOwner("legacy", () => credentialAvailable("tamarind"))).toBe(false);
+    expect(runWithEgressOwner("legacy", () => teamShareLeft("tamarind"))).toBe(0);
     // Authenticated service callers (APP_API_TOKEN) and system prewarm still use the team token.
-    expect(runWithEgressOwner("service", () => resolveCredential("biohub"))).toMatchObject({ token: TEAM, source: "team" });
-    expect(runWithEgressOwner("system", () => resolveCredential("biohub"))).toMatchObject({ token: TEAM, source: "team" });
+    expect(runWithEgressOwner("service", () => resolveCredential("tamarind"))).toMatchObject({ token: TEAM, source: "team" });
+    expect(runWithEgressOwner("system", () => resolveCredential("tamarind"))).toMatchObject({ token: TEAM, source: "team" });
   });
 
   it("lends the team token under on and limited, never under off", () => {
     process.env.SHARED_TOKEN_FALLBACK = "on";
-    expect(resolveCredential("biohub")).toMatchObject({ source: "team" });
+    expect(resolveCredential("tamarind")).toMatchObject({ source: "team" });
     process.env.SHARED_TOKEN_FALLBACK = "off";
-    expect(resolveCredential("biohub")).toEqual({ kind: "biohub", token: null, source: "none", refusal: "team-token-off" });
+    expect(resolveCredential("tamarind")).toEqual({ kind: "tamarind", token: null, source: "none", refusal: "team-token-off" });
     process.env.SHARED_TOKEN_FALLBACK = "nonsense";
-    expect(resolveCredential("biohub")).toMatchObject({ source: "team" });
+    expect(resolveCredential("tamarind")).toMatchObject({ source: "team" });
   });
 
   it("limited: a person may make the hourly share of team calls, then is refused; legacy anonymous cannot borrow it", async () => {
@@ -92,21 +91,21 @@ describe("resolveCredential", () => {
     const id = person();
     const call = () =>
       runWithEgressOwner(id, () => {
-        const r = resolveCredential("biohub");
-        return r.token ? governedForCredential("biohub", r.token, async () => "ok") : Promise.resolve(r.refusal);
+        const r = resolveCredential("tamarind");
+        return r.token ? governedForCredential("tamarind", r.token, async () => "ok") : Promise.resolve(r.refusal);
       });
     expect(await call()).toBe("ok");
     expect(await call()).toBe("ok");
     expect(await call()).toBe("team-share-used");
-    expect(runWithEgressOwner(id, () => teamShareLeft("biohub"))).toBe(0);
+    expect(runWithEgressOwner(id, () => teamShareLeft("tamarind"))).toBe(0);
     // Another signed-in person and authenticated service callers are unaffected; anonymous legacy is refused.
-    expect(runWithEgressOwner(person(), () => resolveCredential("biohub").source)).toBe("team");
-    expect(runWithEgressOwner("service", () => resolveCredential("biohub").source)).toBe("team");
-    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub"))).toMatchObject({
+    expect(runWithEgressOwner(person(), () => resolveCredential("tamarind").source)).toBe("team");
+    expect(runWithEgressOwner("service", () => resolveCredential("tamarind").source)).toBe("team");
+    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind"))).toMatchObject({
       source: "none",
       refusal: "team-signin-required",
     });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("biohub", null, { statusOnly: true }))).toMatchObject({
+    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind", null, { statusOnly: true }))).toMatchObject({
       token: null,
       source: "none",
     });
@@ -117,34 +116,33 @@ describe("resolveCredential", () => {
     process.env.EGRESS_GOVERNOR = "off";
     const id = person();
     for (let i = 0; i < 3; i++) {
-      await runWithEgressOwner(id, () => governedForCredential("biohub", OWN, async () => "ok"));
+      await runWithEgressOwner(id, () => governedForCredential("tamarind", OWN, async () => "ok"));
     }
-    expect(runWithEgressOwner(id, () => teamShareLeft("biohub"))).toBe(1);
+    expect(runWithEgressOwner(id, () => teamShareLeft("tamarind"))).toBe(1);
   });
 
   it("a status poll is not refused by the share, and charges nothing", async () => {
     process.env.SHARED_TOKEN_SHARE_PER_HOUR = "1";
     process.env.EGRESS_GOVERNOR = "off";
     const id = person();
-    await runWithEgressOwner(id, () => governedForCredential("biohub", TEAM, async () => "ok"));
-    expect(runWithEgressOwner(id, () => resolveCredential("biohub").refusal)).toBe("team-share-used");
-    expect(runWithEgressOwner(id, () => resolveCredential("biohub", null, { statusOnly: true }))).toMatchObject({ token: TEAM, source: "team" });
-    await runWithEgressOwner(id, () => governedForCredential("biohub", TEAM, async () => "poll", { charge: false }));
-    expect(runWithEgressOwner(id, () => teamShareLeft("biohub"))).toBe(0);
+    await runWithEgressOwner(id, () => governedForCredential("tamarind", TEAM, async () => "ok"));
+    expect(runWithEgressOwner(id, () => resolveCredential("tamarind").refusal)).toBe("team-share-used");
+    expect(runWithEgressOwner(id, () => resolveCredential("tamarind", null, { statusOnly: true }))).toMatchObject({ token: TEAM, source: "team" });
+    await runWithEgressOwner(id, () => governedForCredential("tamarind", TEAM, async () => "poll", { charge: false }));
+    expect(runWithEgressOwner(id, () => teamShareLeft("tamarind"))).toBe(0);
   });
 
   it("ownCredential never returns the team token (Test connection)", () => {
-    expect(ownCredential("biohub")).toBeNull();
-    expect(ownCredential("biohub", TEAM)).toBeNull();
-    expect(ownCredential("biohub", OWN)).toBe(OWN);
+    expect(ownCredential("tamarind")).toBeNull();
+    expect(ownCredential("tamarind", TEAM)).toBeNull();
+    expect(ownCredential("tamarind", OWN)).toBe(OWN);
   });
 
   it("credentialAvailable reflects own, saved and lendable team tokens", () => {
-    expect(credentialAvailable("biohub")).toBe(true);
+    expect(credentialAvailable("tamarind")).toBe(true);
     process.env.SHARED_TOKEN_FALLBACK = "off";
-    expect(credentialAvailable("biohub")).toBe(false);
-    expect(credentialAvailable("biohub", OWN)).toBe(true);
     expect(credentialAvailable("tamarind")).toBe(false);
+    expect(credentialAvailable("tamarind", OWN)).toBe(true);
   });
 });
 
@@ -154,21 +152,17 @@ describe("the response record", () => {
     const record = newCredentialRecord();
     await runWithCredentialRecord(record, async () => {
       process.env.SHARED_TOKEN_FALLBACK = "off";
-      resolveCredential("biohub");
-      noteRefusal("biohub");
-      expect(currentCredentialUses()).toEqual([{ kind: "biohub", source: "none", refusal: "team-token-off" }]);
-      await governedForCredential("biohub", OWN, async () => 1);
-      await governedForCredential("tamarind", "own-tamarind-key-123456", async () => 1);
-      expect(currentCredentialUses()).toEqual([
-        { kind: "biohub", source: "own" },
-        { kind: "tamarind", source: "own" },
-      ]);
+      resolveCredential("tamarind");
+      noteRefusal("tamarind");
+      expect(currentCredentialUses()).toEqual([{ kind: "tamarind", source: "none", refusal: "team-token-off" }]);
+      await governedForCredential("tamarind", OWN, async () => 1);
+      expect(currentCredentialUses()).toEqual([{ kind: "tamarind", source: "own" }]);
     });
   });
 
   it("records nothing for a call that is never sent (no token)", async () => {
     const record = newCredentialRecord();
-    await runWithCredentialRecord(record, () => governedForCredential("biohub", null, async () => 1));
+    await runWithCredentialRecord(record, () => governedForCredential("tamarind", null, async () => 1));
     expect(record.uses.size).toBe(0);
   });
 });
@@ -176,13 +170,13 @@ describe("the response record", () => {
 describe("governor buckets", () => {
   it("a person's own token does not occupy the team token's slots", async () => {
     process.env.EGRESS_GOVERNOR = "on";
-    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "forge.evolutionaryscale.ai": { maxConcurrent: 1 } });
+    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "app.tamarind.bio": { maxConcurrent: 1 } });
     resetEgressGovernorForTests();
     let release!: () => void;
     const held = new Promise<void>(r => (release = r));
-    const teamCall = governedForCredential("biohub", TEAM, () => held);
+    const teamCall = governedForCredential("tamarind", TEAM, () => held);
     // The team bucket is full; an own-token call still goes at once.
-    const own = await governedForCredential("biohub", OWN, async () => "own done", { deadlineAt: Date.now() + 1000 });
+    const own = await governedForCredential("tamarind", OWN, async () => "own done", { deadlineAt: Date.now() + 1000 });
     expect(own).toBe("own done");
     release();
     await teamCall;
@@ -199,9 +193,9 @@ describe("governor buckets", () => {
 
   it("/capabilities folds own-token buckets into one line per provider, with no id from the token", async () => {
     process.env.EGRESS_GOVERNOR = "on";
-    await governedForCredential("biohub", OWN, async () => 1);
-    await governedForCredential("biohub", "another-own-token-xyz", async () => 1);
-    await governedForCredential("biohub", TEAM, async () => 1);
+    await governedForCredential("tamarind", OWN, async () => 1);
+    await governedForCredential("tamarind", "another-own-token-xyz", async () => 1);
+    await governedForCredential("tamarind", TEAM, async () => 1);
     const lines = governorHealth({ publicView: true });
     const own = lines.find(l => l.id.endsWith("#own-tokens"));
     expect(own).toMatchObject({ calls: 2 });
@@ -217,7 +211,7 @@ describe("governor buckets", () => {
   it("isolates overflowing own tokens into one per-owner bucket instead of spilling into the team bucket", () => {
     const owner = person();
     runWithEgressOwner(owner, () => {
-      const buckets = [1, 2, 3, 4, 5].map((i) => credentialForCall("biohub", `own-token-${i}-xxxxxxxxxxxx`).bucket);
+      const buckets = [1, 2, 3, 4, 5].map((i) => credentialForCall("tamarind", `own-token-${i}-xxxxxxxxxxxx`).bucket);
       expect(buckets.every((b) => typeof b === "string" && b.length > 0)).toBe(true);
       expect(buckets[3]).toBe(buckets[4]);
       expect(buckets[3]).not.toBe(buckets[0]);
@@ -236,12 +230,12 @@ describe("no token or credential hash in logs", () => {
       vi.spyOn(console, m).mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(" ")));
     }
     process.env.EGRESS_GOVERNOR = "shadow";
-    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "forge.evolutionaryscale.ai": { maxConcurrent: 1 } });
+    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "app.tamarind.bio": { maxConcurrent: 1 } });
     resetEgressGovernorForTests();
     process.env.SHARED_TOKEN_FALLBACK = "bogus";
-    resolveCredential("biohub");
-    await Promise.all([1, 2, 3].map(() => governedForCredential("biohub", OWN, async () => 1)));
-    await Promise.all([1, 2, 3].map(() => governedForCredential("biohub", TEAM, async () => 1)));
+    resolveCredential("tamarind");
+    await Promise.all([1, 2, 3].map(() => governedForCredential("tamarind", OWN, async () => 1)));
+    await Promise.all([1, 2, 3].map(() => governedForCredential("tamarind", TEAM, async () => 1)));
     const all = lines.join("\n");
     for (const secret of [OWN, TEAM, sha(OWN), sha(OWN).slice(0, 16), sha(TEAM).slice(0, 16)]) expect(all).not.toContain(secret);
   });
@@ -271,20 +265,11 @@ describe("changing the user or the token never changes a cache key (property)", 
     expect(baseline.length).toBeGreaterThan(5);
     for (const owner of owners) {
       for (const token of tokens) {
-        if (token) process.env.BIOHUB_API_TOKEN = token;
-        else delete process.env.BIOHUB_API_TOKEN;
-        process.env.TAMARIND_API_KEY = token ?? "";
+        if (token) process.env.TAMARIND_API_KEY = token;
+        else delete process.env.TAMARIND_API_KEY;
         expect(runWithEgressOwner(owner, allKeys)).toEqual(baseline);
       }
     }
   });
 
-  it("holds for the core analysis flight key across different Biohub tokens", () => {
-    const ctx = { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", originalNotation: "p.Arg408Trp", acmgWeighting: "standard", sequence: "MKV", pos: 408, residueIndex: "408", wildType: "Arg", mutant: "Trp", wt1Letter: "R", mut1Letter: "W" } as any;
-    // Two own tokens of the same owner share a flight key; own and team tokens have distinct keys so they never cross-spend.
-    const ownKeys = [OWN, "zz-third-token-000000"].map(t => coreIdentityOf({ ...ctx, biohubToken: t }).flightKey);
-    expect(new Set(ownKeys).size).toBe(1);
-    const teamKey = coreIdentityOf({ ...ctx, biohubToken: TEAM }).flightKey;
-    expect(teamKey).not.toBe(ownKeys[0]);
-  });
 });

@@ -272,7 +272,7 @@ describe("Variant Analysis Route Handlers", () => {
       let responseBody: any = null;
       const req: any = {
         body: { gene: "PAH", variant: "p.Met1Val" },
-        headers: { "x-biohub-token": "test-token" }
+        headers: {}
       };
       const res: any = {
         status(code: number) {

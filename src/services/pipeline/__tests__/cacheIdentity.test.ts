@@ -9,13 +9,12 @@ describe("provider configuration in the cache identity", () => {
   it.each([
     ["alphagenomeApiKey", { alphagenomeApiKey: "k" }],
     ["alphagenomeApiUrl", { alphagenomeApiUrl: "https://example.test" }],
-    ["biohubApiToken", { biohubApiToken: "b" }],
   ])("changes when %s is set, so a new credential does not reuse the old answer", (_name, settings) => {
     expect(createAnalysisCacheContext("P1", settings).providerConfiguration).not.toBe(base);
   });
 
   it("never stores a credential's value", () => {
-    expect(createAnalysisCacheContext("P1", { biohubApiToken: "secret-token" }).providerConfiguration).not.toContain("secret-token");
+    expect(createAnalysisCacheContext("P1", { alphagenomeApiKey: "secret-token" }).providerConfiguration).not.toContain("secret-token");
   });
 });
 

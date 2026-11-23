@@ -20,8 +20,7 @@ import { drawContextLayer } from "./drawContextLayer";
  *
  * It used to: `customPdbData` was assumed to be an AlphaFold model unless a PDB id happened to be in
  * local state, so crystal temperature factors were drawn with pLDDT colours and cut by the pLDDT
- * filter; and an ESMFold view with no fold loaded fetched the resolver's structure (a crystal entry)
- * and drew it under the ESMFold label.
+ * filter.
  */
 
 export type PlddtFilter = "none" | "50" | "70";
@@ -39,7 +38,7 @@ export interface UseMolstarStructureOptions {
   contextPdbData?: string | null;
   /** Residue numbers the primary covers; the context leaves them out. */
   contextCovered?: { start: number; end: number } | null;
-  /** Fetch the AlphaFold DB model when no coordinates are supplied. False in the ESMFold view. */
+  /** Fetch the AlphaFold DB model when no coordinates are supplied. */
   allowFetch: boolean;
   reloadNonce?: number;
   colour: ColourPlan;
@@ -89,8 +88,6 @@ function themeRef(plan: ThemePlan, alphaOverride?: number | null): { color: stri
       return { color: "plddt-confidence", colorParams: { scale: plan.scale }, ...extraAlpha };
     case "bfactor-quartile":
       return { color: "bfactor-quartile", ...extraAlpha };
-    case "displacement":
-      return { color: "backbone-displacement", ...extraAlpha };
     case "secondary-structure":
       return { color: "secondary-structure", colorParams: { colors: { name: "custom", params: SECONDARY_COLOUR_MAP } }, ...extraAlpha };
     case "uniform": {
@@ -405,7 +402,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
 
         if (!text) {
-          // Nothing to draw here (an ESMFold view still folding, or with no fold): an empty canvas,
+          // Nothing to draw here (no coordinates yet): an empty canvas,
           // never a stand-in structure under the wrong name.
           isLoadingRef.current = false;
           setLoading(false);

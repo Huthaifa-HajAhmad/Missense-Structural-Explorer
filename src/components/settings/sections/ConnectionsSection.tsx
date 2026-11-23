@@ -97,7 +97,7 @@ export function ConnectionsSection() {
             placeholder="Enter JAPANFOLD_API_KEY…"
             value={settings.japanfoldApiKey || ""}
             onChange={(value) => updateSetting("japanfoldApiKey", value)}
-            description="Enables Tier-1 ESMFold2-Fast (up to 1,024 aa) and Boltz-2 multimer folding on api.japanfold.aiand.com."
+            description="Enables Boltz-2 multimer folding on api.japanfold.aiand.com."
             action={{
               label: "Test connection",
               busyLabel: "Testing…",
@@ -130,26 +130,6 @@ export function ConnectionsSection() {
             </ol>
           </HowTo>
         </SettingsBlock>
-        <TokenField>
-          <SecretInput
-            label="EvolutionaryScale (Forge) token"
-            placeholder="Enter EvolutionaryScale Forge API key…"
-            value={settings.biohubApiToken || ""}
-            onChange={(value) => updateSetting("biohubApiToken", value)}
-            description="Enables ESMFold2 de novo structures on forge.evolutionaryscale.ai."
-            action={{
-              label: "Test connection",
-              busyLabel: "Testing…",
-              busy: tests.biohub.testing,
-              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-              disabled: !settings.biohubApiToken?.trim() && !secrets.saved?.biohub?.readable,
-              run: () => runTest("biohub", { useSaved: !settings.biohubApiToken?.trim() })
-            }}
-            status={tests.biohub.status}
-          />
-          <AccountTokenControls kind="biohub" label="Biohub" browserToken={settings.biohubApiToken || ""} clearBrowserToken={() => updateSetting("biohubApiToken", "")} secrets={secrets} />
-          <LastCredentialUse kind="biohub" />
-        </TokenField>
         <TokenField>
           <SecretInput
             label="AlphaGenome Atlas API key"

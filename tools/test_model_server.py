@@ -7,7 +7,7 @@
 #   "transformers",
 #   "huggingface_hub",
 #   "numpy",
-#   "esm @ git+https://github.com/Biohub/esm.git@c6b8c342aa99c823cd63ff11e0047ccd2f962117",
+#   "httpx",
 #   "mini3di"
 # ]
 # ///
@@ -59,7 +59,7 @@ class TestModelServerHealth(unittest.TestCase):
     def test_retired_language_model_routes_are_not_served(self):
         from model_server import app
         paths = {getattr(route, 'path', '') for route in app.routes}
-        for retired in ('/predict/vesm', '/predict/esm2', '/predict/esm3', '/predict/saprot'):
+        for retired in ('/predict/vesm', '/predict/esm2', '/predict/esm3', '/predict/saprot', '/predict/esmfold'):
             self.assertNotIn(retired, paths)
 
 
