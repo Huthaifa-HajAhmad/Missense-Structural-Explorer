@@ -1,6 +1,6 @@
 # In-silico tools: pruning and repair plan
 
-Status: plan, 2026-11-23. Phases 0 to 2 are built (see each phase below); Phases 3 to 6 are not.
+Status: plan, 2026-11-23. Phases 0 to 3 are built (see each phase below); Phases 4 to 6 are not.
 
 ## Principle
 
