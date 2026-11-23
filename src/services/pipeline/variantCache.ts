@@ -79,7 +79,9 @@ import { settleStagesForStorage } from "./resultMerge";
 //   bundle would show its old stability values next to a structure fetched under the new choice.
 // v4.12 discards bundles written before exact-allele ClinVar binding (missense#16) and HbS BS1/BS2 removal (missense#13).
 // v4.13 discards snapshots with unverified ClinVar selections or missing alternate-allele PS1 evidence.
-export const CACHE_VERSION = "v4.13";
+// v4.14 discards verdicts from before popEVE left the PP3/BP4 vote and before the BayesDel and EVE scale
+//   fixes: a stored bundle would replay a PP3/BP4 call the current engine no longer gives.
+export const CACHE_VERSION = "v4.14";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

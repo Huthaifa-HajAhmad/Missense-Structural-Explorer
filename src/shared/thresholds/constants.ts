@@ -190,33 +190,12 @@ export const THRESHOLDS = {
   /**
    * popEVE (Orenbuch et al., Nat Genet 2025). The authors publish two cut-points, both on the
    * deleterious side: ≤ −5.056 "highly deleterious" (99.99% posterior) and ≤ −4.617 "moderately
-   * deleterious" (99%). There is no published benign cut-point.
-   *
-   * `pathogenicSupporting` (−2.0), `benignLlr`/`benign` (−1.0) and the 0–1 `…Normalized` pair had no
-   * source and are no longer read by any evaluator; they remain only so an old import still compiles.
+   * deleterious" (99%). There is no published benign cut-point, so popEVE is shown as a
+   * cross-gene severity reading and never counted in PP3/BP4.
    */
   popEve: {
     severePathogenic: -5.056,
     pathogenic: -4.617,
-    /** @deprecated unsourced — not read by any evaluator. */
-    pathogenicSupporting: -2.0,
-    /** @deprecated unsourced — not read by any evaluator. */
-    benignLlr: -1.0,
-    /** @deprecated unsourced — not read by any evaluator. */
-    benign: -1.0,
-    /** @deprecated unsourced — not read by any evaluator. */
-    pathogenicNormalized: 0.75,
-    /** @deprecated unsourced — not read by any evaluator. */
-    benignNormalized: 0.25,
-  },
-  eve: {
-    severePathogenic: -5.056,
-    pathogenic: -4.617,
-    pathogenicSupporting: -2.0,
-    benignLlr: -1.0,
-    benign: -1.0,
-    pathogenicNormalized: 0.75,
-    benignNormalized: 0.25,
   },
   misZ: {
     pathogenicStrong: 3.09,

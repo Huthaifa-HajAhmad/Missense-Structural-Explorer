@@ -56,7 +56,7 @@ export async function queryDbnsfpOrg(
     const revel = safeParseFloat(allTrans.REVEL ?? allTrans.REVEL_score ?? fPred.REVEL_score);
     const gerp = safeParseFloat(cScores['GERP++_RS'] ?? allTrans['GERP++_RS'] ?? fPred['GERP++_RS']);
     const phylop = safeParseFloat(cScores.phyloP100way_vertebrate ?? allTrans.phyloP100way_vertebrate ?? fPred.phyloP100way_vertebrate);
-    const bayesdel = safeParseFloat(allTrans.BayesDel_noAF_score ?? allTrans.BayesDel_noAF ?? fPred.BayesDel_noAF_score ?? fPred.BayesDel_addAF_score);
+    const bayesdel = safeParseFloat(allTrans.BayesDel_noAF_score ?? allTrans.BayesDel_noAF ?? fPred.BayesDel_noAF_score);
     const metarnn = safeParseFloat(allTrans.MetaRNN ?? allTrans.MetaRNN_score ?? fPred.MetaRNN_score);
     const clinpred = safeParseFloat(allTrans.ClinPred_score ?? allTrans.ClinPred ?? fPred.ClinPred_score);
     const eigenPhred = safeParseFloat(fPred['Eigen-phred_coding'] ?? allTrans['Eigen-phred_coding']);

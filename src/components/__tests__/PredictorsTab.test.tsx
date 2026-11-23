@@ -106,7 +106,7 @@ describe("PredictorsTab", () => {
   it("explains each non-voting family in its own card, never counting them", () => {
     renderTab(gzf1());
     const card = screen.getByTestId("predictor-informational");
-    for (const g of ["protein-lm", "genome", "conservation"]) {
+    for (const g of ["severity", "protein-lm", "genome", "conservation"]) {
       const fam = within(card).getByTestId(`predictor-family-${g}`);
       expect(fam.textContent).toMatch(/What it measures/);
       expect(fam.textContent).toMatch(/Why it is not counted/);
@@ -166,7 +166,7 @@ describe("PredictorsTab", () => {
     expect(key.textContent).toMatch(/4 pathogenic/);
     expect(key.textContent).toMatch(/1 benign/);
     const tally = within(screen.getByTestId("predictor-vote-row")).getByRole("list", { name: "Voting tools by call" });
-    expect(tally.querySelectorAll(".prd-tally__tool")).toHaveLength(7);
+    expect(tally.querySelectorAll(".prd-tally__tool")).toHaveLength(6);
   });
 
   it("keeps a row for the calibrated reference when neither REVEL nor BayesDel scored", () => {
@@ -218,8 +218,8 @@ describe("PredictorsTab", () => {
     renderTab(gzf1());
     const table = screen.getByTestId("predictor-readings");
     const groups = Array.from(table.querySelectorAll("tbody")).map(b => b.getAttribute("data-group"));
-    expect(groups).toEqual(["vote", "protein-lm", "genome", "conservation"]);
-    expect(table.querySelectorAll("tbody[data-group='vote'] tr[data-votes]").length).toBe(7);
+    expect(groups).toEqual(["vote", "severity", "protein-lm", "genome", "conservation"]);
+    expect(table.querySelectorAll("tbody[data-group='vote'] tr[data-votes]").length).toBe(6);
   });
 
   it("marks conservation as not counted even when it reaches a calibrated band", () => {
@@ -288,7 +288,11 @@ describe("PredictorsTab", () => {
     expect(ladder.getAttribute("aria-label")).toMatch(/direction only have just their authors' cut-point/);
     const here = ladder.querySelectorAll(".prd-ladder__side[data-here]");
     expect(here.length).toBe(3);
-    for (const cell of Array.from(here)) expect(cell.hasAttribute("data-votes")).toBe(true);
+    const counted = (key: string) => within(ladder).getByTestId(`ladder-${key}`).querySelector(".prd-ladder__side[data-here]")!.hasAttribute("data-votes");
+    expect(counted("metarnn")).toBe(true);
+    expect(counted("clinpred")).toBe(true);
+    // popEVE is informational: its side is marked but not tinted.
+    expect(counted("popeve")).toBe(false);
   });
 
   it("renders candidate-consensus CADD as a range on the ruler and counts it in the vote when all candidates agree", () => {

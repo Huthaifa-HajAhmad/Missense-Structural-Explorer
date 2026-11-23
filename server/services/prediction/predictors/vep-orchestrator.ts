@@ -44,9 +44,7 @@ export const vepResponseSchema = z.array(z.object({
       am_pathogenicity: z.any().optional(),
       am_class: z.string().optional()
     }).optional(),
-    cadd_phred: z.any().optional(),
-    eve_score: z.any().optional(),
-    eve_class: z.any().optional()
+    cadd_phred: z.any().optional()
   })).optional()
 })).min(1);
 

@@ -41,8 +41,8 @@ describe("buildLadderEvidence — NAE1 p.Asp116Gly", () => {
     const side = Object.fromEntries(ev.directional.map(d => [d.key, d.side]));
     // MetaRNN 0.529 and ClinPred 0.977 are at or above their 0.5 cut; popEVE has no score here.
     expect(side).toEqual({ metarnn: "pathogenic", clinpred: "pathogenic", popeve: null });
-    // Every directional tool is one the engine counts, and none of them is a calibrated ladder row.
-    expect(ev.directional.every(d => d.votes)).toBe(true);
+    // MetaRNN and ClinPred are counted; popEVE is shown but never counted. None is a calibrated ladder row.
+    expect(Object.fromEntries(ev.directional.map(d => [d.key, d.votes]))).toEqual({ metarnn: true, clinpred: true, popeve: false });
     expect(ev.directional.some(d => ev.ladder.some(l => l.key === d.key))).toBe(false);
     expect(ev.directional.find(d => d.key === "metarnn")!.cutText).toBe("≥ 0.5");
   });

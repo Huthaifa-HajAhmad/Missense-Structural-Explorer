@@ -156,11 +156,18 @@ describe("insilicoVoteOutcome — the engine's plurality rule", () => {
 describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
   const evidence = buildPredictorEvidence({ result: gzf1() });
 
-  it("counts seven voting tools: four pathogenic, one benign, two indeterminate", () => {
-    expect(evidence.vote).toMatchObject({ nPathogenic: 4, nBenign: 1, nIndeterminate: 2, nVoting: 7, code: "PP3" });
+  it("counts six voting tools: four pathogenic, one benign, one indeterminate", () => {
+    expect(evidence.vote).toMatchObject({ nPathogenic: 4, nBenign: 1, nIndeterminate: 1, nVoting: 6, code: "PP3" });
     expect(evidence.voters.pathogenic.map(r => r.key).sort()).toEqual(["am", "cadd", "clinpred", "metarnn"]);
     expect(evidence.voters.benign.map(r => r.key)).toEqual(["revel"]);
-    expect(evidence.voters.indeterminate.map(r => r.key).sort()).toEqual(["bayesdel", "popeve"]);
+    expect(evidence.voters.indeterminate.map(r => r.key).sort()).toEqual(["bayesdel"]);
+  });
+
+  it("shows popEVE as a cross-gene severity reading that never votes", () => {
+    const popeve = evidence.readings.find(r => r.key === "popeve")!;
+    expect(popeve.votes).toBe(false);
+    expect(popeve.group).toBe("severity");
+    expect(popeve.caveats).toContain("no-benign-cut");
   });
 
   it("states that the calibrated reference points the other way", () => {
@@ -170,7 +177,7 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
 
   it("never lets an informational tool vote", () => {
     for (const r of evidence.readings.filter(x => !x.votes)) {
-      expect(["alphagenome", "eigen", "dann", "esm", "phylop", "gerp", "consurf"]).toContain(r.key);
+      expect(["popeve", "alphagenome", "eigen", "dann", "esm", "phylop", "gerp", "consurf"]).toContain(r.key);
     }
     const avi = evidence.readings.find(r => r.key === "alphagenome")!;
     expect(avi.callLabel).toBe("Informational");
@@ -211,7 +218,7 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
   it("words the finding from the vote", () => {
     const f = predictorFinding(evidence);
     expect(f.headline).toBe("Pathogenic calls outnumber benign");
-    expect(f.predicate).toMatch(/^4 to 1, with 2 indeterminate/);
+    expect(f.predicate).toMatch(/^4 to 1, with 1 indeterminate/);
   });
 
   it("reports a missing score as pending while the analysis runs, and as no result after", () => {

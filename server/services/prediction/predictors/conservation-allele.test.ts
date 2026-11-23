@@ -168,6 +168,23 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(unmatched.revel).toBeNull();
   });
 
+  it("never writes an EVE score into popEVE: the two scores use different scales", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("myvariant.info")) {
+        return new Response(JSON.stringify({
+          hits: [{ dbnsfp: { hgvsp: ["p.Arg273His"], revel: { score: 0.9 }, eve: { score: [0.85] } } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+
+    const result = await fetchConservationData("TP53", "p.Arg273His", null, null, 273);
+    expect(result.revel).toBe(0.9);
+    expect(result.popeve).toBeNull();
+  });
+
   it("withholds non-GRCh38 coordinates from Genos and dbNSFP.org on direct calls and resolves ConSurf position from variant string", async () => {
     const local = await import("../dbnsfp_local.ts");
     vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
