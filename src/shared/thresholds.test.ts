@@ -90,13 +90,9 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       // Distance alone is not PP3: 2 bp from a junction with a tiny delta is a BP4 reading.
       expect(evaluateSplicePredictor({ distance: 2, isNearSpliceSite: true }, sai(0.01))).toBe("benign");
 
-      // dbscSNV is the authors' cut-point, not a band: it neither decides PP3 nor substitutes for SpliceAI.
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, { ada_score: 0.9, rf_score: 0.9 })).toBe("unavailable");
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, { ada_score: 0.1, rf_score: 0.1 })).toBe("unavailable");
-
       // No SpliceAI score -> the rule cannot be applied.
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, null)).toBe("unavailable");
-      expect(evaluateSplicePredictor({ distance: 25, isNearSpliceSite: false }, undefined, undefined)).toBe("unavailable");
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null)).toBe("unavailable");
+      expect(evaluateSplicePredictor({ distance: 25, isNearSpliceSite: false }, undefined)).toBe("unavailable");
       expect(evaluateSplicePredictor(null, sai(null))).toBe("unavailable");
       expect(evaluateSplicePredictor(null, null)).toBe("unavailable");
       expect(evaluateSplicePredictor(undefined, undefined)).toBe("unavailable");
@@ -135,28 +131,15 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.available).toContain("POPEVE");
     });
 
-    it("should keep DANN and Eigen informational beside voting BayesDel and ClinPred", () => {
-      const res = countPredictorConcordance(
-        null,
-        null,
-        null,
-        null,
-        0.25, // bayesdel is 5th parameter
-        null,
-        {
-          dann: 0.98,
-          clinpred: 0.95,
-          eigenPhred: 7.1
-        }
-      );
-
-      expect(res.available).toContain("DANN");
-      expect(res.available).toContain("CLINPRED");
-      expect(res.available).toContain("EIGEN");
-      expect(res.available).toContain("BAYESDEL");
-      // DANN has no published clinical cut-point: informational, never a call.
-      expect(res.signals.dann).toBe("vus");
-      expect(res.nPathogenic).toBe(2); // BayesDel 0.25 and ClinPred 0.95 vote; DANN and Eigen do not
+    it("lists no DANN or Eigen row: both were retired, and the vote is unchanged", () => {
+      const res = countPredictorConcordance(null, null, null, null, 0.25, null, { clinpred: 0.95 });
+      const listed = [...res.available, ...res.unavailable];
+      expect(listed).toContain("CLINPRED");
+      expect(listed).toContain("BAYESDEL");
+      expect(listed.some(name => /DANN|EIGEN/.test(name))).toBe(false);
+      expect(Object.keys(res.signals)).not.toContain("dann");
+      expect(Object.keys(res.signals)).not.toContain("eigen");
+      expect(res.nPathogenic).toBe(2); // BayesDel 0.25 and ClinPred 0.95 vote
     });
 
     it("should list AlphaGenome AVI as informational, never as a vote", () => {

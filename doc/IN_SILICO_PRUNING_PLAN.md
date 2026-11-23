@@ -21,14 +21,14 @@ its reading is wrong, never arrives, or repeats a stronger reading already on th
 | MetaRNN, ClinPred and popEVE vote in the PP3/BP4 count; MetaRNN and ClinPred on a bare 0.5 split | `src/shared/thresholds/concordance.ts:112-145`, `evaluators.ts:105-117` |
 | popEVE has no benign cut-point, so it can only add pathogenic votes | `evaluators.ts` `evaluatePopEve` |
 | The vote also waits for popEVE before it decides | `server/services/prediction/acmg/criteria.ts:256-275` |
-| Eigen, DANN, AlphaGenome and ESM1b are already informational (shown, not counted) | `concordance.ts:124-165` |
+| Eigen, DANN, AlphaGenome and ESM1b are already informational (shown, not counted; Eigen and DANN removed in Phase 2) | `concordance.ts:124-165` |
 | ESM1b has ClinGen bands (Bergquist 2025) but does not vote | `calibration.ts:109`, `concordance.ts:160-165` |
 | BayesDel is graded on noAF bands, but the parser falls back to `BayesDel_addAF_score` | `predictors/dbnsfp-query.ts:59` |
 | On the MyVariant path, an EVE score (0 to 1, higher = harmful) is written into popEVE (negative scale) | `predictors/conservation-orchestrator.ts:610-616` |
 | SpliceAI does not enter the ACMG engine at all | `criteria.ts` (no SpliceAI rule) |
 | D2 was decided "keep bare Supporting PP3" | `INDEPENDENT_AUDIT_RESPONSE.md` |
 | ConSurf scrapes an HTML page from `consurfdb.tau.ac.il`, only for PDB entries, matches residues by raw number, and has a 3 s timeout; from the dev machine the secure connection never completes | `predictors/consurf-resolver.ts` |
-| `/biophysics/verify-stability` has no caller in `src/` | `server/routes/biophysics/stability.ts:66` |
+| `/biophysics/verify-stability` has no caller in `src/` (route removed in Phase 2) | `server/routes/biophysics/stability.ts` |
 | Biohub / Forge tokens now serve only ESMFold (ESM3 and ESMC are retired) | `structure/esmfold.ts`, `orchestration/core-identity.ts` |
 | All of Us frequencies come from Genos or the VM's local dbNSFP store | `external-api/genos_web.ts:279`, `prediction/dbnsfp_local.ts:65` |
 
@@ -66,13 +66,26 @@ informational: no cut-points, never counted. An isoform accession is sent unchan
 nothing rather than the canonical residue at the same number. Rejected: the PDBe-KB conservation endpoint
 (HTTP 404 for AlphaFold-only proteins), and running Rate4Site locally (too heavy for the VM).
 
-### Phase 2 — Retirements that change no verdict
+### Phase 2 — Retirements that change no verdict (done on `chore/retire-dbscsnv-dann-eigen`)
 
 - dbscSNV: the parsers, `THRESHOLDS.dbscsnv`, the SpliceMap window, and the Splicing tab section.
 - DANN and Eigen: they are already informational, and CADD and phyloP give a stronger reading of the same
   kind.
 - The dead `/biophysics/verify-stability` route, `structure/folding-engines.ts` and
   `stability/biophysics-bridge.ts`, after checking there are no callers.
+
+What was done:
+
+- dbscSNV is no longer requested or parsed on any tier, and the Splicing tab, its rail, the splice map and
+  the guides no longer show it. SpliceAI (Walker 2023) answers the same question with ClinGen bands.
+- DANN and Eigen are no longer parsed on any tier and have no row, evaluator, threshold, guide or
+  attribution. The local store and its ingest script keep their `dann` and `eigen` columns; the reader
+  ignores them.
+- The route is gone (it was public and had no caller), with its two modules, their facades and the
+  768-residue stability ceiling in `foldingLimits.ts` that only that engine used.
+- Analyses saved before this change still load: the conservation schema drops the unknown fields.
+- No PP3/BP4 outcome changes. DANN and Eigen were informational (never counted), and dbscSNV never
+  reached the vote or the splicing rule.
 
 Kept, unlike the Gemini review's list: **GERP** (it has calibrated BP4 bands) and the **AlphaGenome AVI row**
 (already informational; rule 4).

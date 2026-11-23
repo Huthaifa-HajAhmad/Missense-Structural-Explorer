@@ -2,14 +2,14 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { skipTour } from './support.js';
 
-test('splicing presents channels once and exposes junction context', async ({ app, screen, browser }) => {
+test('splicing presents channels once and names no retired dbscSNV context', async ({ app, screen, browser }) => {
   await skipTour(browser);
   await app.open('/tools/evidence-preview/index.html');
   await screen.getByRole('combobox', 'Evidence').selectOption('RNA splicing');
   await screen.getByRole('combobox', 'Example').selectOption('Zero');
   await expect(screen.getByTestId('predicted-sites')).toBeVisible();
   expect(await browser.evaluate(() => document.querySelectorAll('.spl-channels, .spl-map__quiet').length)).toBe(0);
-  await expect(screen.getByRole('region', 'dbscSNV context')).toContainText('dbscSNV');
+  expect(await browser.evaluate(() => document.body.textContent!.includes('dbscSNV'))).toBe(false);
   expect(await browser.evaluate(() => {
     const card = document.querySelector('.spl-inspection')!;
     const head = card.querySelector('.spl-inspection__head')!;

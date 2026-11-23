@@ -16,8 +16,7 @@ import type { SpliceMapView } from '../EvidenceWorkspace';
  *   SpliceAI     one lollipop per displayed channel, at its delta position, its height the
  *                score on an explicitly labelled axis with the Walker PP3 line. Gains are solid,
  *                losses hollow. A lollipop standing on an annotated site is a weakened or
- *                strengthened real site; one standing in open sequence is a cryptic site;
- *   dbscSNV      its real window (Jian 2014) as a dashed bracket, context only.
+ *                strengthened real site; one standing in open sequence is a cryptic site.
  *
  * It replaced a fixed ±40 bp ruler of one junction and the variant, which could not show where a
  * predicted change lands. A channel below the plotting floor has no meaningful delta position, so it
@@ -170,7 +169,6 @@ function PredictedSites({ map, selectedKey, onSelect }: { map: SpliceMapModel; s
 /** Where below-floor channels land in words: composed per layout, never patched after the fact. */
 export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry, compact = false): string {
   const site = map.junction;
-  const [winFrom, winTo] = site === "donor" ? [-THRESHOLDS.dbscsnv.window.donor.exonic, THRESHOLDS.dbscsnv.window.donor.intronic] : [-THRESHOLDS.dbscsnv.window.acceptor.intronic, THRESHOLDS.dbscsnv.window.acceptor.exonic];
   const quietNames = map.quiet.map(q => `${q.name.toLowerCase()} ${formatDelta(q.ds)}`).join(", ");
   const quietPlacement = compact ? "listed in the predicted-sites table, not placed on the axis" : "drawn in the no-signal row below the axis, not placed on it";
   const quietText = map.quiet.length
@@ -184,7 +182,7 @@ export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry, co
         .map(x => `${x.name.toLowerCase()} ${formatDelta(x.ds)} at ${signed(x.offset)} bases from the variant in transcript direction${x.atSite ? `, on the annotated ${x.atSite}` : ""}${Math.abs(x.offset) > map.halfWidth ? ", outside the map view" : ""}`)
         .join("; ")}.${quietText}`
     : (map.predictionsNote ?? fallback) + quietText;
-  return `Variant at position ${signed(map.position)} of the ${site}, ${geometry.regionType}. dbscSNV's window here runs ${signed(winFrom)} to ${signed(winTo)}; the variant is ${geometry.inDbscsnvWindow ? "inside" : "outside"} it.${preds}${map.predictions.length > 0 && map.predictionsNote ? ` ${map.predictionsNote}` : ""}`;
+  return `Variant at position ${signed(map.position)} of the ${site}, ${geometry.regionType}.${preds}${map.predictions.length > 0 && map.predictionsNote ? ` ${map.predictionsNote}` : ""}`;
 }
 
 export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, view, onViewChange, compact = false }: {
@@ -319,9 +317,6 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
   const step = STEP[map.halfWidth] ?? Math.round(map.halfWidth / 5);
   for (let t = -map.halfWidth; t <= map.halfWidth; t += step) ticks.push(t);
 
-  const dbscX0 = Math.max(left, x(map.dbscWindow[0]));
-  const dbscX1 = Math.min(right, x(map.dbscWindow[1]));
-  const showDbsc = dbscX1 - dbscX0 > 3;
 
   return (
     <div className="spl-map-panel">
@@ -440,14 +435,6 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
       )}
       {map.totalExons !== null && map.exonNumber === map.totalExons && map.exon.end !== null && x(map.exon.end) >= left + 20 && x(map.exon.end) <= right - 20 && (
         <text className="spl-map__site-name" x={x(map.exon.end)} y={yMid + 36} textAnchor="middle" aria-hidden="true">Transcript end</text>
-      )}
-
-      {/* dbscSNV window */}
-      {showDbsc && (
-        <g className="spl-map__window">
-          <path d={`M ${dbscX0} ${yMid + 50} V ${yMid + 56} H ${dbscX1} V ${yMid + 50}`} />
-          <text x={(dbscX0 + dbscX1) / 2} y={yMid + 69} textAnchor="middle" aria-hidden="true">dbscSNV window</text>
-        </g>
       )}
 
       {/* Variant */}

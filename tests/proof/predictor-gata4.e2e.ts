@@ -19,12 +19,13 @@ test('GATA4 provider scores remain visible and inspectable across predictor view
   await expect(outside).toContainText('MetaRNN');
   await expect(outside).toContainText('0.732');
   await expect(outside).toContainText('-3.376');
-  await expect(outside).toContainText('4.82');
+  // DANN and Eigen were retired: the saved payload still carries Eigen 4.82, but no row shows it.
+  await expect(outside).not.toContainText('Eigen');
   await browser.locator('.prd-unplotted-groups button').filter({ hasText: 'MetaRNN' }).tap();
   await expect(selected).toContainText('0.732');
   await screen.getByRole('tab', 'Native score scales').tap();
   for (const button of await browser.locator('.prd-group__toggle').all()) await button.tap();
-  for (const [key, score] of [['metarnn', '0.732'], ['popeve', '-3.376'], ['esm', '-5.60'], ['eigen', '4.82']]) {
+  for (const [key, score] of [['metarnn', '0.732'], ['popeve', '-3.376'], ['esm', '-5.60']]) {
     const row = screen.getByTestId(`predictor-${key}`);
     await expect(row).toContainText(score);
     await browser.locator(`[data-testid="predictor-${key}"] .evw-reading-button`).tap();
@@ -32,7 +33,7 @@ test('GATA4 provider scores remain visible and inspectable across predictor view
   }
   await screen.getByRole('tab', 'Strength bands').tap();
   await expect(screen.getByTestId('ladder-popeve')).toContainText('popEVE');
-  await expect(selected).toContainText('Eigen');
+  await expect(selected).toContainText('ESM1b');
   await screen.getByRole('tab', 'Comparison').tap();
   for (const width of [1440, 800]) {
     await browser.setViewport({ width, height: 1000 });

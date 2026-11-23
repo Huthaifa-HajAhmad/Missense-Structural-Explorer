@@ -159,7 +159,7 @@ To ensure MissenseResolve® provides instant UI responsiveness (<1.5s initial lo
 - **Deep Learning Model Sidecars** (`ESM-3`, `ESM-C`, `ESM-2 3B`, `SaProt`):
   Inside `POST /api/v1/analyze-variant`, deep learning sidecar promises MUST be raced against a **2.5-second fast deadline** (`Promise.race([sidecarPromise, timeoutPromise])`). Slow ML sidecars must NEVER delay the primary Clinical, ClinVar, ACMG, and Predictor evidence rendering.
 - **External Web Service Submissions** (`DynaMut2`, `DDMut`, `ThermoMPNN`):
-  Inside `POST /api/v1/biophysics/verify-stability`, remote job submission calls MUST be raced against a **300ms deadline**. Local FoldX predictions (~2ms cached) and mutant PDB coordinate buffers MUST return immediately to the frontend, allowing remote job submissions to continue asynchronously in the background.
+  Wherever the stability pipeline submits a remote job, the submission call MUST be raced against a **300ms deadline**. Local FoldX predictions (~2ms cached) and mutant PDB coordinate buffers MUST return immediately to the frontend, allowing remote job submissions to continue asynchronously in the background.
 - **Online Conservation & API Queries** (`popEVE`, `NCBI E-utilities`):
   Online HTTP lookups to external academic databases (e.g., `data.evemodel.org`) MUST be raced with a **2.0-second deadline** so external network latency does not freeze the Evidence tab.
 

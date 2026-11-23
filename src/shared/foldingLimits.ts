@@ -8,7 +8,8 @@
  *
  *   • the server's Tier-1 gate rejected sequences longer than 1,024 aa (`structure/esmfold.ts`);
  *   • the keyless public ESM Atlas fallback rejected anything over 400 aa (same file);
- *   • the stability path's own engine rejected anything over 768 aa (`structure/folding-engines.ts`);
+ *   • the stability path's own engine rejected anything over 768 aa (that engine and its route have
+ *     since been retired);
  *   • the structure inspector printed "exceeds JapanFold / ESM Atlas 768 aa limit" for the FIRST
  *     ceiling, and told the reader that a >400 aa protein was being routed to a "Sovereign JapanFold
  *     inference engine configured in Settings".
@@ -48,16 +49,6 @@ export const ESM_ATLAS_PUBLIC_MAX_AA = 400;
  * that a smaller sequence is routed away from.
  */
 export const JAPANFOLD_ESMFOLD2_MAX_AA = 1024;
-
-/**
- * Ceiling enforced by the biophysics path's own `ESMFoldEngine` (`structure/folding-engines.ts`).
- *
- * Deliberately tighter than {@link JAPANFOLD_ESMFOLD2_MAX_AA}, and deliberately NOT the number the
- * structure inspector should quote: it bounds the stability pipeline's folding step, not the de novo
- * model a reader is looking at in the viewer. The two were conflated, which is how "768 aa" appeared
- * in a sentence about Tier-1 JapanFold.
- */
-export const STABILITY_ESMFOLD_ENGINE_MAX_AA = 768;
 
 /** "1024" → "1,024", deterministically — no `toLocaleString`, which varies with the ICU build. */
 export function formatResidueCount(residues: number): string {
@@ -100,11 +91,6 @@ export function deNovoFoldingLimitExceededMessage(residues: number): string {
 /** Tier-1 did not answer and the sequence is past the keyless fallback's ceiling. */
 export function esmAtlasFallbackExceededMessage(residues: number): string {
   return `Sequence length (${residues} aa) exceeds the public ESM Atlas folding limit (${ESM_ATLAS_PUBLIC_MAX_AA} aa). Tier-1 JapanFold ESMFold-2 was unavailable. De novo folding for proteins > ${ESM_ATLAS_PUBLIC_MAX_AA} aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`;
-}
-
-/** The stability pipeline's own engine ceiling. */
-export function stabilityEsmFoldEngineLimitMessage(residues: number): string {
-  return `Protein sequence length (${residues}) exceeds the maximum allowed limit of ${STABILITY_ESMFOLD_ENGINE_MAX_AA} residues for ESMFold.`;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -195,15 +181,13 @@ export function describeDeNovoFoldTimeout(options: { residues?: number | null; v
  *
  * Strict by design. The previous pattern was `/(\d+)\s*aa/i` against any error string, which can mine
  * a number out of text that is not about length at all — the class of bug that let a scan-window
- * length be printed as a protein length. Only the two shapes this module's own message builders
- * produce are accepted, so a new server message cannot be silently misread.
+ * length be printed as a protein length. Only the shape this module's own message builders produce
+ * is accepted, so a new server message cannot be silently misread.
  */
 export function parseReportedSequenceLength(message: string | null | undefined): number | null {
   if (!message) return null;
 
-  const match =
-    /sequence length \((\d+)\s*aa\)/i.exec(message) ??
-    /protein sequence length \((\d+)\)/i.exec(message);
+  const match = /sequence length \((\d+)\s*aa\)/i.exec(message);
 
   if (!match) return null;
 
@@ -215,7 +199,6 @@ export function parseReportedSequenceLength(message: string | null | undefined):
 const LENGTH_LIMIT_MARKERS = [
   "exceeds the de novo folding limits",
   "exceeds the public ESM Atlas folding limit",
-  "exceeds the maximum allowed limit of",
 ];
 
 export function isFoldingLengthLimitError(message: string | null | undefined): boolean {

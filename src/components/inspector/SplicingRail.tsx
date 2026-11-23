@@ -104,16 +104,11 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
                 : rule.state === "between" ? `> ${S.splicingBp4Below.toFixed(1)} and < ${S.splicingPp3.toFixed(1)} → neither`
                 : "Not applied — needs a SpliceAI score"}
             </span>
-            <span className="spl-step__sub">SpliceAI decides it alone. Distance and dbscSNV do not.</span>
+            <span className="spl-step__sub">SpliceAI decides it alone. Distance does not.</span>
           </Step>
           <Step n={3} label="Context · not counted" state="idle">
             <span>{pos ? `${pos} from the ${g.junction}` : g.distance !== null ? `${g.distance} bp from a boundary` : "Position not resolved"}</span>
-            <span className="spl-step__sub">
-              dbscSNV{" "}
-              {ev.dbscsnv.max !== null
-                ? `${ev.dbscsnv.max.toFixed(3)} (${ev.dbscsnv.altering ? "at or above" : "below"} the authors' ${THRESHOLDS.dbscsnv.spliceAltering})`
-                : g.inDbscsnvWindow === false ? "does not cover this position" : "returned no score"}
-            </span>
+            <span className="spl-step__sub">Distance from a junction is not evidence either way.</span>
           </Step>
           <Step n={4} label="Engine record" state={engineWarn ? "warn" : "done"}>
             <span className="spl-step__verdict">
@@ -159,7 +154,6 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <div><dt>SpliceAI · high recall</dt><dd className="spl-mono">{S.authorsHighRecall}</dd></div>
           <div><dt>SpliceAI · recommended</dt><dd className="spl-mono">{S.authorsRecommended}</dd></div>
           <div><dt>SpliceAI · high precision</dt><dd className="spl-mono">{S.authorsHighPrecision}</dd></div>
-          <div><dt>dbscSNV ADA / RF · altering</dt><dd className="spl-mono">{THRESHOLDS.dbscsnv.spliceAltering}</dd></div>
         </dl>
       </section>
 
@@ -184,10 +178,6 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
             <li>
               A missing SpliceAI score is not a benign result. SpliceAI scores every single-nucleotide change in an
               annotated gene, so an absence usually means the request failed or the coordinate was rejected.
-            </li>
-            <li>
-              dbscSNV exists only from −3 to +8 around a donor and −12 to +2 around an acceptor (Jian 2014). Its 0.6 is
-              the authors&apos; cut-point and is not ClinGen-calibrated, so it is context, not a criterion.
             </li>
             <li>
               Distance from a junction is not evidence either way. A change at the canonical ±1/±2 dinucleotide is

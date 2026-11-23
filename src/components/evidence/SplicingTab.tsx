@@ -39,10 +39,10 @@ import { SPLICE_URL_DEFAULTS, parseSplicingUrl, parseSpliceView, withSplicingPar
  *      SpliceAI's max Δ on its bands, the finding sentence, and the engine's own in-silico record
  *      beside it with any tension between the two stated in words.
  *   3. READINGS — one table: SpliceAI and context that is never counted
- *      (dbscSNV on its authors' cut-point, AlphaGenome's splicing attribution).
+ *      (AlphaGenome's splicing attribution).
  *   2. WHERE IT SITS — the splice map: the exon and its annotated sites on one axis from the variant,
- *      SpliceAI's predicted gains and losses at their delta positions, dbscSNV's real window, and the
- *      transcript facts behind it.
+ *      SpliceAI's predicted gains and losses at their delta positions, and the transcript facts
+ *      behind it.
  *
  * It replaced five KPI cards, a "mechanistic etiology" verdict that declared pathogenicity "driven by
  * protein misfolding" from a FoldX/REVEL/AlphaMissense OR-rule (with splicing unassessed), a
@@ -282,7 +282,6 @@ function MapLegend({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
     <div className="spl-geo__legend" aria-hidden="true">
       <span><i className="spl-key" data-kind="exon" />Exon</span>
       <span><i className="spl-key" data-kind="site" />Annotated splice site</span>
-      <span><i className="spl-key" data-kind="window" />dbscSNV window</span>
       {map.predictions.length > 0 && (
         <>
           <span><i className="spl-key" data-kind="gain" />SpliceAI gain</span>
@@ -518,12 +517,6 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
       <MechanismSelection tab="splicing" rows={readings} visibleKeys={visibleKeys} />
       <EvidencePanel tab="splicing">
       {workspace.enabled && workspace.view === 'records' ? <SplicingRecords rows={readings.filter(r => r.channel !== null)} /> : (!workspace.enabled || workspace.comparison) && <>
-      {workspace.enabled && <section className="spl-section" aria-label="dbscSNV context">
-        <h2 className="eyebrow">dbscSNV / junction context</h2>
-        <div className="spl-card spl-table-wrap"><table className="spl-table"><tbody>
-          {ev.readings.filter(r => r.key.startsWith('dbscsnv')).map(r => <ReadingRow key={r.key} reading={r} onKnowledge={setKnowledgeKey} onTabChange={onTabChange} />)}
-        </tbody></table></div>
-      </section>}
       <section className="spl-section" aria-labelledby="spl-geometry-title">
         <h2 className="eyebrow" id="spl-geometry-title">
           <MapPin className="w-3.5 h-3.5" />
@@ -542,9 +535,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
                   <p className="spl-geo__lead-status">
                     {g.isCanonicalDinucleotide
                       ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
-                      : g.inDbscsnvWindow
-                      ? "Inside dbscSNV's window."
-                      : "Outside dbscSNV's window and the canonical dinucleotide."}
+                      : "Not at the canonical splice dinucleotide."}
                   </p>
                   <p className="spl-geo__lead-note">
                     Distance from a junction is context; it is not evidence for or against a splicing effect.

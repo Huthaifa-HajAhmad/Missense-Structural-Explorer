@@ -206,8 +206,6 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     {
       metarnn: conservationData?.metarnn,
       clinpred: conservationData?.clinpred,
-      eigenPhred: conservationData?.eigenPhred,
-      dann: conservationData?.dann,
       popeve: conservationData?.popeve,
       alphagenome: conservationData?.alphagenome,
       caddCandidates: predictorData?.locusResolution?.failureKind === "multiple-candidates" ? predictorData.locusResolution.candidates : null,

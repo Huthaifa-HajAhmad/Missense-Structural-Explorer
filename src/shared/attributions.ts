@@ -209,7 +209,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     name: "dbNSFP",
     provider: "Liu & Boerwinkle laboratory, UTHealth Houston",
     kind: "dataset",
-    role: "Precomputed per-substitution predictor columns — REVEL, CADD, AlphaMissense, MetaRNN, ClinPred, Eigen, DANN, BayesDel, ESM-1b, GERP++, phyloP — used to answer predictor lookups locally instead of over the network.",
+    role: "Precomputed per-substitution predictor columns — REVEL, CADD, AlphaMissense, MetaRNN, ClinPred, BayesDel, ESM-1b, GERP++, phyloP — used to answer predictor lookups locally instead of over the network.",
     url: "https://sites.google.com/site/jpopgen/dbNSFP",
     /*
      * No single release is stated. The local store records its own release in `build_meta`, and
@@ -345,18 +345,6 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     citation:
       "Kent, W. J., et al. (2002). The human genome browser at UCSC. Genome Research 12, 996–1006. https://doi.org/10.1101/gr.229102",
     usedBy: ["server/services/prediction/splice_resolver.ts"]
-  },
-  {
-    id: "dbscsnv",
-    name: "dbscSNV",
-    provider: "Jian, Boerwinkle & Liu (UTHealth Houston)",
-    kind: "dataset",
-    role: "AdaBoost and Random Forest splice-consensus scores, shown beside SpliceAI as context on the authors' 0.6 cut-point. They make no call: the splicing rule reads SpliceAI alone (Walker 2023).",
-    url: "https://doi.org/10.1093/nar/gku1206",
-    release: null,
-    citation:
-      "Jian, X., Boerwinkle, E., & Liu, X. (2014). In silico prediction of splice-altering single nucleotide variants in the human genome. Nucleic Acids Research 42, 13534–13544. https://doi.org/10.1093/nar/gku1206",
-    usedBy: ["src/shared/splicingEvidence.ts", "server/services/prediction/predictors/dbnsfp-query.ts"]
   },
   {
     id: "protvar-conservation",
@@ -526,30 +514,6 @@ const MODEL_SOURCES: AttributionEntry[] = [
     usedBy: ["src/shared/thresholds/evaluators.ts"]
   },
   {
-    id: "eigen",
-    name: "Eigen / Eigen-PC",
-    provider: "Ionita-Laza laboratory, Columbia University",
-    kind: "model",
-    role: "Unsupervised functional-annotation score that needs no labelled training set, reported on the PHRED scale.",
-    url: "https://doi.org/10.1038/ng.3477",
-    release: null,
-    citation:
-      "Ionita-Laza, I., McCallum, K., Xu, B., & Buxbaum, J. D. (2016). A spectral approach integrating functional genomic annotations for coding and noncoding variants. Nature Genetics 48, 214–220. https://doi.org/10.1038/ng.3477",
-    usedBy: ["src/shared/thresholds/evaluators.ts"]
-  },
-  {
-    id: "dann",
-    name: "DANN",
-    provider: "Quang, Chen & Xie (Bioinformatics)",
-    kind: "model",
-    role: "Deep feed-forward network trained on CADD's feature set, used to capture non-linear annotation interactions.",
-    url: "https://doi.org/10.1093/bioinformatics/btu703",
-    release: null,
-    citation:
-      "Quang, D., Chen, Y., & Xie, X. (2015). DANN: a deep learning approach for annotating the pathogenicity of genetic variants. Bioinformatics 31, 761–763. https://doi.org/10.1093/bioinformatics/btu703",
-    usedBy: ["src/shared/thresholds/evaluators.ts"]
-  },
-  {
     id: "bayesdel",
     name: "BayesDel (noAF)",
     provider: "Feng (Human Mutation)",
@@ -646,7 +610,7 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     release: null,
     citation:
       "Dieckhaus, H., Brocidiacono, M., Randolph, N. Z., & Kuhlman, B. (2024). Transfer learning to leverage larger datasets for improved prediction of protein stability changes. PNAS 121, e2314853121. https://doi.org/10.1073/pnas.2314853121",
-    usedBy: ["server/services/stability/energy-models.ts", "server/services/stability/biophysics-bridge.ts"]
+    usedBy: ["server/services/stability/energy-models.ts"]
   },
   {
     id: "p2rank",

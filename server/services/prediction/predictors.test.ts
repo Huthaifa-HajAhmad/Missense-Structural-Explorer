@@ -526,7 +526,7 @@ END
   });
 
   describe("Tier 3 Public dbNSFP Predictors Extraction", () => {
-    it("should extract DANN, BayesDel, ClinPred, and Eigen from dbnsfp function_prediction response", async () => {
+    it("extracts BayesDel and ClinPred from the function_prediction response and ignores the retired DANN and Eigen", async () => {
       const { queryDbnsfpOrg } = await import("../predictors.ts");
       const origFetch = global.fetch;
 
@@ -559,17 +559,17 @@ END
         const res = await queryDbnsfpOrg("GZF1", "p.Arg591Trp", "20-23369727-C-T");
         expect(res).toBeDefined();
         expect(res?.revel).toBeCloseTo(0.45);
-        expect(res?.dann).toBeCloseTo(0.992);
         expect(res?.bayesdel).toBeCloseTo(0.15);
         expect(res?.clinpred).toBeCloseTo(0.98);
-        expect(res?.eigenPhred).toBeCloseTo(6.8);
-        expect(res?.eigenRaw).toBeCloseTo(0.72);
+        expect(res).not.toHaveProperty("dann");
+        expect(res).not.toHaveProperty("eigenPhred");
+        expect(res).not.toHaveProperty("eigenRaw");
       } finally {
         global.fetch = origFetch;
       }
     });
 
-    it("should preserve DANN, BayesDel, ClinPred, and Eigen in Tier 3 fetchConservationData", async () => {
+    it("preserves BayesDel and ClinPred in Tier 3 fetchConservationData, without the retired DANN and Eigen", async () => {
       const { fetchConservationData } = await import("../predictors.ts");
       const { clearAllCaches } = await import("../cache.ts");
       clearAllCaches(true);
@@ -604,11 +604,11 @@ END
         const res = await fetchConservationData("GZF1", "p.Arg591Trp", null, null, 591, "20-23369727-C-T");
         expect(res.available).toBe(true);
         expect(res.source).toBe("Public dbNSFP (dbnsfp.org)");
-        expect(res.dann).toBeCloseTo(0.995);
         expect(res.bayesdel).toBeCloseTo(0.22);
         expect(res.clinpred).toBeCloseTo(0.91);
-        expect(res.eigenPhred).toBeCloseTo(5.5);
-        expect(res.eigenRaw).toBeCloseTo(0.60);
+        expect(res).not.toHaveProperty("dann");
+        expect(res).not.toHaveProperty("eigenPhred");
+        expect(res).not.toHaveProperty("eigenRaw");
       } finally {
         global.fetch = origFetch;
       }
@@ -1112,12 +1112,8 @@ END
       }
     }, 20000);
 
-    /**
-     * F-7 (test-integrity review, ranked first among missing pins): dbscSNV was unfetchable by
-     * construction — the parser read `dbnsfp.dbscsnv` but the projection never requested it.
-     * This pins BOTH: the request carries the field, and the response reaches the payload.
-     */
-    it("F-7: MyVariant conservation returns AND parses dbscSNV", async () => {
+    /** dbscSNV, DANN and Eigen were retired: MyVariant is not asked for them, and a stray answer is ignored. */
+    it("MyVariant conservation neither requests nor parses the retired dbscSNV, DANN and Eigen", async () => {
       const { fetchConservationData } = await import("../predictors.ts");
       const { clearAllCaches } = await import("../infra/cache.ts");
       clearAllCaches(true);
@@ -1134,7 +1130,9 @@ END
               dbnsfp: {
                 hgvsp: ["ENSP00000336580.7:p.Lys272Asn"],
                 revel: { score: 0.065 },
-                dbscsnv: { ada_score: 0.91, rf_score: 0.88 }
+                dbscsnv: { ada_score: 0.91, rf_score: 0.88 },
+                dann: { score: 0.99 },
+                eigen: { phred_coding: "6.8" }
               }
             }]
           }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -1144,10 +1142,12 @@ END
 
       try {
         const res = await fetchConservationData("ACOT9", "p.Lys272Asn", null, null, 272, null, null, "Q9Y305", null, null, null);
-        expect(queryUrls.some(u => u.includes("dbnsfp.dbscsnv"))).toBe(true);
-        expect(res.dbscsnv).not.toBeNull();
-        expect(res.dbscsnv?.ada_score).toBeCloseTo(0.91, 5);
-        expect(res.dbscsnv?.rf_score).toBeCloseTo(0.88, 5);
+        expect(queryUrls.length).toBeGreaterThan(0);
+        expect(queryUrls.some(u => /dbnsfp\.(dbscsnv|dann|eigen)/.test(decodeURIComponent(u)))).toBe(false);
+        expect(res.revel).toBeCloseTo(0.065, 5);
+        expect(res).not.toHaveProperty("dbscsnv");
+        expect(res).not.toHaveProperty("dann");
+        expect(res).not.toHaveProperty("eigenPhred");
       } finally {
         global.fetch = origFetch;
       }

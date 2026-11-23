@@ -12,6 +12,6 @@ export function hasInterruptedPredictorReadings(result: { conservationData?: Con
   const data = result?.conservationData;
   if (!data) return false;
   const interrupted = (state: string | undefined) => state === 'pending' || state === 'timeout';
-  return ((data.metarnn == null || data.esm1b == null || data.eigenPhred == null) && interrupted(data.modelStatus?.base))
+  return ((data.metarnn == null || data.esm1b == null || data.bayesdel == null) && interrupted(data.modelStatus?.base))
     || (data.popeve == null && interrupted(data.modelStatus?.popeve));
 }

@@ -87,25 +87,10 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Alirezaie et al. Am J Hum Genet (2018)",
     paperUrl: "https://doi.org/10.1016/j.ajhg.2018.08.005",
   },
-  eigen: {
-    name: "Eigen / Eigen-PC",
-    paperTitle: "Ionita-Laza et al. Nat Genet (2016)",
-    paperUrl: "https://doi.org/10.1038/ng.3477",
-  },
-  dann: {
-    name: "DANN (Deep Neural Network)",
-    paperTitle: "Quang et al. Bioinformatics (2015)",
-    paperUrl: "https://doi.org/10.1093/bioinformatics/btu703",
-  },
   spliceai: {
     name: "SpliceAI",
     paperTitle: "Jaganathan et al. Cell (2019)",
     paperUrl: "https://doi.org/10.1016/j.cell.2018.12.015",
-  },
-  dbscsnv: {
-    name: "dbscSNV (Ada / RF)",
-    paperTitle: "Jian et al. Nucleic Acids Res (2014)",
-    paperUrl: "https://doi.org/10.1093/nar/gku1206",
   },
   popeve: {
     name: "popEVE",

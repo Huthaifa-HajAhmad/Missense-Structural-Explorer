@@ -190,7 +190,7 @@ const isAbsent = (value: unknown): boolean => value === null || value === undefi
  * with BayesDel, ClinPred, PopEVE or SpliceAI values "not found".
  */
 const CONSERVATION_SCORE_FIELDS = [
-  "revel", "gerp", "phylop", "scorecons", "bayesdel", "metarnn", "clinpred", "eigenPhred", "dann",
+  "revel", "gerp", "phylop", "scorecons", "bayesdel", "metarnn", "clinpred",
   "esm1b", "popeve", "spliceai", "alphagenome"
 ] as const;
 

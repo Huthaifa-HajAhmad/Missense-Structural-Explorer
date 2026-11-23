@@ -910,8 +910,6 @@ Please use this database grounding to inform your pathogenicity assessment and A
         conservationData.bayesdel,
         conservationData.metarnn,
         conservationData.clinpred,
-        conservationData.eigenPhred,
-        conservationData.dann,
         conservationData.esm1b,
         conservationData.popeve,
         conservationData.spliceai?.max_ds,
@@ -931,8 +929,6 @@ Please use this database grounding to inform your pathogenicity assessment and A
 - BayesDel Score: ${conservationData.bayesdel ?? "not measured"}
 - MetaRNN Score: ${conservationData.metarnn ?? "not measured"}
 - ClinPred Score: ${conservationData.clinpred ?? "not measured"}
-- Eigen Phred Score: ${conservationData.eigenPhred ?? "not measured"}
-- DANN Score: ${conservationData.dann ?? "not measured"}
 - ESM-1b LLR Score: ${conservationData.esm1b ?? "not measured"}
 - PopEVE Score: ${conservationData.popeve ?? "not measured"}
 - SpliceAI Max Delta Score: ${conservationData.spliceai?.max_ds ?? "not measured"}

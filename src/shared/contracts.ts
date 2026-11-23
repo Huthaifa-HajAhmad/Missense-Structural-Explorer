@@ -1426,9 +1426,6 @@ export const conservationDataSchema = z.object({
   metarnnPred: z.string().nullable().optional(),
   clinpred: z.number().nullable().optional(),
   clinpredPred: z.string().nullable().optional(),
-  eigenPhred: z.number().nullable().optional(),
-  eigenRaw: z.number().nullable().optional(),
-  dann: z.number().nullable().optional(),
   esm1b: z.number().nullable().optional(),
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
@@ -1519,10 +1516,6 @@ export const conservationDataSchema = z.object({
     kind: z.enum(["rate-limited", "coordinate-rejected", "upstream-error", "timeout", "network", "unreadable", "no-transcript"]),
     httpStatus: z.number().nullable(),
     detail: z.string().nullable()
-  }).nullable().optional(),
-  dbscsnv: z.object({
-    ada_score: z.number().nullable(),
-    rf_score: z.number().nullable()
   }).nullable().optional(),
   alphagenome: alphagenomeAviSchema.optional(),
   /**

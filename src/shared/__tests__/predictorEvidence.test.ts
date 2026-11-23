@@ -130,10 +130,8 @@ describe("evaluators — no unsourced cut-point reaches the vote", () => {
     expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
   });
 
-  it("AlphaGenome, Eigen and DANN are informational in the concordance", () => {
+  it("AlphaGenome is informational in the concordance", () => {
     const c = countPredictorConcordance(null, null, null, null, null, null, {
-      eigenPhred: 10,
-      dann: 0.999,
       alphagenome: { status: "live", aviPhred: 40 } as any,
     });
     expect(c.nPathogenic + c.nBenign + c.nVus).toBe(0);
@@ -185,8 +183,11 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
 
   it("never lets an informational tool vote", () => {
     for (const r of evidence.readings.filter(x => !x.votes)) {
-      expect(["popeve", "alphagenome", "eigen", "dann", "esm", "phylop", "gerp", "scorecons"]).toContain(r.key);
+      expect(["popeve", "alphagenome", "esm", "phylop", "gerp", "scorecons"]).toContain(r.key);
     }
+    // DANN and Eigen were retired; the fixture's stored scores draw no reading.
+    expect(evidence.readings.map(r => r.key)).not.toEqual(expect.arrayContaining(["dann"]));
+    expect(evidence.readings.map(r => r.key)).not.toEqual(expect.arrayContaining(["eigen"]));
     const avi = evidence.readings.find(r => r.key === "alphagenome")!;
     expect(avi.callLabel).toBe("Informational");
     expect(avi.caveats).toEqual(expect.arrayContaining(["rank-not-probability", "includes-alphamissense"]));
