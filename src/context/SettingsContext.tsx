@@ -135,6 +135,7 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
       geminiSessionId: transient.geminiSessionId || "",
       geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
       appApiToken: transient.appApiToken || "",
+      japanfoldApiKey: transient.japanfoldApiKey || "",
       tamarindApiKey: transient.tamarindApiKey || "",
       alphagenomeApiKey: transient.alphagenomeApiKey || "",
       alphagenomeApiUrl: transient.alphagenomeApiUrl || "",

@@ -459,6 +459,34 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
     });
   });
 
+  describe("POST /validate-japanfold-key", () => {
+    const validateRoute: any = apiRouter.stack.find(
+      (s: any) => s.route && (s.route.path === "/validate-japanfold-key" || (Array.isArray(s.route.path) && s.route.path.includes("/validate-japanfold-key")))
+    );
+    expect(validateRoute).toBeDefined();
+    const handler = validateRoute.route.stack[validateRoute.route.stack.length - 1].handle;
+
+    it("verifies a key against JapanFold /v1/account", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ email: "user@lab.org" })
+      } as any);
+
+      let body: any = null;
+      const req: any = { body: { apiKey: "jf_live_test_key_123456" }, headers: {} };
+      const res: any = { status: () => res, json: (d: any) => { body = d; return res; } };
+
+      try {
+        await handler(req, res);
+        expect(body?.valid).toBe(true);
+        expect(fetchSpy.mock.calls.some(call => String(call[0]).includes("/v1/account"))).toBe(true);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
   describe("POST /structure/multimer", () => {
     it("rejects request with 400 if required fields are invalid or missing", async () => {
       const multimerRoute: any = apiRouter.stack.find(

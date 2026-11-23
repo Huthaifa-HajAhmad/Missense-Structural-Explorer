@@ -93,20 +93,20 @@ function japanFoldReachability(): Promise<boolean> {
   if (japanFoldProbe && Date.now() - japanFoldProbe.at < JAPANFOLD_PROBE_TTL_MS) return japanFoldProbe.value;
   const value = (async () => {
     try {
-      const jfUrl = process.env.JAPANFOLD_API_URL || `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-      const jfHeaders = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0" };
-      const jfRes = await fetch(jfUrl, {
-        method: "OPTIONS",
+      const healthUrl = `${CONFIG.services.japanfoldBaseUrl}/v1/health`;
+      const jfHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0"
+      };
+      if (CONFIG.services.japanfoldApiKey) {
+        jfHeaders["Authorization"] = `Bearer ${CONFIG.services.japanfoldApiKey}`;
+        jfHeaders["X-API-Key"] = CONFIG.services.japanfoldApiKey;
+      }
+      const jfRes = await fetch(healthUrl, {
+        method: "GET",
         headers: jfHeaders,
         signal: AbortSignal.timeout(2000)
-      }).catch(async () => {
-        return await fetch(jfUrl, {
-          method: "GET",
-          headers: jfHeaders,
-          signal: AbortSignal.timeout(2000)
-        });
       });
-      return jfRes.status < 500 && jfRes.status !== 403;
+      return jfRes.ok || (jfRes.status < 500 && jfRes.status !== 403 && jfRes.status !== 404);
     } catch (_) {
       return false;
     }
@@ -349,10 +349,11 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         id: "japanfold",
         name: "JapanFold Sovereign Folding Cloud",
         category: "biophysical",
-        status: japanFoldReachable ? "ready" : "standby",
+        status: japanFoldReachable && Boolean(CONFIG.services.japanfoldApiKey) ? "ready" : "standby",
         details: {
-          endpoint: "https://api.japanfold.aiand.com/v1/predictions",
-          keyless: true,
+          endpoint: `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`,
+          keyless: false,
+          apiKeyConfigured: Boolean(CONFIG.services.japanfoldApiKey),
           // The JapanFold model this app calls (complex modelling); de novo folding was retired.
           usedModels: ["boltz2"],
           reachable: japanFoldReachable

@@ -33,6 +33,8 @@ import { formatResidueCount } from "../../src/shared/alphafoldAvailability.ts";
 import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure, importMultimerModel } from "../services/multimer.ts";
 import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
+import { governedFetch } from "../services/infra/http-client.ts";
+import { credentialForCall, ownCredential, resolveCredential } from "../services/infra/credentials.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -364,11 +366,64 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     }
   });
 
+  const validateJapanFoldKeySchema = z.object({
+    apiKey: z.string().min(8).optional()
+  });
+
   const structuralDiffSchema = z.object({
     wtPdb: z.string(),
     mutPdb: z.string(),
     pos: z.union([z.number(), z.string()]),
     chain: z.string()
+  });
+
+  apiRouter.post("/validate-japanfold-key", jsonParserRegular, async (req, res) => {
+    const parseResult = validateJapanFoldKeySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    try {
+      const supplied =
+        parseResult.data.apiKey ||
+        (Array.isArray(req.headers["x-japanfold-api-key"])
+          ? req.headers["x-japanfold-api-key"][0]
+          : req.headers["x-japanfold-api-key"]);
+      const token = ownCredential("japanfold", typeof supplied === "string" ? supplied : null);
+      if (!token || typeof token !== "string" || token.trim().length < 8) {
+        res.json({ valid: false, message: "Key format invalid (must be at least 8 characters)." });
+        return;
+      }
+
+      try {
+        const probeCredential = credentialForCall("japanfold", token.trim(), { charge: false });
+        const testRes = await governedFetch(`${CONFIG.services.japanfoldBaseUrl}/v1/account`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${token.trim()}`,
+            "X-API-Key": token.trim(),
+            "User-Agent": "MissenseResolve/1.0"
+          },
+          signal: AbortSignal.timeout(6000),
+          credential: probeCredential
+        });
+
+        if (testRes.status === 200) {
+          res.json({ valid: true, message: "JapanFold API key verified & active." });
+          return;
+        } else if (testRes.status === 401 || testRes.status === 403) {
+          res.json({ valid: false, message: "Invalid or unauthorized JapanFold API key (HTTP 401/403)." });
+          return;
+        } else {
+          res.json({ valid: false, message: `JapanFold verification returned unexpected HTTP ${testRes.status}.` });
+          return;
+        }
+      } catch (netErr: any) {
+        res.json({ valid: false, message: `JapanFold endpoint unreachable (${netErr.message || "Network Timeout"}).` });
+      }
+    } catch (err: any) {
+      res.json({ valid: false, message: err.message || "Validation failed." });
+    }
   });
 
   apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {
@@ -488,9 +543,12 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       const validVariant = validateVariant(parseResult.data.variant);
       const validUniprot = validateUniProt(parseResult.data.uniprotId);
 
+      const jfHeaderVal = req.headers?.["x-japanfold-api-key"];
+      const japanfoldApiKey = resolveCredential("japanfold", Array.isArray(jfHeaderVal) ? jfHeaderVal[0] : jfHeaderVal).token;
       const result = await analyzeMultimerStructure(validGene, validVariant, validUniprot, clientAbortController.signal, {
         model: parseResult.data.model === true,
         handoff: parseResult.data.handoff === true,
+        japanfoldApiKey,
       });
       res.json(result);
     } catch (err: any) {

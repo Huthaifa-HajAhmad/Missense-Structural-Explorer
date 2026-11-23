@@ -306,6 +306,7 @@ export function useAuthSession() {
     geminiSessionExpiresAt, 
     geminiApiKey, 
     appApiToken, 
+    japanfoldApiKey,
     tamarindApiKey,
     alphagenomeApiKey,
     alphagenomeApiUrl,
@@ -559,6 +560,9 @@ export function useAuthSession() {
         if (appApiToken) {
           headers["Authorization"] = `Bearer ${appApiToken}`;
         }
+        if (japanfoldApiKey) {
+          headers["x-japanfold-api-key"] = japanfoldApiKey;
+        }
         if (tamarindApiKey) {
           headers["x-tamarind-api-key"] = tamarindApiKey;
         }
@@ -673,6 +677,7 @@ export function useAuthSession() {
     geminiSessionExpiresAt, 
     geminiApiKey, 
     appApiToken, 
+    japanfoldApiKey,
     tamarindApiKey,
     alphagenomeApiKey,
     alphagenomeApiUrl,

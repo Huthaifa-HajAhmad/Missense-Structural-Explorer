@@ -8,7 +8,7 @@
  * Purity is a boundary requirement: `src/shared` may not import from outside itself.
  */
 
-export const CREDENTIAL_KINDS = ["tamarind"] as const;
+export const CREDENTIAL_KINDS = ["tamarind", "japanfold"] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 
 /** `own`: the person's token (sent with the request or saved to their account). `team`: the server's. */
@@ -22,6 +22,7 @@ export type SharedTokenFallback = "on" | "limited" | "off";
 
 export const CREDENTIAL_LABELS: Readonly<Record<CredentialKind, string>> = {
   tamarind: "Tamarind",
+  japanfold: "JapanFold",
 };
 
 /** One kind's use in one response. */

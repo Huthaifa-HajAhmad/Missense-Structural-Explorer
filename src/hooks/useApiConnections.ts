@@ -4,7 +4,7 @@ import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { clearInvalidApiKey } from "../api/authSession";
 
-type TestId = "alphagenome" | "tamarind";
+type TestId = "japanfold" | "alphagenome" | "tamarind";
 
 interface TestState {
   testing: boolean;
@@ -22,6 +22,11 @@ interface EndpointSpec {
 }
 
 const ENDPOINTS: Record<TestId, EndpointSpec> = {
+  japanfold: {
+    endpoint: "/api/v1/validate-japanfold-key",
+    payload: (token) => ({ apiKey: token }),
+    emptyMessage: "No JapanFold API key entered."
+  },
   alphagenome: {
     endpoint: "/api/v1/alphagenome/verify-connection",
     payload: (token) => ({ apiKey: token }),
@@ -46,6 +51,7 @@ function errorMessage(err: unknown, fallback: string): string {
 export function useApiConnections() {
   const { settings, updateSetting } = useSettings();
   const [tests, setTests] = useState<Record<TestId, TestState>>({
+    japanfold: IDLE_TEST,
     alphagenome: IDLE_TEST,
     tamarind: IDLE_TEST
   });
@@ -57,7 +63,11 @@ export function useApiConnections() {
   };
 
   const tokenFor = (id: TestId): string | undefined =>
-    id === "tamarind" ? settings.tamarindApiKey : settings.alphagenomeApiKey;
+    id === "japanfold"
+      ? settings.japanfoldApiKey
+      : id === "tamarind"
+        ? settings.tamarindApiKey
+        : settings.alphagenomeApiKey;
 
   // What a test result is about. AlphaGenome is tested against a key AND an endpoint.
   const inputFor = (id: TestId): string =>
@@ -131,7 +141,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
+    [settings.japanfoldApiKey, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {
@@ -193,7 +203,7 @@ export function useApiConnections() {
     return current;
     // inputFor reads only the settings listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tests, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
+  }, [tests, settings.japanfoldApiKey, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
 
   return {
     tests: currentTests,

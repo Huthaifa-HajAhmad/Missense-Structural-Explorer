@@ -141,6 +141,7 @@ export interface StructuralMetricsLike {
 
 export interface HomologLike {
   pdbId: string;
+  chainId?: string | null;
   title?: string | null;
   organism?: string | null;
   method?: string | null;
@@ -150,6 +151,8 @@ export interface HomologLike {
   querySeqFrom?: number | null;
   querySeqTo?: number | null;
   coversPosition?: boolean | null;
+  source?: "pdbe" | "rcsb" | null;
+  directMapping?: boolean | null;
 }
 
 export type ReferenceState = "idle" | "loading" | "ready" | "unavailable";
@@ -196,6 +199,7 @@ export interface Structure3dInput {
     runs: number | null;
     /** The template FoldX built on, as the run reported it. */
     template: CoordinateProvenance | null;
+    templateExtent?: { residueCount: number; chainId: string; firstResidue: number; lastResidue: number } | null;
     repairSkipped: boolean;
     repairSkippedReason: string | null;
     repairFailed: boolean;
@@ -335,6 +339,10 @@ export interface ExperimentalRow {
   coversSite: "yes" | "no" | "unknown";
   loaded: boolean;
   url: string;
+  source: "pdbe" | "rcsb" | "template";
+  directMapping: boolean;
+  isFoldxTemplate: boolean;
+  chainId: string | null;
 }
 
 export interface Structure3dEvidence {
@@ -576,9 +584,15 @@ export function identifyFromProvenance(
   };
 }
 
-function identifyLoadedEntry(url: string, homologs: HomologLike[], entry: LoadedEntryMeta | null): CoordinateIdentity {
+function identifyLoadedEntry(
+  url: string,
+  homologs: HomologLike[],
+  entry: LoadedEntryMeta | null,
+  fallbackTemplates: (CoordinateProvenance | null | undefined)[] = []
+): CoordinateIdentity {
   const id = pdbIdFromUrl(url);
   const hit = id ? homologs.find(h => upper(h.pdbId) === id) : undefined;
+  const tpl = id ? fallbackTemplates.find(t => t && upper(t.pdbId) === id) : undefined;
   const renumbered = entry?.numbering === "uniprot" && !!entry.chainId;
   return {
     origin: "pdb-entry",
@@ -587,7 +601,7 @@ function identifyLoadedEntry(url: string, homologs: HomologLike[], entry: Loaded
     kind: renumbered
       ? `Experimental entry, the chain mapped to this protein, in UniProt numbering (${entry!.mapping === "sifts" ? "PDBe SIFTS" : "sequence alignment"})`
       : "Experimental entry, all chains, in its own numbering",
-    detail: methodLine({ method: hit?.method ?? null, resolution: hit?.resolution ?? null }),
+    detail: methodLine({ method: hit?.method ?? tpl?.method ?? null, resolution: hit?.resolution ?? tpl?.resolution ?? null }),
     href: id ? `https://www.rcsb.org/structure/${id}` : null,
     channel: temperatureChannel(),
     numbering: renumbered ? "uniprot" : "entry",
@@ -645,7 +659,12 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
 
   /* ── Structures ──────────────────────────────────────────────────────── */
   const canvasWildType: CoordinateIdentity | null = input.wildType.customPdbUrl
-    ? identifyLoadedEntry(input.wildType.customPdbUrl, input.homologs, input.wildType.entry ?? null)
+    ? identifyLoadedEntry(
+        input.wildType.customPdbUrl,
+        input.homologs,
+        input.wildType.entry ?? null,
+        [foldx.template, input.wildType.provenance]
+      )
     : identifyFromProvenance(input.wildType.provenance, variant.uniprotId, "wild type", input.wildType.headerSaysAlphaFold);
 
   const foldxTemplate: CoordinateIdentity | null =
@@ -1190,36 +1209,163 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     variant.uniprotId && position !== null && wt1
       ? `/api/v1/pdb/entry/${id}?uniprot=${encodeURIComponent(variant.uniprotId)}&pos=${position}&wt=${wt1}`
       : `/api/v1/pdb/entry/${id}`;
-  const rows: ExperimentalRow[] = input.homologs.map(h => {
+
+  const foldxTemplatePdbId =
+    isExperimentalSource(foldx.template?.source) && foldx.template?.pdbId
+      ? upper(foldx.template.pdbId)
+      : null;
+
+  const metaById = new Map<string, { identity: number | null; resolution: number | null }>();
+  const rows: ExperimentalRow[] = [];
+  const seenRowIds = new Set<string>();
+
+  for (const h of input.homologs) {
+    const pdbId = upper(h.pdbId);
+    if (!pdbId || seenRowIds.has(pdbId)) continue;
+    seenRowIds.add(pdbId);
     const hasRange = typeof h.querySeqFrom === "number" && typeof h.querySeqTo === "number";
     const covers: ExperimentalRow["coversSite"] =
       position !== null && hasRange ? (position >= h.querySeqFrom! && position <= h.querySeqTo! ? "yes" : "no") : "unknown";
-    return {
-      pdbId: h.pdbId.toUpperCase(),
+    const numericId = typeof h.identity === "number" && Number.isFinite(h.identity) ? h.identity : null;
+    const numericRes = typeof h.resolution === "number" && Number.isFinite(h.resolution) ? h.resolution : null;
+    metaById.set(pdbId, { identity: numericId, resolution: numericRes });
+    rows.push({
+      pdbId,
       title: h.title ?? null,
       organism: h.organism ?? null,
       method: h.method ?? null,
-      resolution: typeof h.resolution === "number" && Number.isFinite(h.resolution) ? `${h.resolution} Å` : null,
-      identity: typeof h.identity === "number" && Number.isFinite(h.identity) ? `${h.identity}%` : "Not reported",
+      resolution: numericRes !== null ? `${numericRes} Å` : null,
+      identity: numericId !== null ? `${numericId}%` : "Not reported",
       range: hasRange ? `${h.querySeqFrom}–${h.querySeqTo}` : null,
       coversSite: covers,
-      loaded: loadedId === h.pdbId.toUpperCase(),
-      url: entryUrl(h.pdbId.toUpperCase()),
+      loaded: loadedId === pdbId,
+      url: entryUrl(pdbId),
+      source: h.source === "pdbe" ? "pdbe" : "rcsb",
+      directMapping: Boolean(h.directMapping || h.source === "pdbe"),
+      isFoldxTemplate: false,
+      chainId: upper(h.chainId) ?? null,
+    });
+  }
+
+  const synthesizeTemplateRow = (
+    prov: CoordinateProvenance,
+    isFoldxTpl: boolean,
+    extent?: { residueCount: number; chainId: string; firstResidue: number; lastResidue: number } | null
+  ): { row: ExperimentalRow; meta: { identity: number | null; resolution: number | null } } | null => {
+    const pdbId = upper(prov.pdbId);
+    if (!pdbId) return null;
+    const numericId = typeof prov.identity === "number" && Number.isFinite(prov.identity) ? prov.identity : null;
+    const numericRes = typeof prov.resolution === "number" && Number.isFinite(prov.resolution) ? prov.resolution : null;
+    const hasExtent =
+      extent &&
+      typeof extent.firstResidue === "number" &&
+      Number.isFinite(extent.firstResidue) &&
+      typeof extent.lastResidue === "number" &&
+      Number.isFinite(extent.lastResidue);
+    const covers: ExperimentalRow["coversSite"] =
+      position !== null && hasExtent
+        ? position >= extent!.firstResidue && position <= extent!.lastResidue
+          ? "yes"
+          : "no"
+        : "unknown";
+    return {
+      meta: { identity: numericId, resolution: numericRes },
+      row: {
+        pdbId,
+        title: null,
+        organism: null,
+        method: prov.method ?? null,
+        resolution: numericRes !== null ? `${numericRes} Å` : null,
+        identity: numericId !== null ? `${numericId}%` : "Not reported",
+        range: hasExtent ? `${extent!.firstResidue}–${extent!.lastResidue}` : null,
+        coversSite: covers,
+        loaded: loadedId === pdbId,
+        url: entryUrl(pdbId),
+        source: "template",
+        directMapping: prov.source === "experimental",
+        isFoldxTemplate: isFoldxTpl,
+        chainId: upper(prov.chainId) ?? upper(extent?.chainId) ?? null,
+      },
     };
-  });
+  };
+
+  if (foldxTemplatePdbId && foldx.template) {
+    const existingIdx = rows.findIndex(r => r.pdbId === foldxTemplatePdbId);
+    if (existingIdx >= 0) {
+      const existing = rows[existingIdx];
+      const hasExtent =
+        foldx.templateExtent &&
+        typeof foldx.templateExtent.firstResidue === "number" &&
+        Number.isFinite(foldx.templateExtent.firstResidue) &&
+        typeof foldx.templateExtent.lastResidue === "number" &&
+        Number.isFinite(foldx.templateExtent.lastResidue);
+      const updatedRange = existing.range ?? (hasExtent ? `${foldx.templateExtent!.firstResidue}–${foldx.templateExtent!.lastResidue}` : null);
+      const updatedCovers: ExperimentalRow["coversSite"] =
+        existing.coversSite !== "unknown"
+          ? existing.coversSite
+          : position !== null && hasExtent
+            ? position >= foldx.templateExtent!.firstResidue && position <= foldx.templateExtent!.lastResidue
+              ? "yes"
+              : "no"
+            : "unknown";
+      const updated: ExperimentalRow = {
+        ...existing,
+        isFoldxTemplate: true,
+        directMapping: existing.directMapping || foldx.template.source === "experimental",
+        chainId: existing.chainId ?? upper(foldx.template.chainId) ?? upper(foldx.templateExtent?.chainId) ?? null,
+        range: updatedRange,
+        coversSite: updatedCovers,
+      };
+      rows.splice(existingIdx, 1);
+      rows.unshift(updated);
+    } else {
+      const synth = synthesizeTemplateRow(foldx.template, true, foldx.templateExtent ?? null);
+      if (synth) {
+        metaById.set(synth.row.pdbId, synth.meta);
+        rows.unshift(synth.row);
+      }
+    }
+  }
+
+  if (isExperimentalSource(input.wildType.provenance?.source) && input.wildType.provenance?.pdbId) {
+    const wtPdbId = upper(input.wildType.provenance.pdbId);
+    if (wtPdbId && !rows.some(r => r.pdbId === wtPdbId)) {
+      const synth = synthesizeTemplateRow(input.wildType.provenance, false, null);
+      if (synth) {
+        metaById.set(synth.row.pdbId, synth.meta);
+        const insertIdx = foldxTemplatePdbId && rows[0]?.pdbId === foldxTemplatePdbId ? 1 : 0;
+        rows.splice(insertIdx, 0, synth.row);
+      }
+    }
+  }
+
   const bestCandidates = rows
-    .map((row, i) => ({ row, h: input.homologs[i] }))
-    .filter(({ row, h }) => row.coversSite === "yes" && typeof h.identity === "number");
-  bestCandidates.sort(
-    (a, b) => (b.h.identity! - a.h.identity!) || ((a.h.resolution ?? 99) - (b.h.resolution ?? 99))
-  );
+    .map(row => ({ row, m: metaById.get(row.pdbId) ?? { identity: null, resolution: null } }))
+    .filter(({ row, m }) => row.coversSite === "yes" && (row.directMapping || typeof m.identity === "number"));
+  const isDirectTier = (r: ExperimentalRow, m: { identity: number | null }) => r.directMapping || m.identity === 100;
+  bestCandidates.sort((a, b) => {
+    const dirDiff = Number(isDirectTier(b.row, b.m)) - Number(isDirectTier(a.row, a.m));
+    if (dirDiff !== 0) return dirDiff;
+    const tplDiff = Number(b.row.isFoldxTemplate) - Number(a.row.isFoldxTemplate);
+    if (tplDiff !== 0) return tplDiff;
+    if (!isDirectTier(a.row, a.m) && !isDirectTier(b.row, b.m)) {
+      const idDiff = (b.m.identity ?? -1) - (a.m.identity ?? -1);
+      if (idDiff !== 0) return idDiff;
+    } else if (typeof a.m.identity === "number" && typeof b.m.identity === "number") {
+      const idDiff = b.m.identity - a.m.identity;
+      if (idDiff !== 0) return idDiff;
+    }
+    return (a.m.resolution ?? 99) - (b.m.resolution ?? 99);
+  });
   const best = bestCandidates[0]?.row ?? null;
   const loadedRow = rows.find(row => row.loaded);
   const relationshipNote =
     effectiveMode === "wildtype" && input.wildType.customPdbUrl && loadedRow
       ? loadedRow.identity === "100%"
         ? "This experimental entry and AlphaFold represent the same wild-type protein sequence across the aligned range. A similar ribbon fold is expected; this view has not calculated an AlphaFold–PDB coordinate RMSD."
-        : "This experimental entry is related to the queried protein. A similar ribbon fold does not mean the coordinates are identical; this view has not calculated an AlphaFold–PDB coordinate RMSD."
+        : loadedRow.directMapping
+          ? "This experimental entry is mapped directly to this UniProt accession across the covered range. A similar ribbon fold is expected, though engineered substitutions or construct differences may be present; this view has not calculated an AlphaFold–PDB coordinate RMSD."
+          : "This experimental entry is related to the queried protein. A similar ribbon fold does not mean the coordinates are identical; this view has not calculated an AlphaFold–PDB coordinate RMSD."
       : null;
 
   /* ── Notes and sources ────────────────────────────────────────────────── */
@@ -1280,7 +1426,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       rows,
       loading: input.homologsLoading,
       best,
-      note: "Identity and aligned range come from RCSB's sequence search. Show loads the chain mapped to this protein in UniProt numbering, or the whole entry in its own numbering when that mapping cannot be verified at the site.",
+      note: "Direct UniProt mappings come from PDBe; sequence homologs and their identity come from RCSB's sequence search. Show loads the chain mapped to this protein in UniProt numbering, or the whole entry in its own numbering when that mapping cannot be verified at the site.",
     },
     alphaFold,
     engineRecord: STRUCTURE_ENGINE_RECORD,

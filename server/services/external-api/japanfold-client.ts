@@ -9,7 +9,7 @@ import { LRUCache } from "lru-cache";
 import { CONFIG } from "../../config.ts";
 import { anySignal } from "../../utils/signals.ts";
 import { governedFetch } from "../infra/http-client.ts";
-import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
+import { credentialForCall } from "../infra/credentials.ts";
 
 export interface JapanFoldMultimerResult {
   status: "success" | "failed";
@@ -32,43 +32,25 @@ const japanFoldCache = new LRUCache<string, any>({
   ttl: 1000 * 60 * 60 * 24 * 14 // 14 days
 });
 
-const PERMANENT_AUTH_STATUSES = new Set([401, 402, 403, 451]);
-const AUTH_REFUSAL_TTL_MS = 10 * 60 * 1000;
-const japanFoldAuthRefusedUntil = new Map<string, number>();
-
-function authCircuitKey(): string {
-  return `${CONFIG.services.japanfoldBaseUrl || ""}|${CONFIG.services.japanfoldApiKey || ""}`;
-}
-
-function isJapanFoldAuthBlocked(): boolean {
-  const key = authCircuitKey();
-  const until = japanFoldAuthRefusedUntil.get(key);
-  if (until === undefined) return false;
-  if (Date.now() >= until) {
-    japanFoldAuthRefusedUntil.delete(key);
-    return false;
-  }
-  return true;
-}
-
-function recordJapanFoldStatus(status: number): void {
-  if (PERMANENT_AUTH_STATUSES.has(status)) {
-    japanFoldAuthRefusedUntil.set(authCircuitKey(), Date.now() + AUTH_REFUSAL_TTL_MS);
-  }
+function effectiveApiKey(apiKey?: string | null): string | null {
+  const supplied = typeof apiKey === "string" ? apiKey.trim() : "";
+  if (supplied) return supplied;
+  const configured = CONFIG.services.japanfoldApiKey?.trim() || "";
+  return configured || null;
 }
 
 export function clearJapanFoldCache(): void {
   japanFoldCache.clear();
-  japanFoldAuthRefusedUntil.clear();
 }
 
-function getAuthHeaders(): Record<string, string> {
+function getAuthHeaders(apiKey?: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
-  if (CONFIG.services.japanfoldApiKey) {
-    headers["Authorization"] = `Bearer ${CONFIG.services.japanfoldApiKey}`;
-    headers["X-API-Key"] = CONFIG.services.japanfoldApiKey;
+  const key = effectiveApiKey(apiKey);
+  if (key) {
+    headers["Authorization"] = `Bearer ${key}`;
+    headers["X-API-Key"] = key;
   }
   return headers;
 }
@@ -169,16 +151,20 @@ async function submitBoltz2(
   chains: Array<{ chainId: string; sequence: string }>,
   chainHash: string,
   cacheKey: string,
-  timeoutMs: number
+  timeoutMs: number,
+  apiKey?: string | null
 ): Promise<BoltzSubmit> {
+  const key = effectiveApiKey(apiKey);
+  const credential = key ? credentialForCall("japanfold", key) : undefined;
   let response: Response;
   try {
     response = await governedFetch(`${CONFIG.services.japanfoldBaseUrl}/v1/predictions`, {
       lane: "compute", // the submit can hold its request open until the model answers
       method: "POST",
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders(key),
       body: JSON.stringify({ model: "boltz-2", chains }),
       signal: AbortSignal.timeout(timeoutMs),
+      ...(credential ? { credential } : {}),
     });
   } catch (err: any) {
     const failure = err?.name === "TimeoutError" || err?.name === "AbortError"
@@ -220,7 +206,7 @@ async function submitBoltz2(
 export async function runBoltz2Multimer(
   chains: Array<{ chainId: string; sequence: string }>,
   signal?: AbortSignal,
-  { waitMs = CONFIG.timeouts.japanfoldFoldingMs || 60000, pollMs = 5000 }: { waitMs?: number; pollMs?: number } = {}
+  { waitMs = CONFIG.timeouts.japanfoldFoldingMs || 60000, pollMs = 5000, apiKey }: { waitMs?: number; pollMs?: number; apiKey?: string | null } = {}
 ): Promise<Boltz2Outcome> {
   const chainHash = crypto.createHash("sha256").update(JSON.stringify(chains)).digest("hex").slice(0, 16);
   const cacheKey = `japanfold:boltz2:${chainHash}`;
@@ -237,7 +223,7 @@ export async function runBoltz2Multimer(
     // once the service answers, so without this both would submit).
     let submitting = inflightBoltzSubmits.get(chainHash);
     if (!submitting) {
-      submitting = submitBoltz2(chains, chainHash, cacheKey, waitMs).finally(() => inflightBoltzSubmits.delete(chainHash));
+      submitting = submitBoltz2(chains, chainHash, cacheKey, waitMs, apiKey).finally(() => inflightBoltzSubmits.delete(chainHash));
       inflightBoltzSubmits.set(chainHash, submitting);
     }
     const submitted = await submitting;
@@ -250,7 +236,7 @@ export async function runBoltz2Multimer(
   while (!outOfTime()) {
     if (signal?.aborted) return { status: "running", jobId: job.jobId };
     try {
-      const res = await governedFetch(job.resultsUrl, { headers: getAuthHeaders(), signal: anySignal([signal, AbortSignal.timeout(15000)]) });
+      const res = await governedFetch(job.resultsUrl, { headers: getAuthHeaders(apiKey), signal: anySignal([signal, AbortSignal.timeout(15000)]) });
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as any;
         const finished = data?.ready || data?.status === "completed" || data?.status === "succeeded" || data?.status === "success";

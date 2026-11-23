@@ -114,6 +114,7 @@ export function useStructure3dEvidence(): Structure3dEvidence {
             ? foldingEnergetics!.rawDdGs!.length
             : null,
         template: foldingEnergetics?.structureProvenance ?? null,
+        templateExtent: foldingEnergetics?.templateExtent ?? null,
         repairSkipped: Boolean(foldingEnergetics?.foldxRepairSkipped),
         repairSkippedReason: foldingEnergetics?.foldxRepairSkippedReason ?? null,
         repairFailed: Boolean(foldingEnergetics?.foldxRepairFailed),

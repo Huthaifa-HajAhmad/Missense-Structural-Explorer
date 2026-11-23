@@ -1,6 +1,6 @@
 import type { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 
-/** The RCSB entries a reader can load on the wild-type canvas instead of the AlphaFold model. Always listed. */
+/** The experimental entries a reader can load on the wild-type canvas instead of the AlphaFold model. Always listed. */
 export function StructureExperimentalEntries({ experimental, setCustomPdbUrl }: {
   experimental: ReturnType<typeof useStructure3dEvidence>["experimental"];
   setCustomPdbUrl: (url: string | null) => void;
@@ -12,7 +12,10 @@ export function StructureExperimentalEntries({ experimental, setCustomPdbUrl }: 
           <li key={row.pdbId} className="s3d-entry" data-loaded={row.loaded || undefined}>
             <span className="s3d-entry__id">
               {row.pdbId}
-              {experimental.best?.pdbId === row.pdbId && <span className="s3d-entry__tag">closest covering entry</span>}
+              {row.isFoldxTemplate && <span className="s3d-entry__tag s3d-entry__tag--template">FoldX template</span>}
+              {!row.isFoldxTemplate && experimental.best?.pdbId === row.pdbId && (
+                <span className="s3d-entry__tag">closest covering entry</span>
+              )}
             </span>
             <button
               type="button" className="s3d-entry__load" aria-pressed={row.loaded}
@@ -21,8 +24,24 @@ export function StructureExperimentalEntries({ experimental, setCustomPdbUrl }: 
             >{row.loaded ? "Shown" : "Show"}</button>
             <span className="s3d-entry__meta">
               {[
-                row.identity === "Not reported" ? "identity not reported" : `identity ${row.identity}`,
-                row.range ? `aligned ${row.range}` : "range not reported",
+                ...(row.source === "pdbe"
+                  ? [
+                      "mapped via PDBe",
+                      row.range ? `UniProt ${row.range}` : "range not reported",
+                    ]
+                  : row.source === "template"
+                    ? [
+                        row.identity !== "Not reported"
+                          ? `identity ${row.identity}`
+                          : row.directMapping
+                            ? `${row.chainId ? `chain ${row.chainId} · ` : ""}mapped to this protein`
+                            : "homolog template",
+                        row.range ? `UniProt ${row.range}` : "range not reported",
+                      ]
+                    : [
+                        row.identity === "Not reported" ? "identity not reported" : `identity ${row.identity}`,
+                        row.range ? `aligned ${row.range}` : "range not reported",
+                      ]),
                 row.coversSite === "yes" ? "covers the site" : row.coversSite === "no" ? "does not cover the site" : null,
                 row.method ? row.method.toLowerCase() : null, row.resolution, row.organism,
               ].filter(Boolean).join(" · ")}

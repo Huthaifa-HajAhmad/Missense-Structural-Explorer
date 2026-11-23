@@ -529,6 +529,8 @@ nor released it. **Fix:** `add` respects a live SQLite claim and `delete` releas
 | FoldX result cached before the job completes | If a job is cancelled while the server finishes a computer's result, the validated result stays cached. | The entry is keyed by the exact request and carries its provenance, so it is correct to reuse. |
 | Registry across processes | The single-flight registry is per process. | Two processes run jobs only during a deploy drain, when the new one is paused. |
 
+---
+
 ## Keeping this file current
 
 When you change a status field, a lock, a retry rule, a timer or a lease: update the section here in the

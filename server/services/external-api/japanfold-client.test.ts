@@ -73,6 +73,14 @@ describe("JapanFold API Client", () => {
     const reply = (body: unknown, status = 200) =>
       ({ ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as any;
 
+    it("sends a supplied per-call apiKey in the Authorization and X-API-Key headers", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(reply({ id: "job-key" }, 202));
+      await runBoltz2Multimer(CHAINS, undefined, { waitMs: 20, pollMs: 10, apiKey: "jf_user_key_123456" });
+      const init = fetchSpy.mock.calls[0]?.[1] as { headers?: Record<string, string> };
+      expect(init?.headers?.["Authorization"]).toBe("Bearer jf_user_key_123456");
+      expect(init?.headers?.["X-API-Key"]).toBe("jf_user_key_123456");
+    });
+
     it("submits ONCE when two requests for the same complex arrive together", async () => {
       // The job is only recorded after the service answers; without a shared in-flight submission both
       // callers found no job and both submitted.

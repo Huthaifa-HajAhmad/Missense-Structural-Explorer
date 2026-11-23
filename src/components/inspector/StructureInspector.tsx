@@ -193,12 +193,12 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
         <section className="s3d-rsec" aria-labelledby="s3d-rail-entries">
           <h3 className="eyebrow" id="s3d-rail-entries">
             <span><Database className="w-3.5 h-3.5" aria-hidden="true" />Experimental structures</span>
-            <span className="s3d-rsec__meta">{experimental.loading ? "Searching RCSB" : `${experimental.rows.length} listed`}</span>
+            <span className="s3d-rsec__meta">{experimental.loading ? "Searching PDB" : `${experimental.rows.length} listed`}</span>
           </h3>
           <p className="s3d-section-intro">Show loads an entry as the wild type. The FoldX variant keeps its own template.</p>
           {experimental.rows.length === 0 ? (
             <p className="s3d-empty">
-              {experimental.loading ? "Searching the PDB for entries of this protein and its homologs." : "RCSB's sequence search returned no experimental entry."}
+              {experimental.loading ? "Searching the PDB for entries of this protein and its homologs." : "No direct PDBe entry or RCSB sequence hit was returned."}
             </p>
           ) : <StructureExperimentalEntries experimental={experimental} setCustomPdbUrl={setCustomPdbUrl} />}
         </section>

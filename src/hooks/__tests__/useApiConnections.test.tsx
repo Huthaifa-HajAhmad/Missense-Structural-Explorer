@@ -52,4 +52,45 @@ describe("useApiConnections", () => {
 
     await waitFor(() => expect(result.current.tests.alphagenome.status).toBeNull());
   });
+
+  it("tests a typed JapanFold API key against /validate-japanfold-key and clears on edit", async () => {
+    const fetchSpy = reply({ valid: true, message: "JapanFold API key verified & active." });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { result } = renderHook(useHarness, { wrapper });
+    act(() => result.current.updateSetting("japanfoldApiKey", "jf_key_123456"));
+
+    await act(() => result.current.runTest("japanfold"));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/validate-japanfold-key",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ apiKey: "jf_key_123456" }),
+      })
+    );
+    expect(result.current.tests.japanfold.status).toEqual({
+      valid: true,
+      message: "JapanFold API key verified & active.",
+    });
+
+    act(() => result.current.updateSetting("japanfoldApiKey", "jf_key_edited"));
+    await waitFor(() => expect(result.current.tests.japanfold.status).toBeNull());
+  });
+
+  it("supports testing a saved JapanFold key with useSaved without sending a typed body key", async () => {
+    const fetchSpy = reply({ valid: true, message: "JapanFold API key verified & active." });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { result } = renderHook(useHarness, { wrapper });
+
+    await act(() => result.current.runTest("japanfold", { useSaved: true }));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/validate-japanfold-key",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
+      })
+    );
+    expect(result.current.tests.japanfold.status?.valid).toBe(true);
+  });
 });

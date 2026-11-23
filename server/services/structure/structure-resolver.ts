@@ -237,7 +237,7 @@ async function probeStructure(uniprotId: string, pos?: number, options: ResolveS
     // checked, and "identity" used to be the search's relevance score.
     // `chainId` is the matched polymer entity's author chain, not the entry's default chain.
     const ranked = homologs
-      .filter(h => h.identity !== null && h.identity >= 30 && (pos === undefined || h.coversPosition === true))
+      .filter(h => h.source !== "pdbe" && h.identity !== null && h.identity >= 30 && (pos === undefined || h.coversPosition === true))
       .sort((a, b) => {
         const resA = a.resolution ?? 99;
         const resB = b.resolution ?? 99;

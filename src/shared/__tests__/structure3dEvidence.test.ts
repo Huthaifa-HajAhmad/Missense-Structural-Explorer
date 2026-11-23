@@ -567,3 +567,74 @@ describe("secondary-structure colouring", () => {
     expect(m.legend?.provenanceNote).toMatch(/No secondary-structure assignment has been read/);
   });
 });
+
+describe("experimental structure list synthesis and PDBe provenance", () => {
+  it("prepends the active FoldX experimental template when absent from homologs", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      variant: { position: 380, wildType: "Gly", mutant: "Arg", uniprotId: "P22607", gene: "FGFR3" },
+      foldx: {
+        ...baseInput().foldx,
+        template: { source: "experimental", pdbId: "9EKO", chainId: "A", method: "X-RAY DIFFRACTION", resolution: 2.9 },
+        templateExtent: { residueCount: 29, chainId: "A", firstResidue: 371, lastResidue: 399 },
+      },
+      homologs: [
+        { pdbId: "8JQI", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 4.1, identity: 68, querySeqFrom: 74, querySeqTo: 798, source: "rcsb" },
+      ],
+    }));
+
+    expect(m.experimental.rows.map(r => r.pdbId)).toEqual(["9EKO", "8JQI"]);
+    expect(m.experimental.rows[0]).toMatchObject({
+      pdbId: "9EKO",
+      source: "template",
+      directMapping: true,
+      isFoldxTemplate: true,
+      chainId: "A",
+      range: "371–399",
+      coversSite: "yes",
+      url: "/api/v1/pdb/entry/9EKO?uniprot=P22607&pos=380&wt=G",
+    });
+    expect(m.experimental.best?.pdbId).toBe("9EKO");
+  });
+
+  it("ranks direct PDBe covering entries ahead of lower-identity RCSB homologs while still excluding unmapped null-identity RCSB rows", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      variant: { position: 380, wildType: "Gly", mutant: "Arg", uniprotId: "P22607", gene: "FGFR3" },
+      foldx: { ...baseInput().foldx, status: null, template: null },
+      homologs: [
+        { pdbId: "8JQI", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 4.1, identity: 68, querySeqFrom: 74, querySeqTo: 798, source: "rcsb" },
+        { pdbId: "9QN5", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 1.97, identity: null, querySeqFrom: 1, querySeqTo: 500, source: "rcsb" },
+        { pdbId: "9EKO", organism: "Homo sapiens", method: "X-ray diffraction", resolution: 2.901, identity: null, querySeqFrom: 371, querySeqTo: 399, source: "pdbe", directMapping: true },
+      ],
+    }));
+
+    expect(m.experimental.best?.pdbId).toBe("9EKO");
+
+    const mWithoutPdbe = buildStructure3dEvidence(baseInput({
+      variant: { position: 380, wildType: "Gly", mutant: "Arg", uniprotId: "P22607", gene: "FGFR3" },
+      foldx: { ...baseInput().foldx, status: null, template: null },
+      homologs: [
+        { pdbId: "8JQI", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 4.1, identity: 68, querySeqFrom: 74, querySeqTo: 798, source: "rcsb" },
+        { pdbId: "9QN5", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 1.97, identity: null, querySeqFrom: 1, querySeqTo: 500, source: "rcsb" },
+      ],
+    }));
+    expect(mWithoutPdbe.experimental.best?.pdbId).toBe("8JQI");
+  });
+
+  it("gives a direct-mapping relationshipNote when loading a PDBe-mapped entry without 100% identity", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      variant: { position: 380, wildType: "Gly", mutant: "Arg", uniprotId: "P22607", gene: "FGFR3" },
+      wildType: {
+        provenance: { source: "alphafold", afdbVersion: "v6" },
+        customPdbUrl: "/api/v1/pdb/entry/9EKO?uniprot=P22607&pos=380&wt=G",
+        entry: { numbering: "uniprot", chainId: "A", mapping: "sifts", reason: null },
+        scan: scanBFactors(CRYSTAL_TEXT),
+        site: readResidueAt(CRYSTAL_TEXT, 116),
+      },
+      homologs: [
+        { pdbId: "9EKO", organism: "Homo sapiens", method: "X-ray diffraction", resolution: 2.901, identity: null, querySeqFrom: 371, querySeqTo: 399, source: "pdbe", directMapping: true },
+      ],
+    }));
+    expect(m.canvas.relationshipNote).toMatch(/mapped directly to this UniProt accession/);
+    expect(m.canvas.relationshipNote).toMatch(/AlphaFold–PDB coordinate RMSD/);
+  });
+});

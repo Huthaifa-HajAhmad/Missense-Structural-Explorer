@@ -45,11 +45,13 @@ import { LEGACY_OWNER } from "./queue-owners.ts";
 /** The server's team token for each kind, by environment variable in order of preference. */
 const TEAM_ENV: Readonly<Record<CredentialKind, readonly string[]>> = {
   tamarind: ["TAMARIND_API_KEY"],
+  japanfold: ["JAPANFOLD_API_KEY"],
 };
 
 /** The host each kind's calls count against (the sidecar's calls are governed as this host). */
 export const CREDENTIAL_HOSTS: Readonly<Record<CredentialKind, string>> = {
   tamarind: "app.tamarind.bio",
+  japanfold: "api.japanfold.aiand.com",
 };
 
 export const DEFAULT_SHARE_PER_HOUR = 60;
@@ -412,6 +414,7 @@ export function credentialPolicyHealth(): {
     sharePerHour: teamSharePerHour(),
     teamTokens: {
       tamarind: Boolean(teamToken("tamarind")),
+      japanfold: Boolean(teamToken("japanfold")),
     },
   };
 }

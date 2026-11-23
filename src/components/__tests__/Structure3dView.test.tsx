@@ -144,6 +144,67 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     expect(entries.textContent).not.toMatch(/5% ID|In Range/);
   });
 
+  it("renders PDBe direct mappings with the FoldX template tag and never prints 'identity not reported' for them", () => {
+    seed({
+      analysisState: {
+        isLoading: false,
+        error: null,
+        result: {
+          metadata: { gene: "FGFR3", variant: "p.Gly380Arg", uniprotId: "P22607", residueIndex: 380, wildType: "Gly", mutant: "Arg" },
+          disruptionPredictor: null,
+        },
+      },
+      uniprotId: "P22607",
+      gene: "FGFR3",
+      foldingEnergetics: {
+        foldxMean: -0.18,
+        rawDdGs: [-0.18],
+        structureProvenance: { source: "experimental", pdbId: "9EKO", chainId: "A" },
+        templateExtent: { residueCount: 29, chainId: "A", firstResidue: 371, lastResidue: 399 },
+      },
+      homologs: [
+        { pdbId: "9EKO", score: 1, identity: null, coverage: 4, title: "", organism: "Homo sapiens", method: "X-ray diffraction", resolution: 2.901, isHuman: true, querySeqFrom: 371, querySeqTo: 399, coversPosition: true, source: "pdbe", directMapping: true },
+        { pdbId: "9QN5", score: 0.05, identity: null, coverage: null, title: "", organism: "Homo sapiens", method: "ELECTRON MICROSCOPY", resolution: 1.97, isHuman: true, source: "rcsb" },
+      ],
+    });
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
+    const items = Array.from(container.querySelectorAll("[data-testid='structure-entries'] > li"));
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain("9EKO");
+    expect(items[0].textContent).toContain("FoldX template");
+    expect(items[0].textContent).toContain("mapped via PDBe");
+    expect(items[0].textContent).toContain("UniProt 371–399");
+    expect(items[0].textContent).not.toContain("identity not reported");
+    expect(items[1].textContent).toContain("9QN5");
+    expect(items[1].textContent).toContain("identity not reported");
+    cleanup();
+
+    // Synthesized template row without extent also reports "range not reported" consistently (N1)
+    seed({
+      analysisState: {
+        isLoading: false,
+        error: null,
+        result: {
+          metadata: { gene: "FGFR3", variant: "p.Gly380Arg", uniprotId: "P22607", residueIndex: 380, wildType: "Gly", mutant: "Arg" },
+          disruptionPredictor: null,
+        },
+      },
+      uniprotId: "P22607",
+      gene: "FGFR3",
+      foldingEnergetics: {
+        foldxMean: -0.18,
+        rawDdGs: [-0.18],
+        structureProvenance: { source: "experimental", pdbId: "9EKO", chainId: "A" },
+      },
+      homologs: [],
+    });
+    const synthView = render(<StructureInspector setCustomPdbUrl={() => {}} />);
+    const synthItems = Array.from(synthView.container.querySelectorAll("[data-testid='structure-entries'] > li"));
+    expect(synthItems).toHaveLength(1);
+    expect(synthItems[0].textContent).toContain("chain A · mapped to this protein");
+    expect(synthItems[0].textContent).toContain("range not reported");
+  });
+
   it("cites AlphaFold and FoldX in the AlphaFold view, and ends the trace with the engine record", () => {
     const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
     const sources = container.querySelector("[data-testid='structure-sources']") as HTMLElement;

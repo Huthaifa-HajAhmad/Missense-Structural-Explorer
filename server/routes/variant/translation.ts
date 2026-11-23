@@ -1,3 +1,4 @@
+import { verifyDeclaredNumbering } from "../../services/translation/verify-declared-numbering.ts";
 import { type Router } from "express";
 import { z } from "zod";
 
@@ -825,7 +826,10 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         return;
       }
 
-      const verdict = resolution.numbering;
+      // A fallback answer names its RefSeq protein but no UniProt accession; that protein can still
+      // be placed in UniProt's isoform model, which verifies (or renumbers) the residue.
+      const verdict = await verifyDeclaredNumbering(resolution.numbering);
+      const verifiedByDeclaredProtein = verdict !== resolution.numbering;
       // The pre-reconciliation selection is deterministic (MANE → canonical → any), so the
       // notation the translator originally reported can be recovered for the disclosure.
       const originalSelection = selectProteinConsequence(transcriptConsequences);
@@ -932,6 +936,7 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         resolvedAssembly: resolveAssembly,
         liftStatus: coordinateLift.status,
         numberingBasis: verdict.status,
+        ...(verifiedByDeclaredProtein ? { numberingVerifiedBy: "declared-protein" } : {}),
         provider: resolution.consequence.provider,
         usedFallback: resolution.usedFallback,
         cacheHit: resolution.cacheHit,

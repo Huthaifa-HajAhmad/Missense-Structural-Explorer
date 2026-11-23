@@ -138,6 +138,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/translate-variant",
   "/structural-align",
   "/api/v1/structural-align",
+  "/validate-japanfold-key",
+  "/api/v1/validate-japanfold-key",
   "/test-tamarind-connection",
   "/api/v1/test-tamarind-connection",
   "/structure/multimer",

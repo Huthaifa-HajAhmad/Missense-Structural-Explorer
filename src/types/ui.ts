@@ -57,6 +57,7 @@ export interface UserSettings {
   geminiSessionId?: string;
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
+  japanfoldApiKey?: string;
   tamarindApiKey?: string;
   alphagenomeApiKey?: string;
   alphagenomeApiUrl?: string;
