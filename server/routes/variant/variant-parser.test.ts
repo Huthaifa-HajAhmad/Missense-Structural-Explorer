@@ -158,6 +158,8 @@ describe("analysis path — protein notation handling", () => {
     expect(statusCode).toBe(200);
     expect(context?.numberingVerified).toBe(true);
     expect(context?.numberingWarning).toBeUndefined();
+    // The audit entry states the basis, so the unverified rate can be measured for every input kind.
+    expect(context?.numberingAudit).toEqual({ inputKind: "protein", numberingBasis: "canonical", numberingVerified: true });
 
     // The MANE lookup must use the FULL entry: `fields=xref_mane_select` is rejected with HTTP 400,
     // which silently degraded the check to comparing every isoform (14.8% of positions refused for
@@ -282,6 +284,8 @@ describe("analysis path — protein notation handling", () => {
     expect(statusCode).toBe(200);
     expect(context?.numberingVerified).toBe(false);
     expect(context?.numberingWarning).toContain("Numbering not verified");
+    // "unavailable": the isoform check gave no answer (unreachable or over its time budget).
+    expect(context?.numberingAudit).toEqual({ inputKind: "protein", numberingBasis: "unavailable", numberingVerified: false });
   });
 
   it("ACCEPTS the canonical reading when the reader confirms it, instead of looping", async () => {
@@ -301,6 +305,7 @@ describe("analysis path — protein notation handling", () => {
     expect(context?.numberingVerified).toBe(true);
     expect(context?.numberingDisambiguated).toBe(true);
     expect(context?.numberingWarning).toBeUndefined();
+    expect(context?.numberingAudit).toEqual({ inputKind: "protein", numberingBasis: "user-confirmed", numberingVerified: true });
   });
 
   it("still refuses the same notation when nothing was confirmed", async () => {

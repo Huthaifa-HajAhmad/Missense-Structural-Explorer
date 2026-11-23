@@ -37,6 +37,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       uniprotId: context.uniprotId,
       hasDirections: !!context.userDirections,
       acmgWeighting: context.acmgWeighting,
+      ...context.numberingAudit,
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 
@@ -121,6 +122,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       uniprotId: context.uniprotId,
       hasDirections: !!context.userDirections,
       acmgWeighting: context.acmgWeighting,
+      ...context.numberingAudit,
       stream: true,
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
@@ -256,6 +258,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       variant: context.variant,
       uniprotId: context.uniprotId,
       acmgWeighting: context.acmgWeighting,
+      ...context.numberingAudit,
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 
