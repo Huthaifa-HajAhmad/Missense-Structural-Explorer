@@ -297,6 +297,7 @@ server/services/translation/protein-numbering.ts,server,server/services/translat
 server/services/translation/shadow-tiers.ts,server,server/services/translation/shadow-tiers.test.ts
 server/services/translation/types.ts,server,server/services/translation/coordinate-resolver.test.ts;server/services/translation/protein-numbering.test.ts;server/services/translation/variant-validator.test.ts
 server/services/translation/variant-validator.ts,server,server/routes/health-fallback.test.ts;server/services/translation/variant-validator-health.test.ts;server/services/translation/variant-validator.test.ts
+server/services/translation/verify-declared-numbering.ts,server,server/services/translation/verify-declared-numbering.test.ts
 server/services/uniprot.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/foldx-sharing.test.ts;server/services/infra/cache-registry.test.ts;server/tests/smoke.test.ts
 server/sidecar-supervisor.ts,server,server/tests/sidecar-supervisor.test.ts
 server/spa-shell-cache.ts,server,server/spa-shell-cache.test.ts

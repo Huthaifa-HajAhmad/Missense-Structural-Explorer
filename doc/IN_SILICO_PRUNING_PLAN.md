@@ -161,6 +161,21 @@ DynaMut2 and DDMut: remote, never benchmarked here, and they hold results in "Pr
 paid fallback for ThermoMPNN, which runs locally. Before retiring any of them, check on the VM the local
 ThermoMPNN time and how often the remote engines answer at all. DDMut-PPI on Interfaces & PPI stays.
 
+### Residue numbering (in progress)
+
+Measured in the production audit log (`logs/audit.jsonl`, 2026-10-25 to 2026-11-20): 16 of 22 coordinate
+translations ended with numbering "unverified", 15 of them because Ensembl VEP failed and VariantValidator
+answered. VariantValidator names the RefSeq protein (`NP_…`) but no UniProt accession.
+
+1. **Done (`feat/verified-residue`):** a fallback answer is verified through the RefSeq protein it names,
+   with the same resolver typed `NP_…:p.…` input uses. It becomes canonical or renumbered, or stays
+   unverified when the check cannot complete. The audit log records `numberingVerifiedBy`.
+2. **Next:** one residue type, built only by the numbering step, that engines require. An unverified
+   residue then reaches no engine, and each engine reports "not assessed: numbering unverified".
+3. **Later (needs a design):** treat unverified or ambiguous numbering as a set of candidate residues,
+   as ambiguous alleles already are: score every candidate, and count a criterion only if all agree.
+4. **Separately:** find out why VEP failed 11 times on 2026-11-20 (the root of most fallback answers).
+
 ## Future work
 
 - **StabilityOracle**: it has the weakest band match in the S669/Ssym benchmark
