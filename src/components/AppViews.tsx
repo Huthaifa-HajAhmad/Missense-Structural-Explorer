@@ -118,12 +118,9 @@ export function AppViews({
   const isNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
   const copied = useVariantAnalysisStore(s => s.copied);
   const loadingStep = useVariantAnalysisStore(s => s.loadingStep);
-  const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
   const pdbText = useVariantAnalysisStore(s => s.pdbText);
-  const active3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
   const customPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
   const foldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
-  const esmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
   const homologs = useVariantAnalysisStore(s => s.homologs);
   const isHomologsLoading = useVariantAnalysisStore(s => s.isHomologsLoading);
 
@@ -144,10 +141,9 @@ export function AppViews({
   const handleSearchSubmit = propsHandleSearchSubmit || actions?.handleSearchSubmit;
   const handleCopyReport = propsHandleCopyReport || actions?.handleCopyReport;
 
-  // The 3D workspace: which tab is shown and what its canvas and rail draw.
+  // The 3D workspace: what its canvas and rail draw.
   const structure = useStructureWorkspace(masterView);
   const isStructureActive = structure.isActive;
-  const isEsm = structure.family === "esmfold";
   const variantPosition = analysisState.result?.metadata?.residueIndex ?? null;
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
@@ -166,7 +162,7 @@ export function AppViews({
     setLiteratureSearchQuery(q);
     setLiteratureSearchVersion((v) => v + 1);
   }, []);
-  const hasStructureContext = Boolean(analysisState.result || customPdbUrl || pdbText || esmFoldWtPdb);
+  const hasStructureContext = Boolean(analysisState.result || customPdbUrl || pdbText);
   const [hasEverMountedStructure, setHasEverMountedStructure] = useState(isStructureActive && hasStructureContext);
 
   useEffect(() => {
@@ -354,8 +350,7 @@ export function AppViews({
                   structuralDiff={structuralDiff}
                   activeTab={activeEvidenceTab}
                   onTabChange={setActiveEvidenceTab}
-                  active3dModelTab={active3dModelTab}
-                  metrics={active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? esmFoldMetrics : foldxMetrics}
+                  metrics={foldxMetrics}
                   onOpenSettings={handleOpenSettingsMemo}
                   onRetryStructural={actions?.retryStructuralAnalysis}
                   onRetryPocket={handleRetryPocket}
@@ -407,13 +402,8 @@ export function AppViews({
                     <BookOpen size={16} aria-hidden="true" /><span>Guide</span>
                   </button>
                 </div>
-                <WorkspaceTabs id="structure-family" label="Structure model" value={isEsm ? "esmfold" : "alphafold"}
-                  tabs={[{ id: "alphafold", label: "AlphaFold & FoldX" }, { id: "esmfold", label: "ESMFold" }]}
-                  onChange={family => setMasterView(family === "esmfold" ? "structure_esmfold" : "structure_alphafold")} />
               </header>
-              <div className="structure-workspace__canvas flex-1 min-h-0 relative" role="tabpanel"
-                id={`structure-family-panel-${isEsm ? "esmfold" : "alphafold"}`}
-                aria-labelledby={`structure-family-tab-${isEsm ? "esmfold" : "alphafold"}`}>
+              <div className="structure-workspace__canvas flex-1 min-h-0 relative">
                 {hasEverMountedStructure && hasStructureContext && (
                   <ErrorBoundary
                     name="3D Structure"
@@ -431,8 +421,6 @@ export function AppViews({
                         onResidueClick={handleResidueClickMemo}
                         onReturnToVariant={handleReturnToVariant}
                         onModeChange={setViewMode}
-                        onAlignmentScopeChange={structure.changeAlignmentScope}
-                        onSwitchToAlphaFold={() => setMasterView("structure_alphafold")}
                         onOpenPocketTab={() => {
                           setActiveEvidenceTab("structure");
                           setMasterView("evidence");
@@ -453,7 +441,7 @@ export function AppViews({
             >
               <div className="landscape-workspace__selection">
                 <WorkspaceSelection position={selectedResidueIndex} variantPosition={variantPosition} destination="Inspect in 3D"
-                  onNavigate={() => navigateWorkspace(isEsm ? "structure_esmfold" : "structure_alphafold")}
+                  onNavigate={() => navigateWorkspace("structure_alphafold")}
                   onReset={handleReturnToVariant} />
               </div>
               <ErrorBoundary
@@ -640,7 +628,6 @@ export function AppViews({
                 activeEvidenceTab={activeEvidenceTab}
                 onSelectEvidenceTab={setActiveEvidenceTab}
                 onSelectResidueIndex={setSelectedResidueIndex}
-                active3dModelTab={isEsm ? "esmfold2" : "alphafold2"}
                 computedPocket={computedPocket}
                 isPocketLoading={isPocketLoading}
                 pocketError={pocketError}

@@ -64,8 +64,6 @@ DGTEX_CONTEXT_PATH,server/services/evidence-context/dgtex.ts
 EGRESS_GOVERNOR,server/services/infra/provider-pause.ts
 EGRESS_PROVIDER_LIMITS_JSON,server/services/infra/egress-governor.ts
 ENABLE_LOCAL_DBNSFP,server/services/prediction/dbnsfp_local.ts
-ESMFOLD_SIDECAR_TIMEOUT_MS,server/config.ts
-ESM_ATLAS_TIMEOUT_MS,server/config.ts
 EVIDENCE_CONTEXT_AUTO_INSTALL,server/services/evidence-context/snapshotInstall.ts
 FOLDX_BACKGROUND_REPAIR_MAX_MS,server/config.ts
 FOLDX_BINARY,server/agent/state.ts
@@ -171,7 +169,6 @@ SIDECAR_HEALTH_MS,server/config.ts
 SIDECAR_SECRET,server/config.ts
 SIDECAR_SECRET,server/services/stability/energy-models.ts
 SIDECAR_SECRET,server/services/stability/stabilityoracle.ts
-SIDECAR_SECRET,server/services/structure/esmfold.ts
 SIDECAR_SECRET,server/sidecar-supervisor.ts
 SIDECAR_URL,server/config.ts
 SOURCE_COMMIT,server/routes/health.ts

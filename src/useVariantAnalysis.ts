@@ -5,7 +5,6 @@ import { useSettings } from "./context/SettingsContext";
 import { useApiClient } from "./apiClient";
 import { useBiophysicalModeling } from "./hooks/useBiophysicalModeling";
 import { useFoldxSuperposition } from "./hooks/useFoldxSuperposition";
-import { useStructuralFolding } from "./hooks/useStructuralFolding";
 import { useAnalysisPipeline } from "./hooks/useAnalysisPipeline";
 import { useStoreSettingsSync } from "./hooks/useStoreSettingsSync";
 import { getVariantStyles } from "./shared/variantStyles";
@@ -48,19 +47,6 @@ export default function useVariantAnalysis() {
   );
   // Pairs the FoldX variant with its own template for the 3D superposition and its measurements.
   useFoldxSuperposition(apiClient);
-  const structuralFolding = useStructuralFolding({
-    setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,
-    setEsmFoldMutPdb: useVariantAnalysisStore.getState().setEsmFoldMutPdb,
-    setEsmFoldAlignedPdb: useVariantAnalysisStore.getState().setEsmFoldAlignedPdb,
-    setEsmFoldMetrics: useVariantAnalysisStore.getState().setEsmFoldMetrics,
-    setFoldxMetrics: useVariantAnalysisStore.getState().setFoldxMetrics,
-    setIsEsmFolding: useVariantAnalysisStore.getState().setIsEsmFolding,
-    setEsmFoldingError: useVariantAnalysisStore.getState().setEsmFoldingError,
-    setActive3dModelTab: useVariantAnalysisStore.getState().setActive3dModelTab,
-    resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState,
-    setEsmFoldEngines: useVariantAnalysisStore.getState().setEsmFoldEngines,
-    setEsmFoldSingleStructure: useVariantAnalysisStore.getState().setEsmFoldSingleStructure
-  });
   const pipeline = useAnalysisPipeline();
   /**
    * Request generation for structural RE-evaluations, kept separate from the pipeline's own id.
@@ -84,9 +70,8 @@ export default function useVariantAnalysis() {
     biophysical.clearDynaMutPoll();
     biophysical.clearDdmutPoll();
     biophysical.clearThermoMpnnPoll();
-    structuralFolding.resetEsmFoldState();
     useVariantAnalysisStore.getState().resetViewerState();
-  }, [biophysical, structuralFolding]);
+  }, [biophysical]);
 
   const executeAnalysisWrapper = useCallback(
     (targetGene: string, targetVariant: string, targetUniprot?: string, providedSignal?: AbortSignal) => {
@@ -259,20 +244,6 @@ export default function useVariantAnalysis() {
     [pipeline, apiClient]
   );
 
-  const fetchEsmFoldWrapper = useCallback(
-    (uniprotIdArg?: string, variantArg?: string, wtSeq?: string, mutSeq?: string) => {
-      const { uniprotId, variant, addNotification } = useVariantAnalysisStore.getState();
-      return structuralFolding.fetchEsmFold(
-        apiClient,
-        addNotification,
-        uniprotIdArg || uniprotId,
-        variantArg || variant,
-        wtSeq,
-        mutSeq
-      );
-    },
-    [structuralFolding, apiClient]
-  );
 
   const formatEnergyString = useCallback(
     (text: string | null | undefined): string => {
@@ -368,7 +339,6 @@ export default function useVariantAnalysis() {
     fetchHomologs: fetchHomologsWrapper,
     fetchNearestResidues: fetchNearestResiduesWrapper,
     fetchPocketInfo: biophysical.fetchPocketInfo,
-    fetchEsmFold: fetchEsmFoldWrapper,
     resetViewerState,
     formatEnergyString,
     // Stable Zustand store action bindings
@@ -391,14 +361,7 @@ export default function useVariantAnalysis() {
     setDisruptionPredictor: useVariantAnalysisStore.getState().setDisruptionPredictor,
     addNotification: useVariantAnalysisStore.getState().addNotification,
     removeNotification: useVariantAnalysisStore.getState().removeNotification,
-    setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,
-    setEsmFoldMutPdb: useVariantAnalysisStore.getState().setEsmFoldMutPdb,
-    setEsmFoldAlignedPdb: useVariantAnalysisStore.getState().setEsmFoldAlignedPdb,
-    setEsmFoldMetrics: useVariantAnalysisStore.getState().setEsmFoldMetrics,
     setFoldxMetrics: useVariantAnalysisStore.getState().setFoldxMetrics,
-    setIsEsmFolding: useVariantAnalysisStore.getState().setIsEsmFolding,
-    setEsmFoldingError: useVariantAnalysisStore.getState().setEsmFoldingError,
-    setActive3dModelTab: useVariantAnalysisStore.getState().setActive3dModelTab,
     addToHistory: useVariantAnalysisStore.getState().addToHistory,
     clearHistory: useVariantAnalysisStore.getState().clearHistory,
     setAnalysisState: useVariantAnalysisStore.getState().setAnalysisState,
@@ -443,7 +406,6 @@ export default function useVariantAnalysis() {
     fetchHomologsWrapper,
     fetchNearestResiduesWrapper,
     biophysical.fetchPocketInfo,
-    fetchEsmFoldWrapper,
     resetViewerState,
     formatEnergyString
   ]);

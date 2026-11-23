@@ -175,23 +175,24 @@ describe("a saved token is used by the person's requests", () => {
 describe("encryption", () => {
   it("binds a ciphertext to its person and kind", () => {
     process.env.APP_SESSION_SECRET = "test-session-secret-fixed-32-chars!";
-    const blob = encryptSecret("user-a", "biohub", OWN_KEY);
+    const blob = encryptSecret("user-a", "tamarind", OWN_KEY);
     expect(blob).not.toContain(OWN_KEY);
-    expect(decryptSecret("user-a", "biohub", blob)).toBe(OWN_KEY);
-    expect(decryptSecret("user-b", "biohub", blob)).toBeNull();
-    expect(decryptSecret("user-a", "tamarind", blob)).toBeNull();
+    expect(decryptSecret("user-a", "tamarind", blob)).toBe(OWN_KEY);
+    expect(decryptSecret("user-b", "tamarind", blob)).toBeNull();
+    // Another kind cannot read it either (only one kind exists now, so a retired one stands in).
+    expect(decryptSecret("user-a", "biohub" as never, blob)).toBeNull();
     // One flipped ciphertext character fails authentication.
     const [v, iv, ct, tag] = blob.split(":");
     const flipped = (ct[0] === "A" ? "B" : "A") + ct.slice(1);
-    expect(decryptSecret("user-a", "biohub", [v, iv, flipped, tag].join(":"))).toBeNull();
+    expect(decryptSecret("user-a", "tamarind", [v, iv, flipped, tag].join(":"))).toBeNull();
   });
 
   it("stores only ciphertext, and a rotated server secret reads as unreadable rather than wrong", () => {
     const id = createUser({ email: "rot@lab.org", displayName: "R", passwordHash: null, role: "member", now: Date.now() }).id;
-    saveUserSecret(id, "biohub", OWN_KEY);
+    saveUserSecret(id, "tamarind", OWN_KEY);
     const row = accountsDb().prepare("SELECT * FROM user_secrets").get() as Record<string, unknown>;
     expect(JSON.stringify(row)).not.toContain(OWN_KEY);
     process.env.APP_SESSION_SECRET = "a-different-secret-after-rotation-32!";
-    expect(getUserSecret(id, "biohub")).toBeNull();
+    expect(getUserSecret(id, "tamarind")).toBeNull();
   });
 });

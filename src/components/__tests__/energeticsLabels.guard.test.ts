@@ -107,11 +107,11 @@ const GUARDED_SURFACES = [
   "src/shared/residueContextEvidence.ts",
   /**
    * 3D structure: the old inspector printed "N/A" for four absent comparison numbers and "0.0°" for a
-   * missing χ1, and the viewer's pocket panel "Server Calculation Error". The model and the two
-   * viewer surfaces that print states take their words from engineStatus.
+   * missing χ1, and the viewer's pocket panel "Server Calculation Error". The model and the viewer
+   * surface that prints states take their words from engineStatus. (The status overlay printed only
+   * de novo folding states, retired with ESMFold; it now prints none.)
    */
   "src/shared/structure3dEvidence.ts",
-  "src/components/molstar/StructureStatusOverlay.tsx",
   "src/components/molstar/StructurePocketPanel.tsx",
   "src/components/inspector/StructureInspector.tsx",
   // Function, Population, AlphaGenome and Gene–disease surfaces and their rails: they render

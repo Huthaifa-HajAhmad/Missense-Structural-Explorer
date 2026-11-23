@@ -253,7 +253,7 @@ function RowDetail({
   );
 }
 
-export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, onNavigateToView }: TabComponentProps) {
+export function FunctionTab({ analysisState, onSelectResidue, onNavigateToView }: TabComponentProps) {
   const result = analysisState.result;
   const workspace = useEvidenceWorkspace('function');
   // The zoom is the reader's once they touch it; until then it follows the protein (re-derived per variant).
@@ -400,7 +400,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       ? () => {
           const { index, focus } = disulfideSelection(row, ev.residue);
           onSelectResidue(index, focus);
-          onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
+          onNavigateToView("structure_alphafold");
         }
       : null;
 
@@ -536,7 +536,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       {hotspots && (!workspace.enabled || workspace.view === 'hotspots') && (
         <HotspotsView ev={hotspots} read={hotspotGene ? { gene: hotspotGene, uniprot: result?.metadata?.uniprotId ?? null, transcript: result?.transcriptId ?? null } : null} onShow3d={onSelectResidue && onNavigateToView ? (index, focus) => {
           onSelectResidue(index, focus);
-          onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
+          onNavigateToView("structure_alphafold");
         } : null} />
       )}
       {ok && (!workspace.enabled || workspace.view === 'records') && (

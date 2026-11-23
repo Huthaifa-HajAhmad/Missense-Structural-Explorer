@@ -75,7 +75,7 @@ describe("FunctionTab", () => {
   it("opens a row to its evidence and sends Show in 3D to the structure view", () => {
     const onSelectResidue = vi.fn();
     const onNavigateToView = vi.fn();
-    renderTab(resultFor(), { onSelectResidue, onNavigateToView, active3dModelTab: "alphafold2" });
+    renderTab(resultFor(), { onSelectResidue, onNavigateToView });
     fireEvent.click(screen.getByRole("button", { name: /Arg85 → Gln/ }));
     const detail = screen.getByTestId("annotation-detail");
     expect(detail.textContent).toMatch(/ECO:0000269/);
@@ -95,7 +95,7 @@ describe("FunctionTab", () => {
         { type: "Disulfide bond", description: "", start: 150, end: 200, evidence: [{ code: "ECO:0000269", source: "PubMed", id: "12646924" }] },
       ],
     };
-    renderTab(resultFor({ uniprotFeatures }), { onSelectResidue, onNavigateToView, active3dModelTab: "alphafold2" });
+    renderTab(resultFor({ uniprotFeatures }), { onSelectResidue, onNavigateToView });
     fireEvent.click(within(screen.getByTestId("annotation-table")).getByRole("button", { name: /Disulfide bond/ }));
     fireEvent.click(within(screen.getByTestId("annotation-detail")).getByRole("button", { name: /Show both cysteines in 3D/ }));
     expect(onSelectResidue).toHaveBeenCalledWith(150, { companions: [200], label: "Disulfide bond between Cys150 and Cys200" });

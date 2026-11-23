@@ -87,7 +87,6 @@ export const analyzeVariantSchema = z.object({
    * already expressed in canonical numbering, so submitting it is unambiguous.
    */
   numberingBasis: z.enum(["canonical"]).optional(),
-  biohubToken: z.string().optional(),
   alphagenomeApiKey: z.string().optional(),
   alphagenomeApiUrl: z.string().url().max(512).optional(),
   spliceaiDistance: z.number().int().min(50).max(10000).optional(),
@@ -163,7 +162,6 @@ export interface ParsedVariantContext {
   numberingDisambiguated?: boolean;
   /** Human-readable disclosure for the unverified case; surfaced with the analysis result. */
   numberingWarning?: string;
-  biohubToken?: string | null;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window the caller asked for; null leaves the client's default. */
@@ -569,9 +567,6 @@ export async function validateAndParseVariantRequest(
     pos,
     wt1Letter,
     mut1Letter,
-    // The request's token, else this person's saved one, else the team's under the lending policy (WP-I4).
-    // Resolved once here, so the run's capability and every model it calls agree.
-    biohubToken: sanitizeToken(resolveCredential("biohub", sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken)).token),
     // The server's key never accompanies a URL the request chose (see resolveAlphaGenomeAccess).
     ...(() => {
       const requestUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl);

@@ -11,7 +11,6 @@ import { AnalysisResult } from "../types";
 import { EVIDENCE_TABS, type EvidenceTabId } from "../shared/evidenceTabs";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import type { FoldxPhase } from "../shared/foldxPhase";
-import { useSettings } from "../context/SettingsContext";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { isApplePlatform } from "../shared/platform";
 import { landscapeKey } from "../shared/landscapeEvidence";
@@ -123,7 +122,7 @@ export const NAV_ZONES: NavZone[] = [
     zoneLabel: "Evidence & modelling",
     items: [
       { id: "evidence",   label: "Evidence",     sublabel: "Population, predictors & splicing", Icon: NAV_ICONS.evidence   },
-      { id: "structure",  label: "3D structure", sublabel: "AlphaFold2 & ESMFold models",       Icon: NAV_ICONS.structure  },
+      { id: "structure",  label: "3D structure", sublabel: "AlphaFold2 & FoldX models",       Icon: NAV_ICONS.structure  },
       { id: "energetics", label: "Energetics",   sublabel: "ΔΔG stability estimates",           Icon: NAV_ICONS.energetics },
       { id: "landscape",  label: "Landscape",    sublabel: "Residue-level mutation map",        Icon: NAV_ICONS.landscape  },
     ],
@@ -165,16 +164,15 @@ export const EVIDENCE_SUB_ITEMS: { id: EvidenceTabId; label: string }[] = EVIDEN
 
 export const STRUCTURE_SUB_ITEMS: { id: StructureModelId; label: string }[] = [
   { id: "structure_alphafold", label: "AlphaFold2" },
-  { id: "structure_esmfold",   label: "ESMFold"    },
 ];
 
 /**
- * Whether a registry row stands for the view on screen. The 3D structure row covers both model
- * sub-views — the sidebar, the header and the palette all need that merge, so it is written once.
+ * Whether a registry row stands for the view on screen. The 3D structure row covers its model
+ * sub-view — the sidebar, the header and the palette all need that merge, so it is written once.
  */
 export function isViewActive(itemId: MasterView | string, activeView: MasterView | undefined): boolean {
   if (itemId === "structure") {
-    return activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold";
+    return activeView === "structure" || activeView === "structure_alphafold";
   }
   return itemId === activeView;
 }
@@ -365,9 +363,6 @@ function MasterSidebar({
   isDrawerOpen = false,
   onCloseDrawer,
 }: MasterSidebarProps) {
-  const { settings } = useSettings();
-  const defaultStructureView: MasterView =
-    settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
   const navRef = useRef<HTMLElement>(null);
   const activeRowRef = useRef<HTMLButtonElement>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -663,7 +658,7 @@ function MasterSidebar({
                           if (isActive) return;
                           /* The Evidence group opens on its first page, not on the one last visited. */
                           if (id === "evidence") onEvidenceTabChange(EVIDENCE_SUB_ITEMS[0].id);
-                          navigate(id === "structure" ? defaultStructureView : id);
+                          navigate(id === "structure" ? "structure_alphafold" : id);
                         }}
                         /* A parent whose own page is open on screen is not itself current. Collapsed,
                            the pages are not drawn, so the parent is the only mark there is. */

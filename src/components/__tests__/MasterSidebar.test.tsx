@@ -9,6 +9,7 @@ vi.mock("../../context/SettingsContext", () => ({
 
 import MasterSidebar, {
   MASTER_VIEW_ITEMS,
+  STRUCTURE_SUB_ITEMS,
   isViewActive,
   clampSidebarWidth,
   SIDEBAR_WIDTH_DEFAULT,
@@ -39,10 +40,10 @@ describe("MasterSidebar — registry", () => {
     expect(ids).toEqual(expect.arrayContaining(["search", "evidence", "structure", "console", "about"]));
   });
 
-  it("merges both structure models into the 3D structure row", () => {
-    expect(isViewActive("structure", "structure_esmfold")).toBe(true);
+  it("offers AlphaFold as the only structure model: the ESMFold view was retired", () => {
+    expect(STRUCTURE_SUB_ITEMS.map((i) => i.id)).toEqual(["structure_alphafold"]);
     expect(isViewActive("structure", "structure_alphafold")).toBe(true);
-    expect(isViewActive("evidence", "structure_esmfold")).toBe(false);
+    expect(isViewActive("evidence", "structure_alphafold")).toBe(false);
   });
 
   it("clamps corrupt and out-of-range widths", () => {

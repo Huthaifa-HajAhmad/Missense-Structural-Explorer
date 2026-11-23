@@ -27,7 +27,6 @@ export const EXPLANATION_TEACHING: Record<string, TeachingFigure> = {
   spliceai: flow('The genomic substitution and surrounding DNA sequence.', 'Compare predicted donor and acceptor recognition between reference and alternate.', 'Four gain/loss delta scores and their positions when supplied.'),
   alphagenome: flow('Genomic identity and the Atlas variant features.', 'Combine features into AVI and attribute the raw score to reported inputs.', 'Raw AVI, PHRED rank and feature contributions, each answering a different question.'),
   p2rank: flow('A protein coordinate model and a P2Rank model profile.', 'Score surface points and group them into candidate pockets.', 'Pocket locations, residues and profile-specific rankings.'),
-  esmfold: flow('Native and alternate protein sequences.', 'Predict each structure independently, then align matched residues.', 'Candidate coordinates and confidence; differences include prediction variability.'),
   llr: { kind: 'example', heading: 'Illustrative example · one model', values: [
     { label: 'Native residue probability', value: '40%' }, { label: 'Alternate residue probability', value: '4%' }, { label: 'Alternate / native', value: '0.1' },
   ], explanation: 'The model gives native ten times the probability of alternate. The natural logarithm of 0.1 is about −2.30 nats. This compares residue preferences, not disease probabilities.' },

@@ -17,7 +17,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   geminiSessionId: "",
   geminiSessionExpiresAt: 0,
   appApiToken: "",
-  biohubApiToken: "",
   tamarindApiKey: "",
   alphagenomeApiKey: "",
   alphagenomeApiUrl: "",
@@ -35,7 +34,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   show3DLabels: true,
   saveHistory: false,
   reducedMotion: false,
-  defaultStructureModel: "alphafold",
   spliceaiWindow: 500,
   /**
    * The simulation conditions the panel collects. Taken from the shared module rather than written
@@ -52,7 +50,6 @@ export const TRANSIENT_SETTING_KEYS = [
   "geminiSessionId",
   "geminiSessionExpiresAt",
   "appApiToken",
-  "biohubApiToken",
   "tamarindApiKey",
   "alphagenomeApiKey",
   "alphagenomeApiUrl"

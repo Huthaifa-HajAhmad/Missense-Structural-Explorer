@@ -3,7 +3,7 @@ import { useApiConnections } from "../../../hooks/useApiConnections";
 import { SecretInput } from "../ui/SecretInput";
 import { SettingsBlock, SettingsSection } from "../ui/Section";
 import { clearInvalidApiKey } from "../../../api/authSession";
-import { AccountTokenControls, LastCredentialUse, TokenOwnershipIntro, useSavedSecrets } from "./TokenOwnership";
+import { TokenOwnershipIntro, useSavedSecrets } from "./TokenOwnership";
 import { HowTo, TokenField } from "./connectionParts";
 import { OptionalProviders } from "./OptionalProviders";
 import { CredentialStatus, useKeyFieldStatus } from "./CredentialStatus";
@@ -91,26 +91,6 @@ export function ConnectionsSection() {
           }}
           description="Authorizes structural mutations, AlphaFold proxies, and session creation on this lab server."
         />
-        <TokenField>
-          <SecretInput
-            label="EvolutionaryScale (Forge) token"
-            placeholder="Enter EvolutionaryScale Forge API key…"
-            value={settings.biohubApiToken || ""}
-            onChange={(value) => updateSetting("biohubApiToken", value)}
-            description="Enables ESMFold2 de novo structures on forge.evolutionaryscale.ai."
-            action={{
-              label: "Test connection",
-              busyLabel: "Testing…",
-              busy: tests.biohub.testing,
-              // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
-              disabled: !settings.biohubApiToken?.trim() && !secrets.saved?.biohub?.readable,
-              run: () => runTest("biohub", { useSaved: !settings.biohubApiToken?.trim() })
-            }}
-            status={tests.biohub.status}
-          />
-          <AccountTokenControls kind="biohub" label="Biohub" browserToken={settings.biohubApiToken || ""} clearBrowserToken={() => updateSetting("biohubApiToken", "")} secrets={secrets} />
-          <LastCredentialUse kind="biohub" />
-        </TokenField>
         <TokenField>
           <SecretInput
             label="AlphaGenome Atlas API key"

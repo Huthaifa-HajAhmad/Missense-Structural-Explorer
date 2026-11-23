@@ -109,7 +109,6 @@ describe("useVariantAnalysisStore State Normalization", () => {
 
     // Populate various slices
     store.setMutantPdb("ATOM SOME PDB");
-    store.setEsmFoldMutPdb("ATOM ESM MUT");
     store.setAnalysisState({
       result: { variant: "p.Val600Glu" } as any,
       isLoading: true,
@@ -133,7 +132,6 @@ describe("useVariantAnalysisStore State Normalization", () => {
     const updated = useVariantAnalysisStore.getState();
     expect(updated.mutantPdb).toBeNull();
     expect(updated.primaryBiophysics.mutantPdb).toBeNull();
-    expect(updated.esmFoldMutPdb).toBeNull();
     expect(updated.analysisState.result).toBeNull();
     expect(updated.analysisState.isLoading).toBe(false);
     expect(updated.analysisState.error).toBeNull();

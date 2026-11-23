@@ -256,7 +256,6 @@ async function runCoreFetch(
     pos,
     wt1Letter,
     mut1Letter,
-    biohubToken,
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiDistance
@@ -620,7 +619,6 @@ async function runCoreFetch(
       assembly,
       predictorPromise: locus,
       genosPromise,
-      biohubToken,
       alphagenomeApiKey,
       alphagenomeApiUrl,
       spliceaiDistance,

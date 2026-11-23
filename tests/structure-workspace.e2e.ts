@@ -3,7 +3,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { skipTour } from './support.js';
 
-test('both 3D tabs keep a tall canvas and accessible guide across model modes', { timeout: 360_000 }, async ({ app, browser, screen }) => {
+test('the 3D view keeps a tall canvas and accessible guide across model modes', { timeout: 360_000 }, async ({ app, browser, screen }) => {
   // The viewer writes these after each finished load. A layout can look right while WebGL has failed, so every
   // mode must also show a completed draw of the number of structures it asked for.
   const readDraw = () => browser.evaluate(() => {
@@ -46,14 +46,12 @@ test('both 3D tabs keep a tall canvas and accessible guide across model modes', 
       foldingEnergetics: { structureProvenance: { source: 'alphafold', uniprotId: 'P00441' } },
       foldxReference: { state: 'ready', reason: null, provenance: { source: 'alphafold', uniprotId: 'P00441' } },
       foldxReferencePdb: pdb, foldxAlignedPdb: mutant,
-      esmFoldWtPdb: pdb, esmFoldMutPdb: mutant, esmFoldAlignedPdb: mutant,
-      esmFoldSingleStructure: false, esmFoldingError: null, isEsmFolding: false,
     });
     return true;
   }, readFileSync('tools/structure-focus/sod1-afdb.pdb', 'utf8'));
   await screen.getByRole('button', /^3D structure/).click();
-  for (const family of ['AlphaFold & FoldX', 'ESMFold']) {
-    await screen.getByRole('tab', family, { exact: true }).click();
+  {
+    const family = 'AlphaFold & FoldX';
     for (const mode of ['Wild type', 'Variant', 'Superposition']) {
       const before = await readDraw();
       const changesMode = await browser.evaluate((label: string) => document.querySelector('[data-testid="structure-modes"] [aria-checked="true"]')?.textContent?.trim() !== label, mode);
@@ -77,7 +75,7 @@ test('both 3D tabs keep a tall canvas and accessible guide across model modes', 
           await expect(screen.getByRole('checkbox', 'Residue labels', { exact: true })).toBeVisible();
           await screen.getByRole('button', 'Hide canvas guide').click();
         }
-        await app.screenshot(`structure-${family.startsWith('Alpha') ? 'af' : 'esm'}-${mode}-${width}`);
+        await app.screenshot(`structure-af-${mode}-${width}`);
       }
       // Resizing and screenshots are what stress WebGL, so the canvas must still be healthy after them.
       const after = await readDraw();

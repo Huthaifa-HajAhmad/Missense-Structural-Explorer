@@ -39,7 +39,7 @@ export interface UseMolstarStructureOptions {
   contextPdbData?: string | null;
   /** Residue numbers the primary covers; the context leaves them out. */
   contextCovered?: { start: number; end: number } | null;
-  /** Fetch the AlphaFold DB model when no coordinates are supplied. False in the ESMFold view. */
+  /** Fetch the AlphaFold DB model when no coordinates are supplied. */
   allowFetch: boolean;
   reloadNonce?: number;
   colour: ColourPlan;
@@ -89,8 +89,6 @@ function themeRef(plan: ThemePlan, alphaOverride?: number | null): { color: stri
       return { color: "plddt-confidence", colorParams: { scale: plan.scale }, ...extraAlpha };
     case "bfactor-quartile":
       return { color: "bfactor-quartile", ...extraAlpha };
-    case "displacement":
-      return { color: "backbone-displacement", ...extraAlpha };
     case "secondary-structure":
       return { color: "secondary-structure", colorParams: { colors: { name: "custom", params: SECONDARY_COLOUR_MAP } }, ...extraAlpha };
     case "uniform": {

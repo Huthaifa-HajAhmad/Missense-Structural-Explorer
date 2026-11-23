@@ -95,16 +95,12 @@ function seed(): void {
       variant: "p.Ala5Val",
       uniprotId: "P00441",
       pdbText: SOD1_PDB,
-      active3dModelTab: "alphafold2",
       mutantPdb: VARIANT_PDB,
       foldingStatus: "success",
       foldingEnergetics: { structureProvenance: { source: "alphafold", uniprotId: "P00441" } },
       foldxReference: { state: "ready", reason: null, provenance: { source: "alphafold", uniprotId: "P00441" } },
       foldxReferencePdb: SOD1_PDB,
       foldxAlignedPdb: VARIANT_PDB,
-      esmFoldWtPdb: SOD1_PDB,
-      esmFoldMutPdb: VARIANT_PDB,
-      esmFoldAlignedPdb: VARIANT_PDB,
       pdbTextProvenance: null,
       viewMode: "wildtype",
       selectedResidueIndex: null,
@@ -147,8 +143,7 @@ const FRAGMENT_PDB = VARIANT_PDB.split("\n").filter(line => {
 }).join("\n");
 
 function Canvas() {
-  const family = useVariantAnalysisStore(s => s.active3dModelTab === "esmfold2" ? "esmfold" : "alphafold");
-  const model = useStructure3dEvidence(family);
+  const model = useStructure3dEvidence();
   // Switched on by the check, after the ordinary mode cases: the variant then draws a short template with the full model around it.
   const [fragmentTemplate, setFragmentTemplate] = useState(false);
   useEffect(() => {
@@ -355,13 +350,13 @@ async function run(): Promise<void> {
   const sourceOf = { wildtype: "wild type", mutant: "variant", superimposed: "wild type + variant" } as const;
   const modeLabel = { wildtype: "Wild type", mutant: "Variant", superimposed: "Superposition" } as const;
   let previousSource: string = sourceOf.wildtype;
-  for (const family of ["alphafold2", "esmfold2"] as const) {
+  {
     for (const viewMode of ["wildtype", "mutant", "superimposed"] as const) {
-      const name = `${family} ${viewMode}`;
+      const name = `alphafold ${viewMode}`;
       store.getState().setSelectedResidueIndex(null);
       await until("clear before mode", () => companionAtoms() === 0 && companionLabels() === null, 10_000);
       const versionBefore = drawnVersion();
-      store.setState({ active3dModelTab: family, viewMode });
+      store.setState({ viewMode });
       const expectedStructures = viewMode === "superimposed" ? "2" : "1";
       const mustReload = sourceOf[viewMode] !== previousSource;
       const loaded = await until("mode load", () => (!mustReload || drawnVersion() > versionBefore) && drawnStructures() === expectedStructures, 60_000);
@@ -375,12 +370,12 @@ async function run(): Promise<void> {
     }
   }
   // A template that covers only residues 20–60: the full model must be drawn around it, fitted onto it.
-  store.setState({ active3dModelTab: "alphafold2", viewMode: "mutant" });
+  store.setState({ viewMode: "mutant" });
   await until("variant drawn", () => drawnStructures() === "1", 60_000);
   window.dispatchEvent(new Event("fragment-template"));
   const contextDrawn = await until("context drawn", () => container()?.getAttribute("data-drawn-context") === "1", 60_000);
   record("a short template is drawn with the full-length model faint around it", contextDrawn, `drawnContext=${container()?.getAttribute("data-drawn-context")}, guide: ${document.querySelector('[data-guide-item="context"]')?.textContent?.slice(0, 120) ?? "no row"}`);
-  store.setState({ active3dModelTab: "alphafold2", viewMode: "wildtype" });
+  store.setState({ viewMode: "wildtype" });
   await until("final draw", () => companionAtoms() > 0 && drawnStructures() === "1", 60_000);
 
   document.title = `3D focus check — ${CHECKS.filter((c) => c.pass).length}/${CHECKS.length} passed`;

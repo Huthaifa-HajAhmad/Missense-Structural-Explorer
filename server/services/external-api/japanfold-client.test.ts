@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  queryEsmfold2,
   queryBoltz2Multimer,
   runBoltz2Multimer,
   resolveResultsUrl,
@@ -13,31 +12,6 @@ describe("JapanFold API Client", () => {
     clearJapanFoldCache();
     clearBoltzJobs();
     vi.restoreAllMocks();
-  });
-
-  describe("queryEsmfold2", () => {
-    it("returns PDB coordinate string on successful 3D folding", async () => {
-      const mockPdb = "ATOM      1  N   MET A   1       0.000   0.000   0.000  1.00 90.00           N\nTER";
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "success", pdb: mockPdb })
-      } as any);
-
-      const pdb = await queryEsmfold2("MSLSK");
-      expect(pdb).toBe(mockPdb);
-    });
-
-    it("returns null when folding request fails or returns non-200", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        statusText: "Service Unavailable"
-      } as any);
-
-      const pdb = await queryEsmfold2("MSLSK");
-      expect(pdb).toBeNull();
-    });
   });
 
   describe("queryBoltz2Multimer", () => {

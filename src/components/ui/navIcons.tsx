@@ -35,8 +35,8 @@ export const NAV_ICONS = {
   about: navGlyph(RiInformationLine, "About"),
 } as const;
 
-/** The two 3D model pages — the only nested pages that are views rather than Evidence tabs. */
-export type StructureModelId = "structure_alphafold" | "structure_esmfold";
+/** The 3D model page — the only nested page that is a view rather than an Evidence tab. */
+export type StructureModelId = "structure_alphafold";
 
 /**
  * Nested pages, keyed by the page id they are opened by. A `Record` over the union of ids, not an
@@ -61,5 +61,4 @@ export const SUB_NAV_ICONS: Record<EvidenceTabId | StructureModelId, NavIcon> = 
   structure: navGlyph(RiCrosshair2Line, "Residue"),
   interfaces: navGlyph(RiLinksLine, "Interfaces"),
   structure_alphafold: navGlyph(RiAtomLine, "AlphaFold"),
-  structure_esmfold: navGlyph(RiBrainLine, "Esmfold"),
 };

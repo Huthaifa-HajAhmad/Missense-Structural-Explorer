@@ -13,10 +13,9 @@ import { StructureLegend } from "./molstar/StructureLegend";
 import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
 import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
 import { StructureCallouts, type StructureCallout } from "./molstar/StructureCallouts";
-import { readProteinLength } from "../shared/foldingLimits";
 import { CONTEXT_COLOUR } from "./molstar/drawContextLayer";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
-import { PAIR_COLOURS, type AlignmentScope, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
+import { PAIR_COLOURS, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
 
 /** Resolves the dual-swatch colours for the superposed variant site from the evidence colour plan. */
 export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: number; secondary: number } {
@@ -45,8 +44,6 @@ export interface MolstarViewerProps {
   /** Selects the queried variant again; the site button calls it when another residue is selected. */
   onReturnToVariant?: () => void;
   onModeChange: (mode: ViewMode) => void;
-  onAlignmentScopeChange?: (scope: AlignmentScope) => void;
-  onSwitchToAlphaFold?: () => void;
   onOpenPocketTab?: () => void;
   onRetryPocket?: () => void;
   heightClass?: string;
@@ -66,8 +63,6 @@ export default function MolstarViewer({
   onResidueClick,
   onReturnToVariant,
   onModeChange,
-  onAlignmentScopeChange,
-  onSwitchToAlphaFold,
   onOpenPocketTab,
   onRetryPocket,
   heightClass,
@@ -75,10 +70,9 @@ export default function MolstarViewer({
   const { model, coordinateIndex, selection, siteSelection, primary: primaryPdbData, compare: comparePdbData, contextFit, allowFetch } = view;
   const variantPosition = model.site.position;
   const selectedResidue = selection.position;
-  const { isDark, settings, setSettings, showPolarContacts, openSettingsTab } = useSettings();
+  const { isDark, settings, setSettings, showPolarContacts } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
-  const retryFolding = useVariantAnalysisStore(s => s.requestEsmFoldRetry);
 
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const gene = useVariantAnalysisStore(s => s.gene);
@@ -88,11 +82,6 @@ export default function MolstarViewer({
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
   const pocketError = useVariantAnalysisStore(s => s.pocketError);
   const chain = useVariantAnalysisStore(s => (s.analysisState?.result?.metadata as any)?.chain ?? null);
-  const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
-  const landscapeLength = useVariantAnalysisStore(s => s.analysisState?.result?.landscapeData?.length ?? null);
-  const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
-  const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
-  const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
   const residueFocus = useVariantAnalysisStore(s => s.residueFocus);
   // Companions are drawn by number, so only where the numbering is verified (the hook gates the same way).
   const focusShown = residueFocus && model.site.canAddressVariantSite && selection.state === "available" ? residueFocus : null;
@@ -232,7 +221,6 @@ export default function MolstarViewer({
   const plddtAtSite = model.canvas.primary?.origin === "afdb" && siteResidue?.caBFactor != null ? siteResidue.caBFactor : null;
   const selectedShown = model.site.canAddressVariantSite && selection.state === "available" && selection.position && selection.position !== variantPosition ? selection.position : null;
   const isSuperposed = model.viewMode === "superimposed" && Boolean(comparePdbData && model.colour.secondary) && structure.drawnPair;
-  const pairLeadNoun = model.family === "alphafold" ? "Template" : "Wild-type";
   const pairSwatches = resolveSuperpositionSwatches(model.colour);
   const handleFocusSite = () => {
     if (!model.site.canAddressVariantSite || !variantPosition) return;
@@ -250,7 +238,7 @@ export default function MolstarViewer({
       text: `Variant residue ${siteName}`,
       badge: model.site.substitution ?? undefined,
       sub: isSuperposed
-        ? `${pairLeadNoun} + variant sticks · ${plddtAtSite !== null ? `pLDDT ${plddtAtSite.toFixed(0)} (AlphaFold DB)` : "superposed"}`
+        ? `Template + variant sticks · ${plddtAtSite !== null ? `pLDDT ${plddtAtSite.toFixed(0)} (AlphaFold DB)` : "superposed"}`
         : plddtAtSite !== null
           ? `pLDDT ${plddtAtSite.toFixed(0)} at this residue (AlphaFold DB)`
           : model.site.confidence.kind !== "none"
@@ -322,7 +310,7 @@ export default function MolstarViewer({
     ...(siteName && model.site.canAddressVariantSite && variantPosition ? [{
       key: "site",
       position: variantPosition,
-      on: isSuperposed && !model.comparison.rigidBackbone ? "variant" as const : "primary" as const,
+      on: "primary" as const,
       chain: siteSelection?.residue?.chain ?? null,
       kicker: "Variant site",
       title: model.site.substitution ?? siteName,
@@ -365,7 +353,6 @@ export default function MolstarViewer({
           onRepresentationChange={(rep: RepresentationId) => useVariantAnalysisStore.getState().setStructureRepresentation(rep)}
           plddtFilter={plddtFilter}
           onPlddtFilterChange={setPlddtFilter}
-          onAlignmentScopeChange={onAlignmentScopeChange}
           onFocusSite={handleFocusSite}
           siteCloseUp={siteCloseUp}
           onToggleSiteCloseUp={() => setSiteCloseUp(prev => !prev)}
@@ -440,21 +427,12 @@ export default function MolstarViewer({
             />
           )}
           <StructureStatusOverlay
-            family={model.family}
             hasVariant={hasVariant}
             loading={plugin.loading}
             loadError={plugin.loadError}
-            deNovoFolding={isEsmFolding}
-            deNovoError={esmFoldingError}
-            deNovoLoaded={Boolean(esmFoldWtPdb)}
-            proteinLength={proteinLength}
-            scanWindowLength={landscapeLength !== null && landscapeLength !== proteinLength ? landscapeLength : null}
             customEntryLoaded={Boolean(customPdbUrl)}
-            onSwitchToAlphaFold={onSwitchToAlphaFold}
             onClearEntry={() => actions.setCustomPdbUrl(null)}
-            onOpenSettings={() => openSettingsTab("connections")}
             onRetryLoad={() => setReloadNonce(nonce => nonce + 1)}
-            onRetryFolding={retryFolding}
           />
         </div>
       </div>

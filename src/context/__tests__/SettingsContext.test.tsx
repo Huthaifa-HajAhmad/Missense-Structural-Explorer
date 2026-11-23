@@ -49,7 +49,6 @@ describe("SettingsContext (settings revamp)", () => {
     renderProbe((c) => (ctx = c));
     expect(ctx.settings.residueColor).toBe("#10B981");
     expect(ctx.settings.maxHistoryItems).toBe(20);
-    expect(ctx.settings.defaultStructureModel).toBe(DEFAULT_USER_SETTINGS.defaultStructureModel);
     expect(ctx.settings.biophysicsConditions).toEqual(DEFAULT_USER_SETTINGS.biophysicsConditions);
   });
 
@@ -72,7 +71,6 @@ describe("SettingsContext (settings revamp)", () => {
       ctx.updateSetting("tamarindApiKey", "tam_secret_456");
       ctx.updateSetting("appApiToken", "app-secret");
       ctx.updateSetting("geminiApiKey", "gem-secret");
-      ctx.updateSetting("biohubApiToken", "bio-secret");
       ctx.updateSetting("alphagenomeApiKey", "ag-secret-123");
       ctx.updateSetting("alphagenomeApiUrl", "https://custom.alphagenome/v1");
     });
@@ -81,7 +79,6 @@ describe("SettingsContext (settings revamp)", () => {
     expect(persisted.tamarindApiKey).toBeUndefined();
     expect(persisted.appApiToken).toBeUndefined();
     expect(persisted.geminiApiKey).toBeUndefined();
-    expect(persisted.biohubApiToken).toBeUndefined();
     expect(persisted.alphagenomeApiKey).toBeUndefined();
     expect(persisted.alphagenomeApiUrl).toBeUndefined();
 
@@ -93,15 +90,17 @@ describe("SettingsContext (settings revamp)", () => {
     expect(transient.alphagenomeApiUrl).toBe("https://custom.alphagenome/v1");
   });
 
-  it("scrubs legacy plaintext credentials, including retired GPN-MSA ones, from localStorage on load", () => {
+  it("scrubs legacy plaintext credentials and retired settings (GPN-MSA, Biohub, ESMFold) from localStorage on load", () => {
     localStorage.setItem(
       "missenseUserSettings",
-      JSON.stringify({ gpnApiUrl: "leaked", hfToken: "leaked-too", maxHistoryItems: 10 })
+      JSON.stringify({ gpnApiUrl: "leaked", hfToken: "leaked-too", biohubApiToken: "bio-leaked", defaultStructureModel: "esmfold", maxHistoryItems: 10 })
     );
     renderProbe(() => {});
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
     expect(persisted.gpnApiUrl).toBeUndefined();
     expect(persisted.hfToken).toBeUndefined();
+    expect(persisted.biohubApiToken).toBeUndefined();
+    expect(persisted.defaultStructureModel).toBeUndefined();
     expect(persisted.maxHistoryItems).toBe(10);
   });
 

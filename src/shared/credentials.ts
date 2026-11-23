@@ -1,15 +1,14 @@
 /**
  * credentials.ts — whose token a remote model call used, in words a reader understands (WP-I4).
  *
- * Biohub (EvolutionaryScale Forge) and Tamarind each count calls against the token that
- * made them. A person's own token uses their own allowance; without one, the server may lend the team's
+ * Tamarind counts calls against the token that made them. A person's own token uses their own allowance; without one, the server may lend the team's
  * token, which everyone shares. The server reports which one each response used (`X-MSE-Credentials`) and
  * the client says so after the result, so a reader knows when adding their own token would help the team.
  *
  * Purity is a boundary requirement: `src/shared` may not import from outside itself.
  */
 
-export const CREDENTIAL_KINDS = ["biohub", "tamarind"] as const;
+export const CREDENTIAL_KINDS = ["tamarind"] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 
 /** `own`: the person's token (sent with the request or saved to their account). `team`: the server's. */
@@ -22,7 +21,6 @@ export type CredentialRefusal = "team-token-off" | "team-share-used" | "own-toke
 export type SharedTokenFallback = "on" | "limited" | "off";
 
 export const CREDENTIAL_LABELS: Readonly<Record<CredentialKind, string>> = {
-  biohub: "Biohub",
   tamarind: "Tamarind",
 };
 
@@ -79,10 +77,10 @@ export function credentialSourceLabel(source: CredentialSource): string {
 
 /**
  * The sentence after a result:
- *   own   "Biohub ran on your token."
- *   team  "Biohub ran on the team token. Add your own in Settings → Connections so your requests use your
+ *   own   "Tamarind ran on your token."
+ *   team  "Tamarind ran on the team token. Add your own in Settings → Connections so your requests use your
  *          allowance and do not slow the team."
- *   none  (refused) "Biohub was not run: you have used your share of the team token this hour. Add your own
+ *   none  (refused) "Tamarind was not run: you have used your share of the team token this hour. Add your own
  *          token in Settings → Connections." / "...: the team token is not lent out on this server. ..."
  * Null when there is nothing worth saying (no token and nothing refused).
  */

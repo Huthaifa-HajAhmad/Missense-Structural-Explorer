@@ -18,7 +18,7 @@ server/auth/sessions.ts,server,
 server/auth/store.ts,server,server/agent/agent.test.ts;server/auth/retired-secrets.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/credentials.http.test.ts;server/routes/live-routing.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/services/infra/credentials.test.ts
 server/auth/throttle.ts,server,
 server/auth/user-secrets.ts,server,server/routes/credentials.http.test.ts;server/services/infra/credentials.test.ts
-server/config.ts,server,server/routes/health.test.ts;server/routes/state-prewarm-registry.test.ts;server/routes/structure.test.ts;server/services/external-api/ppi.test.ts;server/services/infra/prewarm-manager.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/stability/foldx/budget.test.ts;server/services/stability/foldx/runner-background-repair.test.ts;server/tests/concurrency-defaults.test.ts;server/tests/denovo-fold-timeout-budget.test.ts;server/tests/foldx-timeout-budget.test.ts;server/tests/ppi-timeout-budget.test.ts;server/tests/sidecar-supervisor.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts
+server/config.ts,server,server/routes/health.test.ts;server/routes/state-prewarm-registry.test.ts;server/routes/structure.test.ts;server/services/external-api/ppi.test.ts;server/services/infra/prewarm-manager.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/stability/foldx/budget.test.ts;server/services/stability/foldx/runner-background-repair.test.ts;server/tests/concurrency-defaults.test.ts;server/tests/foldx-timeout-budget.test.ts;server/tests/ppi-timeout-budget.test.ts;server/tests/sidecar-supervisor.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts
 server/deployment-control.ts,server,server/deployment-control.test.ts
 server/deployment-role.ts,server,server/deployment-role.test.ts
 server/express-config.ts,server,server/async-route-errors.test.ts;server/routes/credentials.http.test.ts;server/services/infra/review-fixes.test.ts
@@ -74,7 +74,6 @@ server/services/core-data-fetcher.ts,barrel,
 server/services/dbnsfp_local.ts,barrel,
 server/services/dynamut.ts,barrel,server/routes/biophysics.test.ts
 server/services/energy-models.ts,barrel,
-server/services/esmfold.ts,barrel,
 server/services/evidence-context/alignment.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/alignmentPext.test.ts
 server/services/evidence-context/allianceRelease.ts,server,server/services/evidence-context/modelOrganisms.test.ts
 server/services/evidence-context/clingenDosage.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/clingenDosage.test.ts
@@ -180,7 +179,7 @@ server/services/llm/literature-summary.ts,server,server/routes/variant/narrative
 server/services/multimer.ts,barrel,
 server/services/openapi.ts,barrel,server/routes/docs.test.ts
 server/services/orchestration/analysis-orchestrator.ts,server,server/services/orchestration/analysis-orchestrator.test.ts
-server/services/orchestration/core-identity.ts,server,server/services/infra/credentials.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/core-identity.test.ts
+server/services/orchestration/core-identity.ts,server,server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/core-identity.test.ts
 server/services/orchestration/core-singleflight.ts,server,server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/core-singleflight.test.ts
 server/services/orchestration/index.ts,barrel,
 server/services/orchestration/payload-assembler.ts,server,server/services/infra/cache-hygiene.test.ts
@@ -253,7 +252,6 @@ server/services/structure-fetcher.ts,barrel,server/routes/biophysics.test.ts
 server/services/structure-resolver.ts,barrel,server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/structure.test.ts
 server/services/structure/best-chain.ts,server,server/services/structure/best-chain.test.ts
 server/services/structure/chain-quality.ts,server,server/services/structure/chain-quality.test.ts
-server/services/structure/esmfold.ts,server,
 server/services/structure/index.ts,barrel,
 server/services/structure/model-contacts.ts,server,server/services/structure/model-contacts.test.ts
 server/services/structure/multimer.ts,server,server/services/structure/multimer.test.ts
@@ -307,7 +305,7 @@ server/utils/client-disconnect.ts,server,server/utils/client-disconnect.test.ts
 server/utils/concurrency.ts,server,server/utils/circuit-breaker.test.ts
 server/utils/crypto-session.ts,server,
 server/utils/janitor.ts,server,
-server/utils/mutation.ts,server,server/utils/mutation.test.ts
+server/utils/mutation.ts,server,
 server/utils/process-tree.ts,server,
 server/utils/security.ts,server,server/routes/variant/sanitize-url.test.ts
 server/utils/signals.ts,server,server/utils/signals.test.ts

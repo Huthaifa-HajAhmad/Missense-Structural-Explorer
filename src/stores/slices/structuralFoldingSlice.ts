@@ -3,22 +3,7 @@ import { StructuralMetrics } from "../../types";
 import type { LoadedEntry, RepresentationId } from "../../shared/structure3dEvidence";
 
 export interface StructuralFoldingState {
-  esmFoldWtPdb: string | null;
-  esmFoldMutPdb: string | null;
-  esmFoldAlignedPdb: string | null;
-  esmFoldMetrics: StructuralMetrics | null;
   foldxMetrics: StructuralMetrics | null;
-  isEsmFolding: boolean;
-  esmFoldingError: string | null;
-  /** Counts the reader's "Retry folding" requests; the ESMFold view folds again when it changes. */
-  esmFoldRetryNonce: number;
-  active3dModelTab: "alphafold2" | "esmfold2" | "esm3";
-  /** Which engine folded each de novo structure, as the `/esmfold` route reported it (null: not reported). */
-  esmFoldEngines: { wildType: string | null; variant: string | null } | null;
-  /** The route returned ONE structure (no variant model). The wild type used to be copied into both slots. */
-  esmFoldSingleStructure: boolean;
-  /** Kabsch fit scope for the de novo pair. FoldX's rigid-backbone pair has no scope to choose. */
-  esmAlignmentScope: "local" | "global";
   /** The 3D colouring the reader picked; the evidence model falls back when it does not apply. */
   structureRepresentation: RepresentationId;
   /**
@@ -30,22 +15,11 @@ export interface StructuralFoldingState {
 }
 
 export interface StructuralFoldingActions {
-  setEsmFoldWtPdb: (esmFoldWtPdb: string | null) => void;
-  setEsmFoldMutPdb: (esmFoldMutPdb: string | null) => void;
-  setEsmFoldAlignedPdb: (esmFoldAlignedPdb: string | null) => void;
-  setEsmFoldMetrics: (esmFoldMetrics: StructuralMetrics | null) => void;
   setFoldxMetrics: (foldxMetrics: StructuralMetrics | null) => void;
-  setIsEsmFolding: (isEsmFolding: boolean) => void;
-  setEsmFoldingError: (esmFoldingError: string | null) => void;
-  setActive3dModelTab: (active3dModelTab: "alphafold2" | "esmfold2" | "esm3") => void;
-  setEsmFoldEngines: (engines: { wildType: string | null; variant: string | null } | null) => void;
-  setEsmFoldSingleStructure: (single: boolean) => void;
-  setEsmAlignmentScope: (scope: "local" | "global") => void;
   setStructureRepresentation: (representation: StructuralFoldingState["structureRepresentation"]) => void;
   setCustomPdbEntry: (entry: LoadedEntry | null) => void;
-  resetEsmFoldState: () => void;
-  /** Clears the recorded fold failure and asks the ESMFold view to fold the current variant again. */
-  requestEsmFoldRetry: () => void;
+  /** Clears the FoldX superposition measurements, for a new variant. */
+  resetFoldxMetrics: () => void;
 }
 
 export type StructuralFoldingSlice = StructuralFoldingState & StructuralFoldingActions;
@@ -56,45 +30,12 @@ export const createStructuralFoldingSlice: StateCreator<
   [],
   StructuralFoldingSlice
 > = (set) => ({
-  esmFoldWtPdb: null,
-  esmFoldMutPdb: null,
-  esmFoldAlignedPdb: null,
-  esmFoldMetrics: null,
   foldxMetrics: null,
-  isEsmFolding: false,
-  esmFoldingError: null,
-  esmFoldRetryNonce: 0,
-  active3dModelTab: "alphafold2",
-  esmFoldEngines: null,
-  esmFoldSingleStructure: false,
-  esmAlignmentScope: "local",
   structureRepresentation: "confidence",
   customPdbEntry: null,
 
-  setEsmFoldWtPdb: (esmFoldWtPdb) => set({ esmFoldWtPdb }),
-  setEsmFoldMutPdb: (esmFoldMutPdb) => set({ esmFoldMutPdb }),
-  setEsmFoldAlignedPdb: (esmFoldAlignedPdb) => set({ esmFoldAlignedPdb }),
-  setEsmFoldMetrics: (esmFoldMetrics) => set({ esmFoldMetrics }),
   setFoldxMetrics: (foldxMetrics) => set({ foldxMetrics }),
-  setIsEsmFolding: (isEsmFolding) => set({ isEsmFolding }),
-  setEsmFoldingError: (esmFoldingError) => set({ esmFoldingError }),
-  setActive3dModelTab: (active3dModelTab) => set({ active3dModelTab }),
-  setEsmFoldEngines: (esmFoldEngines) => set({ esmFoldEngines }),
-  setEsmFoldSingleStructure: (esmFoldSingleStructure) => set({ esmFoldSingleStructure }),
-  setEsmAlignmentScope: (esmAlignmentScope) => set({ esmAlignmentScope }),
   setStructureRepresentation: (structureRepresentation) => set({ structureRepresentation }),
   setCustomPdbEntry: (customPdbEntry) => set({ customPdbEntry }),
-
-  resetEsmFoldState: () => set({
-    esmFoldWtPdb: null,
-    esmFoldMutPdb: null,
-    esmFoldAlignedPdb: null,
-    esmFoldMetrics: null,
-    foldxMetrics: null,
-    isEsmFolding: false,
-    esmFoldingError: null,
-    esmFoldEngines: null,
-    esmFoldSingleStructure: false
-  }),
-  requestEsmFoldRetry: () => set(state => ({ esmFoldingError: null, esmFoldRetryNonce: state.esmFoldRetryNonce + 1 }))
+  resetFoldxMetrics: () => set({ foldxMetrics: null })
 });

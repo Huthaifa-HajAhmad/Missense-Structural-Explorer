@@ -240,7 +240,7 @@ export function assembleCoreResponsePayload(
        * `stripInternalFields`, `/analyze-variant` by destructuring it away.
        *
        * DIGESTS ONLY. No credential, no endpoint URL and no key-derived material: see the module
-       * note in `core-identity.ts` for why a payload may state "this run had no BioHub token" but
+       * note in `core-identity.ts` for why a payload may state "this run had no AlphaGenome key" but
        * must never carry anything a reader could test a token guess against.
        */
       coreIdentity: payloadIdentityRecordOf(context)

@@ -2,7 +2,6 @@
  * structure.ts — Structure-related routes:
  *   GET  /sequence/:uniprotId
  *   GET  /alphafold-pdb/:uniprotId
- *   POST /esmfold
  *   POST /structural-diff
  *   POST /structure/multimer            the assembly, and on request either the provider complex or the LocalFold hand-off
  *   POST /structure/multimer/import     a complex model the reader folded in their browser
@@ -11,10 +10,7 @@
 import { type Router } from "express";
 import { sendError, validateUniProt, validateGene, validateVariant, AuditLogger, formatZodError, onClientDisconnect } from "../utils.ts";
 import { z } from "zod";
-import {
-  esmFoldRequestSchema,
-  structuralAlignRequestSchema
-} from "../../src/shared/contracts.ts";
+import { structuralAlignRequestSchema } from "../../src/shared/contracts.ts";
 import {
   fetchPdbHomologs,
   fetchUniprotSequence,
@@ -26,22 +22,17 @@ import {
 import { resolveStructure } from "../services/structure-resolver.ts";
 import { registerStructureReference, type StructureReferenceIdentity } from "../services/structure/structure-reference-store.ts";
 import { STRUCTURE_REF_HEADER } from "../../src/shared/structureRefs.ts";
-import { foldSequenceWithProvenance } from "../services/esmfold.ts";
 import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
 import fs from "fs";
-import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import {
   ALPHAFOLD_ABSENCE_HEADER,
   ALPHAFOLD_DB_MAX_MODELLED_AA,
   alphafoldDbCoverage,
 } from "../../src/shared/alphafoldAvailability.ts";
-import { formatResidueCount } from "../../src/shared/foldingLimits.ts";
-import { applyMutation } from "../utils/mutation.ts";
+import { formatResidueCount } from "../../src/shared/alphafoldAvailability.ts";
 import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure, importMultimerModel } from "../services/multimer.ts";
 import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
-import { governedFetch } from "../services/infra/http-client.ts";
-import { credentialAvailable, credentialForCall, ownCredential, resolveCredential } from "../services/infra/credentials.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -373,200 +364,11 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     }
   });
 
-  const validateBiohubTokenSchema = z.object({
-    token: z.string().min(8).optional()
-  });
-
   const structuralDiffSchema = z.object({
     wtPdb: z.string(),
     mutPdb: z.string(),
     pos: z.union([z.number(), z.string()]),
     chain: z.string()
-  });
-
-  apiRouter.post("/esmfold", jsonParserRegular, async (req, res) => {
-    const parseResult = esmFoldRequestSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
-      return;
-    }
-    try {
-      let { sequence, uniprotId, variant, wtSeq, mutSeq } = parseResult.data;
-      const headerVal = req.headers["x-biohub-token"];
-      // The request's token, else this person's saved one, else the team's under the lending policy (WP-I4).
-      const token = resolveCredential("biohub", Array.isArray(headerVal) ? headerVal[0] : headerVal).token;
-
-      if (!sequence && !wtSeq) {
-        if (!uniprotId) {
-          sendError(res, 400, "BAD_REQUEST", "Either sequence, wtSeq, or uniprotId must be provided.");
-          return;
-        }
-        sequence = await fetchUniprotSequence(validateUniProt(uniprotId));
-        if (!sequence) {
-          throw new Error(`Failed to resolve sequence for uniprotId ${uniprotId}`);
-        }
-      }
-
-      const wtSequence = wtSeq || sequence;
-
-      if (!wtSequence) {
-        sendError(res, 400, "BAD_REQUEST", "No sequence provided — supply 'sequence' or 'wtSeq' to fold.");
-        return;
-      }
-
-      let mutatedSequence = mutSeq;
-
-      if (!mutatedSequence && variant && wtSequence) {
-        const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
-        if (mutMatch) {
-          const wtStr = mutMatch[1];
-          const pos = parseInt(mutMatch[2], 10);
-          const mutStr = mutMatch[3];
-
-          const wtUpper = wtStr.toUpperCase();
-          const mutUpper = mutStr.toUpperCase();
-          const wt1 = AMINO_ACID_3_TO_1[wtStr] || AMINO_ACID_3_TO_1[wtUpper] || (wtStr.length === 1 ? wtUpper : null);
-          const mut1 = AMINO_ACID_3_TO_1[mutStr] || AMINO_ACID_3_TO_1[mutUpper] || (mutStr.length === 1 ? mutUpper : null);
-
-          if (wt1 && mut1) {
-            try {
-              mutatedSequence = applyMutation(wtSequence, {
-                chain: "A",
-                position: pos,
-                wt: wt1,
-                mt: mut1
-              });
-            } catch (err: any) {
-              console.warn("[ESMFold] Failed to apply mutation in route handler:", err.message);
-            }
-          }
-        }
-      }
-
-      if (mutatedSequence && mutatedSequence !== wtSequence) {
-        console.log(`[ESMFold] Folding the WT and mutant sequences concurrently`);
-        // Two independent predictions, so there is nothing to wait for between them: folding them one
-        // after the other doubled the wait for a fresh pair (the wild type is often a cache hit).
-        const [wt, mut] = await Promise.all([
-          foldSequenceWithProvenance(wtSequence, token),
-          foldSequenceWithProvenance(mutatedSequence, token),
-        ]);
-        // Each structure names its engine: a Tier-1 outage between the two folds can hand the
-        // variant to a different model than the wild type, and the viewer must be able to say so.
-        res.json({ wtPdb: wt.pdb, mutPdb: mut.pdb, chain: "A", status: "success", engines: { wildType: wt.engine, variant: mut.engine } });
-      } else if (wtSequence) {
-        console.log(`[ESMFold] Folding single WT sequence`);
-        const wt = await foldSequenceWithProvenance(wtSequence, token);
-        res.json({ pdb: wt.pdb, status: "success", engines: { wildType: wt.engine, variant: null } });
-      } else {
-        throw new Error("No sequence resolved for ESMFold query.");
-      }
-    } catch (err: any) {
-      let customMessage = err.message || "Failed to fold sequence using ESMFold.";
-      let statusCode = 502;
-
-      // Only check sidecar health if the error was not an explicit domain error (such as sequence length limits)
-      const isExplicitDomainError = err.message?.includes("Sequence length") || err.message?.includes("No sequence resolved");
-
-      if (isExplicitDomainError) {
-        statusCode = 422;
-      } else {
-        // Inspect sidecar health status to provide extremely clear researcher feedback
-        try {
-          const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
-          if (sidecarRes.ok) {
-            const healthData = await sidecarRes.json() as any;
-            if (healthData && healthData.state === "warming_up") {
-              statusCode = 503;
-              customMessage = "Model Server sidecar is online but still loading ML model weights in the background. Please wait ~30-60 seconds and try again.";
-            }
-          }
-        } catch (healthErr: any) {
-          if (healthErr.code === "ECONNREFUSED" || healthErr.message?.includes("fetch failed") || healthErr.message?.includes("connect")) {
-            if (credentialAvailable("biohub", req.headers["x-biohub-token"] as string | undefined)) {
-              statusCode = 503;
-              customMessage = "Model Server sidecar is currently offline or starting up. If you just started the app, please wait a minute for the background service to bind.";
-            }
-          }
-        }
-      }
-
-      sendError(res, statusCode, statusCode === 503 ? "SERVICE_UNAVAILABLE" : isExplicitDomainError ? "UNPROCESSABLE_ENTITY" : "BAD_GATEWAY", customMessage);
-    }
-  });
-
-  apiRouter.post("/validate-biohub-token", jsonParserRegular, async (req, res) => {
-    const parseResult = validateBiohubTokenSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
-      return;
-    }
-    try {
-      // The person's own token (typed, else saved to their account), never the team's (WP-I4).
-      const supplied = parseResult.data.token || (Array.isArray(req.headers["x-biohub-token"]) ? req.headers["x-biohub-token"][0] : req.headers["x-biohub-token"]);
-      const token = ownCredential("biohub", typeof supplied === "string" ? supplied : null);
-      if (!token || typeof token !== "string" || token.trim().length < 8) {
-        res.json({ valid: false, message: "Token format invalid (must be at least 8 characters)." });
-        return;
-      }
-
-      // Attempt lightweight probe call to EvolutionaryScale Forge / Biohub endpoint
-      try {
-        const probeBody = JSON.stringify({
-          model: "esm3-small-2024-08",
-          inputs: { sequence: "M" }
-        });
-        const probeHeaders = {
-          "Authorization": `Bearer ${token.trim()}`,
-          "Content-Type": "application/json",
-          "User-Agent": "MissenseResolve/1.0"
-        };
-
-        const probeCredential = credentialForCall("biohub", token.trim(), { charge: false });
-        let testRes = await governedFetch("https://forge.evolutionaryscale.ai/api/v1/encode", {
-          method: "POST",
-          headers: probeHeaders,
-          body: probeBody,
-          signal: AbortSignal.timeout(6000),
-          credential: probeCredential
-        }).catch(() => null);
-
-        if (!testRes || testRes.status === 451) {
-          const fallbackRes = await governedFetch("https://biohub.ai/api/v1/encode", {
-            method: "POST",
-            headers: probeHeaders,
-            body: probeBody,
-            signal: AbortSignal.timeout(6000),
-            credential: probeCredential
-          }).catch(() => null);
-          if (fallbackRes) {
-            testRes = fallbackRes;
-          }
-        }
-
-        if (!testRes) {
-          throw new Error("Unable to reach EvolutionaryScale API endpoints");
-        }
-
-        if (testRes.status === 200) {
-          res.json({ valid: true, message: "Biohub / EvolutionaryScale token verified & active." });
-          return;
-        } else if (testRes.status === 401 || testRes.status === 403) {
-          res.json({ valid: false, message: "Invalid or unauthorized Biohub API token (HTTP 401/403)." });
-          return;
-        } else if (testRes.status === 451) {
-          res.json({ valid: false, message: "EvolutionaryScale endpoint is regionally restricted (HTTP 451). Consider using JapanFold or a VPN." });
-          return;
-        } else {
-          res.json({ valid: false, message: `Upstream verification returned unexpected HTTP ${testRes.status}.` });
-          return;
-        }
-      } catch (netErr: any) {
-        res.json({ valid: false, message: `API endpoint unreachable (${netErr.message || "Network Timeout"}).` });
-      }
-    } catch (err: any) {
-      res.json({ valid: false, message: err.message || "Validation failed." });
-    }
   });
 
   apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {

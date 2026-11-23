@@ -14,7 +14,6 @@ dependencies = [
   "pandas>=2.0.0",
   "biopython>=1.83",
   "biotite>=1.7.1",
-  "esm @ git+https://github.com/Biohub/esm.git@main",
   "mini3di",
   "pdb2pqr>=3.8.0",
 ]
@@ -28,9 +27,9 @@ explicit = true
 torch = { index = "pytorch-cpu" }
 
 [tool.uv]
-# The lockfile resolved `transformers` to a commit on the private Biohub fork, even
-# though it is declared against PyPI above and `Biohub/esm` only requires
-# `transformers>=4.5` - nothing in this dependency set needs a fork API. That private
+# The lockfile once resolved `transformers` to a commit on a private fork, even
+# though it is declared against PyPI above - nothing in this dependency set needs a
+# fork API. That private
 # git source is what broke the CD image build: `uv sync` inside Docker cannot
 # authenticate to github.com, so it failed with "could not read Username" and the
 # deployment never started. Restoring the resolution to the explicitly declared PyPI

@@ -3,9 +3,8 @@ import {
   ChevronDown, Crosshair, Focus,
   Maximize2, Minimize2, RotateCcw, ScanSearch, SlidersHorizontal,
 } from "lucide-react";
-import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
+import type { RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
 import type { PlddtFilter } from "./useMolstarStructure";
-import { LOCAL_ALIGNMENT_FIT_WINDOW } from "../../shared/thresholds";
 import { StructureImageMenu } from "./StructureImageMenu";
 import { useDismiss } from "./useDismiss";
 
@@ -17,7 +16,6 @@ export interface StructureToolbarProps {
   onRepresentationChange: (rep: RepresentationId) => void;
   plddtFilter: PlddtFilter;
   onPlddtFilterChange: (value: PlddtFilter) => void;
-  onAlignmentScopeChange?: (scope: AlignmentScope) => void;
   onFocusSite: () => void;
   siteCloseUp?: boolean;
   onToggleSiteCloseUp?: () => void;
@@ -46,11 +44,6 @@ export function StructureToolbar(props: StructureToolbarProps) {
   const site = model.site;
   const representation = model.representations.find(r => r.id === model.representation);
   const activeFilterBadge = model.plddtFilter.available && props.plddtFilter !== "none" ? `≥ ${props.plddtFilter}` : null;
-  const appliedScope = model.alignment.measuredScope ?? model.alignment.scope;
-  const activeScopeBadge =
-    model.alignment.scopeToggle && model.alignment.scope === "local" && appliedScope === "local"
-      ? `±${LOCAL_ALIGNMENT_FIT_WINDOW} fit`
-      : null;
   const canResetCamera = props.canResetCamera ?? Boolean(primary);
 
   useDismiss(displayOpen, setDisplayOpen, displayRef, displayTriggerRef);
@@ -162,7 +155,6 @@ export function StructureToolbar(props: StructureToolbarProps) {
             <span>Display</span>
             <span className="s3d-btn__value">{representation?.label ?? "Options"}</span>
             {activeFilterBadge && <span className="s3d-btn__pill">{activeFilterBadge}</span>}
-            {activeScopeBadge && <span className="s3d-btn__pill">{activeScopeBadge}</span>}
             <ChevronDown aria-hidden="true" />
           </button>
 
@@ -189,15 +181,6 @@ export function StructureToolbar(props: StructureToolbarProps) {
                     <option value="none">All residues</option>
                     <option value="50">pLDDT ≥ 50</option>
                     <option value="70">pLDDT ≥ 70</option>
-                  </select>
-                </label>
-              )}
-              {model.alignment.scopeToggle && props.onAlignmentScopeChange && (
-                <label className="s3d-display__field">
-                  <span className="s3d-display__label">Fit Cα atoms</span>
-                  <select className="s3d-select" value={model.alignment.scope} onChange={event => props.onAlignmentScopeChange!(event.target.value as AlignmentScope)}>
-                    <option value="global">Whole chain</option>
-                    <option value="local">±{LOCAL_ALIGNMENT_FIT_WINDOW} residues around the site</option>
                   </select>
                 </label>
               )}

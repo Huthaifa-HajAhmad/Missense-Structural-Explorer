@@ -29,13 +29,13 @@ describe("useApiConnections", () => {
   it("drops a result once the key it was about is edited", async () => {
     vi.stubGlobal("fetch", reply({ valid: true, message: "Token is valid." }));
     const { result } = renderHook(useHarness, { wrapper });
-    act(() => result.current.updateSetting("biohubApiToken", "bh_one"));
-    await act(() => result.current.runTest("biohub"));
-    expect(result.current.tests.biohub.status?.valid).toBe(true);
+    act(() => result.current.updateSetting("tamarindApiKey", "tam_one"));
+    await act(() => result.current.runTest("tamarind"));
+    expect(result.current.tests.tamarind.status?.valid).toBe(true);
 
-    act(() => result.current.updateSetting("biohubApiToken", "bh_two"));
+    act(() => result.current.updateSetting("tamarindApiKey", "tam_two"));
 
-    await waitFor(() => expect(result.current.tests.biohub.status).toBeNull());
+    await waitFor(() => expect(result.current.tests.tamarind.status).toBeNull());
   });
 
   it("drops an AlphaGenome result once the endpoint it was about is edited", async () => {

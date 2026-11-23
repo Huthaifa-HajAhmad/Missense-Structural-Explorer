@@ -13,7 +13,6 @@ export type MasterView =
   | "evidence"
   | "structure"
   | "structure_alphafold"
-  | "structure_esmfold"
   | "energetics"
   | "landscape"
   | "insights"
@@ -58,7 +57,6 @@ export interface UserSettings {
   geminiSessionId?: string;
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
-  biohubApiToken?: string;
   tamarindApiKey?: string;
   alphagenomeApiKey?: string;
   alphagenomeApiUrl?: string;
@@ -77,7 +75,6 @@ export interface UserSettings {
   show3DLabels: boolean;
   saveHistory: boolean;
   reducedMotion: boolean;
-  defaultStructureModel: "alphafold" | "esmfold";
   /**
    * SpliceAI's reporting window (-D): how far from the variant a gained or lost splice site may be
    * reported. Sent with each analysis; the server clamps it to the service's 50–10,000 bp range.

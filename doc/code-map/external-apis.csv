@@ -2,13 +2,11 @@ host,file
 alphafold.ebi.ac.uk,server/express-config.ts
 alphafold.ebi.ac.uk,server/services/evidence-context/hotspots.ts
 alphafold.ebi.ac.uk,server/services/structure/structure-fetcher.ts
-api.esmatlas.com,server/services/structure/esmfold.ts
 api.genome.ucsc.edu,server/services/prediction/predictors/locus-resolver.ts
 api.genome.ucsc.edu,server/services/prediction/splice_resolver.ts
 api.japanfold.aiand.com,server/config.ts
 api.japanfold.aiand.com,server/routes/capabilities.ts
 app.tamarind.bio,server/services/stability/energy-models.ts
-biohub.ai,server/routes/structure.ts
 biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts
 biosig.lab.uq.edu.au,server/services/stability/dynamut.ts
 cdn.jsdelivr.net,server/express-config.ts
@@ -24,7 +22,6 @@ eutils.ncbi.nlm.nih.gov,server/services/external-api/clinvar.ts
 eutils.ncbi.nlm.nih.gov,server/services/translation/identifier-intake.ts
 files.rcsb.org,server/services/external-api/pdbe-entries.ts
 files.rcsb.org,server/services/structure/structure-fetcher.ts
-forge.evolutionaryscale.ai,server/routes/structure.ts
 github.com,server/agent/tools.ts
 github.com,server/services/infra/egress-governor.ts
 github.com,server/services/stability/ddmut-ppi.ts

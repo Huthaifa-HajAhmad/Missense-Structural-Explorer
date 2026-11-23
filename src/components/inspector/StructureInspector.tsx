@@ -4,10 +4,9 @@ import { BookOpen, Database, GitBranch, Layers, Ruler, Spline } from "lucide-rea
 import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 import { landscapeKey } from "../../shared/landscapeEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
-import { describeDeNovoCapacityNotice, readProteinLength, resolveDeNovoFoldingCapacity } from "../../shared/foldingLimits";
-import { alphafoldDbCoverage } from "../../shared/alphafoldAvailability";
+import { readProteinLength } from "../../shared/alphafoldAvailability";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
-import type { CoordinateIdentity, ModelFamily, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
+import type { CoordinateIdentity, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
 import { trackRegions } from "../../shared/residueRegions";
 import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
 import { StructureSelectionCard } from "./StructureSelectionCard";
@@ -61,15 +60,12 @@ function ComparisonSection({ model }: { model: Structure3dEvidence }) {
   return (
     <section className="s3d-rsec" aria-labelledby="s3d-rail-compare">
       <h3 className="eyebrow" id="s3d-rail-compare">
-        <span><Ruler className="w-3.5 h-3.5" aria-hidden="true" />{comparison.rigidBackbone ? "Side-chain comparison" : "Coordinate comparison"}</span>
-        {comparison.fit && !comparison.rigidBackbone && <span className="s3d-rsec__meta">{comparison.fit} fit</span>}
+        <span><Ruler className="w-3.5 h-3.5" aria-hidden="true" />Side-chain comparison</span>
       </h3>
       {comparison.state === "ready" && readings.length > 0 ? (
         <>
           <p className="s3d-section-intro">{comparison.headline}.</p>
-          {comparison.rigidBackbone && (
-            <p className="s3d-comparison-context">FoldX fixes the template backbone. Cα motion and RMSD are zero by construction, so this view reports the side-chain and contact readings instead.</p>
-          )}
+          <p className="s3d-comparison-context">FoldX fixes the template backbone. Cα motion and RMSD are zero by construction, so this view reports the side-chain and contact readings instead.</p>
           <ul className="s3d-readings" data-testid="structure-readings">
             {readings.map(reading => (
               <li key={reading.key} className="s3d-reading">
@@ -92,23 +88,20 @@ function ComparisonSection({ model }: { model: Structure3dEvidence }) {
 
 export interface StructureInspectorProps {
   selection?: StructureSelection;
-  family: ModelFamily;
   setCustomPdbUrl?: (url: string | null) => void;
   onReturnToVariant?: () => void;
   onSelectResidue?: (position: number) => void;
 }
 
 export const StructureInspector: React.FC<StructureInspectorProps> = ({
-  family,
   setCustomPdbUrl,
   selection,
   onReturnToVariant,
   onSelectResidue,
 }) => {
-  const model = useStructure3dEvidence(family);
+  const model = useStructure3dEvidence();
   const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
   const hasResult = useVariantAnalysisStore(s => Boolean(s.analysisState?.result));
-  const deNovoFailed = useVariantAnalysisStore(s => Boolean(s.esmFoldingError));
   const canvasSecondary = useVariantAnalysisStore(s => s.canvasSecondary);
   const canvasSecondaryState = useVariantAnalysisStore(s => s.canvasSecondaryState);
   const features = useVariantAnalysisStore(s => s.analysisState?.result?.uniprotFeatures?.features ?? null);
@@ -118,17 +111,6 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
   }
 
   const { canvas, experimental, site } = model;
-  const capacityNotice =
-    proteinLength !== null && !(family === "esmfold" && deNovoFailed)
-      ? describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(proteinLength), {
-          // Only a length past AlphaFold DB's ceiling proves the model cannot exist; a length
-          // inside it says nothing about whether an entry was published.
-          alphafoldModelAvailable: alphafoldDbCoverage(proteinLength) === "beyond-limit" ? false : null,
-        })
-      : null;
-  const capacity =
-    capacityNotice && (family === "esmfold" ? !canvas.primary : capacityNotice.tone === "warning") ? capacityNotice : null;
-
   const handleReturn = () => {
     const store = useVariantAnalysisStore.getState();
     store.setHoveredResidueIndex(null);
@@ -190,29 +172,24 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
         {canvas.primary ? (
           <div className="s3d-canvas-card" data-testid="structure-rail-canvas">
             <IdentityRow
-              role={canvas.secondary && family === "alphafold" ? "Template" : canvas.primary.role === "variant" ? "Variant" : "Wild type"}
+              role={canvas.secondary ? "Template" : canvas.primary.role === "variant" ? "Variant" : "Wild type"}
               identity={canvas.primary}
               withGuide
             />
             {canvas.secondary && <IdentityRow role="Variant" identity={canvas.secondary} />}
           </div>
         ) : (
-          <p className="s3d-empty"><strong>{canvas.chip.label}</strong>{family === "esmfold" ? "No de novo structure is loaded." : "The wild-type coordinates are loading."}</p>
+          <p className="s3d-empty"><strong>{canvas.chip.label}</strong>The wild-type coordinates are loading.</p>
         )}
         {canvas.relationshipNote && <p className="s3d-relationship">{canvas.relationshipNote}</p>}
         {model.notices.map(notice => (
           <p key={notice.key} className="s3d-notice" data-tone={notice.tone}><strong>{notice.title}</strong>{notice.body}</p>
         ))}
-        {capacity && (
-          <p className="s3d-notice" data-tone={capacity.tone === "warning" ? "warning" : "info"} data-folding-notice={capacity.tone}>
-            <strong>{capacity.title}</strong>{capacity.body}
-          </p>
-        )}
       </section>
 
       {model.viewMode !== "wildtype" && <ComparisonSection model={model} />}
 
-      {family === "alphafold" && setCustomPdbUrl && (
+      {setCustomPdbUrl && (
         <section className="s3d-rsec" aria-labelledby="s3d-rail-entries">
           <h3 className="eyebrow" id="s3d-rail-entries">
             <span><Database className="w-3.5 h-3.5" aria-hidden="true" />Experimental structures</span>

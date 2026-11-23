@@ -26,7 +26,7 @@ vi.mock("../../../hooks/useApiConnections", () => {
   const quiet = { testing: false, status: null };
   return {
     useApiConnections: () => ({
-      tests: { biohub: quiet, alphagenome: quiet, tamarind: quiet },
+      tests: { alphagenome: quiet, tamarind: quiet },
       runTest: vi.fn(),
       linking: false,
       linkError: null,
@@ -60,7 +60,6 @@ beforeEach(() => {
   api.savedSecrets.mockResolvedValue({
     available: true,
     secrets: [
-      { kind: "biohub", hint: "wvae", updatedAt: 1, readable: true },
       { kind: "tamarind", hint: "PCMk", updatedAt: 1, readable: true },
     ],
   });
@@ -124,9 +123,9 @@ describe("ConnectionsSection token rows", () => {
   it("keeps a token's account strip inside that token's row group", async () => {
     renderConnections();
 
-    const saved = await screen.findByText(/Saved to your account \(ends …wvae\)/);
-    const strip = saved.closest("[data-testid='account-token-biohub']");
-    const field = document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]');
+    const saved = await screen.findByText(/Saved to your account \(ends …PCMk\)/);
+    const strip = saved.closest("[data-testid='account-token-tamarind']");
+    const field = document.querySelector('[data-setting-title="Tamarind Bio API key"]');
 
     expect(strip).not.toBeNull();
     expect(field).not.toBeNull();
@@ -136,10 +135,9 @@ describe("ConnectionsSection token rows", () => {
     expect(strip!.parentElement!.parentElement).toHaveClass("settings-card");
     expect(strip!.parentElement).toHaveClass("settings-token-field");
 
-    // The note for one token never sits under a different token's field.
-    expect(field!.parentElement).not.toBe(
-      document.querySelector('[data-setting-title="Tamarind Bio API key"]')!.parentElement
-    );
+    // Biohub was retired with ESMFold: no field, no account strip.
+    expect(document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]')).toBeNull();
+    expect(document.querySelector("[data-testid='account-token-biohub']")).toBeNull();
   });
 
   it("keeps the last-request line with the token it belongs to", async () => {
@@ -155,7 +153,7 @@ describe("ConnectionsSection token rows", () => {
     expect(strip.parentElement).toBe(field.parentElement);
     // Nothing about this token leaks into another token's group.
     expect(
-      document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]')!.parentElement
+      document.querySelector('[data-setting-title="AlphaGenome Atlas API key"]')!.parentElement
     ).not.toBe(field.parentElement);
   });
 });
@@ -166,12 +164,12 @@ describe("ConnectionsSection optional providers", () => {
 
   it("keeps Tamarind apart from the credentials most people need, and offers no Hugging Face key", async () => {
     renderConnections();
-    await screen.findByText(/Saved to your account \(ends …wvae\)/);
+    await screen.findByText(/Saved to your account \(ends …PCMk\)/);
 
     const optional = document.querySelector('section[data-setting-title="Optional providers"]');
     expect(optional).not.toBeNull();
     expect(sectionOf("Tamarind Bio API key")).toBe(optional);
-    expect(sectionOf("EvolutionaryScale (Forge) token")).not.toBe(optional);
+    expect(sectionOf("AlphaGenome Atlas API key")).not.toBe(optional);
     expect(screen.queryByText(/Hugging Face/)).toBeNull();
   });
 

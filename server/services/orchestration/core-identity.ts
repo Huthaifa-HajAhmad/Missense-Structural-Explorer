@@ -11,7 +11,7 @@
  *     The identity therefore covers the residue being modelled (gene, canonical substitution,
  *     sequence — by hash, not by value), the coordinate trail and its build, the ACMG weighting,
  *     the numbering decision, the provider/model configuration, and the AUTH CAPABILITY (a run made
- *     with a BioHub token reaches ESM3; one made without it reaches `token_required` — the two are
+ *     with an AlphaGenome key reaches the live score; one made without it does not — the two are
  *     different evidence, and a shared run would show one request the other's answer).
  *
  *  2. "May this PERSISTED payload be reused for this request?" (`checkPayloadCompatibility`)
@@ -37,7 +37,7 @@
  *     in-memory `flightKey`. It exists so two different personal tokens never share a run; it is
  *     never persisted and never reaches a response.
  *   • a BOOLEAN — "a credential of this kind was present" — which is the only capability fact that
- *     goes into a payload. A persisted payload can therefore say "this run had no BioHub token"
+ *     goes into a payload. A persisted payload can therefore say "this run had no AlphaGenome key"
  *     without carrying any material that would let a reader test a token guess offline.
  *
  * Endpoint URLs are persisted as a KEYED digest (HMAC with a deployment/process key), never as the
@@ -47,15 +47,12 @@
  * a different evidence source.
  */
 import crypto from "crypto";
-import { credentialSourceTag } from "../infra/credentials.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
 /** Which identity a payload is being judged against: the core run or the structural refresh. */
 export type IdentityScope = "core" | "structural";
 
 export interface CoreCapabilitySummary {
-  /** A BioHub / EvolutionaryScale token was available (ESM3, ESMC). */
-  biohub: boolean;
   /** An AlphaGenome key was available (live AVI score). */
   alphagenome: boolean;
 }
@@ -225,7 +222,6 @@ function scienceDimensions(context: ParsedVariantContext): Record<string, unknow
  */
 function capabilitySummary(context: ParsedVariantContext): CoreCapabilitySummary {
   return {
-    biohub: Boolean(context.biohubToken),
     alphagenome: Boolean(context.alphagenomeApiKey)
   };
 }
@@ -233,16 +229,12 @@ function capabilitySummary(context: ParsedVariantContext): CoreCapabilitySummary
 /**
  * Provider credentials, reduced to process-local fingerprints.
  *
- * Biohub enters by SOURCE, never by token (WP-I4): everyone on the team token shares one
- * run, which makes one upstream call; a person's own token (sent or saved) is spent only on that person's
- * requests, so their runs are scoped to them (`own:<owner>`). Two of one person's tokens share. The
- * AlphaGenome key keeps its fingerprint: it is not one of the credentials WP-I4 governs. A fingerprint
+ * The AlphaGenome key keeps its fingerprint: it is not one of the credentials WP-I4 governs. A fingerprint
  * exists only inside the in-memory flight key (`credentialFingerprint`, a plain digest; nothing that
  * computes it is written down).
  */
 function providerFingerprints(context: ParsedVariantContext): Record<string, string | null> {
   return {
-    biohubSource: credentialSourceTag("biohub", context.biohubToken),
     alphagenomeKey: credentialFingerprint(context.alphagenomeApiKey),
     alphagenomeEndpoint: credentialFingerprint(context.alphagenomeApiUrl)
   };

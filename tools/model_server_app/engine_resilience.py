@@ -1,19 +1,18 @@
 """
-Resilience helpers shared by the model-server routers (ESMFold, StabilityOracle, ThermoMPNN).
+Resilience helpers shared by the model-server routers (StabilityOracle, ThermoMPNN).
 
 Deliberately free of torch / fastapi imports so they can be unit-tested anywhere.
 
 What it holds
 -------------
 One CPU gate with priorities and request deadlines (`PriorityCpuGate`, `BudgetHeaderMiddleware`), a
-single-flight cache so concurrent identical passes share one result, a deadline runner for remote SDK
-calls, and a check that turns an SDK error value into a raised error. The remote-failure memory that
-served the protein language models was removed with them on 2026-11-18.
+single-flight cache so concurrent identical passes share one result. The remote-failure memory that
+served the protein language models was removed with them on 2026-11-18, and the remote-SDK deadline
+runner and error check went with ESMFold.
 """
 
 from __future__ import annotations
 
-import concurrent.futures
 import contextlib
 import contextvars
 import copy
@@ -23,18 +22,6 @@ import threading
 import time
 from collections import OrderedDict
 from typing import Any, Callable
-
-def raise_if_sdk_error(value: Any) -> Any:
-    """
-    The ESM SDK RETURNS an `ESMProteinError` from `encode` / `logits` once its retries are spent
-    instead of raising it; the next call then fails with a message that no longer says why.
-    Raising it at the call site keeps the HTTP status (401/403/451/429...) attached.
-    """
-    if isinstance(value, Exception) and hasattr(value, "error_code") and hasattr(value, "error_msg"):
-        err = RuntimeError(f"HTTP {value.error_code}: {value.error_msg}")
-        setattr(err, "error_code", value.error_code)
-        raise err
-    return value
 
 
 class SingleFlightCache:
@@ -209,26 +196,3 @@ class PriorityCpuGate:
                     next_ev.set()
                 else:
                     self._busy = False
-
-
-class RemoteDeadlineExceeded(TimeoutError):
-    pass
-
-
-_deadline_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="remote-deadline")
-
-
-def run_with_deadline(fn: Callable[[], Any], seconds: float, label: str) -> Any:
-    """
-    Runs `fn` and gives up waiting after `seconds`.
-
-    A thread cannot be killed, so an abandoned call finishes in the background; callers bound it
-    further with the SDK's own request timeout. What this guarantees is that a slow remote tier can
-    no longer consume the whole HTTP budget of the request that is waiting for the local fallback.
-    """
-    future = _deadline_pool.submit(fn)
-    try:
-        return future.result(timeout=seconds)
-    except concurrent.futures.TimeoutError as exc:
-        future.cancel()
-        raise RemoteDeadlineExceeded(f"{label} exceeded its {seconds:.0f}s remote budget") from exc

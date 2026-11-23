@@ -166,7 +166,6 @@ export default function CommandPalette({
   onToggleSidebar,
 }: CommandPaletteProps) {
   const {
-    settings,
     isDark,
     toggleTheme,
     setIsSettingsOpen,
@@ -296,9 +295,6 @@ export default function CommandPalette({
   };
 
   const close = () => onOpenChange(false);
-
-  const structureDefault: MasterView =
-    settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
 
   /** Write every parsed slot (including empty ones) so no stale field from a previous run survives. */
   const writeParsedFields = () => {
@@ -431,7 +427,7 @@ export default function CommandPalette({
                     isCurrent={isViewActive(view.id, activeView)}
                     meta={view.sublabel}
                     onSelect={() =>
-                      runAndClose(() => onViewChange(view.id === "structure" ? structureDefault : view.id))
+                      runAndClose(() => onViewChange(view.id === "structure" ? "structure_alphafold" : view.id))
                     }
                   />
                 ))}

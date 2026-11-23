@@ -76,7 +76,6 @@ Rather than relying on static, hardcoded variants, the application dynamically p
     ```env
     GEMINI_API_KEY=your_free_gemini_api_key_here
     APP_SESSION_SECRET=32_character_random_string_here
-    BIOHUB_API_TOKEN=your_biohub_api_token_here
     APP_API_TOKEN=optional_secret_api_token
     ```
 4.  **Run Development Server**:

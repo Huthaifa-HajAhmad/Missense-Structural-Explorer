@@ -69,7 +69,6 @@ export interface ViewInspectorProps {
   activeEvidenceTab?: string;
   onSelectEvidenceTab?: (tab: string) => void;
   onSelectResidueIndex?: (idx: number) => void;
-  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
   /** P2Rank output backing the Residue Shifts inspector's cavity narrative. */
   computedPocket?: PocketResult | null;
   isPocketLoading?: boolean;
@@ -88,12 +87,10 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string }> = {
   evidence: { title: "Evidence Lineage", subtitle: "Genomic & Database Provenance" },
   /*
    * Named for the view, not for a model: "AlphaFold Inspector · Full-Length 3D Model" stayed on screen
-   * over a FoldX variant built on a crystal template, and "ESMFold-2 Inspector" over structures the
-   * ESM Atlas's ESMFold v1 had folded. The rail itself names what is on the canvas.
+   * over a FoldX variant built on a crystal template. The rail itself names what is on the canvas.
    */
   structure: { title: "3D structure", subtitle: "Coordinates, comparison & provenance" },
   structure_alphafold: { title: "3D structure · AlphaFold2 view", subtitle: "AlphaFold model, FoldX variant" },
-  structure_esmfold: { title: "3D structure · ESMFold view", subtitle: "De novo wild type and variant" },
   /* Main renamed `energetics` and `landscape`; the 3D branch renamed the three structure entries.
      Each side's renames are kept. */
   energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached" },
@@ -118,7 +115,6 @@ const VIEW_ICONS: Record<MasterView, NavIcon> = {
   evidence: NAV_ICONS.evidence,
   structure: NAV_ICONS.structure,
   structure_alphafold: SUB_NAV_ICONS.structure_alphafold,
-  structure_esmfold: SUB_NAV_ICONS.structure_esmfold,
   energetics: NAV_ICONS.energetics,
   landscape: NAV_ICONS.landscape,
   insights: NAV_ICONS.insights,
@@ -176,7 +172,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   activeEvidenceTab,
   onSelectEvidenceTab,
   onSelectResidueIndex,
-  active3dModelTab = "alphafold2",
   computedPocket = null,
   isPocketLoading = false,
   pocketError = null,
@@ -499,10 +494,9 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         )}
 
         {!showConstraint && (<>
-        {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
+        {(activeView === "structure" || activeView === "structure_alphafold") && (
           <StructureInspector
             selection={structureSelection}
-            family={activeView === "structure_esmfold" ? "esmfold" : "alphafold"}
             setCustomPdbUrl={setCustomPdbUrl}
             onReturnToVariant={onReturnToVariant}
             onSelectResidue={onSelectResidue}

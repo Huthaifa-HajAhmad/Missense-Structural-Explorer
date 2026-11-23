@@ -150,16 +150,19 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
   });
 
   describe("Protected Endpoints Security Enforcement", () => {
-    it("POST /api/v1/biophysics/verify-stability is retired: not public, and 404 even for a signed-in caller", async () => {
-      expect(PUBLIC_ENDPOINTS).not.toContain("/api/v1/biophysics/verify-stability");
-      expect(PUBLIC_ENDPOINTS).not.toContain("/biophysics/verify-stability");
-      const res = await fetch(`${baseUrl}/api/v1/biophysics/verify-stability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TEST_API_TOKEN}` },
-        body: "{}"
-      });
-      expect(res.status).toBe(404);
-    });
+    it.each(["/biophysics/verify-stability", "/esmfold", "/validate-biohub-token"])(
+      "POST %s is retired: not public, and 404 even for a signed-in caller",
+      async (route) => {
+        expect(PUBLIC_ENDPOINTS).not.toContain(`/api/v1${route}`);
+        expect(PUBLIC_ENDPOINTS).not.toContain(route);
+        const res = await fetch(`${baseUrl}/api/v1${route}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${TEST_API_TOKEN}` },
+          body: "{}"
+        });
+        expect(res.status).toBe(404);
+      }
+    );
 
     it("Non-public unregistered endpoint should be rejected by authCheck with 401 before 404", async () => {
       const res = await fetch(`${baseUrl}/api/v1/private-admin-route`, {

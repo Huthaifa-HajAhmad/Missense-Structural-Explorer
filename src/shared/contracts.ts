@@ -1050,39 +1050,6 @@ export type BiophysicalAnalysisRequest = z.infer<typeof biophysicalAnalysisReque
 export type BiophysicalAnalysisResponse = z.infer<typeof biophysicalAnalysisResponseSchema>;
 
 // ============================================================================
-// 8. ESMFold Contract
-// ============================================================================
-export const esmFoldRequestSchema = z.object({
-  sequence: z.string().optional(),
-  uniprotId: z.string().optional(),
-  variant: z.string().optional(),
-  wtSeq: z.string().optional(),
-  mutSeq: z.string().optional()
-});
-
-export const esmFoldResponseSchema = z.object({
-  pdb: z.string().optional(),
-  wtPdb: z.string().optional(),
-  mutPdb: z.string().optional(),
-  chain: z.string().optional(),
-  plddt: z.array(z.number()).optional(),
-  status: z.enum(["success", "cached", "failed"]),
-  /**
-   * Which engine folded each structure (`server/services/structure/esmfold.ts`). Optional so an older
-   * server still parses; the viewer then says the engine was not reported rather than guessing.
-   */
-  engines: z
-    .object({
-      wildType: z.string().nullable(),
-      variant: z.string().nullable()
-    })
-    .optional()
-});
-
-export type EsmFoldRequest = z.infer<typeof esmFoldRequestSchema>;
-export type EsmFoldResponse = z.infer<typeof esmFoldResponseSchema>;
-
-// ============================================================================
 // 9. Structural Align Contract
 // ============================================================================
 export const structuralAlignRequestSchema = z.object({

@@ -244,7 +244,7 @@ describe("governedFetch and the team-wide pause", () => {
     }
     expect(isLocalHost("172.32.0.1")).toBe(false);
     vi.spyOn(global, "fetch").mockImplementation(async () => ok());
-    await governedFetch("http://127.0.0.1:8000/predict/esmfold", { method: "POST" });
+    await governedFetch("http://127.0.0.1:8000/predict/thermompnn", { method: "POST" });
     expect(governorHealth()).toEqual([]);
   });
 });

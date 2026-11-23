@@ -4,7 +4,7 @@ import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { clearInvalidApiKey } from "../api/authSession";
 
-type TestId = "biohub" | "alphagenome" | "tamarind";
+type TestId = "alphagenome" | "tamarind";
 
 interface TestState {
   testing: boolean;
@@ -22,11 +22,6 @@ interface EndpointSpec {
 }
 
 const ENDPOINTS: Record<TestId, EndpointSpec> = {
-  biohub: {
-    endpoint: "/api/v1/validate-biohub-token",
-    payload: (token) => ({ token }),
-    emptyMessage: "No Biohub API token entered."
-  },
   alphagenome: {
     endpoint: "/api/v1/alphagenome/verify-connection",
     payload: (token) => ({ apiKey: token }),
@@ -51,7 +46,6 @@ function errorMessage(err: unknown, fallback: string): string {
 export function useApiConnections() {
   const { settings, updateSetting } = useSettings();
   const [tests, setTests] = useState<Record<TestId, TestState>>({
-    biohub: IDLE_TEST,
     alphagenome: IDLE_TEST,
     tamarind: IDLE_TEST
   });
@@ -63,11 +57,7 @@ export function useApiConnections() {
   };
 
   const tokenFor = (id: TestId): string | undefined =>
-    id === "biohub"
-      ? settings.biohubApiToken
-      : id === "tamarind"
-        ? settings.tamarindApiKey
-        : settings.alphagenomeApiKey;
+    id === "tamarind" ? settings.tamarindApiKey : settings.alphagenomeApiKey;
 
   // What a test result is about. AlphaGenome is tested against a key AND an endpoint.
   const inputFor = (id: TestId): string =>
@@ -141,7 +131,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.biohubApiToken, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
+    [settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {
@@ -203,7 +193,7 @@ export function useApiConnections() {
     return current;
     // inputFor reads only the settings listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tests, settings.biohubApiToken, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
+  }, [tests, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
 
   return {
     tests: currentTests,

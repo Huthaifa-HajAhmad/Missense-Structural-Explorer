@@ -94,8 +94,9 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
     // Scrub any credential that an older release may have persisted in
     // plaintext (tamarindApiKey and hfToken were leaked here historically).
     let needsPersistOnMount = false;
-    // `hfToken` and `gpnApiUrl` belonged to the retired GPN-MSA integration.
-    for (const key of [...TRANSIENT_SETTING_KEYS, "hfToken", "gpnApiUrl"]) {
+    // `hfToken` and `gpnApiUrl` belonged to the retired GPN-MSA integration; `biohubApiToken` and
+    // `defaultStructureModel` to the retired ESMFold view.
+    for (const key of [...TRANSIENT_SETTING_KEYS, "hfToken", "gpnApiUrl", "biohubApiToken", "defaultStructureModel"]) {
       if (parsed[key] !== undefined) {
         delete parsed[key];
         if (saved) needsPersistOnMount = true;
@@ -124,7 +125,6 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
       geminiSessionId: transient.geminiSessionId || "",
       geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
       appApiToken: transient.appApiToken || "",
-      biohubApiToken: transient.biohubApiToken || "",
       tamarindApiKey: transient.tamarindApiKey || "",
       alphagenomeApiKey: transient.alphagenomeApiKey || "",
       alphagenomeApiUrl: transient.alphagenomeApiUrl || "",

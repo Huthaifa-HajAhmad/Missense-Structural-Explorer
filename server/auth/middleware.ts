@@ -4,7 +4,7 @@
  * WHY WRITES, NOT A LIST OF "HEAVY" ROUTES
  * ----------------------------------------
  * `PUBLIC_ENDPOINTS` (routes/state.ts) already lists nearly every compute route (`/generate-mutant`,
- * `/foldx-job`, `/esmfold`, `/pocket-finder` …), so the shared token protects almost none of the
+ * `/foldx-job`, `/pocket-finder` …), so the shared token protects almost none of the
  * compute today. A hand-kept list of heavy routes would drift the same way the next time a route is
  * added. The rule here cannot drift: once accounts are switched on, every WRITE needs a principal,
  * and only the sign-in endpoints themselves are exempt. Reads keep today's behaviour.

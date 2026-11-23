@@ -9,7 +9,6 @@ import {
   nearestResiduesResponseSchema,
   pocketFinderResponseSchema,
   biophysicalAnalysisResponseSchema,
-  esmFoldResponseSchema,
   structuralAlignResponseSchema,
   clinVarDataSchema,
   energeticsDataSchema,
@@ -431,31 +430,6 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.metadata?.pdbSource).toBe("RCSB PDB");
     // ...and a field the server adds later is not silently dropped either.
     expect((parsed.metadata as any)?.somethingAddedLater).toBe("kept");
-  });
-
-  it("should validate esmFoldResponseSchema successfully", () => {
-    const validSinglePayload = {
-      pdb: "ATOM 1...",
-      chain: "A",
-      status: "success" as const
-    };
-
-    const parsedSingle = esmFoldResponseSchema.parse(validSinglePayload);
-    expect(parsedSingle.pdb).toBe("ATOM 1...");
-    expect(parsedSingle.status).toBe("success");
-
-    const validDualPayload = {
-      wtPdb: "ATOM 1...",
-      mutPdb: "ATOM 2...",
-      chain: "A",
-      status: "success" as const
-    };
-
-    const parsedDual = esmFoldResponseSchema.parse(validDualPayload);
-    expect(parsedDual.wtPdb).toBe("ATOM 1...");
-    expect(parsedDual.mutPdb).toBe("ATOM 2...");
-    expect(parsedDual.chain).toBe("A");
-    expect(parsedDual.status).toBe("success");
   });
 
   it("should validate structuralAlignResponseSchema successfully", () => {

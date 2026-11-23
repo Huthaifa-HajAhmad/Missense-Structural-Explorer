@@ -25,7 +25,7 @@ export function isOnDemandView(view: string): boolean {
 /** What each stage does, shown while it has nothing of its own to report. */
 const STAGE_DESCRIPTIONS: Record<string, string> = {
   evidence: "ClinVar, gnomAD & ACMG rules engine",
-  structure: "AlphaFold DB, ESMFold & PDB 3D templates",
+  structure: "AlphaFold DB & PDB 3D templates",
   energetics: "FoldX, DynaMut2 & DDMut stability engines",
   landscape: "3D spatial mutation mapping & pocket impact",
   insights: "AI-driven variant interpretation narrative",
@@ -342,7 +342,7 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
       };
     }
 
-    if (view === "structure" || view === "structure_alphafold" || view === "structure_esmfold") {
+    if (view === "structure" || view === "structure_alphafold") {
       if (result.metadata?.pipelineStages?.core === "error") {
         return {
           status: "unavailable",

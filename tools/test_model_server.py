@@ -59,7 +59,7 @@ class TestModelServerHealth(unittest.TestCase):
     def test_retired_language_model_routes_are_not_served(self):
         from model_server import app
         paths = {getattr(route, 'path', '') for route in app.routes}
-        for retired in ('/predict/vesm', '/predict/esm2', '/predict/esm3', '/predict/saprot'):
+        for retired in ('/predict/vesm', '/predict/esm2', '/predict/esm3', '/predict/saprot', '/predict/esmfold'):
             self.assertNotIn(retired, paths)
 
 

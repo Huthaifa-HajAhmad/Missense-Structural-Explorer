@@ -323,17 +323,6 @@ export const STRUCTURE_COLOUR_BANDS = {
     { label: "Third quarter", color: 0xd9b26a },
     { label: "Highest quarter", color: 0xc4683f },
   ],
-  /**
-   * APP-DEFINED, unsourced: per-residue Cα displacement after superposition, in Å. Drawn with a
-   * dashed key and labelled as this app's own marks.
-   */
-  displacement: [
-    { max: 0.2, label: "< 0.2 Å", color: 0x3b6ea5 },
-    { max: 0.5, label: "0.2–0.5 Å", color: 0x7fb0d6 },
-    { max: 1.0, label: "0.5–1.0 Å", color: 0xb8c98a },
-    { max: 2.5, label: "1.0–2.5 Å", color: 0xe0a458 },
-    { max: Infinity, label: "≥ 2.5 Å", color: 0xc4523a },
-  ],
   /** Residues the channel does not cover (no score, outside the model, non-atomic). */
   none: 0xa8a29e,
 } as const;
