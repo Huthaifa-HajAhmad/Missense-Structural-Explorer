@@ -43,12 +43,12 @@ describe("reference variant — NAE1 p.Asp116Gly", () => {
     expect(g.transcriptId).toBe("NM_003905.4");
   });
 
-  it("states that dbscSNV does not cover +26 — its acceptor window ends at +2", () => {
-    expect(ev.geometry.inDbscsnvWindow).toBe(false);
-    const ada = ev.readings.find(r => r.key === "dbscsnv-ada")!;
-    expect(ada.availability.state).toBe("not-covered");
-    expect(ada.availability.reason).toContain("−12 to +2 at an acceptor");
-    expect(ada.availability.reason).toContain("+26");
+  it("carries no dbscSNV reading, window or summary: the tool was retired", () => {
+    expect(ev.readings.some(r => r.key.startsWith("dbscsnv"))).toBe(false);
+    expect("inDbscsnvWindow" in ev.geometry).toBe(false);
+    expect("dbscsnv" in ev).toBe(false);
+    expect(ev.map).not.toBeNull();
+    expect("dbscWindow" in ev.map!).toBe(false);
   });
 
   it("surfaces AlphaGenome's reference-base mismatch as a coordinate problem", () => {
@@ -81,19 +81,15 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     expect(build({ conservationData: { spliceai: sai(THRESHOLDS.spliceai.splicingPp3) } }).rule.state).toBe("pp3");
   });
 
-  it("does not let junction proximity or dbscSNV make a call", () => {
+  it("does not let junction proximity make a call", () => {
     const ev = build({
       conservationData: {
         spliceProximity: { distance: 1, isNearSpliceSite: true, junctionType: "donor", regionType: "intronic" },
-        dbscsnv: { ada_score: 0.99, rf_score: 0.95 },
         spliceai: null,
       },
     });
     expect(ev.rule.state).toBe("no-score");
     expect(ev.geometry.isCanonicalDinucleotide).toBe(true);
-    const ada = ev.readings.find(r => r.key === "dbscsnv-ada")!;
-    expect(ada.call?.label).toBe("Altering (authors)");
-    expect(ada.call?.isCode).toBe(false);
   });
 
   it("names the channel and shift the maximum came from, in transcript direction", () => {
@@ -141,11 +137,10 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     expect(splicingFinding(ev).predicate).toMatch(/^a max Δ under 0\.01/);
   });
 
-  it("keeps two scored dbscSNV models as two rows", () => {
-    const ev = build({ conservationData: { dbscsnv: { ada_score: 0.9, rf_score: 0.4 } } });
+  it("ignores a dbscSNV score that an analysis saved before its retirement still carries", () => {
+    const ev = build({ conservationData: { dbscsnv: { ada_score: 0.9, rf_score: 0.4 } } as any });
     const ctx = groupSpliceReadings(ev.readings).find(g => g.group === "context")!.rows.map(r => r.key);
-    expect(ctx).toContain("dbscsnv-ada");
-    expect(ctx).toContain("dbscsnv-rf");
+    expect(ctx).toEqual(["alphagenome-splicing"]);
   });
 
   it("is pending, not absent, while SpliceAI is in flight", () => {
@@ -194,7 +189,7 @@ describe("the engine record is read, never inferred from splicing", () => {
   });
 });
 
-describe("geometry — positions in splice-site convention, dbscSNV's asymmetric windows", () => {
+describe("geometry — positions in splice-site convention", () => {
   const at = (junctionType: string, regionType: string, distance: number) =>
     build({ conservationData: { spliceProximity: { distance, junctionType, regionType, isNearSpliceSite: false } } }).geometry;
 
@@ -209,29 +204,16 @@ describe("geometry — positions in splice-site convention, dbscSNV's asymmetric
     expect(at("acceptor", "exonic", 0).position).toBe(1);
   });
 
-  it("uses dbscSNV's real windows: −3..+8 donor, −12..+2 acceptor", () => {
-    expect(at("donor", "exonic", 2).inDbscsnvWindow).toBe(true); // −3
-    expect(at("donor", "exonic", 3).inDbscsnvWindow).toBe(false); // −4
-    expect(at("donor", "intronic", 8).inDbscsnvWindow).toBe(true);
-    expect(at("donor", "intronic", 9).inDbscsnvWindow).toBe(false);
-    expect(at("acceptor", "intronic", 12).inDbscsnvWindow).toBe(true);
-    expect(at("acceptor", "intronic", 13).inDbscsnvWindow).toBe(false);
-    expect(at("acceptor", "exonic", 1).inDbscsnvWindow).toBe(true); // +2
-    // The old symmetric ±12 flank called this "inside": an exonic base 5 from the acceptor.
-    expect(at("acceptor", "exonic", 4).inDbscsnvWindow).toBe(false); // +5
-  });
-
   it("flags only intronic ±1/±2 as the canonical dinucleotide", () => {
     expect(at("donor", "intronic", 2).isCanonicalDinucleotide).toBe(true);
     expect(at("donor", "intronic", 3).isCanonicalDinucleotide).toBe(false);
     expect(at("acceptor", "exonic", 0).isCanonicalDinucleotide).toBe(false);
   });
 
-  it("claims no position or window at a transcript terminus (F-15)", () => {
+  it("claims no position at a transcript terminus (F-15)", () => {
     const g = at("terminal", "exonic", 2);
     expect(g.junction).toBe("terminal");
     expect(g.position).toBeNull();
-    expect(g.inDbscsnvWindow).toBeNull();
     expect(g.junctionLabel).toContain("terminus");
   });
 

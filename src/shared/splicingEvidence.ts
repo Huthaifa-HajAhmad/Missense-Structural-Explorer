@@ -18,8 +18,6 @@
  *   • that verdict turned pathogenic for ANY variant ≤ 5 bp from a junction and for dbscSNV ≥ 0.6,
  *     and turned benign only at SpliceAI ≤ 0.02 AND > 12 bp from a junction — a rule cited to a
  *     "ClinGen SVI Recommendation (2019)" that does not exist;
- *   • dbscSNV's window was drawn as a symmetric ±12 bp flank; its real windows are −3..+8 (donor)
- *     and −12..+2 (acceptor), so exonic variants 3–12 bp from an acceptor were "inside" it;
  *   • AlphaGenome's signed SHAP contribution was printed ×100 as a percentage, with a "Primary
  *     Driver" badge at an app-defined 0.25;
  *   • a "mechanistic etiology" card declared "pathogenicity is driven by post-translational protein
@@ -33,7 +31,7 @@
  *     a score against a literal.
  *   • The engine's PP3/BP4 is READ from its criteria list (via `buildPredictorEvidence`), never
  *     inferred from splicing.
- *   • dbscSNV and junction distance are context. They never make a call.
+ *   • Junction distance is context. It never makes a call.
  *   • Absence is a state with a reason, never 0, never benign.
  *
  * Pure: no React, no fetching.
@@ -169,8 +167,6 @@ export interface SpliceGeometry {
   positionPhrase: string | null;
   /** True at intronic ±1/±2 — the canonical dinucleotide, a PVS1 question rather than PP3. */
   isCanonicalDinucleotide: boolean;
-  /** Whether dbscSNV's window reaches this position; null when the position cannot be placed. */
-  inDbscsnvWindow: boolean | null;
   exonNumber: number | null;
   totalExons: number | null;
   exonLength: number | null;
@@ -200,8 +196,7 @@ export interface SpliceGeometry {
  *                     service on BRCA1 exon 3: DP_DG −3 and DP_AG +50 land on the Ensembl exon ends);
  *   predictions       SpliceAI's four channels at their delta positions. DP is in GENOMIC
  *                     coordinates, so a reverse-strand gene flips the sign; with no strand nothing
- *                     is placed rather than placed on the wrong side;
- *   dbscSNV window    Jian 2014's −3..+8 donor / −12..+2 acceptor, as a span of bases.
+ *                     is placed rather than placed on the wrong side.
  * It replaced a ±40 bp ruler that showed one junction and the variant, and could not say whether a
  * predicted change lands on a real splice site or makes a new one.
  */
@@ -248,8 +243,6 @@ export interface SpliceMap {
   totalExons: number | null;
   /** The nearest exon's number, null when unresolved. */
   exonNumber: number | null;
-  /** dbscSNV's window as [from, to] in offsets (edges of the bases it covers). */
-  dbscWindow: [number, number];
   predictions: SpliceMapPrediction[];
   /** All available delta scores, including channels that cannot be positioned. */
   maxScore: number | null;
@@ -342,7 +335,6 @@ export interface SplicingEvidence {
     windowText: string;
     maskText: string;
   };
-  dbscsnv: { ada: number | null; rf: number | null; max: number | null; altering: boolean | null };
   alphagenome: { share: number | null; shap: number | null; availability: EvidenceAvailability };
   /** The coordinate was rejected upstream for a reference-base mismatch (AlphaGenome's message). */
   referenceMismatch: string | null;
@@ -358,7 +350,6 @@ export interface SplicingEvidence {
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────
 
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-const fmt3 = (v: number) => v.toFixed(3);
 
 /**
  * A SpliceAI delta score as every surface prints it: two decimals, SpliceAI's own convention.
@@ -507,10 +498,6 @@ function buildSpliceMap({
     if (hasDonor(n.number)) sites.push({ type: "donor", offset: n.end - 0.5, far: true });
   }
 
-  const W = THRESHOLDS.dbscsnv.window;
-  const [qa, qb] = junction === "donor" ? [-W.donor.exonic, W.donor.intronic] : [-W.acceptor.intronic, W.acceptor.exonic];
-  const dbscWindow: [number, number] = [offsetBetweenPositions(p, qa) - 0.5, offsetBetweenPositions(p, qb) + 0.5];
-
   const predictions: SpliceMapPrediction[] = [];
   const missingPositions: SpliceMap["missingPositions"] = [];
   const quiet: SpliceMap["quiet"] = [];
@@ -571,7 +558,6 @@ function buildSpliceMap({
     neighbours,
     totalExons: g.totalExons,
     exonNumber: g.exonNumber,
-    dbscWindow,
     predictions: predictions.sort((a, b) => a.offset - b.offset),
     maxScore: scored.length > 0 || maxDs !== null ? Math.max(maxDs ?? 0, ...scored.map(c => c.ds!)) : null,
     missingPositions,
@@ -668,7 +654,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const cd = result.conservationData ?? null;
   const sp = cd?.spliceProximity ?? null;
   const sai = cd?.spliceai ?? null;
-  const dbsc = cd?.dbscsnv ?? null;
   const refusals = cd?.assemblyRefusals ?? null;
 
   // ── Geometry ──
@@ -681,13 +666,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   // position is claimed for them.
   const oriented = (junction === "donor" || junction === "acceptor") && distance !== null && regionType !== null;
   const position = oriented ? spliceSitePosition(junction as "donor" | "acceptor", regionType, distance as number) : null;
-  const W = THRESHOLDS.dbscsnv.window;
-  const inDbscsnvWindow =
-    position === null
-      ? null
-      : junction === "donor"
-      ? position >= -W.donor.exonic && position <= W.donor.intronic
-      : position >= -W.acceptor.intronic && position <= W.acceptor.exonic;
   const isCanonicalDinucleotide = position !== null && regionType === "intronic" && Math.abs(position) <= 2;
 
   const exonNumber = finite(sp?.exonNumber);
@@ -720,7 +698,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     position,
     positionPhrase,
     isCanonicalDinucleotide,
-    inDbscsnvWindow,
     exonNumber,
     totalExons,
     exonLength: finite(sp?.exonLength),
@@ -760,8 +737,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const saiPending = !sai && saiState === "pending";
   const saiTimedOut = !sai && saiState === "timeout";
   /**
-   * The rule is SpliceAI's max delta score alone (`evaluateSplicePredictor` ignores geometry and
-   * dbscSNV), so it is stated the moment SpliceAI has answered — not held for dbNSFP or geometry.
+   * The rule is SpliceAI's max delta score alone (`evaluateSplicePredictor` ignores geometry), so it is stated the moment SpliceAI has answered — not held for dbNSFP or geometry.
    */
   const rulePending = saiPending;
   const inGene = regionType === "exonic" || regionType === "intronic";
@@ -796,7 +772,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
       }
     : null;
 
-  const signal = evaluateSplicePredictor(sp, sai, dbsc);
+  const signal = evaluateSplicePredictor(sp, sai);
   const ruleState: SplicingRuleState = rulePending
     ? "pending"
     : signal === "pathogenic"
@@ -807,12 +783,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     ? "between"
     : "no-score";
   const ruleCode = ruleState === "pp3" ? "PP3" : ruleState === "bp4" ? "BP4" : null;
-
-  // ── dbscSNV ──
-  const ada = finite(dbsc?.ada_score);
-  const rf = finite(dbsc?.rf_score);
-  const dbMax = ada === null && rf === null ? null : Math.max(ada ?? -Infinity, rf ?? -Infinity);
-  const altering = dbMax === null ? null : dbMax >= THRESHOLDS.dbscsnv.spliceAltering;
 
   // ── AlphaGenome splicing attribution — the AlphaGenome tab's own reading, not a second one ──
   const ag = buildAlphaGenomeEvidence({ result, configured: alphagenomeConfigured });
@@ -884,60 +854,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     }
   }
 
-  const dbscAbsence = (value: number | null): EvidenceAvailability => {
-    const a = resolveEvidenceAvailability({ value, status: dbsc ? "live" : null });
-    if (a.hasValue) return a;
-    if (inDbscsnvWindow === false) {
-      return {
-        ...a,
-        state: "not-covered",
-        label: ENGINE_STATE_LABELS["not-covered"],
-        tone: "muted",
-        reason: `dbscSNV scores only −${W.donor.exonic} to +${W.donor.intronic} at a donor and −${W.acceptor.intronic} to +${W.acceptor.exonic} at an acceptor; this variant is at ${position! > 0 ? "+" : "−"}${Math.abs(position!)}.`,
-      };
-    }
-    a.reason =
-      inDbscsnvWindow === true
-        ? "Inside dbscSNV's window, but no score was returned."
-        : "The junction position is not resolved, so whether dbscSNV covers this variant is unknown.";
-    return a;
-  };
-  const dbscCall = (v: number | null): SpliceReading["call"] =>
-    v === null ? null : v >= THRESHOLDS.dbscsnv.spliceAltering ? { label: "Altering (authors)", tone: "warning", isCode: false } : { label: "Below cut-point", tone: "neutral", isCode: false };
-  const dbscScale = (): SpliceScale => ({ min: 0, max: 1, bands: [], ticks: [{ value: THRESHOLDS.dbscsnv.spliceAltering, label: `Authors' cut-point ${THRESHOLDS.dbscsnv.spliceAltering}` }] });
-
-  readings.push({
-    key: "dbscsnv-ada",
-    group: "context",
-    name: "dbscSNV AdaBoost",
-    description: "Consensus-region ensemble (Jian 2014). Defined only near the splice sites.",
-    score: ada,
-    scoreText: ada !== null ? fmt3(ada) : "—",
-    sub: null,
-    scale: ada !== null ? dbscScale() : null,
-    scaleSource: "Authors' cut-point 0.6 · not ClinGen-calibrated",
-    call: dbscCall(ada),
-    note: null,
-    availability: dbscAbsence(ada),
-    knowledgeKey: "dbscsnv",
-    link: null,
-  });
-  readings.push({
-    key: "dbscsnv-rf",
-    group: "context",
-    name: "dbscSNV random forest",
-    description: "Second model of the same ensemble, same window.",
-    score: rf,
-    scoreText: rf !== null ? fmt3(rf) : "—",
-    sub: null,
-    scale: rf !== null ? dbscScale() : null,
-    scaleSource: "Authors' cut-point 0.6 · not ClinGen-calibrated",
-    call: dbscCall(rf),
-    note: null,
-    availability: dbscAbsence(rf),
-    knowledgeKey: null,
-    link: null,
-  });
   readings.push({
     key: "alphagenome-splicing",
     group: "context",
@@ -992,7 +908,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
       windowText: prov?.distanceBp != null ? `±${prov.distanceBp} bp` : "Not stated",
       maskText: prov?.masked === 1 ? "Masked" : prov?.masked === 0 ? "Raw" : "Not stated",
     },
-    dbscsnv: { ada, rf, max: dbMax, altering },
     alphagenome: { share: agShare, shap: agShap, availability: agAvailability },
     referenceMismatch,
     geometry,
@@ -1004,28 +919,10 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   };
 }
 
-/**
- * Readings grouped for the table, in display order. Empty groups are dropped.
- *
- * dbscSNV's two models share one window, so when neither scored and for the same reason they are
- * one row: two rows repeating "dbscSNV scores only −3 to +8…" word for word was the table's
- * largest block of dead space. A scored pair stays two rows, because the models can disagree.
- */
+/** Readings grouped for the table, in display order. Empty groups are dropped. */
 export function groupSpliceReadings(readings: SpliceReading[]): Array<{ group: SpliceGroup; rows: SpliceReading[] }> {
-  const ada = readings.find(r => r.key === "dbscsnv-ada");
-  const rf = readings.find(r => r.key === "dbscsnv-rf");
-  let list = readings;
-  if (ada && rf && ada.score === null && rf.score === null && ada.availability.reason === rf.availability.reason) {
-    const merged: SpliceReading = {
-      ...ada,
-      key: "dbscsnv",
-      name: "dbscSNV",
-      description: "AdaBoost and random-forest ensemble (Jian 2014). Defined only near the splice sites.",
-    };
-    list = readings.flatMap(r => (r === ada ? [merged] : r === rf ? [] : [r]));
-  }
   const order: SpliceGroup[] = ["rule", "channels", "context"];
-  return order.map(group => ({ group, rows: list.filter(x => x.group === group) })).filter(g => g.rows.length > 0);
+  return order.map(group => ({ group, rows: readings.filter(x => x.group === group) })).filter(g => g.rows.length > 0);
 }
 
 /**
@@ -1043,7 +940,7 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
     case "no-score":
       return {
         headline: "No SpliceAI score reached this variant",
-        predicate: "so the splicing rule cannot be applied. dbscSNV and junction distance are context, not a substitute",
+        predicate: "so the splicing rule cannot be applied. Junction distance is context, not a substitute",
       };
     case "pp3":
       return {

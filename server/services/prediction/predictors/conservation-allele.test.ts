@@ -120,7 +120,7 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(result.aouFrequency).toBeNull();
   });
 
-  it("unwraps array-valued clinpred and eigen fields from MyVariant and rejects unmatched codon neighbors", async () => {
+  it("unwraps array-valued clinpred fields from MyVariant, ignores the retired Eigen, and rejects unmatched codon neighbors", async () => {
     const local = await import("../dbnsfp_local.ts");
     vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
 
@@ -144,8 +144,8 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(exact.available).toBe(true);
     expect(exact.clinpred).toBe(0.91);
     expect(exact.clinpredPred).toBe("D");
-    expect(exact.eigenPhred).toBe(12.34);
-    expect(exact.eigenRaw).toBe(0.78);
+    expect(exact).not.toHaveProperty("eigenPhred");
+    expect(exact).not.toHaveProperty("eigenRaw");
 
     clearAllCaches(true);
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {

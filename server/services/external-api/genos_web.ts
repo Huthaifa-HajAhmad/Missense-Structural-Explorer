@@ -272,8 +272,6 @@ export async function queryGenosWebservice(
           bayesdel: val(fPred.BayesDel_noAF_score),
           metarnn: val(fPred.MetaRNN_score),
           clinpred: val(fPred.ClinPred_score),
-          eigenPhred: val(fPred['Eigen-phred_coding']),
-          dann: val(fPred.DANN_score),
           esm1b: val(fPred.ESM1b_score),
           popeve: val(fPred.popEVE_score),
           aou_ac: val(aFreq.AllofUs_ALL_AC),
@@ -286,10 +284,6 @@ export async function queryGenosWebservice(
             ds_dg,
             ds_dl,
             max_ds
-          } : null,
-          dbscsnv: (fPred.dbscSNV_ADA_SCORE !== undefined || fPred.dbscSNV_RF_SCORE !== undefined || fPred.dbscsnv_ada_score !== undefined || fPred.dbscsnv_rf_score !== undefined) ? {
-            ada_score: val(fPred.dbscSNV_ADA_SCORE ?? fPred.dbscsnv_ada_score),
-            rf_score: val(fPred.dbscSNV_RF_SCORE ?? fPred.dbscsnv_rf_score)
           } : null
         };
         return finalData;

@@ -98,12 +98,9 @@ export function healCachedAnalysisIfPossible(
       bayesdel: g.bayesdel ?? payload.conservationData?.bayesdel ?? null,
       metarnn: g.metarnn ?? payload.conservationData?.metarnn ?? null,
       clinpred: g.clinpred ?? payload.conservationData?.clinpred ?? null,
-      eigenPhred: g.eigenPhred ?? payload.conservationData?.eigenPhred ?? null,
-      dann: g.dann ?? payload.conservationData?.dann ?? null,
       esm1b: g.esm1b ?? payload.conservationData?.esm1b ?? null,
       popeve: g.popeve ?? payload.conservationData?.popeve ?? null,
       spliceai: g.spliceai ?? payload.conservationData?.spliceai ?? null,
-      dbscsnv: g.dbscsnv ?? payload.conservationData?.dbscsnv ?? null,
       // Genos records carry no verified nucleotide identity, even when a cache key contains one.
       // Keep existing exact-local AoU evidence only; never heal counts from this protein row.
       aouFrequency: payload.conservationData?.aouFrequency ?? null
@@ -115,12 +112,9 @@ export function healCachedAnalysisIfPossible(
       nextConservation.bayesdel,
       nextConservation.metarnn,
       nextConservation.clinpred,
-      nextConservation.eigenPhred,
-      nextConservation.dann,
       nextConservation.esm1b,
       nextConservation.popeve,
       nextConservation.spliceai,
-      nextConservation.dbscsnv,
       nextConservation.scorecons,
       (nextConservation as Record<string, unknown>).alphagenome
     ].some(v => v != null);

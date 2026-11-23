@@ -51,7 +51,7 @@ export function splicingReadings(ev: SplicingEvidence, result: AnalysisResult): 
       : !ev.map ? 'Annotated junction geometry unavailable'
       : annotated ? `Coincides with an annotated ${siteType} (within 1 bp)` : `Does not coincide with an annotated ${siteType}`;
     const availability = reading?.availability ?? ev.spliceai.availability;
-    const source = isSpliceAI ? ev.spliceai.sourceText : reading?.key.startsWith('dbscsnv') ? 'dbscSNV · Jian et al. 2014' : 'AlphaGenome · returned feature attribution';
+    const source = isSpliceAI ? ev.spliceai.sourceText : 'AlphaGenome · returned feature attribution';
     // Below-floor and zero deltas carry no reliable location: SpliceAI's position near zero is
     // arbitrary, so the offset is provenance only, never a place on an axis.
     const placeless = channel !== null && value !== null && value < SPLICE_MAP_FLOOR;

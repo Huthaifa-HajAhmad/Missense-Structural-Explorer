@@ -11,7 +11,6 @@ export const THRESHOLDS_METADATA = {
     thermompnn: "Dieckhaus et al. PNAS (2024) — app-defined +0.5 / +1.0 kcal/mol display marks are placeholders pending held-out recalibration",
     stabilityoracle: "Diaz et al. Nat Commun (2024) — one +0.2 kcal/mol destabilising mark chosen on S669 and checked on Ssym direct; checkpoint stability_oracle_cdna117k, r 0.64 on Ssym direct (independent evaluation 0.65, paper 0.72)",
     popEVE: "Orenbuch et al. Nat Genet (2025)",
-    dbscsnv: "Jian et al. Nucleic Acids Res (2014) — authors' cut-point 0.6, not ClinGen-calibrated",
     spliceai: "Jaganathan et al. Cell (2019); splicing PP3/BP4 bands: Walker et al. Am J Hum Genet (2023), ClinGen SVI Splicing Subgroup",
     alphagenome: "Avsec et al., AlphaGenome (Google DeepMind, 2025). AVI bands are app-defined, not ClinGen-calibrated"
   }
@@ -42,27 +41,6 @@ export const THRESHOLDS = {
      * "verdict" pathogenic on its own and was drawn as a red "critical junction zone".
      */
     proximityCriticalBp: 5,
-  },
-  dbscsnv: {
-    /**
-     * dbscSNV ADA/RF: the authors' cut-point (Jian et al., Nucleic Acids Res 2014;42:13534,
-     * doi:10.1093/nar/gku1206 — "a cutoff value of 0.6"). Not ClinGen-calibrated; displayed as the
-     * authors' reading, never as PP3.
-     */
-    spliceAltering: 0.6,
-    /**
-     * The consensus regions dbscSNV is defined over (Jian 2014): −3 to +8 at the 5′ (donor) splice
-     * site and −12 to +2 at the 3′ (acceptor) splice site, in HGVS splice-site positions (exonic
-     * bases negative at the donor and positive at the acceptor; no position 0).
-     *
-     * This replaced a symmetric "±12 bp consensus flank", which called an exonic variant 5 bp from
-     * an acceptor "inside the consensus flank" when dbscSNV's acceptor window reaches only 2 exonic
-     * bases.
-     */
-    window: {
-      donor: { exonic: 3, intronic: 8 },
-      acceptor: { exonic: 2, intronic: 12 },
-    },
   },
   /**
    * REVEL, CADD and AlphaMissense display bands for the residue landscape heatmaps ONLY.
@@ -178,14 +156,6 @@ export const THRESHOLDS = {
   clinPred: {
     pathogenic: 0.5,
     benign: 0.5,
-  },
-  eigen: {
-    pathogenic: 4.0,
-    benign: 4.0,
-  },
-  dann: {
-    pathogenic: 0.96,
-    benign: 0.96,
   },
   /**
    * popEVE (Orenbuch et al., Nat Genet 2025). The authors publish two cut-points, both on the
@@ -445,10 +415,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "MetaRNN (Li 2022). Authors' cut: ≥ 0.5 deleterious. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
   clinPred:
     "ClinPred (Alirezaie 2018). Authors' cut: ≥ 0.5 pathogenic. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
-  eigen:
-    "Eigen (Ionita-Laza 2016). Unsupervised genome-wide functional score. No published clinical cut-point — informational only.",
-  dann:
-    "DANN (Quang 2015). Genome-wide deep-network score trained on the CADD data set. No published clinical cut-point — informational only.",
   popEve:
     "popEVE (Orenbuch 2025, Nat Genet). EVE + ESM-1v, placed on one proteome-wide scale with human population data. " +
     "Authors' cut-points: ≤ −5.056 highly deleterious, ≤ −4.617 moderately deleterious. No benign cut-point is published.",
@@ -460,9 +426,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "SpliceAI (Jaganathan 2019). Splicing PP3 at max ΔScore ≥ 0.20, BP4 at or below 0.10 (ClinGen SVI Splicing " +
     "Subgroup, Walker 2023). The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision); " +
     "those are operating points, not ACMG strengths. A delta score is not a probability.",
-  dbscsnv:
-    "dbscSNV (Jian 2014). ADA/RF score ≥ 0.6 is the authors' splice-altering cut-point, defined only within " +
-    "−3 to +8 of a donor and −12 to +2 of an acceptor. Not ClinGen-calibrated.",
   alphagenome:
     "AlphaGenome variant impact (Google DeepMind 2025). The AVI Phred is −10·log10 of the variant's tail quantile — a rank, " +
     "not a calibrated probability. Its features include AlphaMissense and conservation. No ClinGen calibration exists; informational only.",

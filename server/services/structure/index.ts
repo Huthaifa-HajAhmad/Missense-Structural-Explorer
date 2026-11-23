@@ -7,6 +7,5 @@ export * from "./structural-diff.ts";
 export * from "./pdb-parser.ts";
 export * from "./pocket.ts";
 export * from "./esmfold.ts";
-export * from "./folding-engines.ts";
 export * from "./multimer.ts";
 export * from "./sequence-aligner.ts";

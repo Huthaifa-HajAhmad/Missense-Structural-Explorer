@@ -59,16 +59,12 @@ export async function queryDbnsfpOrg(
     const bayesdel = safeParseFloat(allTrans.BayesDel_noAF_score ?? allTrans.BayesDel_noAF ?? fPred.BayesDel_noAF_score);
     const metarnn = safeParseFloat(allTrans.MetaRNN ?? allTrans.MetaRNN_score ?? fPred.MetaRNN_score);
     const clinpred = safeParseFloat(allTrans.ClinPred_score ?? allTrans.ClinPred ?? fPred.ClinPred_score);
-    const eigenPhred = safeParseFloat(fPred['Eigen-phred_coding'] ?? allTrans['Eigen-phred_coding']);
-    const eigenRaw = safeParseFloat(fPred['Eigen-raw_coding'] ?? allTrans['Eigen-raw_coding']);
-    const dann = safeParseFloat(fPred.DANN_score ?? allTrans.DANN_score);
     const esm1b = safeParseFloat(allTrans.ESM1b ?? allTrans.ESM1b_score ?? fPred.ESM1b_score);
     const popeve = safeParseFloat(allTrans.popEVE ?? allTrans.popEVE_score ?? fPred.popEVE_score);
 
     if (
       revel === null && gerp === null && phylop === null && bayesdel === null &&
-      metarnn === null && clinpred === null && eigenPhred === null && eigenRaw === null &&
-      dann === null && esm1b === null && popeve === null
+      metarnn === null && clinpred === null && esm1b === null && popeve === null
     ) {
       return null;
     }
@@ -80,9 +76,6 @@ export async function queryDbnsfpOrg(
       bayesdel,
       metarnn,
       clinpred,
-      eigenPhred,
-      eigenRaw,
-      dann,
       esm1b,
       popeve
     };

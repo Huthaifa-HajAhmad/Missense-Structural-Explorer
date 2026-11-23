@@ -144,8 +144,6 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/validate-biohub-token",
   "/test-tamarind-connection",
   "/api/v1/test-tamarind-connection",
-  "/biophysics/verify-stability",
-  "/api/v1/biophysics/verify-stability",
   "/structure/multimer",
   "/api/v1/structure/multimer",
   "/structure/multimer/import",

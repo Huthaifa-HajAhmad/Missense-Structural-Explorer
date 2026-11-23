@@ -80,7 +80,6 @@ describe("the folding ceilings are declared once", () => {
   it("has every de novo consumer importing src/shared/foldingLimits", () => {
     for (const relative of [
       "server/services/structure/esmfold.ts",
-      "server/services/structure/folding-engines.ts",
       "src/hooks/useStructuralFolding.ts",
       "src/components/inspector/StructureInspector.tsx",
       "src/components/MolstarViewer.tsx",

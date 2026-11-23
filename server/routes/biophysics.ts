@@ -1,7 +1,7 @@
 /**
  * biophysics.ts — Biophysics routes gateway delegating to specialized sub-routers:
  *   - generation.ts (/generate-mutant, /analyze-variant-biophysical)
- *   - stability.ts (/verify-stability, connection diagnostic endpoints)
+ *   - stability.ts (Tamarind connection diagnostic endpoint)
  *   - polling.ts (DynaMut2, DDMut, ThermoMPNN submission & polling)
  *   - pocket.ts (/pocket-finder, /nearest-residues)
  */
@@ -13,7 +13,7 @@ import { registerPocketRoutes } from "./biophysics/pocket.ts";
 
 export function registerBiophysicsRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
   registerGenerationRoutes(apiRouter, jsonParserPdb);
-  registerStabilityRoutes(apiRouter, jsonParserRegular, jsonParserPdb);
+  registerStabilityRoutes(apiRouter, jsonParserRegular);
   registerPollingRoutes(apiRouter, jsonParserPdb);
   registerPocketRoutes(apiRouter, jsonParserPdb);
 }

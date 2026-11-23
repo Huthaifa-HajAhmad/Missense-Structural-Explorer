@@ -58,19 +58,19 @@ describe("PredictorsTab", () => {
     expect(within(groups).queryByRole("button", { name: /ESM-2|VESM|SaProt/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).textContent).toContain("No result");
     // Numeric readings split at the decimal point so the column lines up; states keep the muted "absent" treatment.
-    const eigen = within(groups).getByRole("button", { name: /Eigen/ });
-    expect(eigen.querySelector(".prd-dec__int")!.textContent).toBe("6");
-    expect(eigen.querySelector(".prd-dec__frac")!.textContent).toBe(".30");
-    // GPN-MSA was retired: no row for it, even with an old stored score.
-    expect(within(groups).queryByRole("button", { name: /GPN/ })).toBeNull();
+    const metarnn = within(groups).getByRole("button", { name: /MetaRNN/ });
+    expect(metarnn.querySelector(".prd-dec__int")!.textContent).toBe("0");
+    expect(metarnn.querySelector(".prd-dec__frac")!.textContent).toBe(".767");
+    // GPN-MSA, DANN and Eigen were retired: no row for them, even with an old stored score.
+    expect(within(groups).queryByRole("button", { name: /GPN|DANN|Eigen/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).querySelector("strong[data-state='absent']")).toBeTruthy();
   });
 
   it("separates missing marked tools from returned scores in Comparison", () => {
-    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, metarnn: null, popeve: null, eigenPhred: null } }));
+    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, metarnn: null, popeve: null } }));
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const groups = screen.getByTestId("predictor-unplotted-groups");
-    for (const name of ["MetaRNN", "popEVE", "ESM1b", "Eigen"]) {
+    for (const name of ["MetaRNN", "popEVE", "ESM1b"]) {
       const button = within(groups).getByRole("button", { name: new RegExp(name) });
       expect(button.textContent).toContain("No result");
       expect(button.textContent).not.toContain("?");
@@ -233,11 +233,14 @@ describe("PredictorsTab", () => {
     const cadd = screen.getByTestId("predictor-cadd");
     expect(cadd.querySelector(".prd-dec__int")!.textContent).toBe("29");
     expect(cadd.querySelector(".prd-dec__frac")!.textContent).toBe(".5");
-    const dann = screen.getByTestId("predictor-dann");
-    expect(dann.querySelector(".prd-status .ev-tier")).toBeNull();
-    expect(dann.textContent).toMatch(/Informational/);
+    const avi = screen.getByTestId("predictor-alphagenome");
+    expect(avi.querySelector(".prd-status .ev-tier")).toBeNull();
+    expect(avi.textContent).toMatch(/Informational/);
     // A bare axis carries no "No cut-point" caption; the legend says it once.
-    expect(dann.textContent).not.toMatch(/No cut-point/);
+    expect(avi.textContent).not.toMatch(/No cut-point/);
+    // DANN and Eigen were retired: an old stored score draws no row.
+    expect(screen.queryByTestId("predictor-dann")).toBeNull();
+    expect(screen.queryByTestId("predictor-eigen")).toBeNull();
     expect(screen.getByLabelText("Legend").textContent).toMatch(/No published cut-point/);
   });
   it("draws the strength ladder in the finding, with the variant in the band each calibrated tool reached", () => {

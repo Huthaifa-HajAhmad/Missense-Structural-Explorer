@@ -7,7 +7,7 @@ import type { SpliceReading } from "../../../shared/splicingEvidence";
  *   bands   the Walker 2023 splicing bands (SpliceAI max Δ only): BP4 at or below 0.1, PP3 from 0.2, the
  *           band the score sits in outlined; the gap between them is left bare, because it is
  *           neither;
- *   ticks   the authors' own operating points (SpliceAI 0.5 / 0.8, dbscSNV 0.6), drawn dashed —
+ *   ticks   the authors' own operating points (SpliceAI 0.5 / 0.8), drawn dashed —
  *           reference lines, not strengths;
  *   marker  the variant.
  *

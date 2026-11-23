@@ -138,7 +138,7 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
   })) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
-    if (cons.dann === undefined || cons.bayesdel === undefined || cons.clinpred === undefined || cons.eigenPhred === undefined) {
+    if (cons.bayesdel === undefined || cons.clinpred === undefined) {
       return true;
     }
     // A live SpliceAI score carries the window it was computed under. A reader who has since chosen a

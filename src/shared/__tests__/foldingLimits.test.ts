@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   ESM_ATLAS_PUBLIC_MAX_AA,
   JAPANFOLD_ESMFOLD2_MAX_AA,
-  STABILITY_ESMFOLD_ENGINE_MAX_AA,
   deNovoFoldingLimitExceededMessage,
   describeDeNovoCapacityNotice,
   describeDeNovoFoldTimeout,
@@ -13,8 +12,8 @@ import {
   parseReportedSequenceLength,
   readProteinLength,
   resolveDeNovoFoldingCapacity,
-  stabilityEsmFoldEngineLimitMessage,
 } from "../foldingLimits";
+import * as foldingLimits from "../foldingLimits";
 
 /**
  * These tests exist because the numbers and the sentences that quote them used to live in different
@@ -27,11 +26,11 @@ import {
  */
 
 describe("the de novo folding ceilings", () => {
-  it("keeps the three ceilings ordered and distinct", () => {
-    // Not a nesting relationship — three different code paths own them, and the ordering is what makes
-    // quoting the wrong one detectable. 768 in a sentence about Tier-1 is the original bug.
-    expect(ESM_ATLAS_PUBLIC_MAX_AA).toBeLessThan(STABILITY_ESMFOLD_ENGINE_MAX_AA);
-    expect(STABILITY_ESMFOLD_ENGINE_MAX_AA).toBeLessThan(JAPANFOLD_ESMFOLD2_MAX_AA);
+  it("keeps the two ceilings ordered and distinct", () => {
+    expect(ESM_ATLAS_PUBLIC_MAX_AA).toBeLessThan(JAPANFOLD_ESMFOLD2_MAX_AA);
+    // The stability path's own 768 aa engine was retired with its route.
+    expect(foldingLimits).not.toHaveProperty("STABILITY_ESMFOLD_ENGINE_MAX_AA");
+    expect(foldingLimits).not.toHaveProperty("stabilityEsmFoldEngineLimitMessage");
   });
 
   it("formats residue counts without depending on the ICU build", () => {
@@ -72,9 +71,6 @@ describe("the server messages", () => {
     );
     expect(esmAtlasFallbackExceededMessage(711)).toBe(
       "Sequence length (711 aa) exceeds the public ESM Atlas folding limit (400 aa). Tier-1 JapanFold ESMFold-2 was unavailable. De novo folding for proteins > 400 aa requires an EvolutionaryScale/Biohub API token or local GPU execution."
-    );
-    expect(stabilityEsmFoldEngineLimitMessage(900)).toBe(
-      "Protein sequence length (900) exceeds the maximum allowed limit of 768 residues for ESMFold."
     );
   });
 
@@ -193,7 +189,6 @@ describe("reading a failure", () => {
   it("parses only the shapes our own builders produce", () => {
     expect(parseReportedSequenceLength(deNovoFoldingLimitExceededMessage(711))).toBe(711);
     expect(parseReportedSequenceLength(esmAtlasFallbackExceededMessage(1500))).toBe(1500);
-    expect(parseReportedSequenceLength(stabilityEsmFoldEngineLimitMessage(900))).toBe(900);
   });
 
   it("refuses to mine a number out of text that is not about length", () => {
@@ -211,7 +206,6 @@ describe("reading a failure", () => {
     const limits = [
       deNovoFoldingLimitExceededMessage(711),
       esmAtlasFallbackExceededMessage(711),
-      stabilityEsmFoldEngineLimitMessage(900),
     ];
     for (const message of limits) {
       expect(isFoldingLengthLimitError(message), message).toBe(true);

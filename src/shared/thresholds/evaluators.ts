@@ -117,21 +117,6 @@ export function evaluateClinPred(score: number | null | undefined): PredictorSig
 }
 
 /**
- * Eigen and DANN have no published clinical cut-point for missense classification. The 4.0 and
- * 0.96 / 0.50 cut-points they were tested against had no source, so both are informational:
- * an available score is "vus", never a vote.
- */
-export function evaluateEigen(phred: number | null | undefined): PredictorSignal {
-  if (phred === null || phred === undefined || !Number.isFinite(phred)) return "unavailable";
-  return "vus";
-}
-
-export function evaluateDann(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
-  return "vus";
-}
-
-/**
  * popEVE against its authors' published thresholds (Orenbuch et al., Nat Genet 2025): a score
  * ≤ −4.617 is at least "moderately deleterious" (99% posterior of the deleterious component of a
  * two-component mixture; ≤ −5.056 is "highly deleterious", 99.99%).
@@ -151,20 +136,19 @@ export function evaluatePopEve(score: number | null | undefined): PredictorSigna
  * bands (Walker et al. 2023) — ≥ 0.2 supports PP3, at or below 0.1 supports BP4, between is neither.
  *
  * ONE input decides it. The previous rule also returned "pathogenic" for any variant within 5 bp of
- * a junction and for a dbscSNV score ≥ 0.6, required > 12 bp from the junction before anything
+ * a junction and for a splice-region ensemble score ≥ 0.6, required > 12 bp from the junction before anything
  * could be benign, and called BP4 only at ≤ 0.02. None of those has a published basis: Walker 2023
  * names a SpliceAI score, distance alone is not PP3 (a canonical ±1/2 change is a PVS1 question),
- * and dbscSNV's 0.6 is its authors' cut-point, not a ClinGen band.
+ * and that 0.6 was its authors' cut-point, not a ClinGen band.
  *
- * `spliceProximity` and `dbscsnv` stay in the signature for callers written against the old rule;
- * they are deliberately ignored. The ACMG engine does not call this — splicing is not an engine
+ * `spliceProximity` stays in the signature for callers written against the old rule; it is
+ * deliberately ignored. The ACMG engine does not call this — splicing is not an engine
  * input (owner decision, doc/SPLICING_TAB_REVIEW.md); the Splicing tab reports it as
  * "what the splicing rule would support" beside the engine's own record.
  */
 export function evaluateSplicePredictor(
   _spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null,
-  spliceai?: { max_ds: number | null; ds_ag?: number | null; ds_al?: number | null; ds_dg?: number | null; ds_dl?: number | null } | null,
-  _dbscsnv?: { ada_score: number | null; rf_score: number | null } | null
+  spliceai?: { max_ds: number | null; ds_ag?: number | null; ds_al?: number | null; ds_dg?: number | null; ds_dl?: number | null } | null
 ): PredictorSignal {
   const maxDs = spliceai?.max_ds;
   if (maxDs === null || maxDs === undefined || !Number.isFinite(maxDs)) return "unavailable";

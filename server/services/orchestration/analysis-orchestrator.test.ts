@@ -978,14 +978,15 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
     };
     const withNullCells: any = {
       predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
-      conservationData: { ...baseCons, dann: null, bayesdel: null, clinpred: null, eigenPhred: null },
+      conservationData: { ...baseCons, bayesdel: null, clinpred: null },
       serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }
     };
+    // DANN and Eigen were retired, so a fresh payload has no keys for them and is not stale.
     expect(isStaleCachedPayload(withNullCells, ctx)).toBe(false);
 
     const withUndefinedSchemaKey: any = {
       ...withNullCells,
-      conservationData: { ...baseCons, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: undefined }
+      conservationData: { ...baseCons, bayesdel: 0.5, clinpred: undefined }
     };
     expect(isStaleCachedPayload(withUndefinedSchemaKey, ctx)).toBe(true);
   });

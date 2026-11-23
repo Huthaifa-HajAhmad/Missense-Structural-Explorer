@@ -37,8 +37,8 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       bayesdel: 0.42,
       metarnn: 0.88,
       clinpred: 0.95,
-      eigenPhred: 14.2,
-      dann: 0.99,
+      // An analysis saved before DANN and Eigen were retired may still carry their scores.
+      ...({ eigenPhred: 14.2, dann: 0.99 } as object),
       esm1b: -12.4,
       popeve: -6.1,
       scorecons: 0.9,
@@ -51,8 +51,8 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     expect(analysisPrompt).toContain('BayesDel Score: 0.42');
     expect(analysisPrompt).toContain('MetaRNN Score: 0.88');
     expect(analysisPrompt).toContain('ClinPred Score: 0.95');
-    expect(analysisPrompt).toContain('Eigen Phred Score: 14.2');
-    expect(analysisPrompt).toContain('DANN Score: 0.99');
+    // DANN and Eigen were retired: an old stored score is not put in the prompt.
+    expect(analysisPrompt).not.toMatch(/Eigen|DANN/);
     expect(analysisPrompt).toContain('ESM-1b LLR Score: -12.4');
     expect(analysisPrompt).toContain('PopEVE Score: -6.1');
     expect(analysisPrompt).not.toContain('GPN');

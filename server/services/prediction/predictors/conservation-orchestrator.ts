@@ -119,8 +119,6 @@ export const myVariantResponseSchema = z.object({
       hgvsp: z.any().optional(),
       metarnn: z.any().optional(),
       clinpred: z.any().optional(),
-      eigen: z.any().optional(),
-      dann: z.any().optional(),
       esm1b: z.any().optional(),
       aou_ac: z.any().optional(),
       aou_an: z.any().optional(),
@@ -130,12 +128,7 @@ export const myVariantResponseSchema = z.object({
       SpliceAI_pred_DS_AG: z.any().optional(),
       SpliceAI_pred_DS_AL: z.any().optional(),
       SpliceAI_pred_DS_DG: z.any().optional(),
-      SpliceAI_pred_DS_DL: z.any().optional(),
-      dbscsnv: z.any().optional(),
-      dbscsnv_ada_score: z.any().optional(),
-      dbscsnv_rf_score: z.any().optional(),
-      dbscSNV_ADA_SCORE: z.any().optional(),
-      dbscSNV_RF_SCORE: z.any().optional()
+      SpliceAI_pred_DS_DL: z.any().optional()
     }).optional()
   })).optional()
 });
@@ -228,16 +221,12 @@ export async function fetchConservationData(
         metarnnPred: null,
         clinpred: null,
         clinpredPred: null,
-        eigenPhred: null,
-        eigenRaw: null,
-        dann: null,
         esm1b: null,
         esm1bPred: null,
         popeve: null,
         aouFrequency: null,
         spliceProximity,
         spliceai: null,
-        dbscsnv: null,
         alphagenome: null
       };
 
@@ -301,9 +290,6 @@ export async function fetchConservationData(
               metarnnPred: null,
               clinpred: rec.clinpred,
               clinpredPred: null,
-              eigenPhred: rec.eigen,
-              eigenRaw: null,
-              dann: rec.dann,
               esm1b: rec.esm1b,
               esm1bPred: null,
               popeve: popEVEVal,
@@ -328,10 +314,6 @@ export async function fetchConservationData(
                   max_ds: hasAny ? Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0) : null
                 };
               })() : null,
-              dbscsnv: ((rec as any).dbscSNV_ADA_SCORE !== undefined || (rec as any).dbscsnv_ada_score !== undefined || (rec as any).dbscSNV_RF_SCORE !== undefined || (rec as any).dbscsnv_rf_score !== undefined) ? {
-                ada_score: safeParseFloat((rec as any).dbscSNV_ADA_SCORE ?? (rec as any).dbscsnv_ada_score),
-                rf_score: safeParseFloat((rec as any).dbscSNV_RF_SCORE ?? (rec as any).dbscsnv_rf_score)
-              } : null,
               alphagenome: alphaRes ?? null,
               source: "local dbNSFP"
             };
@@ -366,9 +348,6 @@ export async function fetchConservationData(
             metarnnPred: null,
             clinpred: activeGenosRec.clinpred,
             clinpredPred: null,
-            eigenPhred: activeGenosRec.eigenPhred,
-            eigenRaw: null,
-            dann: activeGenosRec.dann,
             esm1b: activeGenosRec.esm1b,
             esm1bPred: null,
             popeve: popEVEVal,
@@ -390,10 +369,6 @@ export async function fetchConservationData(
                 activeGenosRec.spliceai.ds_dg || 0,
                 activeGenosRec.spliceai.ds_dl || 0
               ) : null
-            } : null,
-            dbscsnv: activeGenosRec.dbscsnv ? {
-              ada_score: activeGenosRec.dbscsnv.ada_score,
-              rf_score: activeGenosRec.dbscsnv.rf_score
             } : null,
             source: "Genos Web Query"
           };
@@ -427,16 +402,12 @@ export async function fetchConservationData(
             metarnnPred: null,
             clinpred: pubDbnsfp.clinpred ?? null,
             clinpredPred: null,
-            eigenPhred: pubDbnsfp.eigenPhred ?? null,
-            eigenRaw: pubDbnsfp.eigenRaw ?? null,
-            dann: pubDbnsfp.dann ?? null,
             esm1b: pubDbnsfp.esm1b ?? null,
             esm1bPred: null,
             popeve: popEVEVal,
             aouFrequency: null,
             spliceProximity,
             spliceai: null,
-            dbscsnv: null,
             source: "Public dbNSFP (dbnsfp.org)"
           };
           return resVal;
@@ -449,10 +420,7 @@ export async function fetchConservationData(
       const queryStr = (resolvedPos !== null)
         ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      // NOTE `dbnsfp.dbscsnv`: the parser below reads dbscSNV ADA/RF from the hit, but the query
-      // used to omit the field from the projection, so MyVariant never returned it — dbscSNV was
-      // unfetchable by construction on this path (unmapping defect F-7).
-      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.dbscsnv,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen,dbnsfp.bayesdel,dbnsfp.dann,dbnsfp.esm1b";
+      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.bayesdel,dbnsfp.esm1b";
       const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
   
       try {
@@ -580,23 +548,6 @@ export async function fetchConservationData(
                 clinpredPred = typeof cpred === "string" ? cpred : null;
               }
 
-              let eigenPhred: number | null = null;
-              let eigenRaw: number | null = null;
-              if (isExactMatch && dbnsfp.eigen) {
-                const eg = Array.isArray(dbnsfp.eigen) ? dbnsfp.eigen[0] : dbnsfp.eigen;
-                const ep = Array.isArray(eg?.phred_coding) ? eg.phred_coding[0] : eg?.phred_coding;
-                const er = Array.isArray(eg?.raw_coding) ? eg.raw_coding[0] : eg?.raw_coding;
-                eigenPhred = ep != null ? safeParseFloat(ep) : null;
-                eigenRaw = er != null ? safeParseFloat(er) : null;
-              }
-
-              let dann: number | null = null;
-              if (isExactMatch && dbnsfp.dann) {
-                let d = dbnsfp.dann.score;
-                if (Array.isArray(d)) d = d[0];
-                dann = d != null ? safeParseFloat(d) : null;
-              }
-
               let esm1b: number | null = null;
               let esm1bPred: string | null = null;
               if (isExactMatch && dbnsfp.esm1b) {
@@ -643,10 +594,6 @@ export async function fetchConservationData(
               const hasAou = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;
 
               const db = dbnsfp as any;
-              const rawAda = isExactMatch ? getFirstOrVal(db.dbscsnv?.ada_score ?? db.dbscsnv_ada_score ?? db.dbscSNV_ADA_SCORE ?? (db.dbscsnv && db.dbscsnv['ada_score'])) : undefined;
-              const rawRf = isExactMatch ? getFirstOrVal(db.dbscsnv?.rf_score ?? db.dbscsnv_rf_score ?? db.dbscSNV_RF_SCORE ?? (db.dbscsnv && db.dbscsnv['rf_score'])) : undefined;
-              const hasDbscsnv = rawAda !== undefined || rawRf !== undefined;
-
               const ag = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_ag ?? db.spliceai_pred_ds_ag ?? db.SpliceAI_pred_DS_AG ?? db.spliceai_ds_ag ?? (db.spliceai && db.spliceai['ds_ag']))) : null;
               const al = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_al ?? db.spliceai_pred_ds_al ?? db.SpliceAI_pred_DS_AL ?? db.spliceai_ds_al ?? (db.spliceai && db.spliceai['ds_al']))) : null;
               const dg = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_dg ?? db.spliceai_pred_ds_dg ?? db.SpliceAI_pred_DS_DG ?? db.spliceai_ds_dg ?? (db.spliceai && db.spliceai['ds_dg']))) : null;
@@ -665,9 +612,6 @@ export async function fetchConservationData(
                 metarnnPred,
                 clinpred,
                 clinpredPred,
-                eigenPhred,
-                eigenRaw,
-                dann,
                 esm1b: esm1b,
                 esm1bPred: esm1bPred,
                 popeve: finalPopEVE,
@@ -684,10 +628,6 @@ export async function fetchConservationData(
                   ds_dg: dg,
                   ds_dl: dl,
                   max_ds: Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0)
-                } : null,
-                dbscsnv: hasDbscsnv ? {
-                  ada_score: safeParseFloat(Array.isArray(rawAda) ? rawAda[0] : rawAda),
-                  rf_score: safeParseFloat(Array.isArray(rawRf) ? rawRf[0] : rawRf)
                 } : null,
                 source: "myvariant.info"
               };
@@ -777,16 +717,12 @@ const UNSETTLED_BASE: ConservationData = {
   metarnnPred: null,
   clinpred: null,
   clinpredPred: null,
-  eigenPhred: null,
-  eigenRaw: null,
-  dann: null,
   esm1b: null,
   esm1bPred: null,
   popeve: null,
   aouFrequency: null,
   spliceProximity: null,
   spliceai: null,
-  dbscsnv: null,
   alphagenome: null
 };
 
@@ -1095,7 +1031,7 @@ export async function fetchConservationDataProgressive(
     /**
      * The ALLELE the scores must belong to, when there is one these sources can read.
      *
-     * REVEL, BayesDel, MetaRNN, ClinPred, DANN, Eigen and CADD are per nucleotide change, and a
+     * REVEL, BayesDel, MetaRNN, ClinPred and CADD are per nucleotide change, and a
      * protein change can be encoded by more than one (Q867H: CAA→CAC or CAT). Queried as
      * `GENE:p.…`, Genos and query.dbnsfp.org answer with whichever matching row comes first, so the
      * scores could describe a different allele from the one analysed. Both are GRCh38-only, so the

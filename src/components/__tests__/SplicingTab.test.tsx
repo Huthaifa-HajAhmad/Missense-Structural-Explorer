@@ -38,12 +38,12 @@ describe("SplicingTab — reference variant (no SpliceAI score)", () => {
     expect(screen.getByTestId("relation-callout").textContent).toMatch(/nothing here checks the splicing side/);
   });
 
-  it("places the variant at +26 from the acceptor, outside dbscSNV's window", () => {
-    renderTab(nae1Reference());
-    expect(screen.getByRole("img", { name: /position \+26 of the acceptor.*outside it/ })).toBeTruthy();
-    // Both dbscSNV models are out of window for the same reason: one row, not the reason twice.
-    expect(screen.getByTestId("splice-dbscsnv").textContent).toMatch(/−12 to \+2 at an acceptor/);
-    expect(screen.queryByTestId("splice-dbscsnv-rf")).toBeNull();
+  it("places the variant at +26 from the acceptor and shows no dbscSNV row, window or legend", () => {
+    const { container } = renderTab(nae1Reference());
+    const map = screen.getByRole("img", { name: /position \+26 of the acceptor/ });
+    expect(map.getAttribute("aria-label")).not.toMatch(/dbscSNV/);
+    expect(screen.queryByTestId("splice-dbscsnv")).toBeNull();
+    expect(container.textContent).not.toMatch(/dbscSNV/);
   });
 });
 
@@ -220,7 +220,7 @@ describe("SplicingTab — splice map", () => {
     expect(screen.getByText("Distance to nearest splice junction")).toBeTruthy();
     expect(screen.getByText(/\+26 from the acceptor/)).toBeTruthy();
     expect(screen.getByText("the 26th base of exon 6 from its acceptor boundary.")).toBeTruthy();
-    expect(screen.getByText(/Outside dbscSNV's window and the canonical dinucleotide\./)).toBeTruthy();
+    expect(screen.getByText("Not at the canonical splice dinucleotide.")).toBeTruthy();
     expect(screen.getByText(/Distance from a junction is context/)).toBeTruthy();
   });
 
@@ -231,7 +231,7 @@ describe("SplicingTab — splice map", () => {
     expect(row.textContent).toMatch(/Coordinate rejected/);
   });
 
-  it("keeps dbscSNV and AlphaGenome out of the hero, where the table already holds them", () => {
+  it("keeps AlphaGenome out of the hero, where the table already holds it", () => {
     renderTab(nae1Reference({
       conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.62, max_ds: 0.62, dp: { ds_dl: 40 }, provenance: { source: "broad-lookup", distanceBp: 500, masked: 1, computedLive: true } } },
     }));
@@ -336,6 +336,8 @@ describe("SplicingRail", () => {
     expect(container.textContent).toMatch(/doi:10\.1016\/j\.ajhg\.2023\.06\.002/);
     // The old rail cited Pejaver 2022 (the missense calibration) as the splicing source.
     expect(container.textContent).not.toMatch(/Pejaver/);
+    // dbscSNV was retired: no trace step, operating point or method note names it.
+    expect(container.textContent).not.toMatch(/dbscSNV/);
   });
 
   it("marks the band the score sits in", () => {

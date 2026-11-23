@@ -10,8 +10,6 @@ import {
   evaluateBayesdel,
   evaluateMetaRnn,
   evaluateClinPred,
-  evaluateEigen,
-  evaluateDann,
   evaluatePopEve,
   evaluateAlphaGenomeAvi,
   evaluateEsm1b,
@@ -50,8 +48,6 @@ export function countPredictorConcordance(
   extra?: {
     metarnn?: number | null;
     clinpred?: number | null;
-    eigenPhred?: number | null;
-    dann?: number | null;
     popeve?: number | null;
     alphagenome?: AlphaGenomeAviData | null;
     /** Candidate-allele records from an ambiguous-locus run; CADD votes only when all candidates agree from one release. */
@@ -119,22 +115,6 @@ export function countPredictorConcordance(
       name: "ClinPred",
       signal: evaluateClinPred(extra?.clinpred),
       scoreLabel: extra?.clinpred !== null && extra?.clinpred !== undefined ? `${extra.clinpred.toFixed(3)}` : "—",
-    },
-    {
-      key: "eigen",
-      name: "Eigen",
-      signal: evaluateEigen(extra?.eigenPhred),
-      scoreLabel: extra?.eigenPhred !== null && extra?.eigenPhred !== undefined ? `${extra.eigenPhred.toFixed(1)}` : "—",
-      // No published clinical cut-point: see evaluateEigen.
-      isInformationalOnly: true,
-    },
-    {
-      key: "dann",
-      name: "DANN",
-      signal: evaluateDann(extra?.dann),
-      scoreLabel: extra?.dann !== null && extra?.dann !== undefined ? `${extra.dann.toFixed(3)}` : "—",
-      // No published clinical cut-point: see evaluateDann.
-      isInformationalOnly: true,
     },
     {
       key: "popeve",

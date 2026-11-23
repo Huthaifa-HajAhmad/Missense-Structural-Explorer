@@ -277,8 +277,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const clinpred = finite(cd?.clinpred);
   const popeve = finite(cd?.popeve);
   const esm1b = finite(cd?.esm1b);
-  const eigen = finite(cd?.eigenPhred);
-  const dann = finite(cd?.dann);
   const gerp = finite(cd?.gerp);
   const phylop = finite(cd?.phylop);
   const scorecons = finite(cd?.scorecons);
@@ -288,8 +286,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const concordance = countPredictorConcordance(cadd, revel, am, amClass, bayesdel, esm1b, {
     metarnn,
     clinpred,
-    eigenPhred: eigen,
-    dann,
     popeve,
     alphagenome,
     caddCandidates: candidateCaddList,
@@ -614,52 +610,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       link: { tab: "alphagenome", label: "Open AlphaGenome" },
     });
   }
-  readings.push({
-    key: "eigen",
-    name: "Eigen",
-    description: "Unsupervised spectral combination of genome-wide annotations.",
-    group: "genome",
-    votes: false,
-    score: eigen,
-    scoreText: fmt(eigen, 2),
-    unit: "PHRED",
-    scale: { min: 0, max: 20 },
-    orientation: "higher",
-    cutpoints: NO_CUTS,
-    signal: eigen === null ? "unavailable" : "vus",
-    calibrated: null,
-    callLabel: eigen === null ? NO_RESULT : "Informational",
-    callTone: "muted",
-    caveats: [],
-    note: null,
-    availability: availFor(eigen, "base"),
-    source: dbSource,
-    knowledgeKey: "eigen",
-    link: null,
-  });
-  readings.push({
-    key: "dann",
-    name: "DANN",
-    description: "Deep neural network trained on the CADD data set.",
-    group: "genome",
-    votes: false,
-    score: dann,
-    scoreText: fmt(dann, 3),
-    unit: null,
-    scale: { min: 0, max: 1 },
-    orientation: "higher",
-    cutpoints: NO_CUTS,
-    signal: dann === null ? "unavailable" : "vus",
-    calibrated: null,
-    callLabel: dann === null ? NO_RESULT : "Informational",
-    callTone: "muted",
-    caveats: [],
-    note: null,
-    availability: availFor(dann, "base"),
-    source: dbSource,
-    knowledgeKey: "dann",
-    link: null,
-  });
 
   // ── Conservation (informational) ──
   const conservation = (key: string, name: string, tool: CalibratedToolKey, score: number | null, scale: { min: number; max: number }, description: string) => {

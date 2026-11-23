@@ -24,7 +24,7 @@ server/deployment-role.ts,server,server/deployment-role.test.ts
 server/express-config.ts,server,server/async-route-errors.test.ts;server/routes/credentials.http.test.ts;server/services/infra/review-fixes.test.ts
 server/graceful-shutdown.ts,server,server/graceful-shutdown.test.ts
 server/middleware.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/credentials.http.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/routes/variant/spliceai.http.test.ts;server/tests/integration.test.ts;server/utils.test.ts
-server/routes.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/credentials.http.test.ts;server/routes/evidence-context.http.test.ts;server/routes/foldx-sharing.test.ts;server/routes/health-fallback.test.ts;server/routes/health.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/session.test.ts;server/routes/shared-cache.test.ts;server/routes/structure.multimer-import.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/literature.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/spliceai.http.test.ts;server/routes/variant/spliceai.test.ts;server/routes/variant/translation.test.ts;server/services/structure/folding-engines.test.ts;server/tests/integration.test.ts
+server/routes.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/credentials.http.test.ts;server/routes/evidence-context.http.test.ts;server/routes/foldx-sharing.test.ts;server/routes/health-fallback.test.ts;server/routes/health.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/session.test.ts;server/routes/shared-cache.test.ts;server/routes/structure.multimer-import.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/literature.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/spliceai.http.test.ts;server/routes/variant/spliceai.test.ts;server/routes/variant/translation.test.ts;server/tests/integration.test.ts
 server/routes/admin.ts,server,
 server/routes/agent.ts,server,server/routes/agent.test.ts;server/routes/live-routing.test.ts
 server/routes/auth.ts,server,
@@ -64,7 +64,6 @@ server/services/analysis-db.ts,barrel,
 server/services/analysis-orchestrator.ts,barrel,server/routes/session.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts
 server/services/benchmark-proteingym.ts,barrel,
 server/services/biophysical-queue.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/foldx-sharing.test.ts
-server/services/biophysics-bridge.ts,barrel,
 server/services/biophysics-pool.ts,barrel,
 server/services/biophysics.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/foldx-sharing.test.ts
 server/services/cache-keys.ts,barrel,
@@ -126,7 +125,6 @@ server/services/external-api/spliceai_broad.ts,server,server/routes/variant/spli
 server/services/external-api/string.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/infra/cache-hygiene.test.ts
 server/services/external-api/uniprot.ts,server,server/services/external-api/ppi.test.ts;server/services/external-api/uniprot.entry-types.test.ts;server/services/external-api/uniprot.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/prediction/landscape.test.ts;server/services/structure/structure-fetcher.test.ts;server/services/structure/structure-resolver.test.ts
 server/services/external.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/foldx-sharing.test.ts;server/routes/session.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/tests/integration.test.ts
-server/services/folding-engines.ts,barrel,
 server/services/foldx.ts,barrel,server/services/stability/foldx.test.ts
 server/services/gemini.ts,barrel,server/routes/biophysics.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
 server/services/genos_web.ts,barrel,
@@ -224,7 +222,6 @@ server/services/self-healer.ts,barrel,
 server/services/sequence-aligner.ts,barrel,
 server/services/splice_resolver.ts,barrel,
 server/services/stability/benchmark-proteingym.ts,server,server/services/stability/benchmark-proteingym.test.ts
-server/services/stability/biophysics-bridge.ts,server,server/services/structure/folding-engines.test.ts
 server/services/stability/biophysics-pool.ts,server,
 server/services/stability/biophysics.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/prediction/predictors.test.ts;server/services/stability/biophysics.test.ts
 server/services/stability/build-rasp-sqlite.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.test.ts
@@ -257,7 +254,6 @@ server/services/structure-resolver.ts,barrel,server/routes/biophysics.test.ts;se
 server/services/structure/best-chain.ts,server,server/services/structure/best-chain.test.ts
 server/services/structure/chain-quality.ts,server,server/services/structure/chain-quality.test.ts
 server/services/structure/esmfold.ts,server,
-server/services/structure/folding-engines.ts,server,server/services/structure/folding-engines.test.ts
 server/services/structure/index.ts,barrel,
 server/services/structure/model-contacts.ts,server,server/services/structure/model-contacts.test.ts
 server/services/structure/multimer.ts,server,server/services/structure/multimer.test.ts
@@ -311,7 +307,7 @@ server/utils/client-disconnect.ts,server,server/utils/client-disconnect.test.ts
 server/utils/concurrency.ts,server,server/utils/circuit-breaker.test.ts
 server/utils/crypto-session.ts,server,
 server/utils/janitor.ts,server,
-server/utils/mutation.ts,server,server/services/structure/folding-engines.test.ts
+server/utils/mutation.ts,server,server/utils/mutation.test.ts
 server/utils/process-tree.ts,server,
 server/utils/security.ts,server,server/routes/variant/sanitize-url.test.ts
 server/utils/signals.ts,server,server/utils/signals.test.ts
