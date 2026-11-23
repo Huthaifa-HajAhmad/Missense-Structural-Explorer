@@ -22,7 +22,7 @@ function gzf1(overrides: Record<string, any> = {}) {
     predictorData: { caddPhred: 29.5, amPathogenicity: 0.835, amClass: "likely_pathogenic" },
     conservationData: {
       revel: 0.234, bayesdel: 0.092, metarnn: 0.767, clinpred: 0.998, eigenPhred: 6.3, dann: 0.999,
-      popeve: -3.931, gerp: 5.0, phylop: 4.91, consurf: null,
+      popeve: -3.931, gerp: 5.0, phylop: 4.91, scorecons: null,
       // A result stored before GPN-MSA was retired still carries its score; the tab must ignore it.
       gpnStar: -8.81,
       alphagenome: { status: "live", aviPhred: 26.4, topPercentile: 0.23, topModality: "AlphaMissense" },

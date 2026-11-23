@@ -13,7 +13,6 @@ biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts
 biosig.lab.uq.edu.au,server/services/stability/dynamut.ts
 cdn.jsdelivr.net,server/express-config.ts
 cdn.jsdelivr.net,server/routes/docs.ts
-consurfdb.tau.ac.il,server/services/prediction/predictors/consurf-resolver.ts
 data.evemodel.org,server/services/prediction/predictors/popeve-resolver.ts
 data.rcsb.org,server/services/external-api/pdbe-interfaces.ts
 data.rcsb.org,server/services/structure/structure-fetcher.ts
@@ -86,6 +85,7 @@ www.ebi.ac.uk,server/services/external-api/adapters/service-adapters.ts
 www.ebi.ac.uk,server/services/external-api/intact.ts
 www.ebi.ac.uk,server/services/external-api/pdbe-entries.ts
 www.ebi.ac.uk,server/services/external-api/pdbe-interfaces.ts
+www.ebi.ac.uk,server/services/external-api/protvar-conservation.ts
 www.ebi.ac.uk,server/services/external-api/protvar-protein.ts
 www.ebi.ac.uk,server/services/external-api/protvar.ts
 www.ebi.ac.uk,server/services/external-api/uniprot.ts

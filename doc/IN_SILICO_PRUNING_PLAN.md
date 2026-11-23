@@ -50,18 +50,21 @@ regenerate `doc/code-map/` with `npm run map`.
 Step 3 can change PP3/BP4 results (approved). Measure the change on the reference variants and write a
 release note, as was done for D1.
 
-### Phase 1 — ConSurf: find the real cause and fix it
+### Phase 1 — ConSurf replaced by ProtVar residue conservation (done on `feat/protvar-conservation`)
 
-ConSurf has never shown a value. First find out why, on the production VM:
+ConSurf never showed a value. Checked from the production VM on 2026-11-23: the page the scraper read
+(`consurfdb.tau.ac.il/scripts/chain_selection.php`) returns 404 since the site was rebuilt, and the
+resolver turned every failure into a silent null. The rebuilt site's own lookups (`find_chains`,
+`get_identical_chain`, `check_seq`) return no chain or HTTP 400 for every entry tried (4HHB, 1UBQ, 1TUP and
+others), and the per-chain files on `consurf.tau.ac.il` return 404. No client can get data from it.
 
-- Is the host reachable from the VM, and does the 3 s timeout ever succeed?
-- Does the run ever have a `pdbId` and `chainId`? AlphaFold-only runs never call ConSurf.
-- Do the chain-selection page and `consurf_summary.txt` still have the format the scraper expects?
-- Does ConSurf-DB now offer a UniProt-keyed download, which would remove the PDB-only limit?
-
-Then fix it at the cause: map residues through SIFTS (the PDB-to-UniProt residue map the app already
-uses), use the five-state provider labels for failures, and test with stored ConSurf files. If ConSurf-DB
-turns out to be gone, stop and decide: replace it or retire it.
+Replacement: ProtVar's per-residue conservation (`/ProtVar/api/score/{acc}/{pos}?type=CONSERV`). ProtVar
+takes it from VarSite, which scores UniRef90 alignments with ScoreCons (Stephenson et al., NAR 2024;
+Valdar 2002), 0 variable to 1 fully conserved. It works for AlphaFold-only proteins and proteins longer than
+2,700 residues, needs no PDB chain or residue remapping, and uses a host the app already calls. It is
+informational: no cut-points, never counted. An isoform accession is sent unchanged, so ProtVar answers
+nothing rather than the canonical residue at the same number. Rejected: the PDBe-KB conservation endpoint
+(HTTP 404 for AlphaFold-only proteins), and running Rate4Site locally (too heavy for the VM).
 
 ### Phase 2 — Retirements that change no verdict
 

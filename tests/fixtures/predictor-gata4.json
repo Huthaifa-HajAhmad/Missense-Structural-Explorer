@@ -19,7 +19,7 @@
     "bayesdel": 0.0123862000182271,
     "clinpred": 0.655626118183136,
     "clinpredPred": null,
-    "consurf": null,
+    "scorecons": null,
     "dann": 0.988106369972229,
     "dbscsnv": null,
     "eigenPhred": 4.822350978851318,

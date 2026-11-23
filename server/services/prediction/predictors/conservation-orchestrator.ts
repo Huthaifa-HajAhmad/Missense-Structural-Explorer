@@ -7,7 +7,7 @@ import { resolveSpliceProximity } from "../splice_resolver.ts";
 import { buildConservationKey } from "../../infra/cache-keys.ts";
 import { safeParseFloat, safeParseInt, toSingleAa, getFirstOrVal } from "./normalizer.ts";
 import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
-import { fetchRealConsurfData } from "./consurf-resolver.ts";
+import { fetchProtVarConservation } from "../../external-api/protvar-conservation.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
 import { fetchSpliceAiBroadOutcome, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiOutcome } from "../../external-api/spliceai_broad.ts";
@@ -72,6 +72,17 @@ function applyLiveSpliceAi<T extends ConservationData>(
  * unreachable academic endpoint degrades to the existing precomputed sources rather than
  * failing the analysis.
  */
+/**
+ * ProtVar's residue conservation (ScoreCons, 0 to 1) for the composite. A failed request is logged
+ * and shown as no score; it never fails the rest of the conservation data.
+ */
+function fetchScoreCons(uniprotId: string, position: number): Promise<number | null> {
+  return fetchProtVarConservation(uniprotId, position).catch((err: Error) => {
+    console.warn(`[ProtVar Conservation] ${uniprotId} ${position}: ${err.message}`);
+    return null;
+  });
+}
+
 export async function fetchLiveSpliceAiIfPossible(
   chrom: string,
   pos: number,
@@ -198,6 +209,11 @@ export async function fetchConservationData(
        * overlaid on the merged result there, so every provider path benefits from one request.
        */
       const enrichCoordinateHere = !options?.coordinateEnrichmentByCaller;
+      // Residue conservation is keyed on the protein, not the coordinate. The progressive caller
+      // fetches it as its own model, so it is asked for here only on a direct call.
+      const scoreconsPromise: Promise<number | null> = enrichCoordinateHere && uniprotId && resolvedPos !== null
+        ? fetchScoreCons(uniprotId, resolvedPos)
+        : Promise.resolve(null);
       const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
         assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
 
@@ -206,7 +222,7 @@ export async function fetchConservationData(
         revel: null,
         gerp: null,
         phylop: null,
-        consurf: null,
+        scorecons: null,
         bayesdel: null,
         metarnn: null,
         metarnnPred: null,
@@ -253,10 +269,6 @@ export async function fetchConservationData(
               ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
-            const consurfPromise = (pdbId && chainId && resolvedPos !== null)
-              ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
-              : Promise.resolve(null);
-
             // AlphaGenome is GRCh38-only — the same gate as its progressive-path sibling and
             // the PopEVE call in this very block. Gating only the progressive call site
             // left this one free to score an hg19 position against the GRCh38 model (review M-4).
@@ -268,7 +280,7 @@ export async function fetchConservationData(
                 }).catch(() => null)
               : Promise.resolve(null);
 
-            const [popEVEScore, consurfVal, alphaRes] = await Promise.all([popEVEPromise, consurfPromise, alphaPromise]);
+            const [popEVEScore, scoreconsVal, alphaRes] = await Promise.all([popEVEPromise, scoreconsPromise, alphaPromise]);
 
             let popEVEVal = rec.popeve ?? popEVEScore;
             if (popEVEVal === null && enrichCoordinateHere) {
@@ -283,7 +295,7 @@ export async function fetchConservationData(
               revelProvenance: (rec.revel ?? null) !== null ? readLocalDbnsfpVersion() ?? "local dbNSFP (version not recorded)" : undefined,
               gerp: rec.gerp,
               phylop: rec.phylop,
-              consurf: consurfVal,
+              scorecons: scoreconsVal,
               bayesdel: rec.bayesdel,
               metarnn: rec.metarnn,
               metarnnPred: null,
@@ -335,10 +347,7 @@ export async function fetchConservationData(
         const genosCoord = usableBy("genos") ? gnomadVariantId : null;
         const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, genosCoord);
         if (activeGenosRec) {
-          const consurfPromise = (pdbId && chainId && resolvedPos !== null)
-            ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
-            : Promise.resolve(null);
-          const consurfVal = await consurfPromise;
+          const scoreconsVal = await scoreconsPromise;
 
           let popEVEVal = activeGenosRec.popeve;
           if (popEVEVal === null && enrichCoordinateHere) {
@@ -351,7 +360,7 @@ export async function fetchConservationData(
             revelProvenance: (activeGenosRec.revel ?? null) !== null ? "Genos Web Query" : undefined,
             gerp: activeGenosRec.gerp,
             phylop: activeGenosRec.phylop,
-            consurf: consurfVal,
+            scorecons: scoreconsVal,
             bayesdel: activeGenosRec.bayesdel,
             metarnn: activeGenosRec.metarnn,
             metarnnPred: null,
@@ -399,10 +408,7 @@ export async function fetchConservationData(
         const dbnsfpOrgCoord = usableBy("dbnsfpOrg") ? gnomadVariantId : null;
         const pubDbnsfp = await queryDbnsfpOrg(gene, variant, dbnsfpOrgCoord);
         if (pubDbnsfp && (pubDbnsfp.revel !== null || pubDbnsfp.gerp !== null || pubDbnsfp.phylop !== null)) {
-          const consurfPromise = (pdbId && chainId && resolvedPos !== null)
-            ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
-            : Promise.resolve(null);
-          const consurfVal = await consurfPromise;
+          const scoreconsVal = await scoreconsPromise;
 
           let popEVEVal = pubDbnsfp.popeve ?? null;
           if (popEVEVal === null && enrichCoordinateHere) {
@@ -415,7 +421,7 @@ export async function fetchConservationData(
             revelProvenance: (pubDbnsfp.revel ?? null) !== null ? "query.dbnsfp.org (release not stated)" : undefined,
             gerp: pubDbnsfp.gerp ?? null,
             phylop: pubDbnsfp.phylop ?? null,
-            consurf: consurfVal,
+            scorecons: scoreconsVal,
             bayesdel: pubDbnsfp.bayesdel ?? null,
             metarnn: pubDbnsfp.metarnn ?? null,
             metarnnPred: null,
@@ -455,10 +461,6 @@ export async function fetchConservationData(
           timeout: 15000
         });
 
-        const consurfPromise = (pdbId && chainId && resolvedPos !== null)
-          ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
-          : Promise.resolve(null);
-
         const popEVEPromise = gnomadVariantId && enrichCoordinateHere && usableBy("popEVE")
           ? (async () => {
               const parsed = parseGenomicCoordinateString(gnomadVariantId);
@@ -469,9 +471,9 @@ export async function fetchConservationData(
             })()
           : Promise.resolve(null);
 
-        const [res, consurfVal, popEVEScore] = await Promise.all([
+        const [res, scoreconsVal, popEVEScore] = await Promise.all([
           myVariantPromise,
-          consurfPromise,
+          scoreconsPromise,
           popEVEPromise
         ]);
 
@@ -504,10 +506,10 @@ export async function fetchConservationData(
               }
               const missedRes: ConservationData = {
                 ...defaultRes,
-                consurf: consurfVal,
+                scorecons: scoreconsVal,
                 popeve: finalPopEVE,
               };
-              if (consurfVal === null && finalPopEVE === null) {
+              if (scoreconsVal === null && finalPopEVE === null) {
                 conservationCache.set(cacheKey, missedRes, { ttl: 5 * 60 * 1000 });
               }
               return missedRes;
@@ -657,7 +659,7 @@ export async function fetchConservationData(
                 revelProvenance: revel !== null ? "myvariant.info dbNSFP (release not stated)" : undefined,
                 gerp, 
                 phylop, 
-                consurf: consurfVal,
+                scorecons: scoreconsVal,
                 bayesdel,
                 metarnn,
                 metarnnPred,
@@ -717,7 +719,6 @@ export interface ProgressiveConservationContext {
    * different locus. Defaults to GRCh38, which is what every source here is pinned to.
    */
   assembly?: GenomeAssembly;
-  pdbMappingPromise?: Promise<any>;
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
   biohubToken?: string | null;
@@ -727,7 +728,7 @@ export interface ProgressiveConservationContext {
   spliceaiDistance?: number | null;
   /**
    * Called with a cumulative snapshot each time one model inside the composite settles, so a fast
-   * SpliceAI or AlphaGenome answer is not held back behind dbNSFP or ConSurf. Each snapshot
+   * SpliceAI or AlphaGenome answer is not held back behind dbNSFP or ProtVar. Each snapshot
    * carries `modelStatus`; a model that has not settled contributes NO value (not even a fallback
    * that its own answer might replace), so a snapshot never shows a number the final payload
    * contradicts. Not called for the final value, which is the function's return.
@@ -753,7 +754,7 @@ interface ConservationLocus {
  */
 export interface ConservationParts {
   base?: ConservationData;
-  consurf?: number | null;
+  scorecons?: number | null;
   locus?: ConservationLocus | null;
   popeve?: number | null;
   alphagenome?: AlphaGenomeAviData | null;
@@ -770,7 +771,7 @@ const UNSETTLED_BASE: ConservationData = {
   revel: null,
   gerp: null,
   phylop: null,
-  consurf: null,
+  scorecons: null,
   bayesdel: null,
   metarnn: null,
   metarnnPred: null,
@@ -804,11 +805,11 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
   return {
     base: state(base),
     /**
-     * ConSurf, splice geometry and AlphaGenome have no base fallback on this path: the base fetch is
-     * called without a PDB chain or transcript, and with `coordinateEnrichmentByCaller`, so its
+     * ProtVar conservation, splice geometry and AlphaGenome have no base fallback on this path: the
+     * base fetch is called without a transcript and with `coordinateEnrichmentByCaller`, so its
      * values for these three are always null. Each is final the moment its own request settles.
      */
-    consurf: state(has("consurf")),
+    scorecons: state(has("scorecons")),
     spliceProximity: state(has("spliceProximity")),
     alphagenome: state(has("alphagenome")),
     // A returned protein-file score can be shown before the base lookup finishes.
@@ -825,7 +826,7 @@ function mergeConservationParts(parts: ConservationParts): ConservationData {
 
   return applyLiveSpliceAi({
     ...baseConservation,
-    consurf: parts.consurf ?? baseConservation.consurf,
+    scorecons: parts.scorecons ?? baseConservation.scorecons ?? null,
     popeve: baseConservation.popeve ?? parts.popeve ?? null,
     spliceProximity: parts.spliceProximity ?? baseConservation.spliceProximity,
     assemblyRefusals: assemblyRefusals && assemblyRefusals.length > 0
@@ -843,7 +844,7 @@ function mergeConservationParts(parts: ConservationParts): ConservationData {
 export function conservationSnapshot(parts: ConservationParts): ConservationData {
   const merged: ConservationData = { ...mergeConservationParts(parts) };
   const status = conservationModelStatus(parts);
-  if (status.consurf !== "settled") merged.consurf = null;
+  if (status.scorecons !== "settled") merged.scorecons = null;
   if (status.popeve !== "settled") merged.popeve = null;
   if (status.spliceProximity !== "settled") merged.spliceProximity = null;
   if (status.alphagenome !== "settled") merged.alphagenome = null;
@@ -880,7 +881,6 @@ export async function fetchConservationDataProgressive(
     variant,
     pos,
     uniprotId,
-    pdbMappingPromise,
     predictorPromise,
     genosPromise,
     alphagenomeApiKey,
@@ -909,7 +909,7 @@ export async function fetchConservationDataProgressive(
   /**
    * Every model below settles on its own and is recorded the moment it does. They used to be joined
    * by one `Promise.all` (and the coordinate models by a second), so a SpliceAI answer in 2 s waited
-   * for the slowest of dbNSFP, ConSurf and AlphaGenome before anyone saw it.
+   * for the slowest of dbNSFP, ProtVar and AlphaGenome before anyone saw it.
    */
   const parts: ConservationParts = {};
   let finished = false;
@@ -924,15 +924,10 @@ export async function fetchConservationDataProgressive(
   const track = <K extends keyof ConservationParts, V extends ConservationParts[K]>(key: K, task: Promise<V>): Promise<V> =>
     task.then(value => { settle(key, value); return value; });
 
-  // 1. ConSurf, as soon as the PDB mapping resolves (zero waterfall delay on the base fetch).
-  const consurfTask = track("consurf", (pdbMappingPromise || Promise.resolve(null))
-    .then(pdbMap => {
-      if (pdbMap?.pdbId && resolvedPos !== null) {
-        return fetchRealConsurfData(pdbMap.pdbId, pdbMap.chainId, resolvedPos);
-      }
-      return null;
-    })
-    .catch(() => null));
+  // 1. ProtVar residue conservation, at once: it needs only the accession and the residue.
+  const scoreconsTask = track("scorecons", uniprotId && resolvedPos !== null
+    ? fetchScoreCons(uniprotId, resolvedPos)
+    : Promise.resolve(null));
 
   // 2. The coordinate, its build gate and the recorded refusals, once the predictor resolves.
   const predictorTask: Promise<any> = (predictorPromise || Promise.resolve(null)).catch(() => null);
@@ -1132,7 +1127,7 @@ export async function fetchConservationDataProgressive(
 
   try {
     // A base failure still fails the composite, as before; every coordinate model degrades to null.
-    await Promise.all([baseTask, consurfTask, locusTask, popeveTask, alphagenomeTask, liveSpliceAiTask, spliceProximityTask]);
+    await Promise.all([baseTask, scoreconsTask, locusTask, popeveTask, alphagenomeTask, liveSpliceAiTask, spliceProximityTask]);
   } finally {
     finished = true;
   }

@@ -36,7 +36,7 @@ function gzf1(overrides: Record<string, any> = {}) {
       popeve: -3.931,
       gerp: 5.0,
       phylop: 4.91,
-      consurf: null,
+      scorecons: 0.957,
       alphagenome: { status: "live", aviPhred: 26.4, topPercentile: 0.23, topModality: "AlphaMissense", acmgStrength: "PP3_Moderate" },
       source: "Public dbNSFP (dbnsfp.org)",
     },
@@ -163,6 +163,14 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(evidence.voters.indeterminate.map(r => r.key).sort()).toEqual(["bayesdel"]);
   });
 
+  it("shows ProtVar's residue conservation as an informational 0-1 reading with no cut-points", () => {
+    const row = evidence.readings.find(r => r.key === "scorecons")!;
+    expect(row).toMatchObject({ group: "conservation", votes: false, score: 0.957, scoreText: "0.96", scale: { min: 0, max: 1 }, orientation: "higher" });
+    expect(row.cutpoints.kind).toBe("none");
+    expect(row.source).toMatch(/ProtVar/);
+    expect(evidence.readings.find(r => r.key === "consurf")).toBeUndefined();
+  });
+
   it("shows popEVE as a cross-gene severity reading that never votes", () => {
     const popeve = evidence.readings.find(r => r.key === "popeve")!;
     expect(popeve.votes).toBe(false);
@@ -177,7 +185,7 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
 
   it("never lets an informational tool vote", () => {
     for (const r of evidence.readings.filter(x => !x.votes)) {
-      expect(["popeve", "alphagenome", "eigen", "dann", "esm", "phylop", "gerp", "consurf"]).toContain(r.key);
+      expect(["popeve", "alphagenome", "eigen", "dann", "esm", "phylop", "gerp", "scorecons"]).toContain(r.key);
     }
     const avi = evidence.readings.find(r => r.key === "alphagenome")!;
     expect(avi.callLabel).toBe("Informational");

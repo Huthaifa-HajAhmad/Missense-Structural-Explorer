@@ -359,16 +359,16 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     usedBy: ["src/shared/splicingEvidence.ts", "server/services/prediction/predictors/dbnsfp-query.ts"]
   },
   {
-    id: "consurf",
-    name: "ConSurf",
-    provider: "Ben-Tal laboratory, Tel Aviv University",
+    id: "protvar-conservation",
+    name: "ProtVar residue conservation (VarSite ScoreCons)",
+    provider: "EMBL-EBI",
     kind: "dataset",
-    role: "Per-residue evolutionary conservation grades shown on the sequence track and used as corroboration when a predictor is silent.",
-    url: "https://consurf.tau.ac.il/",
+    role: "Per-residue conservation across UniRef90 homologues (0 variable to 1 fully conserved), shown as an informational reading on the Predictors tab.",
+    url: "https://www.ebi.ac.uk/ProtVar/",
     release: null,
     citation:
-      "Ashkenazy, H., et al. (2016). ConSurf 2016: an improved methodology to estimate and visualize evolutionary conservation in macromolecules. Nucleic Acids Research 44, W344–W350. https://doi.org/10.1093/nar/gkw408",
-    usedBy: ["server/services/prediction/predictors/consurf-resolver.ts"]
+      "Stephenson, J. D., et al. (2024). ProtVar: mapping and contextualizing human missense variation. Nucleic Acids Research 52, W140–W147. https://doi.org/10.1093/nar/gkae413. Scores: Valdar, W. S. J. (2002). Scoring residue conservation. Proteins 48, 227–241.",
+    usedBy: ["server/services/external-api/protvar-conservation.ts"]
   },
   {
     id: "popeve-data",
@@ -822,7 +822,6 @@ export const QUERY_TRANSMISSION = {
     { host: "rest.uniprot.org", sent: "Gene symbol or UniProt accession", note: "Returns the canonical sequence and the curated feature annotations." },
     { host: "gnomad.broadinstitute.org", sent: "Variant id (chromosome–position–ref–alt) and gene symbol", note: null },
     { host: "api.genome.ucsc.edu", sent: "Genomic window (hg38 chromosome, start, end) and an annotation track name", note: "Exon boundaries used to resolve the splice architecture." },
-    { host: "consurfdb.tau.ac.il", sent: "PDB identifier and residue selection", note: "Conservation grading for the sequence track." },
     { host: "query.dbnsfp.org", sent: "Gene symbol and protein change", note: "Used only when the local dbNSFP ingest is absent; the columns are otherwise read from the local SQLite file." },
     { host: "alphafold.ebi.ac.uk · files.rcsb.org · search.rcsb.org · data.rcsb.org", sent: "UniProt accession or PDB id", note: "Structure retrieval only — no variant data." },
     { host: "string-db.org", sent: "Gene symbol", note: null },
@@ -834,7 +833,7 @@ export const QUERY_TRANSMISSION = {
     { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },
     { host: "biosig.lab.uq.edu.au", sent: "Structure coordinates (PDB upload) and the mutation string", note: "DynaMut2, DDMut and DDMut-PPI. The whole modelled structure leaves the machine, uploaded to a server in Australia." },
     { host: "deepmind.google.com", sent: "GRCh38 interval", note: "GRCh38 only — a GRCh37 coordinate is refused here rather than sent." },
-    { host: "www.ebi.ac.uk", sent: "Literature text query and gene symbol; UniProt accession", note: "Europe PMC's search endpoint, and the PDBe API for structure mappings and interface residues." },
+    { host: "www.ebi.ac.uk", sent: "Literature text query and gene symbol; UniProt accession and residue position", note: "Europe PMC's search endpoint, the PDBe API for structure mappings and interface residues, and ProtVar for residue conservation and FoldX values." },
     { host: "generativelanguage.googleapis.com", sent: "The assembled evidence bundle for this run, plus your optional directions field", note: "Directions are screened for identifiers before they are sent, and that screening is best-effort — never type patient data into that field." }
   ]
 } as const;

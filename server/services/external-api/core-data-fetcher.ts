@@ -190,7 +190,7 @@ const isAbsent = (value: unknown): boolean => value === null || value === undefi
  * with BayesDel, ClinPred, PopEVE or SpliceAI values "not found".
  */
 const CONSERVATION_SCORE_FIELDS = [
-  "revel", "gerp", "phylop", "consurf", "bayesdel", "metarnn", "clinpred", "eigenPhred", "dann",
+  "revel", "gerp", "phylop", "scorecons", "bayesdel", "metarnn", "clinpred", "eigenPhred", "dann",
   "esm1b", "popeve", "spliceai", "alphagenome"
 ] as const;
 
@@ -586,7 +586,7 @@ async function runCoreFetch(
 
   /**
    * The composite's latest streamed snapshot, so a fast SpliceAI or AlphaGenome answer reaches the
-   * reader before dbNSFP or ConSurf finish, and so a composite whose budget expires keeps
+   * reader before dbNSFP or ProtVar finish, and so a composite whose budget expires keeps
    * the models that DID answer instead of discarding all of them.
    */
   let conservationLatestSnapshot: ConservationData | null = null;
@@ -618,7 +618,6 @@ async function runCoreFetch(
       pos,
       uniprotId,
       assembly,
-      pdbMappingPromise,
       predictorPromise: locus,
       genosPromise,
       biohubToken,
