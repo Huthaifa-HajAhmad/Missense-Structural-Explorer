@@ -41,7 +41,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       dann: 0.99,
       esm1b: -12.4,
       popeve: -6.1,
-      consurf: 8,
+      scorecons: 0.9,
       spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.02, max_ds: 0.02 },
       alphagenome: { status: 'live', aviPhred: 19.4, topModality: 'RNA_SEQ', acmgStrength: 'PP3_Supporting' }
     });

@@ -281,7 +281,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const dann = finite(cd?.dann);
   const gerp = finite(cd?.gerp);
   const phylop = finite(cd?.phylop);
-  const consurf = finite(cd?.consurf);
+  const scorecons = finite(cd?.scorecons);
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
 
@@ -692,27 +692,27 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   conservation("phylop", "phyloP", "phylop", phylop, { min: -20, max: 10 }, "Base-wise conservation across the vertebrate alignment.");
   conservation("gerp", "GERP++", "gerp", gerp, { min: -12.3, max: 6.2 }, "Rejected substitutions at this base across mammals (RS).");
   readings.push({
-    key: "consurf",
-    name: "ConSurf",
-    description: "Residue conservation grade (1 variable – 9 conserved) from a homologue alignment.",
+    key: "scorecons",
+    name: "Residue conservation",
+    description: "How conserved this amino-acid position is across UniRef90 protein homologues (ScoreCons, 0 variable – 1 fully conserved).",
     group: "conservation",
     votes: false,
-    score: consurf,
-    scoreText: consurf !== null ? String(Math.round(consurf)) : "—",
-    unit: "grade",
-    scale: { min: 1, max: 9 },
+    score: scorecons,
+    scoreText: fmt(scorecons, 2),
+    unit: null,
+    scale: { min: 0, max: 1 },
     orientation: "higher",
     cutpoints: NO_CUTS,
-    signal: consurf === null ? "unavailable" : "vus",
+    signal: scorecons === null ? "unavailable" : "vus",
     calibrated: null,
-    callLabel: consurf === null ? NO_RESULT : "Informational",
+    callLabel: scorecons === null ? NO_RESULT : "Informational",
     callTone: "muted",
     caveats: [],
     note: null,
-    availability: statusAware(consurf, "consurf", () =>
-      absent("ConSurf-DB returned no grade for this protein.", "No grade")),
-    source: "ConSurf-DB",
-    knowledgeKey: "consurf",
+    availability: statusAware(scorecons, "scorecons", () =>
+      absent("ProtVar has no conservation score for this residue. It scores canonical UniProt positions only.", "No score")),
+    source: "ProtVar (VarSite ScoreCons)",
+    knowledgeKey: "scorecons",
     link: null,
   });
 

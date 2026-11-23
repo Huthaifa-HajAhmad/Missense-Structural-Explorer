@@ -62,7 +62,7 @@ describe("locus recovery policy — humans and agents receive the same remedy", 
   });
 
   it("preserves source-level input remedies through API schema parsing", () => {
-    const parsed = conservationDataSchema.parse({ revel: null, gerp: null, phylop: null, consurf: null, assemblyRefusals: [{
+    const parsed = conservationDataSchema.parse({ revel: null, gerp: null, phylop: null, scorecons: null, assemblyRefusals: [{
       source: "popEVE", reason: "Original nucleotide allele required", retryable: false,
       failureKind: "ambiguous-allele", inputRequired: true,
     }] });

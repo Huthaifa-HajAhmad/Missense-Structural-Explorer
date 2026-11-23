@@ -178,7 +178,6 @@ describe("attribution registry", () => {
       // Named in the RaSP builder's docs as where an operator downloads the proteome predictions by
       // hand (doc/RASP_DATA.md). The server never contacts it.
       "sid.erda.dk": "manual download location for the RaSP proteome data, not an outbound call",
-      "consurf.tau.ac.il": "the ConSurf project page; the API host is disclosed separately",
       "europepmc.org": "article links; the search API is www.ebi.ac.uk",
       "uniprot.org": "curated variant record links; the API is rest.uniprot.org",
       "ncbi.nlm.nih.gov": "article links; the API is eutils.ncbi.nlm.nih.gov",

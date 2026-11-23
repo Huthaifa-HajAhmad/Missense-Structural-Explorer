@@ -14,7 +14,7 @@ vi.mock("../dbnsfp_local.ts", () => ({
 }));
 vi.mock("../../external-api/alphagenome-bridge.ts", () => ({ fetchAlphaGenome: mocks.alphagenome }));
 
-import { fetchConservationData, fetchConservationDataProgressive } from "./conservation-orchestrator.ts";
+import { fetchConservationData, fetchConservationDataProgressive, conservationSnapshot } from "./conservation-orchestrator.ts";
 import { clearAllCaches } from "../../infra/cache.ts";
 
 /**
@@ -185,7 +185,7 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(result.popeve).toBeNull();
   });
 
-  it("withholds non-GRCh38 coordinates from Genos and dbNSFP.org on direct calls and resolves ConSurf position from variant string", async () => {
+  it("withholds non-GRCh38 coordinates from Genos and dbNSFP.org on direct calls and reads ProtVar conservation by accession and residue", async () => {
     const local = await import("../dbnsfp_local.ts");
     vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
 
@@ -193,8 +193,8 @@ describe("conservation scores are keyed to the analysed allele", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
       const s = String(url);
       seenUrls.push(s);
-      if (s.includes("consurfdb.tau.ac.il")) {
-        return new Response('<option value="A hash123">Chain A</option>', { status: 200 });
+      if (s.includes("/ProtVar/api/score/")) {
+        return new Response(JSON.stringify([{ type: "CONSERV", score: 0.957 }]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (s.includes("myvariant.info")) {
         return new Response(JSON.stringify({
@@ -204,9 +204,33 @@ describe("conservation scores are keyed to the analysed allele", () => {
       throw new TypeError("offline");
     }));
 
-    await fetchConservationData("TP53", "p.Arg273His", "1TUP", "A", null, "17-7577120-C-T", null, null, null, null, "GRCh37");
+    const result = await fetchConservationData("TP53", "p.Arg273His", "1TUP", "A", null, "17-7577120-C-T", null, "P04637", null, null, "GRCh37");
     expect(mocks.genos).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
     expect(mocks.dbnsfpOrg).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
-    expect(seenUrls.some(u => u.includes("consurfdb.tau.ac.il"))).toBe(true);
+    // The residue comes from the variant string; no PDB chain is needed.
+    expect(seenUrls).toContain("https://www.ebi.ac.uk/ProtVar/api/score/P04637/273?type=CONSERV");
+    expect(result.scorecons).toBe(0.957);
+  });
+
+  it("streams ProtVar conservation as its own model, before and without a PDB mapping", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("/ProtVar/api/score/P04637/273")) {
+        return new Response(JSON.stringify([{ type: "CONSERV", score: 0.957 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+    const result = await fetchConservationDataProgressive({
+      gene: "TP53",
+      variant: "p.Arg273His",
+      pos: 273,
+      uniprotId: "P04637",
+      predictorPromise: Promise.resolve({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" }) as any,
+      genosPromise: Promise.resolve(proteinGenosRecord),
+    });
+    expect(result.scorecons).toBe(0.957);
+    // A snapshot shows the score only once ProtVar has answered.
+    expect(conservationSnapshot({}).modelStatus?.scorecons).toBe("pending");
+    expect(conservationSnapshot({}).scorecons).toBeNull();
+    expect(conservationSnapshot({ scorecons: 0.957 }).modelStatus?.scorecons).toBe("settled");
   });
 });

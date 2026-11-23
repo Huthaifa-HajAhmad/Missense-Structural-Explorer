@@ -278,16 +278,8 @@ END
       vi.unstubAllGlobals();
     });
 
-    it("should progressively merge async PDB mapping and predictor enrichment into base conservation data", async () => {
+    it("should progressively merge predictor enrichment into base conservation data", async () => {
       const { fetchConservationDataProgressive } = await import("../predictors.ts");
-
-      const mockPdbMappingPromise = Promise.resolve({
-        pdbId: "1TUP",
-        chainId: "A",
-        shift: 0,
-        unpStart: 1,
-        structStart: 1
-      });
 
       const mockPredictorPromise = Promise.resolve({
         gnomadVariantId: "17-7577121-G-A",
@@ -306,7 +298,6 @@ END
         variant: "p.R273H",
         pos: 273,
         uniprotId: "P04637",
-        pdbMappingPromise: mockPdbMappingPromise,
         predictorPromise: mockPredictorPromise,
         genosPromise: mockGenosPromise
       });

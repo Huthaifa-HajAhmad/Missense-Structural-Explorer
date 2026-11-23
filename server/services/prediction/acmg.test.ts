@@ -11,7 +11,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       variant: "p.Arg408Trp",
       clinvar,
       predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      conservationData: { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, consurf: 2 },
+      conservationData: { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, scorecons: 0.4 },
       gnomadConstraint: null,
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
     });

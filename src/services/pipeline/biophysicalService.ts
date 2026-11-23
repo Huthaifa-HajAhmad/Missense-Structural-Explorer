@@ -134,7 +134,7 @@ export async function fetchBiophysicalAnalysis(
             uniprotFeatures: { name: "Functional Domain Annotations (UniProtKB)", stage: "structure" },
             disruptionPredictor: { name: "3D Residue Microenvironment & Disruption Triage", stage: "structure" },
             predictorData: { name: "In-Silico Pathogenicity (dbNSFP / AlphaMissense / CADD)", stage: "biophysics" },
-            conservationData: { name: "Evolutionary Conservation (ConSurf / REVEL / GERP++)", stage: "biophysics" },
+            conservationData: { name: "Evolutionary Conservation (ProtVar / REVEL / GERP++)", stage: "biophysics" },
             clinvar: { name: "ClinVar Clinical Interpretation (NCBI E-Utilities)", stage: "clinical" },
             gnomadFrequency: { name: "Population Allele Frequency (gnomAD r4 GraphQL)", stage: "clinical" },
             gnomadConstraint: { name: "Gene Constraint & Regional Missense (gnomAD)", stage: "clinical" },

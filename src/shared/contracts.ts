@@ -1403,7 +1403,7 @@ export function generateAtlasUrls(
 export const conservationModelStateSchema = z.enum(["pending", "settled", "timeout"]);
 export type ConservationModelState = z.infer<typeof conservationModelStateSchema>;
 /** The models of the conservation composite; `modelStatus` is keyed by exactly these. */
-export const CONSERVATION_MODEL_KEYS = ["base", "consurf", "spliceai", "spliceProximity", "alphagenome", "popeve"] as const;
+export const CONSERVATION_MODEL_KEYS = ["base", "scorecons", "spliceai", "spliceProximity", "alphagenome", "popeve"] as const;
 export type ConservationModelKey = (typeof CONSERVATION_MODEL_KEYS)[number];
 
 export const conservationDataSchema = z.object({
@@ -1416,7 +1416,11 @@ export const conservationDataSchema = z.object({
   revelProvenance: z.string().nullable().optional(),
   gerp: z.number().nullable(),
   phylop: z.number().nullable(),
-  consurf: z.number().nullable(),
+  /**
+   * Residue conservation from ProtVar (VarSite ScoreCons over UniRef90 homologues), 0 variable to 1
+   * fully conserved. Optional, so analyses saved before it existed still parse.
+   */
+  scorecons: z.number().nullable().optional(),
   bayesdel: z.number().nullable().optional(),
   metarnn: z.number().nullable().optional(),
   metarnnPred: z.string().nullable().optional(),
