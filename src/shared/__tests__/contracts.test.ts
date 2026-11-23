@@ -561,4 +561,16 @@ describe("conservation model status from older stored results", () => {
     // The score field itself is gone; zod drops unknown keys from the object.
     expect("gpnStar" in conservationDataSchema.shape).toBe(false);
   });
+
+  it("still parses an analysis saved with the retired dbscSNV, DANN and Eigen fields, and drops them", async () => {
+    const { conservationDataSchema } = await import("../contracts");
+    const parsed = conservationDataSchema.parse({
+      revel: 0.5, gerp: 4, phylop: 3, bayesdel: 0.1,
+      dbscsnv: { ada_score: 0.9, rf_score: 0.4 }, dann: 0.99, eigenPhred: 6.8, eigenRaw: 0.7,
+    });
+    expect(parsed.revel).toBe(0.5);
+    for (const retired of ["dbscsnv", "dann", "eigenPhred", "eigenRaw"]) {
+      expect(parsed).not.toHaveProperty(retired);
+    }
+  });
 });
