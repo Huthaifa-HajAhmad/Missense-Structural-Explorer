@@ -1120,6 +1120,51 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     return { ok: true, status: 200, json: async () => ({}), text: async () => ISOFORM_FASTA } as any;
   };
 
+  it("verifies a VariantValidator fallback answer through the RefSeq protein it names", async () => {
+    // VEP is down; VariantValidator numbers the change on NP_001032248.1 (ACOT9 isoform 4) and
+    // reports no UniProt accession. UniProt's RefSeq cross-reference places that protein exactly.
+    const fallbackFetch = async (url: string) => {
+      if (url.includes("rest.ensembl.org")) {
+        return {
+          ok: false,
+          status: 503,
+          headers: { get: (name: string) => (name.toLowerCase() === "retry-after" ? "0" : null) },
+          json: async () => ({ error: "service unavailable" }),
+          text: async () => "service unavailable",
+        } as any;
+      }
+      if (url.includes("variantvalidator")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            "NM_001037171.2:c.843G>T": {
+              gene_symbol: "ACOT9",
+              hgvs_predicted_protein_consequence: { tlr: "NP_001032248.1:p.(Lys281Asn)" },
+              annotations: { chromosome: "X", mane_select: true, ensembl_select: false },
+              primary_assembly_loci: { grch38: { vcf: { alt: "A", chr: "X", pos: "23707190", ref: "C" } } },
+            },
+          }),
+          text: async () => "",
+        } as any;
+      }
+      return uniprotFetch()(url);
+    };
+
+    const { statusCode, body } = await invokeTranslate("chrX:g.23707190C>A", MISSENSE_CONSEQUENCE, fallbackFetch as any);
+
+    expect(statusCode).toBe(200);
+    expect(body.provenance.usedFallback).toBe(true);
+    expect(body.gene).toBe("ACOT9");
+    expect(body.uniprotId).toBe("Q9Y305");
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.numberingBasis).toBe("remapped");
+    expect(body.numberingVerified).toBe(true);
+    // The disclosure keeps the provider's own notation and names the isoform it was numbered on.
+    expect(body.transcriptWarning).toContain("Lys281Asn");
+    expect(body.transcriptWarning).toContain("Q9Y305-4");
+  });
+
   it("accepts the lab's NP_-qualified notation and converts it to canonical numbering", async () => {
     const { statusCode, body } = await invokeTranslate(
       "NP_001032248.1:p.Lys281Asn",
