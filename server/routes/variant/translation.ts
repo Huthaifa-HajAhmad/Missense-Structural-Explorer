@@ -930,6 +930,9 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       // Recorded AFTER resolution so the audit trail states the numbering basis that was
       // actually analysed, not only the notation that was requested — and which reference release
       // numbered it, which is a different question once a GRCh37 coordinate is lifted.
+      const vepFailure = resolution.attempts.find(
+        (attempt) => attempt.provider === "ensembl-vep" && !attempt.ok
+      );
       await AuditLogger.log("TRANSLATE_VARIANT_RESOLVED", {
         variant: trimmed,
         assembly: submittedAssembly,
@@ -940,6 +943,18 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         provider: resolution.consequence.provider,
         usedFallback: resolution.usedFallback,
         cacheHit: resolution.cacheHit,
+        // Present only when Ensembl VEP was asked and failed: the kind, the reason and how long it
+        // took tell a timeout, a refusal by Ensembl and our own open circuit breaker (about 1 ms) apart.
+        ...(vepFailure
+          ? {
+              vepFailure: {
+                kind: vepFailure.failureKind,
+                // The audit log keeps variants only as hashes; a request URL holds the variant itself.
+                reason: vepFailure.reason?.replace(/https?:\/\/([^/\s]+)\S*/g, "$1"),
+                durationMs: vepFailure.durationMs,
+              },
+            }
+          : {}),
         // Present only when the provider named the gene with a retired symbol that UniProt lists as
         // a synonym (Ensembl's GRCh37 archive answers `CPSF3L` for `INTS11`). Recorded so a reader
         // can tell the returned `gene` is a refreshed symbol rather than what was reported.

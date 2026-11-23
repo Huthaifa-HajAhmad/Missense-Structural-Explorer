@@ -300,7 +300,7 @@ server/services/uniprot.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;
 server/sidecar-supervisor.ts,server,server/tests/sidecar-supervisor.test.ts
 server/spa-shell-cache.ts,server,server/spa-shell-cache.test.ts
 server/types/express-layer.d.ts,server,
-server/utils.ts,barrel,server/routes/auth.test.ts;server/routes/session.test.ts;server/services/prediction/acmg.test.ts;server/utils.test.ts
+server/utils.ts,barrel,server/routes/auth.test.ts;server/routes/session.test.ts;server/routes/variant/translation.test.ts;server/services/prediction/acmg.test.ts;server/utils.test.ts
 server/utils/audit-logger.ts,server,
 server/utils/client-disconnect.ts,server,server/utils/client-disconnect.test.ts
 server/utils/concurrency.ts,server,server/utils/circuit-breaker.test.ts
