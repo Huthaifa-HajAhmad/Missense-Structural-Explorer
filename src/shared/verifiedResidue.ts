@@ -41,7 +41,7 @@ export class VerifiedResidue {
     return residue.proof === "unverified" ? null : new VerifiedResidue(residue);
   }
 
-  /** True only for a value made by `of`, not for a copy of its fields. */
+  /** True for a value made by this module, not for a copy of its fields. The boundary rule keeps other files from making one. */
   static is(value: unknown): value is VerifiedResidue {
     return typeof value === "object" && value !== null && #brand in value;
   }

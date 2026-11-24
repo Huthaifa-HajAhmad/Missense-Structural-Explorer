@@ -13,7 +13,8 @@ import type { AlphaGenomeSaturationPosition, LandscapeResidueItem } from "../../
 
 const landscapeApi = vi.hoisted(() => ({
   getLandscapeData: vi.fn(),
-  getLandscapeOverview: vi.fn(() => new Promise(() => {}))
+  getLandscapeOverview: vi.fn(() => new Promise(() => {})),
+  getLandscapeContext: vi.fn(() => new Promise(() => {}))
 }));
 const fetchWithAuth = vi.hoisted(() => vi.fn());
 vi.mock("../../../apiClient", () => ({
@@ -189,6 +190,7 @@ describe("SequenceVisualizer residue window", () => {
   });
   afterEach(() => {
     sequenceState.sequence = "";
+    useVariantAnalysisStore.setState({ landscapeOverview: null, analysisState: { isLoading: false, error: null, result: null } as any });
     vi.restoreAllMocks();
   });
 
@@ -216,6 +218,9 @@ describe("SequenceVisualizer residue window", () => {
     useVariantAnalysisStore.setState({ landscapeOverview: null, analysisState: { isLoading: false, error: null, result: { metadata: { pipelineContext } } } as any });
     landscapeApi.getLandscapeData.mockResolvedValue({ landscapeData: [] });
     landscapeApi.getLandscapeOverview.mockClear();
+    landscapeApi.getLandscapeContext.mockClear();
+    // The overview answers without its context, so the viewer asks for the context in a second request.
+    landscapeApi.getLandscapeOverview.mockResolvedValueOnce({ meta: { transcript: "ENST00000001" }, context: null });
     renderViewer();
     fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
     await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalled());
@@ -223,7 +228,8 @@ describe("SequenceVisualizer residue window", () => {
     expect(landscapeApi.getLandscapeData.mock.calls[0][0]).toMatchObject(runFields);
     await waitFor(() => expect(landscapeApi.getLandscapeOverview).toHaveBeenCalled());
     expect((landscapeApi.getLandscapeOverview.mock.calls[0] as any[])[0]).toMatchObject(runFields);
-    useVariantAnalysisStore.setState({ analysisState: { isLoading: false, error: null, result: null } as any });
+    await waitFor(() => expect(landscapeApi.getLandscapeContext).toHaveBeenCalled());
+    expect((landscapeApi.getLandscapeContext.mock.calls[0] as any[])[0]).toMatchObject(runFields);
   });
 
   it("raises no alert when the request is cancelled by moving on", async () => {

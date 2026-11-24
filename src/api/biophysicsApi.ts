@@ -317,7 +317,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
      * (see `CLIENT_STRUCTURAL_REQUEST_BUDGET_MS`); the promise resolves with the `final` frame.
      */
     async getStructuralAssessments(
-      params: { gene: string; uniprotId: string; variant: string; acmgWeighting?: string },
+      params: RunRequestFields & { gene: string; uniprotId: string; variant: string },
       signal?: AbortSignal
     ): Promise<{
       disruptionPredictor?: import("../shared/contracts").DisruptionPredictorResult;

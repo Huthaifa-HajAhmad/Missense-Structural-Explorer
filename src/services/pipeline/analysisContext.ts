@@ -136,6 +136,11 @@ export function createAnalysisCacheContext(uniprotId: string, settings: CacheCon
   };
 }
 
+/**
+ * True when a saved run was made under the same scientific inputs as `expected`. The numbering proof is
+ * left out on purpose: every translation signs a new one, so comparing it would make each new search miss
+ * a saved result that is still correct.
+ */
 export function analysisContextMatches(actual: unknown, expected: AnalysisCacheContext): boolean {
   if (!actual || typeof actual !== "object") return false;
   return Object.entries(expected).every(

@@ -14,6 +14,7 @@
  * schema version, so a version bump retires old proofs, and it expires after 30 days.
  */
 import crypto from "node:crypto";
+import { z } from "zod";
 import { CACHE_SCHEMA_VERSION } from "../infra/cache-keys.ts";
 import type { Residue, ResidueProof } from "../../../src/shared/verifiedResidue.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
@@ -28,11 +29,20 @@ export type NumberingProofCheck =
   | { status: "valid"; proof: ResidueProof }
   | { status: "absent" | "invalid" | "expired" | "stale-schema" | "other-residue" };
 
-interface ProofPayload extends ResidueIdentity {
-  proof: ResidueProof;
-  schema: string;
-  issuedAt: number;
-}
+/** What a signed body must look like. A signature proves who wrote it, not that its shape is current. */
+const proofPayloadSchema = z.object({
+  accession: z.string(),
+  position: z.number().int(),
+  wildType: z.string(),
+  mutant: z.string(),
+  proof: z.enum(["genomic", "declared-protein", "canonical-vs-mane", "user-confirmed"]),
+  schema: z.string(),
+  issuedAt: z.number().finite(),
+});
+type ProofPayload = z.infer<typeof proofPayloadSchema>;
+
+/** A proof dated later than this many milliseconds from now is refused: this server never issues one. */
+const CLOCK_DIFFERENCE_ALLOWED_MS = 5 * 60 * 1000;
 
 let cachedKey: { secret: string; key: Buffer } | null = null;
 
@@ -73,8 +83,9 @@ function readSignedPayload(token: string, key: Buffer): ProofPayload | null {
   const expected = Buffer.from(sign(key, body));
   const given = Buffer.from(signature);
   if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) return null;
-  // The signature matched, so the body is JSON this module wrote.
-  return JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as ProofPayload;
+  // The signature matched, so the body is JSON from a server that holds the key.
+  const parsed = proofPayloadSchema.safeParse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
+  return parsed.success ? parsed.data : null;
 }
 
 function namesResidue(payload: ProofPayload, residue: ResidueIdentity): boolean {
@@ -98,6 +109,7 @@ export function verifyNumberingProof(
   const payload = key && token.length <= 1024 ? readSignedPayload(token, key) : null;
   if (!payload) return { status: "invalid" };
   if (payload.schema !== schema) return { status: "stale-schema" };
+  if (payload.issuedAt - now > CLOCK_DIFFERENCE_ALLOWED_MS) return { status: "invalid" };
   if (now - payload.issuedAt > NUMBERING_PROOF_LIFETIME_MS) return { status: "expired" };
   if (!namesResidue(payload, residue)) return { status: "other-residue" };
   return { status: "valid", proof: payload.proof };

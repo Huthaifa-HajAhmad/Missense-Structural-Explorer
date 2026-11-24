@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VerifiedResidue, type Residue } from "./verifiedResidue";
+import { VerifiedResidue, type Residue } from "../verifiedResidue";
 
 const residue = (proof: Residue["proof"]): Residue => ({
   accession: "Q9Y305",

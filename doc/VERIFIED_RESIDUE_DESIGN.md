@@ -1,4 +1,4 @@
-# Verified residue: gate and candidate residues (design, awaiting approval)
+# Verified residue: gate and candidate residues (design, approved 2026-11-24)
 
 Status: approved 2026-11-24 (A, B1, B2, C in that order). Step A is built: `numbering-proof.ts` (issue, verify),
 `src/shared/verifiedResidue.ts`, the proof on `POST /translate-variant`, the check in the analysis parser, and
