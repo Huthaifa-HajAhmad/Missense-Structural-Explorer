@@ -12,3 +12,9 @@ export const CLIENT_GENE_RESOLVE_BUDGET_MS = GENE_RESOLVE_BUDGET_MS + 5_000;
  * the server caps at 2.5 s (`NUMBERING_VERIFICATION_BUDGET_MS`). The browser waits for all three.
  */
 export const CLIENT_NUMBERING_PROOF_BUDGET_MS = GENE_RESOLVE_BUDGET_MS + SEQUENCE_LOOKUP_BUDGET_MS + 2_500 + 5_000;
+/**
+ * When the accession is already known, the proof is not needed to start the run, only to go with its
+ * parallel requests, so they wait for it at most this long and then start without one (the analysis
+ * route then checks the numbering itself). A warm check answers in tens of milliseconds.
+ */
+export const NUMBERING_PROOF_FAN_OUT_WAIT_MS = 5_000;

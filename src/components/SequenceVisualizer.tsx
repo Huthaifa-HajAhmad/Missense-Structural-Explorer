@@ -155,11 +155,12 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
    * The run's own request fields (genome build, coordinate, numbering proof), read from the context it
    * saved, so the landscape requests are judged on the same residue as the run. None for another protein.
    */
-  const runContext = useVariantAnalysisStore((s) => s.analysisState.result?.metadata?.pipelineContext) as AnalysisCacheContext | undefined;
-  const runFields = useMemo(
-    () => (runContext?.uniprotId?.toUpperCase() === uniprotId?.toUpperCase() ? requestFieldsOf(runContext) : {}),
-    [runContext, uniprotId]
-  );
+  const runMetadata = useVariantAnalysisStore((s) => s.analysisState.result?.metadata);
+  const runContext = runMetadata?.pipelineContext as AnalysisCacheContext | undefined;
+  const sameRun = Boolean(runContext) && runMetadata?.variant === variant && runContext?.uniprotId?.toUpperCase() === uniprotId?.toUpperCase();
+  // Keyed by value: the run's saved context is copied on every write, and a new copy must not restart a request.
+  const runFieldsKey = sameRun && runContext ? JSON.stringify(requestFieldsOf(runContext)) : "{}";
+  const runFields = useMemo(() => JSON.parse(runFieldsKey) as ReturnType<typeof requestFieldsOf> | Record<string, never>, [runFieldsKey]);
 
   /*
    * Window centre. It starts on the queried residue and moves when the reader picks a spot on the
@@ -238,7 +239,11 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       })
       // Only the latest request clears the flag; an aborted one finishing late must not.
       .finally(() => activeWindowRequest.current === controller && setExtraLoading(false));
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      // Forgotten at once, so the effect that runs next (new run fields, say) asks for this window again.
+      requested.current.delete(reqKey);
+    };
   }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key, windowAttempt, runFields]);
 
   /*

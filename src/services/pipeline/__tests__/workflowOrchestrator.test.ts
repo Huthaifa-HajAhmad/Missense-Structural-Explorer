@@ -5,6 +5,7 @@ import { fetchBiophysicalAnalysis } from "../biophysicalService";
 import * as variantCache from "../variantCache";
 import { createAnalysisCacheContext } from "../analysisContext";
 import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../../shared/timeouts";
+import { NUMBERING_PROOF_FAN_OUT_WAIT_MS } from "../../../shared/structureLookupBudgets";
 
 vi.mock("../biophysicalService", () => ({
   fetchBiophysicalAnalysis: vi.fn().mockResolvedValue({
@@ -118,12 +119,12 @@ describe("workflowOrchestrator", () => {
   });
 
   describe("numbering proof for a typed protein notation", () => {
-    const run = (apiClient: Record<string, unknown>) => {
+    const run = (apiClient: Record<string, unknown>, targetUniprotArg = "") => {
       const sinks = createMockSinks();
       return executeFullAnalysisWorkflow({
         targetGeneArg: "PAH",
         targetVariantArg: "p.Arg408Trp",
-        targetUniprotArg: "",
+        targetUniprotArg,
         options: { fetchWithAuth: vi.fn(), apiClient, settings: { biophysicsConditions: {} }, userDirections: "", sinks: sinks as any },
         activeSignal: new AbortController().signal,
         requestId: 1,
@@ -143,12 +144,44 @@ describe("workflowOrchestrator", () => {
       };
       await run(apiClient);
 
-      expect(apiClient.getNumberingProof).toHaveBeenCalledWith({ gene: "PAH", variant: "p.Arg408Trp" }, expect.anything());
+      expect(apiClient.getNumberingProof.mock.calls[0][0]).toEqual({ gene: "PAH", variant: "p.Arg408Trp" });
       // The intake answer names the accession, so no separate gene lookup is made.
       expect(apiClient.resolveGene).not.toHaveBeenCalled();
       expect(apiClient.getNumberingProof.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(fetchPdbCoordinates).mock.invocationCallOrder[0]);
       expect(vi.mocked(fetchBiophysicalAnalysis).mock.calls[0][0]).toMatchObject({ uniprotId: "P00439", numberingProof: "np1.b.s" });
       expect(vi.mocked(executeFoldxPipeline).mock.calls[0][0]).toMatchObject({ uniprotId: "P00439", numberingProof: "np1.b.s" });
+    });
+
+    it("with a known accession, asks after the cache read and waits only briefly before the parallel requests", async () => {
+      const { fetchPdbCoordinates } = await import("../structureService");
+      const apiClient = {
+        getNumberingProof: vi.fn().mockResolvedValue({ gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", residueProof: "canonical-vs-mane", numberingProof: "np1.b.s" })
+      };
+      await run(apiClient, "P00439");
+
+      expect(apiClient.getNumberingProof).toHaveBeenCalledWith(
+        { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" }, expect.anything(), NUMBERING_PROOF_FAN_OUT_WAIT_MS
+      );
+      expect(apiClient.getNumberingProof.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(fetchPdbCoordinates).mock.invocationCallOrder[0]);
+      expect(vi.mocked(fetchBiophysicalAnalysis).mock.calls[0][0]).toMatchObject({ numberingProof: "np1.b.s" });
+    });
+
+    it("reuses the proof saved with a cached run: no new request, and the re-saved run keeps it", async () => {
+      const pipelineContext = { ...createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any), numberingProof: "np1.saved" };
+      variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
+        biophysicsContext: pipelineContext.simulationConditions,
+        analysisResult: {
+          analysis: "Cached report", isFallback: false, clinvar: { classification: "Pathogenic" }, predictorData: { revel: 0.88 },
+          metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineContext }
+        },
+        pdbText: "ATOM CA ...", foldingStatus: "success", foldingDdG: 2.1, foldingEnergetics: { foldx: 2.1 }
+      } as any);
+      const apiClient = { getNumberingProof: vi.fn() };
+
+      await run(apiClient, "P00439");
+
+      expect(apiClient.getNumberingProof).not.toHaveBeenCalled();
+      expect(variantCache.getCachedVariant("PAH", "p.Arg408Trp")?.analysisResult?.metadata?.pipelineContext?.numberingProof).toBe("np1.saved");
     });
 
     it("runs as before when the intake check fails: the gene lookup, and no proof", async () => {

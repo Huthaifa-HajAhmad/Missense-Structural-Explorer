@@ -7,7 +7,7 @@
  *   — loading / failure states for the sequence.
  */
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaGenomeSaturationPosition, LandscapeResidueItem } from "../../../shared/contracts";
 
@@ -209,13 +209,19 @@ describe("SequenceVisualizer residue window", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
+  const pipelineContext = {
+    uniprotId: "Q13564", acmgWeighting: "standard", assembly: "GRCh38", genomicCoordinates: "3-71024345-T-C",
+    resolvedAssembly: "GRCh38", liftedGenomicCoordinates: "", numberingBasis: "", numberingProof: "np1.body.sig",
+    userDirections: "", simulationConditions: "", providerConfiguration: ""
+  };
+  const showRun = (variant: string, context: Record<string, unknown> = pipelineContext) =>
+    useVariantAnalysisStore.setState({
+      landscapeOverview: null,
+      analysisState: { isLoading: false, error: null, result: { metadata: { variant, uniprotId: "Q13564", pipelineContext: context } } } as any
+    });
+
   it("sends the run's coordinate and numbering proof with the landscape requests, so the server judges the same residue", async () => {
-    const pipelineContext = {
-      uniprotId: "Q13564", acmgWeighting: "standard", assembly: "GRCh38", genomicCoordinates: "3-71024345-T-C",
-      resolvedAssembly: "GRCh38", liftedGenomicCoordinates: "", numberingBasis: "", numberingProof: "np1.body.sig",
-      userDirections: "", simulationConditions: "", providerConfiguration: ""
-    };
-    useVariantAnalysisStore.setState({ landscapeOverview: null, analysisState: { isLoading: false, error: null, result: { metadata: { pipelineContext } } } as any });
+    showRun("p.Asp116Gly");
     landscapeApi.getLandscapeData.mockResolvedValue({ landscapeData: [] });
     landscapeApi.getLandscapeOverview.mockClear();
     landscapeApi.getLandscapeContext.mockClear();
@@ -230,6 +236,41 @@ describe("SequenceVisualizer residue window", () => {
     expect((landscapeApi.getLandscapeOverview.mock.calls[0] as any[])[0]).toMatchObject(runFields);
     await waitFor(() => expect(landscapeApi.getLandscapeContext).toHaveBeenCalled());
     expect((landscapeApi.getLandscapeContext.mock.calls[0] as any[])[0]).toMatchObject(runFields);
+  });
+
+  it("does not send another variant's coordinate or proof, even on the same protein", async () => {
+    showRun("p.Asp116Ala");
+    landscapeApi.getLandscapeData.mockResolvedValue({ landscapeData: [] });
+    renderViewer();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalled());
+    expect(landscapeApi.getLandscapeData.mock.calls[0][0]).not.toHaveProperty("numberingProof");
+    expect(landscapeApi.getLandscapeData.mock.calls[0][0]).not.toHaveProperty("genomicCoordinates");
+  });
+
+  it("keeps a window request running when the run's saved context is replaced by an equal copy", async () => {
+    showRun("p.Asp116Gly");
+    landscapeApi.getLandscapeData.mockReturnValue(new Promise(() => {}));
+    renderViewer();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(1));
+
+    act(() => { showRun("p.Asp116Gly", { ...pipelineContext }); });
+
+    expect((landscapeApi.getLandscapeData.mock.calls[0] as any[])[1].aborted).toBe(false);
+  });
+
+  it("asks again for a window whose request was cancelled when the run's fields changed", async () => {
+    showRun("p.Asp116Gly");
+    landscapeApi.getLandscapeData.mockReturnValue(new Promise(() => {}));
+    renderViewer();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(1));
+
+    act(() => { showRun("p.Asp116Gly", { ...pipelineContext, numberingProof: "np1.newer.sig" }); });
+
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(2));
+    expect(landscapeApi.getLandscapeData.mock.calls[1][0]).toMatchObject({ numberingProof: "np1.newer.sig" });
   });
 
   it("raises no alert when the request is cancelled by moving on", async () => {

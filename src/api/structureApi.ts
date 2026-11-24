@@ -194,13 +194,14 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
     /** The numbering check for a typed protein notation, with a signed proof when it passes. */
     async getNumberingProof(
       params: { gene: string; variant: string; uniprotId?: string; numberingBasis?: string },
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      timeoutMs: number = CLIENT_NUMBERING_PROOF_BUDGET_MS
     ): Promise<NumberingProofResponse> {
       const res = await fetchWithAuth("/api/v1/numbering-proof", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
-        timeout: CLIENT_NUMBERING_PROOF_BUDGET_MS,
+        timeout: timeoutMs,
         signal
       });
       if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to check the residue numbering"));
