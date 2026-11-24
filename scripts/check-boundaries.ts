@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { verifiedResidueViolations } from "./verified-residue-rule.ts";
 
 /**
  * The repository root, derived from THIS FILE rather than from the process cwd.
@@ -17,7 +18,7 @@ export interface BoundaryViolation {
   file: string;
   line: number;
   importPath: string;
-  rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT" | "CLIENT_CANNOT_IMPORT_SERVER" | "SHARED_CANNOT_IMPORT_OUTSIDE" | "SERVER_CANNOT_IMPORT_SCRIPTS" | "STORES_CANNOT_IMPORT_COMPONENTS";
+  rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT" | "CLIENT_CANNOT_IMPORT_SERVER" | "SHARED_CANNOT_IMPORT_OUTSIDE" | "SERVER_CANNOT_IMPORT_SCRIPTS" | "STORES_CANNOT_IMPORT_COMPONENTS" | "ONLY_ITS_MODULE_CONSTRUCTS_VERIFIED_RESIDUE";
   message: string;
 }
 
@@ -292,6 +293,14 @@ export function checkBoundaries(rootDir: string = REPO_ROOT, customFiles?: Map<s
       }
     }
   }
+
+  // Rule 6: only its own module may construct a VerifiedResidue (see `verified-residue-rule.ts`).
+  violations.push(...verifiedResidueViolations(
+    [...serverFiles, ...srcFiles],
+    rootDir,
+    (file) => stripCommentsPreservingLineNumbers(customFiles?.get(file) ?? fs.readFileSync(file, "utf-8")),
+    isTestFile,
+  ));
 
   return violations;
 }

@@ -476,6 +476,7 @@ src/shared/variantLocus.ts,client,src/shared/__tests__/variantLocus.test.ts
 src/shared/variantNotation.ts,client,src/components/__tests__/VariantSearchPanel.test.tsx;src/shared/__tests__/variantNotation.test.ts
 src/shared/variantQuery.ts,client,src/shared/__tests__/variantQuery.test.ts
 src/shared/variantStyles.ts,client,src/shared/__tests__/variantStyles.test.ts
+src/shared/verifiedResidue.ts,client,src/shared/verifiedResidue.test.ts
 src/shared/viewMarks.ts,client,src/shared/__tests__/viewMarks.test.ts
 src/shared/workflowStatus.ts,client,src/shared/__tests__/conservationProgress.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/shared/__tests__/pipelineReadiness.test.ts;src/shared/__tests__/workflowStatus.hardening.test.ts;src/shared/__tests__/workflowStatus.restingState.test.ts;src/shared/__tests__/workflowStatus.sidecars.test.ts;src/shared/__tests__/workflowStatus.test.ts
 src/stores/diagnosticsStore.ts,client,src/stores/__tests__/diagnosticsStore.firstReading.test.ts
