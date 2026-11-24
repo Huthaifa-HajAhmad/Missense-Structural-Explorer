@@ -207,6 +207,25 @@ describe("SequenceVisualizer residue window", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
+  it("sends the run's coordinate and numbering proof with the landscape requests, so the server judges the same residue", async () => {
+    const pipelineContext = {
+      uniprotId: "Q13564", acmgWeighting: "standard", assembly: "GRCh38", genomicCoordinates: "3-71024345-T-C",
+      resolvedAssembly: "GRCh38", liftedGenomicCoordinates: "", numberingBasis: "", numberingProof: "np1.body.sig",
+      userDirections: "", simulationConditions: "", providerConfiguration: ""
+    };
+    useVariantAnalysisStore.setState({ landscapeOverview: null, analysisState: { isLoading: false, error: null, result: { metadata: { pipelineContext } } } as any });
+    landscapeApi.getLandscapeData.mockResolvedValue({ landscapeData: [] });
+    landscapeApi.getLandscapeOverview.mockClear();
+    renderViewer();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalled());
+    const runFields = { genomicCoordinates: "3-71024345-T-C", assembly: "GRCh38", numberingProof: "np1.body.sig" };
+    expect(landscapeApi.getLandscapeData.mock.calls[0][0]).toMatchObject(runFields);
+    await waitFor(() => expect(landscapeApi.getLandscapeOverview).toHaveBeenCalled());
+    expect((landscapeApi.getLandscapeOverview.mock.calls[0] as any[])[0]).toMatchObject(runFields);
+    useVariantAnalysisStore.setState({ analysisState: { isLoading: false, error: null, result: null } as any });
+  });
+
   it("raises no alert when the request is cancelled by moving on", async () => {
     landscapeApi.getLandscapeData.mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
     renderViewer();

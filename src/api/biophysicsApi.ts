@@ -158,6 +158,17 @@ async function readNdjsonFrames(
   }
 }
 
+/** The run's own request fields (`requestFieldsOf`), carried by follow-up requests about the same residue. */
+interface RunRequestFields {
+  acmgWeighting?: string;
+  assembly?: string;
+  genomicCoordinates?: string;
+  resolvedAssembly?: string;
+  liftedGenomicCoordinates?: string;
+  numberingBasis?: string;
+  numberingProof?: string;
+}
+
 export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
   return {
     async getBiophysicalAnalysis(
@@ -247,7 +258,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
 
     /** `landscapeWindow` loads a named residue range instead of the default ±25 around the variant. */
     async getLandscapeData(
-      params: { gene: string; uniprotId: string; variant: string; landscapeWindow?: { start: number; end: number } },
+      params: RunRequestFields & { gene: string; uniprotId: string; variant: string; landscapeWindow?: { start: number; end: number } },
       signal?: AbortSignal
     ): Promise<{ landscapeData: LandscapeResidueItem[]; landscapeMeta?: LandscapeMeta | null }> {
       const res = await fetchWithAuth("/api/v1/analyze-variant/landscape", {
@@ -266,7 +277,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
 
     /** Whole-protein residue summaries. Returns immediately without waiting on external context. */
     async getLandscapeOverview(
-      params: { gene: string; uniprotId: string; variant: string },
+      params: RunRequestFields & { gene: string; uniprotId: string; variant: string },
       signal?: AbortSignal
     ): Promise<LandscapeOverview> {
       const res = await fetchWithAuth("/api/v1/analyze-variant/landscape-overview", {
@@ -284,7 +295,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
 
     /** Gene-wide ClinVar, gnomAD and regional constraint context for the Landscape overview. */
     async getLandscapeContext(
-      params: { gene: string; uniprotId: string; variant: string; transcript?: string | null },
+      params: RunRequestFields & { gene: string; uniprotId: string; variant: string; transcript?: string | null },
       signal?: AbortSignal
     ): Promise<{ context: LandscapeContext }> {
       const res = await fetchWithAuth("/api/v1/analyze-variant/landscape-context", {

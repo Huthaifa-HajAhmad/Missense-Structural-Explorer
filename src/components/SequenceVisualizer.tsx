@@ -5,6 +5,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useApiClient } from "../apiClient";
+import { requestFieldsOf, type AnalysisCacheContext } from "../services/pipeline/analysisContext";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
 import { landscapeFinding, landscapeKey, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
 import { isRegionFeatureType, regionKindOf } from "../shared/residueRegions";
@@ -150,6 +151,15 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const setSelection = useVariantAnalysisStore((s) => s.setLandscapeSelection);
   const overview = useVariantAnalysisStore((s) => (s.landscapeOverview?.key === key ? s.landscapeOverview : null));
   const setOverview = useVariantAnalysisStore((s) => s.setLandscapeOverview);
+  /*
+   * The run's own request fields (genome build, coordinate, numbering proof), read from the context it
+   * saved, so the landscape requests are judged on the same residue as the run. None for another protein.
+   */
+  const runContext = useVariantAnalysisStore((s) => s.analysisState.result?.metadata?.pipelineContext) as AnalysisCacheContext | undefined;
+  const runFields = useMemo(
+    () => (runContext?.uniprotId?.toUpperCase() === uniprotId?.toUpperCase() ? requestFieldsOf(runContext) : {}),
+    [runContext, uniprotId]
+  );
 
   /*
    * Window centre. It starts on the queried residue and moves when the reader picks a spot on the
@@ -217,7 +227,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     setExtraLoading(true);
     setWindowFailed(false);
     apiClient
-      .getLandscapeData({ gene, uniprotId, variant, landscapeWindow: { start, end } }, controller.signal)
+      .getLandscapeData({ ...runFields, gene, uniprotId, variant, landscapeWindow: { start, end } }, controller.signal)
       .then((res) => addLandscapeRows(key, res.landscapeData ?? []))
       .catch((err: any) => {
         // Forget the request so a later visit (or a re-run after an abort) asks again.
@@ -229,7 +239,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       // Only the latest request clears the flag; an aborted one finishing late must not.
       .finally(() => activeWindowRequest.current === controller && setExtraLoading(false));
     return () => controller.abort();
-  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key, windowAttempt]);
+  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key, windowAttempt, runFields]);
 
   /*
    * Whole-protein overview and gene context: one request per query, after the window has loaded.
@@ -252,7 +262,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     setOverview({ key, status: "loading", contextStatus: "loading", data: null, error: null });
     const stillCurrent = () => useVariantAnalysisStore.getState().landscapeOverview?.key === key;
     apiClient
-      .getLandscapeOverview({ gene, uniprotId, variant })
+      .getLandscapeOverview({ ...runFields, gene, uniprotId, variant })
       .then((data) => {
         if (!stillCurrent()) return;
         if (data.context) {
@@ -260,7 +270,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         } else if (typeof apiClient.getLandscapeContext === "function") {
           setOverview({ key, status: "ready", contextStatus: "loading", data: { ...data, context: null }, error: null });
           apiClient
-            .getLandscapeContext({ gene, uniprotId, variant, transcript: data.meta?.transcript })
+            .getLandscapeContext({ ...runFields, gene, uniprotId, variant, transcript: data.meta?.transcript })
             .then((ctxRes) => {
               if (!stillCurrent()) return;
               const current = useVariantAnalysisStore.getState().landscapeOverview;
@@ -291,7 +301,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
           setOverview({ key, status: "error", contextStatus: "error", data: null, error: err?.message ?? "request failed" });
         }
       });
-  }, [gene, uniprotId, variant, hasLandscape, key, apiClient, setOverview, overviewAttempt]);
+  }, [gene, uniprotId, variant, hasLandscape, key, apiClient, setOverview, overviewAttempt, runFields]);
 
   const parsedGenomic = useMemo(
     () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
