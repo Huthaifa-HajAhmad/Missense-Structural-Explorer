@@ -12,7 +12,10 @@ Step B1 is built: the analysis parser refuses an `unverified` residue with HTTP 
 audit entry per refusal, since a refused request never reaches the analysis route's own entry. `POST /numbering-proof`
 uses the same parser, so it refuses first: the browser then shows the refusal and starts nothing else for that
 residue (a revisit of a saved result keeps the result on screen). A coordinate whose translation sent no proof is
-refused by the analysis only; the requests that run beside it (FoldX, structure) are not gated until B2.
+refused by the analysis only; the requests that run beside it (FoldX, structure) are not gated until B2. Such a
+run can write up to three refusal entries (stream, landscape, structural), so count refused runs per `route` or
+per request, not by summing rows. A valid translation proof also settles a position that two numberings could
+explain: only an `unverified` residue gets the `AMBIGUOUS_PROTEIN_NUMBERING` prompt.
 Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
 This is the second version, revised after a three-part code review (correctness, tests, architecture).
 

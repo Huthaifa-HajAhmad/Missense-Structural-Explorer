@@ -324,8 +324,9 @@ describe("analysis path — protein notation handling", () => {
       expect(context).toBeNull();
       expect(statusCode).toBe(422);
       expect(body.error.code).toBe("UNVERIFIED_RESIDUE_NUMBERING");
-      // Running it again translates the coordinate again, which is the remedy after a provider outage.
-      expect(body.error.message).toContain("Run the analysis again");
+      // Entering the coordinate again translates it again, which is the remedy after a provider outage. (The
+      // search field then holds the translated protein notation, so "run it again" alone would not re-translate.)
+      expect(body.error.message).toContain("Enter the genomic/cDNA coordinate again");
       expect(body.error.details).toMatchObject({ inputKind: "coordinate" });
     });
 
@@ -335,6 +336,48 @@ describe("analysis path — protein notation handling", () => {
       const { statusCode, context } = await parse({
         gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
         genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37", numberingProof: genomicProof(),
+      });
+
+      expect(statusCode).toBe(200);
+      expect(context?.numberingAudit?.numberingProof).toBe("genomic");
+      // The translation proved the residue, so the result must not tell the reader its numbering is unverified.
+      expect(context?.numberingVerified).toBe(true);
+      expect(context?.numberingWarning).toBeUndefined();
+    });
+
+    it("names the missing translation proof as the reason, not an isoform outage", async () => {
+      fetchSpy = installFetch();
+      vi.spyOn(AuditLogger, "logVariantQuery").mockResolvedValue(undefined);
+
+      const { body } = await parse({
+        gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+        genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      });
+
+      expect(body.error.details.reason).toContain("numbering proof");
+      expect(body.error.details.reason).not.toContain("isoform model");
+    });
+
+    it("still refuses a reader's 'these numbers are canonical' when the check found no ambiguity to settle", async () => {
+      // The choice settles two readings the check found; during an outage the check found nothing.
+      fetchSpy = installIsoformOutage();
+      vi.spyOn(AuditLogger, "logVariantQuery").mockResolvedValue(undefined);
+
+      const { statusCode, body } = await parse({ gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305", numberingBasis: "canonical" });
+
+      expect(statusCode).toBe(422);
+      expect(body.error.code).toBe("UNVERIFIED_RESIDUE_NUMBERING");
+    });
+
+    it("runs a translated coordinate at a position two numberings can explain, because its translation proved the residue", async () => {
+      // p.Asp85Phe matches canonical 85 and MANE 85 (= canonical 76). A bare notation is ambiguous there,
+      // but a coordinate's translation has already named the canonical residue and signed it.
+      fetchSpy = installFetch();
+      const proof = issueNumberingProof({ accession: "Q9Y305", position: 85, wildType: "D", mutant: "F", proof: "genomic" });
+
+      const { statusCode, context } = await parse({
+        gene: "ACOT9", variant: "p.Asp85Phe", uniprotId: "Q9Y305",
+        genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37", numberingProof: proof,
       });
 
       expect(statusCode).toBe(200);

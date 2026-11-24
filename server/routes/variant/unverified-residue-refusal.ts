@@ -4,7 +4,7 @@
  * A residue number that may belong to another protein isoform names a different residue on the canonical
  * sequence, so the analysis is not run (doc/VERIFIED_RESIDUE_DESIGN.md §4, step B1). The answer names what
  * the reader can do: state the protein the numbering belongs to, or give the coordinate. For a translated
- * coordinate, running the analysis again translates it again, which is the remedy after a provider outage.
+ * coordinate, entering it again translates it again, which is the remedy after a provider outage.
  */
 import { REFUSAL_CODES } from "../../../src/shared/contracts.ts";
 
@@ -28,9 +28,10 @@ export function unverifiedResidueRefusal(params: {
   const message =
     inputKind === "coordinate"
       ? `Numbering not verified for ${gene} ${variant}: the coordinate's translation to this residue could not be ` +
-        "checked, so the analysis was not run. Run the analysis again: the coordinate is translated and checked " +
-        "again, which usually works once the translation services answer. Or enter the substitution qualified " +
-        "with the protein it was reported on (for example NP_001032248.1:p.Lys281Asn)."
+        "checked, so the analysis was not run. Enter the genomic/cDNA coordinate again and run the analysis: it is " +
+        "translated and checked again, which usually works once the translation services answer. If this page " +
+        "was open before an update, reload it first. Or enter the substitution qualified with the protein it was " +
+        "reported on (for example NP_001032248.1:p.Lys281Asn)."
       : `Numbering not verified for ${gene} ${variant}: ${reason}. The analysis was not run, because this residue ` +
         "number may belong to another isoform, where it names a different residue. Qualify the notation with the " +
         "protein it was reported on (for example NP_001032248.1:p.Lys281Asn), or enter the genomic/cDNA " +

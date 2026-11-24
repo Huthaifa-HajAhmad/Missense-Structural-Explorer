@@ -228,6 +228,23 @@ describe("workflowOrchestrator", () => {
       expect(apiClient.resolveGene).not.toHaveBeenCalled();
     });
 
+    it("offers the two readings when the intake check finds the notation ambiguous", async () => {
+      // The reader still gets the choice buttons, now without the run first starting FoldX for a coin flip.
+      const ambiguous = Object.assign(new Error("p.Arg408Trp can be read two ways"), {
+        status: 422, code: "AMBIGUOUS_PROTEIN_NUMBERING",
+        details: { notation: "p.Arg408Trp", candidates: [
+          { variant: "p.Arg408Trp", basisId: "P00439", basisKind: "canonical", canonicalPosition: 408 },
+          { variant: "p.Arg399Trp", basisId: "P00439-2", basisKind: "isoform", canonicalPosition: 399 },
+        ] }
+      });
+      const sinks = createMockSinks();
+
+      await run({ getNumberingProof: vi.fn().mockRejectedValue(ambiguous), resolveGene: vi.fn() }, "", sinks);
+
+      expect(lastState(sinks)?.result?.numberingChoices).toHaveLength(2);
+      expect(vi.mocked(executeFoldxPipeline)).not.toHaveBeenCalled();
+    });
+
     it("keeps a saved result on screen when the check refuses on a revisit", async () => {
       // The saved result was verified when it was made; the refusal only means its follow-ups go without a proof.
       const pipelineContext = createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any);
