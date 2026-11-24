@@ -295,10 +295,12 @@ export function offsetBetweenPositions(from: number, to: number): number {
 export interface SpliceEngineRecord {
   /** The payload carries the engine's criteria list at all. */
   known: boolean;
-  /** The PP3/BP4 code the engine recorded (from the primary missense predictor), or null. */
+  /** The PP3/BP4 code the engine recorded, or null. */
   code: string | null;
-  /** What the primary missense predictor alone gives, for the "unconfirmed" case. */
+  /** What the primary rule gives for this variant, for the "unconfirmed" case. */
   missenseCode: string | null;
+  /** True when the rule derives computational PP3 directly from SpliceAI (Walker 2023 / VCEP). */
+  fromSplicing?: boolean;
 }
 
 export type SpliceRelation =
@@ -887,6 +889,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     known: predictors.engine.known,
     code: predictors.engine.code,
     missenseCode: predictors.primary.code,
+    fromSplicing: predictors.primary.criterionSource === "spliceai",
   };
   const recordedOrMissense = engine.known ? engine.code : engine.missenseCode;
   const relation: SpliceRelation =

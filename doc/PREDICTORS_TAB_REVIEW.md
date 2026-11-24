@@ -76,8 +76,7 @@ labelled in the rail as classified by an earlier engine.
   replacing it with the percentile.
 - The heatmaps' REVEL/CADD/AlphaMissense colour breaks (`THRESHOLDS.revel` etc.) are unchanged; their
   comments now say they are display breaks, not evidence.
-- ClinGen's PP3 + PM1 ≤ Strong cap is described in the rail but not enforced by the engine.
-- A single pre-specified calibrated tool for PP3/BP4 remains the ClinGen recommendation.
+- ClinGen's `PP3 + PM1 ≤ Strong` cap, single primary calibrated predictor (`REVEL → BayesDel noAF → AlphaMissense → ESM1b`), 113-spec ClinGen VCEP gene overrides, and Walker 2023 splicing PP3 ("PP3 once", never added on top of PVS1) are now enforced by the engine and surfaced in the rule trace (`Phase 5b + 5c`, `2026-11-24`).
 
 ## Sources
 

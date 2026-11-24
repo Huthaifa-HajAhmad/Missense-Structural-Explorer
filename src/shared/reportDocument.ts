@@ -567,17 +567,31 @@ function computationalExtras(b: ReportBlock, input: ReportDocumentInput) {
   const { result } = input;
   if (!result) return;
   const pe = buildPredictorEvidence({ result, isLoading: Boolean(input.isLoading) });
+  if (pe.primary.vcepRule) {
+    const v = pe.primary.vcepRule;
+    b.facts.push({ label: "ClinGen VCEP", value: `${v.vcep} (${v.cspecId} v${v.version}) — ${v.summary}` });
+  }
   const rows = pe.readings
     .filter(r => r.availability.state === "available")
-    .map(r => [r.name, `${r.scoreText}${r.unit ? ` ${r.unit}` : ""}`, formatEvidenceCode(r.callLabel),
-      r.chainKey === pe.primary.activeTool && r.chainKey !== null ? "Primary predictor" : r.chainKey !== null ? "Calibrated, fixed order" : r.group === "conservation" ? "Conservation" : "Informational",
-      `${r.cutpoints.source ?? "No published calibration"}; ${r.orientation === "higher" ? "higher" : "lower"} scores indicate ${r.group === "conservation" ? "greater evolutionary constraint" : "greater predicted impact"}${r.note ? `; ${r.note}` : ""}${r.caveats.length ? `; ${r.caveats.map(c => CAVEAT_TEXT[c].detail).join("; ")}` : ""}`]);
+    .map(r => {
+      const isPrimary = (r.chainKey === pe.primary.activeTool && r.chainKey !== null)
+        || (pe.primary.activeTool === "cadd" && r.key === "cadd");
+      return [
+        r.name,
+        `${r.scoreText}${r.unit ? ` ${r.unit}` : ""}`,
+        formatEvidenceCode(r.callLabel),
+        isPrimary ? "Primary predictor" : r.chainKey !== null ? "Calibrated, fixed order" : r.group === "conservation" ? "Conservation" : "Informational",
+        `${r.cutpoints.source ?? "No published calibration"}; ${r.orientation === "higher" ? "higher" : "lower"} scores indicate ${r.group === "conservation" ? "greater evolutionary constraint" : "greater predicted impact"}${r.note ? `; ${r.note}` : ""}${r.caveats.length ? `; ${r.caveats.map(c => CAVEAT_TEXT[c].detail).join("; ")}` : ""}`,
+      ];
+    });
   if (rows.length) {
     b.table = { headers: ["Tool", "Score", "Reading", "Role", "Method and caveats"], rows, numeric: [1] };
     b.caption = "Scores are not probabilities; correlated tools are not independent evidence. Per-tool calibrated strengths describe each score, not the aggregate engine criterion.";
   }
   const disagreement = disagreementText(pe.primary);
   if (disagreement) b.warnings.push(disagreement);
+  if (pe.primary.splicePp3Corroboration) b.warnings.push(pe.primary.splicePp3Corroboration);
+  for (const note of pe.primary.vcepNotes) b.warnings.push(note);
   b.references = [...REPORT_SOURCES.slice(1, 3)];
 }
 

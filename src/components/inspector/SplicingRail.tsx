@@ -120,7 +120,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
                 "Not in payload"
               )}
             </span>
-            <span className="spl-step__sub">From the primary missense predictor. SpliceAI ≥ 0.20 withholds BP4; step 2 is never recorded as a code.</span>
+            <span className="spl-step__sub">Missense and splicing evidence share one PP3/BP4 slot. SpliceAI ≥ 0.20 blocks BP4 and applies splicing PP3 once when PVS1 is absent; splicing BP4 alone is not recorded for missense variants.</span>
             {ev.relation === "conflict" && (
               <span className="spl-step__warn">Splicing supports PP3 while the in-silico code is {engineCode}: an earlier engine classified this. Re-run before accepting it.</span>
             )}
@@ -167,9 +167,9 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <summary>How to read this tab</summary>
           <ul>
             <li>
-              The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for predicted splicing impact at a SpliceAI
-              max Δ ≥ {S.splicingPp3}, and BP4 at or below {S.splicingBp4Below}. This app&apos;s engine applies neither from splicing: its PP3/BP4 comes from the
-              primary missense predictor, and SpliceAI ≥ {S.splicingPp3} only withholds BP4. The splicing reading here is shown beside it, never as a recorded code.
+              The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for predicted splicing impact at SpliceAI
+              max Δ ≥ {S.splicingPp3} (and gene-specific VCEP cutoffs where specified), applied once per variant when PVS1
+              is absent, and blocks missense BP4. Splicing BP4 (≤ {S.splicingBp4Below}) clears the missense BP4 gate rather than adding a separate code.
             </li>
             <li>
               A delta score is the change in the model&apos;s splice-site probability, not the probability that splicing

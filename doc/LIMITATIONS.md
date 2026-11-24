@@ -72,13 +72,15 @@ The server implements a regular-expression-based PII (Personally Identifiable In
 
 ## 7. Modified ACMG Framework Rules
 
-The ACMG rule suggester uses standard Richards et al. 2015 rules, with the following modifications:
+The ACMG rule engine (`server/services/prediction/acmg/`) applies Richards et al. 2015 and ClinGen SVI calibration updates with these rules:
+* **Single Primary Calibrated Predictor & ClinGen VCEP Overrides (`PP3`/`BP4`)**: Computational `PP3`/`BP4` comes from one calibrated score rather than an unweighted tool vote — either the gene's audited ClinGen VCEP rule (113 active Released specs / 110 genes in `src/shared/insilico/vcepRules.ts`, snapshot 2026-11-24) or the default fallback order `REVEL → BayesDel noAF → AlphaMissense → ESM1b` using Pejaver et al. 2022 and Bergquist et al. 2025 strength bands, capped together with `PM1` at `Strong` (`PP3 + PM1 ≤ Strong`). Opposing calibrated tools are shown as non-blocking disagreement notes.
+* **Walker 2023 Splicing `PP3` and `BP4` Gate**: When `PVS1` does not already apply, SpliceAI `max Δ ≥ 0.20` (or the gene's VCEP splicing cutoff) blocks missense `BP4` and applies splicing `PP3` at most once per variant; missing or unverified nucleotide loci withhold `BP4`.
 * **PS1 (Same Amino Acid Substitution)**: ClinVar same-amino-acid pathogenic variants map directly to `PS1` as strong evidence of pathogenicity.
-* **PP5 / BP6 (ClinVar Mapping)**: `PP5` / `BP6` (suggesting reputable source evidence) are retired and NOT used in this implementation, in strict alignment with ClinGen SVI working group guidelines that discourage double-counting ClinVar submissions.
-* **BS1 (Benign Stand-alone/Strong)**: `BS1` is mapped for intermediate frequencies without a custom supporting tier, ensuring standard clinical alignment.
-* **ACMG Weighting Models**: The rule-based suggester engine respects the selected weighting model:
-  - **Conservative Mode**: Omit computational and population frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`) unless strongly corroborated by a corresponding ClinVar classification.
-  - **Strict-Structural Mode**: Omit non-structural computational/frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`) in the rule-based engine entirely, relying instead on ClinVar databases and structural hotspot criteria (`PM1`/`PS3`) generated during model analysis.
+* **PP5 / BP6 (ClinVar Mapping)**: `PP5` / `BP6` are retired and NOT used, in strict alignment with ClinGen SVI working group guidelines.
+* **BS1 / PM2 / PP2**: `BS1` maps benign frequency thresholds, `PM2` is evaluated at `Supporting` (`PM2_Supporting`), and `PP2` uses gnomAD regional missense constraint (`O/E`) with Chao et al. v3 bands.
+* **ACMG Weighting Models**:
+  - **Conservative Mode**: Omit computational and population frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`) unless corroborated by ClinVar clinical significance.
+  - **Strict-Structural Mode**: Omit non-structural computational/frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`), relying on ClinVar evidence and structural criteria (`PM1`/`PVS1`).
 
 ---
 

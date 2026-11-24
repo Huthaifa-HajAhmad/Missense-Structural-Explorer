@@ -87,4 +87,17 @@ describe("PredictorsRail", () => {
     expect(rail.textContent).toContain("ProtVar");
     expect(rail.textContent).toContain("Ensembl VEP (GRCh38)");
   });
+
+  it("shows VCEP specification details and Walker 2023 splicing PP3 wording in the rule trace", () => {
+    const ptenResult: any = {
+      ...result,
+      metadata: { gene: "PTEN", variant: "p.Arg130Gln", acmgWeighting: "standard" },
+      conservationData: { ...result.conservationData, revel: 0.95, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "PTEN VCEP" }] },
+    };
+    render(<EvidenceWorkspaceProvider result={ptenResult}><PredictorsRail analysisResult={ptenResult} /></EvidenceWorkspaceProvider>);
+    const trace = screen.getByTestId("predictor-rule-trace");
+    expect(trace.textContent).toContain("GN003 v3.2");
+    expect(trace.textContent).toContain("applies splicing PP3 once when PVS1 is absent");
+  });
 });

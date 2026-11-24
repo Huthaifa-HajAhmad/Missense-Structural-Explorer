@@ -186,6 +186,7 @@ describe("the engine record is read, never inferred from splicing", () => {
     const ev = withEngine(null, 0.9);
     expect(ev.engine.code).toBeNull();
     expect(ev.rule.code).toBe("PP3");
+    expect(ev.engine.fromSplicing).toBe(true);
   });
 });
 

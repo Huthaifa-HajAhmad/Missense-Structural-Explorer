@@ -140,8 +140,7 @@ genomic (reverse-strand genes flip) and the annotated sites sit at `junction −
 
 ## Not done (follow-ups)
 
-- **Engine**: splicing is not an engine input. If that changes, Walker 2023's "PP3 once" rule and
-  the missense-BP4 interaction need implementing in `criteria.ts`, not in a surface.
+- **Engine (implemented 2026-11-24 on `feat/phase5c-vcep-walker-pp3`, following Phase 5b PR #294)**: `src/shared/insilico/spliceGate.ts`, `src/shared/insilico/primaryPredictor.ts`, and `server/services/prediction/acmg/pp3-bp4.ts` now implement Walker 2023 splicing PP3 ("PP3 once", never added when PVS1 is met), VCEP-specific splicing thresholds, and the SpliceAI BP4 block + missing-locus gate. `SplicingTab` and `SplicingRail` read the engine record cleanly alongside the SpliceAI rule view.
 - **Client cache**: a result already held in the browser's own history is not re-fetched when the
   window setting changes; it is recomputed when the server sees it (new analysis or reopen).
 - **Strand**: when the resolver leaves the strand unresolved, SpliceAI's positions are not placed on

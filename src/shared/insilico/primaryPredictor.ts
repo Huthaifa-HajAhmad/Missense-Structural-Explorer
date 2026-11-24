@@ -2,31 +2,45 @@ import {
   CALIBRATION_SOURCES,
   PP3_BP4_CALIBRATION,
   calibratedCall,
+  formatEvidenceCode,
   type CalibratedCall,
   type EvidenceStrength,
 } from "../thresholds/calibration.ts";
-import { THRESHOLDS } from "../thresholds/constants.ts";
-import { lookupVcepInsilicoRule, type VcepInsilicoRule } from "./vcepRules.ts";
+import { validCaddScore } from "../candidateScores.ts";
+import { evaluateVcepMissenseCall, lookupVcepInsilicoRule, vcepRuleRequiresDbnsfp } from "./vcepRules.ts";
+import type { VcepInsilicoRule } from "./vcepTypes.ts";
+import {
+  evaluateSpliceBp4Gate,
+  evaluateSplicePp3,
+  finiteScore,
+  resolveSpliceAiGateInput,
+  type SpliceAiFailureLike,
+  type SpliceAiGateInput,
+  type SpliceBp4Gate,
+  type SplicePp3Call,
+} from "./spliceGate.ts";
+
+export {
+  evaluateSpliceBp4Gate, evaluateSplicePp3, resolveSpliceAiGateInput,
+  type SpliceAiFailureLike, type SpliceAiGateInput, type SpliceBp4Gate, type SplicePp3Call, type VcepInsilicoRule,
+};
 
 /** Settled fallback order (Phase 5a decision, 2026-11-24): REVEL -> BayesDel noAF -> AlphaMissense -> ESM1b. */
 export const PRIMARY_PREDICTOR_CHAIN = ["revel", "bayesdel", "alphaMissense", "esm1b"] as const;
 export type ChainToolKey = (typeof PRIMARY_PREDICTOR_CHAIN)[number];
+export type ActivePredictorTool = ChainToolKey | "cadd" | "spliceai";
 
 export const CHAIN_TOOL_LABEL: Record<ChainToolKey, string> = {
-  revel: "REVEL",
-  bayesdel: "BayesDel noAF",
-  alphaMissense: "AlphaMissense",
-  esm1b: "ESM1b",
+  revel: "REVEL", bayesdel: "BayesDel noAF", alphaMissense: "AlphaMissense", esm1b: "ESM1b",
+};
+
+export const PREDICTOR_TOOL_LABEL: Record<ActivePredictorTool, string> = {
+  ...CHAIN_TOOL_LABEL, cadd: "CADD", spliceai: "SpliceAI",
 };
 
 export type InsilicoCriterionCode =
-  | "PP3"
-  | "PP3_Moderate"
-  | "PP3_Strong"
-  | "BP4"
-  | "BP4_Moderate"
-  | "BP4_Strong"
-  | "BP4_VeryStrong";
+  | "PP3" | "PP3_Moderate" | "PP3_Strong"
+  | "BP4" | "BP4_Moderate" | "BP4_Strong" | "BP4_VeryStrong";
 
 export interface ChainToolScore {
   key: ChainToolKey;
@@ -43,114 +57,38 @@ export interface DisagreeingChainTool {
   call: CalibratedCall;
 }
 
-export interface SpliceAiFailureLike {
-  kind: string;
-  httpStatus?: number | null;
-  detail?: string | null;
-}
-
-export interface SpliceAiGateInput {
-  maxDs: number | null;
-  status: "pending" | "settled" | "timeout" | null;
-  failure: SpliceAiFailureLike | null;
-  coordinateBlocked: boolean;
-  coordinateReason: string | null;
-}
-
-export type SpliceBp4Gate =
-  | { status: "blocked"; maxDs: number; reason: string }
-  | { status: "withheld-transient"; retryable: true; failureKind: string | null; reason: string }
-  | { status: "withheld-coordinate"; retryable: false; reason: string }
-  | { status: "passed-indeterminate-splicing"; maxDs: number; note: string }
-  | { status: "passed"; maxDs: number }
-  | { status: "applied-no-transcript"; note: string }
-  | { status: "applied-unassessed"; note: string };
-
 export interface PrimaryInsilicoInput {
   gene?: string | null;
-  scores: Partial<Record<ChainToolKey, number | null | undefined>>;
+  scores: Partial<Record<ChainToolKey | "cadd", number | null | undefined>>;
   baseStatus?: "pending" | "settled" | "timeout" | null;
   spliceAi?: SpliceAiGateInput | null;
   vcepRule?: VcepInsilicoRule | null;
+  hasPvs1?: boolean;
 }
 
 export interface PrimaryInsilicoDecision {
-  outcome: "met" | "indeterminate" | "no-score" | "blocked-spliceai" | "withheld-spliceai" | "withheld-base";
+  outcome: "met" | "indeterminate" | "no-score" | "blocked-spliceai" | "withheld-spliceai" | "withheld-base" | "vcep-excluded";
   code: InsilicoCriterionCode | null;
   direction: "PP3" | "BP4" | null;
   strength: EvidenceStrength | null;
-  activeTool: ChainToolKey | null;
+  activeTool: ActivePredictorTool | null;
   activeScore: number | null;
   activeCall: CalibratedCall | null;
-  skippedBefore: ChainToolKey[];
+  skippedBefore: ActivePredictorTool[];
   chain: ChainToolScore[];
   disagreeingTools: DisagreeingChainTool[];
   spliceGate: SpliceBp4Gate | null;
   vcepRule: VcepInsilicoRule | null;
+  criterionSource: "chain" | "vcep" | "spliceai" | null;
+  vcepApplied: boolean;
+  vcepNotes: string[];
+  splicePp3Corroboration: string | null;
 }
 
-const TRANSIENT_SPLICE_FAILURES = new Set(["rate-limited", "timeout", "upstream-error", "network", "unreadable"]);
+const STRENGTH_RANK: Record<EvidenceStrength, number> = { Supporting: 1, Moderate: 2, Strong: 3, VeryStrong: 4 };
 
-function finiteScore(v: number | null | undefined): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-function sourceCitationFor(tool: ChainToolKey): string {
-  return CALIBRATION_SOURCES[PP3_BP4_CALIBRATION[tool].source].short;
-}
-
-function resolveCoordinateBlock(
-  predictorData: any,
-  conservationData: any,
-  serviceStatus: any,
-  failure: SpliceAiFailureLike | null,
-): { blocked: boolean; reason: string | null } {
-  if (failure?.kind === "coordinate-rejected") {
-    return { blocked: true, reason: "SpliceAI rejected this coordinate, so splicing cannot be cleared for BP4." };
-  }
-  const refusal = conservationData?.assemblyRefusals?.find?.((r: { source?: string; reason?: string }) => r.source === "spliceai-lookup");
-  if (refusal) {
-    return { blocked: true, reason: refusal.reason ?? "SpliceAI did not score this coordinate's genome build, so BP4 is withheld." };
-  }
-  const locus = predictorData?.locusResolution;
-  if (locus?.failureKind === "multiple-candidates" || locus?.failureKind === "ambiguous-allele") {
-    return { blocked: true, reason: "The protein change maps to multiple nucleotide alleles, so splicing was not checked and BP4 is withheld." };
-  }
-  if (locus?.route === "fallback" && locus?.canonicalBy === null) {
-    return { blocked: true, reason: "No verified GRCh38 nucleotide locus was established, so splicing was not checked and BP4 is withheld." };
-  }
-  if (serviceStatus?.predictorData === "timeout" || serviceStatus?.predictorData === "error") {
-    return { blocked: true, reason: "Coordinate resolution did not finish, so splicing was not checked and BP4 is withheld." };
-  }
-  return { blocked: false, reason: null };
-}
-
-/**
- * Extracts the SpliceAI gate inputs identically for both the ACMG engine and UI surfaces.
- */
-export function resolveSpliceAiGateInput(params: {
-  predictorData?: any;
-  conservationData?: any;
-  serviceStatus?: any;
-}): SpliceAiGateInput {
-  const { predictorData, conservationData, serviceStatus } = params;
-  const maxDs = finiteScore(conservationData?.spliceai?.max_ds);
-  const explicitStatus = conservationData?.modelStatus?.spliceai ?? null;
-  const compositeStatus = serviceStatus?.conservationData;
-  const status = explicitStatus ?? (
-    compositeStatus === "pending" ? "pending"
-    : compositeStatus === "timeout" || compositeStatus === "error" ? "timeout"
-    : null
-  );
-  const failure = conservationData?.spliceaiFailure ?? null;
-  const coord = resolveCoordinateBlock(predictorData, conservationData, serviceStatus, failure);
-  return {
-    maxDs,
-    status,
-    failure,
-    coordinateBlocked: coord.blocked,
-    coordinateReason: coord.reason,
-  };
+function fmtScore(tool: ActivePredictorTool, score: number): string {
+  return tool === "cadd" ? score.toFixed(1) : tool === "esm1b" || tool === "spliceai" ? score.toFixed(2) : score.toFixed(3);
 }
 
 /**
@@ -158,13 +96,10 @@ export function resolveSpliceAiGateInput(params: {
  * AlphaMissense reads numeric `amPathogenicity` only (never `amClass`).
  */
 export function primaryInsilicoInputFromResult(params: {
-  gene?: string | null;
-  predictorData?: any;
-  conservationData?: any;
-  serviceStatus?: any;
-  vcepRule?: VcepInsilicoRule | null;
+  gene?: string | null; predictorData?: any; conservationData?: any; serviceStatus?: any;
+  vcepRule?: VcepInsilicoRule | null; hasPvs1?: boolean;
 }): PrimaryInsilicoInput {
-  const { gene, predictorData, conservationData, serviceStatus, vcepRule } = params;
+  const { gene, predictorData, conservationData, serviceStatus, vcepRule, hasPvs1 } = params;
   return {
     gene,
     scores: {
@@ -172,67 +107,16 @@ export function primaryInsilicoInputFromResult(params: {
       bayesdel: finiteScore(conservationData?.bayesdel),
       alphaMissense: finiteScore(predictorData?.amPathogenicity),
       esm1b: finiteScore(conservationData?.esm1b),
+      cadd: validCaddScore(predictorData?.caddPhred),
     },
-    // With no conservation payload at all, the lookup's own status says whether REVEL and BayesDel are
-    // unknown (still running, timed out, failed) or truly absent ("not found").
+    // With no conservation payload at all, the lookup's status says whether REVEL/BayesDel are pending, timed out, or absent.
     baseStatus: conservationData?.modelStatus?.base ?? (conservationData ? null
       : serviceStatus?.conservationData === "pending" ? "pending"
       : serviceStatus?.conservationData === "timeout" || serviceStatus?.conservationData === "error" ? "timeout"
       : null),
     spliceAi: resolveSpliceAiGateInput({ predictorData, conservationData, serviceStatus }),
     vcepRule,
-  };
-}
-
-function evaluateSpliceBp4Gate(spliceAi: SpliceAiGateInput | null | undefined): SpliceBp4Gate {
-  if (!spliceAi) {
-    return {
-      status: "applied-unassessed",
-      note: "SpliceAI was not assessed on this call; check splicing separately.",
-    };
-  }
-  if (spliceAi.maxDs !== null) {
-    if (spliceAi.maxDs >= THRESHOLDS.spliceai.splicingPp3) {
-      return {
-        status: "blocked",
-        maxDs: spliceAi.maxDs,
-        reason: `BP4 withheld: SpliceAI max Δ ${spliceAi.maxDs.toFixed(2)} ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} (Walker et al. 2023) indicates potential splice disruption.`,
-      };
-    }
-    if (spliceAi.maxDs > THRESHOLDS.spliceai.splicingBp4Below) {
-      return {
-        status: "passed-indeterminate-splicing",
-        maxDs: spliceAi.maxDs,
-        note: `SpliceAI max Δ ${spliceAi.maxDs.toFixed(2)} sits in the splicing indeterminate zone (0.10–0.20, below the 0.20 block).`,
-      };
-    }
-    return { status: "passed", maxDs: spliceAi.maxDs };
-  }
-  const failureKind = spliceAi.failure?.kind ?? null;
-  if (spliceAi.status === "pending" || spliceAi.status === "timeout" || (failureKind !== null && TRANSIENT_SPLICE_FAILURES.has(failureKind))) {
-    return {
-      status: "withheld-transient",
-      retryable: true,
-      failureKind,
-      reason: "BP4 withheld: SpliceAI did not finish scoring this variant; re-run to check splicing before accepting BP4.",
-    };
-  }
-  if (spliceAi.coordinateBlocked) {
-    return {
-      status: "withheld-coordinate",
-      retryable: false,
-      reason: spliceAi.coordinateReason ?? "BP4 withheld: SpliceAI lacked a valid nucleotide coordinate to rule out splice impact.",
-    };
-  }
-  if (failureKind === "no-transcript") {
-    return {
-      status: "applied-no-transcript",
-      note: "SpliceAI returned no scored GENCODE transcript at this locus; verify splicing manually.",
-    };
-  }
-  return {
-    status: "applied-unassessed",
-    note: "SpliceAI had no score in this payload; verify splicing manually.",
+    hasPvs1,
   };
 }
 
@@ -244,12 +128,14 @@ function buildChainEntries(scores: PrimaryInsilicoInput["scores"]): ChainToolSco
       label: CHAIN_TOOL_LABEL[key],
       score,
       call: score !== null ? calibratedCall(key, score) : null,
-      sourceCitation: sourceCitationFor(key),
+      sourceCitation: CALIBRATION_SOURCES[PP3_BP4_CALIBRATION[key].source].short,
     };
   });
 }
 
-function findDisagreeingTools(chain: ChainToolScore[], activeKey: ChainToolKey, direction: "PP3" | "BP4"): DisagreeingChainTool[] {
+function findDisagreeingTools(
+  chain: ChainToolScore[], activeKey: ActivePredictorTool, direction: "PP3" | "BP4",
+): DisagreeingChainTool[] {
   return chain
     .filter((entry): entry is ChainToolScore & { score: number; call: CalibratedCall } =>
       entry.key !== activeKey && entry.score !== null && entry.call !== null &&
@@ -258,40 +144,114 @@ function findDisagreeingTools(chain: ChainToolScore[], activeKey: ChainToolKey, 
     .map((entry) => ({ key: entry.key, label: entry.label, score: entry.score, call: entry.call }));
 }
 
-/**
- * Evaluates PP3/BP4 from the single pre-specified primary calibrated predictor chain:
- * REVEL -> BayesDel noAF -> AlphaMissense -> ESM1b.
- */
+interface MissenseResult {
+  outcome: "met" | "indeterminate" | "no-score" | "vcep-excluded";
+  activeTool: ActivePredictorTool | null;
+  activeScore: number | null;
+  activeCall: CalibratedCall | null;
+  skippedBefore: ActivePredictorTool[];
+  source: "chain" | "vcep" | null;
+}
+
+function makeDecisionBase(
+  outcome: PrimaryInsilicoDecision["outcome"], chain: ChainToolScore[], vcepRule: VcepInsilicoRule | null,
+  vcepApplied: boolean, vcepNotes: string[], missense?: Partial<MissenseResult>,
+): PrimaryInsilicoDecision {
+  return {
+    outcome, code: null, direction: null, strength: null,
+    activeTool: missense?.activeTool ?? null, activeScore: missense?.activeScore ?? null, activeCall: missense?.activeCall ?? null,
+    skippedBefore: missense?.skippedBefore ?? [], chain, disagreeingTools: [], spliceGate: null,
+    vcepRule, criterionSource: null, vcepApplied, vcepNotes, splicePp3Corroboration: null,
+  };
+}
+
+function emitSplicePp3(
+  base: PrimaryInsilicoDecision, splicePp3: SplicePp3Call, spliceGate: SpliceBp4Gate | null, corroboration: string | null,
+): PrimaryInsilicoDecision {
+  return {
+    ...base,
+    outcome: "met", code: splicePp3.code, direction: "PP3", strength: splicePp3.strength,
+    activeTool: "spliceai", activeScore: splicePp3.maxDs, activeCall: null, skippedBefore: [],
+    disagreeingTools: [], spliceGate, criterionSource: "spliceai", splicePp3Corroboration: corroboration,
+  };
+}
+
+function resolveMissenseWithSplice(
+  missense: MissenseResult, chain: ChainToolScore[], input: PrimaryInsilicoInput,
+  vcepRule: VcepInsilicoRule | null, vcepApplied: boolean, vcepNotes: string[],
+): PrimaryInsilicoDecision {
+  const splicePp3 = evaluateSplicePp3(input.spliceAi, vcepRule, Boolean(input.hasPvs1));
+  const base = makeDecisionBase(missense.outcome, chain, vcepRule, vcepApplied, vcepNotes, missense);
+  const call = missense.activeCall;
+  if (missense.outcome !== "met" || !call?.direction || missense.activeTool === null || missense.activeScore === null) {
+    return splicePp3 ? emitSplicePp3(base, splicePp3, null, null) : base;
+  }
+
+  const tool = missense.activeTool;
+  const disagreeingTools = findDisagreeingTools(chain, tool, call.direction);
+  if (call.direction === "PP3") {
+    if (splicePp3 && STRENGTH_RANK[splicePp3.strength] > STRENGTH_RANK[call.strength!]) {
+      const note = `${PREDICTOR_TOOL_LABEL[tool]} ${fmtScore(tool, missense.activeScore)} also supports missense ${formatEvidenceCode(call.code)}; splicing ${formatEvidenceCode(splicePp3.code)} governs and PP3 is applied once.`;
+      return emitSplicePp3(base, splicePp3, null, note);
+    }
+    const corroboration = splicePp3
+      ? `SpliceAI max Δ ${splicePp3.maxDs.toFixed(2)} also supports splicing ${formatEvidenceCode(splicePp3.code)} (${splicePp3.source}); PP3 is applied once (Walker et al. 2023).`
+      : null;
+    return {
+      ...base, outcome: "met", code: call.code as InsilicoCriterionCode, direction: "PP3",
+      strength: call.strength, disagreeingTools, criterionSource: missense.source, splicePp3Corroboration: corroboration,
+    };
+  }
+
+  const spliceGate = evaluateSpliceBp4Gate(input.spliceAi, vcepRule);
+  if (spliceGate.status === "blocked") {
+    if (splicePp3) {
+      const note = `${PREDICTOR_TOOL_LABEL[tool]} ${fmtScore(tool, missense.activeScore)} reads ${formatEvidenceCode(call.code)} for missense impact, which SpliceAI max Δ ${splicePp3.maxDs.toFixed(2)} overrides and replaces with splicing ${formatEvidenceCode(splicePp3.code)}.`;
+      return emitSplicePp3(base, splicePp3, spliceGate, note);
+    }
+    return { ...base, outcome: "blocked-spliceai", disagreeingTools, spliceGate };
+  }
+  if (spliceGate.status === "withheld-transient" || spliceGate.status === "withheld-coordinate") {
+    return { ...base, outcome: "withheld-spliceai", disagreeingTools, spliceGate };
+  }
+  return {
+    ...base, outcome: "met", code: call.code as InsilicoCriterionCode, direction: "BP4",
+    strength: call.strength, disagreeingTools, spliceGate, criterionSource: missense.source,
+  };
+}
+
+/** Evaluates PP3/BP4 from the primary calibrated chain, VCEP gene rules, and Walker 2023 splicing PP3 / BP4 gate. */
 export function decidePrimaryInsilico(input: PrimaryInsilicoInput): PrimaryInsilicoDecision {
   const vcepRule = input.vcepRule !== undefined ? input.vcepRule : lookupVcepInsilicoRule(input.gene);
   const chain = buildChainEntries(input.scores);
-  const empty = {
-    code: null, direction: null, strength: null, activeTool: null, activeScore: null, activeCall: null,
-    skippedBefore: [] as ChainToolKey[], chain, disagreeingTools: [] as DisagreeingChainTool[], spliceGate: null, vcepRule,
-  };
-  if (input.baseStatus === "pending" || input.baseStatus === "timeout") return { ...empty, outcome: "withheld-base" };
+  const vcepNotes = [...(vcepRule?.notes ?? [])];
+  if ((input.baseStatus === "pending" || input.baseStatus === "timeout") && vcepRuleRequiresDbnsfp(vcepRule)) {
+    return makeDecisionBase("withheld-base", chain, vcepRule, false, vcepNotes);
+  }
+
+  if (vcepRule && vcepRule.rule.kind !== "advisory") {
+    const res = evaluateVcepMissenseCall(vcepRule, input.scores);
+    const mergedNotes = [...vcepNotes, ...res.runtimeNotes];
+    return resolveMissenseWithSplice(
+      { ...res, source: "vcep" },
+      chain,
+      input,
+      vcepRule,
+      true,
+      mergedNotes,
+    );
+  }
 
   const activeIdx = chain.findIndex((entry) => entry.score !== null && entry.call !== null);
-  if (activeIdx === -1) return { ...empty, outcome: "no-score" };
-
-  const active = chain[activeIdx];
-  const skippedBefore = chain.slice(0, activeIdx).map((e) => e.key);
-  const activeCall = active.call!;
-  if (activeCall.direction === null) {
-    return { ...empty, outcome: "indeterminate", activeTool: active.key, activeScore: active.score, activeCall, skippedBefore };
-  }
-
-  const disagreeingTools = findDisagreeingTools(chain, active.key, activeCall.direction);
-  const spliceGate = activeCall.direction === "BP4" ? evaluateSpliceBp4Gate(input.spliceAi) : null;
-  if (spliceGate && (spliceGate.status === "blocked" || spliceGate.status === "withheld-transient" || spliceGate.status === "withheld-coordinate")) {
-    return {
-      ...empty,
-      outcome: spliceGate.status === "blocked" ? "blocked-spliceai" : "withheld-spliceai",
-      activeTool: active.key, activeScore: active.score, activeCall, skippedBefore, disagreeingTools, spliceGate,
-    };
-  }
-  return {
-    outcome: "met", code: activeCall.code as InsilicoCriterionCode, direction: activeCall.direction, strength: activeCall.strength,
-    activeTool: active.key, activeScore: active.score, activeCall, skippedBefore, chain, disagreeingTools, spliceGate, vcepRule,
-  };
+  const missense: MissenseResult = activeIdx === -1
+    ? { outcome: "no-score", activeTool: null, activeScore: null, activeCall: null, skippedBefore: [], source: "chain" }
+    : {
+        outcome: chain[activeIdx].call!.direction === null ? "indeterminate" : "met",
+        activeTool: chain[activeIdx].key,
+        activeScore: chain[activeIdx].score,
+        activeCall: chain[activeIdx].call,
+        skippedBefore: chain.slice(0, activeIdx).map((e) => e.key),
+        source: "chain",
+      };
+  return resolveMissenseWithSplice(missense, chain, input, vcepRule, false, vcepNotes);
 }

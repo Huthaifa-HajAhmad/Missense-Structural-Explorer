@@ -247,12 +247,16 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
 
+  const engineCriteria: Array<{ code?: string; reason?: string }> | null =
+    (r.ruleBasedInsights?.acmgCriteria ?? r.insights?.acmgCriteria ?? null) as any;
+  const hasPvs1 = Boolean(engineCriteria?.some(c => typeof c?.code === "string" && /^PVS1(_|$)/i.test(c.code)));
   const primary = decidePrimaryInsilico(
     primaryInsilicoInputFromResult({
       gene: result.metadata?.gene ?? null,
       predictorData: pd,
       conservationData: cd,
       serviceStatus: result.serviceStatus,
+      hasPvs1,
     }),
   );
   const signalOf = (call: CalibratedCall | null): PredictorSignal =>
@@ -564,8 +568,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   });
 
   // ── What the engine recorded ──
-  const engineCriteria: Array<{ code?: string; reason?: string }> | null =
-    (r.ruleBasedInsights?.acmgCriteria ?? r.insights?.acmgCriteria ?? null) as any;
   const weighting: string | null = r.metadata?.acmgWeighting ?? null;
   const recorded = engineCriteria?.find(c => typeof c?.code === "string" && /^(PP3|BP4)(_|$)/i.test(c.code)) ?? null;
   // The engine's own gates (`criteria.ts`): conservative weighting keeps a computational code only when

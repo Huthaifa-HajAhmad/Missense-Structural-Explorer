@@ -1,37 +1,46 @@
 /**
- * predictorSummary.ts — the Predictors finding in words, from the primary calibrated decision.
- *
- * PP3/BP4 comes from ONE calibrated tool: the first with a score in the fixed order
- * REVEL → BayesDel noAF → AlphaMissense → ESM1b (`decidePrimaryInsilico`). These sentences say
- * which tool answered, in which band, what the engine recorded, and whether another calibrated tool
- * points the other way. They never say more than the decision and the engine record do.
+ * predictorSummary.ts — the Predictors finding in words, from the primary decision and VCEP / Walker 2023 rules.
  */
 import { formatEvidenceCode } from "./thresholds/calibration.ts";
-import { CHAIN_TOOL_LABEL, PRIMARY_PREDICTOR_CHAIN, type ChainToolKey, type PrimaryInsilicoDecision } from "./insilico/primaryPredictor.ts";
+import {
+  PREDICTOR_TOOL_LABEL,
+  PRIMARY_PREDICTOR_CHAIN,
+  type ActivePredictorTool,
+  type ChainToolKey,
+  type PrimaryInsilicoDecision,
+} from "./insilico/primaryPredictor.ts";
 import type { PredictorEvidence } from "./predictorEvidence.ts";
 
 /** The fixed order as a reader sees it: "REVEL → BayesDel noAF → AlphaMissense → ESM1b". */
-export const CHAIN_ORDER_TEXT = PRIMARY_PREDICTOR_CHAIN.map(k => CHAIN_TOOL_LABEL[k]).join(" → ");
+export const CHAIN_ORDER_TEXT = PRIMARY_PREDICTOR_CHAIN.map(k => PREDICTOR_TOOL_LABEL[k]).join(" → ");
 
-function scoreText(tool: ChainToolKey, score: number): string {
-  return tool === "esm1b" ? score.toFixed(2) : score.toFixed(3);
+function scoreText(tool: ActivePredictorTool, score: number): string {
+  if (tool === "cadd") return score.toFixed(1);
+  if (tool === "esm1b") return score.toFixed(2);
+  if (tool === "spliceai") return `max Δ ${score.toFixed(2)}`;
+  return score.toFixed(3);
 }
 
-function list(keys: ChainToolKey[]): string {
-  return keys.map(k => CHAIN_TOOL_LABEL[k]).join(", ");
+function list(keys: ActivePredictorTool[]): string {
+  return keys.map(k => PREDICTOR_TOOL_LABEL[k]).join(", ");
 }
 
-/** "REVEL 0.850", or null when no tool answered. */
+function ensureSentence(text: string): string {
+  const t = text.trim();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+}
+
+/** "REVEL 0.850", "CADD 28.5", "SpliceAI max Δ 0.45", or null when no tool answered. */
 export function activeToolText(primary: PrimaryInsilicoDecision): string | null {
   if (primary.activeTool === null || primary.activeScore === null) return null;
-  return `${CHAIN_TOOL_LABEL[primary.activeTool]} ${scoreText(primary.activeTool, primary.activeScore)}`;
+  return `${PREDICTOR_TOOL_LABEL[primary.activeTool]} ${scoreText(primary.activeTool, primary.activeScore)}`;
 }
 
 /** The calibrated tools that point the other way, in one sentence, or null when none does. */
 export function disagreementText(primary: PrimaryInsilicoDecision): string | null {
   if (primary.disagreeingTools.length === 0) return null;
   const tools = primary.disagreeingTools
-    .map(d => `${d.label} ${scoreText(d.key, d.score)} (${formatEvidenceCode(d.call.code)})`)
+    .map(d => `${d.label} ${scoreText(d.key as ChainToolKey, d.score)} (${formatEvidenceCode(d.call.code)})`)
     .join(", ");
   return `${tools} ${primary.disagreeingTools.length === 1 ? "points" : "point"} the other way. The strength stays with the first tool; weigh the disagreement before you accept it.`;
 }
@@ -41,7 +50,6 @@ function spliceReasonClause(primary: PrimaryInsilicoDecision): string {
   const gate = primary.spliceGate;
   if (!gate || !("reason" in gate)) return "splicing was not cleared";
   const clause = gate.reason.replace(/^BP4 withheld: /, "").replace(/\.$/, "");
-  // Lower-case an ordinary first word ("The protein change…"), never a name such as "SpliceAI".
   return /^(The|No|Coordinate) /.test(clause) ? clause[0].toLowerCase() + clause.slice(1) : clause;
 }
 
@@ -50,11 +58,19 @@ export function noCriterionText(primary: PrimaryInsilicoDecision): string {
   const tool = activeToolText(primary);
   switch (primary.outcome) {
     case "no-score":
-      return "No PP3 or BP4: none of the calibrated tools scored this variant";
+      return primary.vcepApplied && primary.vcepRule
+        ? `No PP3 or BP4: ${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}) tools did not score this variant`
+        : "No PP3 or BP4: none of the calibrated tools scored this variant";
     case "withheld-base":
       return "No PP3 or BP4 yet: the dbNSFP scores did not finish, so the first tool in the order is unknown";
+    case "vcep-excluded":
+      return primary.vcepRule
+        ? `No PP3 or BP4: ${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}) excludes missense computational predictors`
+        : "No PP3 or BP4: ClinGen VCEP excludes missense computational predictors";
     case "indeterminate":
-      return `No PP3 or BP4: ${tool}, the first tool with a score, sits between its bands`;
+      return tool
+        ? `No PP3 or BP4: ${tool}, the first tool with a score, sits between its bands`
+        : "No PP3 or BP4: the VCEP multi-tool requirement was not met";
     case "blocked-spliceai":
     case "withheld-spliceai":
       return `No BP4: ${tool} reads ${formatEvidenceCode(primary.activeCall?.code ?? "BP4")}, but ${spliceReasonClause(primary)}`;
@@ -72,14 +88,44 @@ export function predictorFinding(evidence: PredictorEvidence): { headline: strin
   const fallback = primary.skippedBefore.length > 0 ? `${list(primary.skippedBefore)} had no score, so ` : "";
   switch (primary.outcome) {
     case "met":
+      if (primary.criterionSource === "spliceai") {
+        const ruleSource = primary.vcepRule?.splice?.pp3Missense && primary.vcepRule.splice.pp3Missense !== "none"
+          ? `${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}) splicing rule`
+          : "Walker et al. 2023 splicing rule";
+        return {
+          headline: `${tool} supports splicing ${formatEvidenceCode(primary.code!)}`,
+          predicate: primary.splicePp3Corroboration
+            ? primary.splicePp3Corroboration.replace(/\.$/, "")
+            : `it meets the ${ruleSource}, and PP3 is applied once when PVS1 is absent`,
+        };
+      }
+      if (primary.criterionSource === "vcep" && primary.vcepRule) {
+        const v = primary.vcepRule;
+        return {
+          headline: `${tool} is in its ${formatEvidenceCode(primary.code!)} band`,
+          predicate: `${fallback}selected under ${v.vcep} (${v.cspecId} v${v.version}), setting ${formatEvidenceCode(primary.code!)}`,
+        };
+      }
       return {
         headline: `${tool} is in its ${formatEvidenceCode(primary.code!)} band`,
         predicate: `${fallback}it is the first calibrated tool with a score (${CHAIN_ORDER_TEXT}), and it sets ${formatEvidenceCode(primary.code!)}`,
       };
     case "indeterminate":
+      return tool
+        ? {
+            headline: `${tool} sits between its bands`,
+            predicate: `${fallback}it is the first calibrated tool with a score, so neither PP3 nor BP4 is supported`,
+          }
+        : {
+            headline: "VCEP multi-tool threshold not met",
+            predicate: primary.vcepNotes[0]?.replace(/\.$/, "") ?? "tools disagreed or sat between bands",
+          };
+    case "vcep-excluded":
       return {
-        headline: `${tool} sits between its bands`,
-        predicate: `${fallback}it is the first calibrated tool with a score, so neither PP3 nor BP4 is supported`,
+        headline: "Missense computational predictors excluded",
+        predicate: primary.vcepRule
+          ? `per ${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version})`
+          : "per ClinGen VCEP specification",
       };
     case "blocked-spliceai":
     case "withheld-spliceai":
@@ -91,14 +137,6 @@ export function predictorFinding(evidence: PredictorEvidence): { headline: strin
   }
 }
 
-/**
- * The finding card's one summary line: what the engine recorded, which tool gave the current call,
- * and any disagreement — the facts a curator needs, said ONCE.
- *
- * `tone` is "warning" exactly when a curator must reconcile two readings: another calibrated tool
- * points the other way, the weighting withheld the code, or the payload's record differs from what
- * the current rule gives.
- */
 export interface PredictorSummary {
   tone: "warning" | "neutral";
   /** The bold sentence, ending in a full stop. */
@@ -116,7 +154,12 @@ export function predictorSummary(evidence: PredictorEvidence): PredictorSummary 
   const from = activeToolText(primary);
   const disagreement = disagreementText(primary);
   const spliceNote = primary.spliceGate && "note" in primary.spliceGate ? primary.spliceGate.note : null;
-  const notes = [...(disagreement ? [disagreement] : []), ...(spliceNote ? [spliceNote] : [])];
+  const notes = [
+    ...(disagreement ? [disagreement] : []),
+    ...(primary.splicePp3Corroboration ? [ensureSentence(primary.splicePp3Corroboration)] : []),
+    ...(spliceNote ? [ensureSentence(spliceNote)] : []),
+    ...primary.vcepNotes.map(ensureSentence),
+  ];
   const finish = (state: PredictorSummary["state"], lead: string, extra: string[], warn: boolean): PredictorSummary => ({
     tone: warn || disagreement !== null ? "warning" : "neutral",
     lead: `${lead}.`,
@@ -138,8 +181,9 @@ export function predictorSummary(evidence: PredictorEvidence): PredictorSummary 
     return finish("stale", `The engine ${recorded} where the current rule gives ${current}`, ["This result was classified by an earlier engine; re-run the analysis to refresh it."], true);
   }
   if (engine.code) {
+    const vcepTag = primary.vcepApplied && primary.vcepRule ? ` (${primary.vcepRule.cspecId} v${primary.vcepRule.version})` : "";
     const fallback = primary.skippedBefore.length > 0 ? `, after ${list(primary.skippedBefore)} had no score` : "";
-    return finish("recorded", `The engine recorded ${code(engine.code)} from ${from}${fallback}`, [], false);
+    return finish("recorded", `The engine recorded ${code(engine.code)} from ${from}${vcepTag}${fallback}`, [], false);
   }
   return finish("none", noCriterionText(primary), [], false);
 }

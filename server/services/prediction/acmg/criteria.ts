@@ -187,10 +187,16 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   }
 
   // -------------------------------------------------------------------------
-  // 1. PP3 / BP4 — Primary calibrated predictor (REVEL -> BayesDel -> AM -> ESM1b)
+  // 1. PP3 / BP4 — Primary calibrated predictor (REVEL -> BayesDel -> AM -> ESM1b) + VCEP / SpliceAI
   // -------------------------------------------------------------------------
   const insilico = evaluateInsilicoCriterion(
-    { gene, predictorData, conservationData, serviceStatus },
+    {
+      gene,
+      predictorData,
+      conservationData,
+      serviceStatus,
+      hasPvs1: criteria.some(c => /^PVS1(_|$)/i.test(c.code)),
+    },
     { skipPathogenicComp, skipBenignComp },
   );
   criteria.push(...insilico.criteria);

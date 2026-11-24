@@ -56,20 +56,26 @@ import { SPLICE_URL_DEFAULTS, parseSplicingUrl, parseSpliceView, withSplicingPar
  */
 
 function RuleChip({ ev }: { ev: SplicingEvidence }) {
-  const { rule } = ev;
+  const { rule, engine } = ev;
   if (rule.state === "pending") {
     return <span className="ev-tier spl-verdict" data-tone="neutral">{ENGINE_STATE_LABELS.running}</span>;
   }
   if (rule.code) {
+    const appliedFromSplicing = rule.code === "PP3" && engine.known && Boolean(engine.code?.startsWith("PP3")) && Boolean(engine.fromSplicing);
+    const dashClass = appliedFromSplicing ? "" : " spl-verdict--unapplied";
+    const title = rule.code === "PP3"
+      ? "Walker 2023 (or gene VCEP) splicing PP3: applied once by the engine when PVS1 is absent."
+      : "Splicing BP4 clears the missense BP4 gate; splicing BP4 alone is not recorded for missense variants.";
+    const aria = rule.code === "PP3"
+      ? "PP3 for splicing impact, supported by the Walker 2023 splicing rule (applied once when PVS1 is absent)"
+      : "BP4 for splicing impact, clears the missense BP4 gate (not recorded alone)";
     return (
       <span
-        className="ev-tier chip-code spl-verdict spl-verdict--unapplied"
-        // Toned by direction like the table row and the rail; the dash alone says "not applied".
-        // A clay BP4 beside the red PP3 band read as pathogenic.
+        className={`ev-tier chip-code spl-verdict${dashClass}`}
         data-tone={rule.code === "PP3" ? "danger" : "good"}
         data-testid="splicing-verdict"
-        title="What the ClinGen splicing rule supports. The ACMG engine does not apply splicing criteria, so this is not a recorded code."
-        aria-label={`${rule.code} for splicing impact, supported by the splicing rule, not applied by the engine`}
+        title={title}
+        aria-label={aria}
       >
         {rule.code} · splicing
       </span>
@@ -125,7 +131,7 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
           <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
           <span>
             <strong>SpliceAI supports PP3 for splicing, but the engine&apos;s in-silico code is {code}.</strong>{" "}
-            The current engine withholds BP4 when SpliceAI is ≥ {S.splicingPp3.toFixed(2)} (Walker 2023), so this
+            The current engine withholds BP4 when SpliceAI is ≥ {S.splicingPp3.toFixed(2)} and applies splicing PP3 once when PVS1 is absent (Walker 2023), so this
             payload was classified by an earlier engine. A predicted splicing change is evidence of impact — re-run the
             analysis before accepting BP4.
           </span>
@@ -144,8 +150,8 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
         <p className="spl-callout" data-tone="neutral" data-testid="relation-callout">
           <Info className="w-3.5 h-3.5" aria-hidden="true" />
           <span>
-            The primary missense predictor already gives PP3. PP3 is applied once, whichever prediction supports it; SpliceAI
-            at ≥ {S.splicingPp3.toFixed(1)} does not add a second.
+            Both missense and splicing evidence support PP3. Under Walker 2023, PP3 is applied once at its highest applicable strength; SpliceAI
+            at ≥ {S.splicingPp3.toFixed(1)} does not add a second PP3.
           </span>
         </p>
       )}

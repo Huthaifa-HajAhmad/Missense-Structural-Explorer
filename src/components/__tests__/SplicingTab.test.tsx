@@ -57,11 +57,17 @@ describe("SplicingTab — scored variant", () => {
       ...(engineCode ? { ruleBasedInsights: { acmgCriteria: [{ code: engineCode, reason: "vote" }] } } : {}),
     });
 
-  it("draws the splicing code dashed and says the engine does not apply it", () => {
+  it("labels splicing PP3 under Walker 2023 and keeps splicing BP4 dashed as gate-only", () => {
     renderTab(scored(0.45));
-    const chip = screen.getByTestId("splicing-verdict");
-    expect(chip.textContent).toBe("PP3 · splicing");
-    expect(chip.getAttribute("aria-label")).toMatch(/not applied by the engine/);
+    const pp3Chip = screen.getByTestId("splicing-verdict");
+    expect(pp3Chip.textContent).toBe("PP3 · splicing");
+    expect(pp3Chip.getAttribute("aria-label")).toMatch(/Walker 2023 splicing rule/);
+
+    renderTab(scored(0.03));
+    const chips = screen.getAllByTestId("splicing-verdict");
+    const bp4Chip = chips[chips.length - 1];
+    expect(bp4Chip.textContent).toBe("BP4 · splicing");
+    expect(bp4Chip.className).toContain("spl-verdict--unapplied");
   });
 
   it("warns when splicing supports PP3 and the engine recorded BP4", () => {

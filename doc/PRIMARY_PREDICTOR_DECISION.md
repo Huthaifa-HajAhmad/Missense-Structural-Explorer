@@ -1,9 +1,10 @@
 # Decision: Primary Calibrated In-Silico Predictor & VCEP Override Policy (Phase 5a)
 
-**Status:** Approved by the owner (2026-11-24), with the amendment below. Phase 5b built the default order, the
-SpliceAI block on BP4, the disagreement note and the active PP3 + PM1 cap (`src/shared/insilico/primaryPredictor.ts`,
-release note `RELEASE_NOTE_PRIMARY_PREDICTOR.md`). The VCEP table (item 3) follows in its own change; until then
-`lookupVcepInsilicoRule` returns no rule and every gene uses the default order.
+**Status:** Implemented (2026-11-24). Phase 5b merged on `main` (PR #294, `af66c085`), delivering the default order, the
+SpliceAI block on BP4, the disagreement note and the active `PP3 + PM1 ≤ Strong` cap (`src/shared/insilico/primaryPredictor.ts`,
+`RELEASE_NOTE_PRIMARY_PREDICTOR.md`). Phase 5c (`feat/phase5c-vcep-walker-pp3`) implements Walker 2023 splicing PP3
+("PP3 once", never added on top of PVS1) and populates the version-pinned, audited 113-spec / 110-gene ClinGen
+VCEP table (`src/shared/insilico/vcepRules.ts`, pinned to the 2026-11-24 CSpec snapshot).
 
 **Decision:**
 1. **Default primary calibrated predictor:** **REVEL** (`revel`), emitting `PP3`/`BP4` up to its published ClinGen-calibrated strengths (`PP3` [`0.644`, `0.773`), `PP3_Moderate` [`0.773`, `0.932`), `PP3_Strong` ≥ `0.932`; `BP4` (`0.183`, `0.290`], `BP4_Moderate` (`0.016`, `0.183`], `BP4_Strong` (`0.003`, `0.016`], `BP4_VeryStrong` ≤ `0.003`; Pejaver et al. 2022).

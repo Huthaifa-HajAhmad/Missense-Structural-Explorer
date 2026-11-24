@@ -355,5 +355,26 @@ describe("PredictorsTab", () => {
     expect(row.querySelector(".prd-ruler")).toBeNull();
     expect(row.getAttribute("data-chain")).toBeNull();
   });
+
+  it("displays ClinGen VCEP caps, exclusions, and Walker 2023 splicing PP3 in Comparison", () => {
+    const first = renderTab(gzf1({
+      metadata: { gene: "PTEN", variant: "p.Arg130Gln", acmgWeighting: "standard" },
+      conservationData: { revel: 0.95, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "PTEN VCEP" }] },
+    }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    expect(screen.getByTestId("predictor-chain-row").textContent).toContain("GN003 v3.2");
+    expect(screen.getByTestId("predictor-primary-call").textContent).toBe("PP3");
+    first.unmount();
+
+    const second = renderTab(gzf1({
+      metadata: { gene: "PALB2", variant: "p.Leu100Pro", acmgWeighting: "standard" },
+      conservationData: { revel: 0.95, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [] },
+    }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    expect(screen.getByTestId("predictor-primary-call").textContent).toBe("Excluded");
+    second.unmount();
+  });
 });
 
