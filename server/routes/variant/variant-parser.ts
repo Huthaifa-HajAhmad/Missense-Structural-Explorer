@@ -5,6 +5,7 @@ import {
   validateVariant,
   validateUniProt,
   sendError,
+  AuditLogger,
   filterPII,
   formatZodError,
   validateSafeCustomEndpointUrl,
@@ -30,6 +31,7 @@ import { buildAmbiguousNumberingMessage } from "../../services/translation/isofo
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
 import { resolveCredential } from "../../services/infra/credentials.ts";
 import { residueOfRequest } from "./residue-of-request.ts";
+import { unverifiedResidueRefusal } from "./unverified-residue-refusal.ts";
 import type { ResidueProof } from "../../../src/shared/verifiedResidue.ts";
 
 export const analyzeVariantSchema = z.object({
@@ -563,12 +565,33 @@ export async function validateAndParseVariantRequest(
       "reported on a different isoform its position may refer to another residue. Qualify it with " +
       "the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn) or use the genomic/cDNA coordinate.";
 
+  const inputKind = genomicCoordinates ? "coordinate" : "protein";
   const { residue, rejectedProof } = residueOfRequest({
     token: req.body?.numberingProof,
     identity: { accession: uniprotId, position: pos, wildType: wt1Letter, mutant: mut1Letter },
-    inputKind: genomicCoordinates ? "coordinate" : "protein",
+    inputKind,
     ownCheck: { canonicalConfirmed, status: numbering?.status, reason: numbering?.reason },
   });
+  const numberingAudit: NonNullable<ParsedVariantContext["numberingAudit"]> = {
+    inputKind,
+    numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
+    numberingVerified,
+    ...(!numberingVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
+    numberingProof: residue.proof,
+    ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}),
+  };
+
+  if (residue.proof === "unverified") {
+    // Logged here because a refused request never reaches the analysis route's own audit entry, and the
+    // count of unverified runs is what decides whether a finer gate replaces this refusal.
+    await AuditLogger.logVariantQuery("ANALYSIS_REFUSED_UNVERIFIED_NUMBERING", {
+      gene, variant, uniprotId, route: req.path, ...numberingAudit,
+      requestId: (req.headers?.["x-request-id"] as string) || undefined,
+    });
+    const refusal = unverifiedResidueRefusal({ gene, variant, inputKind, reason: numbering?.reason });
+    sendError(res, 422, refusal.code, refusal.message, refusal.details);
+    return null;
+  }
 
   return {
     gene,
@@ -577,14 +600,7 @@ export async function validateAndParseVariantRequest(
     numberingVerified,
     ...(canonicalConfirmed ? { numberingDisambiguated: true } : {}),
     numberingWarning,
-    numberingAudit: {
-      inputKind: genomicCoordinates ? "coordinate" : "protein",
-      numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
-      numberingVerified,
-      ...(!numberingVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
-      numberingProof: residue.proof,
-      ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}),
-    },
+    numberingAudit,
     originalNotation,
     ...(genomicCoordinates ? { genomicCoordinates } : {}),
     ...(liftedGenomicCoordinates ? { liftedGenomicCoordinates } : {}),

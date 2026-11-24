@@ -2155,6 +2155,8 @@ export type BuildHint = z.infer<typeof buildHintSchema>;
 export const REFUSAL_CODES = {
   /** The notation's residue numbers are equally consistent with two numberings. */
   ambiguousProteinNumbering: "AMBIGUOUS_PROTEIN_NUMBERING",
+  /** The residue's numbering could not be verified, so the analysis was not run. */
+  unverifiedResidueNumbering: "UNVERIFIED_RESIDUE_NUMBERING",
   /** The coordinate's REF allele matches no reference base on the build it was read against. */
   coordinateReferenceMismatch: "COORDINATE_REFERENCE_MISMATCH",
   /** The coordinate translated to a non-missense consequence (intronic, synonymous, nonsense, frameshift, etc.) */

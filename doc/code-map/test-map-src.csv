@@ -7,7 +7,7 @@ src/api/biophysicsApi.ts,client,src/api/__tests__/apiError.test.ts;src/api/__tes
 src/api/clinicalApi.ts,client,src/api/__tests__/literatureRetry.test.ts
 src/api/index.ts,barrel,
 src/api/jobsApi.ts,client,src/components/jobs/__tests__/JobsMenu.test.tsx
-src/api/structureApi.ts,client,src/api/__tests__/structureRefTransport.test.ts;src/api/structureApi.test.ts;src/services/pipeline/__tests__/structureService.test.ts
+src/api/structureApi.ts,client,src/api/__tests__/apiError.test.ts;src/api/__tests__/structureRefTransport.test.ts;src/api/structureApi.test.ts;src/services/pipeline/__tests__/structureService.test.ts
 src/api/structureRefRegistry.ts,client,src/api/__tests__/structureRefTransport.test.ts;src/services/pipeline/__tests__/structureService.test.ts
 src/api/systemApi.ts,client,
 src/apiClient.ts,client,src/api/__tests__/versionSkewWiring.test.tsx;src/apiClient.test.ts

@@ -8,9 +8,9 @@
  * the gene's UniProt accession, the wild type, canonical against MANE numbering) and signs the residue
  * it verified, so every request of the run can carry the proof (doc/VERIFIED_RESIDUE_DESIGN.md §2).
  *
- * It answers what the analysis would answer: the same refusals (wild-type mismatch, ambiguous numbering),
- * and no proof for an unverified residue. It also returns the resolved accession, so it replaces the
- * browser's separate gene lookup.
+ * It answers what the analysis would answer: the same refusals (wild-type mismatch, ambiguous numbering,
+ * unverified numbering), so the browser can show a refusal before it starts any other request. It also
+ * returns the resolved accession, so it replaces the browser's separate gene lookup.
  */
 import { type Router } from "express";
 import { validateAndParseVariantRequest } from "./variant-parser.ts";

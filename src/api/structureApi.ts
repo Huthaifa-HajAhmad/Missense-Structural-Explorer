@@ -204,7 +204,8 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         timeout: timeoutMs,
         signal
       });
-      if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to check the residue numbering"));
+      // `extractApiError` keeps the status and code, so a refusal is shown to the reader as the analysis would show it.
+      if (!res.ok) throw await extractApiError(res, "Failed to check the residue numbering");
       return numberingProofResponseSchema.parse(await res.json());
     },
 

@@ -5,6 +5,7 @@ import { clearAllCaches } from "../../services/infra/cache.ts";
 import { resetHostStateForTests } from "../../services/infra/http-client.ts";
 import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
 import { issueNumberingProof } from "../../services/translation/numbering-proof.ts";
+import { AuditLogger } from "../../utils.ts";
 
 /**
  * The analysis path takes protein input and resolves it BY RESIDUE INDEX against the canonical
@@ -91,11 +92,17 @@ describe("analysis path — protein notation handling", () => {
     clearAllCaches(true);
     resetHostStateForTests();
     vi.restoreAllMocks();
+    vi.stubEnv("APP_SESSION_SECRET", "parser-test-session-secret");
   });
 
   afterEach(() => {
     fetchSpy?.mockRestore();
+    vi.unstubAllEnvs();
   });
+
+  /** The proof a verified coordinate translation of ACOT9 p.Arg55Ala sends back. */
+  const genomicProof = () =>
+    issueNumberingProof({ accession: "Q9Y305", position: 55, wildType: "R", mutant: "A", proof: "genomic" });
 
   it("REFUSES an accession-qualified notation instead of reading its position canonically", async () => {
     const { context, statusCode, body } = await parse({
@@ -188,16 +195,14 @@ describe("analysis path — protein notation handling", () => {
     // Coordinate + declared build: forwarded verbatim for the predictor's coordinate-first query.
     const withBuild = await parse({
       gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
-      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37", numberingProof: genomicProof(),
     });
     expect(withBuild.statusCode).toBe(200);
     expect(withBuild.context?.genomicCoordinates).toBe("X-23723975-C-A");
     expect(withBuild.context?.assembly).toBe("GRCh37");
     // The audit entry says the run came from a coordinate, so the two input kinds can be counted apart.
     expect(withBuild.context?.numberingAudit?.inputKind).toBe("coordinate");
-    // The canonical-versus-MANE check says nothing about a translated coordinate: without the translation's
-    // proof its residue is unverified, even though the same check passes for the typed notation above.
-    expect(withBuild.context?.numberingAudit?.numberingProof).toBe("unverified");
+    expect(withBuild.context?.numberingAudit?.numberingProof).toBe("genomic");
     expect(withoutBuild.context?.numberingAudit?.numberingProof).toBe("canonical-vs-mane");
 
     // Malformed coordinate (trailing components): the strict parser refuses it despite the build.
@@ -233,7 +238,7 @@ describe("analysis path — protein notation handling", () => {
 
     const both = await parse({
       gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
-      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37", numberingProof: genomicProof(),
       liftedGenomicCoordinates: "X-23705858-C-A", resolvedAssembly: "GRCh38",
       coordinateLift: {
         status: "lifted",
@@ -258,7 +263,7 @@ describe("analysis path — protein notation handling", () => {
     // pairing is the point, and a coordinate's build is never ours to assume.
     const unpaired = await parse({
       gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
-      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37", numberingProof: genomicProof(),
       liftedGenomicCoordinates: "X-23705858-C-A",
     });
     expect(unpaired.statusCode).toBe(200);
@@ -273,30 +278,67 @@ describe("analysis path — protein notation handling", () => {
     expect(malformedLift.context?.liftedGenomicCoordinates).toBeUndefined();
   });
 
-  it("discloses an unverifiable numbering instead of silently trusting canonical", async () => {
-    // Sequence fetch succeeds, isoform model fails: the analysis proceeds (an outage must not break
-    // a valid query) but it is labelled unverified rather than presented as a clean canonical match.
-    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) => {
+  /** The canonical sequence answers, the isoform model does not: the numbering check has no answer. */
+  const installIsoformOutage = () =>
+    vi.spyOn(global, "fetch").mockImplementation(async (url: any) => {
       const target = String(url);
       if (target.includes("/stream")) throw new Error("network down");
-      if (target.includes(".fasta")) {
-        return fastaResponse(`>sp|Q9Y305|ACOT9_HUMAN\n${ACOT9_CANONICAL}\n`);
-      }
+      if (target.includes(".fasta")) return fastaResponse(`>sp|Q9Y305|ACOT9_HUMAN\n${ACOT9_CANONICAL}\n`);
       throw new Error(`unexpected fetch: ${target}`);
     });
 
-    const { context, statusCode } = await parse({
-      gene: "ACOT9",
-      variant: "p.Arg55Ala",
-      uniprotId: "Q9Y305",
+  describe("refusal of an unverified residue", () => {
+    it("refuses a protein notation whose numbering could not be checked, and names the remedy", async () => {
+      // A residue number that may belong to another isoform must not be analysed as canonical: the
+      // reader is told how to state the numbering instead.
+      fetchSpy = installIsoformOutage();
+      const audit = vi.spyOn(AuditLogger, "logVariantQuery").mockResolvedValue(undefined);
+
+      const { context, statusCode, body } = await parse({ gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305" });
+
+      expect(context).toBeNull();
+      expect(statusCode).toBe(422);
+      expect(body.error.code).toBe("UNVERIFIED_RESIDUE_NUMBERING");
+      expect(body.error.message).toContain("Numbering not verified for ACOT9 p.Arg55Ala");
+      expect(body.error.message).toContain("NP_001032248.1:p.Lys281Asn");
+      expect(body.error.message).toContain("genomic/cDNA coordinate");
+      expect(body.error.details).toMatchObject({ inputKind: "protein" });
+      // The refused run is still counted, so the unverified rate that decides the full gate stays measurable.
+      expect(audit).toHaveBeenCalledWith("ANALYSIS_REFUSED_UNVERIFIED_NUMBERING", expect.objectContaining({
+        gene: "ACOT9", uniprotId: "Q9Y305",
+        inputKind: "protein", numberingBasis: "unavailable", numberingVerified: false, numberingProof: "unverified",
+      }));
     });
 
-    expect(statusCode).toBe(200);
-    expect(context?.numberingVerified).toBe(false);
-    expect(context?.numberingWarning).toContain("Numbering not verified");
-    // "unavailable": the isoform check gave no answer (unreachable or over its time budget).
-    expect(context?.numberingAudit).toEqual({
-      inputKind: "protein", numberingBasis: "unavailable", numberingVerified: false, numberingProof: "unverified",
+    it("refuses a translated coordinate that arrives without the translation's proof", async () => {
+      // The canonical-versus-MANE check passes here, but it says nothing about whether the coordinate
+      // was translated to the right residue, so only the translation's proof lets the analysis run.
+      fetchSpy = installFetch();
+      vi.spyOn(AuditLogger, "logVariantQuery").mockResolvedValue(undefined);
+
+      const { context, statusCode, body } = await parse({
+        gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+        genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      });
+
+      expect(context).toBeNull();
+      expect(statusCode).toBe(422);
+      expect(body.error.code).toBe("UNVERIFIED_RESIDUE_NUMBERING");
+      // Running it again translates the coordinate again, which is the remedy after a provider outage.
+      expect(body.error.message).toContain("Run the analysis again");
+      expect(body.error.details).toMatchObject({ inputKind: "coordinate" });
+    });
+
+    it("runs a coordinate with a valid translation proof even when the isoform check has no answer", async () => {
+      fetchSpy = installIsoformOutage();
+
+      const { statusCode, context } = await parse({
+        gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+        genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37", numberingProof: genomicProof(),
+      });
+
+      expect(statusCode).toBe(200);
+      expect(context?.numberingAudit?.numberingProof).toBe("genomic");
     });
   });
 

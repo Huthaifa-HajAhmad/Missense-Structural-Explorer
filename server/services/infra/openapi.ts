@@ -405,6 +405,9 @@ export function generateOpenApiSpec() {
           "400": {
             "$ref": "#/components/responses/BadRequestError"
           },
+          "422": {
+            "description": "The residue cannot be analysed as entered: an accession-qualified notation that must be translated first, a wild-type mismatch, a notation equally consistent with two numberings (`AMBIGUOUS_PROTEIN_NUMBERING`), or a residue whose numbering could not be verified (`UNVERIFIED_RESIDUE_NUMBERING`: the isoform check gave no answer, or a translated coordinate came without the `numberingProof` its translation signed). The message names the remedy: qualify the notation with its protein, enter the genomic/cDNA coordinate, or run the analysis again."
+          },
           "429": {
             "$ref": "#/components/responses/RateLimitedError"
           }
@@ -506,6 +509,9 @@ export function generateOpenApiSpec() {
           },
           "400": {
             "$ref": "#/components/responses/BadRequestError"
+          },
+          "422": {
+            "description": "The residue cannot be analysed as entered: an accession-qualified notation that must be translated first, a wild-type mismatch, a notation equally consistent with two numberings (`AMBIGUOUS_PROTEIN_NUMBERING`), or a residue whose numbering could not be verified (`UNVERIFIED_RESIDUE_NUMBERING`: the isoform check gave no answer, or a translated coordinate came without the `numberingProof` its translation signed). The message names the remedy: qualify the notation with its protein, enter the genomic/cDNA coordinate, or run the analysis again."
           }
         }
       }
