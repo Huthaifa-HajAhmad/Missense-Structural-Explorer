@@ -5,6 +5,7 @@ import {
   validateVariant,
   validateUniProt,
   sendError,
+  AuditLogger,
   filterPII,
   formatZodError,
   validateSafeCustomEndpointUrl,
@@ -30,6 +31,7 @@ import { buildAmbiguousNumberingMessage } from "../../services/translation/isofo
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
 import { resolveCredential } from "../../services/infra/credentials.ts";
 import { residueOfRequest } from "./residue-of-request.ts";
+import { unverifiedResidueRefusal } from "./unverified-residue-refusal.ts";
 import type { ResidueProof } from "../../../src/shared/verifiedResidue.ts";
 
 export const analyzeVariantSchema = z.object({
@@ -526,7 +528,17 @@ export async function validateAndParseVariantRequest(
    */
   const canonicalConfirmed = req.body?.numberingBasis === "canonical";
 
-  if (!canonicalConfirmed && numbering?.status === "ambiguous" && numbering.candidates?.length) {
+  const inputKind = genomicCoordinates ? "coordinate" : "protein";
+  const { residue, rejectedProof } = residueOfRequest({
+    token: req.body?.numberingProof,
+    identity: { accession: uniprotId, position: pos, wildType: wt1Letter, mutant: mut1Letter },
+    inputKind,
+    ownCheck: { canonicalConfirmed, status: numbering?.status, reason: numbering?.reason },
+  });
+
+  // Two readings are a question only while nothing settled them: the reader's choice (`user-confirmed`)
+  // or a translation that already named the canonical residue and signed it (`genomic`, `declared-protein`).
+  if (residue.proof === "unverified" && numbering?.status === "ambiguous" && numbering.candidates?.length) {
     sendError(
       res,
       422,
@@ -553,38 +565,38 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
-  const numberingVerified = canonicalConfirmed || (numbering !== null && numbering.status === "canonical");
-  const numberingWarning = numberingVerified
-    ? undefined
-    : `Numbering not verified for ${gene} ${variant}: ${
-        numbering?.reason ??
-        "the isoform model could not be reached or did not answer in time"
-      }. The residue was matched against the canonical ${uniprotId} sequence; if this notation was ` +
-      "reported on a different isoform its position may refer to another residue. Qualify it with " +
-      "the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn) or use the genomic/cDNA coordinate.";
+  // The outcome of this route's own canonical-versus-MANE check, logged as before so the audit counts stay
+  // comparable. Whether the residue is verified is the proof's answer (`residue.proof`), not this one.
+  const ownCheckVerified = canonicalConfirmed || (numbering !== null && numbering.status === "canonical");
+  const numberingAudit: NonNullable<ParsedVariantContext["numberingAudit"]> = {
+    inputKind,
+    numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
+    numberingVerified: ownCheckVerified,
+    ...(!ownCheckVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
+    numberingProof: residue.proof,
+    ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}),
+  };
 
-  const { residue, rejectedProof } = residueOfRequest({
-    token: req.body?.numberingProof,
-    identity: { accession: uniprotId, position: pos, wildType: wt1Letter, mutant: mut1Letter },
-    inputKind: genomicCoordinates ? "coordinate" : "protein",
-    ownCheck: { canonicalConfirmed, status: numbering?.status, reason: numbering?.reason },
-  });
+  if (residue.proof === "unverified") {
+    // Logged here because a refused request never reaches the analysis route's own audit entry, and the
+    // count of unverified runs is what decides whether a finer gate replaces this refusal.
+    await AuditLogger.logVariantQuery("ANALYSIS_REFUSED_UNVERIFIED_NUMBERING", {
+      gene, variant, uniprotId, route: req.path, ...numberingAudit,
+      requestId: (req.headers?.["x-request-id"] as string) || undefined,
+    });
+    const refusal = unverifiedResidueRefusal({ gene, variant, inputKind, reason: residue.reason });
+    sendError(res, 422, refusal.code, refusal.message, refusal.details);
+    return null;
+  }
 
   return {
     gene,
     variant,
     uniprotId,
-    numberingVerified,
+    // Every residue that reaches this line has a proof: an unverified one was refused above.
+    numberingVerified: true,
     ...(canonicalConfirmed ? { numberingDisambiguated: true } : {}),
-    numberingWarning,
-    numberingAudit: {
-      inputKind: genomicCoordinates ? "coordinate" : "protein",
-      numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
-      numberingVerified,
-      ...(!numberingVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
-      numberingProof: residue.proof,
-      ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}),
-    },
+    numberingAudit,
     originalNotation,
     ...(genomicCoordinates ? { genomicCoordinates } : {}),
     ...(liftedGenomicCoordinates ? { liftedGenomicCoordinates } : {}),
