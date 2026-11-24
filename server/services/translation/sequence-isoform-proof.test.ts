@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolveCoordinate } from "./coordinate-resolver.ts";
+import { isCanonicalBySequence } from "./sequence-isoform-proof.ts";
+import { fetchUniprotSequence } from "../external-api/uniprot.ts";
 import { clearAllCaches } from "../infra/cache.ts";
 import { resetHostStateForTests } from "../infra/http-client.ts";
 
@@ -27,7 +29,11 @@ const CANONICAL_SIBLING = {
   swissprot: [`${ACCESSION}.266`],
 };
 
-const vepPayload = (hgvsp = `${ENSP}:p.Arg8Trp`, withSibling = false) => [
+const vepPayload = (
+  hgvsp = `${ENSP}:p.Arg8Trp`,
+  withSibling = false,
+  overrides: { amino_acids?: string; swissprot?: string[] } = {}
+) => [
   {
     seq_region_name: "12",
     start: 102840507,
@@ -38,9 +44,9 @@ const vepPayload = (hgvsp = `${ENSP}:p.Arg8Trp`, withSibling = false) => [
         canonical: 1,
         mane_select: "NM_000277.3",
         hgvsp,
-        amino_acids: "R/W",
+        amino_acids: overrides.amino_acids ?? "R/W",
         gene_symbol: "PAH",
-        swissprot: [`${ACCESSION}.266`],
+        swissprot: overrides.swissprot ?? [`${ACCESSION}.266`],
       },
       ...(withSibling ? [CANONICAL_SIBLING] : []),
     ],
@@ -75,20 +81,31 @@ interface Upstream {
   enspSequence?: string;
   enspVersion?: number;
   enspStatus?: number;
-  uniprotFasta?: string;
+  /** The canonical sequence UniProt serves for the accession. */
+  canonicalSequence?: string;
   withSibling?: boolean;
+  aminoAcids?: string;
+  swissprot?: string[];
 }
 
 function mockUpstream(options: Upstream = {}) {
   return vi.spyOn(global, "fetch").mockImplementation(async (input: any) => {
     const url = String(input);
-    if (url.includes("/vep/")) return jsonResponse(vepPayload(options.hgvsp, options.withSibling));
+    if (url.includes("/vep/")) return jsonResponse(
+        vepPayload(options.hgvsp, options.withSibling, {
+          amino_acids: options.aminoAcids,
+          swissprot: options.swissprot,
+        })
+      );
     if (url.includes("/sequence/id/")) {
       if (options.enspStatus) return jsonResponse({ error: "down" }, options.enspStatus);
       return jsonResponse({ seq: options.enspSequence ?? CANONICAL, version: options.enspVersion ?? 1 });
     }
-    if (url.includes("/uniprotkb/stream")) {
-      return textResponse(options.uniprotFasta ?? `>sp|${ACCESSION}|PH4H_HUMAN Phenylalanine-4-hydroxylase\n${CANONICAL}\n`);
+    // Serves an isoform-qualified accession too, so a guard against one is what makes the difference.
+    if (/\/uniprotkb\/P00439(-\d+)?\.fasta/.test(url)) {
+      return textResponse(
+        `>sp|${ACCESSION}|PH4H_HUMAN Phenylalanine-4-hydroxylase\n${options.canonicalSequence ?? CANONICAL}\n`
+      );
     }
     if (url.includes(`/uniprotkb/${ACCESSION}.json`)) return jsonResponse(UNIPROT_ENTRY);
     throw new Error(`unexpected request ${url}`);
@@ -149,8 +166,9 @@ describe("numbering proof by sequence identity (single-isoform UniProt entries)"
   });
 
   it("stays unverified when the Ensembl protein differs from every UniProt sequence", async () => {
-    // One extra residue near the start shifts every later position by one.
-    fetchSpy = mockUpstream({ enspSequence: `MS${CANONICAL.slice(1)}` });
+    // Same residue at the stated position (Arg 8), but the last residue differs: only the full
+    // comparison can tell the two proteins apart.
+    fetchSpy = mockUpstream({ enspSequence: `${CANONICAL.slice(0, -1)}W` });
 
     const outcome = await resolveCoordinate(NOTATION, "GRCh38");
 
@@ -165,17 +183,23 @@ describe("numbering proof by sequence identity (single-isoform UniProt entries)"
     expect(outcome.numbering?.status).toBe("unverified");
   });
 
-  it("stays unverified when the protein matches only a non-canonical record labelled <accession>-1", async () => {
-    // UniProt labels the displayed (canonical) sequence with the bare accession; when the canonical
-    // is not isoform 1 (COL2A1), a separate record `<accession>-1` is NOT canonical. Naming that
-    // record would read as canonical downstream, so only the bare canonical record counts.
+  it("stays unverified when the protein is another isoform, even one UniProt labels <accession>-1", async () => {
+    // When the canonical is not isoform 1 (COL2A1), `<accession>-1` is a different protein. Only the
+    // canonical sequence is ever compared, so a protein equal to isoform 1 proves nothing.
     const isoformOne = `M${"A".repeat(6)}R${"G".repeat(30)}`;
-    fetchSpy = mockUpstream({
-      enspSequence: isoformOne,
-      uniprotFasta:
-        `>sp|${ACCESSION}|PH4H_HUMAN canonical\n${CANONICAL}\n` +
-        `>sp|${ACCESSION}-1|PH4H_HUMAN Isoform 1\n${isoformOne}\n`,
-    });
+    fetchSpy = mockUpstream({ enspSequence: isoformOne });
+
+    const outcome = await resolveCoordinate(NOTATION, "GRCh38");
+
+    expect(outcome.numbering?.status).toBe("unverified");
+  });
+
+  it.each([
+    ["amino_acids names another wild-type than the notation", `${ENSP}:p.Lys8Trp`, "R/W"],
+    ["amino_acids names another substitution than the notation", `${ENSP}:p.Arg8Trp`, "K/W"],
+  ])("stays unverified when %s", async (_name, hgvsp, aminoAcids) => {
+    // The signed proof is made from the notation, so the notation itself must be what was checked.
+    fetchSpy = mockUpstream({ hgvsp, aminoAcids });
 
     const outcome = await resolveCoordinate(NOTATION, "GRCh38");
 
@@ -201,5 +225,55 @@ describe("numbering proof by sequence identity (single-isoform UniProt entries)"
     const outcome = await resolveCoordinate(NOTATION, "GRCh38");
 
     expect(outcome.numbering?.status).toBe("unverified");
+  });
+});
+
+describe("the sequence proof never cancels a lookup other requests share", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+    resetHostStateForTests();
+    vi.restoreAllMocks();
+  });
+
+  const consequence = {
+    transcript_id: "ENST00000553106",
+    hgvsp: `${ENSP}:p.Arg8Trp`,
+    amino_acids: "R/W",
+    swissprot: [`${ACCESSION}.266`],
+  } as any;
+
+  it("stops waiting when the caller gives up, and leaves the shared UniProt fetch running", async () => {
+    let uniprotSignal: AbortSignal | undefined;
+    let finishUniprot: (response: any) => void = () => {};
+    vi.spyOn(global, "fetch").mockImplementation((async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.includes("/sequence/id/")) return jsonResponse({ seq: CANONICAL, version: 1 });
+      uniprotSignal = init?.signal;
+      return new Promise((resolve) => (finishUniprot = resolve));
+    }) as any);
+
+    const caller = new AbortController();
+    const proof = isCanonicalBySequence(consequence, ACCESSION, caller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    caller.abort();
+
+    await expect(proof).resolves.toBe(false);
+    expect(uniprotSignal?.aborted).toBe(false);
+
+    // Another request joining the same fetch still gets the sequence.
+    const joined = fetchUniprotSequence(ACCESSION);
+    finishUniprot(textResponse(`>sp|${ACCESSION}|PH4H_HUMAN x\n${CANONICAL}\n`));
+    await expect(joined).resolves.toBe(CANONICAL);
+  });
+
+  it("refuses an accession that names an isoform, even when its sequence matches", async () => {
+    // The caller passes an entry accession; an isoform id would let a non-canonical sequence pass.
+    vi.spyOn(global, "fetch").mockImplementation((async (input: any) =>
+      String(input).includes("/sequence/id/")
+        ? jsonResponse({ seq: CANONICAL, version: 1 })
+        : textResponse(`>sp|${ACCESSION}-4|PH4H_HUMAN x\n${CANONICAL}\n`)) as any);
+
+    await expect(isCanonicalBySequence(consequence, `${ACCESSION}-4`)).resolves.toBe(false);
+    await expect(isCanonicalBySequence(consequence, ACCESSION)).resolves.toBe(true);
   });
 });

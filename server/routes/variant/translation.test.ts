@@ -1097,7 +1097,7 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     const canonical = `M${"A".repeat(406)}R${"A".repeat(44)}`; // Arg at 408, 452 residues like PAH
     const fetchImpl = (url: string) => {
       if (url.includes("/sequence/id/")) return { ok: true, status: 200, json: async () => ({ seq: canonical, version: 1 }) };
-      if (url.includes("/uniprotkb/stream")) {
+      if (url.includes("/uniprotkb/P00439.fasta")) {
         const fasta = `>sp|P00439|PH4H_HUMAN Phenylalanine-4-hydroxylase\n${canonical}\n`;
         return { ok: true, status: 200, text: async () => fasta };
       }
