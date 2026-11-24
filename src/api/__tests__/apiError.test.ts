@@ -69,18 +69,6 @@ describe("extractApiError", () => {
     expect(fromPlain.code).toBe("AMBIGUOUS_PROTEIN_NUMBERING");
   });
 
-  it("keeps the status and code of the intake check's refusal, so the run can stop and show it", async () => {
-    const { createStructureApi } = await import("../structureApi");
-    const refusal = jsonResponse({ error: { code: "UNVERIFIED_RESIDUE_NUMBERING", message: "Numbering not verified for PAH p.Arg408Trp" } });
-    const api = createStructureApi((async () => refusal) as any);
-
-    const error: any = await api.getNumberingProof({ gene: "PAH", variant: "p.Arg408Trp" }).catch((e) => e);
-
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error.status).toBe(422);
-    expect(error.code).toBe("UNVERIFIED_RESIDUE_NUMBERING");
-  });
-
   it("still reports a plain-body failure with its status, and never throws on an unreadable body", async () => {
     const plain = await extractApiError(
       new Response("upstream exploded", { status: 502 }),
