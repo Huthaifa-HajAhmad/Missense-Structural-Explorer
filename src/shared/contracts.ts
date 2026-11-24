@@ -2,7 +2,6 @@ import { REGIONAL_STATUSES, type ConstraintProvenance, type RegionalConstraintSt
 import type { LiteratureSummaryReceipt } from "./literatureSummary";
 import { z } from "zod";
 import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
-import type { PredictorConcordance } from "./thresholds/concordance";
 import { CANONICAL_ASSEMBLY, statedAssemblyOf, type AssemblyTaggedCoordinate } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
 import { ENGINE_STATE_IDS, type EngineState } from "./engineStatus";
@@ -1408,10 +1407,6 @@ export const conservationDataSchema = z.object({
    */
   scorecons: z.number().nullable().optional(),
   bayesdel: z.number().nullable().optional(),
-  metarnn: z.number().nullable().optional(),
-  metarnnPred: z.string().nullable().optional(),
-  clinpred: z.number().nullable().optional(),
-  clinpredPred: z.string().nullable().optional(),
   esm1b: z.number().nullable().optional(),
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
@@ -2917,5 +2912,4 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   /** The curated LOF mechanism summary PVS1 reads; null when the gene has none. */
   curatedLofMechanism?: import('./lofMechanismBasis.ts').CuratedLofMechanism | null;
   serviceStatus?: Record<string, string>;
-  inSilicoConcordance?: PredictorConcordance | null;
 }

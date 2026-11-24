@@ -12,14 +12,17 @@ interface CanaryVariantBenchmark {
   variant: string;
   expectedVerdict: "Pathogenic" | "Likely Pathogenic" | "Benign" | "Likely Benign" | "Variant of Uncertain Significance (VUS)";
   expectedCriteria: string[];
+  /** Criteria that must not be applied (e.g. PM1 under the PP3 + PM1 ≤ Strong cap). */
+  absentCriteria?: string[];
   // PP2 is the calibrated regional rule: each mock carries a synthetic interval O/E of 0.5 (PP2 Supporting band).
   mockData: any;
 }
 
 /**
- * Verdicts: these three were "Pathogenic" while PM2 weighed Moderate (PS + 2 PM + 2 PP). PM2 is now
- * Supporting (ClinGen SVI 2020), so the same evidence is PS + 1 PM + 3 PP, which meets no Pathogenic
- * row in Richards Table 5 and is Likely Pathogenic. The criteria are unchanged; only the tier is.
+ * Verdicts: the three pathogenic mocks are Pathogenic. PP3/BP4 now comes from one calibrated tool at
+ * its calibrated strength: REVEL ≥ 0.932 is PP3_Strong (Pejaver 2022), so the evidence is PS1 +
+ * PP3_Strong (two Strong) + PM2_Supporting + PP2, which meets Richards Table 5's "≥ 2 Strong" row.
+ * PM1 is withheld, because PP3 alone already reaches Strong and PP3 + PM1 is capped at Strong.
  *
  * The PM1 sites below carry `ECO:0000269` (experimental) because PM1 now counts only experimentally
  * evidenced sites (`src/shared/functionalSites.ts`); an untagged site models "no evidence cited".
@@ -28,8 +31,9 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "PAH",
     variant: "p.Arg408Trp",
-    expectedVerdict: "Likely Pathogenic",
-    expectedCriteria: ["PS1", "PM1", "PM2", "PP2", "PP3"],
+    expectedVerdict: "Pathogenic",
+    expectedCriteria: ["PS1", "PM2", "PP2", "PP3_Strong"],
+    absentCriteria: ["PM1"],
     mockData: {
       clinvar: {
         hasOtherPathogenicVariantSameAA: true,
@@ -53,8 +57,9 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "TP53",
     variant: "p.Arg273His",
-    expectedVerdict: "Likely Pathogenic",
-    expectedCriteria: ["PS1", "PM1", "PM2", "PP2", "PP3"],
+    expectedVerdict: "Pathogenic",
+    expectedCriteria: ["PS1", "PM2", "PP2", "PP3_Strong"],
+    absentCriteria: ["PM1"],
     mockData: {
       clinvar: {
         hasOtherPathogenicVariantSameAA: true,
@@ -78,8 +83,9 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "BRCA1",
     variant: "p.Cys61Gly",
-    expectedVerdict: "Likely Pathogenic",
-    expectedCriteria: ["PS1", "PM1", "PM2", "PP2", "PP3"],
+    expectedVerdict: "Pathogenic",
+    expectedCriteria: ["PS1", "PM2", "PP2", "PP3_Strong"],
+    absentCriteria: ["PM1"],
     mockData: {
       clinvar: {
         hasOtherPathogenicVariantSameAA: true,
@@ -127,7 +133,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
 ];
 
 describe("Golden Canary Benchmark ACMG Verdict Suite (Tier 3)", () => {
-  GOLDEN_BENCHMARK_SET.forEach(({ gene, variant, expectedVerdict, expectedCriteria, mockData }) => {
+  GOLDEN_BENCHMARK_SET.forEach(({ gene, variant, expectedVerdict, expectedCriteria, absentCriteria = [], mockData }) => {
     it(`should deterministically classify golden benchmark: ${gene} ${variant} as ${expectedVerdict}`, () => {
       const result = computeRuleBasedACMG({
         gene,
@@ -142,6 +148,9 @@ describe("Golden Canary Benchmark ACMG Verdict Suite (Tier 3)", () => {
       expectedCriteria.forEach((criterion) => {
         const hasCriterion = result.acmgCriteria.some(c => c.code === criterion || c.code.startsWith(`${criterion}_`));
         expect(hasCriterion, `Expected criterion ${criterion} for ${gene} ${variant}`).toBe(true);
+      });
+      absentCriteria.forEach((criterion) => {
+        expect(result.acmgCriteria.some(c => c.code === criterion), `Unexpected criterion ${criterion} for ${gene} ${variant}`).toBe(false);
       });
     });
   });

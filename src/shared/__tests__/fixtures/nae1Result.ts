@@ -5,7 +5,7 @@
 export const NAE1_RESULT: any = {
   predictorData: { caddPhred: 26.3, amPathogenicity: 0.362, amClass: "ambiguous" },
   conservationData: {
-    revel: 0.231, bayesdel: -0.122, metarnn: 0.529, clinpred: 0.977,
+    revel: 0.231, bayesdel: -0.122,
     eigenPhred: 3.4, dann: 0.993, gerp: 4.78, phylop: 7.64,
   },
   esmcEval: { llr: -5.83, provenance: "ESMC-6B" },

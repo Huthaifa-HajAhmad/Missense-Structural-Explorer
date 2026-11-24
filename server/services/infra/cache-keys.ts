@@ -154,7 +154,9 @@ export function buildConservationKey(
 ): string {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
-  return `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos ?? ""}_${gnomadVariantId || ""}_${assembly ?? "unknown"}_schema:${CACHE_SCHEMA_VERSION}`;
+  // `ensemble2`: records cached while MetaRNN and ClinPred were read still carry ClinPred, which marks a
+  // saved analysis as classified by the retired PP3/BP4 vote; they must not be served again.
+  return `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos ?? ""}_${gnomadVariantId || ""}_${assembly ?? "unknown"}_ensemble2_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildStringKey(gene: string): string {

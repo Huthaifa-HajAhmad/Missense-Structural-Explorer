@@ -119,6 +119,7 @@ src/components/evidence/interfaces/useInterfacesData.ts,client,
 src/components/evidence/interfaces/viewUrlState.ts,client,
 src/components/evidence/population/FrequencyScale.tsx,component,
 src/components/evidence/population/populationFormat.ts,client,src/components/evidence/__tests__/populationFormat.test.ts
+src/components/evidence/predictors/PredictorFindingRows.tsx,component,
 src/components/evidence/predictors/ScoreRuler.tsx,component,
 src/components/evidence/predictors/StrengthLadder.tsx,component,
 src/components/evidence/residue/GranthamDistance.tsx,component,
@@ -396,6 +397,8 @@ src/shared/httpBody.ts,client,src/shared/__tests__/httpBody.test.ts
 src/shared/inheritanceBasis.ts,client,src/shared/__tests__/frequencyRule.test.ts
 src/shared/insightsEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/insightsEvidence.test.ts;src/shared/__tests__/reportDocument.test.ts
 src/shared/insightsSnapshot.ts,client,src/components/__tests__/insightsSnapshot.parity.test.ts
+src/shared/insilico/primaryPredictor.ts,client,src/shared/__tests__/primaryPredictor.test.ts
+src/shared/insilico/vcepRules.ts,client,src/shared/__tests__/primaryPredictor.test.ts
 src/shared/interfacesEvidence.ts,client,src/components/evidence/__tests__/AssemblyDiagram.test.tsx;src/components/evidence/__tests__/InterfaceTrackControls.test.tsx;src/components/evidence/__tests__/InterfaceTrackNames.test.tsx;src/shared/__tests__/interfacesEvidence.test.ts;src/shared/__tests__/interfacesEvidenceSod1.test.ts;src/shared/__tests__/mechanismWorkspace.test.ts;src/shared/__tests__/nativeInterfaceSupport.test.ts
 src/shared/jobPlacement.ts,client,src/shared/__tests__/jobPlacement.test.ts
 src/shared/jobsCopy.ts,client,src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/jobsCopy.test.ts
@@ -429,6 +432,7 @@ src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs
 src/shared/platform.ts,client,
 src/shared/predictorEvidence.ts,client,server/services/prediction/acmg/pp3-bp4-language-models.test.ts;src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/predictorRecovery.ts,client,src/shared/__tests__/predictorRecovery.test.ts
+src/shared/predictorSummary.ts,client,
 src/shared/proteinAlleleIdentity.ts,client,src/shared/__tests__/proteinAlleleIdentity.test.ts
 src/shared/provenance.ts,client,src/components/__tests__/AboutView.test.tsx;src/components/__tests__/clinicalExportVerdict.test.ts;src/shared/__tests__/provenance.test.ts
 src/shared/providerLimits.ts,client,server/services/infra/stale-on-rate-limit.test.ts;src/apiClient.test.ts;src/hooks/__tests__/useStaleDataNotice.test.ts;src/shared/__tests__/providerLimits.test.ts
@@ -465,7 +469,6 @@ src/shared/structureSecondary.ts,client,src/shared/__tests__/structureSecondary.
 src/shared/structureSelection.ts,client,src/shared/__tests__/structureSelection.test.ts
 src/shared/thresholds.ts,barrel,server/services/prediction/acmg.test.ts;server/services/prediction/predictors.test.ts;src/components/header/__tests__/constraintIntegrity.test.ts;src/components/inspector/__tests__/EvidenceInspector.populationFrequency.test.tsx;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/shared/__tests__/structure3dEvidence.test.ts;src/shared/thresholds.test.ts
 src/shared/thresholds/calibration.ts,client,src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx
-src/shared/thresholds/concordance.ts,client,src/shared/__tests__/candidateScores.test.ts
 src/shared/thresholds/consensus.ts,client,src/shared/__tests__/consensusVerdict.types.test.ts
 src/shared/thresholds/constants.ts,client,src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/frequencyRule.test.ts;src/shared/__tests__/splicingEvidence.test.ts
 src/shared/thresholds/evaluators.ts,client,src/shared/__tests__/splicingEvidence.test.ts

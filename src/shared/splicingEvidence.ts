@@ -6,7 +6,7 @@
  *
  * The rule is the ClinGen SVI Splicing Subgroup's (Walker et al. 2023): SpliceAI's max delta score
  * ≥ 0.2 supports PP3, at or below 0.1 supports BP4, between supports neither. The ACMG engine does NOT
- * read splicing — its PP3/BP4 comes from the missense vote alone (owner decision, recorded in
+ * read splicing — its PP3/BP4 comes from the primary missense predictor (owner decision, recorded in
  * doc/SPLICING_TAB_REVIEW.md) — so this model reports the splicing rule as what it WOULD support,
  * beside the engine's own record, and says so whenever the two sit awkwardly together.
  *
@@ -295,14 +295,14 @@ export function offsetBetweenPositions(from: number, to: number): number {
 export interface SpliceEngineRecord {
   /** The payload carries the engine's criteria list at all. */
   known: boolean;
-  /** The PP3/BP4 code the engine recorded (from the missense vote), or null. */
+  /** The PP3/BP4 code the engine recorded (from the primary missense predictor), or null. */
   code: string | null;
-  /** What the missense vote alone supports, for the "unconfirmed" case. */
-  voteCode: string | null;
+  /** What the primary missense predictor alone gives, for the "unconfirmed" case. */
+  missenseCode: string | null;
 }
 
 export type SpliceRelation =
-  /** Splicing supports PP3 while the engine recorded BP4 from the missense vote. */
+  /** Splicing supports PP3 while the engine recorded BP4 from the missense predictor. */
   | "conflict"
   /** Both point to PP3: ClinGen counts PP3 once. */
   | "same-pp3"
@@ -886,15 +886,15 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const engine: SpliceEngineRecord = {
     known: predictors.engine.known,
     code: predictors.engine.code,
-    voteCode: predictors.vote.code,
+    missenseCode: predictors.primary.code,
   };
-  const recordedOrVote = engine.known ? engine.code : engine.voteCode;
+  const recordedOrMissense = engine.known ? engine.code : engine.missenseCode;
   const relation: SpliceRelation =
-    ruleCode === "PP3" && recordedOrVote?.startsWith("BP4")
+    ruleCode === "PP3" && recordedOrMissense?.startsWith("BP4")
       ? "conflict"
-      : ruleCode === "PP3" && recordedOrVote?.startsWith("PP3")
+      : ruleCode === "PP3" && recordedOrMissense?.startsWith("PP3")
       ? "same-pp3"
-      : ruleState === "no-score" && recordedOrVote?.startsWith("BP4")
+      : ruleState === "no-score" && recordedOrMissense?.startsWith("BP4")
       ? "bp4-unchecked"
       : "none";
 

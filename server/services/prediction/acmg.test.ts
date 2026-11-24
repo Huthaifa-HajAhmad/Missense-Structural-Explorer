@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { computeRuleBasedACMG } from "./acmg.ts";
 import { Semaphore } from "../../utils.ts";
-import { countPredictorConcordance, evaluateSplicePredictor } from "../../../src/shared/thresholds.ts";
+import { calibratedCall, evaluateSplicePredictor } from "../../../src/shared/thresholds.ts";
 
 describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   it("should correctly classify standard evidence combinations (1 Very Strong + 1 Moderate -> Likely Pathogenic)", () => {
@@ -11,7 +11,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       variant: "p.Arg408Trp",
       clinvar,
       predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      conservationData: { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, scorecons: 0.4 },
+      conservationData: { available: true, revel: 0.25, gerp: 1.0, phylop: 0.5, scorecons: 0.4 },
       gnomadConstraint: null,
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
     });
@@ -27,7 +27,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       variant: "p.Arg408Trp",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      conservationData: { available: true, revel: 0.1 },
+      conservationData: { available: true, revel: 0.25 },
       gnomadConstraint: null,
       gnomadFrequency: { maxAF: 0.015, groupMaxAF: 0.015, genomeAF: 0.015, exomeAF: 0.015, nHomozygous: 0, dataset: "gnomad" },
       acmgWeighting: "standard"
@@ -37,20 +37,21 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(res.acmgVerdict).not.toBe("Likely Benign");
   });
 
-  it("should include bayesdel in PP3/BP4 predictor concordance", () => {
+  it("uses BayesDel noAF in the primary fallback chain when REVEL has no score", () => {
     const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
-      conservationData: { available: true, revel: 0.1, bayesdel: 0.2 }
+      conservationData: { available: true, revel: null, bayesdel: 0.2 }
     });
-    expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
-    expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("BayesDel 0.200");
-    expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("3/4 predictors agree");
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(pp3).toBeDefined();
+    expect(pp3?.reason).toContain("BayesDel noAF 0.200");
+    expect(pp3?.reason).toContain("fallback");
   });
 
-  it("should respect PP3/BP4 concordance voting rules under conflicting predictor scenarios", () => {
+  it("uses REVEL as primary calibrated predictor and flags opposing chain tools without changing strength", () => {
     const res1 = computeRuleBasedACMG({
       gene: "GBA1",
       variant: "p.Asn370Ser",
@@ -58,51 +59,53 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       predictorData: { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
       conservationData: { available: true, revel: 0.1, gerp: 1.0, phylop: 0.5 }
     });
-    expect(res1.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
-    expect(res1.acmgCriteria.some(c => c.code === "BP4")).toBe(false);
+    const bp4 = res1.acmgCriteria.find(c => c.code === "BP4_Moderate");
+    expect(bp4).toBeDefined();
+    expect(bp4?.reason).toContain("AlphaMissense");
+    expect(bp4?.reason).toContain("strength unchanged");
+    expect(res1.acmgCriteria.some(c => c.code.startsWith("PP3"))).toBe(false);
 
     const res2 = computeRuleBasedACMG({
       gene: "GBA1",
       variant: "p.Asn370Ser",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      conservationData: { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5 }
+      conservationData: { available: true, revel: 0.85, gerp: 1.0, phylop: 0.5 }
     });
-    expect(res2.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
-    expect(res2.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
+    const pp3 = res2.acmgCriteria.find(c => c.code === "PP3_Moderate");
+    expect(pp3).toBeDefined();
+    expect(pp3?.reason).toContain("AlphaMissense");
+    expect(res2.acmgCriteria.some(c => c.code.startsWith("BP4"))).toBe(false);
   });
 
   it("does not promote AlphaMissense's likely_pathogenic class to a calibrated call", () => {
     // 0.65 is "likely_pathogenic" in the authors' classes (> 0.564) but below ClinGen's PP3 band
-    // (≥ 0.792, Bergquist 2025): it is counted as indeterminate, and PP3 rests on CADD and REVEL.
+    // (≥ 0.792, Bergquist 2025): when AlphaMissense answers the chain, it stops as indeterminate.
     const res = computeRuleBasedACMG({
       gene: "LDLR",
       variant: "p.Glu101Lys",
       clinvar: null,
-      predictorData: { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 26 },
-      conservationData: { available: true, revel: 0.8 }
+      predictorData: { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 32 },
+      conservationData: { available: true, revel: null, bayesdel: null }
     });
-    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
-    expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("2/3");
-    expect(pp3?.reason).toContain("indeterminate: AlphaMissense 0.650");
+    expect(res.acmgCriteria.some(c => c.code.startsWith("PP3") || c.code.startsWith("BP4"))).toBe(false);
   });
 
-  it("should output accurate count, never false agreement wording, when only one predictor is available", () => {
+  it("falls back to AlphaMissense when REVEL and BayesDel have no score", () => {
     const res = computeRuleBasedACMG({
       gene: "PTEN",
       variant: "p.Arg130Gln",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.85, amClass: "pathogenic", caddPhred: null },
-      conservationData: { available: false, revel: null }
+      conservationData: { available: false, revel: null, bayesdel: null }
     });
     const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
     expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("1/1 predictor supports");
+    expect(pp3?.reason).toContain("AlphaMissense 0.850");
     expect(pp3?.reason).not.toContain("agree");
   });
 
-  it("shows popEVE beside the PP3/BP4 vote without counting it", () => {
+  it("shows popEVE beside the primary call without counting it", () => {
     const res = computeRuleBasedACMG({
       gene: "GBA1",
       variant: "p.Asn370Ser",
@@ -115,31 +118,30 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       },
       conservationData: {
         available: true,
-        revel: 0.1,
+        revel: 0.25,
         popeve: -3.775,
       }
     });
-    // popEVE publishes no benign cut-point, so it can only ever add pathogenic votes: it is shown, not counted.
-    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
-    expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("2/3 predictors agree");
-    expect(pp3?.reason).toContain("Informational, not counted: popEVE -3.775");
+    const bp4 = res.acmgCriteria.find(c => c.code === "BP4");
+    expect(bp4).toBeDefined();
+    expect(bp4?.reason).toContain("Informational, not counted: ");
+    expect(bp4?.reason).toContain("popEVE -3.775");
   });
 
-  it("does not let a deleterious popEVE break a tie toward PP3", () => {
+  it("does not let a deleterious popEVE override an indeterminate primary tool", () => {
     const res = computeRuleBasedACMG({
       gene: "GBA1",
       variant: "p.Asn370Ser",
       clinvar: null,
       predictorData: { available: true, caddPhred: 26 },
-      conservationData: { available: true, revel: 0.1, popeve: -5.2 },
+      conservationData: { available: true, revel: 0.5, popeve: -5.2 },
     });
-    expect(res.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(false);
+    expect(res.acmgCriteria.some(c => c.code.startsWith("PP3") || c.code.startsWith("BP4"))).toBe(false);
   });
 
   it("should respect acmgWeighting parameter (conservative & strict-structural modes)", () => {
     const predictorData = { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 };
-    const conservationData = { available: true, revel: 0.6 };
+    const conservationData = { available: true, revel: 0.8 };
     const gnomadConstraintMock = { isPP2Constrained: true, pp2Code: "PP2" as const, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "synthetic interval" }, missense_z: 3.0, oe_mis: 0.5, pli: null };
 
     const resStandard = computeRuleBasedACMG({
@@ -152,7 +154,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
       acmgWeighting: "standard"
     });
-    expect(resStandard.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+    expect(resStandard.acmgCriteria.some(c => c.code === "PP3_Moderate")).toBe(true);
     expect(resStandard.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resStandard.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
 
@@ -166,7 +168,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
       acmgWeighting: "conservative"
     });
-    expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
+    expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code.startsWith("PP3"))).toBe(false);
     expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PM2")).toBe(false);
     expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PP2")).toBe(false);
 
@@ -180,7 +182,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
       acmgWeighting: "conservative"
     });
-    expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+    expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PP3_Moderate")).toBe(true);
     expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
 
@@ -194,48 +196,39 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       gnomadFrequency: null,
       acmgWeighting: "strict-structural"
     });
-    expect(resStrictStructural.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
+    expect(resStrictStructural.acmgCriteria.some(c => c.code.startsWith("PP3"))).toBe(false);
     expect(resStrictStructural.acmgCriteria.some(c => c.code === "PM2")).toBe(false);
     expect(resStrictStructural.acmgCriteria.some(c => c.code === "PP2")).toBe(false);
   });
 
   it("should respect ClinGen-calibrated AlphaMissense thresholds (Bergquist 2025: pathogenic >= 0.792, benign <= 0.169)", () => {
-    const resPath = countPredictorConcordance(null, null, 0.985, null);
-    expect(resPath.signals.am).toBe("pathogenic");
-
-    const resBenign = countPredictorConcordance(null, null, 0.05, null);
-    expect(resBenign.signals.am).toBe("benign");
-
-    const resVus = countPredictorConcordance(null, null, 0.5, null);
-    expect(resVus.signals.am).toBe("vus");
+    expect(calibratedCall("alphaMissense", 0.985)?.direction).toBe("PP3");
+    expect(calibratedCall("alphaMissense", 0.05)?.direction).toBe("BP4");
+    expect(calibratedCall("alphaMissense", 0.5)?.direction).toBeNull();
   });
 
-  it("should evaluate splicing signals via evaluateSplicePredictor without polluting predictor concordance", () => {
-    // 1. Junction proximity alone is not PP3 (Walker 2023 decides on SpliceAI): a tiny delta 2 bp away is a BP4 reading.
+  it("should evaluate splicing signals via evaluateSplicePredictor and keep CADD/SpliceAI from casting PP3 votes", () => {
     const spliceSignalAdj = evaluateSplicePredictor(
       { distance: 2, isNearSpliceSite: true },
       { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
     );
     expect(spliceSignalAdj).toBe("benign");
 
-    // 2. SpliceAI >= 0.2 supports PP3.
     const spliceSignalHigh = evaluateSplicePredictor(
       { distance: 15, isNearSpliceSite: false },
       { ds_ag: 0.25, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.25 }
     );
     expect(spliceSignalHigh).toBe("pathogenic");
 
-    // 3. SpliceAI < 0.1 supports BP4.
-    const spliceSignalBenign = evaluateSplicePredictor(
-      { distance: 15, isNearSpliceSite: false },
-      { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
-    );
-    expect(spliceSignalBenign).toBe("benign");
-
-    // 4. In-silico missense predictor concordance must NOT include splice in signals or voting tallies
-    const conc = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null);
-    expect((conc.signals as any).splice).toBeUndefined();
-    expect(conc.available).not.toContain("SPLICING");
+    // SpliceAI >= 0.20 blocks BP4 from REVEL, without creating a splicing PP3 criterion on its own.
+    const blocked = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      predictorData: { available: true, caddPhred: 10 },
+      conservationData: { available: true, revel: 0.002, spliceai: { ds_ag: 0.25, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.25 } },
+    });
+    expect(blocked.acmgCriteria.some(c => c.code.startsWith("BP4") || c.code.startsWith("PP3"))).toBe(false);
+    expect(blocked.partialEvidence.unavailable.some(u => u.includes("SpliceAI max Δ 0.25"))).toBe(true);
   });
 
   it("should throttle concurrent operations using ConcurrencySemaphore", async () => {
@@ -435,7 +428,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 
     const resObj = computeRuleBasedACMG(input);
     expect(resObj.acmgVerdict).toBeDefined();
-    expect(resObj.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+    expect(resObj.acmgCriteria.some(c => c.code === "PP3_Strong")).toBe(true);
     expect(resObj.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resObj.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
   });
@@ -558,15 +551,13 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   });
 
   /**
-   * The AlphaGenome AVI used to raise PP3 to Strong (Phred ≥ 35) or Moderate (≥ 25), and BP4 to
-   * Moderate (≤ 5), on its own. It is a rank with no ClinGen calibration and contains AlphaMissense,
-   * so it is now informational: the criterion stays at Supporting strength and the AVI is listed as
-   * not counted.
+   * The AlphaGenome AVI is a rank with no ClinGen calibration and contains AlphaMissense,
+   * so it stays informational: PP3/BP4 strength comes only from the primary calibrated tool.
    */
   it.each([
     { aviPhred: 38.2, topModality: "RNA-seq" },
     { aviPhred: 27.5, topModality: "CAGE" },
-  ])("never raises PP3 above Supporting from AlphaGenome (AVI $aviPhred)", ({ aviPhred, topModality }) => {
+  ])("never raises PP3 above the primary calibrated strength from AlphaGenome (AVI $aviPhred)", ({ aviPhred, topModality }) => {
     const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
@@ -581,14 +572,15 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       gnomadFrequency: null,
       acmgWeighting: "standard" as const
     });
-    expect(res.acmgCriteria.some(c => c.code === "PP3_Strong" || c.code === "PP3_Moderate")).toBe(false);
-    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(res.acmgCriteria.some(c => c.code === "PP3_Strong")).toBe(false);
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3_Moderate");
     expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("3/3 predictors agree");
-    expect(pp3?.reason).toContain(`Informational, not counted: AlphaGenome ${aviPhred.toFixed(1)} Phred`);
+    expect(pp3?.reason).toContain("REVEL 0.850");
+    expect(pp3?.reason).toContain(`Informational, not counted: `);
+    expect(pp3?.reason).toContain(`AlphaGenome ${aviPhred.toFixed(1)} Phred`);
   });
 
-  it("never raises BP4 above Supporting from AlphaGenome", () => {
+  it("never raises BP4 above the primary calibrated strength from AlphaGenome", () => {
     const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
@@ -596,14 +588,14 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       predictorData: { available: true, amPathogenicity: 0.05, amClass: "benign", caddPhred: 5 },
       conservationData: {
         available: true,
-        revel: 0.1,
+        revel: 0.25,
         alphagenome: { status: "live" as const, aviPhred: 3.5, acmgStrength: "BP4_Moderate" as const, topModality: "DNase" }
       },
       gnomadConstraint: null,
       gnomadFrequency: null,
       acmgWeighting: "standard" as const
     });
-    expect(res.acmgCriteria.some(c => c.code === "BP4_Moderate")).toBe(false);
+    expect(res.acmgCriteria.some(c => c.code === "BP4_Moderate" || c.code === "BP4_Strong")).toBe(false);
     expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
   });
   describe("ClinVar 'Conflicting' is not a pathogenic or benign call", () => {
@@ -623,70 +615,98 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       const conflicting = computeRuleBasedACMG({ ...base, clinvar: { classification, uid: "1" }, acmgWeighting: "conservative" } as any);
       // Conservative mode drops computational criteria unless ClinVar corroborates them. A conflicting
       // record does not corroborate, but a substring test on "pathogenic" said it did.
-      expect(conflicting.acmgCriteria.some(x => x.code === "PP3")).toBe(false);
+      expect(conflicting.acmgCriteria.some(x => x.code.startsWith("PP3"))).toBe(false);
     });
 
     it("a real Pathogenic record still corroborates the computational criteria", () => {
       const corroborated = computeRuleBasedACMG({ ...base, clinvar: { classification: "Pathogenic", uid: "1" }, acmgWeighting: "conservative" } as any);
-      expect(corroborated.acmgCriteria.some(x => x.code === "PP3")).toBe(true);
+      expect(corroborated.acmgCriteria.some(x => x.code === "PP3_Strong")).toBe(true);
     });
   });
 
-  describe("PP3 + PM1 <= Strong cap is dormant while the engine emits PP3 at Supporting only", () => {
+  describe("PP3 + PM1 <= Strong cap is active under calibrated PP3 strength (Pejaver 2022)", () => {
     const evidence = [{ code: "ECO:0000269", source: "PubMed", id: "12345" }];
-    const input = {
+    const makeInput = (revel: number, variant = "p.Arg408Trp", residueIndex?: number) => ({
       gene: "PAH",
-      variant: "p.Arg408Trp",
+      variant,
+      ...(residueIndex !== undefined ? { residueIndex } : {}),
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.99, amClass: "likely_pathogenic", caddPhred: 35 },
-      // REVEL 0.95 is PP3_Strong on the calibrated table, but the engine's vote is bare PP3.
-      conservationData: { available: true, revel: 0.95, bayesdel: 0.6 },
+      conservationData: { available: true, revel, bayesdel: 0.6 },
       gnomadConstraint: null,
       gnomadFrequency: null,
       uniprotFeatures: { features: [{ type: "Active site", description: "Proton acceptor", start: 408, end: 408, evidence }] },
-    };
+    });
 
-    it("emits PP3 at Supporting strength and lets PM1 stand (1 + 2 = 3 <= 4)", () => {
-      const res = computeRuleBasedACMG(input as any);
+    it("emits PP3_Strong and withholds PM1 when REVEL reaches Strong (4 + 2 > 4)", () => {
+      const res = computeRuleBasedACMG(makeInput(0.95) as any);
       const codes = res.acmgCriteria.map(x => x.code);
-      expect(codes).toContain("PP3");
-      expect(codes).not.toContain("PP3_Strong");
+      expect(codes).toContain("PP3_Strong");
+      expect(codes).not.toContain("PM1");
+      expect(res.partialEvidence.unavailable.some(u => u.includes("PM1") && u.includes("capped at Strong"))).toBe(true);
+    });
+
+    it("emits PP3_Moderate and lets PM1 stand (2 + 2 = 4 <= 4)", () => {
+      const res = computeRuleBasedACMG(makeInput(0.80) as any);
+      const codes = res.acmgCriteria.map(x => x.code);
+      expect(codes).toContain("PP3_Moderate");
       expect(codes).toContain("PM1");
     });
 
     it("uses the explicit residue index over digits in the variant string", () => {
-      // The site is at 408. A notation whose first digit run is something else must not move PM1.
-      const res = computeRuleBasedACMG({ ...input, variant: "NM_000277.3:p.Arg408Trp", residueIndex: 408 } as any);
+      // The site is at 408; REVEL 0.80 (Moderate) allows PM1 so residueIndex decides whether PM1 matches.
+      const res = computeRuleBasedACMG(makeInput(0.80, "NM_000277.3:p.Arg408Trp", 408) as any);
       expect(res.acmgCriteria.map(x => x.code)).toContain("PM1");
-      const wrong = computeRuleBasedACMG({ ...input, variant: "NM_000277.3:p.Arg408Trp", residueIndex: 99 } as any);
+      const wrong = computeRuleBasedACMG(makeInput(0.80, "NM_000277.3:p.Arg408Trp", 99) as any);
       expect(wrong.acmgCriteria.map(x => x.code)).not.toContain("PM1");
     });
   });
 });
 
-describe("PP3/BP4 over a salvaged conservation composite", () => {
-  const run = (modelStatus?: Record<string, string>) => computeRuleBasedACMG({
+describe("PP3/BP4 over a salvaged conservation composite and SpliceAI gate", () => {
+  const run = (modelStatus?: Record<string, string>, extraCons: Record<string, unknown> = {}) => computeRuleBasedACMG({
     gene: "PAH",
     variant: "p.Arg408Trp",
     clinvar: null,
     predictorData: { available: true, amPathogenicity: 0.95, amClass: "pathogenic", caddPhred: 33 },
-    conservationData: { available: true, revel: 0.95, bayesdel: 0.3, ...(modelStatus ? { modelStatus } : {}) } as any,
+    conservationData: { available: true, revel: 0.95, bayesdel: 0.3, ...extraCons, ...(modelStatus ? { modelStatus } : {}) } as any,
     gnomadConstraint: null,
     gnomadFrequency: null,
     acmgWeighting: "standard"
   });
 
-  it("awards PP3 when every voting model settled", () => {
-    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+  it("awards PP3_Strong when base settled", () => {
+    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled" }).acmgCriteria.some(c => c.code === "PP3_Strong")).toBe(true);
   });
 
-  it("withholds PP3 when the dbNSFP ensemble timed out, because the vote is incomplete", () => {
+  it("withholds PP3/BP4 when the dbNSFP base ensemble timed out", () => {
     const res = run({ base: "timeout", popeve: "settled", alphagenome: "settled" });
-    expect(res.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(false);
+    expect(res.acmgCriteria.some(c => /^(PP3|BP4)/.test(c.code))).toBe(false);
   });
 
-  it.each(["spliceai", "alphagenome", "popeve"])("is unaffected by a non-voting model (%s) that timed out", (model) => {
-    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+  it.each(["spliceai", "alphagenome", "popeve"])("PP3 is unaffected when %s timed out", (model) => {
+    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" }).acmgCriteria.some(c => c.code === "PP3_Strong")).toBe(true);
+  });
+
+  it("withholds BP4 when SpliceAI timed out or hit a transient Broad error", () => {
+    const timedOut = run({ base: "settled", spliceai: "timeout" }, { revel: 0.002 });
+    expect(timedOut.acmgCriteria.some(c => /^BP4/.test(c.code))).toBe(false);
+    expect(timedOut.partialEvidence.unavailable.some(u => /SpliceAI/i.test(u))).toBe(true);
+
+    const rateLimited = run(
+      { base: "settled", spliceai: "settled" },
+      { revel: 0.002, spliceai: null, spliceaiFailure: { kind: "rate-limited", httpStatus: 429, detail: null } },
+    );
+    expect(rateLimited.acmgCriteria.some(c => /^BP4/.test(c.code))).toBe(false);
+  });
+
+  it("emits BP4_VeryStrong and classifies Benign when REVEL <= 0.003 and SpliceAI <= 0.10", () => {
+    const res = run(
+      { base: "settled", spliceai: "settled" },
+      { revel: 0.002, spliceai: { max_ds: 0.02, ds_ag: 0.02, ds_al: 0, ds_dg: 0, ds_dl: 0 } },
+    );
+    expect(res.acmgCriteria.some(c => c.code === "BP4_VeryStrong")).toBe(true);
+    expect(res.acmgVerdict).toBe("Benign");
   });
 });
 
@@ -723,7 +743,7 @@ describe("PM4 / BP3 in-frame indel repeat check prefers explicit residueIndex", 
   });
 });
 
-describe("Candidate-allele CADD consensus in ACMG PP3/BP4 concordance", () => {
+describe("Candidate-allele CADD does not alter primary REVEL PP3/BP4", () => {
   const candidate = (alt: string, caddPhred: number | null, caddSource: string | null = "ProtVar") => ({
     grch37Id: null,
     id: `4-1804392-G-${alt}`,
@@ -757,33 +777,17 @@ describe("Candidate-allele CADD consensus in ACMG PP3/BP4 concordance", () => {
     acmgWeighting: "standard",
   });
 
-  it("votes PP3 with range text when all candidates support PP3 from the same source", () => {
-    const res = runWithCandidates([candidate("A", 25.7), candidate("C", 28.5)]);
-    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
-    expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("3/3 predictors agree");
-    expect(pp3?.reason).toContain("CADD 25.7–28.5");
-    expect(res.partialEvidence.unavailable.some(u => u.startsWith("CADD"))).toBe(false);
-  });
-
-  it("withholds CADD and names disagreement in unavailable when candidates cross bands", () => {
-    const res = runWithCandidates([candidate("C", 24.5), candidate("A", 25.7)]);
-    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
-    expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("2/2 predictors agree");
-    expect(pp3?.reason.split("⚠")[0]).not.toContain("CADD");
-    expect(res.partialEvidence.unavailable).toContain(
-      "CADD — CANDIDATE ALLELES DISAGREE (G>C 24.5 Indeterminate vs G>A 25.7 PP3 Supporting)",
-    );
-  });
-
-  it("withholds CADD and names mixed sources when candidates come from different CADD releases", () => {
-    const res = runWithCandidates([candidate("A", 27.0, "ProtVar"), candidate("C", 28.5, "dbNSFP 5.3a (local)")]);
-    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
-    expect(pp3?.reason).toContain("2/2 predictors agree");
-    expect(res.partialEvidence.unavailable).toContain(
-      "CADD — MIXED SOURCES (ProtVar vs dbNSFP 5.3a (local))",
-    );
+  it("emits REVEL PP3 regardless of candidate CADD agreement, disagreement, or mixed sources", () => {
+    for (const candidates of [
+      [candidate("A", 25.7), candidate("C", 28.5)],
+      [candidate("C", 24.5), candidate("A", 25.7)],
+      [candidate("A", 27.0, "ProtVar"), candidate("C", 28.5, "dbNSFP 5.3a (local)")],
+    ]) {
+      const res = runWithCandidates(candidates);
+      const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+      expect(pp3).toBeDefined();
+      expect(pp3?.reason).toContain("REVEL 0.720");
+    }
   });
 });
 

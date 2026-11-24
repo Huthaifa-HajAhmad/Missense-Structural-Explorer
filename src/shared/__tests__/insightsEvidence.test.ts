@@ -58,10 +58,10 @@ describe("buildInsightsEvidence", () => {
     expect(model.lanes.every(l => !l.counted)).toBe(true);
   });
 
-  it('identifies a recorded predictor criterion opposed by the current vote', () => {
+  it('identifies a recorded predictor criterion the current rule no longer gives', () => {
     const result = nae1({ predictorData: null, conservationData: { revel: 0.1 } });
     const model = buildInsightsEvidence({ result, functionInput, stability: null });
-    expect(model.lanes.find(l => l.key === 'computational')?.rest).toContain('differs from the current predictor vote');
+    expect(model.lanes.find(l => l.key === 'computational')?.rest).toContain('differs from the current rule');
   });
   it("describes PM2 with the same Supporting strength as the recorded criterion", () => {
     const result = nae1({ insights: null, ruleBasedInsights: { ...nae1().ruleBasedInsights, acmgCriteria: [{ code: "PM2", reason: "Recorded rarity" }] } });
@@ -84,12 +84,12 @@ describe("buildInsightsEvidence", () => {
     expect(ev.proposals.map(c => c.code)).toEqual(["PS3"]);
   });
 
-  it('retains a recorded computational criterion when its live voting inputs are missing', () => {
+  it('retains a recorded computational criterion when its live calibrated inputs are missing', () => {
     const result = nae1({ predictorData: null, conservationData: null });
     const ev = buildInsightsEvidence({ result, functionInput, stability: null });
     const lane = ev.lanes.find(l => l.key === 'computational')!;
     expect(lane.counted).toBe(true);
-    expect(lane.rest).toContain('voting inputs are unavailable');
+    expect(lane.rest).toContain('calibrated inputs are unavailable');
     expect(lane.rest).not.toContain('Nothing is counted');
   });
 
@@ -100,10 +100,11 @@ describe("buildInsightsEvidence", () => {
     expect(ev.lanes.find(l => l.key === "stability")!.lean).toBe("none");
   });
 
-  it("states the vote and the disagreement in words", () => {
+  it("states which calibrated tool gave the call, in words", () => {
     const c = ev.lanes.find(l => l.key === "computational")!;
-    expect(c.lead).toContain("says tolerated");
-    expect(ev.differ.map(d => d.text).join(" ")).toMatch(/REVEL .*tolerated/);
+    expect(c.lead).toContain("REVEL 0.231, the first calibrated tool with a score, gives BP4");
+    // NAE1's saved record is PP3 from the retired vote; the lane says the record is out of date.
+    expect(c.rest).toContain("differs from the current rule");
     expect(ev.differ.map(d => d.text).join(" ")).toContain("Only one evidence area is counted");
   });
 
@@ -116,6 +117,12 @@ describe("buildInsightsEvidence", () => {
     const ev = buildInsightsEvidence({ result, functionInput, stability: null });
     expect(ev.lanes.find(l => l.key === 'population')!.length).toBe(length);
     expect(ev.criteria.find(c => c.code === code)!.strength).toBe(strength);
+  });
+
+  it("calls BP4 Very Strong 'Very strong', not stand-alone: only BA1 stands alone", () => {
+    const result = nae1({ ruleBasedInsights: { acmgVerdict: 'Benign', acmgCriteria: [{ code: 'BP4_VeryStrong', reason: 'REVEL 0.002' }] } });
+    const ev = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(ev.criteria.find(c => c.code === 'BP4_VeryStrong')!.strength).toBe('Very strong');
   });
 
   it("reports that the recorded tier differs from the combining rule", () => {

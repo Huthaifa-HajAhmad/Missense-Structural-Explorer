@@ -81,7 +81,9 @@ import { settleStagesForStorage } from "./resultMerge";
 // v4.13 discards snapshots with unverified ClinVar selections or missing alternate-allele PS1 evidence.
 // v4.14 discards verdicts from before popEVE left the PP3/BP4 vote and before the BayesDel and EVE scale
 //   fixes: a stored bundle would replay a PP3/BP4 call the current engine no longer gives.
-export const CACHE_VERSION = "v4.14";
+// v4.15 discards verdicts from the retired PP3/BP4 plurality vote: PP3/BP4 now comes from one calibrated tool
+//   (REVEL → BayesDel noAF → AlphaMissense → ESM1b) at its calibrated strength, so a stored call would be wrong.
+export const CACHE_VERSION = "v4.15";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

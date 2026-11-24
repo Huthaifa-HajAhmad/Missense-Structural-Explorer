@@ -47,16 +47,29 @@ export function codeWeight(code: string): number {
   if (code.startsWith("PS")) return WEIGHT.PS;
   if (code.startsWith("PM")) return WEIGHT.PM;
   if (code.startsWith("PP")) return WEIGHT.PP;
-  if (code === "BA1") return WEIGHT.BA1;
+  if (code === "BA1" || code === "BP4_VeryStrong") return WEIGHT.BA1;
   if (code.startsWith("BS") || code === "BP4_Strong") return WEIGHT.BS;
   if (code === "BP4_Moderate") return WEIGHT.BM;
   if (code.startsWith("BP")) return WEIGHT.BP;
   return 0;
 }
 
+const STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
+
+/**
+ * The strength the combining rule gives a code, in words, from the same weights. Only BA1 is
+ * "Stand-alone"; BP4_VeryStrong weighs as much (−8) but is Very strong evidence, not a stand-alone rule.
+ */
+export function strengthWord(code: string): string {
+  if (code === "BA1") return "Stand-alone";
+  const w = codeWeight(code);
+  if (w === 0) return "Not weighted";
+  return STRENGTH_WORD[Math.abs(w)] ?? "Not weighted";
+}
+
 /**
  * Executes Richards 2015 combinatorial rules (with ClinGen SVI PM2 Supporting and Pejaver/Tavtigian
- * benign Moderate/Strong point calibration) against an array of triggered ACMG criteria.
+ * benign Moderate/Strong/VeryStrong point calibration) against an array of triggered ACMG criteria.
  */
 export function classifyVariant(criteria: ACMGItem[]): string {
   // Standalone benign override
@@ -70,11 +83,12 @@ export function classifyVariant(criteria: ACMGItem[]): string {
   const nPS = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong" || c.code === "PP3_Strong").length;
   const nPM = pathogenic.filter(c => (c.code.startsWith("PM") && !isSupportingPm(c.code)) || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate" || c.code === "PP2_Moderate").length;
   const nPP = pathogenic.filter(c => isSupportingPm(c.code) || (c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate" && c.code !== "PP2_Moderate")).length;
+  const nBVS = benign.filter(c => c.code === "BP4_VeryStrong").length;
   const nBS = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Strong").length;
   const nBM = benign.filter(c => c.code === "BP4_Moderate").length;
-  const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Strong" && c.code !== "BP4_Moderate").length;
-  // Benign point magnitude on the Tavtigian 2020 / Pejaver 2022 scale: Strong=4, Moderate=2, Supporting=1.
-  const benignPoints = nBS * 4 + nBM * 2 + nBP;
+  const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_VeryStrong" && c.code !== "BP4_Strong" && c.code !== "BP4_Moderate").length;
+  // Benign point magnitude on the Tavtigian 2020 / Pejaver 2022 scale: VeryStrong=8, Strong=4, Moderate=2, Supporting=1.
+  const benignPoints = nBVS * 8 + nBS * 4 + nBM * 2 + nBP;
 
   // ---- Pathogenic (Richards 2015 Table 5) ----
   // (i) PVS1 AND one of: ≥1 PS, ≥2 PM, 1 PM + 1 PP, ≥2 PP.
@@ -100,8 +114,8 @@ export function classifyVariant(criteria: ACMGItem[]): string {
     );
 
   // ---- Benign ----
-  // ≥2 Strong (−8) or combined Strong+Moderate/Supporting reaching ≤ −7 on the Tavtigian/Pejaver scale.
-  const isBenign = nBS >= 2 || benignPoints >= 7;
+  // VeryStrong (−8), ≥2 Strong (−8), or combined Strong+Moderate/Supporting reaching ≤ −7 on the Tavtigian/Pejaver scale.
+  const isBenign = nBVS >= 1 || nBS >= 2 || benignPoints >= 7;
 
   // ---- Likely Benign ----
   // At least 2 Supporting-equivalent benign points (≤ −2, e.g., ≥2 BP, BP4_Moderate, or ≥1 BS + corroboration)
@@ -117,7 +131,17 @@ export function classifyVariant(criteria: ACMGItem[]): string {
 
   if (isPathogenic) return "Pathogenic";
   if (isLikelyPathogenic) return "Likely Pathogenic";
-  if (isBenign) return "Benign";
-  if (isLikelyBenign) return "Likely Benign";
+
+  // Pathogenic evidence that meets no pathogenic row still counts against a benign tier: the benign
+  // points must clear the same thresholds after the pathogenic points are subtracted (Tavtigian 2020).
+  // With no pathogenic evidence this changes nothing. It matters because calibrated BP4 reaches Moderate
+  // and stronger: PS1 + PM2 + BP4_Moderate (+5 against −2) is not Likely Benign.
+  // A Strong or Very Strong pathogenic criterion (e.g. PS1, the same amino-acid change already
+  // established as pathogenic) against benign evidence is a conflict whatever the net points: VUS.
+  if (nPVS > 0 || nPS > 0) return "Variant of Uncertain Significance (VUS)";
+  const pathogenicPoints = pathogenic.reduce((sum, c) => sum + codeWeight(c.code), 0);
+  const netBenign = benignPoints - pathogenicPoints;
+  if (isBenign && netBenign >= 7) return "Benign";
+  if ((isBenign || isLikelyBenign) && netBenign >= 2) return "Likely Benign";
   return "Variant of Uncertain Significance (VUS)";
 }

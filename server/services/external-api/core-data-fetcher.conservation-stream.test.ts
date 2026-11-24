@@ -181,8 +181,8 @@ describe("core fetch and the streamed conservation composite", () => {
     expect(result.conservationData?.modelStatus).toEqual({ base: "settled", spliceai: "timeout", alphagenome: "timeout" });
     // The final verdict reads the measured base scores rather than discarding them.
     expect(acmgSpy.calls.at(-1)?.conservationData).toMatchObject({ revel: 0.91 });
-    // …and the in-silico criterion stands: the voting base ensemble settled, while SpliceAI and AlphaGenome
-    // (informational, `isInformationalOnly` in the concordance) cannot change the tally by timing out.
-    expect(result.ruleBasedInsights?.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(true);
+    // …and PP3 stands: the base scores settled (REVEL 0.91 is PP3 Moderate). SpliceAI timing out can
+    // withhold only BP4, and AlphaGenome is never in the fixed PP3/BP4 order.
+    expect(result.ruleBasedInsights?.acmgCriteria.some(c => c.code === "PP3_Moderate")).toBe(true);
   });
 });

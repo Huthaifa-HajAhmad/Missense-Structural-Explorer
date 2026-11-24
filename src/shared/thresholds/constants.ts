@@ -149,14 +149,7 @@ export const THRESHOLDS = {
   // `esm` (-5.0 / -2.0) and `esm1b` (-7.5 / -5.0) were removed: nothing read them, the -5.0/-2.0 pair
   // was published for no model, and -7.5 is Brandes 2023's own operating point. ESM1b's PP3/BP4
   // bands are in `calibration.ts` (Bergquist 2025); every other ESM-family LLR is uncalibrated.
-  metaRnn: {
-    pathogenic: 0.5,
-    benign: 0.5,
-  },
-  clinPred: {
-    pathogenic: 0.5,
-    benign: 0.5,
-  },
+  // `metaRnn` and `clinPred` were retired in Phase 5b (both trained on clinical labels with gnomAD AF).
   /**
    * popEVE (Orenbuch et al., Nat Genet 2025). The authors publish two cut-points, both on the
    * deleterious side: ≤ −5.056 "highly deleterious" (99.99% posterior) and ≤ −4.617 "moderately
@@ -397,13 +390,9 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "BayesDel without allele frequency (Feng 2017). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.13, moderate ≥ 0.27, strong ≥ 0.50; " +
     "BP4 supporting ≤ −0.18, moderate ≤ −0.36.",
   esm:
-    "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
+    "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Fourth fallback in the PP3/BP4 chain.",
   esm1b:
-    "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
-  metaRnn:
-    "MetaRNN (Li 2022). Authors' cut: ≥ 0.5 deleterious. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
-  clinPred:
-    "ClinPred (Alirezaie 2018). Authors' cut: ≥ 0.5 pathogenic. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
+    "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Fourth fallback in the PP3/BP4 chain.",
   popEve:
     "popEVE (Orenbuch 2025, Nat Genet). EVE + ESM-1v, placed on one proteome-wide scale with human population data. " +
     "Authors' cut-points: ≤ −5.056 highly deleterious, ≤ −4.617 moderately deleterious. No benign cut-point is published.",

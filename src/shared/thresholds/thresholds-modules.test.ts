@@ -4,7 +4,6 @@ import {
   evaluateAlphaGenomeAvi,
   evaluateRevel,
   evaluateCadd,
-  countPredictorConcordance,
   computeStabilityConsensus
 } from "./index.ts";
 
@@ -33,16 +32,6 @@ describe("Thresholds Modular Sub-Domain Tests", () => {
       expect(evaluateCadd(28)).toBe("pathogenic");
       expect(evaluateCadd(8)).toBe("benign");
       expect(evaluateCadd(24)).toBe("vus");
-    });
-  });
-
-  describe("concordance.ts", () => {
-    it("counts predictor concordance correctly", () => {
-      const conc = countPredictorConcordance(28, 0.85, 0.99, "pathogenic", 0.35, -8.0);
-      expect(conc.nPathogenic).toBeGreaterThanOrEqual(3);
-      expect(conc.signals.cadd).toBe("pathogenic");
-      expect(conc.signals.revel).toBe("pathogenic");
-      expect(conc.signals.am).toBe("pathogenic");
     });
   });
 

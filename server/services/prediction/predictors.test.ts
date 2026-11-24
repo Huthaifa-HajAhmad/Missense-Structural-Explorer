@@ -560,7 +560,7 @@ END
         expect(res).toBeDefined();
         expect(res?.revel).toBeCloseTo(0.45);
         expect(res?.bayesdel).toBeCloseTo(0.15);
-        expect(res?.clinpred).toBeCloseTo(0.98);
+        expect(res).not.toHaveProperty("clinpred");
         expect(res).not.toHaveProperty("dann");
         expect(res).not.toHaveProperty("eigenPhred");
         expect(res).not.toHaveProperty("eigenRaw");
@@ -605,7 +605,7 @@ END
         expect(res.available).toBe(true);
         expect(res.source).toBe("Public dbNSFP (dbnsfp.org)");
         expect(res.bayesdel).toBeCloseTo(0.22);
-        expect(res.clinpred).toBeCloseTo(0.91);
+        expect(res).not.toHaveProperty("clinpred");
         expect(res).not.toHaveProperty("dann");
         expect(res).not.toHaveProperty("eigenPhred");
         expect(res).not.toHaveProperty("eigenRaw");

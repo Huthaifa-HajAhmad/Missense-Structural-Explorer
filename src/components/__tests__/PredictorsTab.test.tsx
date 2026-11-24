@@ -58,19 +58,19 @@ describe("PredictorsTab", () => {
     expect(within(groups).queryByRole("button", { name: /ESM-2|VESM|SaProt/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).textContent).toContain("No result");
     // Numeric readings split at the decimal point so the column lines up; states keep the muted "absent" treatment.
-    const metarnn = within(groups).getByRole("button", { name: /MetaRNN/ });
-    expect(metarnn.querySelector(".prd-dec__int")!.textContent).toBe("0");
-    expect(metarnn.querySelector(".prd-dec__frac")!.textContent).toBe(".767");
-    // GPN-MSA, DANN and Eigen were retired: no row for them, even with an old stored score.
-    expect(within(groups).queryByRole("button", { name: /GPN|DANN|Eigen/ })).toBeNull();
+    const avi = within(groups).getByRole("button", { name: /AlphaGenome/ });
+    expect(avi.querySelector(".prd-dec__int")!.textContent).toBe("26");
+    expect(avi.querySelector(".prd-dec__frac")!.textContent).toBe(".4");
+    // GPN-MSA, DANN, Eigen, MetaRNN and ClinPred were retired: no row for them, even with an old stored score.
+    expect(within(groups).queryByRole("button", { name: /GPN|DANN|Eigen|MetaRNN|ClinPred/ })).toBeNull();
     expect(within(groups).getByRole("button", { name: /ESM1b/ }).querySelector("strong[data-state='absent']")).toBeTruthy();
   });
 
   it("separates missing marked tools from returned scores in Comparison", () => {
-    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, metarnn: null, popeve: null } }));
+    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, gerp: null, popeve: null } }));
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const groups = screen.getByTestId("predictor-unplotted-groups");
-    for (const name of ["MetaRNN", "popEVE", "ESM1b"]) {
+    for (const name of ["GERP", "popEVE", "ESM1b"]) {
       const button = within(groups).getByRole("button", { name: new RegExp(name) });
       expect(button.textContent).toContain("No result");
       expect(button.textContent).not.toContain("?");
@@ -82,7 +82,7 @@ describe("PredictorsTab", () => {
     renderTab(gzf1({
       conservationData: {
         ...gzf1().conservationData,
-        metarnn: null,
+        bayesdel: null,
         popeve: null,
         modelStatus: { base: "timeout", popeve: "timeout" },
       },
@@ -90,7 +90,7 @@ describe("PredictorsTab", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const groups = screen.getByTestId("predictor-unplotted-groups");
     expect(groups.textContent).toContain("Timed out");
-    expect(groups.textContent).not.toContain("MetaRNN (No result)");
+    expect(groups.textContent).not.toContain("BayesDel noAF (No result)");
   });
 
   it("starts the informational table groups collapsed and expands them on request", () => {
@@ -98,15 +98,15 @@ describe("PredictorsTab", () => {
     const table = screen.getByTestId("predictor-readings");
     const group = table.querySelector("tbody[data-group='genome']")!;
     expect(group.getAttribute("data-collapsed")).toBe("true");
-    expect(table.querySelector("tbody[data-group='vote']")!.hasAttribute("data-collapsed")).toBe(false);
+    expect(table.querySelector("tbody[data-group='primary']")!.hasAttribute("data-collapsed")).toBe(false);
     fireEvent.click(within(group as HTMLElement).getByRole("button", { name: /Show \d+ of \d+ scored/ }));
     expect(group.hasAttribute("data-collapsed")).toBe(false);
   });
 
-  it("explains each non-voting family in its own card, never counting them", () => {
+  it("explains each informational family in its own card, never counting them", () => {
     renderTab(gzf1());
     const card = screen.getByTestId("predictor-informational");
-    for (const g of ["severity", "protein-lm", "genome", "conservation"]) {
+    for (const g of ["severity", "genome", "conservation"]) {
       const fam = within(card).getByTestId(`predictor-family-${g}`);
       expect(fam.textContent).toMatch(/What it measures/);
       expect(fam.textContent).toMatch(/Why it is not counted/);
@@ -119,10 +119,10 @@ describe("PredictorsTab", () => {
     expect(card.textContent).toMatch(/never change the PP3 \/ BP4 call/);
   });
 
-  it("prints the calibrated reference's band edges on its ruler", () => {
+  it("prints the primary tool's band edges on its ruler", () => {
     renderTab(gzf1());
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    const ref = screen.getByTestId("predictor-reference-row");
+    const ref = screen.getByTestId("predictor-primary-row");
     const edges = Array.from(ref.querySelectorAll(".prd-ruler__cut")).map(n => n.textContent);
     expect(edges).toEqual(expect.arrayContaining(["0.644", "0.29"]));
   });
@@ -130,52 +130,53 @@ describe("PredictorsTab", () => {
   it("states the finding once, and marks an unconfirmed code as unconfirmed", () => {
     renderTab(gzf1());
     const summary = screen.getByTestId("predictor-summary");
-    expect(summary.querySelector("strong")!.textContent).toBe(
-      "The vote supports PP3, 4 to 1, but REVEL, the calibrated reference, reads BP4.",
-    );
+    expect(summary.querySelector("strong")!.textContent).toBe("The rule gives BP4 from REVEL 0.234.");
     const chip = screen.getByTestId("predictor-verdict");
-    expect(chip.textContent).toBe("PP3");
+    expect(chip.textContent).toBe("BP4");
     expect(chip.getAttribute("aria-label")).toMatch(/unconfirmed/);
   });
 
-  it("shows the engine's recorded code, not the vote's, when the payload has one", () => {
+  it("shows the engine's recorded code, not the rule's, when the payload has one", () => {
     renderTab(gzf1({ ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "earlier engine" }] } }));
     expect(screen.getByTestId("predictor-verdict").textContent).toBe("PP3 Moderate");
   });
 
-  it("says when the calibrated reference points the other way, in the summary, not a banner", () => {
+  it("says when another calibrated tool points the other way, in the summary, not a banner", () => {
     renderTab(gzf1());
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const summary = screen.getByTestId("predictor-summary");
     expect(summary.getAttribute("data-tone")).toBe("warning");
-    expect(summary.textContent).toMatch(/ClinGen advises one pre-specified calibrated tool/);
+    expect(summary.textContent).toMatch(/AlphaMissense 0\.835 \(PP3\) points the other way/);
     expect(screen.queryByTestId("reference-callout")).toBeNull();
-    expect(screen.getByTestId("predictor-reference-row").getAttribute("data-relation")).toBe("opposes");
-    expect(screen.getByTestId("predictor-reference-call").textContent).toBe("BP4");
-    expect(screen.getByTestId("predictor-vote-call").textContent).toBe("PP3");
+    expect(screen.getByTestId("predictor-primary-call").textContent).toBe("BP4");
+    expect(screen.getByTestId("predictor-chain-call").textContent).toBe("BP4");
   });
 
-  it("does not repeat the voters' scores or the count on the finding card", () => {
+  it("draws the fixed order once, marking the tool that answered and the one that disagrees", () => {
     renderTab(gzf1());
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    const card = screen.getByTestId("predictor-finding");
-    // 0.767 is MetaRNN's score: it belongs to the readings table only.
-    expect(card.textContent).not.toMatch(/0\.767/);
-    expect(card.textContent!.match(/4 to 1/g)).toHaveLength(1);
-    const key = screen.getByTestId("predictor-vote-key");
-    expect(key.textContent).toMatch(/4 pathogenic/);
-    expect(key.textContent).toMatch(/1 benign/);
-    const tally = within(screen.getByTestId("predictor-vote-row")).getByRole("list", { name: "Voting tools by call" });
-    expect(tally.querySelectorAll(".prd-tally__tool")).toHaveLength(6);
+    const list = within(screen.getByTestId("predictor-chain-row")).getByRole("list", { name: /Calibrated tools in order/ });
+    const roles = Array.from(list.querySelectorAll(".prd-tally__tool")).map(n => n.getAttribute("data-role"));
+    expect(roles).toEqual(["active", "after", "disagrees", "after"]);
+    // The order row names tools, not scores: those live in the readings table (and the disagreement sentence).
+    expect(screen.getByTestId("predictor-chain-row").textContent).not.toMatch(/0\.835|0\.234/);
   });
 
-  it("keeps a row for the calibrated reference when neither REVEL nor BayesDel scored", () => {
-    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, revel: null, bayesdel: null } }));
+  it("says the dbNSFP scores did not arrive, not that no tool scored, after a timeout", () => {
+    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, revel: null, bayesdel: null, modelStatus: { base: "timeout" } } }));
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    const row = screen.getByTestId("predictor-reference-row");
-    expect(row.getAttribute("data-relation")).toBe("absent");
-    expect(row.textContent).toMatch(/Neither REVEL nor BayesDel scored this variant/);
-    expect(screen.getByTestId("predictor-reference-call").textContent).toBe("No result");
+    expect(screen.getByTestId("predictor-primary-row").getAttribute("data-outcome")).toBe("withheld-base");
+    expect(screen.getByTestId("predictor-primary-row").textContent).toMatch(/dbNSFP scores did not arrive/);
+    expect(screen.getByTestId("predictor-chain-key").textContent).toMatch(/re-run the analysis/);
+  });
+
+  it("keeps a row for the primary tool when no calibrated tool scored", () => {
+    renderTab(gzf1({ predictorData: {}, conservationData: { ...gzf1().conservationData, revel: null, bayesdel: null } }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    const row = screen.getByTestId("predictor-primary-row");
+    expect(row.getAttribute("data-outcome")).toBe("no-score");
+    expect(row.textContent).toMatch(/None of the calibrated tools scored this variant/);
+    expect(screen.getByTestId("predictor-primary-call").textContent).toBe("No result");
   });
 
   it("warns, without a banner, when the weighting withheld the vote's code", () => {
@@ -191,11 +192,11 @@ describe("PredictorsTab", () => {
     expect(screen.getByTestId("predictor-summary").textContent).toMatch(/earlier engine/);
   });
 
-  it("shows No votes, not a code, when nothing scored", () => {
+  it("shows no code when nothing scored", () => {
     renderTab({ metadata: {}, predictorData: {}, conservationData: {}, ruleBasedInsights: { acmgCriteria: [] } });
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    expect(screen.getByTestId("predictor-vote-call").textContent).toBe("No votes");
-    expect(screen.getByTestId("predictor-summary").textContent).toMatch(/^No PP3 or BP4: no voting tool scored this variant\.$/);
+    expect(screen.getByTestId("predictor-chain-call").textContent).toBe("Neither");
+    expect(screen.getByTestId("predictor-summary").textContent).toMatch(/^No PP3 or BP4: none of the calibrated tools scored this variant\.$/);
   });
 
   it("does not call popEVE −3.93 deleterious", () => {
@@ -214,12 +215,13 @@ describe("PredictorsTab", () => {
     expect(row.textContent).not.toMatch(/PP3/);
   });
 
-  it("puts every tool in one table, voting tools first", () => {
+  it("puts every tool in one table, the calibrated tools first in their fixed order", () => {
     renderTab(gzf1());
     const table = screen.getByTestId("predictor-readings");
     const groups = Array.from(table.querySelectorAll("tbody")).map(b => b.getAttribute("data-group"));
-    expect(groups).toEqual(["vote", "severity", "protein-lm", "genome", "conservation"]);
-    expect(table.querySelectorAll("tbody[data-group='vote'] tr[data-votes]").length).toBe(6);
+    expect(groups).toEqual(["primary", "severity", "genome", "conservation"]);
+    const chain = Array.from(table.querySelectorAll("tbody[data-group='primary'] tr[data-chain]")).map(r => r.getAttribute("data-chain"));
+    expect(chain).toEqual(["revel", "bayesdel", "alphaMissense", "esm1b"]);
   });
 
   it("marks conservation as not counted even when it reaches a calibrated band", () => {
@@ -251,7 +253,7 @@ describe("PredictorsTab", () => {
     expect(ladder.getAttribute("aria-label")).toMatch(/REVEL: BP4 Supporting/);
     expect(within(ladder).getByTestId("ladder-revel").getAttribute("data-at")).toMatch(/^(PP3|BP4|none)/);
     // The ladder carries no scores: those live once, in the readings table.
-    expect(ladder.textContent).not.toMatch(/0\.767/);
+    expect(ladder.textContent).not.toMatch(/0\.835/);
   });
 
   it("shows a side, not a strength, for the tools that publish only the authors' cut-point", () => {
@@ -259,7 +261,7 @@ describe("PredictorsTab", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
     const ladder = screen.getByTestId("strength-ladder");
     // popEVE -3.931 is above its -4.617 cut: between, which the old table also refused to call deleterious.
-    for (const [key, side] of [["metarnn", "pathogenic"], ["clinpred", "pathogenic"], ["popeve", "between"]]) {
+    for (const [key, side] of [["popeve", "between"]]) {
       const row = within(ladder).getByTestId(`ladder-${key}`);
       expect(row.getAttribute("data-side")).toBe(side);
       // One dot, on one of three flat cells; no graded strength cell is drawn.
@@ -282,23 +284,20 @@ describe("PredictorsTab", () => {
   it("writes the cut-points in words under each calibrated ruler", () => {
     renderTab(gzf1());
     expect(screen.getByTestId("predictor-revel").textContent).toMatch(/PP3 ≥ 0\.644 · 0\.773 · 0\.932/);
-    expect(screen.getByTestId("predictor-metarnn").textContent).toMatch(/≥ 0\.5/);
+    expect(screen.getByTestId("predictor-popeve").textContent).toMatch(/≤ −4\.617/);
   });
-  it("tints a direction-only side red or green only for a tool the engine counts, and says why they differ to a screen reader", () => {
+  it("never tints a direction-only side as counted, and says why to a screen reader", () => {
     renderTab(gzf1());
     fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
     const ladder = screen.getByTestId("strength-ladder");
     expect(ladder.getAttribute("aria-label")).toMatch(/direction only have just their authors' cut-point/);
     const here = ladder.querySelectorAll(".prd-ladder__side[data-here]");
-    expect(here.length).toBe(3);
-    const counted = (key: string) => within(ladder).getByTestId(`ladder-${key}`).querySelector(".prd-ladder__side[data-here]")!.hasAttribute("data-votes");
-    expect(counted("metarnn")).toBe(true);
-    expect(counted("clinpred")).toBe(true);
+    expect(here.length).toBe(1);
     // popEVE is informational: its side is marked but not tinted.
-    expect(counted("popeve")).toBe(false);
+    expect(within(ladder).getByTestId("ladder-popeve").querySelector(".prd-ladder__side[data-here]")!.hasAttribute("data-chain")).toBe(false);
   });
 
-  it("renders candidate-consensus CADD as a range on the ruler and counts it in the vote when all candidates agree", () => {
+  it("renders candidate-consensus CADD as a range on the ruler, shown but never setting PP3/BP4", () => {
     const r = gzf1({
       predictorData: {
         amPathogenicity: 0.835,
@@ -325,11 +324,10 @@ describe("PredictorsTab", () => {
     expect(row.textContent).toMatch(/PP3/);
     expect(row.querySelector(".prd-ruler__range")).not.toBeNull();
     expect(row.querySelectorAll(".prd-ruler__marker")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    expect(screen.getByTestId("predictor-vote-key").textContent).toMatch(/4 pathogenic/);
+    expect(row.getAttribute("data-chain")).toBeNull();
   });
 
-  it("explains candidate disagreement on the CADD row and keeps it out of the vote", () => {
+  it("explains candidate disagreement on the CADD row", () => {
     const r = gzf1({
       predictorData: {
         amPathogenicity: 0.835,
@@ -355,9 +353,7 @@ describe("PredictorsTab", () => {
     expect(row.textContent).toMatch(/Candidates disagree/);
     expect(row.textContent).toMatch(/G>C 24\.5 Indeterminate vs G>A 25\.7 PP3 Supporting/);
     expect(row.querySelector(".prd-ruler")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
-    expect(screen.getByTestId("predictor-vote-key").textContent).toMatch(/3 pathogenic/);
-    expect(screen.getByTestId("predictor-vote-key").textContent).toMatch(/1 not scored/);
+    expect(row.getAttribute("data-chain")).toBeNull();
   });
 });
 

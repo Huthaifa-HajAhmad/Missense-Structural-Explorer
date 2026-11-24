@@ -54,7 +54,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
   const S = THRESHOLDS.spliceai;
   const { rule, geometry: g, engine } = ev;
   const pos = g.position !== null ? `${g.position > 0 ? "+" : "−"}${Math.abs(g.position)}` : null;
-  const engineCode = engine.known ? engine.code : engine.voteCode;
+  const engineCode = engine.known ? engine.code : engine.missenseCode;
   const engineWarn = ev.relation === "conflict" || ev.relation === "bp4-unchecked";
 
   const bands: Array<{ key: string; code: string | null; rule: string; label: string; tone: "danger" | "good" | "neutral" }> = [
@@ -114,18 +114,18 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
             <span className="spl-step__verdict">
               {engine.known ? (
                 engine.code ? <span className="ev-tier chip-code" data-tone={engine.code.startsWith("PP3") ? "danger" : "good"}>{formatEvidenceCode(engine.code)}</span> : "No PP3 / BP4 recorded"
-              ) : engine.voteCode ? (
-                <>unconfirmed (the vote supports {engine.voteCode})</>
+              ) : engine.missenseCode ? (
+                <>unconfirmed (the rule gives {engine.missenseCode})</>
               ) : (
                 "Not in payload"
               )}
             </span>
-            <span className="spl-step__sub">From the missense vote. The engine does not read splicing, so step 2 is never recorded as a code.</span>
+            <span className="spl-step__sub">From the primary missense predictor. SpliceAI ≥ 0.20 withholds BP4; step 2 is never recorded as a code.</span>
             {ev.relation === "conflict" && (
-              <span className="spl-step__warn">Splicing supports PP3 while the in-silico code is {engineCode}. Review before accepting it.</span>
+              <span className="spl-step__warn">Splicing supports PP3 while the in-silico code is {engineCode}: an earlier engine classified this. Re-run before accepting it.</span>
             )}
             {ev.relation === "bp4-unchecked" && (
-              <span className="spl-step__warn">{engineCode} rests on the missense vote; with no SpliceAI score, its splicing side is unchecked.</span>
+              <span className="spl-step__warn">{engineCode} rests on the primary missense predictor; with no SpliceAI score, its splicing side is unchecked.</span>
             )}
           </Step>
         </ol>
@@ -168,8 +168,8 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <ul>
             <li>
               The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for predicted splicing impact at a SpliceAI
-              max Δ ≥ {S.splicingPp3}, and BP4 at or below {S.splicingBp4Below}. This app&apos;s engine does not apply either: its PP3/BP4 comes from the
-              missense vote only, so the splicing reading here is shown beside it, never as a recorded code.
+              max Δ ≥ {S.splicingPp3}, and BP4 at or below {S.splicingBp4Below}. This app&apos;s engine applies neither from splicing: its PP3/BP4 comes from the
+              primary missense predictor, and SpliceAI ≥ {S.splicingPp3} only withholds BP4. The splicing reading here is shown beside it, never as a recorded code.
             </li>
             <li>
               A delta score is the change in the model&apos;s splice-site probability, not the probability that splicing

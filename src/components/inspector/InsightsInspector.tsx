@@ -6,6 +6,7 @@ import { useFoldxRunState } from "../../hooks/useFoldxRunState";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import { buildInsightsEvidence, criterionForLane } from "../../shared/insightsEvidence";
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
+import { activeToolText, disagreementText, noCriterionText } from "../../shared/predictorSummary";
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { narrativeAuthorshipOfResult } from "../../shared/narrativeEvidence";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
@@ -85,9 +86,9 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
     isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason)
   );
   const readCount = ev.lanes.filter(l => l.state === "read").length;
-  const vote = predictors?.vote;
-  const voters = predictors?.voters;
-  const names = (rs: Array<{ name: string }> | undefined) => (rs && rs.length ? rs.map(r => r.name).join(", ") : "none");
+  const primary = predictors?.primary ?? null;
+  const activeTool = primary ? activeToolText(primary) : null;
+  const disagreement = primary ? disagreementText(primary) : null;
   const selected = ev.lanes.find(lane => lane.key === w.selected);
 
   return (
@@ -131,15 +132,15 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
       </section>
 
       <section className="rail-section" aria-labelledby="ins-rail-vote">
-        <h3 className="eyebrow" id="ins-rail-vote"><Vote className="w-3.5 h-3.5" />In-silico vote, live</h3>
-        {vote && vote.nVoting > 0 ? (
+        <h3 className="eyebrow" id="ins-rail-vote"><Vote className="w-3.5 h-3.5" />In-silico call, live</h3>
+        {primary && activeTool ? (
           <dl className="rail-kv">
-            <Row label="Pathogenic"><span className="ins-mono">{vote.nPathogenic}</span> · {names(voters?.pathogenic)}</Row>
-            <Row label="Benign"><span className="ins-mono">{vote.nBenign}</span> · {names(voters?.benign)}</Row>
-            <Row label="Indeterminate"><span className="ins-mono">{vote.nIndeterminate}</span></Row>
+            <Row label="Primary tool"><span className="ins-mono">{activeTool}</span></Row>
+            <Row label="Call">{primary.code ? formatEvidenceCode(primary.code) : noCriterionText(primary)}</Row>
+            {disagreement && <Row label="Disagreement">{disagreement}</Row>}
           </dl>
         ) : (
-          <p className="ins-p">No voting predictor returned a score.</p>
+          <p className="ins-p">No calibrated predictor returned a score.</p>
         )}
         <p className="ins-p ins-dim">Read from the same function the Predictors tab uses, not from the text the engine stored.</p>
       </section>

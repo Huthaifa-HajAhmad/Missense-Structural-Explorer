@@ -58,10 +58,10 @@ describe("reference variant — NAE1 p.Asp116Gly", () => {
     expect(ag.availability.state).toBe("upstream-error");
   });
 
-  it("reads the missense vote as the engine's in-silico code, and flags BP4 as splicing-unchecked", () => {
+  it("reads the primary missense predictor's code as the engine's in-silico code, and flags BP4 as splicing-unchecked", () => {
     // No criteria list in this payload: the engine record is unknown, the vote supports BP4 (REVEL 0.231).
     expect(ev.engine.known).toBe(false);
-    expect(ev.engine.voteCode).toBe("BP4");
+    expect(ev.engine.missenseCode).toBe("BP4");
     expect(ev.relation).toBe("bp4-unchecked");
   });
 });

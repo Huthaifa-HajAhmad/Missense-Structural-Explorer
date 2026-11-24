@@ -43,7 +43,7 @@ function signalFromCall(call: CalibratedCall | null): PredictorSignal {
  * counted AlphaMissense twice.
  *
  * It therefore has no pathogenic or benign call here: an available score is informational ("vus"),
- * and the concordance lists AlphaGenome as informational only. The Phred 15 / 8 cut-points it used
+ * and AlphaGenome is informational only. The Phred 15 / 8 cut-points it used
  * to be tested against were labelled "ClinGen SVI-calibrated" and had no source.
  */
 export function evaluateAlphaGenomeAvi(
@@ -95,25 +95,10 @@ export function evaluateBayesdel(score: number | null | undefined): PredictorSig
 /**
  * ESM1b against the ClinGen bands (Bergquist 2025): PP3 ≤ −10.7, BP4 ≥ −6.3.
  *
- * These replace −7.5 / −5.0. −7.5 is Brandes et al.'s (2023) own operating point; −5.0 had no
- * source. ESM1b is still informational in the concordance.
+ * Used as the fourth fallback in the primary PP3/BP4 chain (`src/shared/insilico/primaryPredictor.ts`).
  */
 export function evaluateEsm1b(llr: number | null | undefined): PredictorSignal {
   return signalFromCall(calibratedCall("esm1b", llr));
-}
-
-/** MetaRNN — the authors' 0.5 cut (Li et al. 2022). Uncalibrated, and its features include gnomAD AF. */
-export function evaluateMetaRnn(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
-  if (score >= THRESHOLDS.metaRnn.pathogenic) return "pathogenic";
-  return "benign";
-}
-
-/** ClinPred — the authors' 0.5 cut (Alirezaie et al. 2018). Uncalibrated, and its features include gnomAD AF. */
-export function evaluateClinPred(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
-  if (score >= THRESHOLDS.clinPred.pathogenic) return "pathogenic";
-  return "benign";
 }
 
 /**

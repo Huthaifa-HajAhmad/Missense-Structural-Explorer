@@ -297,10 +297,6 @@ const UNSETTLED_BASE: ConservationData = {
   phylop: null,
   scorecons: null,
   bayesdel: null,
-  metarnn: null,
-  metarnnPred: null,
-  clinpred: null,
-  clinpredPred: null,
   esm1b: null,
   esm1bPred: null,
   popeve: null,
@@ -608,7 +604,7 @@ export async function fetchConservationDataProgressive(
     /**
      * The ALLELE the scores must belong to, when there is one these sources can read.
      *
-     * REVEL, BayesDel, MetaRNN, ClinPred and CADD are per nucleotide change, and a
+     * REVEL, BayesDel and CADD are per nucleotide change, and a
      * protein change can be encoded by more than one (Q867H: CAA→CAC or CAT). Queried as
      * `GENE:p.…`, query.dbnsfp.org answers with whichever matching row comes first, so the
      * scores could describe a different allele from the one analysed. It and the local store are

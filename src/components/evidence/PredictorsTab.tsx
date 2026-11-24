@@ -20,6 +20,7 @@ import { buildLadderEvidence } from "../../shared/ladderEvidence";
 import { PredictorInformationalSummary } from "./PredictorInformationalSummary";
 import { DecimalScore } from "./DecimalScore";
 import { ScoreRuler } from "./predictors/ScoreRuler";
+import { ChainRow, EngineChip, PrimaryToolRow } from "./predictors/PredictorFindingRows";
 import { StrengthLadder } from "./predictors/StrengthLadder";
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { buildPredictorComparison } from '../../shared/evidenceComparison';
@@ -33,15 +34,14 @@ import { evidenceTab } from '../../shared/evidenceTabs';
  * ACMG PP3/BP4 rule make of it? Three tiers, top to bottom — the same shape as Population Data:
  *
  *   1. THE FINDING — a header bar with the engine's recorded code; ONE summary line (engine record,
- *      vote, calibrated reference, and any disagreement in words); the STRENGTH LADDER (every tool on
+ *      the tool that set the call, and any disagreement in words); the STRENGTH LADDER (every tool on
  *      one shared axis of evidence strength, the variant's band marked; tools with only their authors'
- *      cut-point show a side, never a strength); then two rows to compare, the vote as a tally bar
- *      and the calibrated single tool ClinGen recommends on its own ruler, each ending in the code
- *      it supports. The ladder replaced the Score thresholds tab, which repeated this one.
- *      This replaced a card that stated the count four times, REVEL's reading three times (one a full-width yellow banner) and every voter's score twice.
+ *      cut-point show a side, never a strength); then two rows: the fixed order of calibrated tools
+ *      (REVEL → BayesDel noAF → AlphaMissense → ESM1b) with the one that answered marked, and that
+ *      tool on its own ruler with its published bands (`predictors/PredictorFindingRows.tsx`).
  *   2. READINGS — one table, every tool a row: score, its position on its own axis with its
- *      cut-points drawn by provenance, and its call. Grouped by role: the tools that vote, then the
- *      informational ones. This replaced a 4-tab card grid that showed one family at a time, so the
+ *      cut-points drawn by provenance, and its call. Grouped by role: the calibrated tools in their
+ *      fixed order, then the informational ones. This replaced a 4-tab card grid that showed one family at a time, so the
  *      tools a reviewer compares were never on screen together.
  *
  * INVARIANTS
@@ -49,8 +49,8 @@ import { evidenceTab } from '../../shared/evidenceTabs';
  *   • The engine's decision is READ from its criteria list; a code the payload does not carry is
  *     drawn dashed and called unconfirmed, never asserted.
  *   • A cut-point is always shown with its provenance — ClinGen, the authors', local, or none.
- *   • Each fact is stated once on the card: scores live in the table, the count in the tally bar,
- *     the reference's reading in its row. The summary line says what they mean together.
+ *   • Each fact is stated once on the card: scores live in the table, the order in the chain row,
+ *     the answering tool's band in its row. The summary line says what they mean together.
  */
 
 const CUT_SOURCE_LABEL: Record<PredictorReading["cutpoints"]["kind"], string> = {
@@ -60,179 +60,14 @@ const CUT_SOURCE_LABEL: Record<PredictorReading["cutpoints"]["kind"], string> = 
   none: "No cut-point",
 };
 
-function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
-  const { engine, vote } = evidence;
-  if (engine.known) {
-    const code = engine.code;
-    const tone = !code ? (engine.withheldByWeighting ? "muted" : "neutral") : code.startsWith("PP3") ? "danger" : "good";
-    return (
-      <span
-        className={`ev-tier prd-verdict shrink-0${code ? " chip-code" : ""}`}
-        data-tone={tone}
-        data-testid="predictor-verdict"
-        title={code ? "The in-silico criterion the engine recorded for this run" : "The engine recorded no PP3 or BP4 for this run"}
-      >
-        {code ? formatEvidenceCode(code) : "No PP3 / BP4"}
-      </span>
-    );
-  }
-  if (vote.code) {
-    return (
-      <span
-        className="ev-tier prd-verdict chip-code shrink-0"
-        data-tone="accent"
-        data-testid="predictor-verdict"
-        data-unconfirmed="true"
-        title={`${vote.code} is what the vote supports — this payload carries no engine record to confirm it against`}
-        aria-label={`${vote.code}, supported by the vote, unconfirmed by the engine record`}
-      >
-        {vote.code}
-      </span>
-    );
-  }
-  return (
-    <span className="ev-tier prd-verdict shrink-0" data-tone="neutral" data-testid="predictor-verdict">
-      No PP3 / BP4
-    </span>
-  );
-}
-
-const CALL_WORD = { path: "pathogenic", vus: "indeterminate", benign: "benign", none: "not scored" } as const;
-type VoteCall = keyof typeof CALL_WORD;
-
-/** The chip that closes a finding row: a code in its tone, or a plain word. */
-function RowChip({ code, testId }: { code: string | null; testId: string }) {
-  if (!code) return <span className="ev-tier" data-tone="neutral" data-testid={testId}>Neither</span>;
-  const direction = code.startsWith("PP3") ? "danger" : code.startsWith("BP4") ? "good" : "neutral";
-  return (
-    <span className={`ev-tier${direction !== "neutral" ? " chip-code" : ""}`} data-tone={direction} data-testid={testId}>
-      {formatEvidenceCode(code)}
-    </span>
-  );
-}
-
-/**
- * The vote as one bar: a segment per voting tool, grouped pathogenic → indeterminate → benign →
- * no score, the tool's name under its segment, and one key line with each group's count. Scores are NOT
- * repeated here; they live once, in the readings table. This replaced a strip of tinted boxes that
- * printed every voter's score a second time.
- */
-function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
-  const { voters, vote } = evidence;
-  const groups: Array<{ call: VoteCall; rows: PredictorReading[] }> = [
-    { call: "path", rows: voters.pathogenic },
-    { call: "vus", rows: voters.indeterminate },
-    { call: "benign", rows: voters.benign },
-    { call: "none", rows: voters.missing },
-  ];
-  const total = groups.reduce((n, g) => n + g.rows.length, 0);
-  // Fixed tool order, the same the readings table uses, so a tool can be tracked between the two.
-  const ordered = evidence.readings.filter(r => r.votes);
-  const counted = vote.nVoting;
-  return (
-    <div className="prd-frow" data-testid="predictor-vote-row">
-      <div className="prd-frow__label">
-        <span className="prd-frow__name">Vote</span>
-        <span className="prd-frow__sub">
-          {counted} of {total} voting {total === 1 ? "tool" : "tools"} scored · plurality, uncalibrated
-        </span>
-      </div>
-      <div className="prd-frow__body">
-        {total === 0 ? (
-          <span className="prd-dim">No voting tool is configured for this analysis.</span>
-        ) : (
-          <ol className="prd-tally" aria-label="Voting tools by call">
-            {ordered.map(r => {
-              const call: VoteCall = r.signal === "pathogenic" ? "path" : r.signal === "benign" ? "benign" : r.signal === "vus" ? "vus" : "none";
-              return (
-                <li key={r.key} className="prd-tally__tool" data-call={call} title={`${r.name}: ${r.scoreText} — ${r.callLabel}`}>
-                  <i className="prd-tally__seg" aria-hidden="true" />
-                  <span className="prd-tally__name">{r.name}</span>
-                </li>
-              );
-            })}
-          </ol>
-        )}
-        {total > 0 && (
-          <p className="prd-tally__key" data-testid="predictor-vote-key">
-            {groups
-              .filter(g => g.rows.length > 0)
-              .map(g => (
-                <span key={g.call}>
-                  <i className="prd-tally__swatch" data-call={g.call} aria-hidden="true" />
-                  {g.rows.length} {CALL_WORD[g.call]}
-                </span>
-              ))}
-          </p>
-        )}
-      </div>
-      <div className="prd-frow__call">
-        {vote.direction === "no-votes" ? (
-          <span className="ev-tier" data-tone="muted" data-testid="predictor-vote-call">No votes</span>
-        ) : (
-          <RowChip code={vote.code} testId="predictor-vote-call" />
-        )}
-      </div>
-    </div>
-  );
-}
-
 function LocalAgreementRow({ evidence, compact = false }: { evidence: PredictorEvidence; compact?: boolean }) {
   return <div data-testid="predictor-local-agreement">
     <header className="prd-hero__head prd-context-head">
       <h2 className="eyebrow">Local agreement / informational</h2>
-      <span className="ev-tier" data-tone="muted">Context only / never counted by the vote</span>
+      <span className="ev-tier" data-tone="muted">Context only / never sets PP3 / BP4</span>
     </header>
     <PredictorInformationalSummary evidence={evidence} headingLevel="h3" compact={compact} />
   </div>;
-}
-
-/**
- * The calibrated single tool ClinGen recommends, on its own ruler with its published bands, beside
- * the vote so a disagreement is visible without a banner. When neither REVEL nor BayesDel has a
- * score the row says so, rather than disappearing — absence is a state.
- */
-function ReferenceRow({ evidence }: { evidence: PredictorEvidence }) {
-  const ref = evidence.reference;
-  const reading = ref ? evidence.readings.find(r => r.key === ref.key) : null;
-  const pending =
-    !ref && evidence.readings.some(r => (r.key === "revel" || r.key === "bayesdel") && r.availability.state === "pending");
-  return (
-    <div className="prd-frow" data-testid="predictor-reference-row" data-relation={ref?.relation ?? "absent"}>
-      <div className="prd-frow__label">
-        <span className="prd-frow__name">Calibrated reference</span>
-        <span className="prd-frow__sub">{ref ? `${ref.name} · ClinGen, ${ref.source}` : "REVEL, else BayesDel · ClinGen"}</span>
-      </div>
-      <div className="prd-frow__body">
-        {ref && reading ? (
-          <>
-            <ScoreRuler reading={reading} thresholds="all" />
-            <span className="prd-frow__note">
-              <span className="prd-mono">{reading.scoreText}</span>{" "}
-              {ref.call.direction ? <>sits in the {formatEvidenceCode(ref.call.code)} band</> : "sits between the PP3 and BP4 bands"}
-            </span>
-          </>
-        ) : (
-          <span className="prd-dim">
-            {pending ? "Still being computed for this variant." : "Neither REVEL nor BayesDel scored this variant."}
-          </span>
-        )}
-      </div>
-      <div className="prd-frow__call">
-        {ref ? (
-          ref.call.direction ? (
-            <RowChip code={ref.call.code} testId="predictor-reference-call" />
-          ) : (
-            <span className="ev-tier" data-tone="neutral" data-testid="predictor-reference-call">Indeterminate</span>
-          )
-        ) : (
-          <span className="ev-tier" data-tone={pending ? "neutral" : "muted"} data-testid="predictor-reference-call">
-            {pending ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}
-          </span>
-        )}
-      </div>
-    </div>
-  );
 }
 
 function CaveatChips({ reading }: { reading: PredictorReading }) {
@@ -265,7 +100,7 @@ function ReadingRow({
   const has = reading.score !== null || reading.availability.state === "available";
   const pending = reading.availability.state === "pending";
   return (
-    <tr data-testid={`predictor-${reading.key}`} data-votes={reading.votes || undefined}>
+    <tr data-testid={`predictor-${reading.key}`} data-chain={reading.chainKey ?? undefined}>
       <th scope="row" className="prd-subject">
         <span className="prd-subject__line">
           <span className="prd-subject__name"><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></span>
@@ -350,7 +185,7 @@ function ReadingRow({
             >
               {formatEvidenceCode(reading.callLabel)}
             </span>
-            {!reading.votes && reading.calibrated && <span className="prd-call__sub">not counted</span>}
+            {reading.chainKey === null && reading.calibrated && <span className="prd-call__sub">not counted</span>}
           </>
         ) : (
           <span className="ev-tier" data-tone={pending ? "neutral" : "muted"}>
@@ -363,7 +198,7 @@ function ReadingRow({
 }
 
 /**
- * The models that do not vote, explained for a reader who has not met them: per family, what it
+ * The models that never set PP3/BP4, explained for a reader who has not met them: per family, what it
  * measures, why it sits outside PP3/BP4, how to read its number, and this variant's scores.
  */
 function InformationalCard({ evidence }: { evidence: PredictorEvidence }) {
@@ -456,8 +291,8 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
       <header>
         <h1 className="screen-title">{evidenceTab('predictors').label}</h1>
         <p className="screen-tab-description">
-          What computational predictors say about this substitution, and how the ACMG PP3/BP4 rule
-          counted them.
+          What computational predictors say about this substitution, and which calibrated tool set
+          the ACMG PP3/BP4 criterion.
         </p>
       </header>
       <EvidenceViewTabs tab="predictors" />
@@ -485,9 +320,9 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
           </span>
         </p>
 
-        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />}
+        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} primaryKey={evidence.readings.find(r => r.chainKey !== null && r.chainKey === evidence.primary.activeTool)?.key ?? null} />}
 
-        {!workspace.enabled && <><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></>}
+        {!workspace.enabled && <><ChainRow evidence={evidence} /><PrimaryToolRow evidence={evidence} /></>}
 
         {evidence.pending && (
           <div className="prd-hero__foot">
@@ -501,7 +336,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
       {workspace.comparison && <EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." />}
-      {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
+      {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><ChainRow evidence={evidence} /><PrimaryToolRow evidence={evidence} /></section>}
       {/* Local agreement is not the engine's reading, so it gets its own card rather than a row
           inside the engine card: its own note says these readings never change PP3 / BP4. */}
       {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} compact /></section>}
@@ -534,7 +369,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
               </tr>
             </thead>
             {groupReadings(evidence.readings).map(({ group, rows }) => {
-              const collapsible = group !== "vote";
+              const collapsible = group !== "primary";
               // One toggle semantics: the workspace state. Informational groups start collapsed.
               const open = !collapsible || workspace.expanded.includes(group);
               const scored = rows.filter(r => r.score !== null).length;

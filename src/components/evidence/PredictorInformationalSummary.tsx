@@ -9,7 +9,7 @@ type SummaryHeading = 'h3' | 'h4';
  * Keep informational readings separate by meaning in both the workspace and inspector.
  *
  * `compact` is the Comparison card. The chart's own "outside the comparison" card already lists every
- * non-voting reading with its value, so repeating the names here would show each reading twice; the
+ * informational reading with its value, so repeating the names here would show each reading twice; the
  * compact form states only what the readings say together (coverage, how to read them). The records view and the inspector keep the per-reading lists, because they are read without the chart.
  */
 export function PredictorInformationalSummary({
@@ -24,7 +24,7 @@ export function PredictorInformationalSummary({
   const agreement = localPredictorAgreement(evidence);
   if (compact) {
     return <dl className="prd-agreement" data-testid="predictor-agreement-summary">
-      <div><dt>Coverage</dt><dd>{agreement.scored} of {agreement.total} non-voting readings scored.</dd></div>
+      <div><dt>Coverage</dt><dd>{agreement.scored} of {agreement.total} informational readings scored.</dd></div>
       <div><dt>How to read</dt><dd>{LOCAL_AGREEMENT_COPY.descriptive}</dd></div>
     </dl>;
   }

@@ -36,7 +36,9 @@ describe("PredictorsRail", () => {
     for (const heading of ["Other scores", "Not scored"]) {
       expect(within(section).getByRole("heading", { level: 4, name: heading })).toBeInTheDocument();
     }
-    expect(within(section).getByRole("button", { name: /ESM1b/ })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: /Residue conservation/ })).toBeInTheDocument();
+    // The calibrated tools in the fixed order are traced above, not listed as informational.
+    expect(within(section).queryByRole("button", { name: /ESM1b|REVEL/ })).toBeNull();
     expect(within(section).getByText(/never change PP3 \/ BP4/)).toBeInTheDocument();
   });
 
@@ -52,7 +54,7 @@ describe("PredictorsRail", () => {
     expect(container.textContent).toContain("ESM1b");
   });
 
-  it("explains candidate CADD disagreement under Not counted and separates CADD vs AlphaMissense sources", () => {
+  it("traces the fixed order on a candidate run, keeps CADD out of it, and separates CADD vs AlphaMissense sources", () => {
     const candidateResult: any = {
       ...result,
       predictorData: {
@@ -75,9 +77,11 @@ describe("PredictorsRail", () => {
     };
     render(<EvidenceWorkspaceProvider result={candidateResult}><PredictorsRail analysisResult={candidateResult} /></EvidenceWorkspaceProvider>);
     const trace = screen.getByTestId("predictor-rule-trace");
-    expect(trace.textContent).toContain("Not counted:");
-    expect(trace.textContent).toContain("CADD (Candidates disagree)");
-    expect(trace.textContent).not.toContain("No score:");
+    expect(trace.textContent).toContain("First with a score");
+    expect(trace.textContent).toContain("REVEL 0.234");
+    expect(trace.textContent).not.toContain("CADD");
+    // Several candidate alleles: SpliceAI was not asked, so BP4 is withheld and the sentence says why.
+    expect(trace.textContent).toContain("No BP4: REVEL 0.234 reads BP4, but the protein change maps to multiple nucleotide alleles");
 
     const rail = screen.getByTestId("predictors-rail");
     expect(rail.textContent).toContain("ProtVar");

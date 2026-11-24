@@ -140,7 +140,7 @@ describe("ACMG frequency rules — protein change with several candidate alleles
       variant: "p.Glu7Val",
       clinvar: { classification: "Pathogenic", uid: "15333", reviewStatus: "reviewed by expert panel", trait: "Sickle cell disease" },
       predictorData: { available: true, gnomadVariantId: "11-5227002-T-A", amPathogenicity: 0.25, caddPhred: 12 },
-      conservationData: { available: true, revel: 0.2, metarnn: 0.1, clinpred: 0.1 },
+      conservationData: { available: true, revel: 0.2 },
       gnomadConstraint: { pli: 0.0, missense_z: 0.67, oe_mis: 0.88, isPP2Constrained: false },
       gnomadFrequency: {
         maxAF: 0.0495, groupMaxAF: 0.0495, genomeAF: 0.01272, exomeAF: 0.001601,

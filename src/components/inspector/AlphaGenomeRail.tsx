@@ -142,7 +142,7 @@ export function AlphaGenomeRail({ analysisResult, isBiophysicalLoading }: { anal
               under selection, not disease — so it overlaps with the population evidence (PM2/BS1).
             </li>
             <li>
-              It contains AlphaMissense, which votes on the Predictors tab, and two conservation scores (Cactus 241-way,
+              It contains AlphaMissense, one of the calibrated tools on the Predictors tab, and two conservation scores (Cactus 241-way,
               PhastCons 470-way) that measure the same thing as phyloP and GERP there. It is not independent of them.
             </li>
             <li>

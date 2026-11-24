@@ -5,7 +5,7 @@
  * and which criteria did the engine record from it?
  *
  * It is what survives of the retired Score thresholds tab, which repeated the Predictors tab (same
- * readings, same vote, same rulers) and, around that, was a second classifier:
+ * readings, same calls, same rulers) and, around that, was a second classifier:
  *
  *   • It gave ΔΔG scores ACMG codes the engine never applies — FoldX a red PM1 chip (PM1 is a hotspot
  *     or functional-domain criterion; the engine reads it from UniProt sites), ThermoMPNN a green BP3
@@ -21,7 +21,7 @@
  * gene-constraint rows in the header bar; neither is an in-silico predictor, so neither is drawn here.
  *
  * INVARIANTS
- *   • In-silico readings, the vote and the engine's PP3/BP4 record come from `buildPredictorEvidence`
+ *   • In-silico readings, the primary PP3/BP4 decision and the engine's record come from `buildPredictorEvidence`
  *     — the Predictors tab's own model — so the tab, the ladder and the rail cannot count differently.
  *   • Every calibrated band comes from `calibration.ts`, the PP2 rule included (`regionalPp2Code`).
  *   • What the engine recorded is READ from its criteria list. Nothing here carries a code the engine
@@ -94,8 +94,8 @@ export interface LadderRow {
   key: string;
   name: string;
   source: string;
-  /** Counted by the engine's PP3/BP4 vote. */
-  votes: boolean;
+  /** One of the calibrated tools in the fixed PP3/BP4 order. */
+  inChain: boolean;
   /** Column ids this tool's published calibration can reach. */
   reachable: string[];
   /** Column id the variant reached, or `null` with no score. */
@@ -114,7 +114,7 @@ export interface DirectionRow {
   name: string;
   /** Whose cut-point, e.g. "Li et al. 2022". */
   source: string;
-  votes: boolean;
+  inChain: boolean;
   side: DirectionSide | null;
   scoreText: string;
   availability: PredictorReading["availability"];
@@ -181,7 +181,7 @@ const SIDE_OF_SIGNAL: Record<PredictorReading["signal"], DirectionSide | null> =
 
 /**
  * The ladder's rows and columns from the predictor model: the calibrated tools (strength), then the
- * tools that only have their authors' cut-point (direction). Together with the vote they are the
+ * tools that only have their authors' cut-point (direction). Together with the primary call they are the
  * seven tools the engine counts plus ESM1b, phyloP and GERP++, which are calibrated but not counted.
  */
 export function buildLadder(predictor: PredictorEvidence): { columns: LadderColumn[]; ladder: LadderRow[]; directional: DirectionRow[] } {
@@ -201,7 +201,7 @@ export function buildLadder(predictor: PredictorEvidence): { columns: LadderColu
       key,
       name: reading.name,
       source: CALIBRATION_SOURCES[b.source].short,
-      votes: reading.votes,
+      inChain: reading.chainKey !== null,
       reachable,
       at,
       scoreText: reading.scoreText,
@@ -215,7 +215,7 @@ export function buildLadder(predictor: PredictorEvidence): { columns: LadderColu
       key: r.key,
       name: r.name,
       source: r.cutpoints.source ?? "Authors",
-      votes: r.votes,
+      inChain: r.chainKey !== null,
       side: r.score === null ? null : SIDE_OF_SIGNAL[r.signal],
       scoreText: r.scoreText,
       availability: r.availability,

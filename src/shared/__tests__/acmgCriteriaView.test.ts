@@ -176,9 +176,14 @@ describe("partitionCriteria: engine-owned codes", () => {
 
   it("owns exactly the codes the engine can emit", async () => {
     const fs = await import("node:fs");
-    const { ENGINE_OWNED_CODES } = await import("../acmgCriteriaView");
-    const src = fs.readFileSync("server/services/prediction/acmg/criteria.ts", "utf8");
-    const emitted = new Set([...src.matchAll(/code:\s*"([A-Z]{2,3}\d)/g)].map(m => m[1]));
+    const { ENGINE_OWNED_CODES, baseAcmgCode } = await import("../acmgCriteriaView");
+    const src =
+      fs.readFileSync("server/services/prediction/acmg/criteria.ts", "utf8") +
+      "\n" +
+      fs.readFileSync("server/services/prediction/acmg/pp3-bp4.ts", "utf8");
+    const emitted = new Set([...src.matchAll(/code:\s*"([A-Z]{2,3}\d(?:_[A-Za-z]+)?)"/g)].map(m => baseAcmgCode(m[1])));
     for (const code of emitted) expect(ENGINE_OWNED_CODES.has(code), code).toBe(true);
+    expect(ENGINE_OWNED_CODES.has("PP3")).toBe(true);
+    expect(ENGINE_OWNED_CODES.has("BP4")).toBe(true);
   });
 });

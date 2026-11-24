@@ -585,14 +585,13 @@ describe("Core Data Fetcher Service Unit Tests", () => {
     expect(result.predictorData?.caddPhred).toBe(0);
   });
 
-  it("treats secondary conservation fields (bayesdel/clinpred/popeve) as ok when revel/gerp/phylop are null", async () => {
+  it("treats secondary conservation fields (bayesdel/popeve) as ok when revel/gerp/phylop are null", async () => {
     const { fetchConservationDataProgressive } = await import("../prediction/index.ts");
     vi.mocked(fetchConservationDataProgressive).mockResolvedValueOnce({
       revel: null,
       gerp: null,
       phylop: null,
       bayesdel: 0.42,
-      clinpred: 0,
       popeve: -1.8,
     } as any);
 
@@ -600,7 +599,6 @@ describe("Core Data Fetcher Service Unit Tests", () => {
 
     expect(result.serviceStatus.conservationData).toBe("ok");
     expect(result.conservationData?.bayesdel).toBe(0.42);
-    expect(result.conservationData?.clinpred).toBe(0);
   });
 
   /**

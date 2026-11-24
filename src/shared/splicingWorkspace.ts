@@ -95,7 +95,7 @@ export function splicingReadings(ev: SplicingEvidence, result: AnalysisResult): 
         ...(reading?.scaleSource ? [reading.scaleSource] : []),
         ...(reading?.call ? [`${reading.call.label}${reading.call.unapplied ? ' · not applied by the engine' : ''}`] : []),
         ...(isSpliceAI ? ['Delta scores are model predictions, not observed splicing effects or probabilities of disease.',
-          'The engine does not apply splicing criteria. Its recorded PP3/BP4 comes from the missense vote.'] : [reading?.note ?? 'Context only; not counted as splicing evidence.']),
+          'The engine applies no splicing criterion. Its PP3/BP4 comes from the primary missense predictor; SpliceAI ≥ 0.20 only withholds BP4.'] : [reading?.note ?? 'Context only; not counted as splicing evidence.']),
       ],
       reportUrl: isSpliceAI ? 'https://github.com/Illumina/SpliceAI' : undefined,
     };

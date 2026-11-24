@@ -84,9 +84,10 @@ describe("classifyVariant — PM2 is applied at Supporting strength", () => {
   });
 });
 
-describe("classifyVariant — benign Pejaver/Tavtigian Moderate & Strong weights", () => {
-  it("weights BP4_Moderate as Moderate (-2), BP4_Strong as Strong (-4), and Supporting BP as -1", () => {
+describe("classifyVariant — benign Pejaver/Tavtigian Moderate, Strong & Very Strong weights", () => {
+  it("weights BP4_VeryStrong as Very Strong (-8), BP4_Strong as Strong (-4), BP4_Moderate as Moderate (-2), and Supporting BP as -1", () => {
     expect(codeWeight("BA1")).toBe(WEIGHT.BA1);
+    expect(codeWeight("BP4_VeryStrong")).toBe(WEIGHT.BA1);
     expect(codeWeight("BS1")).toBe(WEIGHT.BS);
     expect(codeWeight("BP4_Strong")).toBe(WEIGHT.BS);
     expect(codeWeight("BP4_Moderate")).toBe(WEIGHT.BM);
@@ -94,7 +95,7 @@ describe("classifyVariant — benign Pejaver/Tavtigian Moderate & Strong weights
     expect(codeWeight("BP4_Supporting")).toBe(WEIGHT.BP);
   });
 
-  it("keeps single Supporting BP4 in VUS while treating BS1 + BP4_Moderate as Likely Benign (-6, not Benign)", () => {
+  it("keeps single Supporting BP4 in VUS while treating BP4_VeryStrong as Benign unless conflicted", () => {
     expect(classifyVariant(c("BP4"))).toBe("Variant of Uncertain Significance (VUS)");
     expect(classifyVariant(c("BP4", "BP3"))).toBe("Likely Benign");
     expect(classifyVariant(c("BP4_Moderate"))).toBe("Likely Benign");
@@ -102,5 +103,29 @@ describe("classifyVariant — benign Pejaver/Tavtigian Moderate & Strong weights
     expect(classifyVariant(c("BS1", "BP4_Moderate"))).toBe("Likely Benign");
     expect(classifyVariant(c("BS1", "BP4_Moderate", "BP3"))).toBe("Benign");
     expect(classifyVariant(c("BS1", "BP4_Strong"))).toBe("Benign");
+    expect(classifyVariant(c("BP4_VeryStrong"))).toBe("Benign");
+    expect(classifyVariant(c("BP4_VeryStrong", "PS1", "PM1"))).toBe("Variant of Uncertain Significance (VUS)");
+    expect(classifyVariant(c("BP4_VeryStrong", "PVS1", "PM2"))).toBe("Variant of Uncertain Significance (VUS)");
+  });
+
+  /**
+   * Calibrated BP4 can now be Moderate or stronger. Pathogenic evidence below a Likely Pathogenic row
+   * must still count against it: a benign tier needs the benign points to clear its threshold after the
+   * pathogenic points are subtracted (Tavtigian 2020 point scale).
+   */
+  it("does not let calibrated BP4 erase pathogenic evidence that meets no pathogenic row", () => {
+    expect(classifyVariant(c("PS1", "PM2", "BP4_Moderate"))).toBe("Variant of Uncertain Significance (VUS)");
+    expect(classifyVariant(c("PM1", "PP2_Moderate", "PM2", "BP4_Moderate"))).toBe("Variant of Uncertain Significance (VUS)");
+    expect(classifyVariant(c("PM2", "BP4_Moderate"))).toBe("Variant of Uncertain Significance (VUS)");
+    expect(classifyVariant(c("PS1", "BS1"))).toBe("Variant of Uncertain Significance (VUS)");
+    // A Strong or Very Strong pathogenic criterion against benign evidence is a conflict, whatever the net:
+    // one predictor score never turns an established same-amino-acid change (PS1) Likely Benign.
+    expect(classifyVariant(c("PS1", "PM2", "BP4_VeryStrong"))).toBe("Variant of Uncertain Significance (VUS)");
+    expect(classifyVariant(c("PVS1_Strong", "BS1", "BP4_Strong"))).toBe("Variant of Uncertain Significance (VUS)");
+    // Net −3 and net −5 with only Supporting/Moderate pathogenic evidence: Likely Benign, never Benign.
+    expect(classifyVariant(c("PM2", "BP4_Strong"))).toBe("Likely Benign");
+    expect(classifyVariant(c("PM2", "BS1", "BP4_Moderate"))).toBe("Likely Benign");
+    // Net −7: Benign.
+    expect(classifyVariant(c("PM2", "BP4_VeryStrong"))).toBe("Benign");
   });
 });

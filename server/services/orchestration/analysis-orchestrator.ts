@@ -137,8 +137,14 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
     metadata: { ...payload.metadata, gene: context?.gene ?? payload.metadata?.gene, variant: context?.variant ?? payload.metadata?.variant }
   })) return true;
   const cons = payload.conservationData;
+  // Only payloads written while the plurality vote set PP3/BP4 carry ClinPred (even as null). Their
+  // in-silico criterion came from the retired rule, so they are recomputed once; the new payload has no
+  // such key and stays cached. This holds without dbNSFP too: the vote also counted AlphaMissense and CADD.
+  if (cons && "clinpred" in cons) {
+    return true;
+  }
   if (cons && cons.available === true) {
-    if (cons.bayesdel === undefined || cons.clinpred === undefined) {
+    if (cons.bayesdel === undefined) {
       return true;
     }
     // A live SpliceAI score carries the window it was computed under. A reader who has since chosen a

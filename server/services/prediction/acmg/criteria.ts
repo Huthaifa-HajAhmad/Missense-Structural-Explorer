@@ -1,8 +1,5 @@
 import {
   THRESHOLDS,
-  countPredictorConcordance,
-  insilicoVoteOutcome,
-  PredictorConcordance,
   REGIONAL_MISSENSE_CALIBRATION,
   REGIONAL_MISSENSE_SOURCE,
 } from "../../../../src/shared/thresholds.ts";
@@ -18,6 +15,7 @@ import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
 import type { CuratedLofMechanism } from "../../../../src/shared/lofMechanismBasis.ts";
 import { candidateFrequencyCriteria } from "./candidate-frequency.ts";
+import { evaluateInsilicoCriterion } from "./pp3-bp4.ts";
 
 export interface ACMGEvidenceInput {
   gene: string;
@@ -189,111 +187,15 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   }
 
   // -------------------------------------------------------------------------
-  // 1. PP3 / BP4  — In-silico predictor concordance (ACMG-5 fix)
+  // 1. PP3 / BP4 — Primary calibrated predictor (REVEL -> BayesDel -> AM -> ESM1b)
   // -------------------------------------------------------------------------
-  const concordance: PredictorConcordance = countPredictorConcordance(
-    predictorData?.caddPhred,
-    conservationData?.revel,
-    predictorData?.amPathogenicity,
-    predictorData?.amClass,
-    conservationData?.bayesdel,
-    /**
-     * This positional argument is labelled "ESM-1b" and evaluated against ESM1b's ClinGen
-     * bands (Bergquist 2025), so it must receive an ESM-1b score (precomputed in dbNSFP) and
-     * never another language model's ΔLLR.
-     */
-    conservationData?.esm1b ?? null,
-    {
-      metarnn: conservationData?.metarnn,
-      clinpred: conservationData?.clinpred,
-      popeve: conservationData?.popeve,
-      alphagenome: conservationData?.alphagenome,
-      caddCandidates: predictorData?.locusResolution?.failureKind === "multiple-candidates" ? predictorData.locusResolution.candidates : null,
-      // So a source the build gate declined is named in the consensus coverage line rather than
-      // silently omitted (see src/shared/thresholds/concordance.ts).
-      assemblyRefusals: conservationData?.assemblyRefusals
-    }
+  const insilico = evaluateInsilicoCriterion(
+    { gene, predictorData, conservationData, serviceStatus },
+    { skipPathogenicComp, skipBenignComp },
   );
-
-  const { nPathogenic, nBenign, nVus, available, unavailable } = concordance;
-  const nActiveAvailable = nPathogenic + nBenign + nVus;
-  const nAvailable = nActiveAvailable > 0 ? nActiveAvailable : available.length;
-
-  /**
-   * The reason text names every tool that voted, with its score, grouped by its call — the previous
-   * text listed CADD, REVEL, AlphaMissense (by class), popEVE and BayesDel only, so MetaRNN and
-   * ClinPred voted without appearing in the justification a curator reads.
-   */
-  const { pathogenicTools, benignTools, vusTools } = concordance;
-  const listTools = (tools: typeof pathogenicTools) => tools.map(t => `${t.name} ${t.scoreLabel}`).join(", ");
-  const voting = (tools: typeof pathogenicTools) => tools.filter(t => !t.isInformationalOnly);
-  const buildPredictorDetail = () => {
-    const parts = [
-      voting(pathogenicTools).length ? `pathogenic: ${listTools(voting(pathogenicTools))}` : null,
-      voting(benignTools).length ? `benign: ${listTools(voting(benignTools))}` : null,
-      voting(vusTools).length ? `indeterminate: ${listTools(voting(vusTools))}` : null,
-    ].filter(Boolean);
-    const informational = [...pathogenicTools, ...benignTools, ...vusTools].filter(t => t.isInformationalOnly);
-    return (
-      `Votes — ${parts.join("; ")}` +
-      (informational.length ? `. Informational, not counted: ${listTools(informational)}` : "") +
-      (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "")
-    );
-  };
-
-  /**
-   * The rule is `insilicoVoteOutcome` — the same function the Predictors tab reads — applied at
-   * Supporting strength.
-   *
-   * This block used to raise PP3 to Moderate (AVI Phred ≥ 25) or Strong (≥ 35), and BP4 to Moderate
-   * (≤ 5), from the AlphaGenome AVI alone. The AVI is a tail-quantile rank with no ClinGen
-   * calibration, and AlphaMissense is one of its own features, so a single uncalibrated composite
-   * decided the strength of a criterion the whole panel had voted on — and no surface said so.
-   * The strength now stays at Supporting, which is what an uncalibrated vote can carry.
-   */
-  const rawVote = insilicoVoteOutcome(concordance);
-
-  /**
-   * A salvaged composite (its budget expired) carries `modelStatus`. Only one of its models VOTES —
-   * the dbNSFP ensemble — so a vote taken while it is unanswered is a vote over a known-incomplete
-   * ensemble. The criterion is withheld, in the same way a timed-out gnomAD withdraws PM2, and the
-   * verdict stays revisable on a re-run. popEVE and AlphaGenome are informational in the concordance
-   * (`isInformationalOnly`) and SpliceAI does not vote, so their absence cannot change the tally and
-   * must not withhold it. The status is read from the
-   * payload, so every producer (stream, healer, structural recompute) applies the same rule.
-   */
-  const baseStatus = conservationData?.modelStatus?.base;
-  const ensembleIncomplete = baseStatus !== undefined && baseStatus !== "settled";
-  const vote = ensembleIncomplete ? { ...rawVote, code: null } : rawVote;
-
-  if (vote.code === "PP3" && !skipPathogenicComp) {
-    const consensusWord =
-      nPathogenic >= 2 ? `${nPathogenic}/${nAvailable} predictors agree on pathogenic impact` :
-                         `${nPathogenic}/${nAvailable} predictor supports pathogenic impact`;
-    const conflictNote =
-      nBenign >= 1
-        ? ` ⚠ Conflicting in-silico signals: ${nBenign} predictor(s) support benign.`
-        : "";
-
-    criteria.push({
-      code: "PP3",
-      reason:
-        `${consensusWord}. (${buildPredictorDetail()})${conflictNote}`,
-    });
-  } else if (vote.code === "BP4" && !skipBenignComp) {
-    const consensusWord =
-      nBenign >= 2 ? `${nBenign}/${nAvailable} predictors agree on benign impact` :
-                     `${nBenign}/${nAvailable} predictor supports benign impact`;
-    const conflictNote =
-      nPathogenic >= 1
-        ? ` ⚠ Conflicting in-silico signals: ${nPathogenic} predictor(s) support pathogenic.`
-        : "";
-
-    criteria.push({
-      code: "BP4",
-      reason: `${consensusWord}. (${buildPredictorDetail()})${conflictNote}`,
-    });
-  }
+  criteria.push(...insilico.criteria);
+  const available = insilico.available;
+  const unavailable = insilico.unavailable;
 
   // -------------------------------------------------------------------------
   // 2. PM2 / BS1 / BA1 — Population frequency
@@ -430,17 +332,9 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // -------------------------------------------------------------------------
   /**
    * The rule lives in `src/shared/functionalSites.ts` (`assessPm1`), which the Functional domains tab
-   * reads too. It replaced a test that took any UniProt active/binding/metal/disulfide annotation at the
-   * residue, whatever its evidence, read a disulfide bond as covering every residue between its two
-   * cysteines, and never applied the PP3 + PM1 ≤ Strong cap.
-   *
-   * The cap is wired but DORMANT in this engine, by design: PP3 is emitted at Supporting strength only
-   * (see the vote block above: the predictors are not calibrated per-criterion here), so `pp3Code` is
-   * always bare `PP3` (1 point) and 1 + PM1's 2 = 3 never exceeds Strong (4). It would bind only if the
-   * engine began emitting `PP3_Moderate`/`PP3_Strong` from the calibrated reference tool, which is an
-   * owner decision (doc/INDEPENDENT_AUDIT_RESPONSE.md, D2). `assessPm1` itself is covered for every
-   * strength in `functionalSites.test.ts`, and `acmg.test.ts` pins this dormancy so turning the
-   * calibrated strength on cannot silently bypass the cap.
+   * reads too. PM1 is capped with PP3 so the two together do not exceed Strong (Pejaver et al. 2022):
+   * when the primary calibrated predictor emits PP3_Strong (4 points), PM1 (2 points) is withheld
+   * (`withheld-cap`) and recorded in `unavailable`.
    */
   if (uniprotFeatures?.features && !skipPathogenicComp) {
     const pos = residuePos();
@@ -449,6 +343,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       const pm1 = assessPm1(uniprotFeatures.features as any[], pos, { pp3Code });
       if (pm1.status === "met") {
         criteria.push({ code: "PM1", reason: pm1.reason });
+      } else if (pm1.status === "withheld-cap" && !unavailable.includes(`PM1 (withheld: ${pm1.reason})`)) {
+        unavailable.push(`PM1 (withheld: ${pm1.reason})`);
       }
     }
   }

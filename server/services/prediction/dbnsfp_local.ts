@@ -52,8 +52,8 @@ export function localDbnsfpPath(): string {
  *   gerp            REAL,
  *   phylop          REAL,
  *   bayesdel        REAL,
- *   metarnn         REAL,
- *   clinpred        REAL,
+ *   metarnn         REAL,            -- in the store, no longer read (tool retired)
+ *   clinpred        REAL,            -- in the store, no longer read (tool retired)
  *   dann            REAL,            -- in the store, no longer read (tool retired)
  *   eigen           REAL,            -- in the store, no longer read (tool retired)
  *   esm1b           REAL,
@@ -345,8 +345,6 @@ export interface LocalDbnsfpRecord {
   gerp: number | null;
   phylop: number | null;
   bayesdel: number | null;
-  metarnn: number | null;
-  clinpred: number | null;
   esm1b: number | null;
   popeve: number | null;
   cadd: number | null;
