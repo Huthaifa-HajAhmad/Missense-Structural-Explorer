@@ -1121,7 +1121,7 @@ export const predictorDataSchema = z.object({
    * REQUIRED TO BE EXPLICIT, and deliberately nullable. The id is produced two ways and they
    * disagree: the Ensembl VEP path queries the GRCh38 host, while the MyVariant.info fallback
    * parses `hit._id`, which is hg19 by default and carries no build marker. Several downstream
-   * sources are single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4, AlphaGenome,
+   * sources are single-build (local dbNSFP, dbnsfp.org, gnomAD r4, AlphaGenome,
    * and one SpliceAI service per build), and a wrong-build coordinate does not merely miss —
    * when the other build's base at that numeric position coincides, it scores a DIFFERENT LOCUS
    * and the result is attributed to this variant.
@@ -1461,7 +1461,12 @@ export const conservationDataSchema = z.object({
      */
     provenance: z.object({
       /** "broad-lookup" (live) or "precomputed-dbnsfp" (frozen table). */
-      source: z.enum(["broad-lookup", "precomputed-dbnsfp", "genos"]),
+      source: z.preprocess(
+        // Analyses saved on a development machine carry "genos", a source that no longer exists: its
+        // scores were precomputed dbNSFP columns.
+        v => (v === "genos" ? "precomputed-dbnsfp" : v),
+        z.enum(["broad-lookup", "precomputed-dbnsfp"])
+      ),
       /** Reporting window the score was produced under (SpliceAI -D). */
       distanceBp: z.number().nullable().optional(),
       /** 1 = masked (recommended for interpretation), 0 = raw. */

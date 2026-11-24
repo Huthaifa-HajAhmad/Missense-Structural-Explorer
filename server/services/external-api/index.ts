@@ -4,7 +4,6 @@
 export * from "./clinvar.ts";
 export * from "./uniprot.ts";
 export * from "./gnomad.ts";
-export * from "./genos_web.ts";
 export * from "./string.ts";
 export * from "./ppi.ts";
 export * from "./japanfold-client.ts";

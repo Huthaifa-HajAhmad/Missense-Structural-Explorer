@@ -1,6 +1,7 @@
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { safeParseFloat } from "./normalizer.ts";
-import { type ConservationData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
+import { parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
+import { NO_DBNSFP_SCORES, type DbnsfpScores } from "./dbnsfp-scores.ts";
 import { sourceSupportsAssembly } from "../../../../src/shared/assembly.ts";
 import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 
@@ -15,7 +16,7 @@ export async function queryDbnsfpOrg(
   variant: string,
   gnomadVariantId?: string | null,
   assembly?: string | null
-): Promise<Partial<ConservationData> | null> {
+): Promise<DbnsfpScores | null> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   let variantQuery = '';
@@ -49,38 +50,39 @@ export async function queryDbnsfpOrg(
     const data = await res.json() as any;
     if (!data || !data.tabs) return null;
 
-    const cScores = data.tabs.conservative_scores?.rows?.[0] || {};
-    const allTrans = data.tabs.all_transcripts?.rows?.[0] || {};
-    const fPred = data.tabs.function_prediction?.rows?.[0] || {};
-
-    const revel = safeParseFloat(allTrans.REVEL ?? allTrans.REVEL_score ?? fPred.REVEL_score);
-    const gerp = safeParseFloat(cScores['GERP++_RS'] ?? allTrans['GERP++_RS'] ?? fPred['GERP++_RS']);
-    const phylop = safeParseFloat(cScores.phyloP100way_vertebrate ?? allTrans.phyloP100way_vertebrate ?? fPred.phyloP100way_vertebrate);
-    const bayesdel = safeParseFloat(allTrans.BayesDel_noAF_score ?? allTrans.BayesDel_noAF ?? fPred.BayesDel_noAF_score);
-    const metarnn = safeParseFloat(allTrans.MetaRNN ?? allTrans.MetaRNN_score ?? fPred.MetaRNN_score);
-    const clinpred = safeParseFloat(allTrans.ClinPred_score ?? allTrans.ClinPred ?? fPred.ClinPred_score);
-    const esm1b = safeParseFloat(allTrans.ESM1b ?? allTrans.ESM1b_score ?? fPred.ESM1b_score);
-    const popeve = safeParseFloat(allTrans.popEVE ?? allTrans.popEVE_score ?? fPred.popEVE_score);
-
-    if (
-      revel === null && gerp === null && phylop === null && bayesdel === null &&
-      metarnn === null && clinpred === null && esm1b === null && popeve === null
-    ) {
-      return null;
-    }
-
-    return {
-      revel,
-      gerp,
-      phylop,
-      bayesdel,
-      metarnn,
-      clinpred,
-      esm1b,
-      popeve
-    };
+    return scoresFromDbnsfpOrgTabs(data.tabs);
   } catch (err: any) {
     console.warn(`[dbNSFP.org Query Warning] Failed to query query.dbnsfp.org for ${variantQuery}:`, err.message);
     return null;
   }
+}
+
+type DbnsfpOrgRow = Record<string, unknown>;
+
+/**
+ * One record from the response's tabs. `function_prediction` holds the transcript the service
+ * selected (MANE Select where there is one); `all_transcripts` lists every transcript in no stated
+ * order, so its first row is read only when the selected row is missing. Every score comes from that
+ * one row, never mixed across transcripts. GERP++ and phyloP are per position and sit in
+ * `conservative_scores`. Null when no score is present.
+ */
+function scoresFromDbnsfpOrgTabs(tabs: Record<string, { rows?: DbnsfpOrgRow[] } | undefined>): DbnsfpScores | null {
+  const row = tabs.function_prediction?.rows?.[0] ?? tabs.all_transcripts?.rows?.[0] ?? {};
+  const conservation = tabs.conservative_scores?.rows?.[0] ?? {};
+  const read = (column: string) => safeParseFloat(row[column]);
+  const scores: DbnsfpScores = {
+    ...NO_DBNSFP_SCORES,
+    revel: read("REVEL_score"),
+    gerp: safeParseFloat(conservation["GERP++_RS"] ?? row["GERP++_RS"]),
+    phylop: safeParseFloat(conservation.phyloP100way_vertebrate ?? row.phyloP100way_vertebrate),
+    // The noAF score only: the calibrated BayesDel bands are for the score without allele frequency.
+    bayesdel: read("BayesDel_noAF_score"),
+    metarnn: read("MetaRNN_score"),
+    clinpred: read("ClinPred_score"),
+    esm1b: read("ESM1b_score"),
+    popeve: read("popEVE_score"),
+  };
+  const hasAny = [scores.revel, scores.gerp, scores.phylop, scores.bayesdel, scores.metarnn,
+    scores.clinpred, scores.esm1b, scores.popeve].some(v => v !== null);
+  return hasAny ? scores : null;
 }

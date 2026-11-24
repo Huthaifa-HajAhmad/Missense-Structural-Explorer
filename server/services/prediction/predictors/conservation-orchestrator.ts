@@ -1,23 +1,19 @@
-import { z } from "zod";
 import { conservationCache, getCachedOrFetch } from "../../infra/cache.ts";
-import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
-import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
-import { queryGenosWebservice } from "../../external-api/genos_web.ts";
 import { resolveSpliceProximity } from "../splice_resolver.ts";
 import { buildConservationKey } from "../../infra/cache-keys.ts";
-import { safeParseFloat, safeParseInt, toSingleAa, getFirstOrVal } from "./normalizer.ts";
-import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
+import { firstDbnsfpAnswer } from "./dbnsfp-sources.ts";
+import { NO_DBNSFP_SCORES } from "./dbnsfp-scores.ts";
 import { fetchProtVarConservation } from "../../external-api/protvar-conservation.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
 import { fetchSpliceAiBroadOutcome, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiOutcome } from "../../external-api/spliceai_broad.ts";
-import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, describeAssemblyRefusal, ASSEMBLY_REFUSAL_SOURCES } from "../../../../src/shared/assembly.ts";
+import { sourceSupportsAssembly, describeAssemblyRefusal, ASSEMBLY_REFUSAL_SOURCES } from "../../../../src/shared/assembly.ts";
 import { fallbackLocusSentence, locusFailureKind, locusRecoveryAction } from "../../../../src/shared/locusResolution.ts";
 import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
 
 /**
- * Overlays a live Broad SpliceAI score onto whatever the dbNSFP/Genos path produced.
+ * Overlays a live Broad SpliceAI score onto whatever the dbNSFP path produced.
  *
  * The precomputed `SpliceAI_pred_*` columns were generated against GENCODE v24 with a
  * 50 bp reporting window, so a variant absent from those tables yields null and the UI
@@ -62,7 +58,7 @@ function applyLiveSpliceAi<T extends ConservationData>(
   data: T,
   outcome: SpliceAiOutcome | null
 ): T {
-  // With no live score the frozen/Genos value stays, and the failure (if any) says why the live request missed.
+  // With no live score the frozen value stays, and the failure (if any) says why the live request missed.
   const fields = liveSpliceAiFields(outcome);
   return fields ? { ...data, ...fields } : data;
 }
@@ -107,31 +103,7 @@ export async function fetchLiveSpliceAiIfPossible(
   });
 }
 
-export const myVariantResponseSchema = z.object({
-  hits: z.array(z.object({
-    dbnsfp: z.object({
-      revel: z.any().optional(),
-      gerp: z.any().optional(),
-      "gerp++": z.any().optional(),
-      phylop: z.any().optional(),
-      bayesdel_noaf_score: z.any().optional(),
-      bayesdel: z.any().optional(),
-      hgvsp: z.any().optional(),
-      metarnn: z.any().optional(),
-      clinpred: z.any().optional(),
-      esm1b: z.any().optional(),
-      aou_ac: z.any().optional(),
-      aou_an: z.any().optional(),
-      aou_het: z.any().optional(),
-      aou_hom: z.any().optional(),
-      spliceai: z.any().optional(),
-      SpliceAI_pred_DS_AG: z.any().optional(),
-      SpliceAI_pred_DS_AL: z.any().optional(),
-      SpliceAI_pred_DS_DG: z.any().optional(),
-      SpliceAI_pred_DS_DL: z.any().optional()
-    }).optional()
-  })).optional()
-});
+export { myVariantResponseSchema } from "./myvariant-dbnsfp.ts";
 
 export async function fetchConservationData(
   gene: string,
@@ -140,7 +112,6 @@ export async function fetchConservationData(
   chainId?: string | null,
   pos?: number | null,
   gnomadVariantId?: string | null,
-  genosRec?: any | null,
   uniprotId?: string | null,
   transcriptId?: string | null,
   genomicPos?: number | null,
@@ -148,7 +119,7 @@ export async function fetchConservationData(
    * Build that `gnomadVariantId`'s coordinates belong to, when known.
    *
    * Participates in the cache key because this payload folds in single-build sources
-   * (local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload built from one build's
+   * (local dbNSFP, dbnsfp.org, PopEVE, gnomAD r4), so a payload built from one build's
    * coordinate is not a valid answer for another's. Absent means "unknown", which is a distinct
    * key rather than a default.
    */
@@ -163,8 +134,6 @@ export async function fetchConservationData(
     coordinateEnrichmentByCaller?: boolean;
   }
 ): Promise<ConservationData> {
-  const normGene = normalizeGeneSymbol(gene);
-  const cleanVar = normalizeVariantTo3Letter(variant);
   const cacheKey = buildConservationKey(gene, variant, pdbId, chainId, pos, gnomadVariantId, assembly);
 
   return getCachedOrFetch({
@@ -174,476 +143,93 @@ export async function fetchConservationData(
     ttlSeconds: 14 * 24 * 60 * 60,
     shouldCache: (res) => res.available === true,
     fetcher: async () => {
-      const resolvedPos = (pos !== undefined && pos !== null) 
-        ? pos 
-        : (() => {
-            const match = variant.match(/\d+/);
-            return match ? parseInt(match[0], 10) : null;
-          })();
-
-      const parsedIdCoord = gnomadVariantId ? parseGenomicCoordinateString(gnomadVariantId) : null;
-      const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null
-        // Build gate, same rule as the progressive path below: the exon model is GRCh38
-        // (rest.ensembl.org lookup), so a GRCh37 position must never be measured against it.
-        // This call site was the ungated landmine (unmapping defect F-5) — reachable the moment
-        // any caller passed a coordinate, and free to render wrong-locus geometry as measured.
-        && assembly !== null && assembly !== undefined
-        && sourceSupportsAssembly("splice-proximity", assembly as GenomeAssembly)
-        // The position must also BE the tagged id's locus: `assembly` is documented as the build
-        // `gnomadVariantId` belongs to, and nothing else ties `genomicPos` to it (review M5).
-        // An unrelated genomicPos beside a tagged id gets no geometry.
-        && parsedIdCoord !== null && parsedIdCoord.pos === genomicPos)
-        ? await resolveSpliceProximity(transcriptId, genomicPos, parsedIdCoord?.chrom ?? null)
-        : null;
+      const resolvedPos = pos ?? (variant.match(/\d+/) ? parseInt(variant.match(/\d+/)![0], 10) : null);
+      const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
+        assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
+      const coordinate = parseGenomicCoordinateString(gnomadVariantId);
+      const spliceProximity = await directSpliceProximity(transcriptId, genomicPos, coordinate, usableBy);
 
       /**
        * NOTE: live SpliceAI is deliberately NOT fetched here. It is fetched once in
        * `fetchConservationDataProgressive` — which has the parsed coordinate and its build — and
        * overlaid on the merged result there, so every provider path benefits from one request.
        */
-      const enrichCoordinateHere = !options?.coordinateEnrichmentByCaller;
-      // Residue conservation is keyed on the protein, not the coordinate. The progressive caller
-      // fetches it as its own model, so it is asked for here only on a direct call.
-      const scoreconsPromise: Promise<number | null> = enrichCoordinateHere && uniprotId && resolvedPos !== null
-        ? fetchScoreCons(uniprotId, resolvedPos)
-        : Promise.resolve(null);
-      const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
-        assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
+      const enrich = !options?.coordinateEnrichmentByCaller;
+      const [answer, enrichment] = await Promise.all([
+        firstDbnsfpAnswer({
+          gene,
+          variant,
+          resolvedPos,
+          // dbnsfp.org and the local store index GRCh38 only: another build keeps the protein query.
+          grch38AlleleId: coordinate && assembly === "GRCh38" ? gnomadVariantId! : null,
+        }),
+        enrich ? directEnrichment(coordinate, uniprotId ?? null, resolvedPos, usableBy) : null,
+      ]);
 
-      const defaultRes: ConservationData = {
-        available: false,
-        revel: null,
-        gerp: null,
-        phylop: null,
-        scorecons: null,
-        bayesdel: null,
-        metarnn: null,
-        metarnnPred: null,
-        clinpred: null,
-        clinpredPred: null,
-        esm1b: null,
-        esm1bPred: null,
-        popeve: null,
-        aouFrequency: null,
+      // AlphaGenome is quota-bound, so it is asked only for a variant some dbNSFP source knows.
+      const alphagenome = enrich && answer && coordinate && usableBy("alphagenome")
+        ? await fetchAlphaGenome(coordinate.chrom, coordinate.pos, coordinate.ref, coordinate.alt, {
+            // The build reaches the cache key, as on the progressive path.
+            assembly: assembly ?? undefined
+          }).catch(() => null) as AlphaGenomeAviData | null
+        : null;
+
+      let popeve = answer?.scores.popeve ?? enrichment?.popEVEFromCoordinate ?? null;
+      if (popeve === null && enrich) {
+        const online = fetchPopEVEScoreOnline(uniprotId || gene, variant);
+        popeve = await Promise.race([online, new Promise<null>(resolve => setTimeout(() => resolve(null), 2000))]);
+      }
+      const scores = answer?.scores ?? NO_DBNSFP_SCORES;
+      return {
+        available: answer !== null,
+        ...scores,
+        revelProvenance: answer && scores.revel !== null ? answer.revelProvenance : undefined,
+        scorecons: enrichment?.scorecons ?? null,
+        popeve,
         spliceProximity,
-        spliceai: null,
-        alphagenome: null
+        alphagenome,
+        ...(answer ? { source: answer.source } : {}),
       };
-
-      // 1. Try local SQLite dbNSFP if present
-      if (isLocalDbnsfpAvailable() && resolvedPos !== null) {
-        try {
-          const parsedGnomad = parseGenomicCoordinateString(gnomadVariantId);
-          /**
-           * The ALLELE, when a GRCh38 one is known: a protein change encoded by two nucleotide
-           * changes has two rows here, and the protein-only match refuses that as ambiguous — which
-           * sent an allele the store holds out to the network. Other builds keep the protein match
-           * (the store is GRCh38, and a GRCh37 coordinate would refuse every row).
-           */
-          const localAllele = parsedGnomad && assembly === "GRCh38"
-            ? { ...parsedGnomad, assembly: "GRCh38" as const }
-            : null;
-          const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant, localAllele);
-          if (rec) {
-            /**
-             * Same build gate as the progressive path, applied here too.
-             *
-             * This resolver is reachable with a coordinate (`gnomadVariantId` is a parameter), and
-             * PopEVE matches chrom/pos/ref/alt against a GRCh38-only index. Gating only
-             * the progressive call site would leave this one free to score the wrong locus the
-             * moment anyone passes a coordinate in.
-             */
-            const popEVEUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("popEVE");
-            const popEVEPromise = popEVEUsable
-              ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
-              : Promise.resolve(null);
-
-            // AlphaGenome is GRCh38-only — the same gate as its progressive-path sibling and
-            // the PopEVE call in this very block. Gating only the progressive call site
-            // left this one free to score an hg19 position against the GRCh38 model (review M-4).
-            const alphaPromise = (enrichCoordinateHere && parsedGnomad && usableBy("alphagenome"))
-              ? fetchAlphaGenome(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt, {
-                  // The build reaches the cache key, as on the progressive path: a GRCh38
-                  // entry must never be served for another build's numeric position.
-                  assembly: assembly ?? undefined
-                }).catch(() => null)
-              : Promise.resolve(null);
-
-            const [popEVEScore, scoreconsVal, alphaRes] = await Promise.all([popEVEPromise, scoreconsPromise, alphaPromise]);
-
-            let popEVEVal = rec.popeve ?? popEVEScore;
-            if (popEVEVal === null && enrichCoordinateHere) {
-              const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
-              const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
-              popEVEVal = await Promise.race([onlinePromise, fastTimeout]);
-            }
-
-            const resVal: ConservationData = {
-              available: true,
-              revel: rec.revel,
-              revelProvenance: (rec.revel ?? null) !== null ? readLocalDbnsfpVersion() ?? "local dbNSFP (version not recorded)" : undefined,
-              gerp: rec.gerp,
-              phylop: rec.phylop,
-              scorecons: scoreconsVal,
-              bayesdel: rec.bayesdel,
-              metarnn: rec.metarnn,
-              metarnnPred: null,
-              clinpred: rec.clinpred,
-              clinpredPred: null,
-              esm1b: rec.esm1b,
-              esm1bPred: null,
-              popeve: popEVEVal,
-              aouFrequency: (rec.aou_ac != null || rec.aou_an != null || rec.aou_het != null || rec.aou_hom != null) ? {
-                aouAC: rec.aou_ac,
-                aouAN: rec.aou_an ?? null,
-                aouHet: rec.aou_het ?? null,
-                aouHom: rec.aou_hom ?? null
-              } : null,
-              spliceProximity,
-              spliceai: (rec as any).SpliceAI_pred_DS_AG !== undefined || (rec as any).spliceai_ds_ag !== undefined ? (() => {
-                const ag = safeParseFloat((rec as any).SpliceAI_pred_DS_AG ?? (rec as any).spliceai_ds_ag);
-                const al = safeParseFloat((rec as any).SpliceAI_pred_DS_AL ?? (rec as any).spliceai_ds_al);
-                const dg = safeParseFloat((rec as any).SpliceAI_pred_DS_DG ?? (rec as any).spliceai_ds_dg);
-                const dl = safeParseFloat((rec as any).SpliceAI_pred_DS_DL ?? (rec as any).spliceai_ds_dl);
-                const hasAny = ag !== null || al !== null || dg !== null || dl !== null;
-                return {
-                  ds_ag: ag,
-                  ds_al: al,
-                  ds_dg: dg,
-                  ds_dl: dl,
-                  max_ds: hasAny ? Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0) : null
-                };
-              })() : null,
-              alphagenome: alphaRes ?? null,
-              source: "local dbNSFP"
-            };
-            return resVal;
-          }
-        } catch (err: any) {
-          console.warn(`[Local dbNSFP Query Error] Fallback to remote: ${err.message}`);
-        }
-      }
-
-      // 2. Try Genos Web Query service (Academic Tier 2 for SpliceAI, popEVE, BayesDel, ClinPred)
-      try {
-        const genosCoord = usableBy("genos") ? gnomadVariantId : null;
-        const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, genosCoord);
-        if (activeGenosRec) {
-          const scoreconsVal = await scoreconsPromise;
-
-          let popEVEVal = activeGenosRec.popeve;
-          if (popEVEVal === null && enrichCoordinateHere) {
-            popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
-          }
-
-          const resVal: ConservationData = {
-            available: true,
-            revel: activeGenosRec.revel,
-            revelProvenance: (activeGenosRec.revel ?? null) !== null ? "Genos Web Query" : undefined,
-            gerp: activeGenosRec.gerp,
-            phylop: activeGenosRec.phylop,
-            scorecons: scoreconsVal,
-            bayesdel: activeGenosRec.bayesdel,
-            metarnn: activeGenosRec.metarnn,
-            metarnnPred: null,
-            clinpred: activeGenosRec.clinpred,
-            clinpredPred: null,
-            esm1b: activeGenosRec.esm1b,
-            esm1bPred: null,
-            popeve: popEVEVal,
-            aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
-              aouAC: activeGenosRec.aou_ac,
-              aouAN: activeGenosRec.aou_an ?? null,
-              aouHet: activeGenosRec.aou_het ?? null,
-              aouHom: activeGenosRec.aou_hom ?? null
-            } : null,
-            spliceProximity,
-            spliceai: activeGenosRec.spliceai ? {
-              ds_ag: activeGenosRec.spliceai.ds_ag,
-              ds_al: activeGenosRec.spliceai.ds_al,
-              ds_dg: activeGenosRec.spliceai.ds_dg,
-              ds_dl: activeGenosRec.spliceai.ds_dl,
-              max_ds: (activeGenosRec.spliceai.ds_ag !== null || activeGenosRec.spliceai.ds_al !== null || activeGenosRec.spliceai.ds_dg !== null || activeGenosRec.spliceai.ds_dl !== null) ? Math.max(
-                activeGenosRec.spliceai.ds_ag || 0,
-                activeGenosRec.spliceai.ds_al || 0,
-                activeGenosRec.spliceai.ds_dg || 0,
-                activeGenosRec.spliceai.ds_dl || 0
-              ) : null
-            } : null,
-            source: "Genos Web Query"
-          };
-          return resVal;
-        }
-      } catch (err: any) {
-        console.warn(`[Genos Web Query Fallback Error] ${err.message}`);
-      }
-
-      // 3. Fast Tier 1 Baseline via Public query.dbnsfp.org (~900ms)
-      try {
-        const dbnsfpOrgCoord = usableBy("dbnsfpOrg") ? gnomadVariantId : null;
-        const pubDbnsfp = await queryDbnsfpOrg(gene, variant, dbnsfpOrgCoord);
-        if (pubDbnsfp && (pubDbnsfp.revel !== null || pubDbnsfp.gerp !== null || pubDbnsfp.phylop !== null)) {
-          const scoreconsVal = await scoreconsPromise;
-
-          let popEVEVal = pubDbnsfp.popeve ?? null;
-          if (popEVEVal === null && enrichCoordinateHere) {
-            popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
-          }
-
-          const resVal: ConservationData = {
-            available: true,
-            revel: pubDbnsfp.revel ?? null,
-            revelProvenance: (pubDbnsfp.revel ?? null) !== null ? "query.dbnsfp.org (release not stated)" : undefined,
-            gerp: pubDbnsfp.gerp ?? null,
-            phylop: pubDbnsfp.phylop ?? null,
-            scorecons: scoreconsVal,
-            bayesdel: pubDbnsfp.bayesdel ?? null,
-            metarnn: pubDbnsfp.metarnn ?? null,
-            metarnnPred: null,
-            clinpred: pubDbnsfp.clinpred ?? null,
-            clinpredPred: null,
-            esm1b: pubDbnsfp.esm1b ?? null,
-            esm1bPred: null,
-            popeve: popEVEVal,
-            aouFrequency: null,
-            spliceProximity,
-            spliceai: null,
-            source: "Public dbNSFP (dbnsfp.org)"
-          };
-          return resVal;
-        }
-      } catch (pubErr: any) {
-        console.warn(`[Public dbNSFP Query Error] ${pubErr.message}`);
-      }
-
-      // 4. Fallback to MyVariant.info with optimized field projection
-      const queryStr = (resolvedPos !== null)
-        ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
-        : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.bayesdel,dbnsfp.esm1b";
-      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
-  
-      try {
-        const myVariantPromise = fetchWithRetry(url, {
-          headers: { "Accept": "application/json" },
-          timeout: 15000
-        });
-
-        const popEVEPromise = gnomadVariantId && enrichCoordinateHere && usableBy("popEVE")
-          ? (async () => {
-              const parsed = parseGenomicCoordinateString(gnomadVariantId);
-              if (parsed) {
-                return fetchPopEVEScore(parsed.chrom, parsed.pos, parsed.ref, parsed.alt);
-              }
-              return null;
-            })()
-          : Promise.resolve(null);
-
-        const [res, scoreconsVal, popEVEScore] = await Promise.all([
-          myVariantPromise,
-          scoreconsPromise,
-          popEVEPromise
-        ]);
-
-        if (res.ok) {
-          const data = await res.json() as any;
-          const parsedData = myVariantResponseSchema.parse(data);
-          if (parsedData.hits && parsedData.hits.length > 0) {
-            const matchTerm3 = `p.${cleanVar}`.toLowerCase();
-            const mutMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
-            let matchTerm1 = "";
-            if (mutMatch) {
-              matchTerm1 = `p.${toSingleAa(mutMatch[1])}${mutMatch[2]}${toSingleAa(mutMatch[3])}`.toLowerCase();
-            }
-
-            const matchedHit = parsedData.hits.find(h => {
-              const hgvspField = h.dbnsfp?.hgvsp;
-              if (!hgvspField) return false;
-              const hgvspArray = Array.isArray(hgvspField) ? hgvspField : [hgvspField];
-              return hgvspArray.some(hVal => {
-                if (typeof hVal !== "string") return false;
-                const hLower = hVal.toLowerCase();
-                return hLower.includes(matchTerm3) || (matchTerm1 && hLower.includes(matchTerm1));
-              });
-            });
-            const hit = matchedHit;
-            if (!hit) {
-              let finalPopEVE = popEVEScore;
-              if (finalPopEVE === null && enrichCoordinateHere) {
-                finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
-              }
-              const missedRes: ConservationData = {
-                ...defaultRes,
-                scorecons: scoreconsVal,
-                popeve: finalPopEVE,
-              };
-              if (scoreconsVal === null && finalPopEVE === null) {
-                conservationCache.set(cacheKey, missedRes, { ttl: 5 * 60 * 1000 });
-              }
-              return missedRes;
-            }
-            const isExactMatch = true;
-
-            const dbnsfp = hit.dbnsfp;
-            if (dbnsfp) {
-              let revel: any = null;
-              if (isExactMatch && dbnsfp.revel) {
-                let rVal = dbnsfp.revel.score !== undefined ? dbnsfp.revel.score : dbnsfp.revel;
-                if (Array.isArray(rVal)) rVal = rVal[0];
-                revel = safeParseFloat(rVal);
-              }
-
-              // gerp/phylop are gated on the exact substitution like every other value: the query
-              // is `aa.pos`-based, so without a matched hgvsp the record is an ARBITRARY variant
-              // at the same protein position, and its conservation numbers would be attributed to
-              // this variant (unmapping defect F-8).
-              let gerp: any = null;
-              if (isExactMatch) {
-                const gerpObj = dbnsfp["gerp++"] || dbnsfp.gerp || {};
-                let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : (gerpObj.elements || gerpObj["gerp++_rs"] || null);
-                if (Array.isArray(gerpVal)) gerpVal = gerpVal[0];
-                gerp = safeParseFloat(gerpVal);
-              }
-
-              let phylop: any = null;
-              if (isExactMatch && dbnsfp.phylop) {
-                let phylopVal = dbnsfp.phylop["100way_vertebrate"]?.score !== undefined 
-                  ? dbnsfp.phylop["100way_vertebrate"].score 
-                  : (dbnsfp.phylop.vertebrate || dbnsfp.phylop["phylop100way_vertebrate"] || null);
-                if (Array.isArray(phylopVal)) phylopVal = phylopVal[0];
-                phylop = safeParseFloat(phylopVal);
-              }
-
-              let bayesdel: number | null = null;
-              if (isExactMatch) {
-                if (dbnsfp.bayesdel?.no_af?.score !== undefined && dbnsfp.bayesdel?.no_af?.score !== null) {
-                  let bVal = dbnsfp.bayesdel.no_af.score;
-                  if (Array.isArray(bVal)) bVal = bVal[0];
-                  bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
-                } else if (dbnsfp.bayesdel_noaf_score !== undefined && dbnsfp.bayesdel_noaf_score !== null) {
-                  let bVal = dbnsfp.bayesdel_noaf_score;
-                  if (Array.isArray(bVal)) bVal = bVal[0];
-                  bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
-                }
-              }
-
-              let metarnn: number | null = null;
-              let metarnnPred: string | null = null;
-              if (isExactMatch && dbnsfp.metarnn) {
-                let v = dbnsfp.metarnn.score;
-                if (Array.isArray(v)) v = v[0];
-                metarnn = v != null ? safeParseFloat(v) : null;
-                let p = dbnsfp.metarnn.pred;
-                if (Array.isArray(p)) p = p[0];
-                metarnnPred = typeof p === "string" ? p : null;
-              }
-
-              let clinpred: number | null = null;
-              let clinpredPred: string | null = null;
-              if (isExactMatch && dbnsfp.clinpred) {
-                const cp = Array.isArray(dbnsfp.clinpred) ? dbnsfp.clinpred[0] : dbnsfp.clinpred;
-                const cs = Array.isArray(cp?.score) ? cp.score[0] : cp?.score;
-                const cpred = Array.isArray(cp?.pred) ? cp.pred[0] : cp?.pred;
-                clinpred = cs != null ? safeParseFloat(cs) : null;
-                clinpredPred = typeof cpred === "string" ? cpred : null;
-              }
-
-              let esm1b: number | null = null;
-              let esm1bPred: string | null = null;
-              if (isExactMatch && dbnsfp.esm1b) {
-                let s = dbnsfp.esm1b.score;
-                if (Array.isArray(s)) s = s[0];
-                esm1b = s != null ? safeParseFloat(s) : null;
-                let ep = dbnsfp.esm1b.pred;
-                if (Array.isArray(ep)) ep = ep[0];
-                esm1bPred = typeof ep === "string" ? ep : null;
-              }
-
-              // EVE is never a stand-in for popEVE: EVE runs 0 to 1 (higher = harmful), popEVE is a
-              // negative proteome-wide scale.
-              let finalPopEVE = popEVEScore;
-              // When the progressive caller owns enrichment, it already started the online
-              // protein-file lookup; asking again here races it (the resolver caches only after a
-              // response, so both requests would go out). Its result is merged as `parts.popeve`.
-              if (finalPopEVE === null && enrichCoordinateHere) {
-                finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
-              }
-
-              let aouAC: number | null = null;
-              let aouAN: number | null = null;
-              let aouHet: number | null = null;
-              let aouHom: number | null = null;
-
-              if (isExactMatch && dbnsfp.aou_ac !== undefined) {
-                let val = Array.isArray(dbnsfp.aou_ac) ? dbnsfp.aou_ac[0] : dbnsfp.aou_ac;
-                aouAC = safeParseInt(val);
-              }
-              if (isExactMatch && dbnsfp.aou_an !== undefined) {
-                let val = Array.isArray(dbnsfp.aou_an) ? dbnsfp.aou_an[0] : dbnsfp.aou_an;
-                aouAN = safeParseInt(val);
-              }
-              if (isExactMatch && dbnsfp.aou_het !== undefined) {
-                let val = Array.isArray(dbnsfp.aou_het) ? dbnsfp.aou_het[0] : dbnsfp.aou_het;
-                aouHet = safeParseInt(val);
-              }
-              if (isExactMatch && dbnsfp.aou_hom !== undefined) {
-                let val = Array.isArray(dbnsfp.aou_hom) ? dbnsfp.aou_hom[0] : dbnsfp.aou_hom;
-                aouHom = safeParseInt(val);
-              }
-
-              const hasAou = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;
-
-              const db = dbnsfp as any;
-              const ag = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_ag ?? db.spliceai_pred_ds_ag ?? db.SpliceAI_pred_DS_AG ?? db.spliceai_ds_ag ?? (db.spliceai && db.spliceai['ds_ag']))) : null;
-              const al = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_al ?? db.spliceai_pred_ds_al ?? db.SpliceAI_pred_DS_AL ?? db.spliceai_ds_al ?? (db.spliceai && db.spliceai['ds_al']))) : null;
-              const dg = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_dg ?? db.spliceai_pred_ds_dg ?? db.SpliceAI_pred_DS_DG ?? db.spliceai_ds_dg ?? (db.spliceai && db.spliceai['ds_dg']))) : null;
-              const dl = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_dl ?? db.spliceai_pred_ds_dl ?? db.SpliceAI_pred_DS_DL ?? db.spliceai_ds_dl ?? (db.spliceai && db.spliceai['ds_dl']))) : null;
-              const hasSpliceAI = ag !== null || al !== null || dg !== null || dl !== null;
-
-              const resVal: ConservationData = { 
-                available: true, 
-                revel, 
-                revelProvenance: revel !== null ? "myvariant.info dbNSFP (release not stated)" : undefined,
-                gerp, 
-                phylop, 
-                scorecons: scoreconsVal,
-                bayesdel,
-                metarnn,
-                metarnnPred,
-                clinpred,
-                clinpredPred,
-                esm1b: esm1b,
-                esm1bPred: esm1bPred,
-                popeve: finalPopEVE,
-                aouFrequency: hasAou ? {
-                  aouAC,
-                  aouAN,
-                  aouHet,
-                  aouHom
-                } : null,
-                spliceProximity,
-                spliceai: hasSpliceAI ? {
-                  ds_ag: ag,
-                  ds_al: al,
-                  ds_dg: dg,
-                  ds_dl: dl,
-                  max_ds: Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0)
-                } : null,
-                source: "myvariant.info"
-              };
-              return resVal;
-            }
-          }
-        }
-      } catch (err: any) {
-        console.warn(`[Conservation Fetch Error] Failed to fetch MyVariant conservation: ${err.message}`);
-      }
-
-      // A live SpliceAI score is overlaid by the progressive caller, which holds the genomic
-      // coordinate; this function cannot resolve one (see the note above the aaMatch).
-      return defaultRes;
     }
   });
+}
+
+type UsableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) => boolean;
+type ParsedCoordinate = ReturnType<typeof parseGenomicCoordinateString>;
+
+/**
+ * Splice-site distance for a direct call. The exon model is GRCh38 (rest.ensembl.org lookup), so a
+ * position from another build is never measured against it, and the position must BE the tagged
+ * id's locus: an unrelated `genomicPos` beside a tagged id gets no geometry.
+ */
+async function directSpliceProximity(
+  transcriptId: string | null | undefined,
+  genomicPos: number | null | undefined,
+  coordinate: ParsedCoordinate,
+  usableBy: UsableBy
+): Promise<ConservationData["spliceProximity"]> {
+  if (!transcriptId || genomicPos == null || !usableBy("splice-proximity")) return null;
+  if (coordinate === null || coordinate.pos !== genomicPos) return null;
+  return resolveSpliceProximity(transcriptId, genomicPos, coordinate.chrom);
+}
+
+/**
+ * What a direct call fetches itself, since no progressive caller does it: ProtVar residue
+ * conservation (keyed on the protein) and the GRCh38-only PopEVE score.
+ */
+async function directEnrichment(
+  coordinate: ParsedCoordinate,
+  uniprotId: string | null,
+  resolvedPos: number | null,
+  usableBy: UsableBy
+) {
+  const [scorecons, popEVEFromCoordinate] = await Promise.all([
+    uniprotId && resolvedPos !== null ? fetchScoreCons(uniprotId, resolvedPos) : null,
+    coordinate && usableBy("popEVE")
+      ? fetchPopEVEScore(coordinate.chrom, coordinate.pos, coordinate.ref, coordinate.alt).catch(() => null)
+      : null,
+  ]);
+  return { scorecons, popEVEFromCoordinate };
 }
 
 export interface ProgressiveConservationContext {
@@ -653,14 +239,13 @@ export interface ProgressiveConservationContext {
   uniprotId?: string | null;
   /**
    * Build the caller's notation was expressed in. Every coordinate-consuming source in
-   * this pipeline is single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4
+   * this pipeline is single-build (local dbNSFP, dbnsfp.org, gnomAD r4
    * ids) or has a service per build (SpliceAI Lookup), so this decides routing — a
    * GRCh37 coordinate handed to a GRCh38 index either misses or, worse, resolves to a
    * different locus. Defaults to GRCh38, which is what every source here is pinned to.
    */
   assembly?: GenomeAssembly;
   predictorPromise?: Promise<any>;
-  genosPromise?: Promise<any>;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window (-D); defaults to `SPLICEAI_DEFAULT_DISTANCE`. */
@@ -704,7 +289,7 @@ export interface ConservationParts {
 const settledPart = (parts: ConservationParts, key: keyof ConservationParts) =>
   Object.prototype.hasOwnProperty.call(parts, key);
 
-/** Base fields while dbNSFP / Genos / MyVariant has not answered: not assessed, so all null. */
+/** Base fields while dbNSFP / MyVariant has not answered: not assessed, so all null. */
 const UNSETTLED_BASE: ConservationData = {
   available: false,
   revel: null,
@@ -817,7 +402,6 @@ export async function fetchConservationDataProgressive(
     pos,
     uniprotId,
     predictorPromise,
-    genosPromise,
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiDistance,
@@ -1001,18 +585,12 @@ export async function fetchConservationDataProgressive(
     return proximity;
   }));
 
-  // 4. Base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant).
+  // 4. Base conservation (local dbNSFP / dbnsfp.org / MyVariant).
   const baseTask = track("base", (async () => {
-    const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
-    const fastGenos = await Promise.race([
-      genosRecTask,
-      new Promise(r => setTimeout(() => r(null), 500))
-    ]);
-
     /**
      * The base payload's cache key includes the coordinate's build.
      *
-     * This payload folds in single-build sources (local dbNSFP, Genos, dbnsfp.org), so a result
+     * This payload folds in single-build sources (local dbNSFP, dbnsfp.org), so a result
      * assembled from one build's coordinates is not a valid answer for another's. The build lives
      * on the predictor metadata, so it is awaited here — the promise has already been started by
      * the caller, so this does not add a round trip, and the coordinate models above consume the
@@ -1032,12 +610,10 @@ export async function fetchConservationDataProgressive(
      *
      * REVEL, BayesDel, MetaRNN, ClinPred and CADD are per nucleotide change, and a
      * protein change can be encoded by more than one (Q867H: CAA→CAC or CAT). Queried as
-     * `GENE:p.…`, Genos and query.dbnsfp.org answer with whichever matching row comes first, so the
-     * scores could describe a different allele from the one analysed. Both are GRCh38-only, so the
-     * coordinate is passed only when it IS GRCh38; any other build keeps the protein query.
-     *
-     * The early Genos record (`fastGenos`) was queried by protein and does not say which allele it
-     * read, so it is not reused when the allele is known — Genos is asked by coordinate instead.
+     * `GENE:p.…`, query.dbnsfp.org answers with whichever matching row comes first, so the
+     * scores could describe a different allele from the one analysed. It and the local store are
+     * GRCh38-only, so the coordinate is passed only when it IS GRCh38; any other build keeps the
+     * protein query.
      */
     const alleleId =
       coordinateAssembly === "GRCh38" && parseGenomicCoordinateString(predictorLocus.id)
@@ -1051,7 +627,6 @@ export async function fetchConservationDataProgressive(
       null,
       pos,
       alleleId,
-      alleleId ? null : fastGenos,
       uniprotId,
       null,
       null,

@@ -280,17 +280,17 @@ END
 
     it("should progressively merge predictor enrichment into base conservation data", async () => {
       const { fetchConservationDataProgressive } = await import("../predictors.ts");
+      // The base scores come from query.dbnsfp.org; every other host stays offline.
+      vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+        if (!String(url).includes("query.dbnsfp.org")) throw new TypeError("offline");
+        return new Response(JSON.stringify({
+          tabs: { function_prediction: { rows: [{ REVEL_score: "0.85" }] } }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }));
 
       const mockPredictorPromise = Promise.resolve({
         gnomadVariantId: "17-7577121-G-A",
         transcriptId: "ENST00000269305"
-      });
-
-      const mockGenosPromise = Promise.resolve({
-        revel: 0.85,
-        gerp: 4.5,
-        phylop: 7.2,
-        popeve: 1.2
       });
 
       const result = await fetchConservationDataProgressive({
@@ -298,8 +298,7 @@ END
         variant: "p.R273H",
         pos: 273,
         uniprotId: "P04637",
-        predictorPromise: mockPredictorPromise,
-        genosPromise: mockGenosPromise
+        predictorPromise: mockPredictorPromise
       });
 
       expect(result).toBeDefined();
@@ -535,11 +534,12 @@ END
           conservative_scores: {
             rows: [{ "GERP++_RS": "4.2", "phyloP100way_vertebrate": "7.8" }]
           },
-          all_transcripts: {
-            rows: [{ REVEL: "0.45", MetaRNN: "0.82", ESM1b: "-6.5", popEVE: "-4.1" }]
-          },
           function_prediction: {
             rows: [{
+              REVEL_score: "0.45",
+              MetaRNN_score: "0.82",
+              ESM1b_score: "-6.5",
+              popEVE_score: "-4.1",
               DANN_score: "0.992",
               BayesDel_noAF_score: "0.15",
               ClinPred_score: "0.98",
@@ -580,11 +580,11 @@ END
           conservative_scores: {
             rows: [{ "GERP++_RS": "3.5", "phyloP100way_vertebrate": "6.1" }]
           },
-          all_transcripts: {
-            rows: [{ REVEL: "0.33", MetaRNN: "0.65", ESM1b: "-5.0" }]
-          },
           function_prediction: {
             rows: [{
+              REVEL_score: "0.33",
+              MetaRNN_score: "0.65",
+              ESM1b_score: "-5.0",
               DANN_score: "0.995",
               BayesDel_noAF_score: "0.22",
               ClinPred_score: "0.91",
@@ -931,8 +931,7 @@ END
             gnomadVariantAssembly: "GRCh38",
             transcriptId: "ENST00000379303",
             canonicalEnsemblId: "ENST00000336430"
-          }),
-          genosPromise: Promise.resolve(null)
+          })
         });
         // The exon model fetched is the canonical one — not the MANE transcript the
         // consequence-selection logic prefers for clinical display.
@@ -977,8 +976,7 @@ END
             gnomadVariantId: "X-23723975-C-A",
             gnomadVariantAssembly: "GRCh37",
             transcriptId: "ENST00000336430"
-          }),
-          genosPromise: Promise.resolve(null)
+          })
         });
         expect(res.spliceProximity).toBeNull();
         const sources = (res.assemblyRefusals ?? []).map(r => r.source);
@@ -1141,7 +1139,7 @@ END
       });
 
       try {
-        const res = await fetchConservationData("ACOT9", "p.Lys272Asn", null, null, 272, null, null, "Q9Y305", null, null, null);
+        const res = await fetchConservationData("ACOT9", "p.Lys272Asn", null, null, 272, null, "Q9Y305", null, null, null);
         expect(queryUrls.length).toBeGreaterThan(0);
         expect(queryUrls.some(u => /dbnsfp\.(dbscsnv|dann|eigen)/.test(decodeURIComponent(u)))).toBe(false);
         expect(res.revel).toBeCloseTo(0.065, 5);
@@ -1227,7 +1225,7 @@ END
       try {
         // (a) GRCh37 assembly beside the position → refused, no lookup.
         const refused = await fetchConservationData(
-          "ACOT9", "p.Lys272Asn", null, null, 272, "X-23723975-C-A", {}, "Q9Y305",
+          "ACOT9", "p.Lys272Asn", null, null, 272, "X-23723975-C-A", "Q9Y305",
           "ENST00000336430", 23723975, "GRCh37"
         );
         expect(refused.spliceProximity).toBeNull();
@@ -1235,7 +1233,7 @@ END
 
         // (b) GRCh38 assembly but genomicPos ≠ the tagged id's position → refused (M5).
         const untied = await fetchConservationData(
-          "ACOT9", "p.Lys272Asn", null, null, 272, "X-23705858-C-A", {}, "Q9Y305",
+          "ACOT9", "p.Lys272Asn", null, null, 272, "X-23705858-C-A", "Q9Y305",
           "ENST00000336430", 99999999, "GRCh38"
         );
         expect(untied.spliceProximity).toBeNull();
@@ -1246,7 +1244,7 @@ END
         // cache are module-level and survive clearAllCaches, so reusing an id from an earlier
         // test here would assert cache order, not the gate.
         const allowed = await fetchConservationData(
-          "ACOT9", "p.Lys272Asn", null, null, 272, "X-23705858-C-T", {}, "Q9Y305",
+          "ACOT9", "p.Lys272Asn", null, null, 272, "X-23705858-C-T", "Q9Y305",
           "ENST00000600009", 23705858, "GRCh38"
         );
         expect(lookupUrls.some(u => u.includes("ENST00000600009"))).toBe(true);

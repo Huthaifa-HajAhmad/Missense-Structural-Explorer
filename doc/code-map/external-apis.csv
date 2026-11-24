@@ -38,14 +38,12 @@ missense-resolve.duckdns.org,server/services/infra/http-client.ts
 myvariant.info,server/express-config.ts
 myvariant.info,server/services/external-api/adapters/service-adapters.ts
 myvariant.info,server/services/prediction/landscape.ts
-myvariant.info,server/services/prediction/predictors/conservation-orchestrator.ts
+myvariant.info,server/services/prediction/predictors/myvariant-dbnsfp.ts
 myvariant.info,server/services/prediction/predictors/vep-orchestrator.ts
 ontology.jax.org,server/services/evidence-context/hpo.ts
 pubmed.ncbi.nlm.nih.gov,server/services/llm/literature-rag.ts
 query.dbnsfp.org,server/services/external-api/adapters/service-adapters.ts
 query.dbnsfp.org,server/services/prediction/predictors/dbnsfp-query.ts
-query.genos.us,server/services/external-api/adapters/service-adapters.ts
-query.genos.us,server/services/external-api/genos_web.ts
 raw.githubusercontent.com,server/services/evidence-context/modelPhenotypes.ts
 rest.ensembl.org,server/services/evidence-context/alignment.ts
 rest.ensembl.org,server/services/external-api/adapters/service-adapters.ts

@@ -37,7 +37,6 @@ import {
   type AssemblyTaggedCoordinate,
 } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
-import { queryGenosWebservice } from "./genos_web.ts";
 import { predictStructuralDisruption, type DisruptionPrediction } from "../stability/biophysics.ts";
 import { computeRuleBasedACMG, type RuleBasedInsights } from "../prediction/acmg.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
@@ -350,11 +349,6 @@ async function runCoreFetch(
     return [];
   }));
 
-  const genosPromise = timeTask("genosWeb", queryGenosWebservice(gene, variant).catch(err => {
-    console.warn("[Genos Web Query Warning] Failed to run Genos web query:", err);
-    return null;
-  }));
-
   /**
    * The locus-dependent sources start on the local store's MANE locus instead of waiting for Ensembl
    * VEP, and are re-run on VEP's answer whenever the locus inputs differ (speculative-locus.ts). Each
@@ -576,7 +570,7 @@ async function runCoreFetch(
 
   let conservationHasError = false;
   /**
-   * This producer queries conservation/Genos by protein notation and carries no exact-allele
+   * This producer queries conservation by protein notation and carries no exact-allele
    * provenance for AoU. A canonical predictor ID alone cannot bind those counts to its ALT.
    * Only the separately queried, exact-coordinate local frequency result is trusted below.
    */
@@ -618,7 +612,6 @@ async function runCoreFetch(
       uniprotId,
       assembly,
       predictorPromise: locus,
-      genosPromise,
       alphagenomeApiKey,
       alphagenomeApiUrl,
       spliceaiDistance,
@@ -1129,20 +1122,6 @@ async function runCoreFetch(
   }));
 
   // Trailing background handlers to heal persisted records when slow network queries settle
-  genosPromise.then(async (genosRec) => {
-    if (genosRec) {
-      try {
-        const db = AnalysisDatabase.getInstance();
-        const existing = await db.getVariantAnalysisAsync(context.gene, context.variant, acmgWeighting);
-        if (existing?.payload) {
-          healCachedAnalysisIfPossible(existing.payload, context);
-        }
-      } catch (err: any) {
-        console.warn(`[Self-Healing Background Genos Error] ${err.message}`);
-      }
-    }
-  }).catch(() => {});
-
   clinvarPromise.then(async (cRes) => {
     if (cRes && cRes.classification !== "Not found in ClinVar") {
       try {

@@ -4,7 +4,6 @@ import {
   initStandardAdapters,
   ClinVarAdapter,
   DbnsfpAdapter,
-  GenosAdapter,
   UniProtAdapter,
   SidecarAdapter,
   EnsemblAdapter,
@@ -24,7 +23,7 @@ describe("External Service Adapters & Registry Tests", () => {
 
     expect(ids).toContain("clinvar");
     expect(ids).toContain("dbnsfp");
-    expect(ids).toContain("genos");
+    expect(ids).not.toContain("genos");
     expect(ids).toContain("uniprot");
     expect(ids).toContain("sidecar");
     expect(ids).toContain("ensembl");
@@ -63,9 +62,6 @@ describe("External Service Adapters & Registry Tests", () => {
       if (u.includes("einfo.fcgi")) {
         return new Response("{}", { status: 200 });
       }
-      if (u.includes("query.genos.us")) {
-        return new Response("{}", { status: 200 });
-      }
       if (u.includes("query.dbnsfp.org")) {
         return new Response("{}", { status: 200 });
       }
@@ -93,8 +89,7 @@ describe("External Service Adapters & Registry Tests", () => {
     expect(health.clinvar.healthy).toBe(true);
     expect(health.dbnsfp).toBeDefined();
     expect(health.dbnsfp.healthy).toBe(true);
-    expect(health.genos).toBeDefined();
-    expect(health.genos.healthy).toBe(true);
+    expect(health.genos).toBeUndefined();
     expect(health.uniprot).toBeDefined();
     expect(health.uniprot.healthy).toBe(true);
     expect(health.sidecar).toBeDefined();

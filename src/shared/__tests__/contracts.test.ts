@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  conservationDataSchema,
   translateVariantResponseSchema,
   coordinateLiftSchema,
   isBuildDegradedResult,
@@ -572,5 +573,15 @@ describe("conservation model status from older stored results", () => {
     for (const retired of ["dbscsnv", "dann", "eigenPhred", "eigenRaw"]) {
       expect(parsed).not.toHaveProperty(retired);
     }
+  });
+});
+
+describe("saved SpliceAI provenance from the retired Genos source", () => {
+  it("reads as precomputed dbNSFP, which is what Genos served", () => {
+    const parsed = conservationDataSchema.parse({
+      available: true, revel: null, gerp: null, phylop: null,
+      spliceai: { ds_ag: 0.1, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.1, provenance: { source: "genos" } },
+    });
+    expect(parsed.spliceai?.provenance?.source).toBe("precomputed-dbnsfp");
   });
 });

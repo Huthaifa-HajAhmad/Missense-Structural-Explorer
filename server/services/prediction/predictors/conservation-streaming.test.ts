@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   alphagenome: vi.fn(),
   spliceai: vi.fn(),
 }));
-vi.mock("../../external-api/genos_web.ts", () => ({ queryGenosWebservice: vi.fn(async () => null) }));
 vi.mock("./dbnsfp-query.ts", () => ({ queryDbnsfpOrg: vi.fn(async () => null) }));
 vi.mock("../dbnsfp_local.ts", () => ({
   isLocalDbnsfpAvailable: () => true,
@@ -66,7 +65,6 @@ describe("conservation models stream independently", () => {
       variant: "p.Arg273His",
       pos: 273,
       predictorPromise: Promise.resolve({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" }) as any,
-      genosPromise: Promise.resolve(null),
       alphagenomeApiKey: "key",
       onPartial,
     });
@@ -108,7 +106,7 @@ describe("conservation models stream independently", () => {
     const snapshots: ConservationData[] = [];
     const final = fetchConservationDataProgressive({
       gene: "GATA4", variant: "p.Ser159Cys", pos: 159, uniprotId: "P43694",
-      predictorPromise: predictor.promise, genosPromise: Promise.resolve(null),
+      predictorPromise: predictor.promise,
       onPartial: s => snapshots.push(s),
     });
     await vi.waitFor(() => expect(snapshots.at(-1)?.popeve).toBe(-3.376));
@@ -127,10 +125,15 @@ describe("conservation models stream independently", () => {
     const live = deferred<any>();
     mocks.spliceai.mockReturnValue(live.promise);
     mocks.alphagenome.mockResolvedValue(null);
-    mocks.local.mockResolvedValue({
-      revel: 0.9, gerp: 5, phylop: 7, popeve: null,
-      SpliceAI_pred_DS_AG: 0.1, SpliceAI_pred_DS_AL: 0.05, SpliceAI_pred_DS_DG: 0, SpliceAI_pred_DS_DL: 0,
-    });
+    // Only MyVariant carries the frozen SpliceAI columns; the local store has none.
+    mocks.local.mockResolvedValue(null);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).includes("myvariant.info")) throw new TypeError("offline");
+      return new Response(JSON.stringify({ hits: [{ dbnsfp: {
+        hgvsp: ["p.Arg273His"], revel: { score: 0.9 },
+        spliceai: { ds_ag: 0.1, ds_al: 0.05, ds_dg: 0, ds_dl: 0 },
+      } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
 
     const snapshots: ConservationData[] = [];
     const final = run(s => snapshots.push(s));

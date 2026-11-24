@@ -11,7 +11,6 @@
  *
  * That is not a cosmetic gap. Most of the evidence sources are single-build:
  *   local dbNSFP        hg38 columns
- *   Genos               sends `genome_build: 'hg38'`
  *   dbnsfp.org          sends `genome_build: 'hg38'`
  *   SpliceAI Lookup     separate service per build, client defaulted to GRCh38
  *   MyVariant.info      `_id` is hg19 by default, and was parsed as though it were GRCh38
@@ -88,7 +87,6 @@ export const ASSEMBLY_SUPPORT = {
   /** Local dbNSFP SQLite ingest carries hg38 columns only. */
   "dbnsfp-local": ["GRCh38"],
   /** Requests hard-code `genome_build: 'hg38'`. */
-  genos: ["GRCh38"],
   dbnsfpOrg: ["GRCh38"],
   /** gnomAD r4 variant ids are GRCh38. */
   "gnomad-variants": ["GRCh38"],

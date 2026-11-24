@@ -165,6 +165,40 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
       }
     });
 
+    it("reads the transcript query.dbnsfp.org selected (function_prediction), not the first of all_transcripts", async () => {
+      const origFetch = global.fetch;
+      // Shape and values from a real response (TP53 R175H, 17-7675088-C-T), with a
+      // non-MANE transcript moved to the front of all_transcripts.
+      global.fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+        tabs: {
+          conservative_scores: { rows: [{ "GERP++_RS": 5.409999847412109, phyloP100way_vertebrate: 6.163000106811523 }] },
+          function_prediction: { rows: [{
+            Ensembl_transcriptid: "ENST00000269305", MANE: "Select",
+            REVEL_score: "0.922", MetaRNN_score: "0.9912145", BayesDel_noAF_score: 0.5461900234222412,
+            ClinPred_score: 0.9928691983222961, ESM1b_score: "-10.123794", popEVE_score: null,
+          }] },
+          all_transcripts: { rows: [
+            // popEVE here belongs to another transcript: it must not fill the selected row's gap.
+            { Ensembl_transcriptid: "ENST00000714356", MANE: null, REVEL_score: null, ESM1b_score: "-10.613666", popEVE_score: "-5.2" },
+            { Ensembl_transcriptid: "ENST00000269305", MANE: "Select", REVEL_score: "0.922", ESM1b_score: "-10.123794" },
+          ] },
+        },
+      }), { status: 200 }));
+      try {
+        const res = await queryDbnsfpOrg("TP53", "R175H", "17-7675088-C-T", "GRCh38");
+        expect(res?.revel).toBe(0.922);
+        expect(res?.gerp).toBeCloseTo(5.41, 2);
+        expect(res?.phylop).toBeCloseTo(6.163, 3);
+        expect(res?.bayesdel).toBeCloseTo(0.5462, 4);
+        expect(res?.metarnn).toBe(0.9912145);
+        expect(res?.clinpred).toBeCloseTo(0.9929, 4);
+        expect(res?.esm1b).toBe(-10.123794);
+        expect(res?.popeve).toBeNull();
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
     it("never reads BayesDel_addAF as BayesDel: the calibrated bands are for the noAF score", async () => {
       const origFetch = global.fetch;
       global.fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
