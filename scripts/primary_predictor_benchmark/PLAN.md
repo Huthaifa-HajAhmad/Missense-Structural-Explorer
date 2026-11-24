@@ -148,3 +148,10 @@ Enumerate all `SequenceVariantInterpretation` specifications (`https://cspec.gen
 ## 6. Deviations
 
 *(None prior to execution. Any necessary ingestion deviation will be appended here with date and justification.)*
+
+- **2026-11-24 — Post-hoc amendment to §4.3 (after results were seen).** §4.3 ranks each tool alone and counts a
+  missing score as a miss, but the engine uses a fixed order in which the next tool answers when one has no score.
+  Whole orders were therefore compared as single units (`compare_chains.py`), with the §4.2 metrics, cohorts,
+  bootstrap and seed unchanged. REVEL-first beat the §4.3 result (BayesDel-first) on `H_Mod+` and `W_bal` on
+  `post_2023` and `post_2024`, and tied on `H_Mod+` with lower `W_bal` on `full_2star`. The owner adopted
+  REVEL-first. Details: `doc/PRIMARY_PREDICTOR_DECISION.md`, "Amendment".

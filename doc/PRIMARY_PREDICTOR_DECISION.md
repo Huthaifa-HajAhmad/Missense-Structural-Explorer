@@ -1,32 +1,58 @@
 # Decision: Primary Calibrated In-Silico Predictor & VCEP Override Policy (Phase 5a)
 
-**Status:** Proposed for owner approval (2026-11-24). No runtime engine code has changed yet (Phase 5b awaits PR #288 merge and owner sign-off on this record).
+**Status:** Approved by the owner (2026-11-24), with the amendment below. No runtime engine code has changed yet (Phase 5b follows the merge of PR #288).
 
-**Recommendation:**
-1. **Default primary calibrated predictor:** **BayesDel noAF** (`bayesdel`), emitting `PP3`/`BP4` up to its published ClinGen-calibrated strengths (`PP3_Strong` ≥ `0.50`, `PP3_Moderate` [`0.27`, `0.50`), `PP3` [`0.13`, `0.27`); `BP4` (`-0.36`, `-0.18`], `BP4_Moderate` ≤ `-0.36`; Pejaver et al. 2022).
-2. **Fixed fallback order when missing:** **BayesDel noAF → REVEL → AlphaMissense → ESM1b**.
+**Decision:**
+1. **Default primary calibrated predictor:** **REVEL** (`revel`), emitting `PP3`/`BP4` up to its published ClinGen-calibrated strengths (`PP3` [`0.644`, `0.773`), `PP3_Moderate` [`0.773`, `0.932`), `PP3_Strong` ≥ `0.932`; `BP4` (`0.183`, `0.290`], `BP4_Moderate` (`0.016`, `0.183`], `BP4_Strong` (`0.003`, `0.016`], `BP4_VeryStrong` ≤ `0.003`; Pejaver et al. 2022).
+2. **Fixed fallback order when the tool before has no score:** **REVEL → BayesDel noAF → AlphaMissense → ESM1b**.
 3. **Gene-level VCEP overrides:** Apply a **version-pinned, manually audited override table** derived from the 113 active Released ClinGen Criteria Specification (CSpec) Registry specs (`cspec.genome.network`), never live runtime parsing of CSpec prose.
 4. **Curator disagreement note:** When the active predictor emits `PP3` or `BP4` and any other calibrated predictor emits the opposite direction, display a visible disagreement note without altering the emitted criterion strength.
 
 This decision resolves Phase 5a of `doc/IN_SILICO_PRUNING_PLAN.md` (reopening D2 from `doc/INDEPENDENT_AUDIT_RESPONSE.md`).
 
+### Amendment: the pre-registered rule picked BayesDel noAF; the whole-chain comparison picks REVEL
+
+The pre-registered rule (`scripts/primary_predictor_benchmark/PLAN.md` §4.3) ranks each tool **alone** and counts a
+missing score as a miss. It selected **BayesDel noAF** (fallback `BayesDel noAF → REVEL → AlphaMissense → ESM1b`),
+and the single-tool results below are reported unchanged. But the engine never uses one tool alone: when the
+first tool has no score, the next one answers. REVEL has no score for about 16% of variants in the dbNSFP store
+(`Cov_A` `84.2%`), and most of BayesDel noAF's single-tool lead came from that gap, which the fallback fills in
+either order. Among variants REVEL does score, REVEL makes more Moderate-or-stronger calls and fewer
+wrong-direction calls than BayesDel noAF.
+
+The question the engine actually depends on is which **order** works best. That comparison was added after the
+pre-registered results were seen, so it is a **post-hoc amendment**, not part of the pre-registration. It reuses the
+same metrics and the same paired gene-cluster bootstrap (`2,000` replicates, seed `20261124`) on the same
+per-variant calls (`scripts/primary_predictor_benchmark/compare_chains.py`). REVEL-first minus BayesDel-first:
+
+| Cohort | `ΔH_Mod+` (95% CI) | `ΔW_bal` (95% CI) |
+|---|---:|---:|
+| `post_2023` (primary, `N = 4,857`) | **+2.22 pp** (`+0.68` to `+3.89`) | **−1.02 pp** (`−1.56` to `−0.45`) |
+| `post_2024` (strictest, `N = 1,753`) | **+3.63 pp** (`+1.09` to `+6.58`) | **−1.24 pp** (`−2.12` to `−0.30`) |
+| `full_2star` (`N = 66,847`) | −0.15 pp (`−0.66` to `+0.35`), tie | **−0.41 pp** (`−0.56` to `−0.27`) |
+
+REVEL first gives more Moderate-or-stronger calls **and** fewer wrong-direction calls on both held-out cohorts, ties
+on calls and still makes fewer errors on the full set, and is never worse. It also matches the ClinGen expert
+panels: 90 of the 113 active VCEP specifications set their PP3/BP4 rules on REVEL, and 3 on BayesDel, so most gene
+overrides change a REVEL cutoff instead of switching tools.
+
 ---
 
-## Why
+## Why (pre-registered single-tool results)
 
-1. **BayesDel noAF strictly Pareto-dominates all candidates in both pathogenic and benign Moderate+ calls.** On the primary post-training holdout (`post_2023`, `N = 4,857` variants across `1,331` genes), BayesDel noAF achieves **76.7%** `PP3_Moderate+` reach on P/LP variants and **51.6%** `BP4_Moderate+` reach on B/LB variants (`H_Mod+ = 61.7%`, 95% CI `58.6%–64.7%`). Paired gene-cluster bootstrap differences in `H_Mod+` exclude zero against every competitor: **+8.3 pp** over REVEL (95% CI `+5.3` to `+11.3 pp`), **+15.3 pp** over AlphaMissense (`+11.8` to `+18.8 pp`), and **+42.9 pp** over ESM1b (`+39.3` to `+46.6 pp`).
-2. **Highest variant coverage with near-zero drop-off.** BayesDel noAF scores **99.79%** of all `post_2023` ClinVar missense SNVs (and **99.60%** of `full_2star`, `66,580 / 66,847`), compared with **90.88%** for AlphaMissense, **84.17%** for REVEL, and **67.35%** for ESM1b. Together, the fallback chain covers **99.90%** (`post_2023`) / **99.92%** (`full_2star`).
-3. **Winner and fallback ranking are invariant across strict post-calibration and rare-benign holdouts.** BayesDel noAF → REVEL → AlphaMissense → ESM1b holds identically across `post_2023`, the strict post-Bergquist-2025 sensitivity cohort (`post_2024`, `N = 1,753`: `H_Mod+ = 54.1%` vs REVEL `48.5%`, AM `43.1%`, ESM1b `17.3%`), `post_2017` (`N = 41,928`), `full_2star` (`N = 66,847`), and rare benign alleles (`gnomAD AF < 0.001`, `N = 4,688`: `H_Mod+ = 61.5%`).
+1. **BayesDel noAF makes the most Moderate-or-stronger calls in both directions when each tool is ranked alone** (it does not dominate on errors: its wrong-direction rate is higher than REVEL's and AlphaMissense's). On the primary post-training holdout (`post_2023`, `N = 4,857` variants across `1,331` genes), BayesDel noAF achieves **76.7%** `PP3_Moderate+` reach on P/LP variants and **51.6%** `BP4_Moderate+` reach on B/LB variants (`H_Mod+ = 61.7%`, 95% CI `58.6%–64.7%`). Paired gene-cluster bootstrap differences in `H_Mod+` exclude zero against every competitor: **+8.3 pp** over REVEL (95% CI `+5.3` to `+11.3 pp`), **+15.3 pp** over AlphaMissense (`+11.8` to `+18.8 pp`), and **+42.9 pp** over ESM1b (`+39.3` to `+46.6 pp`).
+2. **Highest single-tool coverage.** BayesDel noAF scores **99.79%** of all `post_2023` ClinVar missense SNVs (and **99.60%** of `full_2star`, `66,580 / 66,847`), compared with **90.88%** for AlphaMissense, **84.17%** for REVEL, and **67.35%** for ESM1b. Together, the fallback chain covers **99.90%** (`post_2023`) / **99.92%** (`full_2star`).
+3. **The single-tool ranking is the same in every cohort.** BayesDel noAF → REVEL → AlphaMissense → ESM1b holds identically across `post_2023`, the strict post-Bergquist-2025 sensitivity cohort (`post_2024`, `N = 1,753`: `H_Mod+ = 54.1%` vs REVEL `48.5%`, AM `43.1%`, ESM1b `17.3%`), `post_2017` (`N = 41,928`), `full_2star` (`N = 66,847`), and rare benign alleles (`gnomAD AF < 0.001`, `N = 4,688`: `H_Mod+ = 61.5%`).
 4. **Subgroup stability separates BayesDel and REVEL from ESM1b and AlphaMissense.**
    - **ESM1b fails the pre-registered subgroup wrong-direction gate** on `post_2023` in both ordered residues (`W_bal = 8.56%`, excess `+2.09 pp` over next worst, 95% CI `+0.48` to `+3.88 pp`) and LoF-only genes (`W_bal = 7.59%`, excess `+2.70 pp`, 95% CI `+1.02` to `+4.58 pp`), misses ~30%–34% of variants, and hits `PP3_Strong` (`≤ -24.0`) on **0** `post_2023` / `post_2024` variants.
    - **AlphaMissense drops sharply in disordered regions (`pLDDT < 50`):** on `post_2023`, its pathogenic Moderate+ reach falls from `53.4%` in ordered domains to **38.5%** in disordered regions (`54.0% → 44.9%` on `full_2star`), whereas BayesDel maintains `84.2%` (`78.1%` on `full_2star`) and REVEL maintains `77.8%` (`70.0%` on `full_2star`).
-   - **BayesDel's trade-off — higher benign-side false-positive rate — is transparently surfaced by the disagreement note.** On `post_2023`, BayesDel's `W_B` (`PP3` on B/LB) is `7.17%` (`10.88%` on `post_2024`) vs AlphaMissense `3.45%` (`3.23%`) and REVEL `6.09%` (`9.28%`). However, when BayesDel's active call is in the **wrong** direction, another calibrated predictor disagrees **32.8%** of the time (`75 / 229` on `post_2023`; **39.3%** on `post_2024`), versus only **3.35%** (`132 / 3,935`) when the active call matches the ClinVar label — nearly a 10× enrichment for flagging potential misclassifications to curators.
+   - **BayesDel's trade-off is a higher benign-side false-positive rate.** On `post_2023`, BayesDel's `W_B` (`PP3` on B/LB) is `7.17%` (`10.88%` on `post_2024`) vs AlphaMissense `3.45%` (`3.23%`) and REVEL `6.09%` (`9.28%`). However, when BayesDel's active call is in the **wrong** direction, another calibrated predictor disagrees **32.8%** of the time (`75 / 229` on `post_2023`; **39.3%** on `post_2024`), versus only **3.35%** (`132 / 3,935`) when the active call matches the ClinVar label — nearly a 10× enrichment for flagging potential misclassifications to curators.
 
 ---
 
 ## Pre-Registered Protocol & Data Provenance
 
-Pre-registered plan, exact calibrated thresholds (pinned against `src/shared/thresholds/calibration.ts`), pure-stdlib metrics engine, and 14 unit tests were committed prior to running on real ClinVar × dbNSFP data (`scripts/primary_predictor_benchmark/PLAN.md`, `metrics.py`, `test_benchmark.py`, `run_vm_benchmark.py`, `audit_cspec.py`; outputs stored under git-ignored `logs/primary_predictor_bench/`).
+Pre-registered plan, exact calibrated thresholds (pinned against `src/shared/thresholds/calibration.ts`), pure-stdlib metrics engine, and 14 unit tests were committed prior to running on real ClinVar × dbNSFP data (`scripts/primary_predictor_benchmark/PLAN.md`, `metrics.py`, `test_benchmark.py`, `run_vm_benchmark.py`, `audit_cspec.py`; outputs stored under git-ignored `logs/primary_predictor_bench/`). The post-hoc chain comparison (`compare_chains.py`, `test_chain_comparison.py`) was added afterwards; it reads only the per-variant output `variant_calls.tsv.gz` and writes `chain_comparison.json` / `.md`.
 
 - **dbNSFP store (OCI VM, read-only):** `data/dbnsfp_v5.sqlite`, dbNSFP `5.4a`, `transcript_policy = mane` (`88,989,019` rows across `chr 1..22, X, Y, M`, ingested `2026-10-17T04:56:43Z`).
 - **ClinVar truth set (`variant_summary.txt.gz`):** HTTP `Last-Modified: Mon, 23 Nov 2026 13:53:33 GMT` (`sha256: 1d910abfb5b576d9...`, `458,570,768` bytes). Filtered to GRCh38, germline single-nucleotide variants, review status ≥ 2 stars, unambiguous `P/LP` or `B/LB`, canonical single-residue missense protein change (`pos > 1`), yielding **`66,847`** unique genomic variants (`P/LP = 25,303`, `B/LB = 41,544`; `0` conflicting duplicates).
@@ -117,7 +143,21 @@ ClinGen OddsPath targets (Tavtigian et al. 2018 / Pejaver et al. 2022): Supporti
 
 In both `post_2023` and `post_2024`, BayesDel noAF's empirical LR exceeds its published ClinGen target at every band it emits. (REVEL's `BP4_VeryStrong` saw `0:2` variants in `post_2023` and `0:0` in `post_2024`.)
 
-### 5. Sequential Fallback & Disagreement-Note Rates (`BayesDel → REVEL → AlphaMissense → ESM1b`)
+### 5. Sequential Fallback & Disagreement-Note Rates
+
+**Adopted order (`REVEL → BayesDel noAF → AlphaMissense → ESM1b`, post-hoc amendment):**
+
+| Cohort | Answered by REVEL | Answered by fallback | Still missing | Disagreement rate (all active calls) | Disagreement when call matches label | Disagreement when call is wrong direction |
+|---|---:|---:|---:|---:|---:|---:|
+| `post_2023` (`4,857`) | `4,088` (`84.17%`) | `764` (`15.73%`: 759 BayesDel, 5 AM) | `5` (`0.10%`) | `4.5%` (`187 / 4,125`) | `3.63%` (`143 / 3,944`) | **`24.31%`** (`44 / 181`) |
+| `post_2024` (`1,753`) | `1,469` (`83.80%`) | `281` (`16.03%`, all BayesDel) | `3` (`0.17%`) | `5.6%` (`83 / 1,490`) | `4.08%` (`57 / 1,398`) | **`28.26%`** (`26 / 92`) |
+| `full_2star` (`66,847`) | `56,015` (`83.80%`) | `10,780` (`16.13%`: 10,566 BayesDel, 187 AM, 27 ESM1b) | `52` (`0.08%`) | `3.6%` (`2,039 / 56,150`) | `2.80%` (`1,510 / 54,012`) | **`24.74%`** (`529 / 2,138`) |
+
+The note catches a smaller share of wrong-direction calls than under the BayesDel-first order (24% vs 33% on
+`post_2023`), but there are fewer wrong-direction calls to catch: on `post_2023`, wrong calls the note does **not**
+flag fall from `154` (BayesDel first) to `137` (REVEL first).
+
+**Pre-registered order (`BayesDel noAF → REVEL → AlphaMissense → ESM1b`), not adopted:**
 
 | Cohort | Answered by BayesDel | Answered by fallback | Still missing | Disagreement rate (all active calls) | Disagreement when call matches label | Disagreement when call is wrong direction |
 |---|---:|---:|---:|---:|---:|---:|
@@ -159,14 +199,17 @@ Therefore Phase 5b will ship an explicit, version-pinned TypeScript table (`cspe
 
 1. **Residual clinical diagnostic circularity:** Even on `post_2023` and `post_2024` ClinVar releases, diagnostic laboratories routinely include REVEL, BayesDel, and AlphaMissense (under `PP3`/`BP4`) when submitting classifications. Consequently, post-2023 ClinVar labels are **not** completely independent of the predictors' outputs — particularly on `PP3` reach, where labs may rely heavily on REVEL/BayesDel scores.
 2. **AlphaMissense population-frequency weak supervision:** Excluding pre-2024 ClinVar removes direct overlap with post-hoc calibration, not AlphaMissense's human/primate allele-frequency training prior. Removing common benign variants (`post_2023_rare_benign`, `gnomAD AF < 0.001`) left all four tools within `0.1–0.3 pp` of `post_2023`.
-3. **BayesDel benign false-positive rate vs Indeterminate rate:** BayesDel has higher `W_B` (`7.17%` on `post_2023`, `10.88%` on `post_2024`) than AlphaMissense (`3.45%` / `3.23%`), which converts many borderline variants into `Indeterminate` (`22.6%–24.3%`). The `32.8%–39.3%` disagreement rate on BayesDel's wrong calls motivates keeping the disagreement note prominent.
+3. **BayesDel benign false-positive rate vs Indeterminate rate:** BayesDel has higher `W_B` (`7.17%` on `post_2023`, `10.88%` on `post_2024`) than AlphaMissense (`3.45%` / `3.23%`), which converts many borderline variants into `Indeterminate` (`22.6%–24.3%`). Under the adopted order BayesDel answers only where REVEL has no score (about 16% of variants), so this rate applies to that share; the disagreement note stays prominent for it.
 4. **dbNSFP 5.4a transcript selection:** `dbnsfp_v5.sqlite` picks one transcript per locus (`MANE Select` for 80.2% of rows). AlphaMissense scores only canonical transcripts; ESM1b omits long/non-canonical proteins (`30–34%` missing in ClinVar) and never reached `PP3_Strong` (`≤ -24.0`) in `post_2023` or `post_2024`.
 5. **GoF sample size:** `post_2023` `gof_exclusive` has `141` variants (`49` genes), giving wide CIs; `full_2star` (`2,550` variants, `98` genes) confirms no tool triggers the subgroup wrong-direction gate there.
+6. **The adopted order comes from a post-hoc comparison.** The chain comparison was added after the pre-registered single-tool results were seen. It changes only the unit being ranked (an order instead of a tool); metrics, cohorts, bootstrap and seed are the pre-registered ones, and REVEL-first is better or tied on every cohort and both measures. It has not been tested on a cohort that was unseen when the amendment was made.
+7. **REVEL's coverage gap is a property of the store, not of REVEL alone.** About 16% of variants have no REVEL score in `dbnsfp_v5.sqlite` and are answered by BayesDel noAF. If a later store fills that gap, those variants move to REVEL; the chain comparison should then be rerun.
 
 ---
 
 ## What Would Reopen This Decision
 
-- A newly published ClinGen SVI calibration (post-Bergquist 2025) for a newer predictor showing **both** higher `H_Mod+` than BayesDel noAF on post-calibration ClinVar missense variants (with non-overlapping 95% gene-cluster bootstrap CI) **and** no subgroup wrong-direction failure.
-- Evidence from production audit logs (`logs/audit.jsonl`) that BayesDel noAF's benign-side `PP3` calls in a specific clinical gene family drive unacceptable curator overrides where no VCEP rule exists yet.
+- A newly published ClinGen SVI calibration (post-Bergquist 2025) for a newer predictor whose chain (that tool first, then the adopted order) shows **both** higher `H_Mod+` than the REVEL-first chain on post-calibration ClinVar missense variants (paired 95% gene-cluster bootstrap CI above zero) **and** no subgroup wrong-direction failure.
+- A new ClinVar release (variants classified after 2026-11-24) on which the BayesDel-first chain beats the REVEL-first chain on `H_Mod+` with a paired 95% CI above zero.
+- Evidence from production audit logs (`logs/audit.jsonl`) that the active tool's benign-side `PP3` calls in a specific clinical gene family drive unacceptable curator overrides where no VCEP rule exists yet.
 - A ClinGen SVI recommendation updating `PP3`/`BP4` combination or capping rules beyond Pejaver et al. 2022 and Walker et al. 2023.

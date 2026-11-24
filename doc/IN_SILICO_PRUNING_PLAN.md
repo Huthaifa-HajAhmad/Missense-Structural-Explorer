@@ -167,10 +167,13 @@ The choice is made by a comparison, with its rules written down before any resul
 - When the other calibrated tools point the opposite way, show a disagreement note to the curator. The
   strength does not change.
 
-The result is written up in `PRIMARY_PREDICTOR_DECISION.md` (pending owner approval before Phase 5b):
-**BayesDel noAF** is selected as primary (`BayesDel noAF → REVEL → AlphaMissense → ESM1b` fallback), paired with
-a version-pinned audited VCEP table covering the 113 active Released ClinGen CSpec specifications (`110` genes)
-and an informational disagreement note.
+The result is written up in `PRIMARY_PREDICTOR_DECISION.md` (approved 2026-11-24): **REVEL** is the primary
+tool, with the fixed order `REVEL → BayesDel noAF → AlphaMissense → ESM1b`, a version-pinned audited VCEP table
+covering the 113 active Released ClinGen CSpec specifications (`110` genes), and an informational disagreement
+note. The pre-registered single-tool rule picked BayesDel noAF, but it counted REVEL's missing scores (about
+16% in the store) as misses although the fallback fills them. Comparing whole orders (a post-hoc amendment,
+disclosed in the record), REVEL first gives more Moderate-or-stronger calls and fewer wrong-direction calls on
+both held-out cohorts, and matches 90 of the 113 VCEP specifications, which set their rules on REVEL.
 
 ### Phase 6 — Energetics remote engines (approved, after the VM checks)
 
