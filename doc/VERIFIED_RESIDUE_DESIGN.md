@@ -159,8 +159,10 @@ Routes that take a position, and so need the proof (six files, not two): `analys
 
 - **Inventory.** Besides the routes above: `GET /pdb/entry/:pdbId?uniprot=&pos=&wt=` and
   `POST /structure/multimer/import`. `GET /alphafold-pdb/:uniprotId` takes no position and needs no proof.
-- **How the proof travels.** POST routes take `numberingProof` in the body (`requestFieldsOf` already sends it to
-  every analysis, landscape, structural, multimer and PPI request). GET routes take it in an `X-Numbering-Proof`
+- **How the proof travels.** POST routes take `numberingProof` in the body. `requestFieldsOf` sends it to every
+  analysis, landscape and structural request, and FoldX sends it to `/generate-mutant`; the multimer and PPI
+  requests (`fetchProgressiveMultimer`, `fetchProgressivePpi`) still send only gene, variant and accession, and
+  gain it with their server check in B2. GET routes take it in an `X-Numbering-Proof`
   header, not the URL, so proofs stay out of the request log. The browser does not send the header in step A:
   `fetchHomologStructures` and `fetchPdbCoordinates` take long positional argument lists, so the header is added
   together with the server check, with those signatures changed to one options object.
@@ -178,6 +180,11 @@ Routes that take a position, and so need the proof (six files, not two): `analys
   entry says `caller-structure`. Known defect, not fixed: with a caller's structure, `/generate-mutant` still asks
   RaSP and ProtVar FoldX for the UniProt accession at the file's position, which is another residue when the
   file's numbering differs.
+- **A user's choice is not a proof on its own.** `user-confirmed` is named only when the check found two readings
+  and the reader chose the canonical one. Without an answer from the check, or without an ambiguity, the reader's
+  "these numbers are canonical" proves nothing and the residue stays `unverified` (or `canonical-vs-mane`).
+- **`POST /numbering-proof` signs only what it checks.** It ignores a proof sent to it, so an old proof cannot be
+  renewed.
 - **B1 and coordinate input.** Without a valid proof the parser falls back to its own canonical-versus-MANE check,
   so an unverified coordinate translation can be named `canonical-vs-mane`. B1 must accept only `genomic` or
   `declared-protein` when the request carries a coordinate.
