@@ -12,6 +12,7 @@ import {
   buildPredictorEvidence,
   groupReadings,
   informationalSummary,
+  isReadingParticipatingInRule,
   predictorSummary,
   type PredictorEvidence,
   type PredictorReading,
@@ -85,12 +86,14 @@ function CaveatChips({ reading }: { reading: PredictorReading }) {
 
 function ReadingRow({
   reading,
+  inActiveRule,
   onKnowledge,
   onAction,
   onTabChange,
   cutLines,
 }: {
   reading: PredictorReading;
+  inActiveRule: boolean;
   /** The cut-points in words ("PP3 ≥ 0.644 · 0.773 · 0.932"), so a number can be read off without a hover. */
   cutLines?: string[];
   onKnowledge: (key: string) => void;
@@ -185,7 +188,7 @@ function ReadingRow({
             >
               {formatEvidenceCode(reading.callLabel)}
             </span>
-            {reading.chainKey === null && reading.calibrated && <span className="prd-call__sub">not counted</span>}
+            {!inActiveRule && reading.calibrated && <span className="prd-call__sub">not counted</span>}
           </>
         ) : (
           <span className="ev-tier" data-tone={pending ? "neutral" : "muted"}>
@@ -320,7 +323,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
           </span>
         </p>
 
-        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} primaryKey={evidence.readings.find(r => r.chainKey !== null && r.chainKey === evidence.primary.activeTool)?.key ?? null} />}
+        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} primaryKey={evidence.readings.find(r => (r.chainKey ?? (r.key === 'cadd' ? 'cadd' : null)) === evidence.primary.activeTool)?.key ?? null} />}
 
         {!workspace.enabled && <><ChainRow evidence={evidence} /><PrimaryToolRow evidence={evidence} /></>}
 
@@ -397,6 +400,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
                   <ReadingRow
                     key={r.key}
                     reading={r}
+                    inActiveRule={isReadingParticipatingInRule(r, evidence.primary)}
                     onKnowledge={setKnowledgeKey}
                     onAction={openConnections}
                     onTabChange={onTabChange}

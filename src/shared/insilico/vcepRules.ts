@@ -1,5 +1,5 @@
 import type { CalibratedCall, EvidenceStrength } from "../thresholds/calibration.ts";
-import { matchesThresholdBound, type VcepInsilicoRule, type VcepToolKey, type VcepToolSpec } from "./vcepTypes.ts";
+import { matchesThresholdBound, type VcepInsilicoRule, type VcepPp3Strength, type VcepToolKey, type VcepToolSpec } from "./vcepTypes.ts";
 import { VCEP_REVEL_SINGLE_RULES } from "./vcepDataRevelSingle.ts";
 import { VCEP_REVEL_MULTI_RULES } from "./vcepDataRevelMulti.ts";
 import { VCEP_SPECIAL_RULES } from "./vcepDataSpecial.ts";
@@ -24,6 +24,7 @@ const VCEP_BY_GENE = new Map<string, VcepInsilicoRule>(
   ALL_VCEP_RULES.map(rule => [rule.gene.toUpperCase(), rule]),
 );
 
+const PP3_STRENGTH_ORDER: readonly VcepPp3Strength[] = ["Strong", "Moderate", "Supporting"];
 const STRENGTH_ORDER: readonly EvidenceStrength[] = ["VeryStrong", "Strong", "Moderate", "Supporting"];
 
 function finite(v: number | null | undefined): number | null {
@@ -31,6 +32,7 @@ function finite(v: number | null | undefined): number | null {
 }
 
 function codeFor(dir: "PP3" | "BP4", s: EvidenceStrength): CalibratedCall["code"] {
+  if (dir === "PP3" && s === "VeryStrong") return "PP3_Strong";
   return (s === "Supporting" ? dir : `${dir}_${s}`) as CalibratedCall["code"];
 }
 
@@ -50,7 +52,7 @@ export function vcepRuleRequiresDbnsfp(rule: VcepInsilicoRule | null | undefined
 
 /** Evaluates a single tool's score against a VCEP's audited strength bounds (strongest band wins). */
 export function evaluateVcepBand(spec: VcepToolSpec, score: number): CalibratedCall {
-  for (const strength of STRENGTH_ORDER) {
+  for (const strength of PP3_STRENGTH_ORDER) {
     const bound = spec.pp3[strength];
     if (bound && matchesThresholdBound(score, bound, "PP3")) {
       return { code: codeFor("PP3", strength), direction: "PP3", strength };

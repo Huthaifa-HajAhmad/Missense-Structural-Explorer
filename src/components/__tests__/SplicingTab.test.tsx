@@ -58,16 +58,49 @@ describe("SplicingTab — scored variant", () => {
     });
 
   it("labels splicing PP3 under Walker 2023 and keeps splicing BP4 dashed as gate-only", () => {
-    renderTab(scored(0.45));
+    const pp3Render = renderTab(scored(0.45));
     const pp3Chip = screen.getByTestId("splicing-verdict");
     expect(pp3Chip.textContent).toBe("PP3 · splicing");
     expect(pp3Chip.getAttribute("aria-label")).toMatch(/Walker 2023 splicing rule/);
+    pp3Render.unmount();
 
-    renderTab(scored(0.03));
-    const chips = screen.getAllByTestId("splicing-verdict");
-    const bp4Chip = chips[chips.length - 1];
+    const bp4Render = renderTab(scored(0.03));
+    const bp4Chip = screen.getByTestId("splicing-verdict");
     expect(bp4Chip.textContent).toBe("BP4 · splicing");
     expect(bp4Chip.className).toContain("spl-verdict--unapplied");
+    bp4Render.unmount();
+  });
+
+  it("accurately explains single PP3 from SpliceAI without falsely claiming missense also supported PP3", () => {
+    renderTab(nae1Reference({
+      metadata: { gene: "GBA1", variant: "p.Asn370Ser", uniprotId: "P04062", residueIndex: 370 },
+      conservationData: {
+        revel: 0.002,
+        spliceai: { ds_ag: 0.01, ds_al: 0.45, ds_dg: 0, ds_dl: 0, max_ds: 0.45, dp: { ds_ag: 3, ds_al: -12, ds_dg: 0, ds_dl: 1 } },
+      },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "SpliceAI 0.45" }] },
+    }));
+    const callout = screen.getByTestId("relation-callout").textContent ?? "";
+    expect(callout).not.toContain("Both missense and splicing evidence support PP3");
+    expect(callout).toMatch(/from SpliceAI/i);
+  });
+
+  it("uses VCEP splicing thresholds in both SplicingTab and SplicingRail for PAH", () => {
+    const pahResult = nae1Reference({
+      metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", residueIndex: 408 },
+      conservationData: {
+        revel: 0.002,
+        spliceai: { ds_ag: 0, ds_al: 0.25, ds_dg: 0, ds_dl: 0, max_ds: 0.25, dp: { ds_ag: 0, ds_al: -12, ds_dg: 0, ds_dl: 0 } },
+      },
+      ruleBasedInsights: { acmgCriteria: [] },
+    });
+    const tab = renderTab(pahResult);
+    expect(screen.getByTestId("splicing-verdict").textContent).toBe("No splicing criterion");
+    tab.unmount();
+
+    render(<SplicingRail analysisResult={pahResult} />);
+    const bands = screen.getByTestId("splicing-bands").textContent ?? "";
+    expect(bands).toContain("> 0.50");
   });
 
   it("warns when splicing supports PP3 and the engine recorded BP4", () => {

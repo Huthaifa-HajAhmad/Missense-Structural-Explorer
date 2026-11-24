@@ -7,6 +7,7 @@ import {
   CHAIN_TOOL_LABEL,
   PREDICTOR_TOOL_LABEL,
   decidePrimaryInsilico,
+  formatPredictorScore,
   primaryInsilicoInputFromResult,
   type ActivePredictorTool,
   type PrimaryInsilicoDecision,
@@ -14,13 +15,6 @@ import {
 import { validCaddScore } from "../../../../src/shared/candidateScores.ts";
 import type { ACMGItem } from "./classifier.ts";
 import type { ACMGEvidenceInput, CriteriaEvaluationResult } from "./criteria.ts";
-
-function formatPredictorScore(tool: ActivePredictorTool, score: number): string {
-  if (tool === "esm1b") return score.toFixed(2);
-  if (tool === "cadd") return score.toFixed(1);
-  if (tool === "spliceai") return score.toFixed(2);
-  return score.toFixed(3);
-}
 
 function informationalTail(
   predictorData: ACMGEvidenceInput["predictorData"],
@@ -92,7 +86,7 @@ function buildCriterionReason(
 export function evaluateInsilicoCriterion(
   input: Pick<ACMGEvidenceInput, "gene" | "predictorData" | "conservationData" | "serviceStatus"> & { hasPvs1?: boolean },
   gates: { skipPathogenicComp: boolean; skipBenignComp: boolean },
-): CriteriaEvaluationResult {
+): Omit<CriteriaEvaluationResult, "insilicoHasPvs1"> {
   const decision = decidePrimaryInsilico(
     primaryInsilicoInputFromResult({
       gene: input.gene,

@@ -15,6 +15,31 @@ export interface SpliceAiChannels {
   ds_dl?: number | null;
 }
 
+export interface SplicePredictorDataLike {
+  gnomadVariantId?: string | null;
+  gnomadVariantAssembly?: string | null;
+  locusResolution?: {
+    canonicalBy?: string | null;
+    failureKind?: string | null;
+    [key: string]: unknown;
+  } | null;
+  [key: string]: unknown;
+}
+
+export interface SpliceConservationDataLike {
+  spliceai?: (SpliceAiChannels & { max_ds?: number | null }) | null;
+  modelStatus?: { spliceai?: "pending" | "settled" | "timeout" | string | null; [key: string]: unknown } | null;
+  spliceaiFailure?: SpliceAiFailureLike | null;
+  assemblyRefusals?: ReadonlyArray<{ source?: string; reason?: string }> | null;
+  [key: string]: unknown;
+}
+
+export interface SpliceServiceStatusLike {
+  predictorData?: string | null;
+  conservationData?: string | null;
+  [key: string]: unknown;
+}
+
 export interface SpliceAiGateInput {
   maxDs: number | null;
   status: "pending" | "settled" | "timeout" | null;
@@ -48,7 +73,7 @@ export function finiteScore(v: number | null | undefined): number | null {
 }
 
 /** True only when `predictorData` carries a parseable genomic coordinate with an explicit assembly supported by SpliceAI. */
-export function hasValidSpliceCoordinate(predictorData: any): boolean {
+export function hasValidSpliceCoordinate(predictorData: SplicePredictorDataLike | null | undefined): boolean {
   const id = predictorData?.gnomadVariantId;
   const assembly = predictorData?.gnomadVariantAssembly;
   if (typeof id !== "string" || !parseGenomicCoordinateString(id)) return false;
@@ -56,16 +81,16 @@ export function hasValidSpliceCoordinate(predictorData: any): boolean {
 }
 
 function resolveCoordinateBlock(
-  predictorData: any,
-  conservationData: any,
-  serviceStatus: any,
+  predictorData: SplicePredictorDataLike | null | undefined,
+  conservationData: SpliceConservationDataLike | null | undefined,
+  serviceStatus: SpliceServiceStatusLike | null | undefined,
   failure: SpliceAiFailureLike | null,
   maxDs: number | null,
 ): { blocked: boolean; reason: string | null } {
   if (failure?.kind === "coordinate-rejected") {
     return { blocked: true, reason: "SpliceAI rejected this coordinate, so splicing cannot be cleared for BP4." };
   }
-  const refusal = conservationData?.assemblyRefusals?.find?.((r: { source?: string; reason?: string }) => r.source === "spliceai-lookup");
+  const refusal = conservationData?.assemblyRefusals?.find?.(r => r.source === "spliceai-lookup");
   if (refusal) {
     return { blocked: true, reason: refusal.reason ?? "SpliceAI did not score this coordinate's genome build, so BP4 is withheld." };
   }
@@ -85,7 +110,7 @@ function resolveCoordinateBlock(
         : "Coordinate resolution did not finish, so splicing was not checked and BP4 is withheld.",
     };
   }
-  if (predictorData != null && "gnomadVariantId" in predictorData && predictorData.gnomadVariantId === null) {
+  if (predictorData != null && "gnomadVariantId" in predictorData && predictorData.gnomadVariantId == null) {
     return { blocked: true, reason: "No nucleotide locus was resolved for this variant, so splicing was not checked and BP4 is withheld." };
   }
   if (conservationData?.modelStatus?.spliceai === "settled" && maxDs === null && failure === null) {
@@ -98,14 +123,15 @@ function resolveCoordinateBlock(
  * Extracts the SpliceAI gate inputs identically for both the ACMG engine and UI surfaces.
  */
 export function resolveSpliceAiGateInput(params: {
-  predictorData?: any;
-  conservationData?: any;
-  serviceStatus?: any;
+  predictorData?: SplicePredictorDataLike | null;
+  conservationData?: SpliceConservationDataLike | null;
+  serviceStatus?: SpliceServiceStatusLike | null;
 }): SpliceAiGateInput {
   const { predictorData, conservationData, serviceStatus } = params;
   const sp = conservationData?.spliceai;
   const maxDs = finiteScore(sp?.max_ds);
-  const explicitStatus = conservationData?.modelStatus?.spliceai ?? null;
+  const rawExplicit = conservationData?.modelStatus?.spliceai;
+  const explicitStatus = rawExplicit === "pending" || rawExplicit === "settled" || rawExplicit === "timeout" ? rawExplicit : null;
   const compositeStatus = serviceStatus?.conservationData;
   const status = explicitStatus ?? (
     compositeStatus === "pending" ? "pending"
@@ -233,7 +259,7 @@ export function evaluateSplicePp3(
   vcepRule?: VcepInsilicoRule | null,
   hasPvs1 = false,
 ): SplicePp3Call | null {
-  if (hasPvs1 || !spliceAi || spliceAi.maxDs === null) return null;
+  if (hasPvs1 || !spliceAi || spliceAi.maxDs === null || spliceAi.coordinateBlocked || spliceAi.failure !== null) return null;
   const maxDs = spliceAi.maxDs;
   const spec = vcepRule?.splice?.pp3Missense;
   if (spec === "none") return null;

@@ -87,7 +87,8 @@ export interface PrimaryInsilicoDecision {
 
 const STRENGTH_RANK: Record<EvidenceStrength, number> = { Supporting: 1, Moderate: 2, Strong: 3, VeryStrong: 4 };
 
-function fmtScore(tool: ActivePredictorTool, score: number): string {
+/** Canonical score decimal precision for computational predictor tools. */
+export function formatPredictorScore(tool: ActivePredictorTool, score: number): string {
   return tool === "cadd" ? score.toFixed(1) : tool === "esm1b" || tool === "spliceai" ? score.toFixed(2) : score.toFixed(3);
 }
 
@@ -135,10 +136,16 @@ function buildChainEntries(scores: PrimaryInsilicoInput["scores"]): ChainToolSco
 
 function findDisagreeingTools(
   chain: ChainToolScore[], activeKey: ActivePredictorTool, direction: "PP3" | "BP4",
+  vcepRule: VcepInsilicoRule | null, vcepApplied: boolean,
 ): DisagreeingChainTool[] {
+  const allowedTools = vcepApplied && vcepRule && "tools" in vcepRule.rule
+    ? new Set<string>(vcepRule.rule.tools.map(t => t.tool))
+    : null;
   return chain
     .filter((entry): entry is ChainToolScore & { score: number; call: CalibratedCall } =>
-      entry.key !== activeKey && entry.score !== null && entry.call !== null &&
+      entry.key !== activeKey &&
+      (allowedTools === null || allowedTools.has(entry.key)) &&
+      entry.score !== null && entry.call !== null &&
       entry.call.direction !== null && entry.call.direction !== direction
     )
     .map((entry) => ({ key: entry.key, label: entry.label, score: entry.score, call: entry.call }));
@@ -188,14 +195,14 @@ function resolveMissenseWithSplice(
   }
 
   const tool = missense.activeTool;
-  const disagreeingTools = findDisagreeingTools(chain, tool, call.direction);
+  const disagreeingTools = findDisagreeingTools(chain, tool, call.direction, vcepRule, vcepApplied);
   if (call.direction === "PP3") {
     if (splicePp3 && STRENGTH_RANK[splicePp3.strength] > STRENGTH_RANK[call.strength!]) {
-      const note = `${PREDICTOR_TOOL_LABEL[tool]} ${fmtScore(tool, missense.activeScore)} also supports missense ${formatEvidenceCode(call.code)}; splicing ${formatEvidenceCode(splicePp3.code)} governs and PP3 is applied once.`;
+      const note = `${PREDICTOR_TOOL_LABEL[tool]} ${formatPredictorScore(tool, missense.activeScore)} also supports missense ${formatEvidenceCode(call.code)}; splicing ${formatEvidenceCode(splicePp3.code)} governs and PP3 is applied once.`;
       return emitSplicePp3(base, splicePp3, null, note);
     }
     const corroboration = splicePp3
-      ? `SpliceAI max Δ ${splicePp3.maxDs.toFixed(2)} also supports splicing ${formatEvidenceCode(splicePp3.code)} (${splicePp3.source}); PP3 is applied once (Walker et al. 2023).`
+      ? `SpliceAI max Δ ${formatPredictorScore("spliceai", splicePp3.maxDs)} also supports splicing ${formatEvidenceCode(splicePp3.code)} (${splicePp3.source}); PP3 is applied once (Walker et al. 2023).`
       : null;
     return {
       ...base, outcome: "met", code: call.code as InsilicoCriterionCode, direction: "PP3",
@@ -206,7 +213,7 @@ function resolveMissenseWithSplice(
   const spliceGate = evaluateSpliceBp4Gate(input.spliceAi, vcepRule);
   if (spliceGate.status === "blocked") {
     if (splicePp3) {
-      const note = `${PREDICTOR_TOOL_LABEL[tool]} ${fmtScore(tool, missense.activeScore)} reads ${formatEvidenceCode(call.code)} for missense impact, which SpliceAI max Δ ${splicePp3.maxDs.toFixed(2)} overrides and replaces with splicing ${formatEvidenceCode(splicePp3.code)}.`;
+      const note = `${PREDICTOR_TOOL_LABEL[tool]} ${formatPredictorScore(tool, missense.activeScore)} reads ${formatEvidenceCode(call.code)} for missense impact, which SpliceAI max Δ ${formatPredictorScore("spliceai", splicePp3.maxDs)} overrides and replaces with splicing ${formatEvidenceCode(splicePp3.code)}.`;
       return emitSplicePp3(base, splicePp3, spliceGate, note);
     }
     return { ...base, outcome: "blocked-spliceai", disagreeingTools, spliceGate };

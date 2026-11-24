@@ -410,4 +410,28 @@ describe("VCEP rules and Walker 2023 splicing PP3 in predictorEvidence", () => {
     expect(ev.primary).toMatchObject({ outcome: "met", code: "PP3", activeTool: "spliceai", criterionSource: "spliceai" });
     expect(predictorSummary(ev).lead).toContain("SpliceAI max Δ 0.45");
   });
+
+  it("reads authoritative ruleBasedInsights.insilicoHasPvs1 without re-deriving from acmgCriteria", () => {
+    const ev = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "GBA1", variant: "p.Gln32Ter", acmgWeighting: "standard" },
+        conservationData: { revel: 0.002, spliceai: { max_ds: 0.65 } },
+        ruleBasedInsights: { acmgCriteria: [], insilicoHasPvs1: true },
+      }),
+    });
+    expect(ev.primary).toMatchObject({ outcome: "blocked-spliceai", code: null });
+  });
+
+  it("treats CADD as participating and excludes it from uncounted informational agreement on CADD VCEPs", () => {
+    const cep290 = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "CEP290", variant: "p.Arg100Gln", acmgWeighting: "standard" },
+        predictorData: { caddPhred: 28.5, amPathogenicity: 0.835 },
+        conservationData: { revel: 0.90, spliceai: { max_ds: 0.01 } },
+        ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "CEP290 CADD" }] },
+      }),
+    });
+    const agreement = localPredictorAgreement(cep290);
+    expect(agreement.calibrated.some(x => x.reading.key === "cadd")).toBe(false);
+  });
 });

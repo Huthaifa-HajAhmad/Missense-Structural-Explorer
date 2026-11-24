@@ -1,5 +1,8 @@
 # RNA splicing tab — scientific-integrity and UI review
 
+> [!NOTE]
+> **Historical baseline (28 September 2026):** The "Decision taken" section below records the September 2026 Phase 3 design ("tab only, engine unchanged"). In **Phase 5c (24 November 2026)**, `doc/PRIMARY_PREDICTOR_DECISION.md` updated the engine so `SpliceAI` now applies ClinGen/Walker 2023 splicing `PP3` once (when `PVS1` is absent, with gene-specific VCEP cutoffs from the 113 Released CSpec records) and both this tab and its inspector read those VCEP/Walker rules from `buildSplicingEvidence`.
+
 Reviewed against NAE1 p.Asp116Gly (NM_003905.4, MANE Select; payload coordinate `16-66823281-A-G`,
 GRCh38), 28 September 2026. Branch `splicing-redesign`.
 

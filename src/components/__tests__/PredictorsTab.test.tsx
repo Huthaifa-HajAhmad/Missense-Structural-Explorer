@@ -375,6 +375,42 @@ describe("PredictorsTab", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     expect(screen.getByTestId("predictor-primary-call").textContent).toBe("Excluded");
     second.unmount();
+
+    const third = renderTab(gzf1({
+      metadata: { gene: "GBA1", variant: "p.Asn370Ser", acmgWeighting: "standard" },
+      conservationData: { revel: 0.05, spliceai: { max_ds: 0.45 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "SpliceAI 0.45" }] },
+    }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    expect(screen.getByTestId("predictor-primary-row").textContent).toContain("SpliceAI max Δ 0.45");
+    expect(screen.getByTestId("predictor-primary-call").textContent).toBe("PP3");
+    third.unmount();
+  });
+
+  it("shows Indeterminate instead of No result for CTLA4 multi-tool combo disagreement", () => {
+    renderTab(gzf1({
+      metadata: { gene: "CTLA4", variant: "p.Arg70Trp", acmgWeighting: "standard" },
+      predictorData: { caddPhred: 20.0, amPathogenicity: 0.5 },
+      conservationData: { revel: 0.70, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [] },
+    }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    expect(screen.getByTestId("predictor-primary-call").textContent).toBe("Indeterminate");
+    expect(screen.getByTestId("predictor-primary-row").textContent).toContain("multi-tool threshold");
+    expect(screen.getByTestId("predictor-primary-row").textContent).not.toContain("None of the calibrated tools scored this variant.");
+  });
+
+  it("does not label CADD 'not counted' when CADD decides CEP290", () => {
+    renderTab(gzf1({
+      metadata: { gene: "CEP290", variant: "p.Arg100Gln", acmgWeighting: "standard" },
+      predictorData: { caddPhred: 28.5, amPathogenicity: 0.835 },
+      conservationData: { revel: 0.90, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "CEP290 CADD" }] },
+    }));
+    expect(screen.getByTestId("predictor-cadd").textContent).not.toContain("not counted");
+    fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
+    expect(screen.getByTestId("ladder-cadd").textContent).toContain("sets PP3/BP4");
+    expect(screen.getByTestId("ladder-cadd").textContent).not.toContain("not counted");
   });
 });
 

@@ -261,6 +261,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     });
     expect(withPvs1.acmgCriteria.some(c => c.code.startsWith("PVS1"))).toBe(true);
     expect(withPvs1.acmgCriteria.some(c => c.code.startsWith("PP3"))).toBe(false);
+    expect(withPvs1.insilicoHasPvs1).toBe(true);
 
     // VCEP caps and exclusions in full engine: PTEN REVEL 0.95 caps at PP3 Supporting; PALB2 excludes missense.
     const pten = computeRuleBasedACMG({

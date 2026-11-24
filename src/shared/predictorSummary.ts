@@ -5,6 +5,7 @@ import { formatEvidenceCode } from "./thresholds/calibration.ts";
 import {
   PREDICTOR_TOOL_LABEL,
   PRIMARY_PREDICTOR_CHAIN,
+  formatPredictorScore,
   type ActivePredictorTool,
   type ChainToolKey,
   type PrimaryInsilicoDecision,
@@ -15,10 +16,8 @@ import type { PredictorEvidence } from "./predictorEvidence.ts";
 export const CHAIN_ORDER_TEXT = PRIMARY_PREDICTOR_CHAIN.map(k => PREDICTOR_TOOL_LABEL[k]).join(" → ");
 
 function scoreText(tool: ActivePredictorTool, score: number): string {
-  if (tool === "cadd") return score.toFixed(1);
-  if (tool === "esm1b") return score.toFixed(2);
-  if (tool === "spliceai") return `max Δ ${score.toFixed(2)}`;
-  return score.toFixed(3);
+  const formatted = formatPredictorScore(tool, score);
+  return tool === "spliceai" ? `max Δ ${formatted}` : formatted;
 }
 
 function list(keys: ActivePredictorTool[]): string {

@@ -10,11 +10,13 @@ export interface ThresholdBound {
   orientation?: "higher" | "lower";
 }
 
+export type VcepPp3Strength = Exclude<EvidenceStrength, "VeryStrong">;
+export type VcepPp3Bounds = Partial<Record<VcepPp3Strength, ThresholdBound>>;
 export type VcepStrengthBounds = Partial<Record<EvidenceStrength, ThresholdBound>>;
 
 export interface VcepToolSpec {
   tool: VcepToolKey;
-  pp3: VcepStrengthBounds;
+  pp3: VcepPp3Bounds;
   /** Missing side (e.g. VHL, DDC) excludes missense BP4. */
   bp4: VcepStrengthBounds;
 }

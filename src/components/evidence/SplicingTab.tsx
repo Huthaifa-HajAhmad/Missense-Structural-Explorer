@@ -56,28 +56,30 @@ import { SPLICE_URL_DEFAULTS, parseSplicingUrl, parseSpliceView, withSplicingPar
  */
 
 function RuleChip({ ev }: { ev: SplicingEvidence }) {
-  const { rule, engine } = ev;
+  const { rule, engine, policy } = ev;
   if (rule.state === "pending") {
     return <span className="ev-tier spl-verdict" data-tone="neutral">{ENGINE_STATE_LABELS.running}</span>;
   }
   if (rule.code) {
-    const appliedFromSplicing = rule.code === "PP3" && engine.known && Boolean(engine.code?.startsWith("PP3")) && Boolean(engine.fromSplicing);
+    const appliedFromSplicing = rule.code.startsWith("PP3") && engine.known && Boolean(engine.code?.startsWith("PP3")) && Boolean(engine.fromSplicing);
     const dashClass = appliedFromSplicing ? "" : " spl-verdict--unapplied";
-    const title = rule.code === "PP3"
-      ? "Walker 2023 (or gene VCEP) splicing PP3: applied once by the engine when PVS1 is absent."
-      : "Splicing BP4 clears the missense BP4 gate; splicing BP4 alone is not recorded for missense variants.";
-    const aria = rule.code === "PP3"
-      ? "PP3 for splicing impact, supported by the Walker 2023 splicing rule (applied once when PVS1 is absent)"
-      : "BP4 for splicing impact, clears the missense BP4 gate (not recorded alone)";
+    const isPp3 = rule.code.startsWith("PP3");
+    const codeText = formatEvidenceCode(rule.code);
+    const title = isPp3
+      ? `${policy.sourceLabel} splicing ${codeText}: applied once by the engine when PVS1 is absent.`
+      : `Splicing BP4 (${policy.sourceLabel}) clears the missense BP4 gate; splicing BP4 alone is not recorded for missense variants.`;
+    const aria = isPp3
+      ? `${codeText} for splicing impact, supported by the ${policy.sourceLabel} splicing rule (applied once when PVS1 is absent)`
+      : `BP4 for splicing impact, clears the missense BP4 gate (${policy.sourceLabel}, not recorded alone)`;
     return (
       <span
         className={`ev-tier chip-code spl-verdict${dashClass}`}
-        data-tone={rule.code === "PP3" ? "danger" : "good"}
+        data-tone={isPp3 ? "danger" : "good"}
         data-testid="splicing-verdict"
         title={title}
         aria-label={aria}
       >
-        {rule.code} · splicing
+        {codeText} · splicing
       </span>
     );
   }
@@ -150,8 +152,9 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
         <p className="spl-callout" data-tone="neutral" data-testid="relation-callout">
           <Info className="w-3.5 h-3.5" aria-hidden="true" />
           <span>
-            Both missense and splicing evidence support PP3. Under Walker 2023, PP3 is applied once at its highest applicable strength; SpliceAI
-            at ≥ {S.splicingPp3.toFixed(1)} does not add a second PP3.
+            {ev.engine.fromSplicing
+              ? `The engine recorded ${formatEvidenceCode(ev.engine.code ?? ev.rule.code ?? "PP3")} from SpliceAI (${ev.policy.sourceLabel}, ${ev.policy.pp3Footnote}); PP3 is applied once per variant without adding a second missense PP3.`
+              : `Both missense and splicing evidence support PP3. Under Walker 2023, PP3 is applied once at its highest applicable strength; SpliceAI (${ev.policy.pp3Footnote}) does not add a second PP3.`}
           </span>
         </p>
       )}
@@ -267,7 +270,7 @@ function ReadingRow({
             <span
               className={`ev-tier${reading.call.isCode ? " chip-code" : ""}${reading.call.unapplied ? " spl-verdict--unapplied" : ""}`}
               data-tone={reading.call.tone}
-              title={reading.call.unapplied ? "Supported by the splicing rule; the ACMG engine does not apply it" : undefined}
+              title={reading.call.unapplied ? "Supported by the splicing rule; the ACMG engine does not apply it" : "Applied by the ACMG engine as the recorded PP3 criterion"}
             >
               {reading.call.label}
             </span>
@@ -641,8 +644,10 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
             ))}
           </table>
           <div className="spl-table-foot" aria-label="Legend">
-            <span className="spl-legend__item"><i className="spl-legend__band" data-side="path" />PP3 · splicing ≥ {THRESHOLDS.spliceai.splicingPp3.toFixed(1)}</span>
-            <span className="spl-legend__item"><i className="spl-legend__band" data-side="benign" />BP4 · splicing &le; {THRESHOLDS.spliceai.splicingBp4Below.toFixed(1)}</span>
+            {!ev.policy.pp3Excluded && (
+              <span className="spl-legend__item"><i className="spl-legend__band" data-side="path" />PP3 · splicing {ev.policy.pp3Footnote}</span>
+            )}
+            <span className="spl-legend__item"><i className="spl-legend__band" data-side="benign" />BP4 · splicing {ev.policy.bp4Band.rule}</span>
             <span className="spl-legend__item"><i className="spl-legend__tick" />Authors&apos; cut-point</span>
             <span className="spl-legend__item"><i className="spl-legend__marker" />This variant</span>
           </div>

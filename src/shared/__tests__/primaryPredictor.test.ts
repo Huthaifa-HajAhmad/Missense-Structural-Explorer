@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PRIMARY_PREDICTOR_CHAIN,
   decidePrimaryInsilico,
+  evaluateSplicePp3,
   primaryInsilicoInputFromResult,
   resolveSpliceAiGateInput,
 } from "../insilico/primaryPredictor.ts";
@@ -569,5 +570,47 @@ describe("Walker 2023 splicing PP3 and PP3-once arbitration", () => {
       activeTool: "spliceai",
     });
     expect(upgraded.splicePp3Corroboration).toContain("PP3 is applied once");
+  });
+
+  it("rejects SpliceAI PP3 when coordinate resolution is blocked or a failure object is present, and catches undefined gnomadVariantId", () => {
+    expect(evaluateSplicePp3({
+      maxDs: 0.85,
+      status: "settled",
+      failure: null,
+      coordinateBlocked: true,
+      coordinateReason: "Ambiguous locus",
+    })).toBeNull();
+
+    expect(evaluateSplicePp3({
+      maxDs: 0.85,
+      status: "settled",
+      failure: { kind: "coordinate-rejected", httpStatus: 400, detail: null },
+      coordinateBlocked: false,
+      coordinateReason: null,
+    })).toBeNull();
+
+    const undefGnomad = decidePrimaryInsilico({
+      gene: "GBA1",
+      scores: { revel: 0.002 },
+      spliceAi: resolveSpliceAiGateInput({
+        predictorData: { gnomadVariantId: undefined },
+        conservationData: { revel: 0.002, spliceai: null },
+      }),
+    });
+    expect(undefGnomad).toMatchObject({
+      outcome: "withheld-spliceai",
+      code: null,
+      spliceGate: { status: "withheld-coordinate", retryable: false },
+    });
+  });
+
+  it("scopes disagreeingTools to the VCEP's authorized tool set on computable single-tool VCEPs", () => {
+    const pten = decidePrimaryInsilico({
+      gene: "PTEN",
+      scores: { revel: 0.90, bayesdel: -0.50, alphaMissense: 0.05 },
+      spliceAi: spliceInput(0.01),
+    });
+    expect(pten).toMatchObject({ outcome: "met", code: "PP3", activeTool: "revel" });
+    expect(pten.disagreeingTools).toEqual([]);
   });
 });

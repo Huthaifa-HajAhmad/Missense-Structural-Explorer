@@ -155,7 +155,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               </span>
             )}
           </Step>
-          <Step n={2} label={primary.vcepApplied && primary.vcepRule ? `Deciding input · ${primary.vcepRule.cspecId} v${primary.vcepRule.version}` : "First with a score"} state={active || primary.activeTool === "spliceai" ? "done" : "idle"}>
+          <Step n={2} label={primary.vcepApplied && primary.vcepRule ? `Deciding input · ${primary.vcepRule.cspecId} v${primary.vcepRule.version}` : "First with a score"} state={active || primary.activeTool === "spliceai" || primary.outcome === "vcep-excluded" ? "done" : "idle"}>
             <span>
               {primary.outcome === "vcep-excluded"
                 ? "Missense predictors excluded"
@@ -312,23 +312,29 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           <ul>
             <li>
               ClinGen (Pejaver 2022) recommends one calibrated tool chosen in advance, not a count of correlated
-              tools. The engine reads {CHAIN_ORDER_TEXT} in that order, and the first tool with a score gives
-              PP3 or BP4 at its calibrated strength. A score between its bands gives neither; the next tool is not asked.
+              tools. When a gene matches an active ClinGen VCEP specification (113 Released specs across 110 genes),
+              its ordered tools, multi-tool agreement rules, or missense exclusion govern; otherwise the engine reads{" "}
+              {CHAIN_ORDER_TEXT} in that order, and the first tool with a score gives PP3 or BP4 at its calibrated
+              strength (a score between bands gives neither, and the next tool is not asked).
             </li>
             <li>
-              The order was chosen on ClinVar variants classified after each tool was trained: REVEL first gave
-              more Moderate-or-stronger calls and fewer wrong-direction calls than any other order.
+              The default order was chosen on ClinVar variants classified after each tool was trained: REVEL first
+              gave more Moderate-or-stronger calls and fewer wrong-direction calls than any other order.
             </li>
             <li>
-              When another calibrated tool points the other way, a note says so. It never changes the strength.
+              When another calibrated tool in the active rule set points the other way, a note says so. It never
+              changes the strength.
             </li>
             <li>
-              BP4 is withheld when SpliceAI is 0.20 or more, or when SpliceAI did not finish (Walker 2023).
-              PP3 and PM1 together are capped at Strong.
+              Under Walker et al. 2023 (or gene-specific VCEP splicing cut-points), SpliceAI max Δ ≥ 0.20 or an
+              incomplete SpliceAI check withholds missense BP4, and SpliceAI ≥ 0.20 (or the VCEP threshold) applies
+              splicing PP3 once when PVS1 is absent. It never stacks onto missense PP3, and PP3 and PM1 together remain
+              capped at Strong.
             </li>
             <li>
-              CADD, popEVE, AlphaGenome and the conservation scores are informational; the card on the
-              Predictors tab explains each family and why it does not set PP3/BP4.
+              popEVE, AlphaGenome, and conservation scores are always informational context; CADD is informational on
+              the default chain and counts only in VCEP genes whose specification adopts it (e.g. HBB, HBA2, CEP290,
+              CTLA4, PIK3CD, PIK3R1, BMPR2).
             </li>
             <li>
               The strength ladder places a tool on a strength only where ClinGen has calibrated it. A tool with just its

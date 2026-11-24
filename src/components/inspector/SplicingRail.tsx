@@ -52,15 +52,22 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
   }), [analysisResult, isAnalysisLoading, isBiophysicalLoading, alphagenomeConfigured]);
   const readings = useMemo(() => splicingReadings(ev, analysisResult), [ev, analysisResult]);
   const S = THRESHOLDS.spliceai;
-  const { rule, geometry: g, engine } = ev;
+  const { rule, policy, geometry: g, engine } = ev;
   const pos = g.position !== null ? `${g.position > 0 ? "+" : "−"}${Math.abs(g.position)}` : null;
   const engineCode = engine.known ? engine.code : engine.missenseCode;
   const engineWarn = ev.relation === "conflict" || ev.relation === "bp4-unchecked";
 
-  const bands: Array<{ key: string; code: string | null; rule: string; label: string; tone: "danger" | "good" | "neutral" }> = [
-    { key: "pp3", code: "PP3", rule: `≥ ${S.splicingPp3.toFixed(1)}`, label: "PP3 · splicing", tone: "danger" },
-    { key: "between", code: null, rule: `>${S.splicingBp4Below.toFixed(1)}–<${S.splicingPp3.toFixed(1)}`, label: "Neither", tone: "neutral" },
-    { key: "bp4", code: "BP4", rule: `\u2264 ${S.splicingBp4Below.toFixed(1)}`, label: "BP4 · splicing", tone: "good" },
+  const bands: Array<{ key: string; code: string | null; activeKey: string; rule: string; label: string; tone: "danger" | "good" | "neutral" }> = [
+    ...policy.pp3Bands.map(b => ({
+      key: `pp3-${b.code}`,
+      code: b.code,
+      activeKey: b.code,
+      rule: b.rule,
+      label: `${formatEvidenceCode(b.code)} · splicing`,
+      tone: "danger" as const,
+    })),
+    { key: "between", code: null, activeKey: "between", rule: policy.betweenRule, label: policy.pp3Excluded ? "BP4 blocked" : "Neither", tone: "neutral" },
+    { key: "bp4", code: "BP4", activeKey: "bp4", rule: policy.bp4Band.rule, label: "BP4 · splicing", tone: "good" },
   ];
 
   const md: any = (analysisResult as any).metadata ?? {};
@@ -97,11 +104,11 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
             )}
             <span className="spl-step__sub">{rule.maxDs !== null ? ev.spliceai.sourceText : ev.spliceai.availability.reason}</span>
           </Step>
-          <Step n={2} label="Splicing rule · Walker 2023" state={rule.code ? "done" : "idle"}>
+          <Step n={2} label={`Splicing rule · ${policy.sourceLabel}`} state={rule.code ? "done" : "idle"}>
             <span>
-              {rule.state === "pp3" ? `≥ ${S.splicingPp3.toFixed(1)} → supports PP3`
-                : rule.state === "bp4" ? `\u2264 ${S.splicingBp4Below.toFixed(1)} → supports BP4`
-                : rule.state === "between" ? `> ${S.splicingBp4Below.toFixed(1)} and < ${S.splicingPp3.toFixed(1)} → neither`
+              {rule.state === "pp3" ? policy.pp3RuleText
+                : rule.state === "bp4" ? policy.bp4RuleText
+                : rule.state === "between" ? (policy.pp3Excluded ? policy.pp3RuleText : `${policy.betweenRule} → neither`)
                 : "Not applied — needs a SpliceAI score"}
             </span>
             <span className="spl-step__sub">SpliceAI decides it alone. Distance does not.</span>
@@ -135,11 +142,13 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
       <section className="spl-rsec" aria-labelledby="spl-rail-bands">
         <h3 className="eyebrow" id="spl-rail-bands">
           <Ruler className="w-3.5 h-3.5" />
-          SpliceAI bands · Walker 2023
+          SpliceAI bands · {policy.sourceLabel}
         </h3>
         <ul className="spl-cuts" data-testid="splicing-bands">
           {bands.map(b => {
-            const active = rule.state === b.key;
+            const active =
+              (rule.state === "pp3" && b.activeKey === (rule.code ?? "PP3")) ||
+              (rule.state !== "pp3" && rule.state === b.activeKey);
             return (
               <li key={b.key} className="spl-cut" data-active={active || undefined}>
                 <span className={`ev-tier${b.code ? " chip-code" : ""}`} data-tone={active ? b.tone : "muted"}>{b.label}</span>

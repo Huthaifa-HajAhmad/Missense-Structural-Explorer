@@ -37,12 +37,18 @@
  * Pure: no React, no fetching.
  */
 import type { AnalysisResult } from "./contracts.ts";
-import { THRESHOLDS, evaluateSplicePredictor } from "./thresholds/index.ts";
+import { THRESHOLDS, evaluateSplicePredictor, formatEvidenceCode } from "./thresholds/index.ts";
 import { refusalReasonFor, resolveEvidenceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
 import { conservationModelState } from "./conservationProgress.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildAlphaGenomeEvidence, fmtShare, fmtSigned } from "./alphagenomeEvidence.ts";
+import {
+  evaluateSpliceBp4Gate,
+  evaluateSplicePp3,
+  resolveSpliceAiGateInput,
+} from "./insilico/primaryPredictor.ts";
+import { lookupVcepInsilicoRule, type ThresholdBound, type VcepInsilicoRule } from "./insilico/vcepRules.ts";
 
 // ── Sources ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -312,15 +318,27 @@ export type SpliceRelation =
   | "bp4-unchecked"
   | "none";
 
+export interface SpliceRulePolicy {
+  sourceLabel: string;
+  pp3Excluded: boolean;
+  pp3Bands: Array<{ label: string; from: number; to: number; rule: string; code: "PP3" | "PP3_Moderate" }>;
+  bp4Band: { label: string; from: number; to: number; rule: string };
+  betweenRule: string;
+  pp3RuleText: string;
+  bp4RuleText: string;
+  pp3Footnote: string;
+}
+
 export interface SplicingEvidence {
   rule: {
     state: SplicingRuleState;
-    code: "PP3" | "BP4" | null;
+    code: "PP3" | "PP3_Moderate" | "BP4" | null;
     maxDs: number | null;
     /** The channel the maximum came from, and its Δ position. */
     maxChannel: SpliceChannelKey | null;
     maxShift: number | null;
   };
+  policy: SpliceRulePolicy;
   spliceai: {
     availability: EvidenceAvailability;
     provenance: {
@@ -376,19 +394,104 @@ const ordinal = (n: number) => {
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 };
 
-const SPLICEAI_SCALE_SOURCE = "Bands: Walker 2023 · ticks: authors' 0.5 and 0.8";
+const SPLICEAI_SCALE_SOURCE_WALKER = "Bands: Walker 2023 · ticks: authors' 0.5 and 0.8";
 
-/** SpliceAI's 0–1 axis with the Walker bands and the authors' two upper operating points. */
-function spliceAiScale(score: number | null, withBands: boolean): SpliceScale {
+function fmtBound(b: ThresholdBound, low = false): string {
+  const sym = low ? (b.inclusive ? "<" : "≤") : (b.inclusive ? "≥" : ">");
+  return `${sym} ${b.threshold === 0 ? "0" : b.threshold.toFixed(2)}`;
+}
+
+function resolveSplicePolicy(vcepRule: VcepInsilicoRule | null): SpliceRulePolicy {
   const S = THRESHOLDS.spliceai;
-  const code = score === null ? null : score >= S.splicingPp3 ? "PP3" : score <= S.splicingBp4Below ? "BP4" : null;
+  const sp = vcepRule?.splice;
+  if (!sp || !vcepRule) {
+    return {
+      sourceLabel: "Walker 2023",
+      pp3Excluded: false,
+      pp3Bands: [{ label: `PP3 · splicing: ≥ ${S.splicingPp3.toFixed(2)}`, from: S.splicingPp3, to: 1, rule: `≥ ${S.splicingPp3.toFixed(2)}`, code: "PP3" }],
+      bp4Band: { label: `BP4 · splicing: ≤ ${S.splicingBp4Below.toFixed(2)}`, from: 0, to: S.splicingBp4Below, rule: `≤ ${S.splicingBp4Below.toFixed(2)}` },
+      betweenRule: `>${S.splicingBp4Below.toFixed(2)}–<${S.splicingPp3.toFixed(2)}`,
+      pp3RuleText: `≥ ${S.splicingPp3.toFixed(2)} → supports PP3`,
+      bp4RuleText: `≤ ${S.splicingBp4Below.toFixed(2)} → supports BP4`,
+      pp3Footnote: `≥ ${S.splicingPp3.toFixed(2)}`,
+    };
+  }
+  const sourceLabel = `${vcepRule.cspecId} v${vcepRule.version}`;
+  const bBlock = sp.bp4Block;
+  const stricterBp4 = bBlock && (bBlock.threshold < S.splicingBp4Below || (bBlock.threshold === S.splicingBp4Below && bBlock.inclusive));
+  const bp4Cut = stricterBp4 ? fmtBound(bBlock, true) : `≤ ${S.splicingBp4Below.toFixed(2)}`;
+  const bp4Upper = stricterBp4 ? bBlock.threshold : S.splicingBp4Below;
+  const bp4Band = { label: `BP4 · splicing: ${bp4Cut}`, from: 0, to: bp4Upper, rule: bp4Cut };
+  if (sp.pp3Missense === "none") {
+    return {
+      sourceLabel,
+      pp3Excluded: true,
+      pp3Bands: [],
+      bp4Band,
+      betweenRule: `>${bp4Upper.toFixed(2)}`,
+      pp3RuleText: `Missense splicing PP3 excluded (${sourceLabel}); ≥ ${S.splicingPp3.toFixed(2)} blocks BP4`,
+      bp4RuleText: `${bp4Cut} → supports BP4`,
+      pp3Footnote: "Excluded",
+    };
+  }
+  if (sp.pp3Missense === "nf1") {
+    return {
+      sourceLabel,
+      pp3Excluded: false,
+      pp3Bands: [{ label: "PP3 · splicing: ≥ 0.60 (or paired ≥ 0.40)", from: 0.6, to: 1, rule: "≥ 0.60 (or paired ≥ 0.40)", code: "PP3" }],
+      bp4Band,
+      betweenRule: `${bp4Cut === "< 0.18" ? "≥ 0.18" : `>${bp4Upper.toFixed(2)}`}–<0.60`,
+      pp3RuleText: "≥ 0.60 or paired gain+loss ≥ 0.40 → supports PP3",
+      bp4RuleText: `${bp4Cut} → supports BP4`,
+      pp3Footnote: "≥ 0.60 / paired ≥ 0.40",
+    };
+  }
+  const pp3Spec = sp.pp3Missense;
+  const sup = pp3Spec?.Supporting ?? { threshold: S.splicingPp3, inclusive: true };
+  const mod = pp3Spec?.Moderate;
+  const pp3Bands: SpliceRulePolicy["pp3Bands"] = [];
+  if (mod) pp3Bands.push({ label: `PP3 Moderate · splicing: ${fmtBound(mod)}`, from: mod.threshold, to: 1, rule: fmtBound(mod), code: "PP3_Moderate" });
+  pp3Bands.push({
+    label: `PP3 · splicing: ${fmtBound(sup)}`,
+    from: sup.threshold,
+    to: mod ? mod.threshold : 1,
+    rule: fmtBound(sup),
+    code: "PP3",
+  });
+  const pp3CutText = mod ? `${fmtBound(mod)} Moderate, ${fmtBound(sup)} Supporting` : fmtBound(sup);
+  return {
+    sourceLabel,
+    pp3Excluded: false,
+    pp3Bands,
+    bp4Band,
+    betweenRule: `${stricterBp4 && bBlock.inclusive ? "≥" : ">"}${bp4Upper.toFixed(2)}–<${sup.threshold.toFixed(2)}`,
+    pp3RuleText: `${pp3CutText} → supports PP3`,
+    bp4RuleText: `${bp4Cut} → supports BP4`,
+    pp3Footnote: pp3CutText,
+  };
+}
+
+/** SpliceAI's 0–1 axis with the gene's splicing bands (Walker 2023 or VCEP) and the authors' two upper operating points. */
+function spliceAiScale(
+  score: number | null,
+  withBands: boolean,
+  policy: SpliceRulePolicy,
+  activeCode: "PP3" | "PP3_Moderate" | "BP4" | null,
+): SpliceScale {
+  const S = THRESHOLDS.spliceai;
   return {
     min: 0,
     max: 1,
     bands: withBands
       ? [
-          { from: 0, to: S.splicingBp4Below, side: "benign", label: `BP4 · splicing: \u2264 ${S.splicingBp4Below.toFixed(1)}`, active: code === "BP4" },
-          { from: S.splicingPp3, to: 1, side: "path", label: `PP3 · splicing: ≥ ${S.splicingPp3.toFixed(1)}`, active: code === "PP3" },
+          { from: policy.bp4Band.from, to: policy.bp4Band.to, side: "benign", label: policy.bp4Band.label, active: activeCode === "BP4" },
+          ...policy.pp3Bands.map(b => ({
+            from: b.from,
+            to: b.to,
+            side: "path" as const,
+            label: b.label,
+            active: activeCode === b.code || (score !== null && activeCode === "PP3_Moderate" && b.code === "PP3_Moderate"),
+          })),
         ]
       : [],
     ticks: [
@@ -773,9 +876,34 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
       }
     : null;
 
-  const signal = evaluateSplicePredictor(sp, sai);
+  const predictors = buildPredictorEvidence({ result, alphagenomeConfigured });
+  const engine: SpliceEngineRecord = {
+    known: predictors.engine.known,
+    code: predictors.engine.code,
+    missenseCode: predictors.primary.code,
+    fromSplicing: predictors.primary.criterionSource === "spliceai",
+  };
+  const vcepRule = predictors.primary.vcepRule ?? lookupVcepInsilicoRule(result.metadata?.gene ?? null);
+  const policy = resolveSplicePolicy(vcepRule);
+  const saiInput = resolveSpliceAiGateInput({
+    predictorData: result.predictorData ?? null,
+    conservationData: cd,
+    serviceStatus: result.serviceStatus,
+  });
+  const splicePp3 = vcepRule?.splice ? evaluateSplicePp3(saiInput, vcepRule, false) : null;
+  const bp4Gate = vcepRule?.splice ? evaluateSpliceBp4Gate(saiInput, vcepRule) : null;
+  const signal = vcepRule?.splice ? null : evaluateSplicePredictor(sp, sai);
+
   const ruleState: SplicingRuleState = rulePending
     ? "pending"
+    : maxDs === null
+    ? "no-score"
+    : vcepRule?.splice
+    ? splicePp3
+      ? "pp3"
+      : bp4Gate?.status === "passed"
+      ? "bp4"
+      : "between"
     : signal === "pathogenic"
     ? "pp3"
     : signal === "benign"
@@ -783,7 +911,14 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     : signal === "vus"
     ? "between"
     : "no-score";
-  const ruleCode = ruleState === "pp3" ? "PP3" : ruleState === "bp4" ? "BP4" : null;
+  const ruleCode: "PP3" | "PP3_Moderate" | "BP4" | null =
+    ruleState === "pp3"
+      ? (splicePp3?.code ?? "PP3")
+      : ruleState === "bp4"
+      ? "BP4"
+      : null;
+  const appliedFromSplicing = engine.known && Boolean(engine.code?.startsWith("PP3")) && Boolean(engine.fromSplicing);
+  const scaleSource = `Bands: ${policy.sourceLabel} · ticks: authors' 0.5 and 0.8`;
 
   // ── AlphaGenome splicing attribution — the AlphaGenome tab's own reading, not a second one ──
   const ag = buildAlphaGenomeEvidence({ result, configured: alphagenomeConfigured });
@@ -805,7 +940,6 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
 
   // ── Readings ──
   const readings: SpliceReading[] = [];
-  const S = THRESHOLDS.spliceai;
 
   readings.push({
     key: "spliceai",
@@ -815,16 +949,16 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     score: maxDs,
     scoreText: maxDs !== null ? formatDelta(maxDs) : "—",
     sub: maxChannel ? SPLICE_CHANNEL_NAME[maxChannel].toLowerCase() : null,
-    scale: maxDs !== null ? spliceAiScale(maxDs, true) : null,
-    scaleSource: SPLICEAI_SCALE_SOURCE,
+    scale: maxDs !== null ? spliceAiScale(maxDs, true, policy, ruleCode) : null,
+    scaleSource,
     call:
       maxDs === null
         ? null
-        : ruleState === "pp3"
-        ? { label: "PP3 · splicing", tone: "danger", isCode: true, unapplied: true }
+        : ruleState === "pp3" && ruleCode
+        ? { label: `${formatEvidenceCode(ruleCode)} · splicing`, tone: "danger", isCode: true, unapplied: !appliedFromSplicing }
         : ruleState === "bp4"
         ? { label: "BP4 · splicing", tone: "good", isCode: true, unapplied: true }
-        : { label: "Between bands", tone: "neutral", isCode: false },
+        : { label: policy.pp3Excluded ? "No splicing criterion" : "Between bands", tone: "neutral", isCode: false },
     note: maxDs !== null ? describeSpliceAiSource(prov) : null,
     availability: saiAvailability,
     knowledgeKey: "spliceai",
@@ -844,7 +978,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         scoreText: c.ds !== null ? formatDelta(c.ds) : "—",
         // A position is only a location when there is a signal to locate.
         sub: c.dp !== null && ((c.ds ?? 0) >= SPLICE_MAP_FLOOR || (showSmallSignals && (c.ds ?? 0) > 0)) ? `at ${fmtBp(orient(c.dp) as number)} from the variant${strandKnown ? "" : " (genomic)"}` : null,
-        scale: c.ds !== null ? spliceAiScale(c.ds, false) : null,
+        scale: c.ds !== null ? spliceAiScale(c.ds, false, policy, ruleCode) : null,
         scaleSource: null,
         call: c.ds === null ? null : c.key === maxChannel ? { label: "Maximum", tone: "accent", isCode: false } : null,
         note: null,
@@ -883,19 +1017,11 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     }
   }
 
-  // ── Engine record ──
-  const predictors = buildPredictorEvidence({ result, alphagenomeConfigured });
-  const engine: SpliceEngineRecord = {
-    known: predictors.engine.known,
-    code: predictors.engine.code,
-    missenseCode: predictors.primary.code,
-    fromSplicing: predictors.primary.criterionSource === "spliceai",
-  };
   const recordedOrMissense = engine.known ? engine.code : engine.missenseCode;
   const relation: SpliceRelation =
-    ruleCode === "PP3" && recordedOrMissense?.startsWith("BP4")
+    ruleCode?.startsWith("PP3") && recordedOrMissense?.startsWith("BP4")
       ? "conflict"
-      : ruleCode === "PP3" && recordedOrMissense?.startsWith("PP3")
+      : ruleCode?.startsWith("PP3") && recordedOrMissense?.startsWith("PP3")
       ? "same-pp3"
       : ruleState === "no-score" && recordedOrMissense?.startsWith("BP4")
       ? "bp4-unchecked"
@@ -903,6 +1029,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
 
   return {
     rule: { state: ruleState, code: ruleCode, maxDs, maxChannel, maxShift },
+    policy,
     spliceai: {
       availability: saiAvailability,
       provenance: prov,
@@ -931,8 +1058,8 @@ export function groupSpliceReadings(readings: SpliceReading[]): Array<{ group: S
  * The finding in words. Never says more than the SpliceAI score and the rule do.
  */
 export function splicingFinding(ev: SplicingEvidence): { headline: string; predicate: string } {
-  const S = THRESHOLDS.spliceai;
-  const { rule } = ev;
+  const { rule, policy } = ev;
+  const isWalker = policy.sourceLabel === "Walker 2023";
   const where = rule.maxChannel
     ? ` (${SPLICE_CHANNEL_NAME[rule.maxChannel].toLowerCase()}${rule.maxShift !== null && (rule.maxDs ?? 0) >= SPLICE_MAP_FLOOR ? ` at ${fmtBp(rule.maxShift)}` : ""})`
     : "";
@@ -947,17 +1074,27 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
     case "pp3":
       return {
         headline: `SpliceAI predicts a splicing change${where}`,
-        predicate: `${deltaPhrase(rule.maxDs!)} is at or above ${S.splicingPp3.toFixed(1)}, which supports PP3 for splicing impact`,
+        predicate: isWalker
+          ? `${deltaPhrase(rule.maxDs!)} is at or above ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)}, which supports PP3 for splicing impact`
+          : `${deltaPhrase(rule.maxDs!)} meets ${policy.sourceLabel} (${policy.pp3Footnote}), which supports ${formatEvidenceCode(rule.code ?? "PP3")} for splicing impact`,
       };
     case "bp4":
       return {
         headline: "SpliceAI's score is below the splicing BP4 threshold",
-        predicate: `${deltaPhrase(rule.maxDs!)}${where} is at or below ${S.splicingBp4Below.toFixed(1)}, which supports BP4 for splicing impact`,
+        predicate: isWalker
+          ? `${deltaPhrase(rule.maxDs!)}${where} is at or below ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)}, which supports BP4 for splicing impact`
+          : `${deltaPhrase(rule.maxDs!)}${where} meets ${policy.bp4Band.rule} (${policy.sourceLabel}), which supports BP4 for splicing impact`,
       };
     case "between":
       return {
-        headline: "SpliceAI's score falls between the bands",
-        predicate: `${deltaPhrase(rule.maxDs!)}${where} is above ${S.splicingBp4Below.toFixed(1)} and below ${S.splicingPp3.toFixed(1)}, so the splicing rule supports neither PP3 nor BP4`,
+        headline: policy.pp3Excluded
+          ? "No splicing PP3 criterion applies for this gene's VCEP"
+          : "SpliceAI's score falls between the bands",
+        predicate: policy.pp3Excluded
+          ? `${deltaPhrase(rule.maxDs!)}${where}: ${policy.pp3RuleText}`
+          : isWalker
+          ? `${deltaPhrase(rule.maxDs!)}${where} is above ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} and below ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)}, so the splicing rule supports neither PP3 nor BP4`
+          : `${deltaPhrase(rule.maxDs!)}${where} sits in ${policy.betweenRule} (${policy.sourceLabel}), so the splicing rule supports neither PP3 nor BP4`,
       };
   }
 }

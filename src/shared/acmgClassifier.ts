@@ -13,6 +13,8 @@ export interface RuleBasedInsights {
   /** Five-tier ACMG verdict: Pathogenic | Likely Pathogenic | VUS | Likely Benign | Benign */
   acmgVerdict: string;
   acmgCriteria: ACMGItem[];
+  /** Authoritative server flag recording whether PVS1 applied when in-silico splicing PP3 was evaluated. */
+  insilicoHasPvs1?: boolean;
   /** Which in-silico tools returned data vs were unavailable */
   partialEvidence: PartialEvidence;
 }

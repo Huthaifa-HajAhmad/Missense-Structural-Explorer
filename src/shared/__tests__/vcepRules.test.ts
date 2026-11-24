@@ -4,6 +4,7 @@ import {
   ALL_VCEP_RULES,
   VCEP_REGISTRY_SNAPSHOT,
   lookupVcepInsilicoRule,
+  matchesThresholdBound,
 } from "../insilico/vcepRules.ts";
 
 const cleanSplice = {
@@ -33,13 +34,26 @@ describe("ClinGen CSpec VCEP registry table (113 Active Released specs / 110 gen
   });
 
   it("performs case-insensitive lookup and returns null for uncovered genes", () => {
-    expect(lookupVcepInsilicoRule("pah")).toEqual(lookupVcepInsilicoRule("PAH"));
-    expect(lookupVcepInsilicoRule("  pten ")).toEqual(lookupVcepInsilicoRule("PTEN"));
+    const pah = lookupVcepInsilicoRule("pah");
+    expect(pah).not.toBeNull();
+    expect(pah).toEqual(lookupVcepInsilicoRule("PAH"));
+    const pten = lookupVcepInsilicoRule("  pten ");
+    expect(pten).not.toBeNull();
+    expect(pten).toEqual(lookupVcepInsilicoRule("PTEN"));
     expect(lookupVcepInsilicoRule("GBA1")).toBeNull();
     expect(lookupVcepInsilicoRule("GZF1")).toBeNull();
     expect(lookupVcepInsilicoRule("NAE1")).toBeNull();
     expect(lookupVcepInsilicoRule("FGFR3")).toBeNull();
     expect(lookupVcepInsilicoRule(null)).toBeNull();
+  });
+
+  it("evaluates ThresholdBound orientation ('higher' and 'lower') symmetrically", () => {
+    const lowerIsPath = { threshold: -10.7, inclusive: true, orientation: "lower" as const };
+    expect(matchesThresholdBound(-10.7, lowerIsPath, "PP3")).toBe(true);
+    expect(matchesThresholdBound(-10.6, lowerIsPath, "PP3")).toBe(false);
+    const upperBenign = { threshold: -6.3, inclusive: true, orientation: "lower" as const };
+    expect(matchesThresholdBound(-6.3, upperBenign, "BP4")).toBe(true);
+    expect(matchesThresholdBound(-6.4, upperBenign, "BP4")).toBe(false);
   });
 });
 
@@ -148,6 +162,8 @@ describe("VCEP rules — Group B: REVEL multi-strength (23 genes)", () => {
     // AIPL1: audited 0.932 Strong / 0.774 Moderate (rejects typo 0.093!)
     const aipl1 = decidePrimaryInsilico({ gene: "AIPL1", scores: { revel: 0.10 }, spliceAi: cleanSplice });
     expect(aipl1).toMatchObject({ outcome: "met", code: "BP4_Moderate" });
+    expect(decidePrimaryInsilico({ gene: "AIPL1", scores: { revel: 0.093 }, spliceAi: cleanSplice }))
+      .toMatchObject({ outcome: "met", code: "BP4_Moderate" });
     expect(decidePrimaryInsilico({ gene: "AIPL1", scores: { revel: 0.932 }, spliceAi: cleanSplice }))
       .toMatchObject({ outcome: "met", code: "PP3_Strong" });
     expect(aipl1.vcepNotes.join(" ")).toContain("0.093");
@@ -206,8 +222,8 @@ describe("VCEP rules — Group C: fallbacks, combos, non-REVEL, advisories, excl
   it("handles non-REVEL single tools (DDX41, CEP290) independent of dbNSFP baseStatus", () => {
     expect(decidePrimaryInsilico({ gene: "DDX41", scores: { revel: 0.99, alphaMissense: null }, baseStatus: "timeout", spliceAi: cleanSplice }))
       .toMatchObject({ outcome: "no-score", code: null, vcepApplied: true });
-    expect(decidePrimaryInsilico({ gene: "DDX41", scores: { alphaMissense: 0.80 }, baseStatus: "timeout", spliceAi: cleanSplice }))
-      .toMatchObject({ outcome: "met", code: "PP3", activeTool: "alphaMissense", criterionSource: "vcep" });
+    expect(decidePrimaryInsilico({ gene: "DDX41", scores: { alphaMissense: 0.80, revel: 0.01 }, baseStatus: "timeout", spliceAi: cleanSplice }))
+      .toMatchObject({ outcome: "met", code: "PP3", activeTool: "alphaMissense", criterionSource: "vcep", disagreeingTools: [] });
 
     const cep = decidePrimaryInsilico({ gene: "CEP290", scores: { cadd: 28.1 }, baseStatus: "timeout", spliceAi: cleanSplice });
     expect(cep).toMatchObject({ outcome: "met", code: "PP3_Moderate", activeTool: "cadd", criterionSource: "vcep" });

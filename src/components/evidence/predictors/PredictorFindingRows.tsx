@@ -181,6 +181,8 @@ export function PrimaryToolRow({ evidence }: { evidence: PredictorEvidence }) {
               ? (primary.vcepRule
                 ? `${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}) excludes missense computational predictors.`
                 : "Missense computational predictors excluded by ClinGen VCEP.")
+              : primary.outcome === "indeterminate"
+              ? (primary.vcepNotes[primary.vcepNotes.length - 1] ?? "VCEP multi-tool threshold requirement was not met (tools disagreed or sat between bands).")
               : pending ? "Still being computed for this variant."
               : primary.outcome === "withheld-base" ? "The dbNSFP scores did not arrive, so the primary tool is not known."
               : "None of the calibrated tools scored this variant."}
@@ -193,6 +195,8 @@ export function PrimaryToolRow({ evidence }: { evidence: PredictorEvidence }) {
         ) : call ? (
           call.direction ? <RowChip code={call.code} testId="predictor-primary-call" />
           : <span className="ev-tier" data-tone="neutral" data-testid="predictor-primary-call">Indeterminate</span>
+        ) : primary.outcome === "indeterminate" ? (
+          <span className="ev-tier" data-tone="neutral" data-testid="predictor-primary-call">Indeterminate</span>
         ) : (
           <span className="ev-tier" data-tone={pending ? "neutral" : "muted"} data-testid="predictor-primary-call">
             {primary.outcome === "vcep-excluded" ? "Excluded" : pending ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}
