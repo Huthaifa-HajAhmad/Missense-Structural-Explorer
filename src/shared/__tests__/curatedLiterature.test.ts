@@ -82,6 +82,10 @@ describe("screening enforces the curated link's own variant", () => {
     expect(result.tier).toBe(1);
     expect(result.tags.map(tag => tag.tag)).not.toContain("names-variant");
     expect(whyRead(result)).toContain("Cited by UniProt variant record");
+    // The paper ranks first because of the provider record. Its title merely names the gene, and quoting
+    // that as the reason would pass a gene mention off as the variant-specific signal.
+    expect(whyRead(result)).not.toContain("PAH study");
+    expect(whyRead(result)).not.toContain("lexicon");
   });
 
   it("does not promote a same-pmid link for a neighbouring substitution", () => {

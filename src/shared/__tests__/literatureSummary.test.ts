@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildLiteratureSummary, canonicalLiteratureSummary, literatureSummaryPrompt } from "../literatureSummary";
+import { buildLiteratureSummary, canonicalLiteratureSummary, literatureSummaryPrompt, summaryScopeRows, type LiteratureSummarySelection } from "../literatureSummary";
 const paper = (id: string, abstract: string, year: number | null = 2026, similarity: number | null = null) => ({ id, title: "PAH study", abstract, authors: "Author A", journal: "Journal", year, similarity });
 describe("screening-selected narrative literature", () => {
   it("prioritizes exact-variant assays without embeddings over highly similar gene papers and deduplicates", () => {
@@ -45,4 +45,48 @@ it("leaves the narrative empty when candidates have no gene, variant or curated 
   const selected = buildLiteratureSummary("RGS9", "p.Cys182Ser", [{ ...paper("goose", "We studied body weight in geese."), title: "Goose genetics" }]);
   expect(selected.citations).toEqual([]);
   expect(literatureSummaryPrompt(selected)).toContain("draw no conclusion about absence");
+});
+
+it("gives each retrieval scope one plain row, so a scope is never listed twice with two states", () => {
+  // The FGFR3 p.Gly380Arg receipt on production: the 5-second budget ended while the variant search
+  // was paging, before the gene search and the curated lookup returned.
+  const rows = summaryScopeRows({
+    citations: [],
+    scopes: { gene: "error", variant: "error", curated: "error" },
+    coverage: [{ scope: "variant", query: "FGFR3 AND (\"p.Gly380Arg\")", loaded: 25, matched: 495, state: "error", truncated: true }],
+  });
+  expect(rows).toEqual([
+    { label: "Gene search", text: "Did not finish" },
+    { label: "Variant notation search", text: "25 of 495 read · stopped before it finished" },
+    { label: "Clinical and functional search", text: "Did not finish" },
+    { label: "Curated variant records", text: "Did not finish" },
+  ]);
+});
+it("says a finished but bounded search left matches unread, and keeps older receipts without coverage", () => {
+  const rows = summaryScopeRows({
+    citations: [],
+    scopes: { gene: "complete", variant: "unavailable", curated: "complete" },
+    coverage: [{ scope: "gene", query: "Default gene search", loaded: 100, matched: 747, state: "complete", truncated: true }],
+  });
+  expect(rows.map(r => r.text)).toEqual(["100 of 747 read · more matches not read", "Not available", "Did not finish", "Complete"]);
+  expect(summaryScopeRows({ citations: [], scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, coverage: [] }).map(r => r.label))
+    .toEqual(["Gene search", "Variant notation search", "Curated variant records"]);
+});
+
+describe("narrative cache identity", () => {
+  const selection = (loaded: number, truncated: boolean, state: "complete" | "error" = "complete"): LiteratureSummarySelection => ({
+    citations: [],
+    scopes: { gene: "complete", variant: "complete", curated: "complete" },
+    withoutEmbeddings: 0,
+    coverage: [{ scope: "variant", query: "PAH AND (\"R408W\")", loaded, matched: 300, state, truncated }],
+  });
+  it("does not change when only the number of pages read in the time budget changes", () => {
+    // The same gene and variant read 25 papers on a slow upstream and 75 on a fast one. Both selected the
+    // same abstracts, so they must share one cached narrative instead of paying for a second one.
+    expect(canonicalLiteratureSummary(selection(25, true))).toBe(canonicalLiteratureSummary(selection(75, true)));
+    expect(canonicalLiteratureSummary(selection(25, true))).toBe(canonicalLiteratureSummary(selection(300, false)));
+  });
+  it("still changes when a search stopped early, because that is a different quality of input", () => {
+    expect(canonicalLiteratureSummary(selection(25, true, "error"))).not.toBe(canonicalLiteratureSummary(selection(25, true)));
+  });
 });

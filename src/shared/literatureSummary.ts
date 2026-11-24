@@ -24,6 +24,33 @@ export function literatureSummaryReceipt(selection: LiteratureSummarySelection):
   return { citations: selection.citations.map(c => ({ id: c.id, title: c.title, url: c.url ?? null, tier: c.screening.tier })), scopes: selection.scopes, coverage: selection.coverage ?? [] };
 }
 
+const SCOPE_ROWS = [
+  { key: "gene", label: "Gene search" },
+  { key: "variant", label: "Variant notation search" },
+  { key: "clinical / functional", label: "Clinical and functional search" },
+  { key: "curated", label: "Curated variant records" },
+] as const;
+
+/**
+ * One plain row per retrieval scope for the rail. The receipt records a scope twice (its search
+ * coverage and its scope state), and printing both listed "variant" twice with two different states.
+ * A search row comes from coverage; a scope that left no coverage row ran out of time or never ran.
+ */
+export function summaryScopeRows(receipt: LiteratureSummaryReceipt): Array<{ label: string; text: string }> {
+  return SCOPE_ROWS.flatMap(({ key, label }) => {
+    const row = receipt.coverage.find(item => item.scope === key);
+    if (row) {
+      const read = row.matched !== null ? `${row.loaded} of ${row.matched} read` : `${row.loaded} read; total not reported`;
+      const tail = row.state === "error" ? " · stopped before it finished" : row.truncated ? " · more matches not read" : "";
+      return [{ label, text: `${read}${tail}` }];
+    }
+    // Older receipts carry no coverage at all, so the focused search cannot be described.
+    if (key === "clinical / functional") return receipt.coverage.length ? [{ label, text: "Did not finish" }] : [];
+    const state = receipt.scopes[key];
+    return [{ label, text: state === "complete" ? "Complete" : state === "error" ? "Did not finish" : "Not available" }];
+  });
+}
+
 export function buildLiteratureSummary(
   gene: string,
   variant: string,
@@ -67,7 +94,11 @@ function stableValue(value: unknown): unknown {
 
 /** Server-owned cache identity, separate from the client-owned biological evidence revision. */
 export function canonicalLiteratureSummary(selection: LiteratureSummarySelection): string {
-  return JSON.stringify(stableValue({ selectionVersion: SUMMARY_SELECTION_VERSION, lexiconVersion: LEXICON_VERSION, ...selection }));
+  // How many pages fit in the time budget depends on how fast the upstream answered, not on the
+  // inputs. Leaving `loaded` and `truncated` in made the same gene and variant hash differently from
+  // one run to the next. A search that stopped early still changes the identity through `state`.
+  const coverage = (selection.coverage ?? []).map(({ loaded: _loaded, truncated: _truncated, ...stable }) => stable);
+  return JSON.stringify(stableValue({ selectionVersion: SUMMARY_SELECTION_VERSION, lexiconVersion: LEXICON_VERSION, ...selection, coverage }));
 }
 
 function abstractExcerpt(citation: SummaryCitation): string {

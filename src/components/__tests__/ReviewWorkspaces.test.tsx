@@ -120,18 +120,22 @@ describe('Literature reading workspace', () => {
     let latest: LiteratureEvidence | null = null;
     render(<Harness report={e => { latest = e; }} />);
     await screen.findByTestId('literature-table');
+    fireEvent.click(within(screen.getByTestId('paper-91000000')).getByRole('button', { name: 'Inspect source' }));
     expect(screen.queryByRole('region', { name: 'What the loaded text names' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
     expect(screen.getByRole('region', { name: 'What the loaded text names' })).toBeInTheDocument();
     expect(screen.queryByTestId('literature-table')).not.toBeInTheDocument();
     await waitFor(() => expect(latest!.displayed).toEqual([]));
     expect(latest!.papers).toHaveLength(12);
+    expect(screen.getByTestId('trace-order')).toHaveTextContent('on reading desk');
+    expect(screen.getByTestId('trace-order')).not.toHaveTextContent('0 shown');
+    expect(screen.queryByText(/outside the current reading desk or filters/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export shortlist' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /^Names only NAE1/ })).not.toHaveAttribute('aria-pressed');
     const textCoverage = screen.getByRole('heading', { name: 'How much text was available?' }).parentElement!;
     expect(textCoverage).toHaveTextContent('With an abstract12 / 12');
     expect(textCoverage).toHaveTextContent('Without an abstract0 / 12');
-    fireEvent.click(screen.getByRole('tab', { name: 'Reading desk' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to reading desk' }));
     expect(screen.getByTestId('literature-table')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export shortlist' })).toBeEnabled();
   });
@@ -140,6 +144,8 @@ describe('Literature reading workspace', () => {
     render(<Harness report={() => {}} />);
     await screen.findByTestId('literature-empty');
     fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
+    // The rail offers the same way back, because search and export both live on the reading desk.
+    expect(screen.getByRole('button', { name: 'Go to reading desk' })).toBeInTheDocument();
     const action = screen.getByRole('button', { name: 'Open reading desk' });
     action.focus();
     fireEvent.click(action);
@@ -273,6 +279,9 @@ describe('Literature reading workspace', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
     fireEvent.click(screen.getByRole('button', { name: /^Names only NAE1/ }));
     await screen.findByText(/outside the current reading desk or filters/);
+    // Selecting is not adding to the report: the rail must not call an unpinned selection "pinned".
+    expect(screen.getByText('Selected source')).toBeInTheDocument();
+    expect(screen.queryByText('Pinned source')).not.toBeInTheDocument();
     expect(screen.queryByTestId('paper-91000000')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show selected source record' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'NAE1 source 1' })).toHaveFocus());

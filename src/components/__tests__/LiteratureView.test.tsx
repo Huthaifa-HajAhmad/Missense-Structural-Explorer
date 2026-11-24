@@ -81,6 +81,16 @@ beforeEach(() => {
   getLiterature.mockReset();
 });
 
+describe("Literature tab — loading", () => {
+  it("does not promise a few seconds: a large gene can take most of the server's 25 second ceiling", async () => {
+    getLiterature.mockImplementation(() => new Promise(() => {}));
+    renderView();
+    const status = await screen.findByText("Searching Europe PMC…");
+    expect(status.parentElement).toHaveTextContent("up to 30 seconds");
+    expect(status.parentElement).not.toHaveTextContent("few seconds");
+  });
+});
+
 describe("Literature tab — the finding", () => {
   it("says how many Europe PMC records name the variant, worded as a count of a stated query", async () => {
     serve();
@@ -319,7 +329,7 @@ describe("Literature tab — one statement of each thing", () => {
     const toggle = screen.getByRole("button", { name: "Filters" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle);
-    fireEvent.click(screen.getByRole("button", { name: /Name only NAE1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Names only NAE1/ }));
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     expect(screen.getByRole("button", { name: /Filters/ }).textContent).toContain("1 active");
     expect(screen.queryByRole("group", { name: "Filter by screening observation" })).toBeNull();
@@ -394,9 +404,15 @@ describe("Literature rail — the trace", () => {
 describe("Literature surfaces — what they may never print", () => {
   const FILES = [
     "src/components/LiteratureView.tsx",
+    "src/components/literature/useLiteratureSearch.ts",
+    "src/components/literature/LiteratureControls.tsx",
+    "src/components/literature/LiteratureCoverage.tsx",
+    "src/components/literature/LiteratureEmptyState.tsx",
     "src/components/literature/PaperTable.tsx",
     "src/components/literature/MarkedText.tsx",
     "src/components/inspector/LiteratureInspector.tsx",
+    "src/components/inspector/literatureExport.ts",
+    "src/components/inspector/LiteratureExportSection.tsx",
     "src/shared/literatureEvidence.ts",
   ];
 
@@ -409,7 +425,7 @@ describe("Literature surfaces — what they may never print", () => {
     const css = fs.readFileSync(path.join(process.cwd(), "src/styles/literature.css"), "utf-8");
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(css).not.toMatch(/rgba?\(/);
-    for (const file of FILES.slice(0, 4)) {
+    for (const file of FILES.filter(f => !f.startsWith("src/shared/"))) {
       const source = fs.readFileSync(path.join(process.cwd(), file), "utf-8");
       expect(source, file).not.toMatch(/\b(rose|emerald|amber|indigo|sky)-\d{2,3}\b/);
       expect(source, file).not.toMatch(/animate-(spin|pulse|ping)/);

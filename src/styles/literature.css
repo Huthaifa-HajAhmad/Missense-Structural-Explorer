@@ -449,6 +449,9 @@
 }
 .lit-rail .eyebrow:has(.lit-rail__reset) { display: flex; }
 .lit-rail .rail-kv__row > dd { text-align: right; min-width: 0; }
+/* Sentences read badly right-aligned beside a label: these lists put the label above its text. */
+.lit-rail .lit-rail__reads .rail-kv__row { display: grid; gap: 2px; padding: 6px 0; }
+.lit-rail .lit-rail__reads .rail-kv__row > dd { display: block; text-align: start; color: var(--cs-text-secondary); line-height: 1.5; }
 
 @container (max-width: 640px) {
   .lit-why-read { margin-left: 0; }
@@ -518,6 +521,6 @@
 .lit-text-coverage dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 1rem; margin-block: 1rem; }
 .lit-text-coverage dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-block: .75rem; border-block-end: 1px solid var(--cs-border-subtle); }
 .lit-text-coverage dt, .lit-text-coverage p { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.lit-text-coverage dd { margin: 0; color: var(--cs-text-primary); font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; font-size: 1.125rem; }
+.lit-text-coverage dd { margin: 0; color: var(--cs-text-primary); font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; font-size: var(--cs-font-size-prose); }
 .lit-text-coverage small { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .lit-text-coverage p { margin: 0; line-height: 1.6; }

@@ -243,6 +243,8 @@ calls in flight or a refill timer is never evicted.
 callers (`inFlightFills`) → stored, or an expired entry served when a provider limited the fill. A result
 built from an expired entry is returned but not stored.
 
+**Literature search** (`searchGeneLiterature` in `server/services/llm/literature-rag.ts`): a fresh cached set is served; otherwise one live Europe PMC search runs per cache key (`inFlightSearches`) and every caller waits on it with its own abort signal. The search stops after 25 s, retries once (250 ms later, only if 4 s remain) on a 5xx answer, an HTML error page or a dropped connection, and ends `degraded` (the gene's cached rows, with no hit count) if it fails. A caller that leaves does not stop the search while another caller waits; the last caller to leave aborts it. A forced search (`force`) always runs its own request. The AI summary's selection (`selectSummaryCitations`) reads page one of its searches within 12 s, then pages deeper only while 2.5 s remain; a scope that stopped early is `error`, and a scope that stopped on the time floor stays `complete` with `truncated`.
+
 ## 10. Deployment role and process lifecycle
 
 Code: `deployment-role.ts`, `deployment-control.ts`, `graceful-shutdown.ts`, `deploy/rollout.py`.

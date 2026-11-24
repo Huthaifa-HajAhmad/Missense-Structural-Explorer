@@ -33,6 +33,15 @@ describe("literature screening synthetic abstracts (proposal §0.3)", () => {
     expect(whyRead(result)).toContain("Variant-anchored");
   });
 
+  it("quotes the observation that earned the tier, not a stronger-sourced tag that did not", () => {
+    // A review that names the variant is tier 2 because it names the variant. Its review publication
+    // type is a real tag but not the reason, so the line must quote the variant sentence.
+    const result = screen("Reported variants include PAH p.Arg408Trp.", { publicationTypes: ["review-article"] });
+    expect(result.tier).toBe(2);
+    expect(whyRead(result)).toContain("p.Arg408Trp");
+    expect(whyRead(result)).not.toContain("review-article");
+  });
+
   it("B: rescues a different one-letter or three-letter substitution at the same residue", () => {
     expect(screen("PAH p.Arg408Gln retained 12% residual activity.").tags).toEqual(
       expect.arrayContaining([expect.objectContaining({ tag: "same-residue" })]),

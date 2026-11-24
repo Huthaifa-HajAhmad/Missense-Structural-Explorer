@@ -232,6 +232,21 @@ describe("buildLiteratureEvidence", () => {
     const ev = buildLiteratureEvidence({ ...base, response: { ...base.response!, degraded: true, hitCount: 747 } });
     expect(ev.faults[0]).toContain("did not answer");
     expect(ev.trace.find(s => s.key === "matched")!.value).toBe("No answer");
+    // The rail no longer repeats the tab's fault callouts, so the step itself must say why.
+    expect(ev.trace.find(s => s.key === "matched")!.sub).toContain("cached set");
+  });
+
+  it("states a curated lookup failure once, without nesting the server's own sentence", () => {
+    const reason = "The curated citation lookup failed (The operation was aborted due to timeout).";
+    const ev = buildLiteratureEvidence({ ...base, curated: { state: "error", reason, linked: 0 } });
+    const fault = ev.faults.find(f => f.includes("curated"))!;
+    expect(fault).toBe(`${reason} Papers cited only by a curated variant record may be missing.`);
+    expect(fault).not.toMatch(/\.\)\./);
+  });
+
+  it("says a notation-search count includes open-access full text, unlike the title/abstract check", () => {
+    const ev = buildLiteratureEvidence({ ...base, probe: { state: "done", hitCount: 495 } });
+    expect(ev.finding.predicate).toContain("open-access full text");
   });
 
   it("filters by group and by typed text, and exports exactly what is visible", () => {
