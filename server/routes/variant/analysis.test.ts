@@ -4,6 +4,8 @@ import { apiRouter } from "../../routes.ts";
 import * as externalServices from "../../services/external.ts";
 import * as orchestrator from "../../services/analysis-orchestrator.ts";
 import * as landscapeContext from "../../services/prediction/landscape-context.ts";
+import * as variantParser from "./variant-parser.ts";
+import { AuditLogger } from "../../utils.ts";
 
 describe("Variant Analysis Route Handlers", () => {
   beforeEach(() => {
@@ -497,5 +499,45 @@ describe("Variant Analysis Route Handlers", () => {
       // Heartbeats are not payload, and a heartbeat must never be mistaken for the result.
       expect(frames[0].data).toBeUndefined();
     });
+  });
+});
+
+describe("numbering check in the audit entry of every analysis route", () => {
+  const routes = [
+    ["/analyze-variant", "ANALYZE_VARIANT"],
+    ["/analyze-variant/stream", "ANALYZE_VARIANT_STREAM"],
+    ["/analyze-variant/landscape", "ANALYZE_VARIANT_LANDSCAPE"],
+    ["/analyze-variant/landscape-overview", "ANALYZE_VARIANT_LANDSCAPE_OVERVIEW"],
+    ["/analyze-variant/landscape-context", "ANALYZE_VARIANT_LANDSCAPE_CONTEXT"],
+    ["/analyze-variant/structural", "ANALYZE_VARIANT_STRUCTURAL"],
+  ] as const;
+  const numberingAudit = {
+    inputKind: "coordinate",
+    numberingBasis: "unverified",
+    numberingVerified: false,
+    numberingReason: "position 85 lies where the MANE protein and canonical Q9Y305 differ",
+  } as const;
+
+  it.each(routes)("%s records the numbering check in %s", async (path, action) => {
+    vi.restoreAllMocks();
+    vi.spyOn(variantParser, "validateAndParseVariantRequest").mockResolvedValue({
+      gene: "ACOT9", variant: "p.Asp85Phe", uniprotId: "Q9Y305", pos: 85, acmgWeighting: "standard", numberingAudit,
+    } as any);
+    // The entry is written before any analysis work. Stopping there keeps the test off the network.
+    const entries: Array<[string, any]> = [];
+    vi.spyOn(AuditLogger, "logVariantQuery").mockImplementation(async (name: string, metadata: any) => {
+      entries.push([name, metadata]);
+      throw new Error("stop after the audit entry");
+    });
+
+    const route: any = apiRouter.stack.find((layer: any) => layer.route?.path === path);
+    const handler = route.route.stack[route.route.stack.length - 1].handle;
+    const req: any = { body: {}, headers: {} };
+    const res: any = { status() { return this; }, json() { return this; }, setHeader() {}, flushHeaders() {}, end() {}, write() {} };
+    await handler(req, res, () => {}).catch(() => undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0][0]).toBe(action);
+    expect(entries[0][1]).toMatchObject(numberingAudit);
   });
 });

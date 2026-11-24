@@ -162,6 +162,18 @@ export interface ParsedVariantContext {
   numberingDisambiguated?: boolean;
   /** Human-readable disclosure for the unverified case; surfaced with the analysis result. */
   numberingWarning?: string;
+  /**
+   * The numbering check as the audit log records it, so the unverified rate can be measured for every
+   * input kind. `unavailable`: the isoform check gave no answer (unreachable or over its time budget);
+   * `user-confirmed`: the reader chose the canonical reading at the ambiguity prompt. `inputKind`
+   * is "coordinate" when the request carries the genomic coordinate it was translated from.
+   */
+  numberingAudit?: {
+    inputKind: "coordinate" | "protein";
+    numberingBasis: ProteinNumberingOutcome["status"] | "unavailable" | "user-confirmed";
+    numberingVerified: boolean;
+    numberingReason?: string;
+  };
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
   /** SpliceAI reporting window the caller asked for; null leaves the client's default. */
@@ -550,6 +562,12 @@ export async function validateAndParseVariantRequest(
     numberingVerified,
     ...(canonicalConfirmed ? { numberingDisambiguated: true } : {}),
     numberingWarning,
+    numberingAudit: {
+      inputKind: genomicCoordinates ? "coordinate" : "protein",
+      numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
+      numberingVerified,
+      ...(!numberingVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
+    },
     originalNotation,
     ...(genomicCoordinates ? { genomicCoordinates } : {}),
     ...(liftedGenomicCoordinates ? { liftedGenomicCoordinates } : {}),
