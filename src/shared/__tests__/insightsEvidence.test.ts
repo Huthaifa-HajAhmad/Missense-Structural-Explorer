@@ -221,7 +221,7 @@ describe("consolidated fields a report can reuse", () => {
 
 describe("computeTierGap uses the engine's own combining rule", () => {
   it("one Supporting is 4 additions from Likely pathogenic at the fewest", () => {
-    const gap = computeTierGap([{ code: "PP3", reason: "" }])!;
+    const gap = computeTierGap([{ code: "PP3", reason: "" }], { nullVariant: true })!;
     expect(gap.side).toBe("pathogenic");
     expect(gap.target).toBe("Likely pathogenic");
     // Every option must actually reach the target under classifyVariant.
@@ -260,5 +260,70 @@ describe("computeTierGap uses the engine's own combining rule", () => {
 describe("tierIndexOf", () => {
   it("maps the engine's verdict strings", () => {
     expect(["Benign", "Likely Benign", "Variant of Uncertain Significance (VUS)", "Likely Pathogenic", "Pathogenic"].map(tierIndexOf)).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
+describe("Insights audit 2026-11-24", () => {
+  const twoStrongMissing = [{ code: "PS1", reason: "" }, { code: "PM2_Supporting", reason: "" }, { code: "PP3", reason: "" }];
+
+  it("never offers PVS1 to a missense change: a null-variant code cannot be met by one", () => {
+    const gap = computeTierGap(twoStrongMissing)!;
+    expect(gap.options.join(" | ")).not.toContain("Very strong");
+    expect(gap.options).toContain("1 Strong");
+  });
+
+  it("offers PVS1 when the change is a null variant", () => {
+    const gap = computeTierGap(twoStrongMissing, { nullVariant: true })!;
+    expect(gap.options.join(" | ")).toContain("Very strong");
+  });
+
+  it("names example codes for every strength an option uses", () => {
+    const gap = computeTierGap(twoStrongMissing)!;
+    const strong = gap.examples.find(e => e.strength === "Strong");
+    expect(strong?.codes).toMatch(/PS3/);
+    expect(gap.examples.some(e => e.strength === "Very strong")).toBe(false);
+  });
+
+  it("reads the variant to decide whether PVS1 is reachable", () => {
+    const nonsense = buildInsightsEvidence({ result: nae1({ metadata: { gene: "NAE1", variant: "p.Arg116Ter" } }), functionInput, stability: null });
+    const missense = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+    expect(nonsense.gap!.options.join(" | ")).toContain("Very strong");
+    expect(missense.gap!.options.join(" | ")).not.toContain("Very strong");
+  });
+
+  it("marks the rows the engine never counts as context, and names the genome-wide row for what feeds it", () => {
+    const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+    expect(ev.lanes.filter(l => l.contextOnly).map(l => l.key)).toEqual(["stability", "assembly", "language-models"]);
+    const genome = ev.lanes.find(l => l.key === "language-models")!;
+    expect(genome.name).toBe("Genome-wide scores");
+  });
+
+  it("tells apart candidate alleles that were all read from ones that were not", () => {
+    const locus = (candidates: unknown[]) => nae1({
+      gnomadFrequency: { candidates },
+      predictorData: { locusResolution: { route: "fallback", canonicalBy: null, failureKind: "multiple-candidates", steps: [], candidates: [{}, {}] } },
+    });
+    const read = buildInsightsEvidence({ result: locus([{ outcome: "found" }, { outcome: "not-found" }]), functionInput, stability: null });
+    const missed = buildInsightsEvidence({ result: locus([{ outcome: "found" }, { outcome: "failed" }]), functionInput, stability: null });
+    expect(read.candidateFrequencyRead).toBe(true);
+    expect(missed.candidateFrequencyRead).toBe(false);
+  });
+
+  it("lists the deep-model engines this run named to the model, not a fixed list", () => {
+    const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: null, deepEnginesNamed: ["FoldX", "RaSP"] });
+    const deep = ev.narrative.sent.find(s => s.startsWith("deep-model"))!;
+    expect(deep).toContain("FoldX, RaSP");
+    expect(deep).not.toContain("StabilityOracle");
+  });
+
+  it("says no deep-model block was sent when the run produced none", () => {
+    const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: null, deepEnginesNamed: [] });
+    expect(ev.narrative.sent.find(s => s.startsWith("no deep-model"))).toBeDefined();
+  });
+
+  it("counts the candidate alleles of an ambiguous protein change", () => {
+    const result = nae1({ predictorData: { locusResolution: { route: "fallback", canonicalBy: null, failureKind: "multiple-candidates", steps: [], candidates: [{}, {}] } } });
+    expect(buildInsightsEvidence({ result, functionInput, stability: null }).candidateAlleles).toBe(2);
+    expect(buildInsightsEvidence({ result: nae1(), functionInput, stability: null }).candidateAlleles).toBeNull();
   });
 });

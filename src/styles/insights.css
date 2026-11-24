@@ -4,10 +4,15 @@
 .ins-shell__heading { inline-size: 100%; min-inline-size: 0; }
 .ins-shell__title-row { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1rem; }
 /* The reading guide sits at the trailing edge, opposite the title (the `.nrg-header__row` idiom).
-   Named rather than `:last-child`, so adding a chip after it cannot silently move it back. */
+   Named rather than `:last-child`, so adding a chip after it cannot silently move it back. The Export
+   menu follows it and takes the next slot, so both sit together at the trailing edge. */
 .ins-shell__guide { margin-inline-start: auto; }
-/* A secondary toolbar: the rule bleeds to the card edges, the buttons stay on the header's gutter. */
-.ins-shell__exports { display: flex; flex-wrap: wrap; gap: .5rem; inline-size: calc(100% + 2 * var(--ins-shell-gutter)); margin-inline: calc(-1 * var(--ins-shell-gutter)); padding: .75rem var(--ins-shell-gutter) 0; border-block-start: 1px solid var(--cs-border-subtle); }
+/* Exports live in one menu in the title row, so the verdict is the first thing under the title. */
+.ins-export-menu { position: relative; }
+.ins-export-menu__toggle { list-style: none; }
+.ins-export-menu__toggle::-webkit-details-marker { display: none; }
+.ins-export-menu > .ins-shell__exports { position: absolute; inset-inline-end: 0; inset-block-start: calc(100% + .375rem); z-index: 5; display: grid; gap: .375rem; min-inline-size: 13rem; padding: .5rem; background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-badge); box-shadow: 0 6px 20px color-mix(in oklch, var(--cs-text-primary) 10%, transparent); }
+.ins-export-menu .ins-shell__exports .ins-export { justify-content: start; border-color: transparent; }
 .ins-shell__title { text-transform: none; }
 .ins-shell__notice { display: flex; align-items: start; gap: .375rem; margin-block-start: .375rem; max-inline-size: 75ch; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); }
 .ins-shell__body { padding: clamp(.75rem, 2cqi, 1.5rem); }
@@ -30,23 +35,23 @@
 .ins-card__foot { display: flex; flex-wrap: wrap; gap: .375rem 1.25rem; padding-block: .75rem; border-block-start: 1px solid var(--cs-border-subtle); color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
 .ins-card__foot b { color: var(--cs-text-secondary); font-weight: 500; }
 .ins-link { appearance: none; background: transparent; border: 0; padding: 0; min-block-size: 2rem; cursor: pointer; font: inherit; font-size: var(--cs-font-size-caption); font-weight: 500; color: var(--cs-text-accent); }
-.ins-link:focus-visible, .ins-lane__name:focus-visible, .ins-method > summary:focus-visible, .ins-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; border-radius: .25rem; }
-.ins-link:active, .ins-method > summary:active, .ins-details > summary:active { color: var(--cs-text-primary); }
+.ins-link:focus-visible, .ins-lane__name:focus-visible, .ins-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; border-radius: .25rem; }
+.ins-link:active, .ins-details > summary:active { color: var(--cs-text-primary); }
 .ins-finding { padding-block-end: .5rem; }
-.ins-finding > .ins-card__head { padding: 0; }
+.ins-finding__label { display: inline-flex; align-items: center; gap: .375rem; }
+.ins-finding__label::before { content: ''; inline-size: .5rem; block-size: .5rem; border-radius: 50%; background: var(--cs-text-muted); }
+.ins-finding__label[data-tone='danger']::before { background: var(--cs-danger); }
+.ins-finding__label[data-tone='good']::before { background: var(--cs-good); }
 .ins-hero__body { display: grid; gap: .5rem; padding-block: .75rem; }
 .ins-hero__figure { margin: 0; color: var(--cs-text-primary); font-family: var(--cs-font-serif, var(--cs-font-sans)); font-size: clamp(1.5rem, 1.1rem + 2cqi, 2.5rem); font-weight: 500; letter-spacing: -.035em; line-height: 1.2; text-wrap: balance; }
-.ins-hero__finding { margin: 0; max-inline-size: 70ch; }
-.ins-hero__finding strong { color: var(--cs-text-primary); font-weight: 600; }
-.ins-method { color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
-.ins-method > summary { cursor: pointer; min-block-size: 2rem; padding-block: .25rem; }
-.ins-method > p { max-inline-size: 70ch; }
-.ins-tiers { padding-block: .75rem; }
-.ins-tiers__row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25rem; margin-block-start: .5rem; }
-.ins-tier { padding-block: .5rem 0; text-align: center; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); border-block-start: .25rem solid var(--cs-border-subtle); overflow-wrap: anywhere; }
-.ins-tier[data-active] { color: var(--cs-text-primary); font-weight: 600; border-color: var(--cs-text-secondary); }
+/* The five ACMG tiers as one slim strip under the verdict: where this tier sits, at a glance. */
+.ins-tiers { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25rem; max-inline-size: 36rem; margin-block: .25rem .5rem; }
+.ins-tier { padding-block-start: .375rem; border-block-start: .25rem solid var(--cs-border-subtle); color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); text-align: center; overflow-wrap: anywhere; }
+.ins-tier[aria-current] { border-color: var(--cs-text-secondary); color: var(--cs-text-primary); font-weight: 600; }
 .ins-tier[data-side='pathogenic'] { border-color: var(--cs-danger); }
 .ins-tier[data-side='benign'] { border-color: var(--cs-good); }
+.ins-hero__finding { margin: 0; max-inline-size: 70ch; }
+.ins-hero__finding strong { color: var(--cs-text-primary); font-weight: 600; }
 .ins-gap { padding: 1rem 1.25rem; background: var(--cs-surface-2); border-radius: .5rem; }
 .ins-gap h3 { margin-block: 0 .5rem; }
 .ins-gap ul { padding-inline-start: 1.25rem; margin-block: .5rem; list-style: disc; }
@@ -59,25 +64,42 @@
 .ins-key i[data-k='path'] { background: var(--cs-danger); }
 .ins-key i[data-k='ben'] { background: var(--cs-good); }
 .ins-key i[data-k='ctx'] { border: 1px dashed var(--cs-text-muted); }
-.ins-axis, .ins-lane { display: grid; grid-template-columns: minmax(8rem, 22%) minmax(0, 1fr); gap: .75rem; }
-.ins-axis { padding-block: .5rem; }
+/* Map row: area name | a fixed-width diverging chart | the reading. The chart is narrow on purpose:
+   three strength ticks per side, so a bar's length reads against marks instead of empty track. */
+.ins-axis, .ins-lane { --ins-chart: 13rem; display: grid; grid-template-columns: minmax(8rem, 16%) var(--ins-chart) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.ins-axis { position: sticky; inset-block-start: 0; z-index: 1; padding-block: .375rem; background: var(--cs-surface); color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
 .ins-axis__scale { display: flex; justify-content: space-between; }
-.ins-lane { padding-block: .875rem 1rem; border-block-start: 1px solid var(--cs-border-subtle); border-inline-start: 2px solid transparent; padding-inline: .625rem; }
+.ins-lane { padding-block: .75rem; border-block-start: 1px solid var(--cs-border-subtle); border-inline-start: 2px solid transparent; padding-inline: .625rem; }
 .ins-lane[data-selected] { background: color-mix(in oklch, var(--cs-accent-clay) 5%, var(--cs-surface)); border-inline-start-color: var(--cs-accent-clay); }
 .ins-lane__name { display: block; padding: 0; min-block-size: 2rem; background: transparent; border: 0; text-align: start; font: inherit; font-weight: 600; color: var(--cs-text-primary); cursor: pointer; }
 .ins-lane__name:active { color: var(--cs-text-accent); }
 .ins-lane__links { display: flex; flex-wrap: wrap; gap: .25rem .75rem; }
-.ins-strip { position: relative; block-size: 1.625rem; margin-block-end: .5rem; }
-.ins-strip::before { content: ''; position: absolute; inset-inline: 0; inset-block-start: .75rem; block-size: 1px; background: var(--cs-border-subtle); }
-.ins-strip::after { content: ''; position: absolute; inset-inline-start: 50%; inset-block-start: .125rem; block-size: 1.375rem; border-inline-start: 1px solid var(--cs-text-muted); }
-.ins-bar { position: absolute; inset-block-start: .375rem; block-size: .75rem; inline-size: var(--ins-len, 10%); border-radius: .125rem; }
+/* Ticks at each strength step: 1/3, 2/3 and 3/3 of each half, plus the centre line. */
+.ins-strip { --ins-step: calc(50% / 3); position: relative; block-size: 1.5rem; margin-block-start: .25rem;
+  background: linear-gradient(var(--cs-border-subtle), var(--cs-border-subtle)) center / 100% 1px no-repeat,
+    repeating-linear-gradient(to right, color-mix(in oklch, var(--cs-text-muted) 55%, transparent) 0 1px, transparent 1px var(--ins-step)) 0 50% / 100% .5rem no-repeat; }
+.ins-strip::after { content: ''; position: absolute; inset-inline-start: 50%; inset-block: 0; border-inline-start: 1px solid var(--cs-text-muted); }
+.ins-bar { position: absolute; inset-block-start: .375rem; block-size: .75rem; inline-size: calc(var(--ins-step) / 2); border-radius: .125rem; }
+.ins-bar[data-steps='1'] { inline-size: var(--ins-step); }
+.ins-bar[data-steps='2'] { inline-size: calc(var(--ins-step) * 2); }
+.ins-bar[data-steps='3'] { inline-size: calc(var(--ins-step) * 3); }
 .ins-bar[data-lean='pathogenic'] { inset-inline-start: 50%; background: var(--cs-danger); }
 .ins-bar[data-lean='benign'] { inset-inline-end: 50%; background: var(--cs-good); }
 .ins-bar[data-counted='false'] { background: transparent; border: 1px dashed var(--cs-text-muted); }
-.ins-dot { position: absolute; inset-inline-start: 50%; inset-block-start: .375rem; inline-size: .75rem; block-size: .75rem; border-radius: 50%; border: 1px solid var(--cs-text-secondary); background: var(--cs-surface); transform: translateX(-50%); }
-.ins-lane__line { margin: 0; max-inline-size: 75ch; }
+/* No reading, or no lean: the track fades and carries no mark, so nothing reads as a value or a symbol. */
+.ins-strip[data-empty] { opacity: .35; }
+.ins-lane__line { margin: 0; }
 .ins-lane__line strong { font-weight: 500; color: var(--cs-text-primary); }
+.ins-lane__chips:empty { display: none; }
 .ins-lane__chips { display: inline-flex; flex-wrap: wrap; gap: .375rem; margin-inline-end: .5rem; }
+.ins-lane-group { margin-block-start: .75rem; }
+.ins-lane-group__head { margin: 0; padding-block: .5rem; border-block-start: 1px solid var(--cs-border); color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); font-weight: 500; }
+.ins-lane-group .ins-lane__name { color: var(--cs-text-secondary); font-weight: 500; }
+.ins-gap__examples { display: grid; gap: .25rem; margin-block: .75rem 0; font-size: var(--cs-font-size-caption); }
+.ins-gap__examples > div { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .75rem; }
+.ins-gap__examples dt { color: var(--cs-text-primary); font-weight: 500; }
+.ins-gap__examples dd { margin: 0; }
+.ins-record-table tr[data-state='met'] th .ins-mono { color: var(--cs-text-primary); }
 .ins-screen [data-unconfirmed='true'] { border-style: dashed; }
 .ins-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1.5rem; padding-block: .75rem 1rem; }
 .ins-two h3 { margin-block: 0 .5rem; font-size: var(--cs-font-size-prose); color: var(--cs-text-primary); font-weight: 600; }
@@ -102,8 +124,8 @@
 .ins-record-table td:last-child { min-inline-size: 12rem; }
 .ins-record-table .ins-link { display: block; }
 @media (hover: hover) and (pointer: fine) { .ins-link:hover, .ins-lane__name:hover { color: var(--cs-text-accent); text-decoration: underline; text-underline-offset: .2em; } }
-@container (inline-size < 35rem) { .ins-axis, .ins-lane, .ins-rows > div, .ins-proposal { grid-template-columns: minmax(0, 1fr); gap: .375rem; } .ins-axis > :first-child { display: none; } .ins-lane > :first-child { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; align-items: baseline; } }
-@media print { .ins-bar, .ins-tier { print-color-adjust: exact; } .ins-link { display: none; } .ins-method::details-content { display: block; content-visibility: visible; } }
+@container (inline-size < 40rem) { .ins-axis, .ins-lane, .ins-rows > div, .ins-proposal { grid-template-columns: minmax(0, 1fr); gap: .375rem; } .ins-axis > :not(.ins-axis__scale) { display: none; } .ins-lane__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; align-items: baseline; } }
+@media print { .ins-bar, .ins-tier { print-color-adjust: exact; } .ins-link { display: none; } }
 
 /* The inspector reads in the tab's sans, following the gene-disease rail (`gene-disease.css:117`) rather
    than the evidence panes, whose `.eyebrow` rank is mono 10/700 by design (`typography-tables.css:293`). */
@@ -117,5 +139,6 @@
 .ins-export:disabled { opacity: .5; cursor: default; }
 @media (prefers-reduced-motion: no-preference) { .ins-export { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; } }
 @media (hover: hover) and (pointer: fine) { .ins-export:enabled:hover { background: var(--cs-surface-2); border-color: var(--cs-accent-clay); color: var(--cs-text-primary); } }
-@media print { .ins-shell__exports { display: none; } }
+/* `print.css` forces every <details> open with !important; the export menu must still not print. */
+@media print { .ins-export-menu { display: none !important; } }
 

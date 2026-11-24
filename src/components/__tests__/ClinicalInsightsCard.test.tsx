@@ -313,7 +313,7 @@ describe("ClinicalInsightsCard consolidated case", () => {
 
   it("gives every evidence area a row on the board", () => {
     renderCard(withCriteria());
-    for (const name of ["Computational", "Population", "Splicing", "Protein function", "Stability", "Assembly", "Sequence models"]) {
+    for (const name of ["Computational", "Population", "Splicing", "Protein function", "Stability", "Assembly", "Genome-wide scores"]) {
       expect(screen.getByText(name)).toBeInTheDocument();
     }
   });
@@ -368,6 +368,14 @@ describe('Export toolbar', () => {
     expect(buttons).toHaveLength(3);
     for (const button of buttons) expect(button).toHaveAttribute('type', 'button');
     expect(within(group).getByRole('button', { name: /Provenance Manifest/i })).toBeEnabled();
+  });
+
+  it('closes the menu after an export is chosen and still announces the copy', () => {
+    renderCard(baseResult());
+    const menu = document.querySelector('details.ins-export-menu') as HTMLDetailsElement;
+    menu.open = true;
+    fireEvent.click(screen.getByRole('button', { name: /Copy Report/i }));
+    expect(menu.open).toBe(false);
   });
 
   it('locks every export while the analysis is still loading', () => {

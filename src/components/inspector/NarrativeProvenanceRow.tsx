@@ -52,6 +52,8 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
     analysisResult?.fallbackReason
   );
 
+  const narrativeOutdated = narrativeFreshness(analysisResult, narrativeContext) === "outdated";
+
   const status = useMemo(
     () =>
       deriveAiStatus({
@@ -65,7 +67,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         hasNarrative: Boolean(narrative && hasStampedNarrative(analysisResult)),
         isNarrativeLoading,
         narrativeMode: settings?.narrativeMode,
-        narrativeOutdated: narrativeFreshness(analysisResult, narrativeContext) === "outdated",
+        narrativeOutdated,
       }),
     [
       isDegraded,
@@ -79,7 +81,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
       isNarrativeLoading,
       settings?.narrativeMode,
       analysisResult,
-      narrativeContext,
+      narrativeOutdated,
     ]
   );
 
@@ -165,7 +167,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         * was invisible in the other.
         */}
       <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">{status.detail}</p>
-      {deepEvidence.present.length > 0 && <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">Synthesis supports the current deep-model observations. They do not create additional counted ACMG criteria.</p>}
+      {deepEvidence.present.length > 0 && !narrativeOutdated && <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">Synthesis supports the current deep-model observations. They do not create additional counted ACMG criteria.</p>}
 
       {attempted.length > 0 && (
         <div

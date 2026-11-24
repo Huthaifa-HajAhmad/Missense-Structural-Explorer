@@ -160,20 +160,15 @@ describe("Insights rail — how the case was built", () => {
     expect(screen.queryByText(/reconciled with rule-based/i)).not.toBeInTheDocument();
   });
 
-  it("reads the in-silico call live from the predictor model", () => {
-    renderRail();
-    expect(screen.getByText("Primary tool")).toBeInTheDocument();
-    expect(screen.getByText(/REVEL/)).toBeInTheDocument();
-  });
-
   it("warns when the recorded tier differs from the current combining rule", () => {
     renderRail({ ...RESULT, ruleBasedInsights: { ...RESULT.ruleBasedInsights, acmgVerdict: "Likely Pathogenic" } });
     expect(screen.getByText(/an earlier engine classified this payload/)).toBeInTheDocument();
   });
 
-  it("says the synthesis directions shown are the search box's, not the run's", () => {
+  // The in-silico call is the evidence map's Computational row; the rail does not repeat it.
+  it("hides synthesis directions when the search box holds none", () => {
     renderRail();
-    expect(screen.getByText(/The run does not record the directions it used/)).toBeInTheDocument();
+    expect(screen.queryByText(/The run does not record the directions it used/)).toBeNull();
   });
 
   it("says so when there is nothing to show", () => {

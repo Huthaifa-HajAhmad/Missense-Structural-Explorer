@@ -47,6 +47,7 @@ import {
   DEEP_EVIDENCE_SOURCE_LABELS,
   canonicalDeepModelEvidence,
   deepModelEvidenceFor,
+  informativeDeepSources,
   type DeepEvidenceContext,
   type DeepModelEvidence,
 } from "./deepModelEvidence.ts";
@@ -491,6 +492,8 @@ export interface NarrativeDeepEvidenceStatus {
    * model cannot infer a value for them.
    */
   present: string[];
+  /** The subset of `present` that carries a reading; the prompt block lists only these with values. */
+  informative: string[];
   /** Present observations a synthesis would still not describe — always empty while integrated. */
   excluded: string[];
 }
@@ -506,6 +509,7 @@ export function narrativeDeepEvidenceStatus(
   return {
     integrated: NARRATIVE_DEEP_EVIDENCE.integrated,
     present,
+    informative: informativeDeepSources(evidence),
     excluded: NARRATIVE_DEEP_EVIDENCE.integrated ? [] : present,
   };
 }

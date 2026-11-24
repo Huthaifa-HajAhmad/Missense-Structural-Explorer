@@ -30,6 +30,7 @@ import {
   partitionCriteria,
   type AcmgCriteriaView,
 } from "./acmgCriteriaView.ts";
+import { everyCandidateRead } from "./candidateFrequency.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { activeToolText, disagreementText, noCriterionText } from "./predictorSummary.ts";
 import { buildFrequencyEvidence, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
@@ -39,7 +40,7 @@ import { buildInterfacesEvidence, isStaleAssembly } from "./interfacesEvidence.t
 import { THRESHOLDS, formatEvidenceCode } from "./thresholds.ts";
 import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
 import { narrativeAuthorshipOfResult } from "./narrativeEvidence.ts";
-import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
+import { NARRATIVE_PROMPT_EVIDENCE, narrativePromptSources } from "./narrativeSynthesis.ts";
 
 export type LaneKey =
   | "computational"
@@ -73,6 +74,8 @@ export interface Lane {
   length: 1 | 2 | 3;
   /** The tab supports a code the engine did not record. */
   unconfirmed: boolean;
+  /** No criterion in this engine ever reads this area: it is context, never a vote. */
+  contextOnly: boolean;
   state: "read" | "pending" | "absent";
   lead: string;
   rest: string;
@@ -96,6 +99,8 @@ export interface InsightsEvidenceInput {
    * this module may not import). A degraded run can never be AI-authored, whatever the payload says.
    */
   narrativeDegraded?: boolean;
+  /** The deep-model sources this run names to the narrative model (`narrativeDeepEvidenceStatus().present`). */
+  deepEnginesNamed?: readonly string[];
 }
 
 export const TIERS = ["Benign", "Likely benign", "Uncertain", "Likely pathogenic", "Pathogenic"] as const;
@@ -117,6 +122,8 @@ export interface TierGap {
   have: string;
   /** Up to three smallest additions that reach the target tier, in words. */
   options: string[];
+  /** Kinds of evidence that carry each strength the options use, so "1 Strong" names something to look for. */
+  examples: Array<{ strength: string; codes: string }>;
   /** The whole sentence a surface prints, so the tab and a report cannot word it differently. */
   sentence: string;
 }
@@ -168,8 +175,15 @@ export interface InsightsEvidence {
   agree: Contrast[];
   differ: Contrast[];
   needed: NeededRow[];
+  /** How many nucleotide alleles the protein change can come from, when there is more than one. */
+  candidateAlleles: number | null;
+  /** gnomAD answered for every one of those alleles (a hit or a confirmed absence). */
+  candidateFrequencyRead: boolean;
   glossary: Array<{ term: string; text: string }>;
 }
+
+/** A criterion row's reason when the engine left no record for the code at all. */
+export const NO_RECORD_REASON = "The engine recorded no criterion for this code.";
 
 /** Resolve the recorded criterion before falling back to its canonical family. */
 export function criterionForLane(evidence: InsightsEvidence, lane: Pick<Lane, 'code'>) {
@@ -212,13 +226,40 @@ function describeStrengths(counts: Map<number, number>, side: "pathogenic" | "be
   return parts.length ? parts.join(", ") : "none";
 }
 
+/**
+ * Evidence this app does not compute, grouped by the strength ACMG gives it (Richards et al. 2015,
+ * Table 3 and 4). Shown beside the gap so "1 Strong" points to something a reader can look for.
+ */
+const GAP_EXAMPLES: Record<"pathogenic" | "benign", Array<{ strength: string; codes: string }>> = {
+  pathogenic: [
+    { strength: "Very strong", codes: "PVS1, a loss-of-function change in a loss-of-function gene" },
+    { strength: "Strong", codes: "PS3 functional assay, PS2 confirmed de novo, PS4 case-control excess" },
+    { strength: "Moderate", codes: "PM6 assumed de novo, PM3 in trans with a pathogenic variant (recessive)" },
+    { strength: "Supporting", codes: "PP1 co-segregation in a family, PP4 a phenotype specific to the gene" },
+  ],
+  benign: [
+    { strength: "Strong", codes: "BS3 functional assay shows no effect, BS4 non-segregation in a family" },
+    { strength: "Supporting", codes: "BP2 seen with a pathogenic variant, BP5 another cause found in a case" },
+  ],
+};
+
+/**
+ * A stop or frameshift, written in protein HGVS ("p.Arg12Ter", "p.Arg12*", "p.Gly5ArgfsTer3").
+ * In-frame deletions and insertions are left out, as the engine's PVS1 rule leaves them out.
+ * This app takes missense substitutions today, so the stop branch is for the day it takes more.
+ */
+const NULL_VARIANT = /fs|stop|(ter|\*|x)$/i;
+
 // ── The tier gap ─────────────────────────────────────────────────────────────────────────────────
 
 /**
  * The smallest additions that would move the tier one step toward the side the counted evidence leans.
  * Found by running `classifyVariant` on hypothetical criteria, so the answer is the engine's own.
  */
-export function computeTierGap(codes: ReadonlyArray<{ code: string; reason: string }>): TierGap | null {
+export function computeTierGap(
+  codes: ReadonlyArray<{ code: string; reason: string }>,
+  { nullVariant = false }: { nullVariant?: boolean } = {},
+): TierGap | null {
   const current = tierIndexOf(classifyVariant([...codes]));
   const net = codes.reduce((sum, c) => sum + codeWeight(c.code), 0);
   const side: "pathogenic" | "benign" = net < 0 ? "benign" : "pathogenic";
@@ -228,9 +269,10 @@ export function computeTierGap(codes: ReadonlyArray<{ code: string; reason: stri
   const target = TIERS[tgt];
   const reached = (idx: number) => (side === "pathogenic" ? idx >= tgt : idx <= tgt);
 
-  // Hypothetical additions: [code, word].
+  // Hypothetical additions: [code, word, most to try]. PVS1 is for null variants (stop, frameshift)
+  // only, so it is never offered for a missense change, which can never meet it.
   const kinds: Array<[string, string, number]> = side === "pathogenic"
-    ? [["PVS1", "Very strong", 1], ["PS3", "Strong", 2], ["PM5", "Moderate", 3], ["PP4", "Supporting", 4]]
+    ? [...(nullVariant ? [["PVS1", "Very strong", 1] as [string, string, number]] : []), ["PS3", "Strong", 2], ["PM5", "Moderate", 3], ["PP4", "Supporting", 4]]
     : [["BS3", "Strong", 2], ["BP2", "Supporting", 3]];
   const found: Array<{ total: number; text: string }> = [];
   const walk = (i: number, picked: number[]) => {
@@ -262,7 +304,8 @@ export function computeTierGap(codes: ReadonlyArray<{ code: string; reason: stri
   const sentence = options.length
     ? `To reach ${target.toLowerCase()} the engine needs one of these on top of what it has (${have}): ${options.join("; ")}.`
     : `The counted evidence conflicts (${have} on the ${side} side, and criteria on the other side also count), so adding ${side} criteria alone cannot reach ${target.toLowerCase()}; the conflict has to be resolved first.`;
-  return { side, target, have, options, sentence };
+  const examples = GAP_EXAMPLES[side].filter(e => options.some(o => o.includes(` ${e.strength}`)));
+  return { side, target, have, options, examples, sentence };
 }
 
 function subsetOf(a: string, b: string): boolean {
@@ -270,6 +313,13 @@ function subsetOf(a: string, b: string): boolean {
   const A = parse(a), B = parse(b);
   for (const [k, n] of A) if ((B.get(k) ?? 0) < n) return false;
   return true;
+}
+
+/** Candidate alleles of a protein change the locus step could not pin to one nucleotide change. */
+function candidateAlleleCount(result: AnalysisResult): number | null {
+  const trail = result.predictorData?.locusResolution;
+  const n = trail?.failureKind === "multiple-candidates" ? trail.candidates?.length ?? 0 : 0;
+  return n > 1 ? n : null;
 }
 
 // ── Lane construction ────────────────────────────────────────────────────────────────────────────
@@ -359,6 +409,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: peCounted ? peCode : null,
     length: peCounted ? recordedLength(peCode) : 1,
     unconfirmed: !peCounted && Boolean(ruleCode) && pe.engine.known,
+    contextOnly: false,
     state: pe.pending && activeTool === null ? "pending" : activeTool === null && pe.primary.outcome !== "vcep-excluded" ? "absent" : "read",
     lead: compLead,
     rest: compRest,
@@ -381,6 +432,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: popCode,
     length: recordedLength(popCode),
     unconfirmed: fe.applied.suppressed,
+    contextOnly: false,
     state: fe.hasPendingSource && !popRead ? "pending" : popRead ? "read" : "absent",
     lead: popCode
       ? `${fe.criterion.headline ?? fe.criterion.statement}.`
@@ -415,6 +467,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: null,
     length: 1,
     unconfirmed: false,
+    contextOnly: false,
     state: spState === "pending" ? "pending" : spState === "no-score" ? "absent" : "read",
     lead: spState === "pp3" ? `SpliceAI predicts a splicing change (max Δ ${dsText}).`
       : spState === "bp4" ? `No predicted effect on splicing (max Δ ${dsText}).`
@@ -439,6 +492,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: pm1Code,
     length: recordedLength(pm1Code),
     unconfirmed: fnMet && !pm1Code,
+    contextOnly: false,
     state: fn.availability.state === "running" ? "pending" : fn.verdict === "not-assessed" ? "absent" : "read",
     lead: fn.verdict === "met" ? "The residue sits in an experimentally evidenced functional site."
       : fn.verdict === "not-met" ? "The residue is not inside a curated functional site."
@@ -463,6 +517,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: null,
     length: 1,
     unconfirmed: false,
+    contextOnly: true,
     state: !stability || stability.enginesCounted === 0 ? (isLoading ? "pending" : "absent") : "read",
     lead: !stability || stability.enginesCounted === 0
       ? "No stability engine returned a value."
@@ -496,6 +551,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: null,
     length: 1,
     unconfirmed: false,
+    contextOnly: true,
     state: ifcRead ? "read" : isLoading ? "pending" : "absent",
     lead: !ifcRead ? "UniProt's subunit record was not read."
       : ifc.interface.verdict === "at-interface"
@@ -517,17 +573,18 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const lmB = lm.filter(r => r.callTone === "good").length;
   lanes.push({
     key: "language-models",
-    name: "Sequence models",
+    name: "Genome-wide scores",
     links: [{ label: "Predictors", tab: "predictors" }, { label: "AlphaGenome", tab: "alphagenome" }],
     lean: lmP > lmB ? "pathogenic" : lmB > lmP ? "benign" : "none",
     counted: false,
     code: null,
     length: 1,
     unconfirmed: false,
+    contextOnly: true,
     state: lm.length ? "read" : isLoading || pe.pending ? "pending" : "absent",
     lead: lm.length
-      ? `${lm.length} ${plural(lm.length, "protein or genome model scored", "protein and genome models scored")} this variant; ${lmP} flag it and ${lmB} read it as tolerated.`
-      : "No protein or genome model returned a score.",
+      ? `${lm.length} genome-wide ${plural(lm.length, "score", "scores")} (CADD, AlphaGenome) returned; ${lmP} flag the variant and ${lmB} read it as tolerated.`
+      : "No genome-wide score (CADD, AlphaGenome) was returned.",
     rest: "These genome-wide models are informational; none sets PP3/BP4. CADD has published bands but is not in the fixed order.",
   });
 
@@ -588,7 +645,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       || (base === "PP3" || base === "BP4") && lane?.unconfirmed && ((base === "PP3") === (lane.lean === "pathogenic"));
     if (withheld) return { code: base, strength: DEFAULT_STRENGTH[base], state: "withheld" as const, reason: lane?.lead ?? "Supported but not recorded by the engine.", tab };
     const notMetReason = hasRecord
-      ? (lane && lane.state === "read" ? lane.lead : "The engine recorded no criterion for this code.")
+      ? (lane && lane.state === "read" ? lane.lead : NO_RECORD_REASON)
       : "The variant has not been classified.";
     return { code: base, strength: DEFAULT_STRENGTH[base], state: (hasRecord ? "not met" : "not recorded") as CriterionState, reason: notMetReason, tab };
   });
@@ -606,7 +663,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const narrative: NarrativeFacts = {
     authorship: narrativeAuthorshipOfResult(result, Boolean(input.narrativeDegraded)),
     model: (result.insights as { model?: string } | undefined)?.model ?? null,
-    sent: NARRATIVE_PROMPT_EVIDENCE.sent,
+    sent: narrativePromptSources(input.deepEnginesNamed),
     notSent: NARRATIVE_PROMPT_EVIDENCE.notSent,
   };
 
@@ -625,10 +682,14 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     criteria,
     narrative,
     lanes,
-    gap: hasRecord ? computeTierGap(engineCodes.map(c => ({ code: c.code, reason: c.reason }))) : null,
+    gap: hasRecord
+      ? computeTierGap(engineCodes.map(c => ({ code: c.code, reason: c.reason })), { nullVariant: NULL_VARIANT.test(result.metadata?.variant ?? "") })
+      : null,
     agree: agree.slice(0, 3),
     differ: differ.slice(0, 4),
     needed,
+    candidateAlleles: candidateAlleleCount(result),
+    candidateFrequencyRead: everyCandidateRead(result.gnomadFrequency?.candidates ?? []),
     glossary: glossaryFor(engineCodes, tierIndex),
   };
 }

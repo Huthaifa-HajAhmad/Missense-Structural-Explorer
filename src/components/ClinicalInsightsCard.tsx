@@ -1,28 +1,24 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { memo, useCallback, useEffect, useMemo, useRef } from "react";
-import { generateProvenanceManifest } from "../shared/provenance";
-import { buildExportVerdictContext, deriveConsensus } from "../lib/insightsConsensus";
+import { deriveConsensus } from "../lib/insightsConsensus";
 export { buildExportVerdictContext, deriveConsensus } from "../lib/insightsConsensus";
-import { downloadBlob } from "../lib/download";
-import { toCanonicalDdg } from "../shared/engineStatus";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
 // One ACMG criteria list and one provenance vocabulary for every surface that renders criteria.
 // The condensed clinical summary this view shows in place of the full narrative, plus the shared
 // "is this narrative AI-authored or rule-based" verdict — the payload carries both kinds of text.
 import { summariseNarrative } from "../shared/narrativeSummary";
-import { narrativeAuthorshipOfResult } from "../shared/narrativeEvidence";
+import { narrativeAuthorshipOfResult, narrativeDeepEvidenceStatus, narrativeFreshness } from "../shared/narrativeEvidence";
+import { useNarrativeEvidenceContext } from "../hooks/useNarrativeEvidenceContext";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useFoldxRunState } from "../hooks/useFoldxRunState";
 import {
-  CheckCircle2,
-  Copy,
   Lightbulb,
-  Download,
   AlertTriangle
 } from "lucide-react";
 import { InsightsScreen } from "./insights/InsightsScreen";
+import { InsightsExportMenu } from "./insights/InsightsExportMenu";
 import { buildInsightsEvidence } from "../shared/insightsEvidence";
 import { functionEvidenceInputFrom } from "./evidence/function/functionInput";
 import type { EvidenceTabId } from "../shared/insightsEvidence";
@@ -136,7 +132,8 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
    * export and the report fingerprint.
    */
   const narrativeSummary = useMemo(
-    () => summariseNarrative(analysisState.result?.analysis),
+    // 700 characters: at the default 420 a long second sentence left a one-sentence excerpt.
+    () => summariseNarrative(analysisState.result?.analysis, { maxChars: 700 }),
     [analysisState.result?.analysis]
   );
 
@@ -155,6 +152,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     )
   );
   const narrativeIsAi = narrativeAuthorship === "ai";
+  // The same context the synthesis was planned with, so a current narrative never reads as outdated.
+  const narrativeContext = useNarrativeEvidenceContext();
+  const narrativeOutdated = narrativeFreshness(analysisState.result, narrativeContext) === "outdated";
   const narrativeModel = (analysisState.result?.insights as { model?: string } | undefined)?.model;
 
   const narrativeScrollTimer = useRef<number | null>(null);
@@ -199,141 +199,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         : null,
       isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
       narrativeDegraded: isFallbackNarrative(result.analysis, result.isFallback, result.fallbackReason),
+      deepEnginesNamed: narrativeDeepEvidenceStatus(result, narrativeContext).informative,
     });
-  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt, isFolding, foldingStatus]);
-
-  const handleExportJSON = () => {
-    if (!analysisState.result) return;
-
-    /**
-     * ONE derived consensus for the whole export.
-     *
-     * The three consensus fields used to come from three separate calls, and the interval bounds were
-     * not derived at all — they were read from the stored snapshot. The result was a report whose
-     * interval did not contain its own point estimate: measured on screen as 80.6% with 68.1-89.1,
-     * exported as 80.6% with 2.1-11.3, because the stored snapshot came from an earlier two-engine
-     * commit. A derived value beside a stored one is the same defect class this export already fixed for
-     * the verdict itself.
-     */
-    const derivedConsensus = deriveConsensus({
-      result: analysisState.result,
-      foldingEnergetics,
-      foldingDdG,
-      plddt: disruptionPredictor?.plddt,
-      isFolding,
-      foldingStatus
-    });
-
-    const exportData = {
-      metadata: {
-        gene: gene,
-        variant: variant,
-        uniprotId: uniprotId || analysisState.result.metadata?.uniprotId || "",
-        timestamp: new Date().toISOString(),
-        // Model and version strings were literals here ("DynaMut2", "RaSP Precomputed",
-        // appVersion "1.0.0") that named engines regardless of what ran. Only what the
-        // payload records is exported.
-        narrativeModel: (analysisState.result.insights as { model?: string } | undefined)?.model ?? null
-      },
-      inputParameters: {
-        gene,
-        variant,
-        uniprotId,
-        acmgWeighting: settings.acmgWeighting
-      },
-      databaseResults: {
-        clinvar: analysisState.result.clinvar || null,
-        gnomad: {
-          frequency: analysisState.result.gnomadFrequency || null,
-          constraint: analysisState.result.gnomadConstraint || null
-        },
-        predictors: analysisState.result.predictorData || null,
-        conservation: analysisState.result.conservationData || null,
-        uniprotFeatures: analysisState.result.uniprotFeatures || null
-      },
-      biophysicalEnergetics: {
-        foldx: {
-          ddG: foldingEnergetics?.foldx ?? analysisState.result.foldingEnergetics?.foldx ?? foldingDdG ?? null,
-          mean: foldingEnergetics?.foldxMean ?? analysisState.result.foldingEnergetics?.foldxMean ?? foldingDdG ?? null,
-          sd: foldingEnergetics?.foldxSd ?? analysisState.result.foldingEnergetics?.foldxSd ?? null,
-          vdwClashDelta: foldingEnergetics?.vdw ?? null,
-          electrostatics: foldingEnergetics?.electrostatics ?? null,
-          stericClashWarning: foldingEnergetics?.stericClashWarning ?? false,
-          sidechainRmsd: foldingEnergetics?.localSidechainRmsd ?? null
-        },
-        rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
-        thermompnn: foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null,
-        stabilityoracle: foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null,
-        // Derived, not read from the snapshot: see `deriveConsensus`.
-        consensusStabilityVerdict:
-          derivedConsensus?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
-        // The JSON export carries the caveat too, so a downstream reader of the report knows the
-        // verdict can still move. This replaced the " (Preliminary - pending: …)" suffix.
-        // From the stored field, as the manifest does — the derivation was reverted, see
-        // `buildExportVerdictContext`.
-        consensusEvidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
-        consensusPendingTools: foldingEnergetics?.pendingTools ?? [],
-        /**
-         * The agreement behind the verdict, derived with it. This replaced `consensusProbability` and
-         * `consensusConfMin/Max`, which came from hand-typed curves (`thresholds/consensus.ts`).
-         */
-        consensusEnginesCounted: derivedConsensus?.enginesCounted ?? null,
-        consensusEnginesDestabilizing: derivedConsensus?.enginesDestabilizing ?? null,
-        consensusMedianDdg: derivedConsensus?.medianDdg ?? null,
-        /**
-         * Every engine in ONE sign convention.
-         */
-        signConvention: "canonicalDdg: kcal/mol, positive = destabilizing for every engine",
-        canonicalDdg: {
-          foldx: toCanonicalDdg(
-            "foldx",
-            foldingEnergetics?.foldxMean ??
-              foldingEnergetics?.foldx ??
-              analysisState.result.foldingEnergetics?.foldxMean ??
-              analysisState.result.foldingEnergetics?.foldx ??
-              foldingDdG ??
-              null
-          ),
-          rasp: toCanonicalDdg("rasp", foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null),
-          thermompnn: toCanonicalDdg("thermompnn", foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null),
-          stabilityoracle: toCanonicalDdg(
-            "stabilityoracle",
-            foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null
-          )
-        }
-      },
-      acmgCriteriaSuggestions: {
-        ruleBased: analysisState.result.ruleBasedInsights || null,
-        aiGenerated: analysisState.result.insights || null
-      }
-    };
-
-    const filename = `${gene}_${variant}_analysis_export.json`.replace(/\s+/g, "_");
-    downloadBlob(filename, "application/json", JSON.stringify(exportData, null, 2));
-  };
-
-  const handleExportProvenanceJSON = () => {
-    if (!analysisState.result) return;
-    const manifest = generateProvenanceManifest(
-      gene,
-      variant,
-      uniprotId || analysisState.result.metadata?.uniprotId || "",
-      analysisState.result,
-      settings,
-      foldingEnergetics,
-      // One call, inputs only — see `buildExportVerdictContext`.
-      buildExportVerdictContext({
-        result: analysisState.result,
-        foldingEnergetics,
-        foldingDdG,
-        plddt: disruptionPredictor?.plddt,
-        isFolding,
-        foldingStatus
-      })
-    );
-    const filename = `${gene}_${variant}_provenance_manifest.json`.replace(/\s+/g, "_");
-    downloadBlob(filename, "application/json", JSON.stringify(manifest, null, 2));
-  };
+  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt, isFolding, foldingStatus, narrativeContext]);
 
   return (
     <div className={`${classCard} ins-shell`} id="clinical-insights-report-card">
@@ -350,6 +218,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               </span>
             )}
             <ResearchGuideButton topic="insights" label="How this interpretation is assembled" className="rgd-trigger ins-shell__guide" />
+            {analysisState.result && (
+              <InsightsExportMenu
+                analysisState={analysisState} gene={gene} variant={variant} uniprotId={uniprotId} settings={settings}
+                foldingEnergetics={foldingEnergetics} foldingDdG={foldingDdG} disruptionPredictor={disruptionPredictor}
+                handleCopyReport={handleCopyReport} copied={copied}
+              />
+            )}
           </div>
           <span className="ins-shell__notice">
             <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -357,57 +232,6 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           </span>
         </div>
         
-        {analysisState.result && (
-          <div className="ins-shell__exports" role="group" aria-label="Export and copy analysis">
-            {/* Export Provenance Manifest Button */}
-            <button
-              type="button"
-              onClick={handleExportProvenanceJSON}
-              disabled={analysisState.isLoading}
-              className="ins-export"
-              title="Export verifiable scientific provenance manifest (model hashes, data versions, and structure metadata)"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Provenance Manifest</span>
-            </button>
-
-            {/* Export JSON Button */}
-            <button
-              type="button"
-              onClick={handleExportJSON}
-              disabled={analysisState.isLoading}
-              className="ins-export"
-              title="Export structured analysis payload as JSON file"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export JSON</span>
-            </button>
-
-            {/* Copy Report Button */}
-            <button
-              type="button"
-              onClick={handleCopyReport}
-              disabled={analysisState.isLoading}
-              className="ins-export"
-              title="Copy markdown report to clipboard"
-            >
-              {copied ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--cs-text-accent)" }} />
-                  <span className="font-semibold" style={{ color: "var(--cs-text-accent)" }}>Copied</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy Report</span>
-                </>
-              )}
-            </button>
-            {/* The button's own label flips to "Copied"; this live region is what announces it. `aria-live`
-                only — a `role="status"` here would be a second status landmark beside the streaming callout. */}
-            <span className="sr-only" aria-live="polite">{copied ? "Report copied to clipboard" : ""}</span>
-          </div>
-        )}
       </div>
 
       {analysisState.result?.isDemoData && (
@@ -461,6 +285,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                   truncated: narrativeSummary.truncated,
                   isAi: narrativeIsAi,
                   model: narrativeModel,
+                  outdated: narrativeOutdated,
                 } : null}
                 onOpenTab={onOpenEvidenceTab}
                 onOpenReport={handleOpenFullNarrative}

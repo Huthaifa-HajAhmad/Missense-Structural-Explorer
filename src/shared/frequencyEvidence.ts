@@ -771,7 +771,7 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   }
   if (decision === "PM2") {
     const headline = "Extremely rare";
-    const predicate = `at or below the ${formatCutPoint(pm2Ceiling)} PM2 ceiling under the app-defined policy: ${ceiling.text}`;
+    const predicate = `at or below the ${formatCutPoint(pm2Ceiling)} PM2 ceiling under the app-defined policy (${ceiling.text})`;
     return { ...shared, code: "PM2", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.` };
   }
 

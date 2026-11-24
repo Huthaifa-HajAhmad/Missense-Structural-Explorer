@@ -333,6 +333,14 @@ function formatValue(observation: DeepEvidenceObservation): string {
   return `${sign}${observation.value.toFixed(2)} ${observation.unit}`;
 }
 /**
+ * The sources the prompt block actually gives values for. A run where none produced a reading gets no
+ * block at all, so this is empty exactly when the model was shown nothing from the deep models.
+ */
+export function informativeDeepSources(evidence: DeepModelEvidence | null | undefined): string[] {
+  return (evidence?.observations ?? []).filter(o => INFORMATIVE_STATES.has(o.state)).map(o => o.source);
+}
+
+/**
  * THE prompt block. Rendered into the synthesis prompt AND usable by a disclosure, so the model's
  * instructions and the reader's summary are one text.
  *

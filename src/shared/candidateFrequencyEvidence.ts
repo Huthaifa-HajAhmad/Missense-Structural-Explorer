@@ -163,7 +163,7 @@ function criterionFor(verdict: ReturnType<typeof decideCandidates>, count: numbe
   const [headline, clause] =
     verdict.decision === "BA1" ? ["Stand-alone benign", `above the ${formatCutPoint(FREQ.standAloneBenign)} BA1 cut-point`]
     : verdict.decision === "BS1" ? ["Above the app's BS1 reference", `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} app-defined BS1 reference, but BS1 is not applied: ${BS1_NOT_APPLIED_REASON}`]
-    : verdict.decision === "PM2" ? ["Extremely rare", `at or below the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling under the app-defined policy: ${ceiling.text}`]
+    : verdict.decision === "PM2" ? ["Extremely rare", `at or below the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling under the app-defined policy (${ceiling.text})`]
     : ["Between the cut-points", `between the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling and the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point, so no frequency criterion applies`];
   const predicate = `${all} is ${clause}; frequencies were not added together`;
   return {
