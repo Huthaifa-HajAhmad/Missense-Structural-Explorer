@@ -26,6 +26,8 @@ export interface FoldxExecutionOptions {
   uniprotId: string;
   variant: string;
   residueIndex: number | null;
+  /** The run's signed numbering proof, sent back unchanged so the server can record how the position was numbered. */
+  numberingProof?: string;
   /** Environmental simulation conditions from user settings (pH, temp, ionic strength). */
   conditions?: BiophysicsConditions;
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
@@ -151,7 +153,7 @@ function noteFoldxFailure(status: string, variant: string, detail: string | null
 }
 
 async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRunEnd> {
-  const { gene, uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
+  const { gene, uniprotId, variant, residueIndex, conditions, numberingProof, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
   const cacheGeneKey = gene || uniprotId;
   /** One line per distinct ThermoMPNN error for THIS run; the poll loop re-reads the same record. */
   const thermompnnLog = { last: null as string | null };
@@ -371,7 +373,8 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
       body: JSON.stringify({
         uniprotId,
         mutation: foldxMutation,
-        ...conditionsBody
+        ...conditionsBody,
+        ...(numberingProof ? { numberingProof } : {})
       }),
       signal,
       // This request may resolve a structure from PDBe and fall back to AlphaFold; without a ceiling

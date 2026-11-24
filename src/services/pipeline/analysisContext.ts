@@ -15,6 +15,11 @@ export interface AnalysisCacheContext {
   resolvedAssembly: string;
   liftedGenomicCoordinates: string;
   numberingBasis: string;
+  /**
+   * The translate route's signed numbering proof, sent back unchanged with every request. Not part of the
+   * run's identity: each translation signs a fresh one (see `analysisContextMatches`).
+   */
+  numberingProof?: string;
   userDirections: string;
   simulationConditions: string;
   providerConfiguration: string;
@@ -103,7 +108,8 @@ export function requestFieldsOf(context: AnalysisCacheContext) {
     ...(context.genomicCoordinates && context.assembly ? { genomicCoordinates: context.genomicCoordinates } : {}),
     ...(context.resolvedAssembly ? { resolvedAssembly: context.resolvedAssembly as "GRCh37" | "GRCh38" } : {}),
     ...(context.liftedGenomicCoordinates ? { liftedGenomicCoordinates: context.liftedGenomicCoordinates } : {}),
-    ...(context.numberingBasis ? { numberingBasis: context.numberingBasis } : {})
+    ...(context.numberingBasis ? { numberingBasis: context.numberingBasis } : {}),
+    ...(context.numberingProof ? { numberingProof: context.numberingProof } : {})
   };
 }
 
@@ -120,6 +126,7 @@ export function createAnalysisCacheContext(uniprotId: string, settings: CacheCon
     resolvedAssembly: notation.resolvedAssembly || "",
     liftedGenomicCoordinates: notation.liftedGenomicCoordinates || "",
     numberingBasis: numberingBasis || "",
+    ...(notation.numberingProof ? { numberingProof: String(notation.numberingProof) } : {}),
     userDirections: opaqueInputIdentity(userDirections.trim()),
     simulationConditions: biophysicsContextOf(settings.biophysicsConditions),
     providerConfiguration: JSON.stringify({
@@ -129,9 +136,16 @@ export function createAnalysisCacheContext(uniprotId: string, settings: CacheCon
   };
 }
 
+/**
+ * True when a saved run was made under the same scientific inputs as `expected`. The numbering proof is
+ * left out on purpose: every translation signs a new one, so comparing it would make each new search miss
+ * a saved result that is still correct.
+ */
 export function analysisContextMatches(actual: unknown, expected: AnalysisCacheContext): boolean {
   if (!actual || typeof actual !== "object") return false;
-  return Object.entries(expected).every(([key, value]) => (actual as Record<string, unknown>)[key] === value);
+  return Object.entries(expected).every(
+    ([key, value]) => key === "numberingProof" || (actual as Record<string, unknown>)[key] === value
+  );
 }
 
 export type NarrativeMode = "automatic" | "on-demand" | "off";

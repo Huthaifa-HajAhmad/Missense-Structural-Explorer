@@ -1,6 +1,13 @@
-# Verified residue: gate and candidate residues (design, awaiting approval)
+# Verified residue: gate and candidate residues (design, approved 2026-11-24)
 
-Status: design only. Nothing here is built. Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
+Status: approved 2026-11-24 (A, B1, B2, C in that order). Step A is built: `numbering-proof.ts` (issue, verify),
+`src/shared/verifiedResidue.ts`, the proof on `POST /translate-variant` (coordinate and `NP_…` input) and on
+`POST /numbering-proof` (typed protein notation, called by the browser before the requests that run in parallel
+with the analysis), the check in the analysis parser, `numberingProof` in all six analysis audit entries and in
+`GENERATE_MUTANT` (queued, joined or cache hit). The other routes in `structure.ts`, `biophysics/generation.ts`,
+`literature.ts` and `narrative.ts` do not check the proof yet: they have no audit entry, and nothing there uses
+the result before B2 (owner decision, 2026-11-24). Their checks are listed under "Proof on the other routes" in §5.
+Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
 This is the second version, revised after a three-part code review (correctness, tests, architecture).
 
 ## 1. What was measured (2026-11-23)
@@ -147,6 +154,43 @@ Correction to the first version: "landscape context" is gene-wide and was listed
 
 Routes that take a position, and so need the proof (six files, not two): `analysis.ts` (six endpoints), `structure.ts`,
 `biophysics/generation.ts`, `literature.ts`, `narrative.ts`, and `translation.ts` (issues the proof).
+
+### Proof on the other routes (decided in step A, built in B2)
+
+- **Inventory.** Besides the routes above: `GET /pdb/entry/:pdbId?uniprot=&pos=&wt=` and
+  `POST /structure/multimer/import`. `GET /alphafold-pdb/:uniprotId` takes no position and needs no proof.
+- **How the proof travels.** POST routes take `numberingProof` in the body. `requestFieldsOf` sends it to every
+  analysis, landscape and structural request, and FoldX sends it to `/generate-mutant`; the multimer and PPI
+  requests (`fetchProgressiveMultimer`, `fetchProgressivePpi`) still send only gene, variant and accession, and
+  gain it with their server check in B2. GET routes take it in an `X-Numbering-Proof`
+  header, not the URL, so proofs stay out of the request log. The browser does not send the header in step A:
+  `fetchHomologStructures` and `fetchPdbCoordinates` take long positional argument lists, so the header is added
+  together with the server check, with those signatures changed to one options object.
+- **Position-only match.** `GET /pdb/:uniprotId?pos=` and `GET /homologs/:uniprotId?pos=` name no wild type or
+  mutant. They accept a proof that names the same accession and position (a proof for K281N proves position 281's
+  numbering), through a separate `verifyPositionProof`; `verifyNumberingProof` stays strict for every route that
+  names the substitution (`/literature` with `variant`, `/pdb/entry` with `wt`).
+- **Caching.** These responses set no `Cache-Control` today, Caddy has no response cache, and Cloudflare's cache
+  ignores a custom `Vary`. Once a response can be withheld for one request and not another, every gated response
+  sets `Cache-Control: private, no-store` and `res.vary("X-Numbering-Proof")`, so neither a browser nor a shared
+  cache serves a withheld answer to a request with a valid proof, or the reverse. The server's own caches are keyed
+  by accession and position, not by the proof, and are not affected. Check that the edge Worker forwards the header.
+- **A structure the caller sends** (`wtPdb` on `/generate-mutant`; the retry buttons' `/dynamut2-submit` and
+  `/thermompnn-submit`) is read in its own numbering, so no UniProt proof applies and it is not gated; the audit
+  entry says `caller-structure`. Its RaSP and ProtVar FoldX lookups (tables keyed
+  by UniProt position) are skipped with the reason, since the file's position may be another UniProt residue
+  (`CALLER_NUMBERING_REASON`, `foldx-queue-job.ts`). A cached result for the same structure bytes keeps its
+  values: the FoldX cache key hashes the structure, and bytes that match a server-resolved structure are in
+  UniProt numbering.
+- **A user's choice is not a proof on its own.** `user-confirmed` is named only when the check found two readings
+  and the reader chose the canonical one. Without an answer from the check, or without an ambiguity, the reader's
+  "these numbers are canonical" proves nothing and the residue stays `unverified` (or `canonical-vs-mane`).
+- **`POST /numbering-proof` signs only what it checks.** It ignores a proof sent to it, so an old proof cannot be
+  renewed.
+- **Coordinate input needs the translation's proof.** The parser's own check compares canonical and MANE
+  numbering of the protein notation; it says nothing about whether a coordinate was translated to the right
+  residue. So a request that carries a coordinate and no valid proof is `unverified` (`residue-of-request.ts`),
+  and B1 refuses it like any other unverified residue. A coordinate never ends up `canonical-vs-mane`.
 
 ### Effect on criteria (corrected to the real rule engine)
 

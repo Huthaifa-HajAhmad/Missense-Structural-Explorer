@@ -680,6 +680,18 @@ export const verifiedLiteratureAliasSchema = z.object({
 });
 export type VerifiedLiteratureAlias = z.infer<typeof verifiedLiteratureAliasSchema>;
 
+/** POST /numbering-proof: the analysis route's numbering check for a typed protein notation, run at intake. */
+export const numberingProofResponseSchema = z.object({
+  gene: z.string(),
+  variant: z.string(),
+  uniprotId: z.string(),
+  /** How the residue's numbering was proven (`ResidueProof` in `verifiedResidue.ts`). */
+  residueProof: z.enum(["genomic", "declared-protein", "canonical-vs-mane", "user-confirmed", "unverified"]),
+  /** Signed proof, sent back unchanged with every request of the run; absent when unverified. */
+  numberingProof: z.string().max(1024).optional()
+});
+export type NumberingProofResponse = z.infer<typeof numberingProofResponseSchema>;
+
 export const translateVariantResponseSchema = z.object({
   literatureAliases: z.array(verifiedLiteratureAliasSchema).optional(),
   gene: z.string(),
@@ -720,6 +732,11 @@ export const translateVariantResponseSchema = z.object({
   /** False only for `unverified`; mirrored as a boolean so callers can gate on it directly. */
   numberingVerified: z.boolean().optional(),
   numberingUnverifiedReason: z.string().optional(),
+  /**
+   * Signed proof of how the residue was numbered (server-made, opaque to the browser). Sent back unchanged
+   * as `numberingProof` with every analysis request; absent when the numbering is unverified.
+   */
+  numberingProof: z.string().max(1024).optional(),
   /**
    * Present when the MANE-resolved notation was renumbered onto the canonical UniProt
    * isoform, because the upstream structural pipeline (AlphaFold DB / PDB) models only
@@ -961,6 +978,8 @@ export const biophysicalAnalysisRequestSchema = z.object({
   coordinateLift: coordinateLiftSchema.optional(),
   /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
   numberingBasis: z.enum(["canonical"]).optional(),
+  /** The translate route's signed numbering proof, sent back unchanged. */
+  numberingProof: z.string().max(1024).optional(),
   options: z.any().optional()
 });
 

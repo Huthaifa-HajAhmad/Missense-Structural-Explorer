@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { biophysicsContextOf, createAnalysisCacheContext, requestFieldsOf } from "../analysisContext";
+import { analysisContextMatches, biophysicsContextOf, createAnalysisCacheContext, requestFieldsOf } from "../analysisContext";
 import { getCachedVariant, setCachedVariant, clearClientVariantCache } from "../variantCache";
 import {
   BIOPHYSICS_CONDITION_UNIT_VERSION,
@@ -150,5 +150,19 @@ describe("requestFieldsOf", () => {
   it("leaves out what the run did not have, and sends coordinates only with their build", () => {
     const context = createAnalysisCacheContext("P00439", {}, { genomicCoordinates: "16:66857184" }, "", undefined);
     expect(requestFieldsOf(context)).toEqual({ acmgWeighting: "standard" });
+  });
+
+  it("sends the translate route's numbering proof back unchanged, so the server can check it", () => {
+    const context = createAnalysisCacheContext("P00439", {}, { ...notation, numberingProof: "np1.body.sig" });
+    expect(requestFieldsOf(context)).toMatchObject({ numberingProof: "np1.body.sig" });
+  });
+
+  it("does not let a newly issued proof turn a saved run into a cache miss", () => {
+    // Every translation signs a fresh proof, so the proof is not part of the run's identity.
+    const saved = createAnalysisCacheContext("P00439", {}, { ...notation, numberingProof: "np1.old.sig" });
+    const current = createAnalysisCacheContext("P00439", {}, { ...notation, numberingProof: "np1.new.sig" });
+    const { numberingProof: _dropped, ...savedBeforeProofs } = saved;
+    expect(analysisContextMatches(saved, current)).toBe(true);
+    expect(analysisContextMatches(savedBeforeProofs, current)).toBe(true);
   });
 });

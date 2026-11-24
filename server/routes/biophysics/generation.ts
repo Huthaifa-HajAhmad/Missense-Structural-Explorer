@@ -58,6 +58,8 @@ import { AdmissionError } from "../../services/infra/admission.ts";
 import { countResidues, foldxQueueCostEstimateMs } from "../../services/stability/foldx/estimate.ts";
 import { agentJoinGuard } from "../../services/infra/agent-jobs.ts";
 import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../../services/external-api/protvar.ts";
+import { residueOfRequest } from "../variant/residue-of-request.ts";
+import { CALLER_NUMBERING_REASON } from "../../services/stability/foldx-queue-job.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -67,7 +69,9 @@ const generateMutantSchema = z.object({
   temperature: z.union([z.number(), z.string()]).optional(),
   ionicStrength: z.union([z.number(), z.string()]).optional(),
   seed: z.union([z.number(), z.string()]).optional(),
-  tamarindApiKey: z.string().optional()
+  tamarindApiKey: z.string().optional(),
+  /** The run's signed numbering proof (`numbering-proof.ts`), sent back unchanged. */
+  numberingProof: z.string().max(1024).optional()
 });
 
 /**
@@ -299,7 +303,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         temperature,
         ionicStrength,
         seed,
-        tamarindApiKey: bodyTamarindKey
+        tamarindApiKey: bodyTamarindKey,
+        numberingProof
       } = parseResult.data;
 
       if (!mutation || typeof mutation !== "string" || !MUTATION_FOLDX_PATTERN.test(mutation.trim())) {
@@ -435,6 +440,21 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       }
 
       const actualMutation = `${wt1}${resolvedChain}${posNum}${mut1}`;
+      /**
+       * How the position's numbering was proven, for the audit entry. A structure the caller sent is read
+       * in its own numbering, which is not UniProt numbering, so no proof applies to it. Nothing is
+       * refused on it yet (doc/VERIFIED_RESIDUE_DESIGN.md §4, step A).
+       */
+      const numberingFields = (() => {
+        if (clientPdbValid || !uniprotId?.trim()) return { numberingProofCheck: "caller-structure" };
+        const { residue, rejectedProof } = residueOfRequest({
+          token: numberingProof,
+          identity: { accession: uniprotId.trim(), position: posNum, wildType: wt1, mutant: mut1 },
+        });
+        return { numberingProof: residue.proof, ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}) };
+      })();
+      const logGenerateMutant = (served: "queued" | "joined" | "cache-hit") =>
+        AuditLogger.log("GENERATE_MUTANT", { mutation: actualMutation, served, ...numberingFields });
 
       if (!effectiveWtPdb || typeof effectiveWtPdb !== "string" || (!effectiveWtPdb.includes("ATOM") && !effectiveWtPdb.includes("HETATM"))) {
         if (!wtPdb && uniprotId?.trim()) {
@@ -568,13 +588,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             // A job running on someone's own computer is joined only if its result may be given to this caller.
             mayJoin: agentJoinGuard(queue, submitterId(req) ?? null),
             enqueue: async () => {
-              await AuditLogger.log("GENERATE_MUTANT", {
-                mutation: actualMutation
-              });
-              return queue.pushJob("foldx", {
+              // Logged once the job is in the queue: a refused submission (429, 503) queued nothing.
+              const queuedJobId = await queue.pushJob("foldx", {
                 wtPdb: effectiveWtPdb,
                 mutation: actualMutation,
                 uniprotId,
+                // The caller's own file: its positions are not UniProt positions (CALLER_NUMBERING_REASON).
+                ...(clientPdbValid ? { structureNumbering: "caller" } : {}),
                 jobDir,
                 options: foldxOptions,
                 structureProvenance,
@@ -605,6 +625,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 residues: countResidues(effectiveWtPdb),
                 placementPref: submitterPlacementPref(req),
               });
+              await logGenerateMutant("queued");
+              return queuedJobId;
             }
           });
 
@@ -618,6 +640,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           if (watcherId) queue.addWatcher(queueJobId, watcherId);
 
           if (submission.joined) {
+            void logGenerateMutant("joined");
             const existingJobData = submission.jobData;
             joinedJobIsPrewarm = existingJobData?.prewarm === true;
             if (existingJobData && existingJobData.remoteJobs) {
@@ -885,6 +908,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           // strictly against the non-transient `persistedRecord`.
           console.log(`[Cache Hit] Serving cached mutant simulation for ${foldxCacheKey}`);
           isCacheHit = true;
+          void logGenerateMutant("cache-hit");
 
           const cloneCachedRecord = (rec: typeof cachedFoldx): typeof cachedFoldx => ({
             ...rec,
@@ -968,7 +992,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
            * reason — reported "Not covered", a statement about the protein that nothing had checked.
            * It is one indexed SQLite read, so it is done here on every hit that lacks a score.
            */
-          if (responseRecord.energetics && typeof responseRecord.energetics.rasp !== "number" && uniprotId) {
+          if (responseRecord.energetics && clientPdbValid) {
+            // Only in this response: the same lookups run normally for a UniProt-numbered structure.
+            if (typeof responseRecord.energetics.rasp !== "number") {
+              Object.assign(responseRecord.energetics, { raspStatus: "unavailable", raspError: CALLER_NUMBERING_REASON });
+            }
+            if (responseRecord.energetics.protvarStatus !== "done") {
+              Object.assign(responseRecord.energetics, { protvarStatus: "unavailable", protvarError: CALLER_NUMBERING_REASON });
+            }
+          }
+          if (responseRecord.energetics && typeof responseRecord.energetics.rasp !== "number" && uniprotId && !clientPdbValid) {
             try {
               const raspRes = await runRaspLocal("", "", resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
               if (raspRes && typeof raspRes.score === "number") {
@@ -1009,7 +1042,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
            * ProtVar on a cache hit, for the same reason as RaSP above: the companion lookup lands after
            * FoldX wrote its cache entry, so a revisit would otherwise never show it. One cached read.
            */
-          if (responseRecord.energetics && responseRecord.energetics.protvarStatus !== "done" && uniprotId) {
+          if (responseRecord.energetics && responseRecord.energetics.protvarStatus !== "done" && uniprotId && !clientPdbValid) {
             try {
               // `protvarVal` is the job-record name; on the energetics payload the value is `protvar`.
               const { protvarVal, ...protvarRest } = protvarJobFields(

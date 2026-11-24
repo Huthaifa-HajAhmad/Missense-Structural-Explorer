@@ -35,6 +35,7 @@ APP_SESSION_SECRET,server/config.ts
 APP_SESSION_SECRET,server/routes/auth.ts
 APP_SESSION_SECRET,server/routes/session.ts
 APP_SESSION_SECRET,server/services/orchestration/core-identity.ts
+APP_SESSION_SECRET,server/services/translation/numbering-proof.ts
 APP_SESSION_SECRET,server/utils/crypto-session.ts
 APP_SESSION_SECRET,server/utils/security.ts
 AUDIT_IP_SALT,server/utils/security.ts

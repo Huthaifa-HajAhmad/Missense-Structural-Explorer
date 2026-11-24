@@ -1,4 +1,5 @@
 import { verifyDeclaredNumbering } from "../../services/translation/verify-declared-numbering.ts";
+import { proofForTranslation } from "../../services/translation/numbering-proof.ts";
 import { type Router } from "express";
 import { z } from "zod";
 
@@ -564,6 +565,11 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
               outcome,
               accessionedProtein.proteinNotation
             );
+            const numberingProof = proofForTranslation(
+              outcome.canonicalAccession ?? "",
+              canonicalNotation,
+              "declared-protein"
+            );
 
             res.json({
               gene: proteinGene,
@@ -578,6 +584,8 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
                 : {}),
               numberingBasis: outcome.status,
               numberingVerified: true,
+              // Signed proof of the residue, sent back unchanged with the analysis requests.
+              ...(numberingProof ? { numberingProof } : {}),
               ...(outcome.status === "remapped"
                 ? {
                     numberingRemap: {
@@ -982,6 +990,10 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         maneRefSeqIdOf(originalSelection?.mane_plus_clinical);
 
       let transcriptWarning: string | undefined = undefined;
+      const numberingProof = verdict.status === "unverified"
+        ? null
+        : proofForTranslation(uniprotId, proteinPart, verifiedByDeclaredProtein ? "declared-protein" : "genomic");
+
       if (verdict.status === "remapped" && originalSelection) {
         // A remap note REPLACES the generic transcript warnings: it already explains which
         // transcripts/isoforms are involved, and appending "Ensembl canonical transcript used
@@ -1068,6 +1080,9 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         ...(verdict.numberingProteinId ? { numberingProteinId: verdict.numberingProteinId } : {}),
         numberingBasis: verdict.status,
         numberingVerified: verdict.status !== "unverified",
+        // Signed proof of the residue, sent back unchanged with the analysis requests. Absent when the
+        // numbering is unverified, so those requests fall back to the analysis route's own check.
+        ...(numberingProof ? { numberingProof } : {}),
         ...(verdict.status === "unverified" && verdict.reason
           ? { numberingUnverifiedReason: verdict.reason }
           : {}),

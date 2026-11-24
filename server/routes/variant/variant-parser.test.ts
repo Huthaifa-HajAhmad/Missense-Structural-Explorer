@@ -4,6 +4,7 @@ import { validateAndParseVariantRequest } from "./variant-parser.ts";
 import { clearAllCaches } from "../../services/infra/cache.ts";
 import { resetHostStateForTests } from "../../services/infra/http-client.ts";
 import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
+import { issueNumberingProof } from "../../services/translation/numbering-proof.ts";
 
 /**
  * The analysis path takes protein input and resolves it BY RESIDUE INDEX against the canonical
@@ -159,7 +160,9 @@ describe("analysis path — protein notation handling", () => {
     expect(context?.numberingVerified).toBe(true);
     expect(context?.numberingWarning).toBeUndefined();
     // The audit entry states the basis, so the unverified rate can be measured for every input kind.
-    expect(context?.numberingAudit).toEqual({ inputKind: "protein", numberingBasis: "canonical", numberingVerified: true });
+    expect(context?.numberingAudit).toEqual({
+      inputKind: "protein", numberingBasis: "canonical", numberingVerified: true, numberingProof: "canonical-vs-mane",
+    });
 
     // The MANE lookup must use the FULL entry: `fields=xref_mane_select` is rejected with HTTP 400,
     // which silently degraded the check to comparing every isoform (14.8% of positions refused for
@@ -192,6 +195,10 @@ describe("analysis path — protein notation handling", () => {
     expect(withBuild.context?.assembly).toBe("GRCh37");
     // The audit entry says the run came from a coordinate, so the two input kinds can be counted apart.
     expect(withBuild.context?.numberingAudit?.inputKind).toBe("coordinate");
+    // The canonical-versus-MANE check says nothing about a translated coordinate: without the translation's
+    // proof its residue is unverified, even though the same check passes for the typed notation above.
+    expect(withBuild.context?.numberingAudit?.numberingProof).toBe("unverified");
+    expect(withoutBuild.context?.numberingAudit?.numberingProof).toBe("canonical-vs-mane");
 
     // Malformed coordinate (trailing components): the strict parser refuses it despite the build.
     const malformed = await parse({
@@ -288,7 +295,9 @@ describe("analysis path — protein notation handling", () => {
     expect(context?.numberingVerified).toBe(false);
     expect(context?.numberingWarning).toContain("Numbering not verified");
     // "unavailable": the isoform check gave no answer (unreachable or over its time budget).
-    expect(context?.numberingAudit).toEqual({ inputKind: "protein", numberingBasis: "unavailable", numberingVerified: false });
+    expect(context?.numberingAudit).toEqual({
+      inputKind: "protein", numberingBasis: "unavailable", numberingVerified: false, numberingProof: "unverified",
+    });
   });
 
   it("ACCEPTS the canonical reading when the reader confirms it, instead of looping", async () => {
@@ -308,7 +317,9 @@ describe("analysis path — protein notation handling", () => {
     expect(context?.numberingVerified).toBe(true);
     expect(context?.numberingDisambiguated).toBe(true);
     expect(context?.numberingWarning).toBeUndefined();
-    expect(context?.numberingAudit).toEqual({ inputKind: "protein", numberingBasis: "user-confirmed", numberingVerified: true });
+    expect(context?.numberingAudit).toEqual({
+      inputKind: "protein", numberingBasis: "user-confirmed", numberingVerified: true, numberingProof: "user-confirmed",
+    });
   });
 
   it("still refuses the same notation when nothing was confirmed", async () => {
@@ -360,5 +371,40 @@ describe("analysis path — protein notation handling", () => {
     expect(statusCode).toBe(422);
     expect(body.error.message).toContain("Wild-type residue mismatch");
     expect(body.error.message).toContain("NP_001032248.1:p.Lys281Asn");
+  });
+
+  describe("numbering proof from the translate route", () => {
+    beforeEach(() => {
+      vi.stubEnv("APP_SESSION_SECRET", "parser-test-session-secret");
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    const proofFor = (position: number) =>
+      issueNumberingProof({ accession: "Q9Y305", position, wildType: "R", mutant: "A", proof: "genomic" });
+
+    it("takes the proof for the residue it names, and records it", async () => {
+      fetchSpy = installFetch();
+
+      const { context, statusCode } = await parse({
+        gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305", numberingProof: proofFor(55),
+      });
+
+      expect(statusCode).toBe(200);
+      expect(context?.numberingAudit?.numberingProof).toBe("genomic");
+      expect(context?.numberingAudit).not.toHaveProperty("numberingProofCheck");
+    });
+
+    it("falls back to its own check when the proof names another residue, and logs why", async () => {
+      fetchSpy = installFetch();
+
+      const { context, statusCode } = await parse({
+        gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305", numberingProof: proofFor(56),
+      });
+
+      expect(statusCode).toBe(200);
+      expect(context?.numberingAudit).toMatchObject({ numberingProof: "canonical-vs-mane", numberingProofCheck: "other-residue" });
+    });
   });
 });

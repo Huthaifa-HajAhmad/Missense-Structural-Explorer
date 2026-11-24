@@ -19,6 +19,8 @@ import { mergeResultPatch, mergeCompletedCore, settleUnreportedStages, type Stag
 import { refusalAttachmentsFromError } from "./refusalAttachments";
 import { isServableStoredResult, narrativeNeedsBackfill, NO_RESTORED_REMOTE_STATE, restoreStoredArtifacts, stagesToResume, type RestoredRemoteState, type ResumableStage } from "./storedAnalysis";
 import { createAnalysisCacheContext, narrativeModeOf, requestFieldsOf } from "./analysisContext";
+import { requestNumberingProof } from "./numberingIntake";
+import { NUMBERING_PROOF_FAN_OUT_WAIT_MS } from "../../shared/structureLookupBudgets";
 import { createPipelineRun } from "./pipelineRun";
 import { geminiCredentials } from "../../shared/geminiCredentials";
 import { narrativeFreshness } from "../../shared/narrativeEvidence";
@@ -118,6 +120,10 @@ export async function executeFullAnalysisWorkflow({
   const historyQuery = () => (submittedVariant && submittedVariant !== targetVariant ? submittedVariant : undefined);
   let targetUniprot = (targetUniprotArg || "").trim();
   let transcriptMeta: any = null;
+  /** The intake check's signed proof for a typed protein notation (a translation carries its own). */
+  let intakeProof: string | undefined;
+  let intakeTried = false;
+  const typedProtein = !needsNotationResolution(targetVariant);
   let residueIndex: number | undefined;
 
   if (run.isStale()) {
@@ -150,6 +156,18 @@ export async function executeFullAnalysisWorkflow({
       targetGene = transResult.gene;
       targetVariant = transResult.variant;
       transcriptMeta = transResult.transcriptMeta;
+    } else if (!targetUniprot) {
+      /**
+       * A typed protein notation without an accession: the numbering check names the accession and signs
+       * the residue, in place of the gene lookup below (which runs only when the check fails).
+       */
+      intakeTried = true;
+      const intake = await requestNumberingProof(apiClient, { gene: targetGene, variant: targetVariant, numberingBasis }, activeSignal);
+      if (run.isStale()) return "aborted";
+      if (intake) {
+        targetUniprot = intake.uniprotId;
+        intakeProof = intake.numberingProof;
+      }
     }
 
     // Stage 1.5: Resolve UniProt accession if not provided
@@ -221,6 +239,7 @@ export async function executeFullAnalysisWorkflow({
     };
 
     const pipelineContext = createAnalysisCacheContext(targetUniprot, settings, transcriptMeta ?? {}, userDirections, numberingBasis);
+    if (intakeProof) pipelineContext.numberingProof = intakeProof;
     runMetadata.pipelineContext = pipelineContext;
     const requestParams = () => ({
       gene: targetGene, variant: targetVariant, uniprotId: targetUniprot,
@@ -267,6 +286,23 @@ export async function executeFullAnalysisWorkflow({
     // Protein artifacts are reusable; interpretation must match all scientific inputs.
     const hasActiveGemini = geminiCredentials(settings, Boolean(settings?.serverGeminiReady || options?.serverGeminiReady), Date.now()).canAttemptNarrative;
     const cached = getCachedVariant(targetGene, targetVariant, pipelineContext);
+    // The proof saved with this run is reused: a revisit then neither asks again nor saves a context without it.
+    const savedProof = cached?.analysisResult?.metadata?.pipelineContext?.numberingProof;
+    if (!pipelineContext.numberingProof && typeof savedProof === "string") pipelineContext.numberingProof = savedProof;
+    /**
+     * The proof of a typed protein notation whose accession was known, asked for once and only now: the
+     * cached paint and the restore above never wait for it, and the parallel requests wait at most
+     * NUMBERING_PROOF_FAN_OUT_WAIT_MS, then start without one.
+     */
+    const awaitNumberingProof = async () => {
+      if (!typedProtein || intakeTried || pipelineContext.numberingProof) return;
+      intakeTried = true;
+      const intake = await requestNumberingProof(
+        apiClient, { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot, numberingBasis }, activeSignal, NUMBERING_PROOF_FAN_OUT_WAIT_MS
+      );
+      // A run left behind (a newer search started) keeps the context it saved; nothing is written into it late.
+      if (intake?.numberingProof && !run.isStale()) pipelineContext.numberingProof = intake.numberingProof;
+    };
     /** The remote engines as restored, handed to FoldX so a failure settles against what the store holds. */
     let restoredRemoteState: RestoredRemoteState = NO_RESTORED_REMOTE_STATE;
 
@@ -277,6 +313,7 @@ export async function executeFullAnalysisWorkflow({
       uniprotId: targetUniprot,
       variant: targetVariant,
       residueIndex: residueIndex ?? null,
+      ...(pipelineContext.numberingProof ? { numberingProof: pipelineContext.numberingProof } : {}),
       conditions: settings.biophysicsConditions,
       fetchWithAuth,
       sink: biophysicalSink,
@@ -357,7 +394,15 @@ export async function executeFullAnalysisWorkflow({
           Boolean(cachedTemplatePdb) &&
           (!Array.isArray(cached.homologs) ||
             !cached.homologs.some((h: any) => typeof h?.pdbId === "string" && h.pdbId.toUpperCase() === cachedTemplatePdb));
-        if ((!cached.homologs || cached.homologs.length === 0 || missingTemplate) && targetUniprot) {
+        const needsHomologs = (!cached.homologs || cached.homologs.length === 0 || missingTemplate) && Boolean(targetUniprot);
+        // The proof goes only with follow-up requests: a revisit that sends none does not ask for it.
+        const sendsFollowUps = needsHomologs || !cached.pdbText || (shouldDispatchFoldx() && Boolean(posMatch && targetUniprot)) ||
+          (Boolean(targetUniprot) && stagesToResume(cached.analysisResult).length > 0);
+        if (sendsFollowUps) {
+          await awaitNumberingProof();
+          if (run.isStale()) return "aborted";
+        }
+        if (needsHomologs) {
           void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
         }
         if (!cached.pdbText) {
@@ -417,6 +462,8 @@ export async function executeFullAnalysisWorkflow({
       structureSink.resetViewerState();
     }
 
+    await awaitNumberingProof();
+    if (run.isStale()) return "aborted";
     void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
 
     // Independent enrichment starts after intake, not behind the slowest core source.
