@@ -516,6 +516,7 @@ describe("numbering check in the audit entry of every analysis route", () => {
     numberingBasis: "unverified",
     numberingVerified: false,
     numberingReason: "position 85 lies where the MANE protein and canonical Q9Y305 differ",
+    numberingProof: "unverified",
   } as const;
 
   it.each(routes)("%s records the numbering check in %s", async (path, action) => {

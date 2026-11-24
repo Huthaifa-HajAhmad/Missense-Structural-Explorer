@@ -16,6 +16,7 @@
 import crypto from "node:crypto";
 import { CACHE_SCHEMA_VERSION } from "../infra/cache-keys.ts";
 import type { Residue, ResidueProof } from "../../../src/shared/verifiedResidue.ts";
+import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
 
 const FORMAT = "np1";
 export const NUMBERING_PROOF_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
@@ -100,4 +101,23 @@ export function verifyNumberingProof(
   if (now - payload.issuedAt > NUMBERING_PROOF_LIFETIME_MS) return { status: "expired" };
   if (!namesResidue(payload, residue)) return { status: "other-residue" };
   return { status: "valid", proof: payload.proof };
+}
+
+/**
+ * The proof for a translated answer: its canonical notation (`p.Lys272Asn`) on the canonical accession.
+ * Null when the answer is unverified, names no accession, or its notation is not a single residue.
+ */
+export function proofForTranslation(
+  accession: string,
+  canonicalVariant: string,
+  proof: ResidueProof
+): string | null {
+  if (!accession || proof === "unverified") return null;
+  try {
+    const { pos, wt1, mut1 } = parseVariantCoordinate(canonicalVariant, { uniprotId: accession });
+    return issueNumberingProof({ accession, position: pos, wildType: wt1, mutant: mut1, proof });
+  } catch {
+    // The route has already validated the notation; a form the parser cannot read simply gets no proof.
+    return null;
+  }
 }

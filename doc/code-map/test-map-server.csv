@@ -48,6 +48,7 @@ server/routes/variant/analysis.ts,server,
 server/routes/variant/gene.ts,server,server/routes/variant/gene.test.ts
 server/routes/variant/literature.ts,server,
 server/routes/variant/narrative.ts,server,
+server/routes/variant/residue-of-request.ts,server,
 server/routes/variant/spliceai.ts,server,
 server/routes/variant/translation.ts,server,
 server/routes/variant/variant-parser.ts,server,server/routes/variant/analysis.test.ts;server/routes/variant/sanitize-url.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
@@ -292,7 +293,7 @@ server/services/translation/isoform-numbering.ts,server,server/services/translat
 server/services/translation/isoform-remap.ts,server,server/services/translation/isoform-remap.test.ts
 server/services/translation/liftover.ts,server,server/services/translation/liftover.test.ts
 server/services/translation/numbering-profile.ts,server,
-server/services/translation/numbering-proof.ts,server,server/services/translation/numbering-proof.test.ts
+server/services/translation/numbering-proof.ts,server,server/routes/variant/translation.test.ts;server/routes/variant/variant-parser.test.ts;server/services/translation/numbering-proof.test.ts
 server/services/translation/protein-numbering.ts,server,server/services/translation/protein-numbering.test.ts
 server/services/translation/shadow-tiers.ts,server,server/services/translation/shadow-tiers.test.ts
 server/services/translation/types.ts,server,server/services/translation/coordinate-resolver.test.ts;server/services/translation/protein-numbering.test.ts;server/services/translation/variant-validator.test.ts

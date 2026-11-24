@@ -721,6 +721,11 @@ export const translateVariantResponseSchema = z.object({
   numberingVerified: z.boolean().optional(),
   numberingUnverifiedReason: z.string().optional(),
   /**
+   * Signed proof of how the residue was numbered (server-made, opaque to the browser). Sent back unchanged
+   * as `numberingProof` with every analysis request; absent when the numbering is unverified.
+   */
+  numberingProof: z.string().max(1024).optional(),
+  /**
    * Present when the MANE-resolved notation was renumbered onto the canonical UniProt
    * isoform, because the upstream structural pipeline (AlphaFold DB / PDB) models only
    * canonical sequences. Records both notations so a report can state what changed.

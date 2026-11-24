@@ -29,6 +29,8 @@ import {
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
 import { resolveCredential } from "../../services/infra/credentials.ts";
+import { residueOfRequest } from "./residue-of-request.ts";
+import type { ResidueProof } from "../../../src/shared/verifiedResidue.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
@@ -87,6 +89,8 @@ export const analyzeVariantSchema = z.object({
    * already expressed in canonical numbering, so submitting it is unambiguous.
    */
   numberingBasis: z.enum(["canonical"]).optional(),
+  /** The signed proof `POST /translate-variant` returned, sent back unchanged (`numbering-proof.ts`). */
+  numberingProof: z.string().max(1024).optional(),
   alphagenomeApiKey: z.string().optional(),
   alphagenomeApiUrl: z.string().url().max(512).optional(),
   spliceaiDistance: z.number().int().min(50).max(10000).optional(),
@@ -173,6 +177,10 @@ export interface ParsedVariantContext {
     numberingBasis: ProteinNumberingOutcome["status"] | "unavailable" | "user-confirmed";
     numberingVerified: boolean;
     numberingReason?: string;
+    /** How the residue's numbering was proven (doc/VERIFIED_RESIDUE_DESIGN.md §3). */
+    numberingProof: ResidueProof;
+    /** Why a proof the request sent was not used (expired, another residue, bad signature). */
+    numberingProofCheck?: string;
   };
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
@@ -555,6 +563,12 @@ export async function validateAndParseVariantRequest(
       "reported on a different isoform its position may refer to another residue. Qualify it with " +
       "the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn) or use the genomic/cDNA coordinate.";
 
+  const { residue, rejectedProof } = residueOfRequest({
+    token: req.body?.numberingProof,
+    identity: { accession: uniprotId, position: pos, wildType: wt1Letter, mutant: mut1Letter },
+    ownCheck: { canonicalConfirmed, status: numbering?.status, reason: numbering?.reason },
+  });
+
   return {
     gene,
     variant,
@@ -567,6 +581,8 @@ export async function validateAndParseVariantRequest(
       numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
       numberingVerified,
       ...(!numberingVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
+      numberingProof: residue.proof,
+      ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}),
     },
     originalNotation,
     ...(genomicCoordinates ? { genomicCoordinates } : {}),

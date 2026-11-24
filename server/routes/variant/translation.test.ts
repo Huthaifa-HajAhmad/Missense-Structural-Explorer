@@ -10,6 +10,21 @@ import {
 import { AuditLogger } from "../../utils.ts";
 import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
 import { translateVariantResponseSchema } from "../../../src/shared/contracts.ts";
+import { verifyNumberingProof } from "../../services/translation/numbering-proof.ts";
+
+/** The analysis routes accept a proof only for the residue it names; this reads which proof it carries. */
+const proofFor = (body: any, position: number, wildType: string, mutant: string) =>
+  verifyNumberingProof(body.numberingProof, { accession: body.uniprotId, position, wildType, mutant });
+
+/** Proofs are signed with a key derived from the session secret, which the test run does not set. */
+function withSigningSecret() {
+  beforeEach(() => {
+    vi.stubEnv("APP_SESSION_SECRET", "translation-test-session-secret");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+}
 
 /**
  * Route-level tests for POST /api/v1/translate-variant.
@@ -927,6 +942,7 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
   beforeEach(() => {
     clearAllCaches(true);
   });
+  withSigningSecret();
 
   /** MANE Select consequence as VEP reports it: numbered on isoform Q9Y305-4. */
   const ACOT9_MANE_CONSEQUENCE = {
@@ -984,6 +1000,9 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     expect(body.transcriptWarning).toContain("p.Lys281Asn");
     expect(body.transcriptWarning).toContain("p.Lys272Asn");
     expect(body.transcriptWarning).toContain("canonical numbering");
+    // Renumbered from the coordinate, so the analysis routes can trust canonical residue 272.
+    expect(proofFor(body, 272, "K", "N")).toEqual({ status: "valid", proof: "genomic" });
+    expect(proofFor(body, 281, "K", "N")).toEqual({ status: "other-residue" });
   });
 
   it("leaves a canonically-numbered consequence untouched (no remap, no note)", async () => {
@@ -995,6 +1014,7 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     expect(body.variant).toBe("p.Lys272Asn");
     expect(body.uniprotIsoform).toBe("Q9Y305-1");
     expect(body.numberingRemap).toBeUndefined();
+    expect(proofFor(body, 272, "K", "N")).toEqual({ status: "valid", proof: "genomic" });
   });
 
   it("refuses with 422 ISOFORM_NUMBERING_MISMATCH when no canonical-numbered sibling exists", async () => {
@@ -1068,6 +1088,8 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     expect(body.numberingUnverifiedReason).toContain("which UniProt isoform");
     expect(body.transcriptWarning).toContain("could not be verified");
     expect(body.numberingRemap).toBeUndefined();
+    // No proof: the analysis routes must not treat this residue as proven.
+    expect(body.numberingProof).toBeUndefined();
   });
 
   it("discloses an unverified basis when the provider reports no accession at all", async () => {
@@ -1203,6 +1225,7 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
   beforeEach(() => {
     clearAllCaches(true);
   });
+  withSigningSecret();
 
   const ISOFORM_FASTA =
     `>sp|Q9Y305|ACOT9_HUMAN Acyl-coenzyme A thioesterase 9\n${ACOT9_CANONICAL}\n` +
@@ -1275,6 +1298,8 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     // The disclosure keeps the provider's own notation and names the isoform it was numbered on.
     expect(body.transcriptWarning).toContain("Lys281Asn");
     expect(body.transcriptWarning).toContain("Q9Y305-4");
+    // Verified through the protein the fallback named, not through the coordinate.
+    expect(proofFor(body, 272, "K", "N")).toEqual({ status: "valid", proof: "declared-protein" });
   });
 
   it("accepts the lab's NP_-qualified notation and converts it to canonical numbering", async () => {
@@ -1313,6 +1338,8 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     // schema that omitted `from.accession`, silently deleting it on the client.
     const parsed = translateVariantResponseSchema.parse(body);
     expect(parsed.numberingRemap?.from.accession).toBe("NP_001032248.1");
+    // The proof survives the client contract unchanged, so the browser can send it back.
+    expect(proofFor(parsed, 272, "K", "N")).toEqual({ status: "valid", proof: "declared-protein" });
   });
 
   it("accepts a UniProt isoform accession without a RefSeq lookup", async () => {
