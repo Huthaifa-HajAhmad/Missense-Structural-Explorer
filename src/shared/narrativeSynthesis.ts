@@ -125,3 +125,16 @@ export const NARRATIVE_PROMPT_EVIDENCE = {
   ],
   notSent: ["gnomAD frequency", "gene constraint", "functional domains", "splicing", "3D structure"],
 } as const;
+
+/**
+ * What a given run shows the model. The fixed list above names every ΔΔG engine the prompt CAN carry;
+ * a run names only the deep-model sources it holds (`narrativeDeepEvidenceStatus().present`). Without
+ * that list the entry stays general instead of naming engines this run may not have.
+ */
+export function narrativePromptSources(deepNamed: readonly string[] | undefined): string[] {
+  const base = NARRATIVE_PROMPT_EVIDENCE.sent.filter(s => !s.startsWith("deep-model"));
+  const deep = deepNamed === undefined
+    ? "deep-model observations the run produced"
+    : deepNamed.length ? `deep-model observations (${deepNamed.join(", ")})` : "no deep-model observations (none in this run)";
+  return [...base, deep];
+}

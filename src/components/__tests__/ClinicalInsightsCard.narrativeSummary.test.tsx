@@ -197,7 +197,7 @@ describe("ClinicalInsightsCard — condensed clinical summary", () => {
     const longClinical = [
       "### Clinical and Pathogenicity Interpretation",
       "",
-      Array.from({ length: 12 }, (_, i) => `Sentence number ${i + 1} argues the clinical point at length.`).join(" "),
+      Array.from({ length: 20 }, (_, i) => `Sentence number ${i + 1} argues the clinical point at length.`).join(" "),
     ].join("\n");
 
     renderCard(baseResult({ analysis: longClinical }));

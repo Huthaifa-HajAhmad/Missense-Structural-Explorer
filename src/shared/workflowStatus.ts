@@ -3,6 +3,7 @@ import { formatDdg, type RemoteStatus } from "./engineStatus.ts";
 import { buildEnergeticsEvidence } from "./energeticsEvidence.ts";
 import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
 import { serviceStatusOf } from "./serviceStatus.ts";
+import { everyCandidateRead } from "./candidateFrequency.ts";
 import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "./locusResolution.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error" | "unavailable" | "on-demand";
@@ -307,7 +308,12 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
        * gnomAD was never queried) or a gnomAD query that timed out or failed.
        */
       const gnomadStatus = serviceStatusOf(result)?.gnomadFrequency;
-      if (isFallbackLocus(result)) {
+      // A protein change with several candidate alleles has no single locus, but gnomAD is still read
+      // once per candidate. Only when every candidate was answered (found, or confirmed absent) was
+      // the population evidence assessed; a failed or skipped query leaves no frequency criterion.
+      const candidatesRead = locusFailureKind(result) === "multiple-candidates"
+        && everyCandidateRead(result.gnomadFrequency?.candidates ?? []);
+      if (isFallbackLocus(result) && !candidatesRead) {
         return {
           status: "degraded",
           desc: `Population evidence not assessed: ${fallbackCause(

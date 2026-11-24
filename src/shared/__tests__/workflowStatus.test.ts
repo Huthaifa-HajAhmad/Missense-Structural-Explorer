@@ -354,3 +354,33 @@ describe("workflowStatus — paused engines after a session lapse", () => {
     expect(status.desc).toContain("failed or unavailable");
   });
 });
+
+describe("Evidence status for a protein change with several candidate alleles", () => {
+  const candidateRun = (candidates: unknown[] | undefined) => ({
+    metadata: { gene: "FGFR3", variant: "p.Gly380Arg" },
+    analysis: "x",
+    gnomadFrequency: candidates ? { candidates } : null,
+    predictorData: {
+      gnomadVariantId: null, gnomadVariantAssembly: null,
+      locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [], candidates: [{}, {}] },
+    },
+  });
+
+  it("does not call population evidence unassessed when gnomAD was read for each candidate", () => {
+    const status = positionalStatus("evidence", candidateRun([{ id: "4-1804392-G-A", outcome: "found" }, { id: "4-1804392-G-C", outcome: "not-found" }]));
+    expect(status.desc).not.toMatch(/Population evidence not assessed/);
+  });
+
+  it("still says so when every candidate query failed or was not lifted", () => {
+    const status = positionalStatus("evidence", candidateRun([
+      { id: "4-1804392-G-A", outcome: "failed", frequency: null },
+      { id: null, grch37Id: "4-1795000-G-C", outcome: "not-lifted", frequency: null },
+    ]));
+    expect(status.desc).toMatch(/Population evidence not assessed/);
+  });
+
+  it("still says so when no candidate was read", () => {
+    const status = positionalStatus("evidence", candidateRun(undefined));
+    expect(status.desc).toMatch(/Population evidence not assessed/);
+  });
+});

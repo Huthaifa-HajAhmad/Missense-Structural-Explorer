@@ -65,9 +65,12 @@ try {
  check('Insights view persists', await page.getByRole('tab', { name: 'Criterion records' }).getAttribute('aria-selected') === 'true');
  await page.getByRole('button', { name: 'Show in evidence map' }).click();
  check('Explicit lane reveal focuses', await page.getByRole('button', { name: 'Computational', exact: true }).evaluate(e => e === document.activeElement));
- // The exports are one labelled group, and the guide sits opposite the title.
+ // The exports are one labelled group inside the title row's Export menu.
+ await page.locator('.ins-export-menu > summary').click();
  const exportGroup = page.getByRole('group', { name: 'Export and copy analysis' });
  check('Exports form one labelled group', (await exportGroup.getByRole('button').count()) === 3);
+ await page.screenshot({ path: `${output}/insights-export-menu.png` });
+ await page.locator('.ins-export-menu > summary').click();
  const titleBox = await page.locator('.ins-shell__title').boundingBox();
  const guideBox = await page.locator('.ins-shell__guide').boundingBox();
  check('Reading guide sits opposite the title', guideBox.x > titleBox.x + titleBox.width);
@@ -99,8 +102,8 @@ try {
  check('Inspector uses registered section', await page.getByRole('region', { name: 'Selected evidence reading' }).evaluate(e => e.id === 'inspector-evidence-reading'));
  check('Review actions meet 44px touch size', await page.locator('.review-action').evaluateAll(es => { const visible = es.filter(e => e.getBoundingClientRect().height > 0); return visible.length > 0 && visible.every(e => e.getBoundingClientRect().height >= 44); }));
  await page.emulateMedia({ media: 'print' });
- check('Closed classification disclosure prints', await page.locator('.ins-tiers').evaluate(e => e.getBoundingClientRect().height > 0));
- check('Export toolbar does not print', !(await page.locator('.ins-shell__exports').isVisible()));
+ check('Classification scale prints', await page.locator('.ins-tiers').evaluate(e => e.getBoundingClientRect().height > 0));
+ check('Export menu does not print', !(await page.locator('.ins-export-menu').isVisible()));
  await page.emulateMedia({ media: 'screen' });
  await page.getByRole('tab', { name: 'Written summary' }).click();
  check('Rule-based summary labelled', await page.getByText('Rule-based synthesis', { exact: false }).isVisible());

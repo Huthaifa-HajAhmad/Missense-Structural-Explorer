@@ -96,7 +96,7 @@ export const BLOCK_TITLE: Record<BlockKey, string> = {
   structure: "Structure",
   stability: "Stability",
   assembly: "Assembly and interactions",
-  "language-models": "Sequence models",
+  "language-models": "Genome-wide scores",
   needed: "Still needed to decide",
   literature: "Literature",
   summary: "Written summary",

@@ -54,6 +54,11 @@ export function decideCandidateFrequency(
   return allBenign ? { kind: "agree", decision: "BS1", readings } : { kind: "mixed", readings };
 }
 
+/** Whether gnomAD gave an answer for every candidate (a hit or a confirmed absence), not a failed or skipped query. */
+export function everyCandidateRead(candidates: ReadonlyArray<Pick<GnomadCandidateReading, "outcome">>): boolean {
+  return candidates.length > 0 && candidates.every(c => c.outcome === "found" || c.outcome === "not-found");
+}
+
 /** BS2's homozygote test, held only when every candidate has at least `minimum` homozygotes. */
 export function candidatesMeetBs2(candidates: ReadonlyArray<GnomadCandidateReading>, minimum = 2): boolean {
   return candidates.length > 0 && candidates.every(c =>

@@ -1,13 +1,11 @@
 import React, { useMemo } from "react";
-import { GitBranch, Bot, BookOpen, Sparkles, Vote, Pin } from "lucide-react";
+import { GitBranch, Bot, BookOpen, Sparkles, Pin } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../context/VariantAnalysisContext";
 import { useFoldxRunState } from "../../hooks/useFoldxRunState";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import { buildInsightsEvidence, criterionForLane } from "../../shared/insightsEvidence";
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
-import { activeToolText, disagreementText, noCriterionText } from "../../shared/predictorSummary";
-import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { narrativeAuthorshipOfResult } from "../../shared/narrativeEvidence";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
@@ -71,7 +69,6 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
     },
     [analysisResult, foldingEnergetics, foldingDdG, isEvidenceLoading, isFolding, foldingStatus]
   );
-  const predictors = useMemo(() => (analysisResult ? buildPredictorEvidence({ result: analysisResult }) : null), [analysisResult]);
 
   if (!analysisResult || !ev) {
     return (
@@ -86,14 +83,11 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
     isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason)
   );
   const readCount = ev.lanes.filter(l => l.state === "read").length;
-  const primary = predictors?.primary ?? null;
-  const activeTool = primary ? activeToolText(primary) : null;
-  const disagreement = primary ? disagreementText(primary) : null;
   const selected = ev.lanes.find(lane => lane.key === w.selected);
 
   return (
     <div className="ins-rail" data-testid="insights-rail">
-      <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
+      {(w.view === 'map' || selected) && <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
         <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />{selected ? 'Pinned reading' : 'Explore a reading'}</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
         <div className="review-selection__body">
           {selected ? <><h3>{selected.name}</h3><p><strong>{selected.lead}</strong> {selected.rest}</p>
@@ -102,7 +96,7 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
             <button type="button" className="review-action" onClick={w.showSelected}>Show in evidence map</button></>
             : <p>Select an evidence area in the map to keep its reading here.</p>}
         </div>
-      </section>
+      </section>}
       <section className="rail-section" aria-labelledby="ins-rail-trace">
         <h3 className="eyebrow" id="ins-rail-trace"><GitBranch className="w-3.5 h-3.5" />How the case was built</h3>
         <ol className="rail-steps" data-testid="insights-trace">
@@ -131,33 +125,17 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
         <p className="ins-p ins-dim">The prose is not checked against the criteria; only the criteria list is merged.</p>
       </section>
 
-      <section className="rail-section" aria-labelledby="ins-rail-vote">
-        <h3 className="eyebrow" id="ins-rail-vote"><Vote className="w-3.5 h-3.5" />In-silico call, live</h3>
-        {primary && activeTool ? (
-          <dl className="rail-kv">
-            <Row label="Primary tool"><span className="ins-mono">{activeTool}</span></Row>
-            <Row label="Call">{primary.code ? formatEvidenceCode(primary.code) : noCriterionText(primary)}</Row>
-            {disagreement && <Row label="Disagreement">{disagreement}</Row>}
-          </dl>
-        ) : (
-          <p className="ins-p">No calibrated predictor returned a score.</p>
-        )}
-        <p className="ins-p ins-dim">Read from the same function the Predictors tab uses, not from the text the engine stored.</p>
-      </section>
-
       <section className="rail-section" aria-labelledby="ins-rail-method">
         <h3 className="eyebrow" id="ins-rail-method"><Bot className="w-3.5 h-3.5" />Narrative method</h3>
         <NarrativeProvenanceRow analysisResult={analysisResult} isNarrativeLoading={isNarrativeLoading} />
-        <dl className="rail-kv">
-          <Row label="Weighting"><span>{ev.weighting ?? "Not recorded"}</span></Row>
-        </dl>
+        {ev.weighting && <dl className="rail-kv"><Row label="Weighting"><span>{ev.weighting}</span></Row></dl>}
       </section>
 
-      <section className="rail-section" aria-labelledby="ins-rail-dir">
+      {userDirections && <section className="rail-section" aria-labelledby="ins-rail-dir">
         <h3 className="eyebrow" id="ins-rail-dir"><Sparkles className="w-3.5 h-3.5" />Synthesis directions</h3>
-        <p className="ins-p">{userDirections ? <em>&ldquo;{userDirections}&rdquo;</em> : "None set."}</p>
+        <p className="ins-p"><em>&ldquo;{userDirections}&rdquo;</em></p>
         <p className="ins-p ins-dim">This is what the search box holds now. The run does not record the directions it used, so it can differ from what the narrative saw.</p>
-      </section>
+      </section>}
 
       <section className="rail-section" aria-labelledby="ins-rail-src">
         <h3 className="eyebrow" id="ins-rail-src"><BookOpen className="w-3.5 h-3.5" />Sources</h3>
