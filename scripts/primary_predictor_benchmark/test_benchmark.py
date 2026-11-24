@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
 from scripts.primary_predictor_benchmark import metrics as m
+from scripts.primary_predictor_benchmark import run_vm_benchmark as rvb
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -179,6 +182,25 @@ class ClinVarAndTemporalHoldoutTests(unittest.TestCase):
         _, amb_status = m.select_dbnsfp_row(rows, ("OTHER",), "Q", "P")
         self.assertEqual(amb_status, "ambiguous_gene")
 
+    def test_submission_summary_skips_hash_preamble_lines(self) -> None:
+        sample = (
+            "##Overview\n"
+            "##Explanation\n"
+            "#VariationID: identifier assigned by ClinVar\n"
+            "#ClinicalSignificance: germline classification\n"
+            "#VariationID\tClinicalSignificance\tDateLastEvaluated\tContributesToAggregateClassification\n"
+            "100\tPathogenic\tJan 05, 2024\tyes\n"
+            "100\tUncertain significance\tJan 01, 2020\tyes\n"
+            "100\tPathogenic\tJan 01, 2019\tno\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "sub.txt.gz"
+            with gzip.open(p, "wt", encoding="utf-8") as f:
+                f.write(sample)
+            dates, stats = rvb.load_min_scv_eval_dates(p, {"100"})
+        self.assertEqual(dates["100"], dt.date(2024, 1, 5))
+        self.assertEqual(stats["matched_scvs"], 1)
+
 
 class AlphaFoldAndSubgroupTests(unittest.TestCase):
     def test_alphafold_fragment_mapping_and_verification(self) -> None:
@@ -201,6 +223,23 @@ class AlphaFoldAndSubgroupTests(unittest.TestCase):
         plddt_bad, status_bad = m.resolve_alphafold_plddt(fragments, 1200, "E")
         self.assertIsNone(plddt_bad)
         self.assertEqual(status_bad, "aa_mismatch")
+
+    def test_uniprot_verify_fragment_select_and_confidence_json(self) -> None:
+        self.assertEqual(m.verify_uniprot_residue("MARV", 3, "R"), "ok")
+        self.assertEqual(m.verify_uniprot_residue("MARV", 3, "K"), "aa_mismatch")
+        self.assertEqual(m.verify_uniprot_residue("MARV", 5, "R"), "pos_out_of_range")
+        self.assertEqual(m.verify_uniprot_residue("", 1, "M"), "no_uniprot_seq")
+
+        self.assertEqual(m.fragment_for_position(500, 1200), (1, 500))
+        self.assertEqual(m.fragment_for_position(1400, 3500), (1, 1400))
+        frag, local = m.fragment_for_position(2500, 3500)
+        self.assertEqual((frag - 1) * 200 + local, 2500)
+        self.assertTrue(1 <= local <= 1400)
+
+        parsed = m.parse_af_confidence_json(
+            {"residueNumber": [1, 2, 3], "confidenceScore": [42.72, 88.1, 95.4]}
+        )
+        self.assertEqual(parsed, {1: 42.72, 2: 88.1, 3: 95.4})
 
     def test_g2p_mechanism_sets(self) -> None:
         payload = {

@@ -11,16 +11,16 @@ import argparse
 import datetime as dt
 import gzip
 import hashlib
-import io
 import json
-import os
+import re
 import sqlite3
 import subprocess
 import sys
-import tarfile
 import time
+import urllib.error
 import urllib.request
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -49,10 +49,10 @@ CLINVAR_2025_01_VS_URL = (
 UNIPROT_HUMAN_REVIEWED_URL = (
     "https://rest.uniprot.org/uniprotkb/stream?format=tsv"
     "&query=%28organism_id%3A9606%29+AND+%28reviewed%3Atrue%29"
-    "&fields=accession,gene_primary,xref_mane-select,xref_ensembl,length"
+    "&fields=accession,gene_primary,xref_mane-select,xref_ensembl,length,sequence"
 )
-ALPHAFOLD_HUMAN_V6_TAR_URL = (
-    "https://ftp.ebi.ac.uk/pub/databases/alphafold/latest/UP000005640_9606_HUMAN_v6.tar"
+ALPHAFOLD_CONF_JSON_URL = (
+    "https://alphafold.ebi.ac.uk/files/AF-{acc}-F{frag}-confidence_v6.json"
 )
 
 CUTOFF_2017 = dt.date(2017, 12, 31)
@@ -220,13 +220,11 @@ def load_min_scv_eval_dates(
         header: list[str] | None = None
         col: dict[str, int] = {}
         for line in f:
-            if line.startswith("##"):
-                continue
-            if line.startswith("#VariationID") or line.startswith("VariationID"):
+            if line.startswith("#VariationID\t") or line.startswith("VariationID\t"):
                 header = line.lstrip("#").rstrip("\r\n").split("\t")
                 col = {name: i for i, name in enumerate(header)}
                 continue
-            if not header:
+            if line.startswith("#") or not header:
                 continue
             stats["scv_rows"] += 1
             parts = line.rstrip("\r\n").split("\t")
@@ -409,10 +407,11 @@ def join_dbnsfp_and_score(
 
 def load_uniprot_mapping(
     uniprot_tsv: Path,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Build (enst_no_ver -> uniprot_acc, unique_gene_upper -> uniprot_acc)."""
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """Build (enst_no_ver -> acc, unique_gene_upper -> acc, acc -> canonical_seq)."""
     enst_to_acc: dict[str, str] = {}
     gene_to_accs: dict[str, set[str]] = defaultdict(set)
+    seq_by_acc: dict[str, str] = {}
     with uniprot_tsv.open("r", encoding="utf-8", errors="replace") as f:
         header = f.readline().rstrip("\r\n").split("\t")
         col = {name: i for i, name in enumerate(header)}
@@ -420,6 +419,7 @@ def load_uniprot_mapping(
         idx_gene = col["Gene Names (primary)"]
         idx_mane = col["MANE-Select"]
         idx_ens = col["Ensembl"]
+        idx_seq = col["Sequence"]
         for line in f:
             parts = line.rstrip("\r\n").split("\t")
             if len(parts) <= idx_acc:
@@ -427,6 +427,8 @@ def load_uniprot_mapping(
             acc = parts[idx_acc].strip()
             if not acc:
                 continue
+            if len(parts) > idx_seq and parts[idx_seq].strip():
+                seq_by_acc[acc] = parts[idx_seq].strip().upper()
             if len(parts) > idx_gene and parts[idx_gene].strip():
                 for g in re.split(r"[;,\s]+", parts[idx_gene].strip()):
                     if g:
@@ -439,108 +441,121 @@ def load_uniprot_mapping(
     unique_gene_to_acc = {
         g: next(iter(accs)) for g, accs in gene_to_accs.items() if len(accs) == 1
     }
-    return enst_to_acc, unique_gene_to_acc
+    return enst_to_acc, unique_gene_to_acc, seq_by_acc
 
 
-def stream_alphafold_plddt(
-    needed_accs: set[str],
-    needed_positions_by_acc: dict[str, set[int]],
-) -> tuple[dict[str, dict[int, dict[int, tuple[str, float]]]], dict[str, int]]:
-    """Stream UP000005640_9606_HUMAN_v6.tar via curl, parsing ONLY needed PDB.gz files."""
-    fragments_by_acc: dict[str, dict[int, dict[int, tuple[str, float]]]] = defaultdict(dict)
-    stats = {"tar_members_seen": 0, "pdb_members_parsed": 0, "residues_kept": 0}
-    member_re = re.compile(r"^AF-([A-Z0-9]+)-F(\d+)-model_v\d+\.pdb\.gz$")
+def _fetch_one_af_conf(
+    acc: str, frag: int, cache_dir: Path
+) -> tuple[tuple[str, int], dict[int, float] | None, str]:
+    cache_file = cache_dir / f"AF-{acc}-F{frag}-confidence_v6.json"
+    miss_file = cache_dir / f"AF-{acc}-F{frag}-confidence_v6.404"
+    if cache_file.exists():
+        payload = json.loads(cache_file.read_text(encoding="utf-8"))
+        return (acc, frag), m.parse_af_confidence_json(payload), "cached"
+    if miss_file.exists():
+        return (acc, frag), None, "not_found"
 
-    log(
-        f"Streaming AlphaFold v6 human proteome tar for {len(needed_accs)} UniProt accessions..."
-    )
-    proc = subprocess.Popen(
-        ["curl", "-fsSL", "--retry", "3", ALPHAFOLD_HUMAN_V6_TAR_URL],
-        stdout=subprocess.PIPE,
-    )
-    assert proc.stdout is not None
-    try:
-        with tarfile.open(fileobj=proc.stdout, mode="r|") as tf:
-            for member in tf:
-                stats["tar_members_seen"] += 1
-                if stats["tar_members_seen"] % 5000 == 0:
-                    tf.members.clear()
-                    log(
-                        f"  AlphaFold stream: {stats['tar_members_seen']:,} members, "
-                        f"{stats['pdb_members_parsed']:,} matched PDBs..."
-                    )
-                if not member.isfile():
-                    continue
-                name = os.path.basename(member.name)
-                match = member_re.match(name)
-                if not match:
-                    continue
-                acc, frag_str = match.group(1), match.group(2)
-                if acc not in needed_accs:
-                    continue
-                frag_idx = int(frag_str)
-                extracted = tf.extractfile(member)
-                if extracted is None:
-                    continue
-                raw_gz = extracted.read()
-                pdb_bytes = gzip.decompress(raw_gz)
-                offset = (frag_idx - 1) * 200
-                wanted = needed_positions_by_acc[acc]
-                pos_map: dict[int, tuple[str, float]] = {}
-                for line in pdb_bytes.decode("ascii", errors="replace").splitlines():
-                    if not line.startswith("ATOM  "):
-                        continue
-                    if line[12:16].strip() != "CA":
-                        continue
-                    try:
-                        local_pos = int(line[22:26].strip())
-                    except ValueError:
-                        continue
-                    if (offset + local_pos) not in wanted:
-                        continue
-                    res3 = line[17:20].strip().upper()
-                    aa1 = m.AA3_UPPER_TO_1.get(res3)
-                    if aa1 is None:
-                        continue
-                    try:
-                        plddt = float(line[60:66].strip())
-                    except ValueError:
-                        continue
-                    pos_map[local_pos] = (aa1, plddt)
-                if pos_map:
-                    fragments_by_acc[acc][frag_idx] = pos_map
-                    stats["residues_kept"] += len(pos_map)
-                stats["pdb_members_parsed"] += 1
-    finally:
-        proc.stdout.close()
-        ret = proc.wait()
-        if ret != 0:
-            raise RuntimeError(f"curl failed with exit code {ret}")
+    url = ALPHAFOLD_CONF_JSON_URL.format(acc=acc, frag=frag)
+    for attempt in range(4):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "MissenseExplorer/1.0",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read().decode("utf-8")
+            payload = json.loads(raw)
+            parsed = m.parse_af_confidence_json(payload)
+            cache_file.write_text(raw, encoding="utf-8")
+            return (acc, frag), parsed, "ok"
+        except urllib.error.HTTPError as err:
+            if err.code == 404:
+                miss_file.write_text("404", encoding="utf-8")
+                return (acc, frag), None, "not_found"
+            if err.code in (429, 500, 502, 503, 504) and attempt < 3:
+                time.sleep(0.5 * (2**attempt))
+                continue
+            return (acc, frag), None, f"http_{err.code}"
+        except Exception:
+            if attempt < 3:
+                time.sleep(0.5 * (2**attempt))
+                continue
+            return (acc, frag), None, "fetch_error"
+    return (acc, frag), None, "fetch_error"
 
-    return fragments_by_acc, stats
+
+def fetch_alphafold_confidence_jsons(
+    needed_pairs: set[tuple[str, int]],
+    cache_dir: Path,
+    workers: int = 16,
+) -> tuple[dict[tuple[str, int], dict[int, float]], dict[str, int]]:
+    """Fetch AlphaFold v6 per-residue confidence JSONs for needed (acc, frag) pairs."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    conf_by_pair: dict[tuple[str, int], dict[int, float]] = {}
+    stats: dict[str, int] = {
+        "af_pairs_requested": len(needed_pairs),
+        "af_pairs_ok": 0,
+        "af_pairs_cached": 0,
+        "af_pairs_not_found": 0,
+        "af_pairs_error": 0,
+    }
+    log(f"Fetching AlphaFold v6 confidence JSONs for {len(needed_pairs):,} (accession, fragment) pairs...")
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [
+            pool.submit(_fetch_one_af_conf, acc, frag, cache_dir)
+            for acc, frag in sorted(needed_pairs)
+        ]
+        for fut in as_completed(futs):
+            pair, parsed, status = fut.result()
+            done += 1
+            if parsed is not None:
+                conf_by_pair[pair] = parsed
+                if status == "cached":
+                    stats["af_pairs_cached"] += 1
+                else:
+                    stats["af_pairs_ok"] += 1
+            elif status == "not_found":
+                stats["af_pairs_not_found"] += 1
+            else:
+                stats["af_pairs_error"] += 1
+            if done % 500 == 0 or done == len(needed_pairs):
+                log(
+                    f"  AlphaFold JSONs: {done:,}/{len(needed_pairs):,} "
+                    f"(ok={stats['af_pairs_ok']:,}, cached={stats['af_pairs_cached']:,}, "
+                    f"404={stats['af_pairs_not_found']:,}, err={stats['af_pairs_error']:,})"
+                )
+    return conf_by_pair, stats
 
 
 def annotate_subgroups(
     variants: list[dict[str, Any]],
     uniprot_tsv: Path,
     g2p_path: Path,
+    af_cache_dir: Path,
 ) -> tuple[dict[str, int], dict[str, int]]:
-    enst_to_acc, gene_to_acc = load_uniprot_mapping(uniprot_tsv)
+    enst_to_acc, gene_to_acc, seq_by_acc = load_uniprot_mapping(uniprot_tsv)
     af_stats = {
         "mapped_via_enst": 0,
         "mapped_via_gene": 0,
         "unmapped_to_uniprot": 0,
         "plddt_ok": 0,
         "no_af_model": 0,
+        "no_uniprot_seq": 0,
         "pos_out_of_range": 0,
         "aa_mismatch": 0,
     }
-    needed_accs: set[str] = set()
-    needed_pos: dict[str, set[int]] = defaultdict(set)
+    needed_pairs: set[tuple[str, int]] = set()
 
     for v in variants:
-        if not v["in_dbnsfp"] or not v.get("db_pos"):
+        if not v["in_dbnsfp"] or not v.get("db_pos") or not v.get("db_aaref"):
             v["uniprot_acc"] = None
+            v["af_frag"] = None
+            v["af_local_pos"] = None
+            v["af_verify_status"] = None
             continue
         acc = None
         tx = v.get("transcript") or ""
@@ -553,26 +568,46 @@ def annotate_subgroups(
         else:
             af_stats["unmapped_to_uniprot"] += 1
         v["uniprot_acc"] = acc
-        if acc is not None:
-            needed_accs.add(acc)
-            needed_pos[acc].add(int(v["db_pos"]))
+        if acc is None:
+            v["af_frag"] = None
+            v["af_local_pos"] = None
+            v["af_verify_status"] = "unmapped"
+            continue
 
-    fragments_by_acc, tar_stats = stream_alphafold_plddt(needed_accs, needed_pos)
-    af_stats.update(tar_stats)
+        seq = seq_by_acc.get(acc, "")
+        db_pos = int(v["db_pos"])
+        verify_status = m.verify_uniprot_residue(seq, db_pos, v["db_aaref"])
+        v["af_verify_status"] = verify_status
+        if verify_status != "ok":
+            af_stats[verify_status] = af_stats.get(verify_status, 0) + 1
+            v["af_frag"] = None
+            v["af_local_pos"] = None
+            continue
+
+        frag, local_pos = m.fragment_for_position(db_pos, len(seq))
+        v["af_frag"] = frag
+        v["af_local_pos"] = local_pos
+        needed_pairs.add((acc, frag))
+
+    conf_by_pair, fetch_stats = fetch_alphafold_confidence_jsons(
+        needed_pairs, af_cache_dir
+    )
+    af_stats.update(fetch_stats)
 
     for v in variants:
         acc = v.get("uniprot_acc")
-        if not acc or not v.get("db_pos") or not v.get("db_aaref"):
+        frag = v.get("af_frag")
+        local_pos = v.get("af_local_pos")
+        if not acc or not frag or not local_pos:
             v["plddt"] = None
             continue
-        plddt, status = m.resolve_alphafold_plddt(
-            fragments_by_acc.get(acc, {}), int(v["db_pos"]), v["db_aaref"]
-        )
-        v["plddt"] = plddt
-        if status == "ok":
-            af_stats["plddt_ok"] += 1
-        else:
-            af_stats[status] = af_stats.get(status, 0) + 1
+        pos_map = conf_by_pair.get((acc, frag))
+        if pos_map is None or local_pos not in pos_map:
+            v["plddt"] = None
+            af_stats["no_af_model"] += 1
+            continue
+        v["plddt"] = pos_map[local_pos]
+        af_stats["plddt_ok"] += 1
 
     with g2p_path.open("r", encoding="utf-8") as f:
         g2p_payload = json.load(f)
@@ -714,6 +749,10 @@ def main() -> None:
     prov["clinvar_2025_01_vs"] = download_if_missing(
         CLINVAR_2025_01_VS_URL, vs2025_path
     )
+    if uniprot_path.exists():
+        first_line = uniprot_path.open("r", encoding="utf-8", errors="replace").readline()
+        if "Sequence" not in first_line.rstrip("\r\n").split("\t"):
+            uniprot_path.unlink()
     prov["uniprot_human_reviewed"] = download_if_missing(
         UNIPROT_HUMAN_REVIEWED_URL, uniprot_path
     )
@@ -750,7 +789,9 @@ def main() -> None:
     log(f"dbNSFP join stats: {db_stats}")
 
     # 5. Annotate AlphaFold v6 pLDDT and G2P disease mechanisms
-    af_stats, g2p_counts = annotate_subgroups(variants, uniprot_path, args.g2p)
+    af_stats, g2p_counts = annotate_subgroups(
+        variants, uniprot_path, args.g2p, args.workdir / "af_conf"
+    )
     log(f"AlphaFold pLDDT annotation stats: {af_stats}")
 
     # 6. Build cohorts

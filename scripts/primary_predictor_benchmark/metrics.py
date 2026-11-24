@@ -369,6 +369,44 @@ def resolve_alphafold_plddt(
     return plddt, "ok"
 
 
+def verify_uniprot_residue(
+    uniprot_seq: str, uniprot_pos: int, expected_aa1: str
+) -> str:
+    """Verify `uniprot_pos` matches `expected_aa1` on the canonical UniProt sequence."""
+    if not uniprot_seq:
+        return "no_uniprot_seq"
+    if uniprot_pos < 1 or uniprot_pos > len(uniprot_seq):
+        return "pos_out_of_range"
+    if uniprot_seq[uniprot_pos - 1] != expected_aa1:
+        return "aa_mismatch"
+    return "ok"
+
+
+def fragment_for_position(uniprot_pos: int, seq_length: int) -> tuple[int, int]:
+    """Return (fragment_index_1based, local_res_num) for AlphaFold DB v6 models."""
+    if seq_length <= 2700 or uniprot_pos <= 1400:
+        return 1, uniprot_pos
+    max_k = ((seq_length - 1400 + 199) // 200) + 1
+    k = round((uniprot_pos - 700) / 200) + 1
+    k = max(1, min(max_k, k))
+    local_pos = uniprot_pos - (k - 1) * 200
+    return k, local_pos
+
+
+def parse_af_confidence_json(payload: dict[str, Any]) -> dict[int, float]:
+    """Parse AlphaFold `AF-*-confidence_v6.json` into {local_res_num: plddt}."""
+    res_nums = payload.get("residueNumber") or []
+    scores = payload.get("confidenceScore") or []
+    if len(res_nums) != len(scores):
+        raise ValueError(
+            f"Mismatched AlphaFold confidence arrays: {len(res_nums)} vs {len(scores)}"
+        )
+    out: dict[int, float] = {}
+    for rn, sc in zip(res_nums, scores):
+        out[int(rn)] = float(sc)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # G2P disease-mechanism gene sets
 # ---------------------------------------------------------------------------
