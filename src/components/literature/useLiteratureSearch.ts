@@ -47,9 +47,10 @@ export function useLiteratureSearch({
   const probeSeq = useRef(0);
   const requestAbort = useRef<AbortController | null>(null);
   const lastGene = useRef(gene);
-  // Set when this component itself updates the shared query, so the prop-change effect
-  // below can tell its own echo apart from an execution requested by the inspector.
-  const selfQueryUpdate = useRef(false);
+  // The query this component itself pushed into the shared state, so the prop-change effect below can
+  // tell its own echo apart from an execution requested by the inspector. It holds the query, not a
+  // flag: an unrelated change (another gene, variant or protein) that lands first is not the echo.
+  const selfQueryUpdate = useRef<string | null>(null);
   const onResetFiltersRef = useRef(onResetFilters);
   onResetFiltersRef.current = onResetFilters;
 
@@ -152,8 +153,8 @@ export function useLiteratureSearch({
   // inspector's version bump fires this effect even when it re-applies an unchanged
   // query, which is what lets "apply again" (e.g. retry after an error) work.
   useEffect(() => {
-    if (selfQueryUpdate.current) {
-      selfQueryUpdate.current = false;
+    if (selfQueryUpdate.current !== null && selfQueryUpdate.current === searchQuery.trim()) {
+      selfQueryUpdate.current = null;
       return;
     }
     // A new executed result set replaces the old one: without this the previous gene's
@@ -219,7 +220,7 @@ export function useLiteratureSearch({
     setRevealedDraft(null);
     if (queryChanged) clearLoadedResults();
     if (query !== searchQuery.trim() && onSearchQueryChange) {
-      selfQueryUpdate.current = true;
+      selfQueryUpdate.current = query;
       onSearchQueryChange(query);
     }
     void fetchCitations(forceSync, query || undefined);

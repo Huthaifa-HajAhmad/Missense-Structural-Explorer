@@ -62,6 +62,28 @@ describe("useLiteratureSearch", () => {
     expect(hoisted.getLiterature).toHaveBeenCalledTimes(2);
   });
 
+  it("still runs an unrelated change that lands before the shared query echoes back, and still skips the echo", async () => {
+    hoisted.getLiterature.mockResolvedValue(reply(["1"]));
+    const onSearchQueryChange = vi.fn();
+    const { result, rerender } = renderHook((props: UseLiteratureSearchOptions) => useLiteratureSearch(props), {
+      initialProps: { ...base, onSearchQueryChange },
+    });
+    await waitFor(() => expect(result.current.citations).toHaveLength(1));
+
+    act(() => result.current.runSearch(false, "NAE1 AND neddylation"));
+    await waitFor(() => expect(hoisted.getLiterature).toHaveBeenCalledTimes(2));
+
+    // A different protein arrives before the parent has stored the new query. It is not the echo.
+    rerender({ ...base, uniprotId: "Q13564", onSearchQueryChange });
+    await waitFor(() => expect(hoisted.getLiterature).toHaveBeenCalledTimes(3));
+    expect(hoisted.getLiterature.mock.calls[2][4]).toMatchObject({ uniprot: "Q13564" });
+
+    // The echo that follows is still the hook's own query and must not start a fourth request.
+    rerender({ ...base, uniprotId: "Q13564", searchQuery: "NAE1 AND neddylation", onSearchQueryChange });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(hoisted.getLiterature).toHaveBeenCalledTimes(3);
+  });
+
   it("searches again when the inspector re-applies the same query", async () => {
     hoisted.getLiterature.mockResolvedValue(reply(["1"]));
     const { result, rerender } = renderHook((props: UseLiteratureSearchOptions) => useLiteratureSearch(props), {
