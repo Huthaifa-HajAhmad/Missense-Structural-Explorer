@@ -89,10 +89,10 @@ For every ClinVar `VariationID`, compute `min_eval_date` = minimum `DateLastEval
 
 ### 3.4 Subgroups
 1. **Ordered vs Disordered (`AlphaFold pLDDT < 50`):**
-   - AlphaFold DB v6 per-residue confidence JSONs (`https://alphafold.ebi.ac.uk/files/AF-<UNIPROT>-F<k>-confidence_v6.json`) + UniProt reviewed human mapping (`accession, gene_primary, xref_mane-select, xref_ensembl, length, sequence`).
+   - Human proteome structures `UP000005640_9606_HUMAN_v6.tar` (`http://ftp.ebi.ac.uk/pub/databases/alphafold/latest/UP000005640_9606_HUMAN_v6.tar`, `AF-<UNIPROT>-F<k>-model_v6.pdb.gz` CA atoms) + UniProt reviewed human mapping (`accession, gene_primary, xref_mane-select, xref_ensembl, length`).
    - Map dbNSFP `transcript` (version stripped) via UniProt `MANE-Select` / `Ensembl` cross-references, falling back to `gene_primary` only when unique.
-   - Strictly verify `1 <= pos <= len(uniprot_seq)` and `uniprot_seq[pos - 1] == dbnsfp_aaref`. Unmapped or mismatched positions are logged and excluded from the Ordered/Disordered split (never guessed).
-   - For proteins `<= 2,700` aa (or `pos <= 1,400`), fetch `F1` where local position equals `pos`. For proteins `> 2,700` aa at `pos > 1,400` split into overlapping `1,400`-aa fragments stepped by `200` aa (`F<k>`), select fragment `k = clamp(round((pos - 700) / 200) + 1, 1, max_k)` (midpoint closest to `pos`) and read `local_pos = pos - (k - 1) * 200`.
+   - For single-fragment models (`F1`), residue position equals `resSeq`. For proteins `>2,700` aa split into overlapping `1,400`-aa fragments stepped by `200` aa (`F<k>`), map local residue `i` to UniProt position `(k - 1) * 200 + i`, preferring the fragment whose midpoint `(k - 1) * 200 + 700` is closest to `pos`.
+   - Strictly verify `af_aa == dbnsfp_aaref` at `pos`. Unmapped or mismatched positions are logged and excluded from the Ordered/Disordered split (never guessed).
    - **Disordered:** `pLDDT < 50.0`. **Ordered:** `pLDDT >= 50.0` (also report `pLDDT >= 70.0` descriptively).
 2. **Disease Mechanism Subgroups (from pinned local `data/g2p-context.json`):**
    - Restrict to G2P assertions with `confidence` in `{"definitive", "strong"}`.
