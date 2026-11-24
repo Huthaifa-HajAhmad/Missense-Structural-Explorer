@@ -148,6 +148,7 @@ describe("workflowOrchestrator", () => {
       expect(apiClient.resolveGene).not.toHaveBeenCalled();
       expect(apiClient.getNumberingProof.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(fetchPdbCoordinates).mock.invocationCallOrder[0]);
       expect(vi.mocked(fetchBiophysicalAnalysis).mock.calls[0][0]).toMatchObject({ uniprotId: "P00439", numberingProof: "np1.b.s" });
+      expect(vi.mocked(executeFoldxPipeline).mock.calls[0][0]).toMatchObject({ uniprotId: "P00439", numberingProof: "np1.b.s" });
     });
 
     it("runs as before when the intake check fails: the gene lookup, and no proof", async () => {

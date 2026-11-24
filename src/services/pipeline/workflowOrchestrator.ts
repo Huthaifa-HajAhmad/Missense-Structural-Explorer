@@ -300,6 +300,7 @@ export async function executeFullAnalysisWorkflow({
       uniprotId: targetUniprot,
       variant: targetVariant,
       residueIndex: residueIndex ?? null,
+      ...(pipelineContext.numberingProof ? { numberingProof: pipelineContext.numberingProof } : {}),
       conditions: settings.biophysicsConditions,
       fetchWithAuth,
       sink: biophysicalSink,

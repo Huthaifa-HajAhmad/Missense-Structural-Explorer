@@ -5,7 +5,8 @@
  * Otherwise the analysis route's own check decides, mapped onto the proof names of
  * doc/VERIFIED_RESIDUE_DESIGN.md §3: a canonical answer from the canonical-versus-MANE comparison is
  * `canonical-vs-mane`, the reader's choice at the ambiguity prompt is `user-confirmed`, and anything
- * else (no answer, or an answer that is not canonical) is `unverified`.
+ * else (no answer, or an answer that is not canonical) is `unverified`. A route without a check of its own
+ * (`/generate-mutant`) passes none, so a residue without a valid proof is `unverified`.
  */
 import type { Residue, ResidueProof } from "../../../src/shared/verifiedResidue.ts";
 import {
@@ -23,19 +24,19 @@ export interface RequestResidue {
 export function residueOfRequest(params: {
   token: unknown;
   identity: ResidueIdentity;
-  ownCheck: { canonicalConfirmed: boolean; status?: string; reason?: string };
+  ownCheck?: { canonicalConfirmed: boolean; status?: string; reason?: string };
 }): RequestResidue {
   const { token, identity, ownCheck } = params;
   const check = verifyNumberingProof(token, identity);
   if (check.status === "valid") return { residue: { ...identity, proof: check.proof } };
 
   let proof: ResidueProof = "unverified";
-  if (ownCheck.canonicalConfirmed) proof = "user-confirmed";
-  else if (ownCheck.status === "canonical") proof = "canonical-vs-mane";
+  if (ownCheck?.canonicalConfirmed) proof = "user-confirmed";
+  else if (ownCheck?.status === "canonical") proof = "canonical-vs-mane";
   const residue: Residue = {
     ...identity,
     proof,
-    ...(proof === "unverified" && ownCheck.reason ? { reason: ownCheck.reason } : {}),
+    ...(proof === "unverified" && ownCheck?.reason ? { reason: ownCheck.reason } : {}),
   };
   return check.status === "absent" ? { residue } : { residue, rejectedProof: check.status };
 }

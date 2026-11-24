@@ -114,6 +114,18 @@ describe("foldxService progress", () => {
     expect(repairing.queuePosition).toBe(0);
   });
 
+  it("sends the run's numbering proof, so the server can name how the mutated position was numbered", async () => {
+    const fetchWithAuth = progressRun([{ status: "completed", result: { status: "success", pdb: "ATOM", ddG: 1.1, foldedResidueIndex: 408 } }]);
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439", variant: "p.Arg408Trp", residueIndex: 408, numberingProof: "np1.b.s",
+      fetchWithAuth, sink: makeSink(), signal: new AbortController().signal, requestId: 1, getActiveRequestId: () => 1
+    });
+
+    const submit = fetchWithAuth.mock.calls.find(([url]: [string]) => url.includes("/generate-mutant"));
+    expect(JSON.parse(submit[1].body)).toMatchObject({ uniprotId: "P00439", numberingProof: "np1.b.s" });
+  });
+
   it("drops a phase it cannot name instead of rendering it", async () => {
     const sink: any = makeSink();
     // The submit response carries no phase at all, so the only phase source is the poll — and the
