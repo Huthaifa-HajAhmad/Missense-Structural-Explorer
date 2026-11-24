@@ -23,7 +23,7 @@ import { encodeCredentialUse } from "../../../shared/credentials";
 
 function Harness({ browserToken, onClear = () => {} }: { browserToken: string; onClear?: () => void }) {
   const secrets = useSavedSecrets();
-  return <AccountTokenControls kind="tamarind" label="Tamarind" browserToken={browserToken} clearBrowserToken={onClear} secrets={secrets} />;
+  return <AccountTokenControls kind="japanfold" label="JapanFold" browserToken={browserToken} clearBrowserToken={onClear} secrets={secrets} />;
 }
 
 beforeEach(() => {
@@ -48,23 +48,23 @@ describe("AccountTokenControls", () => {
     render(<Harness browserToken="tok_typed_12345678" onClear={onClear} />);
     const button = await screen.findByRole("button", { name: /save/i });
     await act(async () => fireEvent.click(button));
-    expect(api.saveSecret).toHaveBeenCalledWith("tamarind", "tok_typed_12345678");
+    expect(api.saveSecret).toHaveBeenCalledWith("japanfold", "tok_typed_12345678");
     expect(onClear).toHaveBeenCalled();
     expect(await screen.findByText(/Saved to your account \(ends …5678\)/)).toBeTruthy();
     expect(screen.getByRole("status").className).toContain("sr-only");
   });
 
   it("shows a saved token by its last four characters and removes it", async () => {
-    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "tamarind", hint: "wxyz", updatedAt: 1, readable: true }] });
+    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "japanfold", hint: "wxyz", updatedAt: 1, readable: true }] });
     render(<Harness browserToken="" />);
     expect(await screen.findByText(/ends …wxyz/)).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /remove/i })));
-    expect(api.removeSecret).toHaveBeenCalledWith("tamarind");
+    expect(api.removeSecret).toHaveBeenCalledWith("japanfold");
     await waitFor(() => expect(screen.queryByText(/ends …wxyz/)).toBeNull());
   });
 
   it("asks for the token again when the server can no longer read it", async () => {
-    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "tamarind", hint: "wxyz", updatedAt: 1, readable: false }] });
+    api.savedSecrets.mockResolvedValue({ available: true, secrets: [{ kind: "japanfold", hint: "wxyz", updatedAt: 1, readable: false }] });
     render(<Harness browserToken="" />);
     expect(await screen.findByText(/can no longer be read by the server; save it again/)).toBeTruthy();
   });
@@ -79,10 +79,10 @@ describe("AccountTokenControls", () => {
 
 describe("LastCredentialUse", () => {
   it("says whose token the last request ran on, or why it did not run", () => {
-    render(<LastCredentialUse kind="tamarind" />);
-    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "tamarind", source: "team" }])));
-    expect(screen.getByTestId("last-credential-use-tamarind").textContent).toMatch(/ran on the team token/);
-    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "tamarind", source: "none", refusal: "team-share-used" }])));
-    expect(screen.getByTestId("last-credential-use-tamarind").textContent).toMatch(/your hourly share of the team token is used/);
+    render(<LastCredentialUse kind="japanfold" />);
+    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "japanfold", source: "team" }])));
+    expect(screen.getByTestId("last-credential-use-japanfold").textContent).toMatch(/ran on the team token/);
+    act(() => noteCredentialHeader(encodeCredentialUse([{ kind: "japanfold", source: "none", refusal: "team-share-used" }])));
+    expect(screen.getByTestId("last-credential-use-japanfold").textContent).toMatch(/your hourly share of the team token is used/);
   });
 });

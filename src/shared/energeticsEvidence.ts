@@ -76,8 +76,6 @@ export const ENERGETICS_GROUP_NOTE: Record<EnergeticsGroup, string> = {
 
 const ENGINE_GROUP: Record<EnergyEngineId, EnergeticsGroup> = {
   foldx: "physics",
-  dynamut2: "learned",
-  ddmut: "learned",
   thermompnn: "learned",
   stabilityoracle: "learned",
   rasp: "lookup",
@@ -170,10 +168,8 @@ export interface EnergeticsReading {
  * case fell into `split` and read "the engines disagree" for engines that all agree.
  *
  * `mostly-not-destabilizing`: at least two thirds of the counted engines predict no destabilization
- * and the remaining ones are only in their moderate band (none past a destabilizing mark). UROD
- * p.Gly318Arg is the case that produced it: four of five engines neutral, DynaMut2 at +0.53 against
- * its +0.50 moderate mark, and the screen said "Engines disagree". The exception is named in the
- * summary, never averaged away.
+ * and the remaining ones are only in their moderate band (none past a destabilizing mark).
+ * The exception is named in the summary, never averaged away.
  *
  * `mostly-moderate` / `mostly-destabilizing` are the same majority rule for the other bands, so a
  * severity difference is not reported as "the engines disagree" either.
@@ -353,8 +349,6 @@ export interface EnergeticsInputs {
   foldingDdG?: number | null;
   foldingStatus?: "success" | "failed" | "unavailable" | null;
   foldingEnergetics?: Record<string, any> | null;
-  dynamut2Status?: RemoteStatus;
-  ddmutStatus?: RemoteStatus;
   thermompnnStatus?: RemoteStatus;
   thermompnnError?: string | null;
   foldingError?: string | null;
@@ -479,18 +473,10 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     foldxMean: standIn ? protvarValue : localFoldxMean,
     foldxDdg: standIn ? protvarValue : localFoldxDdg,
     foldxSd: standIn ? null : num(e?.foldxSd),
-    dynamut2: num(e?.dynamut2),
-    ddmut: num(e?.ddmut),
     rasp: num(e?.rasp),
     thermompnn: num(e?.thermompnn),
     stabilityoracle: num(e?.stabilityoracle),
-    dynamut2Status: input.dynamut2Status,
-    ddmutStatus: input.ddmutStatus,
     raspStatus: e?.raspStatus,
-    dynamut2Error: typeof e?.dynamut2Error === "string" ? e.dynamut2Error : null,
-    ddmutError: typeof e?.ddmutError === "string" ? e.ddmutError : null,
-    dynamut2Listening: e?.dynamut2Listening === true,
-    ddmutListening: e?.ddmutListening === true,
     raspError: typeof e?.raspError === "string" ? e.raspError : null,
     thermompnnStatus: input.thermompnnStatus,
     stabilityoracleStatus: e?.stabilityoracleStatus,
@@ -640,9 +626,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
    * DESTABILIZING mark crosses two bands, 4 high + 1 neutral likewise, and a moderate majority with
    * exceptions on both sides points two ways. A moderate majority with exceptions only above it
    * (4 moderate + 1 high) is a severity difference: every engine is past its moderate mark, so it
-   * reads `mostly-moderate` with the stronger reading named, not "the engines disagree". UROD
-   * p.Gly318Arg (4 neutral + DynaMut2 +0.53 moderate) is the case that produced
-   * `mostly-not-destabilizing`.
+   * reads `mostly-moderate` with the stronger reading named, not "the engines disagree".
    */
   else {
     const bandOf = (r: EnergeticsReading): 0 | 1 | 2 =>

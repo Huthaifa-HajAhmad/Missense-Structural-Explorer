@@ -60,5 +60,5 @@ repowise search --mode symbol <symbol_name>
 ## 6. Non-Blocking Fast-Degradation Design Principle
 When modifying or creating API routes, endpoints, or data fetching services, you MUST enforce the **Non-Blocking Fast-Degradation Design Principle**:
 1. **Never Block on Slow Sub-Services**: Deep learning model sidecars (ThermoMPNN, StabilityOracle) MUST be raced with a **2.5s deadline** so primary genomic/clinical evidence renders in <1.5s.
-2. **Never Block on Remote Web Service Submissions**: Remote submissions (`DynaMut2`, `DDMut`, `ThermoMPNN`) in the stability pipeline MUST be raced with a **300ms deadline** so local FoldX PDB structures return instantly.
+2. **Never Block on Sidecar or External Polling**: Monomer stability runs in the queue MUST keep local FoldX non-blocking against sidecar delays (`ThermoMPNN`, `StabilityOracle` bounded via `/remote-submissions/:token`), and `DDMut-PPI` interface runs (`server/services/stability/ddmut-ppi.ts`) MUST remain isolated from the synchronous monomer pipeline.
 3. **Mandatory Caching**: Every external network query MUST check a dedicated `LRUCache` at `t=0`.

@@ -208,15 +208,13 @@ Row 43 is VariantValidator (section 4.7).
 | 54 | `services/external-api/spliceai_broad.ts:307` (SpliceAI Lookup, Cloud Run) | fWR (1 try) | mem `spliceAiCache` | `["spliceai", assembly, contig, pos, ref, alt, distance, mask].join(":")` (`spliceai_broad.ts:218-227`) | no | positive **30 d** (`:77`); negative **60 s** (`:316`, `:388`) | no | **429 is stored as `rate-limited`, 5xx as `upstream-error`, timeout and network errors as `timeout` or `network`, all for 60 s** (`:316`, `:382-389`). Also 400 and 422 as `coordinate-rejected` (`:325`). | none (keyless) |
 
 
-### 4.9 DynaMut2, DDMut and DDMut-PPI (UQ BioSig), 5 rows
+### 4.9 DDMut-PPI (UQ BioSig), 2 rows (DynaMut2 & DDMut retired in Phase 6)
 
 | # | File:line | Method | Cached | Key (quoted) | User in key | TTL | Single-flight | Negative caching | Credential |
 |---|---|---|---|---|---|---|---|---|---|
-| 55 | `services/stability/dynamut.ts:200` (submit, DynaMut2 and DDMut) | fWR | none at this layer. The biophysics route caches the combined result under `biophysical_..._key:${keyHash}` (row 92) | none | no | n/a | no | n/a | none |
-| 56 | `dynamut.ts:299` (poll) | fWR | none | none | no | n/a | no | n/a | none |
-| 57 | `dynamut.ts:287` (poll, `node:https` inside `withHostLock`) | node:https | none | none | no | n/a | no | n/a | none |
+| 55–57 | *(retired in Phase 6, 2026-11-24 — `services/stability/dynamut.ts` deleted)* | — | — | — | — | — | — | — | — |
 | 58 | `services/stability/ddmut-ppi.ts:104` (submit) | fWR | mem `ppiResultCache` and in-flight Map | `ddmut_ppi:${hash}:${chain}:${mutationCode}` (`ddmut-ppi.ts:232`; `hash` = sha256 of PDB text, first 16 hex, `:231`) | no | 24 h (`ddmut-ppi.ts:42-44`) | yes (`inFlightPpiRequests`, `:238-241`) | Only `done` is stored (`:273`). | none |
-| 59 | `ddmut-ppi.ts:160` (poll, `node:https` inside `withHostLock`) | node:https | enc (row 58) | enc | no | enc | enc | enc | none |
+| 59 | `ddmut-ppi.ts` (`httpGetWithBody` poll, `node:https` inside `withHostLock`) | node:https | enc (row 58) | enc | no | enc | enc | enc | none |
 
 ### 4.10 JapanFold (`api.japanfold.aiand.com`), 8 rows
 
@@ -300,13 +298,11 @@ Genos has its own global serialised queue with `GENOS_MIN_DELAY_MS = 1200` (`gen
 
 Row 89 and row 90 are key checks, not analysis. Row 92 mirrors row 91 for the biophysics route.
 
-### 4.18 Tamarind (ThermoMPNN), 3 rows
+### 4.18 Tamarind ThermoMPNN cloud fallback *(retired in Phase 6, 2026-11-24)*
 
 | # | File:line | Method | Cached | Key (quoted) | User in key | TTL | Single-flight | Negative caching | Credential |
 |---|---|---|---|---|---|---|---|---|---|
-| 94 | `services/stability/energy-models.ts:545` (`/api/tools`, connection test) | raw | none | none | no | n/a | no | n/a | `apiKey` from request, else env `TAMARIND_API_KEY` (`:540`), as `x-api-key` |
-| 95 | `energy-models.ts:650` (`/api/submit-job`) | raw | `thermompnnCache` (LRU max 200, no TTL, `:531`), only `prediction !== null` | `${mutation}_${pdbHash}` (`:571`), `pdbHash = sha256(pdbContent).slice(0,16)` (`:570`) | no | none | no | Only done predictions are cached (`:573`). | as row 94 |
-| 96 | `energy-models.ts:726` (`/api/jobs?jobName=`, poll) | raw | enc (row 95) | enc | no | enc | no | enc | as row 94 |
+| 94–96 | *(retired in Phase 6, 2026-11-24 — ThermoMPNN runs exclusively on the local sidecar)* | — | — | — | — | — | — | — | — |
 
 ### 4.19 GPN-Star (custom endpoint or Hugging Face), 3 rows
 
@@ -444,13 +440,12 @@ The sidecar makes its own outbound calls to Biohub, Hugging Face and similar ser
 - **`autoInstallEnabled()`**: the gate for the g2p runtime download (`snapshotInstall.ts`) was not read.
 - **CircuitBreaker reset semantics**: `CircuitBreaker` in `server/utils.ts` was not read, so whether a success resets the failure count is unknown.
 - **Log exposure**: whether callers log errors that contain a URL with `api_key` beyond `http-client.ts`.
-- **Production configuration**: whether `NCBI_API_KEY`, `ALPHAGENOME_API_URL`, `GPN_API_URL`, `JAPANFOLD_API_KEY` and `TAMARIND_API_KEY` are set in production, and whether `GPN_API_URL` points at loopback or a remote host.
+- **Production configuration**: whether `NCBI_API_KEY`, `ALPHAGENOME_API_URL`, `GPN_API_URL`, and `JAPANFOLD_API_KEY` are set in production, and whether `GPN_API_URL` points at loopback or a remote host (`TAMARIND_API_KEY` was retired in Phase 6).
 - **Prewarm**: `prewarm-manager.ts` was not traced separately. Its outbound calls are whatever the functions in sections 4 and 5 make.
 
-## 8. Fix status (after WP-I3, WP-I1 and WP-I2)
+## 8. Fix status (after WP-I3, WP-I1, WP-I2, and Phase 6 pruning)
 
-Added 2026-10-14. The sections above describe the code as it stood on 2026-10-09; this section records what has
-changed since. Line numbers above are not updated.
+Added 2026-10-14; updated 2026-11-24 for Phase 6 (`doc/IN_SILICO_PRUNING_PLAN.md`). Sections 1–7 above describe the code as originally audited on 2026-10-09 (with §4.9 and §4.18 marked for Phase 6); this section records what has changed since.
 
 | Finding | Status |
 | --- | --- |
@@ -458,8 +453,8 @@ changed since. Line numbers above are not updated.
 | 2. Credentials in cache keys | Fixed in I2 for Gemini: the key segment is `key:any` or `key:none` (`geminiCredentialSegment`, `cache-keys.ts`), so a narrative written with one teammate's key serves the others, and a no-key fallback never reaches a caller with a key. The conservation half no longer applies: the cached payload uses only the public GPN-Star tabix path (no token, no endpoint); the token path (`fetchConservationDataProgressive`) is not cached. |
 | 3. Failures cached as "absent" for 7 days | Fixed in I2: `transcript-resolver.ts` and `popeve-resolver.ts` remember only a 404. Their writes also use the trimmed key the reads use. |
 | 4. Empty 200 cached for 30 days | Fixed in I2: `fetchUniprotSequence` neither caches nor serves an empty sequence; `fetchDisplayedIsoformId` throws (not cached) when the 200 is not an entry. |
-| 5. Expensive calls not shared between users | I2: SpliceAI, JapanFold ESMC, ESMFold-2 and SaProt, and the DynaMut2/DDMut submits make one upstream call for concurrent callers (`shared-flight.ts`); a caller's abort ends only its own wait. A BioSig job id stays joinable for 60 s. Not changed: Tamarind (a pending job belongs to the submitting account's key; credential buckets are I4). Boltz already had `pendingBoltzJobs`. |
-| 6. Transports bypassing the semaphore and breaker; 429 counted by the breaker | I1 (`governedFetch` for the 39 raw remote sites, ratchet test) and I3 (a 429 does not count toward the breaker under `on`). gRPC, `node:https` (DDMut polls report to the governor) and Tabix are unchanged. |
+| 5. Expensive calls not shared between users | I2 + Phase 6: SpliceAI keeps single-flight sharing; DynaMut2, DDMut, and the Tamarind ThermoMPNN cloud fallback were retired on 2026-11-24 (`doc/IN_SILICO_PRUNING_PLAN.md`, Phase 6). Boltz-2 (`pendingBoltzJobs`) and DDMut-PPI (`ddmut-ppi.ts`, `shared-flight.ts`) remain. |
+| 6. Transports bypassing the semaphore and breaker; 429 counted by the breaker | I1 (`governedFetch` for the 39 raw remote sites, ratchet test) and I3 (a 429 does not count toward the breaker under `on`). gRPC, `node:https` (now in `ddmut-ppi.ts` only for DDMut-PPI polls reporting to the governor) and Tabix remain. |
 | 7. NCBI key in logs | I1 (`redactUrl`). |
 | 8. Public endpoints fire outbound calls | I1: the JapanFold probe on `/capabilities` is cached 60 s and single-flighted. |
 | 9. Smaller defects | I2: lift L1 TTL (`* 1000`, was `/ 1000`); exon single-flight keyed with `requireCds`; the landscape is not cached when its UniProt reference lookup threw. **Open:** `gnomad.ts` still returns `null` for any error. |

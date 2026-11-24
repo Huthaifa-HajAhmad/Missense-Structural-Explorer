@@ -113,8 +113,6 @@ export function buildEnergeticsQueryString(energetics: EnergeticsData | null): s
   const foldxVal = energetics.foldxMean ?? energetics.foldx;
   if (foldxVal !== null && foldxVal !== undefined) q.set("foldx", foldxVal.toString());
   if (energetics.rasp !== null && energetics.rasp !== undefined) q.set("rasp", energetics.rasp.toString());
-  if (energetics.ddmut !== null && energetics.ddmut !== undefined) q.set("ddmut", energetics.ddmut.toString());
-  if (energetics.dynamut2 !== null && energetics.dynamut2 !== undefined) q.set("dynamut2", energetics.dynamut2.toString());
   if (energetics.thermompnn !== null && energetics.thermompnn !== undefined) q.set("thermompnn", energetics.thermompnn.toString());
   if (energetics.foldxRepairFailed) q.set("foldxRepairFailed", "true");
   return q.toString();

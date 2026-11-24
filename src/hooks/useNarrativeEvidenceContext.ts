@@ -9,7 +9,6 @@ export function useNarrativeEvidenceContext() {
     primaryBiophysics: s.primaryBiophysics,
     foldingDdG: s.foldingDdG, foldingEnergetics: s.foldingEnergetics,
     foldingStatus: s.foldingStatus, foldingError: s.foldingError,
-    dynamut2Status: s.dynamut2Status, ddmutStatus: s.ddmutStatus,
     thermompnnStatus: s.thermompnnStatus, thermompnnError: s.thermompnnError,
     isFolding: s.isFolding, disruptionPredictor: s.disruptionPredictor
   })));

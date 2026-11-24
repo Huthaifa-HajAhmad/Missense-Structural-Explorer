@@ -12,10 +12,11 @@ describe("purgeRetiredSecrets", () => {
     insert.run(user, "huggingface");
     insert.run(user, "biohub");
     insert.run(user, "tamarind");
+    insert.run(user, "japanfold");
 
     purgeRetiredSecrets(accountsDb());
 
     const kinds = accountsDb().prepare("SELECT kind FROM user_secrets WHERE user_id = ?").all(user) as { kind: string }[];
-    expect(kinds.map((k) => k.kind)).toEqual(["tamarind"]);
+    expect(kinds.map((k) => k.kind)).toEqual(["japanfold"]);
   });
 });

@@ -22,16 +22,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
     paperUrl: "https://doi.org/10.1093/nar/gki387",
   },
-  dynamut2: {
-    name: "DynaMut2",
-    paperTitle: "Rodrigues et al. Protein Science (2021)",
-    paperUrl: "https://doi.org/10.1002/pro.3942",
-  },
-  ddmut: {
-    name: "DDMut (Deep Learning)",
-    paperTitle: "Zhou et al. Nucleic Acids Res (2023)",
-    paperUrl: "https://doi.org/10.1093/nar/gkad472",
-  },
   rasp: {
     name: "RaSP (Rapid Stability Prediction)",
     paperTitle: "Blaabjerg et al. eLife (2023)",

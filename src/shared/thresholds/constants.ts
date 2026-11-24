@@ -119,14 +119,6 @@ export const THRESHOLDS = {
      */
     significantClash: 2.0,
   },
-  dynamut2: {
-    /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
-    destabilizing: -1.0,
-  },
-  ddmut: {
-    /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
-    destabilizing: -1.0,
-  },
   thermompnn: {
     /** ΔΔG° ≥ 1.0 kcal/mol: predicted destabilization (ThermoMPNN ΔΔG = mutant - WT) */
     destabilizing: 1.0,
@@ -378,10 +370,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "GERP++ RS (Davydov 2010). Conservation, not pathogenicity. ClinGen bands (Pejaver 2022): no PP3 band; BP4 supporting ≤ 2.70, moderate ≤ −4.54.",
   phylop:
     "phyloP (Pollard 2010). Conservation, not pathogenicity. ClinGen bands (Pejaver 2022): PP3 supporting ≥ 7.367, moderate ≥ 9.741; BP4 supporting ≤ 1.879, moderate ≤ 0.021.",
-  dynamut2:
-    "DynaMut2 (Rodrigues et al. Protein Sci 2021). Local mark: native ΔΔG ≤ −1.0 kcal/mol read as destabilizing (DynaMut2's sign is negative = destabilizing). No published clinical cut-point.",
-  ddmut:
-    "DDMut (Zhou et al. Nucleic Acids Res 2023). Local mark: native ΔΔG ≤ −1.0 kcal/mol read as destabilizing (DDMut's sign is negative = destabilizing). No published clinical cut-point.",
   thermompnn:
     "ThermoMPNN (Dieckhaus et al. PNAS 2024). App-defined display marks (ΔΔG ≥ +0.5 moderate / ≥ +1.0 kcal/mol strong destabilising, canonical positive = destabilising) are local placeholders pending held-out recalibration. No published clinical cut-point.",
   stabilityoracle:

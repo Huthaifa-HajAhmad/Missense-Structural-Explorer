@@ -308,11 +308,6 @@ END
       };
 
       const remoteJobs = {
-        dynamut2JobId: "job-123",
-        dynamut2Status: "done",
-        ddmutJobId: null,
-        ddmutStatus: "unavailable",
-        thermompnnJobId: null,
         thermompnnStatus: "done",
         thermompnnError: null,
         thermompnnVal: 0.85,

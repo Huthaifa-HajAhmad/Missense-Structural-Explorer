@@ -89,9 +89,7 @@ function run() {
         biophysical: {
           setIsFolding: vi.fn(), setFoldingError: vi.fn(), setFoldingStatus: vi.fn(),
           setMutantPdb: vi.fn(), setFoldedResidueIndex: vi.fn(), setFoldingDdG: vi.fn(),
-          setFoldingEnergetics: vi.fn(), setDynamut2JobId: vi.fn(), setDynamut2Status: vi.fn(),
-          setDdmutJobId: vi.fn(), setDdmutStatus: vi.fn(), setThermompnnJobId: vi.fn(),
-          setThermompnnStatus: vi.fn(), setThermompnnError: vi.fn()
+          setFoldingEnergetics: vi.fn(), setThermompnnStatus: vi.fn(), setThermompnnError: vi.fn()
         },
         structure: {
           setPdbText: vi.fn(), setComputedPocket: vi.fn(), setIsPocketLoading: vi.fn(),

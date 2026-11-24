@@ -60,11 +60,6 @@ const createMockSinks = () => ({
       setFoldedResidueIndex: vi.fn(),
       setFoldingDdG: vi.fn(),
       setFoldingEnergetics: vi.fn(),
-      setDynamut2JobId: vi.fn(),
-      setDynamut2Status: vi.fn(),
-      setDdmutJobId: vi.fn(),
-      setDdmutStatus: vi.fn(),
-      setThermompnnJobId: vi.fn(),
       setThermompnnStatus: vi.fn(),
       setThermompnnError: vi.fn()
     },
@@ -75,7 +70,7 @@ const createMockSinks = () => ({
       setComputedPocket: vi.fn(), setIsPocketLoading: vi.fn(), setPocketError: vi.fn(),
       setHomologs: vi.fn(), setIsHomologsLoading: vi.fn(),
       setComputedResiduesCache: vi.fn(), setDisruptionPredictor: vi.fn(),
-      resetViewerState: vi.fn(), clearDynaMutPoll: vi.fn()
+      resetViewerState: vi.fn()
     }
 });
 
@@ -502,7 +497,7 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
     foldingStatus: "success",
     foldingDdG: 2.1,
     // StabilityOracle is null because the sidecar is absent — NOT because the snapshot is stale.
-    foldingEnergetics: { foldx: 2.1, dynamut2: -0.5, stabilityoracle: null }
+    foldingEnergetics: { foldx: 2.1, thermompnn: 0.5, stabilityoracle: null }
   };
 
   async function runWithCache({ biophysicsAttemptedAt, ...bundle }: Record<string, unknown>) {
@@ -621,77 +616,61 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
       analysisResult: undefined,
       foldingStatus: "failed",
       biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000,
-      dynamut2Status: "pending",
-      dynamut2JobId: "dyn-live-7",
+      foldingEnergetics: { ...(HEALTHY_SNAPSHOT as any).foldingEnergetics, thermompnn: null },
+      thermompnnStatus: "busy",
     });
 
     const calls = (executeFoldxPipeline as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(calls.length, "the fixture must actually dispatch").toBeGreaterThan(0);
 
-    for (const [options] of calls as Array<[{ initialRemoteState?: { dynamut2JobId?: string | null } }]>) {
+    for (const [options] of calls as Array<[{ initialRemoteState?: { thermompnnStatus?: string | null } }]>) {
       expect(
         options.initialRemoteState,
-        "a dispatch went out unseeded, so it can settle an engine whose poller is live"
+        "a dispatch went out unseeded"
       ).toBeDefined();
-      expect(options.initialRemoteState?.dynamut2JobId).toBe("dyn-live-7");
+      expect(options.initialRemoteState?.thermompnnStatus).toBe("busy");
     }
   });
 
   it("seeds the settle with the RESOLVED status, not the raw cached one", async () => {
-    /**
-     * R8, and the reason the seed is resolved once at function scope.
-     *
-     * The seed carried the RAW cached status, so a bundle holding a dynamut2 score AND a stale "pending"
-     * status offered the settle a `pending`-with-no-id — a state it is entitled to clear, for an engine
-     * that is finished. The resolver is the same one the sink restore uses, so the store and the seed
-     * cannot disagree by construction.
-     */
     await runWithCache({
       ...HEALTHY_SNAPSHOT,
       analysisResult: undefined,
       foldingStatus: "failed",
       biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000,
-      // A score is present, so the resolver reports "done" — while the stored status still says
-      // "pending" and there is no job id to poll.
-      foldingEnergetics: { ...(HEALTHY_SNAPSHOT as any).foldingEnergetics, dynamut2: -1.2 },
-      dynamut2Status: "pending",
-      dynamut2JobId: null,
+      // A score is present, so the resolver reports "done" even when the stored status says "pending".
+      foldingEnergetics: { ...(HEALTHY_SNAPSHOT as any).foldingEnergetics, thermompnn: 1.2 },
+      thermompnnStatus: "pending",
     });
 
     const calls = (executeFoldxPipeline as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(calls.length, "the fixture must actually dispatch").toBeGreaterThan(0);
 
-    for (const [options] of calls as Array<[{ initialRemoteState?: { dynamut2Status?: string | null } }]>) {
+    for (const [options] of calls as Array<[{ initialRemoteState?: { thermompnnStatus?: string | null } }]>) {
       expect(
-        options.initialRemoteState?.dynamut2Status,
+        options.initialRemoteState?.thermompnnStatus,
         "the raw cached 'pending' was seeded for an engine that already has a score"
       ).toBe("done");
     }
   });
 
-  it("restores a pending engine as pending only when a job id can still resolve it", async () => {
+  it("settles a stale pending ThermoMPNN status with no score to unavailable on restore", async () => {
     const sinks = await runWithCache({
       ...HEALTHY_SNAPSHOT,
-      // DDMut has no score yet but does have an id, so its poller can still report the outcome.
-      ddmutStatus: "pending",
-      ddmutJobId: "ddm-live-1",
-      // ThermoMPNN has neither, so nothing can ever resolve it.
+      foldingEnergetics: { foldx: 2.1, thermompnn: null, stabilityoracle: null },
       thermompnnStatus: "pending",
-      thermompnnJobId: null
     });
 
-    expect(sinks.biophysical.setDdmutStatus).toHaveBeenCalledWith("pending");
     expect(sinks.biophysical.setThermompnnStatus).toHaveBeenCalledWith("unavailable");
   });
 
   it("keeps a restored engine with a score as done, whatever its status says", async () => {
     const sinks = await runWithCache({
       ...HEALTHY_SNAPSHOT,
-      dynamut2Status: "pending",
-      dynamut2JobId: null
+      thermompnnStatus: "pending",
     });
 
-    // A value that exists outranks a stale lifecycle status (and a missing id).
-    expect(sinks.biophysical.setDynamut2Status).toHaveBeenCalledWith("done");
+    // A value that exists outranks a stale lifecycle status.
+    expect(sinks.biophysical.setThermompnnStatus).toHaveBeenCalledWith("done");
   });
 });

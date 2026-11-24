@@ -9,12 +9,10 @@ import { CLIENT_THERMOMPNN_RETRY_WAIT_MS } from '../../shared/timeouts';
 import type { EnergeticsData } from '../../types';
 
 /**
- * The submit route answers in three shapes: a value (the local sidecar computes synchronously), a
- * cloud job id (Tamarind fallback), or a refusal with its reason. One schema covers all three,
- * because which one arrives is the server's decision, not this page's.
+ * The submit route answers synchronously from the local sidecar: either a predicted ΔΔG or a refusal
+ * with its reason.
  */
 const responseSchema = z.object({
-  thermompnnJobId: z.string().nullable().optional(),
   thermompnnStatus: z.enum(['pending', 'done', 'unavailable', 'error', 'busy']).nullable().optional(),
   prediction: z.number().nullable().optional(),
   error: z.string().nullable().optional(),
@@ -31,22 +29,19 @@ interface RetryThermompnnProps {
   status: string | null | undefined;
   /** FoldX is still running, so every CPU request this sends would only queue behind it. */
   folding: boolean;
-  /** Called after the engine has a value or a new job id, so the view can show the row again. */
+  /** Called after the engine returns a value so the view can refresh the row. */
   onSubmitted: () => void;
 }
 
 /**
  * Retry only ThermoMPNN.
  *
- * WHY THIS EXISTS: ThermoMPNN shares one CPU sidecar with ESM-2, SaProt and StabilityOracle, and a pass
+ * WHY THIS EXISTS: ThermoMPNN shares one CPU sidecar with StabilityOracle, and a pass
  * that has started cannot be pre-empted. When the other engines of the same analysis hold the queue,
  * ThermoMPNN's own budget expires and the run ends with every other engine succeeded and this one
- * reported as busy. Re-running the whole analysis repeats FoldX and every remote job to recover one
- * ~1 s prediction; this submits the template FoldX started from (not the repacked wild type) to
- * `/api/v1/thermompnn-submit` and writes the answer into the same run.
- *
- * The local sidecar answers with a VALUE, synchronously. That is why this control writes the prediction
- * and the terminal status itself instead of waiting for a poller, as `RetryDynamut2` can.
+ * reported as busy. Re-running the whole analysis repeats FoldX to recover one ~1 s prediction; this
+ * submits the template FoldX started from (not the repacked wild type) to `/api/v1/thermompnn-submit`
+ * and writes the answer into the same run synchronously.
  */
 export function RetryThermompnn({ variant, uniprotId, energetics, status, folding, onSubmitted }: RetryThermompnnProps) {
   const { fetchWithAuth } = useAuthSession();
@@ -94,19 +89,12 @@ export function RetryThermompnn({ variant, uniprotId, energetics, status, foldin
     const store = useVariantAnalysisStore.getState();
     if (store.analysisState.result !== identity) return;
 
-    const { thermompnnJobId, thermompnnStatus, prediction } = parsed.data;
+    const { thermompnnStatus, prediction } = parsed.data;
     if (typeof prediction === 'number') {
-      // Synchronous answer: this IS the result, so settle the engine instead of waiting for a poller.
+      // Synchronous answer: this IS the result, so settle the engine immediately.
       store.setFoldingEnergetics((previous: EnergeticsData | null) => previous ? { ...previous, thermompnn: prediction } : previous);
       store.setThermompnnError(null);
       store.setThermompnnStatus('done');
-      onSubmitted();
-      return;
-    }
-    if (thermompnnStatus === 'pending' && thermompnnJobId) {
-      store.setThermompnnJobId(thermompnnJobId);
-      store.setThermompnnStatus('pending');
-      store.setThermompnnError(null);
       onSubmitted();
       return;
     }

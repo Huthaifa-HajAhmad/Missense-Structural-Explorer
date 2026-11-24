@@ -116,17 +116,16 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
    */
   describe("Stability consensus verdicts", () => {
     it("reports no destabilization when no engine passes its mark", () => {
-      expect(computeConsensusVerdict({ foldxMean: 0.2, dynamut2: 0.1, ddmut: 0.3 })).toBe("No Destabilization Predicted");
+      expect(computeConsensusVerdict({ foldxMean: 0.2, rasp: 0.1, thermompnn: 0.3 })).toBe("No Destabilization Predicted");
     });
 
     it("reports disagreement when one engine passes its mark and the others do not", () => {
-      expect(computeConsensusVerdict({ foldxMean: 2.1, dynamut2: 0.5, ddmut: 0.2 })).toBe("Engines Disagree");
+      expect(computeConsensusVerdict({ foldxMean: 2.1, rasp: 0.3, thermompnn: 0.2 })).toBe("Engines Disagree");
     });
 
-    it("reads DynaMut2's native negative sign as destabilizing", () => {
-      // FoldX +2.1 and DynaMut2 −1.5 (native; canonical +1.5) both pass; DDMut +0.2 native is −0.2.
-      expect(computeConsensusVerdict({ foldxMean: 2.1, dynamut2: -1.5, ddmut: 0.2 })).toBe("Engines Disagree");
-      expect(computeConsensusVerdict({ foldxMean: 2.1, dynamut2: -1.5 })).toBe("Destabilizing (Engines Agree)");
+    it("reads positive RaSP and ThermoMPNN as destabilizing", () => {
+      expect(computeConsensusVerdict({ foldxMean: 2.1, rasp: 1.5, thermompnn: 0.2 })).toBe("Engines Disagree");
+      expect(computeConsensusVerdict({ foldxMean: 2.1, rasp: 1.5 })).toBe("Destabilizing (Engines Agree)");
     });
 
     it("reads positive RaSP as destabilizing, and names a single engine as one", () => {
@@ -152,37 +151,31 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
     });
 
     it("gives every engine one vote: no hidden weights", () => {
-      // The old test here asserted that ThermoMPNN + RaSP outweighed DynaMut2 + DDMut by hand-typed
-      // weights (2.0 + 1.5 vs 1.0 + 1.0). Both pairs now read the same.
-      const weak = computeStabilityConsensus({ foldxMean: 0.1, dynamut2: -1.5, ddmut: -1.5, rasp: 0.1, thermompnn: 0.1 });
-      const strong = computeStabilityConsensus({ foldxMean: 0.1, dynamut2: 0.1, ddmut: 0.1, rasp: 1.2, thermompnn: 1.5 });
-      expect(weak.consensusVerdict).toBe("Engines Disagree");
-      expect(strong.consensusVerdict).toBe("Engines Disagree");
-      expect(weak.enginesDestabilizing).toBe(2);
-      expect(strong.enginesDestabilizing).toBe(2);
+      const firstPair = computeStabilityConsensus({ foldxMean: 1.6, stabilityoracle: 0.5, rasp: 0.1, thermompnn: 0.1 });
+      const secondPair = computeStabilityConsensus({ foldxMean: 0.1, stabilityoracle: 0.0, rasp: 1.2, thermompnn: 1.5 });
+      expect(firstPair.consensusVerdict).toBe("Engines Disagree");
+      expect(secondPair.consensusVerdict).toBe("Engines Disagree");
+      expect(firstPair.enginesDestabilizing).toBe(2);
+      expect(secondPair.enginesDestabilizing).toBe(2);
       expect(computeConsensusVerdict({ stabilityoracle: 2.0 })).toBe("Destabilizing (Single-Engine Estimate)");
     });
   });
 
   describe("One sign convention (engineStatus is the only normalizer)", () => {
     it("returns null, never 0, for missing input", () => {
-      for (const id of ["foldx", "dynamut2", "ddmut", "rasp", "thermompnn", "stabilityoracle"] as const) {
+      for (const id of ["foldx", "rasp", "thermompnn", "stabilityoracle"] as const) {
         expect(toCanonicalDdg(id, null)).toBeNull();
         expect(toCanonicalDdg(id, NaN)).toBeNull();
       }
     });
 
-    it("negates only the negative-native engines, and judges each on its own mark", () => {
+    it("normalises positive-native engines and judges each on its own mark", () => {
       expect(toCanonicalDdg("foldx", 2.0)).toBe(2.0);
-      expect(toCanonicalDdg("dynamut2", -1.5)).toBe(1.5);
-      expect(toCanonicalDdg("ddmut", -1.5)).toBe(1.5);
       expect(toCanonicalDdg("rasp", 1.5)).toBe(1.5);
+      expect(toCanonicalDdg("thermompnn", 1.2)).toBe(1.2);
+      expect(toCanonicalDdg("stabilityoracle", -0.5)).toBe(-0.5);
       expect(classifyRawDdg("foldx", 1.5)?.id).toBe("high");
       expect(classifyRawDdg("foldx", 1.4)?.id).toBe("moderate");
-      expect(classifyRawDdg("dynamut2", -1.0)?.id).toBe("high");
-      // Native +0.5 is canonical −0.5: at the local stabilizing mark.
-      expect(classifyRawDdg("dynamut2", 0.5)?.id).toBe("stabilizing");
-      expect(classifyRawDdg("dynamut2", 0.3)?.id).toBe("neutral");
       expect(classifyRawDdg("rasp", THRESHOLDS.rasp.destabilizing)?.id).toBe("high");
       expect(classifyRawDdg("thermompnn", 1.0)?.id).toBe("high");
       // StabilityOracle has one calibrated mark (+0.2) and no moderate band.
@@ -194,7 +187,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
 
   describe("computeStabilityConsensus — empty data", () => {
     it("returns Insufficient Biophysical Data for null or all-null input", () => {
-      for (const input of [null, { foldxMean: null, foldx: null, dynamut2: null, ddmut: null, rasp: null, thermompnn: null, stabilityoracle: null }]) {
+      for (const input of [null, { foldxMean: null, foldx: null, rasp: null, thermompnn: null, stabilityoracle: null }]) {
         const r = computeStabilityConsensus(input);
         expect(r.consensusVerdict).toBe("Insufficient Biophysical Data");
         expect(r.enginesCounted).toBe(0);

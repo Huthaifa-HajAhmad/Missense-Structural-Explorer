@@ -80,7 +80,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setPdbText: vi.fn(),
       addToHistory: vi.fn(),
       resetViewerState: vi.fn(),
-      clearDynaMutPoll: vi.fn(),
       setIsFolding: vi.fn(),
       setFoldingProgress: vi.fn(),
       setFoldingError: vi.fn(),
@@ -89,11 +88,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setFoldedResidueIndex: vi.fn(),
       setFoldingDdG: vi.fn(),
       setFoldingEnergetics: vi.fn(),
-      setDynamut2JobId: vi.fn(),
-      setDynamut2Status: vi.fn(),
-      setDdmutJobId: vi.fn(),
-      setDdmutStatus: vi.fn(),
-      setThermompnnJobId: vi.fn(),
       setThermompnnStatus: vi.fn(),
       setThermompnnError: vi.fn(),
     };
@@ -110,7 +104,7 @@ describe("useAnalysisPipeline Hook Integration", () => {
      * Mechanism: `abortAllPendingRequests` bumps the request id AND aborts, so `foldxService`'s finally
      * (`!signal.aborted && getActiveRequestId() === requestId`) is false on BOTH clauses and correctly
      * declines to write. If the new run then skips Stage 3 — the cooldown holds, or the cached path
-     * needs no FoldX — nothing sets or clears the flag again, and all six engines render "running"
+     * needs no FoldX — nothing sets or clears the flag again, and all four engines render "running"
      * forever. The same holds for the pocket and homolog flags and the step line.
      */
     mockOptions.setIsPocketLoading = vi.fn();
@@ -187,11 +181,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setFoldedResidueIndex: vi.fn(),
       setFoldingDdG: vi.fn(),
       setFoldingEnergetics: vi.fn(),
-      setDynamut2JobId: vi.fn(),
-      setDynamut2Status: vi.fn(),
-      setDdmutJobId: vi.fn(),
-      setDdmutStatus: vi.fn(),
-      setThermompnnJobId: vi.fn(),
       setThermompnnStatus: vi.fn(),
       setThermompnnError: vi.fn(),
     };
@@ -205,7 +194,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setComputedResiduesCache: vi.fn(),
       setDisruptionPredictor: vi.fn(),
       resetViewerState: vi.fn(),
-      clearDynaMutPoll: vi.fn()
     };
 
     await act(async () => {
@@ -338,13 +326,11 @@ describe("useAnalysisPipeline Hook Integration", () => {
     const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
 
     const initialId = result.current.activeRequestIdRef.current;
-    const clearPollMock = vi.fn();
 
     act(() => {
-      result.current.abortAllPendingRequests(clearPollMock);
+      result.current.abortAllPendingRequests();
     });
 
-    expect(clearPollMock).toHaveBeenCalled();
     expect(result.current.activeRequestIdRef.current).toBe(initialId + 1);
   });
 });

@@ -60,6 +60,11 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
         "p2rank",
         "dbnsfp_local",
       ]);
+      const thermompnn = json.engines.find((e: { id: string }) => e.id === "thermompnn");
+      expect(thermompnn?.details?.tamarindRemoteConfigured).toBeUndefined();
+      expect(thermompnn?.details?.preferredProvider).toBeUndefined();
+      expect(json.egress?.credentials?.teamTokens?.tamarind).toBeUndefined();
+      expect(json.egress?.credentials?.teamTokens?.japanfold).toBeDefined();
     });
 
     it("GET /capabilities should return 200 OK without requiring authentication", async () => {
@@ -150,15 +155,28 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
   });
 
   describe("Protected Endpoints Security Enforcement", () => {
-    it.each(["/biophysics/verify-stability", "/esmfold", "/validate-biohub-token"])(
-      "POST %s is retired: not public, and 404 even for a signed-in caller",
-      async (route) => {
+    it.each([
+      ["POST", "/biophysics/verify-stability"],
+      ["POST", "/esmfold"],
+      ["POST", "/validate-biohub-token"],
+      ["POST", "/dynamut2-submit"],
+      ["POST", "/ddmut-submit"],
+      ["POST", "/test-tamarind-connection"],
+      ["GET", "/dynamut2-job/12345"],
+      ["GET", "/ddmut-job/12345"],
+      ["GET", "/thermompnn-job/12345"],
+    ])(
+      "%s %s is retired: not public, and 404 even for a signed-in caller",
+      async (method, route) => {
         expect(PUBLIC_ENDPOINTS).not.toContain(`/api/v1${route}`);
         expect(PUBLIC_ENDPOINTS).not.toContain(route);
         const res = await fetch(`${baseUrl}/api/v1${route}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${TEST_API_TOKEN}` },
-          body: "{}"
+          method,
+          headers: {
+            ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+            Authorization: `Bearer ${TEST_API_TOKEN}`,
+          },
+          ...(method === "POST" ? { body: "{}" } : {}),
         });
         expect(res.status).toBe(404);
       }

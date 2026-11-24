@@ -16,9 +16,9 @@ import { resetCredentialsForTests } from "../services/infra/credentials.ts";
 import { CREDENTIALS_HEADER, parseCredentialUse } from "../../src/shared/credentials.ts";
 
 const PASSWORD = "correct horse battery";
-const OWN_KEY = "tam_own_token_for_tests_123456";
-const TEAM_KEY = "tam_team_token_for_tests_9876";
-const ENV = ["AUTH_MODE", "APP_SESSION_SECRET", "APP_API_TOKEN", "TAMARIND_API_KEY", "SHARED_TOKEN_FALLBACK"] as const;
+const OWN_KEY = "jf_own_token_for_tests_123456";
+const TEAM_KEY = "jf_team_token_for_tests_9876";
+const ENV = ["AUTH_MODE", "APP_SESSION_SECRET", "APP_API_TOKEN", "JAPANFOLD_API_KEY", "SHARED_TOKEN_FALLBACK"] as const;
 let saved: Record<string, string | undefined>;
 let server: Server;
 let base: string;
@@ -47,7 +47,7 @@ beforeEach(() => {
   process.env.AUTH_MODE = "accounts";
   process.env.APP_SESSION_SECRET = "test-session-secret-fixed-32-chars!";
   process.env.APP_API_TOKEN = "test-token-fixed-length-32-chars-ok!";
-  process.env.TAMARIND_API_KEY = TEAM_KEY;
+  process.env.JAPANFOLD_API_KEY = TEAM_KEY;
   delete process.env.SHARED_TOKEN_FALLBACK;
   closeAccountsDb();
   resetCredentialsForTests();
@@ -85,14 +85,14 @@ async function signedIn(): Promise<{ cookie: string; userId: string }> {
   return { cookie: r.cookie as string, userId: user.id };
 }
 
-/** Intercepts calls to Tamarind only; the test's own calls to the local server go through. */
-function stubTamarind() {
+/** Intercepts calls to JapanFold only; the test's own calls to the local server go through. */
+function stubJapanfold() {
   const seen: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any, init?: any) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (url.includes("app.tamarind.bio")) {
+    if (url.includes("japanfold")) {
       seen.push(String(new Headers(init?.headers).get("x-api-key")));
-      return new Response(JSON.stringify([]), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
     return realFetch(input, init);
   });
@@ -102,28 +102,29 @@ function stubTamarind() {
 describe("/me/secrets", () => {
   it("saves, lists without the token, and removes", async () => {
     const { cookie } = await signedIn();
-    const put = await call("PUT", "/me/secrets/tamarind", { cookie, body: { token: OWN_KEY } });
+    const put = await call("PUT", "/me/secrets/japanfold", { cookie, body: { token: OWN_KEY } });
     expect(put.status).toBe(200);
-    expect(put.body).toMatchObject({ kind: "tamarind", hint: OWN_KEY.slice(-4), readable: true });
+    expect(put.body).toMatchObject({ kind: "japanfold", hint: OWN_KEY.slice(-4), readable: true });
     expect(put.text).not.toContain(OWN_KEY);
 
     const list = await call("GET", "/me/secrets", { cookie });
     expect(list.body.available).toBe(true);
-    expect(list.body.secrets).toEqual([expect.objectContaining({ kind: "tamarind", hint: OWN_KEY.slice(-4), readable: true })]);
+    expect(list.body.secrets).toEqual([expect.objectContaining({ kind: "japanfold", hint: OWN_KEY.slice(-4), readable: true })]);
     expect(list.text).not.toContain(OWN_KEY);
     expect(list.headers.get("cache-control")).toBe("no-store");
 
-    expect((await call("DELETE", "/me/secrets/tamarind", { cookie })).status).toBe(204);
-    expect((await call("DELETE", "/me/secrets/tamarind", { cookie })).status).toBe(404);
+    expect((await call("DELETE", "/me/secrets/japanfold", { cookie })).status).toBe(204);
+    expect((await call("DELETE", "/me/secrets/japanfold", { cookie })).status).toBe(404);
   });
 
-  it("refuses an unknown kind, a bad token, and a caller who is not signed in", async () => {
+  it("refuses retired or unknown kinds, a bad token, and a caller who is not signed in", async () => {
     const { cookie } = await signedIn();
     expect((await call("PUT", "/me/secrets/openai", { cookie, body: { token: OWN_KEY } })).status).toBe(400);
-    // Hugging Face was retired with GPN-MSA; its tokens are no longer accepted.
+    // Hugging Face (GPN-MSA) and Tamarind (Phase 6) are retired; their tokens are no longer accepted.
     expect((await call("PUT", "/me/secrets/huggingface", { cookie, body: { token: OWN_KEY } })).status).toBe(400);
-    expect((await call("PUT", "/me/secrets/tamarind", { cookie, body: { token: "short" } })).status).toBe(400);
-    expect((await call("PUT", "/me/secrets/tamarind", { cookie, body: { token: "has a space inside it" } })).status).toBe(400);
+    expect((await call("PUT", "/me/secrets/tamarind", { cookie, body: { token: OWN_KEY } })).status).toBe(400);
+    expect((await call("PUT", "/me/secrets/japanfold", { cookie, body: { token: "short" } })).status).toBe(400);
+    expect((await call("PUT", "/me/secrets/japanfold", { cookie, body: { token: "has a space inside it" } })).status).toBe(400);
     expect((await call("GET", "/me/secrets")).status).toBe(401);
   });
 
@@ -131,8 +132,8 @@ describe("/me/secrets", () => {
     const { cookie } = await signedIn();
     const errors: any[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((...args: any[]) => void errors.push(args));
-    const token = "tam_MALFORMED_LEAK_TEST_TOKEN";
-    const res = await realFetch(`${base}/me/secrets/tamarind`, {
+    const token = "jf_MALFORMED_LEAK_TEST_TOKEN";
+    const res = await realFetch(`${base}/me/secrets/japanfold`, {
       method: "PUT",
       headers: { "content-type": "application/json", cookie },
       body: `{"token": "${token}"`
@@ -148,7 +149,7 @@ describe("/me/secrets", () => {
   it("answers 503 when the server cannot encrypt", async () => {
     const { cookie } = await signedIn();
     delete process.env.APP_SESSION_SECRET;
-    const r = await call("PUT", "/me/secrets/tamarind", { cookie, body: { token: OWN_KEY } });
+    const r = await call("PUT", "/me/secrets/japanfold", { cookie, body: { token: OWN_KEY } });
     expect(r.status).toBe(503);
     expect(r.body.error.code).toBe("SECRETS_UNAVAILABLE");
   });
@@ -157,42 +158,45 @@ describe("/me/secrets", () => {
 describe("a saved token is used by the person's requests", () => {
   it("Test connection uses the saved token, reports 'own', and never the team token", async () => {
     const { cookie, userId } = await signedIn();
-    const seen = stubTamarind();
+    const seen = stubJapanfold();
+
+    // Retired Tamarind test endpoint is gone.
+    expect((await call("POST", "/test-tamarind-connection", { cookie, body: {} })).status).toBe(404);
 
     // Nothing saved, nothing sent: the team token is not tested on the person's behalf.
-    const none = await call("POST", "/test-tamarind-connection", { cookie, body: {} });
+    const none = await call("POST", "/validate-japanfold-key", { cookie, body: {} });
     expect(none.body).toMatchObject({ valid: false });
     expect(seen).toEqual([]);
 
-    saveUserSecret(userId, "tamarind", OWN_KEY);
-    const r = await call("POST", "/test-tamarind-connection", { cookie, body: {} });
+    saveUserSecret(userId, "japanfold", OWN_KEY);
+    const r = await call("POST", "/validate-japanfold-key", { cookie, body: {} });
     expect(r.body).toMatchObject({ valid: true });
     expect(seen).toEqual([OWN_KEY]);
-    expect(parseCredentialUse(r.headers.get(CREDENTIALS_HEADER))).toEqual([{ kind: "tamarind", source: "own" }]);
+    expect(parseCredentialUse(r.headers.get(CREDENTIALS_HEADER))).toEqual([{ kind: "japanfold", source: "own" }]);
   });
 });
 
 describe("encryption", () => {
   it("binds a ciphertext to its person and kind", () => {
     process.env.APP_SESSION_SECRET = "test-session-secret-fixed-32-chars!";
-    const blob = encryptSecret("user-a", "tamarind", OWN_KEY);
+    const blob = encryptSecret("user-a", "japanfold", OWN_KEY);
     expect(blob).not.toContain(OWN_KEY);
-    expect(decryptSecret("user-a", "tamarind", blob)).toBe(OWN_KEY);
-    expect(decryptSecret("user-b", "tamarind", blob)).toBeNull();
-    // Another kind cannot read it either (only one kind exists now, so a retired one stands in).
-    expect(decryptSecret("user-a", "biohub" as never, blob)).toBeNull();
+    expect(decryptSecret("user-a", "japanfold", blob)).toBe(OWN_KEY);
+    expect(decryptSecret("user-b", "japanfold", blob)).toBeNull();
+    // Another kind cannot read it either (a retired kind stands in).
+    expect(decryptSecret("user-a", "tamarind" as never, blob)).toBeNull();
     // One flipped ciphertext character fails authentication.
     const [v, iv, ct, tag] = blob.split(":");
     const flipped = (ct[0] === "A" ? "B" : "A") + ct.slice(1);
-    expect(decryptSecret("user-a", "tamarind", [v, iv, flipped, tag].join(":"))).toBeNull();
+    expect(decryptSecret("user-a", "japanfold", [v, iv, flipped, tag].join(":"))).toBeNull();
   });
 
   it("stores only ciphertext, and a rotated server secret reads as unreadable rather than wrong", () => {
     const id = createUser({ email: "rot@lab.org", displayName: "R", passwordHash: null, role: "member", now: Date.now() }).id;
-    saveUserSecret(id, "tamarind", OWN_KEY);
+    saveUserSecret(id, "japanfold", OWN_KEY);
     const row = accountsDb().prepare("SELECT * FROM user_secrets").get() as Record<string, unknown>;
     expect(JSON.stringify(row)).not.toContain(OWN_KEY);
     process.env.APP_SESSION_SECRET = "a-different-secret-after-rotation-32!";
-    expect(getUserSecret(id, "tamarind")).toBeNull();
+    expect(getUserSecret(id, "japanfold")).toBeNull();
   });
 });

@@ -89,11 +89,6 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setFoldedResidueIndex: flat.setFoldedResidueIndex || (() => {}),
         setFoldingDdG: flat.setFoldingDdG || (() => {}),
         setFoldingEnergetics: flat.setFoldingEnergetics || (() => {}),
-        setDynamut2JobId: flat.setDynamut2JobId || (() => {}),
-        setDynamut2Status: flat.setDynamut2Status || (() => {}),
-        setDdmutJobId: flat.setDdmutJobId || (() => {}),
-        setDdmutStatus: flat.setDdmutStatus || (() => {}),
-        setThermompnnJobId: flat.setThermompnnJobId || (() => {}),
         setThermompnnStatus: flat.setThermompnnStatus || (() => {}),
         setThermompnnError: flat.setThermompnnError || (() => {})
       },
@@ -108,10 +103,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setIsHomologsLoading: flat.setIsHomologsLoading || (() => {}),
         setComputedResiduesCache: flat.setComputedResiduesCache || (() => {}),
         setDisruptionPredictor: flat.setDisruptionPredictor || (() => {}),
-        resetViewerState: flat.resetViewerState || (() => {}),
-        clearDynaMutPoll: flat.clearDynaMutPoll || (() => {}),
-        clearDdmutPoll: flat.clearDdmutPoll || (() => {}),
-        clearThermoMpnnPoll: flat.clearThermoMpnnPoll || (() => {})
+        resetViewerState: flat.resetViewerState || (() => {})
       }
     }
   };
@@ -264,11 +256,7 @@ export function useAnalysisPipeline() {
     const normalizedOptions = normalizePipelineOptions(options);
     const { structure: structureSink, analysis: analysisSink } = normalizedOptions.sinks;
 
-    abortAllPendingRequests(
-      structureSink.clearDynaMutPoll,
-      structureSink.clearDdmutPoll,
-      structureSink.clearThermoMpnnPoll
-    );
+    abortAllPendingRequests();
 
     /**
      * Clear the activity an aborted run leaves behind, BEFORE the new run claims its request id. A
@@ -278,7 +266,7 @@ export function useAnalysisPipeline() {
      * `!signal.aborted && getActiveRequestId() === requestId`. After an abort BOTH clauses are false, so
      * the run correctly declines to write and NOTHING owns the flag. If the new run then skips Stage 3 —
      * which it does whenever the cooldown holds or the cached path needs no FoldX, no dispatch ever sets
-     * or clears it, and `isFolding` stays true while all six engines render "running" with no way back.
+     * or clears it, and `isFolding` stays true while all four engines render "running" with no way back.
      *
      * This is the only place in the app that aborts and then starts a run, so it is the one point where
      * the clear cannot race a newer run. It must NOT move into the abort itself: `workflowOrchestrator`

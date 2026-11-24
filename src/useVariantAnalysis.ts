@@ -39,12 +39,7 @@ export default function useVariantAnalysis() {
   useStoreSettingsSync(settings);
 
   // Subsystem execution hooks
-  const biophysical = useBiophysicalModeling(
-    settings,
-    useVariantAnalysisStore.getState().addNotification,
-    apiClient,
-    fetchWithAuth
-  );
+  const biophysical = useBiophysicalModeling(apiClient);
   // Pairs the FoldX variant with its own template for the 3D superposition and its measurements.
   useFoldxSuperposition(apiClient);
   const pipeline = useAnalysisPipeline();
@@ -67,11 +62,8 @@ export default function useVariantAnalysis() {
   const resetViewerState = useCallback(() => {
     structuralRetryControllerRef.current?.abort();
     structuralRetryControllerRef.current = null;
-    biophysical.clearDynaMutPoll();
-    biophysical.clearDdmutPoll();
-    biophysical.clearThermoMpnnPoll();
     useVariantAnalysisStore.getState().resetViewerState();
-  }, [biophysical]);
+  }, []);
 
   const executeAnalysisWrapper = useCallback(
     (targetGene: string, targetVariant: string, targetUniprot?: string, providedSignal?: AbortSignal) => {
@@ -120,11 +112,6 @@ export default function useVariantAnalysis() {
             setFoldedResidueIndex: currentStore.setFoldedResidueIndex,
             setFoldingDdG: currentStore.setFoldingDdG,
             setFoldingEnergetics: currentStore.setFoldingEnergetics,
-            setDynamut2JobId: currentStore.setDynamut2JobId,
-            setDynamut2Status: currentStore.setDynamut2Status,
-            setDdmutJobId: currentStore.setDdmutJobId,
-            setDdmutStatus: currentStore.setDdmutStatus,
-            setThermompnnJobId: currentStore.setThermompnnJobId,
             setThermompnnStatus: currentStore.setThermompnnStatus,
             setThermompnnError: currentStore.setThermompnnError,
           },
@@ -143,59 +130,38 @@ export default function useVariantAnalysis() {
             setIsHomologsLoading: currentStore.setIsHomologsLoading,
             setComputedResiduesCache: currentStore.setComputedResiduesCache,
             setDisruptionPredictor: currentStore.setDisruptionPredictor,
-            resetViewerState,
-            /**
-             * The four missing poll-clear handlers.
-             *
-             * `normalizePipelineOptions` returns a caller-supplied `sinks` object AS IS, so a member
-             * this adapter omits arrives as `undefined` and every `clearX?.()` inside the pipeline
-             * silently does nothing — the DDMut/ThermoMPNN pollers kept running across a new query
-             * and could write a previous variant's result into the current one.
-             */
-            clearDynaMutPoll: biophysical.clearDynaMutPoll,
-            clearDdmutPoll: biophysical.clearDdmutPoll,
-            clearThermoMpnnPoll: biophysical.clearThermoMpnnPoll
+            resetViewerState
           }
         }
       });
     },
-    [pipeline, fetchWithAuth, apiClient, settings, serverGeminiReady, biophysical, resetViewerState]
+    [pipeline, fetchWithAuth, apiClient, settings, serverGeminiReady, resetViewerState]
   );
 
   const handleSelectHistoryItem = useCallback(
     (item: { gene: string; variant: string; uniprotId: string; query?: string }) => {
       const currentStore = useVariantAnalysisStore.getState();
       currentStore.handleSelectHistoryItem(item, {
-        abortAllPendingRequests: () =>
-          pipeline.abortAllPendingRequests(
-            biophysical.clearDynaMutPoll,
-            biophysical.clearDdmutPoll,
-            biophysical.clearThermoMpnnPoll
-          ),
+        abortAllPendingRequests: () => pipeline.abortAllPendingRequests(),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
         setAnalysisState: currentStore.setAnalysisState
       });
     },
-    [pipeline, biophysical, resetViewerState, executeAnalysisWrapper]
+    [pipeline, resetViewerState, executeAnalysisWrapper]
   );
 
   const handleSelectPreset = useCallback(
     (preset: VariantPreset) => {
       const currentStore = useVariantAnalysisStore.getState();
       currentStore.handleSelectPreset(preset, {
-        abortAllPendingRequests: () =>
-          pipeline.abortAllPendingRequests(
-            biophysical.clearDynaMutPoll,
-            biophysical.clearDdmutPoll,
-            biophysical.clearThermoMpnnPoll
-          ),
+        abortAllPendingRequests: () => pipeline.abortAllPendingRequests(),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
         setAnalysisState: currentStore.setAnalysisState
       });
     },
-    [pipeline, biophysical, resetViewerState, executeAnalysisWrapper]
+    [pipeline, resetViewerState, executeAnalysisWrapper]
   );
 
   const handleSearchSubmit = useCallback(
@@ -377,13 +343,8 @@ export default function useVariantAnalysis() {
     setFoldingStatus: useVariantAnalysisStore.getState().setFoldingStatus,
     setFoldingDdG: useVariantAnalysisStore.getState().setFoldingDdG,
     setFoldingEnergetics: useVariantAnalysisStore.getState().setFoldingEnergetics,
-    setDynamut2Status: useVariantAnalysisStore.getState().setDynamut2Status,
-    setDdmutStatus: useVariantAnalysisStore.getState().setDdmutStatus,
     setThermompnnStatus: useVariantAnalysisStore.getState().setThermompnnStatus,
     setThermompnnError: useVariantAnalysisStore.getState().setThermompnnError,
-    setDynamut2JobId: useVariantAnalysisStore.getState().setDynamut2JobId,
-    setDdmutJobId: useVariantAnalysisStore.getState().setDdmutJobId,
-    setThermompnnJobId: useVariantAnalysisStore.getState().setThermompnnJobId,
     setStructuralDiff: useVariantAnalysisStore.getState().setStructuralDiff,
     setComputedPocket: useVariantAnalysisStore.getState().setComputedPocket,
     setIsPocketLoading: useVariantAnalysisStore.getState().setIsPocketLoading,

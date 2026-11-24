@@ -26,15 +26,15 @@ import { closeAccountsDb, createUser } from "../../auth/store.ts";
 import { saveUserSecret } from "../../auth/user-secrets.ts";
 import * as cacheKeys from "./cache-keys.ts";
 
-const TEAM = "team-tamarind-token-0123456789";
-const OWN = "own-tamarind-token-abcdefghij";
-const ENV_KEYS = ["TAMARIND_API_KEY", "SHARED_TOKEN_FALLBACK", "SHARED_TOKEN_SHARE_PER_HOUR", "EGRESS_GOVERNOR", "APP_SESSION_SECRET", "EGRESS_PROVIDER_LIMITS_JSON"] as const;
+const TEAM = "team-japanfold-token-0123456789";
+const OWN = "own-japanfold-token-abcdefghij";
+const ENV_KEYS = ["JAPANFOLD_API_KEY", "SHARED_TOKEN_FALLBACK", "SHARED_TOKEN_SHARE_PER_HOUR", "EGRESS_GOVERNOR", "APP_SESSION_SECRET", "EGRESS_PROVIDER_LIMITS_JSON"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
   saved = Object.fromEntries(ENV_KEYS.map(k => [k, process.env[k]]));
   for (const k of ENV_KEYS) delete process.env[k];
-  process.env.TAMARIND_API_KEY = TEAM;
+  process.env.JAPANFOLD_API_KEY = TEAM;
   process.env.APP_SESSION_SECRET = "test-session-secret-fixed-32-chars!";
   resetCredentialsForTests();
   resetEgressGovernorForTests();
@@ -54,35 +54,35 @@ const person = () => createUser({ email: `p${Math.random()}@lab.org`, displayNam
 
 describe("resolveCredential", () => {
   it("uses the request's own token, and classifies the team token by value", () => {
-    expect(resolveCredential("tamarind", OWN)).toMatchObject({ token: OWN, source: "own" });
-    expect(resolveCredential("tamarind", TEAM)).toMatchObject({ token: TEAM, source: "team" });
+    expect(resolveCredential("japanfold", OWN)).toMatchObject({ token: OWN, source: "own" });
+    expect(resolveCredential("japanfold", TEAM)).toMatchObject({ token: TEAM, source: "team" });
   });
 
   it("uses a person's saved token before the team's, and never lends the team token to an anonymous legacy caller", () => {
     const id = person();
-    saveUserSecret(id, "tamarind", OWN);
-    expect(runWithEgressOwner(id, () => resolveCredential("tamarind"))).toMatchObject({ token: OWN, source: "own" });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind"))).toEqual({
-      kind: "tamarind",
+    saveUserSecret(id, "japanfold", OWN);
+    expect(runWithEgressOwner(id, () => resolveCredential("japanfold"))).toMatchObject({ token: OWN, source: "own" });
+    expect(runWithEgressOwner("legacy", () => resolveCredential("japanfold"))).toEqual({
+      kind: "japanfold",
       token: null,
       source: "none",
       refusal: "team-signin-required",
     });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind", OWN))).toMatchObject({ token: OWN, source: "own" });
-    expect(runWithEgressOwner("legacy", () => credentialAvailable("tamarind"))).toBe(false);
-    expect(runWithEgressOwner("legacy", () => teamShareLeft("tamarind"))).toBe(0);
+    expect(runWithEgressOwner("legacy", () => resolveCredential("japanfold", OWN))).toMatchObject({ token: OWN, source: "own" });
+    expect(runWithEgressOwner("legacy", () => credentialAvailable("japanfold"))).toBe(false);
+    expect(runWithEgressOwner("legacy", () => teamShareLeft("japanfold"))).toBe(0);
     // Authenticated service callers (APP_API_TOKEN) and system prewarm still use the team token.
-    expect(runWithEgressOwner("service", () => resolveCredential("tamarind"))).toMatchObject({ token: TEAM, source: "team" });
-    expect(runWithEgressOwner("system", () => resolveCredential("tamarind"))).toMatchObject({ token: TEAM, source: "team" });
+    expect(runWithEgressOwner("service", () => resolveCredential("japanfold"))).toMatchObject({ token: TEAM, source: "team" });
+    expect(runWithEgressOwner("system", () => resolveCredential("japanfold"))).toMatchObject({ token: TEAM, source: "team" });
   });
 
   it("lends the team token under on and limited, never under off", () => {
     process.env.SHARED_TOKEN_FALLBACK = "on";
-    expect(resolveCredential("tamarind")).toMatchObject({ source: "team" });
+    expect(resolveCredential("japanfold")).toMatchObject({ source: "team" });
     process.env.SHARED_TOKEN_FALLBACK = "off";
-    expect(resolveCredential("tamarind")).toEqual({ kind: "tamarind", token: null, source: "none", refusal: "team-token-off" });
+    expect(resolveCredential("japanfold")).toEqual({ kind: "japanfold", token: null, source: "none", refusal: "team-token-off" });
     process.env.SHARED_TOKEN_FALLBACK = "nonsense";
-    expect(resolveCredential("tamarind")).toMatchObject({ source: "team" });
+    expect(resolveCredential("japanfold")).toMatchObject({ source: "team" });
   });
 
   it("limited: a person may make the hourly share of team calls, then is refused; legacy anonymous cannot borrow it", async () => {
@@ -91,21 +91,21 @@ describe("resolveCredential", () => {
     const id = person();
     const call = () =>
       runWithEgressOwner(id, () => {
-        const r = resolveCredential("tamarind");
-        return r.token ? governedForCredential("tamarind", r.token, async () => "ok") : Promise.resolve(r.refusal);
+        const r = resolveCredential("japanfold");
+        return r.token ? governedForCredential("japanfold", r.token, async () => "ok") : Promise.resolve(r.refusal);
       });
     expect(await call()).toBe("ok");
     expect(await call()).toBe("ok");
     expect(await call()).toBe("team-share-used");
-    expect(runWithEgressOwner(id, () => teamShareLeft("tamarind"))).toBe(0);
+    expect(runWithEgressOwner(id, () => teamShareLeft("japanfold"))).toBe(0);
     // Another signed-in person and authenticated service callers are unaffected; anonymous legacy is refused.
-    expect(runWithEgressOwner(person(), () => resolveCredential("tamarind").source)).toBe("team");
-    expect(runWithEgressOwner("service", () => resolveCredential("tamarind").source)).toBe("team");
-    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind"))).toMatchObject({
+    expect(runWithEgressOwner(person(), () => resolveCredential("japanfold").source)).toBe("team");
+    expect(runWithEgressOwner("service", () => resolveCredential("japanfold").source)).toBe("team");
+    expect(runWithEgressOwner("legacy", () => resolveCredential("japanfold"))).toMatchObject({
       source: "none",
       refusal: "team-signin-required",
     });
-    expect(runWithEgressOwner("legacy", () => resolveCredential("tamarind", null, { statusOnly: true }))).toMatchObject({
+    expect(runWithEgressOwner("legacy", () => resolveCredential("japanfold", null, { statusOnly: true }))).toMatchObject({
       token: null,
       source: "none",
     });
@@ -116,33 +116,33 @@ describe("resolveCredential", () => {
     process.env.EGRESS_GOVERNOR = "off";
     const id = person();
     for (let i = 0; i < 3; i++) {
-      await runWithEgressOwner(id, () => governedForCredential("tamarind", OWN, async () => "ok"));
+      await runWithEgressOwner(id, () => governedForCredential("japanfold", OWN, async () => "ok"));
     }
-    expect(runWithEgressOwner(id, () => teamShareLeft("tamarind"))).toBe(1);
+    expect(runWithEgressOwner(id, () => teamShareLeft("japanfold"))).toBe(1);
   });
 
   it("a status poll is not refused by the share, and charges nothing", async () => {
     process.env.SHARED_TOKEN_SHARE_PER_HOUR = "1";
     process.env.EGRESS_GOVERNOR = "off";
     const id = person();
-    await runWithEgressOwner(id, () => governedForCredential("tamarind", TEAM, async () => "ok"));
-    expect(runWithEgressOwner(id, () => resolveCredential("tamarind").refusal)).toBe("team-share-used");
-    expect(runWithEgressOwner(id, () => resolveCredential("tamarind", null, { statusOnly: true }))).toMatchObject({ token: TEAM, source: "team" });
-    await runWithEgressOwner(id, () => governedForCredential("tamarind", TEAM, async () => "poll", { charge: false }));
-    expect(runWithEgressOwner(id, () => teamShareLeft("tamarind"))).toBe(0);
+    await runWithEgressOwner(id, () => governedForCredential("japanfold", TEAM, async () => "ok"));
+    expect(runWithEgressOwner(id, () => resolveCredential("japanfold").refusal)).toBe("team-share-used");
+    expect(runWithEgressOwner(id, () => resolveCredential("japanfold", null, { statusOnly: true }))).toMatchObject({ token: TEAM, source: "team" });
+    await runWithEgressOwner(id, () => governedForCredential("japanfold", TEAM, async () => "poll", { charge: false }));
+    expect(runWithEgressOwner(id, () => teamShareLeft("japanfold"))).toBe(0);
   });
 
   it("ownCredential never returns the team token (Test connection)", () => {
-    expect(ownCredential("tamarind")).toBeNull();
-    expect(ownCredential("tamarind", TEAM)).toBeNull();
-    expect(ownCredential("tamarind", OWN)).toBe(OWN);
+    expect(ownCredential("japanfold")).toBeNull();
+    expect(ownCredential("japanfold", TEAM)).toBeNull();
+    expect(ownCredential("japanfold", OWN)).toBe(OWN);
   });
 
   it("credentialAvailable reflects own, saved and lendable team tokens", () => {
-    expect(credentialAvailable("tamarind")).toBe(true);
+    expect(credentialAvailable("japanfold")).toBe(true);
     process.env.SHARED_TOKEN_FALLBACK = "off";
-    expect(credentialAvailable("tamarind")).toBe(false);
-    expect(credentialAvailable("tamarind", OWN)).toBe(true);
+    expect(credentialAvailable("japanfold")).toBe(false);
+    expect(credentialAvailable("japanfold", OWN)).toBe(true);
   });
 });
 
@@ -152,17 +152,17 @@ describe("the response record", () => {
     const record = newCredentialRecord();
     await runWithCredentialRecord(record, async () => {
       process.env.SHARED_TOKEN_FALLBACK = "off";
-      resolveCredential("tamarind");
-      noteRefusal("tamarind");
-      expect(currentCredentialUses()).toEqual([{ kind: "tamarind", source: "none", refusal: "team-token-off" }]);
-      await governedForCredential("tamarind", OWN, async () => 1);
-      expect(currentCredentialUses()).toEqual([{ kind: "tamarind", source: "own" }]);
+      resolveCredential("japanfold");
+      noteRefusal("japanfold");
+      expect(currentCredentialUses()).toEqual([{ kind: "japanfold", source: "none", refusal: "team-token-off" }]);
+      await governedForCredential("japanfold", OWN, async () => 1);
+      expect(currentCredentialUses()).toEqual([{ kind: "japanfold", source: "own" }]);
     });
   });
 
   it("records nothing for a call that is never sent (no token)", async () => {
     const record = newCredentialRecord();
-    await runWithCredentialRecord(record, () => governedForCredential("tamarind", null, async () => 1));
+    await runWithCredentialRecord(record, () => governedForCredential("japanfold", null, async () => 1));
     expect(record.uses.size).toBe(0);
   });
 });
@@ -170,13 +170,13 @@ describe("the response record", () => {
 describe("governor buckets", () => {
   it("a person's own token does not occupy the team token's slots", async () => {
     process.env.EGRESS_GOVERNOR = "on";
-    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "app.tamarind.bio": { maxConcurrent: 1 } });
+    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "api.japanfold.aiand.com": { maxConcurrent: 1 } });
     resetEgressGovernorForTests();
     let release!: () => void;
     const held = new Promise<void>(r => (release = r));
-    const teamCall = governedForCredential("tamarind", TEAM, () => held);
+    const teamCall = governedForCredential("japanfold", TEAM, () => held);
     // The team bucket is full; an own-token call still goes at once.
-    const own = await governedForCredential("tamarind", OWN, async () => "own done", { deadlineAt: Date.now() + 1000 });
+    const own = await governedForCredential("japanfold", OWN, async () => "own done", { deadlineAt: Date.now() + 1000 });
     expect(own).toBe("own done");
     release();
     await teamCall;
@@ -185,17 +185,17 @@ describe("governor buckets", () => {
   it("a 429 on a person's own token pauses that token, not the team's", async () => {
     process.env.EGRESS_GOVERNOR = "on";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("slow down", { status: 429, headers: { "Retry-After": "3" } }));
-    const credential = credentialForCall("tamarind", "own-tamarind-key-123456");
-    await governedFetch("https://app.tamarind.bio/api/jobs", { credential });
-    expect(pauseRemainingMs(pauseKeyFor("app.tamarind.bio", credential.bucket))).toBeGreaterThan(0);
-    expect(pauseRemainingMs("app.tamarind.bio")).toBe(0);
+    const credential = credentialForCall("japanfold", "own-japanfold-key-123456");
+    await governedFetch("https://api.japanfold.aiand.com/v1/predictions", { credential });
+    expect(pauseRemainingMs(pauseKeyFor("api.japanfold.aiand.com", credential.bucket))).toBeGreaterThan(0);
+    expect(pauseRemainingMs("api.japanfold.aiand.com")).toBe(0);
   });
 
   it("/capabilities folds own-token buckets into one line per provider, with no id from the token", async () => {
     process.env.EGRESS_GOVERNOR = "on";
-    await governedForCredential("tamarind", OWN, async () => 1);
-    await governedForCredential("tamarind", "another-own-token-xyz", async () => 1);
-    await governedForCredential("tamarind", TEAM, async () => 1);
+    await governedForCredential("japanfold", OWN, async () => 1);
+    await governedForCredential("japanfold", "another-own-token-xyz", async () => 1);
+    await governedForCredential("japanfold", TEAM, async () => 1);
     const lines = governorHealth({ publicView: true });
     const own = lines.find(l => l.id.endsWith("#own-tokens"));
     expect(own).toMatchObject({ calls: 2 });
@@ -211,7 +211,7 @@ describe("governor buckets", () => {
   it("isolates overflowing own tokens into one per-owner bucket instead of spilling into the team bucket", () => {
     const owner = person();
     runWithEgressOwner(owner, () => {
-      const buckets = [1, 2, 3, 4, 5].map((i) => credentialForCall("tamarind", `own-token-${i}-xxxxxxxxxxxx`).bucket);
+      const buckets = [1, 2, 3, 4, 5].map((i) => credentialForCall("japanfold", `own-token-${i}-xxxxxxxxxxxx`).bucket);
       expect(buckets.every((b) => typeof b === "string" && b.length > 0)).toBe(true);
       expect(buckets[3]).toBe(buckets[4]);
       expect(buckets[3]).not.toBe(buckets[0]);
@@ -230,12 +230,12 @@ describe("no token or credential hash in logs", () => {
       vi.spyOn(console, m).mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(" ")));
     }
     process.env.EGRESS_GOVERNOR = "shadow";
-    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "app.tamarind.bio": { maxConcurrent: 1 } });
+    process.env.EGRESS_PROVIDER_LIMITS_JSON = JSON.stringify({ "api.japanfold.aiand.com": { maxConcurrent: 1 } });
     resetEgressGovernorForTests();
     process.env.SHARED_TOKEN_FALLBACK = "bogus";
-    resolveCredential("tamarind");
-    await Promise.all([1, 2, 3].map(() => governedForCredential("tamarind", OWN, async () => 1)));
-    await Promise.all([1, 2, 3].map(() => governedForCredential("tamarind", TEAM, async () => 1)));
+    resolveCredential("japanfold");
+    await Promise.all([1, 2, 3].map(() => governedForCredential("japanfold", OWN, async () => 1)));
+    await Promise.all([1, 2, 3].map(() => governedForCredential("japanfold", TEAM, async () => 1)));
     const all = lines.join("\n");
     for (const secret of [OWN, TEAM, sha(OWN), sha(OWN).slice(0, 16), sha(TEAM).slice(0, 16)]) expect(all).not.toContain(secret);
   });
@@ -265,8 +265,8 @@ describe("changing the user or the token never changes a cache key (property)", 
     expect(baseline.length).toBeGreaterThan(5);
     for (const owner of owners) {
       for (const token of tokens) {
-        if (token) process.env.TAMARIND_API_KEY = token;
-        else delete process.env.TAMARIND_API_KEY;
+        if (token) process.env.JAPANFOLD_API_KEY = token;
+        else delete process.env.JAPANFOLD_API_KEY;
         expect(runWithEgressOwner(owner, allKeys)).toEqual(baseline);
       }
     }

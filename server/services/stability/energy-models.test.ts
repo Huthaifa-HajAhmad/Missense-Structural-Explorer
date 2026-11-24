@@ -9,9 +9,7 @@ import {
   enrichBiophysicalResult,
   RASP_STORE_UNAVAILABLE_REASON,
   submitThermoMpnnJob,
-  pollThermoMpnnJob,
   clearEnergyModelCaches,
-  resetTamarindSubmissionsForTests,
 } from "./energy-models.ts";
 import { buildRaspSqliteDatabase } from "./build-rasp-sqlite.ts";
 
@@ -412,70 +410,32 @@ describe("enrichBiophysicalResult — ProtVar reference value", () => {
 });
 
 /**
- * ThermoMPNN's status contract, at the two seams that shape it: the Tamarind submission and the
- * poller. A "complete" upstream job without a numeric ΔΔG is an upstream failure to deliver, not
- * a terminal success; a warming or unreachable engine is not a pollable job; and an answer with
- * neither a score nor a job id invents nothing to poll.
+ * ThermoMPNN runs strictly against the local Python sidecar (Tamarind paid cloud fallback was
+ * retired in Phase 6). A warming or unreachable sidecar returns `unavailable` with no pollable id;
+ * a busy or timed-out sidecar returns `busy` cleanly without attempting any remote fallback.
  */
 describe("ThermoMPNN status contract", () => {
-  const ENV = ["TAMARIND_API_KEY", "THERMOMPNN_PROVIDER", "SHARED_TOKEN_FALLBACK", "EGRESS_GOVERNOR"] as const;
-  let saved: Record<string, string | undefined>;
   const PDB = "ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND";
 
   beforeEach(() => {
-    saved = Object.fromEntries(ENV.map(k => [k, process.env[k]]));
-    process.env.TAMARIND_API_KEY = "tamarind-team-key-000000";
-    resetTamarindSubmissionsForTests();
     clearEnergyModelCaches();
   });
 
   afterEach(() => {
-    for (const k of ENV) {
-      if (saved[k] === undefined) delete process.env[k];
-      else process.env[k] = saved[k];
-    }
     vi.restoreAllMocks();
   });
 
-  it("maps a completed Tamarind job without a numeric score to a retryable upstream error", async () => {
-    process.env.THERMOMPNN_PROVIDER = "remote";
+  it("returns prediction when the local sidecar answers", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ jobs: [{ jobName: "job-no-number", JobStatus: "Complete", Score: "NA" }] }),
-      { status: 200 }
-    ) as any);
-
-    const result = await pollThermoMpnnJob("job-no-number");
-    expect(result.status).toBe("error");
-    expect(result.prediction).toBeNull();
-    expect(result.error).toContain("without");
-  });
-
-  it("keeps a completed job with a real (non-zero) score as done", async () => {
-    process.env.THERMOMPNN_PROVIDER = "remote";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ jobs: [{ jobName: "job-ok", JobStatus: "Complete", Score: 0.0 }] }),
-      { status: 200 }
-    ) as any);
-
-    const result = await pollThermoMpnnJob("job-ok");
-    expect(result.status).toBe("done");
-    expect(result.prediction).toBe(0.0);
-  });
-
-  it("does not fabricate a pollable job when the Tamarind answer carries neither a score nor a job ID", async () => {
-    process.env.THERMOMPNN_PROVIDER = "remote";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ detail: "queued, id missing" }),
+      JSON.stringify({ ddG: 0.42 }),
       { status: 200 }
     ) as any);
 
     const result = await submitThermoMpnnJob(PDB, "AA1V");
-    expect(result.status).toBe("unavailable");
-    expect(result.jobId).toBeNull();
+    expect(result).toMatchObject({ status: "done", prediction: 0.42 });
   });
 
-  it("reports a warming sidecar as not-available-yet with no pollable id", async () => {
-    process.env.THERMOMPNN_PROVIDER = "local";
+  it("reports a warming sidecar as unavailable with no pollable id", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
       JSON.stringify({ detail: "ThermoMPNN model is warming up" }),
       { status: 503 }
@@ -488,7 +448,6 @@ describe("ThermoMPNN status contract", () => {
   });
 
   it("tells the model server how long it waits, and reports a busy answer as busy, not as warming up", async () => {
-    process.env.THERMOMPNN_PROVIDER = "local";
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
       JSON.stringify({ status: "busy", message: "The model server was too busy to start this pass." }),
       { status: 503 }
@@ -504,47 +463,20 @@ describe("ThermoMPNN status contract", () => {
     expect(result.error).not.toContain("warming up");
   });
 
-  it("reports a wait that ran out as busy with its retry hint, not as a provider error or missing service", async () => {
-    process.env.THERMOMPNN_PROVIDER = "local";
-    delete process.env.TAMARIND_API_KEY; // No cloud fallback: this is the deployment that only has the local service.
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+  it("reports a wait that ran out as busy with its retry hint and makes no Tamarind cloud fallback", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    );
 
     const result = await submitThermoMpnnJob(PDB, "AA1V");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("busy");
     expect(result.jobId).toBeNull();
     expect(result.error).toContain("did not answer within 150 s");
     expect(result.error).toContain("Retrying ThermoMPNN on its own usually succeeds");
   });
 
-  it("with a Tamarind key, a local wait that ran out falls back to the cloud instead of returning the timeout", async () => {
-    process.env.THERMOMPNN_PROVIDER = "local";
-    const fetchSpy = vi.spyOn(globalThis, "fetch")
-      .mockRejectedValueOnce(new DOMException("The operation was aborted due to timeout", "TimeoutError"))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ Score: 0.42 }), { status: 200 }) as any);
-
-    const result = await submitThermoMpnnJob(PDB, "AA2V");
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(String(fetchSpy.mock.calls[1][0])).toContain("tamarind.bio");
-    expect(result).toMatchObject({ status: "done", prediction: 0.42 });
-  });
-
-  it("with a Tamarind key, a local server that answers 'busy' is not retried in the cloud", async () => {
-    // The cloud is for a local service that gives no answer. A live server that says it is busy will answer soon.
-    process.env.THERMOMPNN_PROVIDER = "local";
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ status: "busy", message: "The model server was too busy to start this pass." }),
-      { status: 503 }
-    ) as any);
-
-    const result = await submitThermoMpnnJob(PDB, "AA3V");
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(result.status).toBe("busy");
-    expect(result.error).toContain("busy");
-  });
-
-  it("still reports an unreachable sidecar as unavailable", async () => {
-    process.env.THERMOMPNN_PROVIDER = "local";
-    delete process.env.TAMARIND_API_KEY;
+  it("reports an unreachable sidecar as unavailable", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
 
     const result = await submitThermoMpnnJob(PDB, "AA1V");

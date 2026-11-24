@@ -68,7 +68,7 @@ describe("SettingsContext (settings revamp)", () => {
     renderProbe((c) => (ctx = c));
 
     act(() => {
-      ctx.updateSetting("tamarindApiKey", "tam_secret_456");
+      ctx.updateSetting("japanfoldApiKey", "jf_secret_456");
       ctx.updateSetting("appApiToken", "app-secret");
       ctx.updateSetting("geminiApiKey", "gem-secret");
       ctx.updateSetting("alphagenomeApiKey", "ag-secret-123");
@@ -76,7 +76,7 @@ describe("SettingsContext (settings revamp)", () => {
     });
 
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
-    expect(persisted.tamarindApiKey).toBeUndefined();
+    expect(persisted.japanfoldApiKey).toBeUndefined();
     expect(persisted.appApiToken).toBeUndefined();
     expect(persisted.geminiApiKey).toBeUndefined();
     expect(persisted.alphagenomeApiKey).toBeUndefined();
@@ -84,40 +84,44 @@ describe("SettingsContext (settings revamp)", () => {
 
     // Survive only in transient sessionStorage.
     const transient = JSON.parse(sessionStorage.getItem("missenseTransientCredentials") || "{}");
-    expect(transient.tamarindApiKey).toBe("tam_secret_456");
+    expect(transient.japanfoldApiKey).toBe("jf_secret_456");
     expect(transient.appApiToken).toBe("app-secret");
     expect(transient.alphagenomeApiKey).toBe("ag-secret-123");
     expect(transient.alphagenomeApiUrl).toBe("https://custom.alphagenome/v1");
   });
 
-  it("scrubs legacy plaintext credentials and retired settings (GPN-MSA, Biohub, ESMFold) from localStorage on load", () => {
+  it("scrubs legacy plaintext credentials and retired settings (GPN-MSA, Biohub, ESMFold, Tamarind) from localStorage on load", () => {
     localStorage.setItem(
       "missenseUserSettings",
-      JSON.stringify({ gpnApiUrl: "leaked", hfToken: "leaked-too", biohubApiToken: "bio-leaked", defaultStructureModel: "esmfold", maxHistoryItems: 10 })
+      JSON.stringify({ gpnApiUrl: "leaked", hfToken: "leaked-too", biohubApiToken: "bio-leaked", tamarindApiKey: "tam-leaked", defaultStructureModel: "esmfold", maxHistoryItems: 10 })
     );
     renderProbe(() => {});
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
     expect(persisted.gpnApiUrl).toBeUndefined();
     expect(persisted.hfToken).toBeUndefined();
     expect(persisted.biohubApiToken).toBeUndefined();
+    expect(persisted.tamarindApiKey).toBeUndefined();
     expect(persisted.defaultStructureModel).toBeUndefined();
     expect(persisted.maxHistoryItems).toBe(10);
   });
 
-  it("scrubs a retired Biohub token that an older release left in this tab's session storage", () => {
+  it("scrubs retired Biohub and Tamarind tokens that an older release left in session storage", () => {
     sessionStorage.setItem(
       "missenseTransientCredentials",
-      JSON.stringify({ biohubApiToken: "bio-old", tamarindApiKey: "tam-keep" })
+      JSON.stringify({ biohubApiToken: "bio-old", tamarindApiKey: "tam-old", japanfoldApiKey: "jf-keep" })
     );
     let ctx!: ReturnType<typeof useSettings>;
     renderProbe((c) => (ctx = c));
-    expect(ctx.settings.tamarindApiKey).toBe("tam-keep");
+    expect(ctx.settings.japanfoldApiKey).toBe("jf-keep");
+    expect((ctx.settings as unknown as Record<string, unknown>).tamarindApiKey).toBeUndefined();
     expect(sessionStorage.getItem("missenseTransientCredentials")).not.toContain("biohubApiToken");
-    // A later credential write must not bring it back.
-    act(() => ctx.updateSetting("tamarindApiKey", "tam-new"));
+    expect(sessionStorage.getItem("missenseTransientCredentials")).not.toContain("tamarindApiKey");
+    // A later credential write must not bring them back.
+    act(() => ctx.updateSetting("japanfoldApiKey", "jf-new"));
     const stored = JSON.parse(sessionStorage.getItem("missenseTransientCredentials") || "{}");
     expect(stored.biohubApiToken).toBeUndefined();
-    expect(stored.tamarindApiKey).toBe("tam-new");
+    expect(stored.tamarindApiKey).toBeUndefined();
+    expect(stored.japanfoldApiKey).toBe("jf-new");
   });
 
   it("reset restores the full defaults object and wipes transient credentials", () => {
@@ -138,7 +142,7 @@ describe("SettingsContext (settings revamp)", () => {
     expect(sessionStorage.getItem("missenseTransientCredentials")).toBeNull();
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
     expect(persisted.residueColor).toBe(DEFAULT_USER_SETTINGS.residueColor);
-    expect(persisted.tamarindApiKey).toBeUndefined();
+    expect(persisted.japanfoldApiKey).toBeUndefined();
   });
 
   it("lands on light for a first-time visitor, even when the OS prefers dark", () => {

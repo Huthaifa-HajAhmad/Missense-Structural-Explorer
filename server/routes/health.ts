@@ -340,14 +340,6 @@ export function registerHealthRoutes(apiRouter: Router): void {
         }
       }
 
-      // 4. Delete job registry JSON
-      const registryPath = process.env.JOB_REGISTRY_PATH ?? path.join(process.cwd(), "temp_jobs", "job_registry.json");
-      if (fs.existsSync(registryPath)) {
-        try {
-          fs.unlinkSync(registryPath);
-        } catch (_) {}
-      }
-
       res.json({
         status: "success",
         message: "All in-memory and disk caches have been successfully purged.",
@@ -355,7 +347,6 @@ export function registerHealthRoutes(apiRouter: Router): void {
           inMemory: true,
           deletedFoldxFiles: deletedFoldx,
           deletedGeminiFiles: deletedGemini,
-          deletedJobRegistry: true,
           sqlite: true
         }
       });

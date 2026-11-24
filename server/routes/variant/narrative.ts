@@ -472,7 +472,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
 
         sections.push(
           `### Recommended Next Steps\n\n` +
-          `- Add biophysical evidence: run **FoldX** and **DynaMut2** from the 3D Structure tab to ` +
+          `- Add biophysical evidence: run **FoldX** and the **Energetics** panel from the 3D Structure tab to ` +
           `quantify the folding free-energy change (ΔΔG).\n` +
           `- Re-run **AI synthesis** once the language model service is reachable to obtain an ` +
           `integrated narrative that reconciles clinical, evolutionary and structural signals.\n` +

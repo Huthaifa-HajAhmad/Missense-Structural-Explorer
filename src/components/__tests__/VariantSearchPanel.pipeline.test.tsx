@@ -53,11 +53,10 @@ describe("pipeline rail engine-state parity", () => {
     const store = seed();
     store.setFoldingStatus("failed");
     store.setFoldingError("Native process crash through Box64");
-    store.setDynamut2Status("unavailable");
-    store.setDdmutStatus("unavailable");
+    store.setThermompnnStatus("busy");
     renderPipeline();
     expect(screen.getByText("Workspace ready · Partial results")).toBeInTheDocument();
-    expect(screen.getByText(/FoldX, DynaMut2, DDMut failed or unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/FoldX, ThermoMPNN failed or unavailable/)).toBeInTheDocument();
     expect(screen.getByLabelText("partial results")).toBeInTheDocument();
     expect(screen.getByText("6 of 6 settled")).toBeInTheDocument();
   });

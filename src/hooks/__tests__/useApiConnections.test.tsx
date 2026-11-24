@@ -17,25 +17,25 @@ afterEach(() => {
 
 describe("useApiConnections", () => {
   it("shows the provider's own reason when a key is refused", async () => {
-    vi.stubGlobal("fetch", reply({ valid: false, message: "Tamarind rejected this key (401)." }));
+    vi.stubGlobal("fetch", reply({ valid: false, message: "JapanFold rejected this token (401)." }));
     const { result } = renderHook(useHarness, { wrapper });
-    act(() => result.current.updateSetting("tamarindApiKey", "bad-key"));
+    act(() => result.current.updateSetting("japanfoldApiKey", "bad-key"));
 
-    await act(() => result.current.runTest("tamarind"));
+    await act(() => result.current.runTest("japanfold"));
 
-    expect(result.current.tests.tamarind.status).toEqual({ valid: false, message: "Tamarind rejected this key (401)." });
+    expect(result.current.tests.japanfold.status).toEqual({ valid: false, message: "JapanFold rejected this token (401)." });
   });
 
   it("drops a result once the key it was about is edited", async () => {
     vi.stubGlobal("fetch", reply({ valid: true, message: "Token is valid." }));
     const { result } = renderHook(useHarness, { wrapper });
-    act(() => result.current.updateSetting("tamarindApiKey", "tam_one"));
-    await act(() => result.current.runTest("tamarind"));
-    expect(result.current.tests.tamarind.status?.valid).toBe(true);
+    act(() => result.current.updateSetting("japanfoldApiKey", "jf_one"));
+    await act(() => result.current.runTest("japanfold"));
+    expect(result.current.tests.japanfold.status?.valid).toBe(true);
 
-    act(() => result.current.updateSetting("tamarindApiKey", "tam_two"));
+    act(() => result.current.updateSetting("japanfoldApiKey", "jf_two"));
 
-    await waitFor(() => expect(result.current.tests.tamarind.status).toBeNull());
+    await waitFor(() => expect(result.current.tests.japanfold.status).toBeNull());
   });
 
   it("drops an AlphaGenome result once the endpoint it was about is edited", async () => {

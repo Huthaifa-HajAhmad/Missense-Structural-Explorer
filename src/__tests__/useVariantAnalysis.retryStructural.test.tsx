@@ -9,7 +9,7 @@ vi.mock("../context/SettingsContext", () => ({
 }));
 vi.mock("../apiClient", () => ({ useApiClient: () => ({ fetchWithAuth: vi.fn(), apiClient: {} }) }));
 vi.mock("../hooks/useBiophysicalModeling", () => ({
-  useBiophysicalModeling: () => ({ clearDynaMutPoll: vi.fn(), clearDdmutPoll: vi.fn(), clearThermoMpnnPoll: vi.fn() }),
+  useBiophysicalModeling: () => ({}),
 }));
 vi.mock("../hooks/useFoldxSuperposition", () => ({ useFoldxSuperposition: vi.fn() }));
 vi.mock("../hooks/useAnalysisPipeline", () => ({ useAnalysisPipeline: () => ({ executeAnalysis: vi.fn(), activeRequestIdRef: { current: 0 } }) }));

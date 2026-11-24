@@ -32,14 +32,13 @@ server/routes/biophysics.ts,server,
 server/routes/biophysics/generation.ts,server,server/routes/biophysics.test.ts;server/routes/biophysics/generate-mutant-numbering.test.ts;server/tests/sidecar-budget.test.ts
 server/routes/biophysics/pocket.ts,server,
 server/routes/biophysics/polling.ts,server,
-server/routes/biophysics/stability.ts,server,
 server/routes/capabilities.ts,server,server/routes/capabilities-egress.test.ts;server/routes/capabilities.test.ts
 server/routes/docs.ts,server,server/routes/docs.test.ts
 server/routes/evidence-context.ts,server,
 server/routes/health.ts,server,server/routes/health-fallback.test.ts;server/routes/health.test.ts
 server/routes/index.ts,server,
 server/routes/session.ts,server,
-server/routes/shared.ts,server,server/routes/__tests__/narrativeResponseProvenance.test.ts;server/routes/biophysics.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
+server/routes/shared.ts,server,server/routes/__tests__/narrativeResponseProvenance.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
 server/routes/state.ts,server,server/routes/public-endpoints.test.ts;server/routes/state-prewarm-redis-fallback.test.ts;server/routes/state-prewarm-registry.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/spliceai.http.test.ts;server/services/infra/prewarm-manager.test.ts
 server/routes/structure.ts,server,
 server/routes/variant.ts,server,
@@ -75,7 +74,6 @@ server/services/cache.ts,barrel,server/routes/biophysics.test.ts;server/routes/b
 server/services/clinvar.ts,barrel,server/tests/smoke.test.ts
 server/services/core-data-fetcher.ts,barrel,
 server/services/dbnsfp_local.ts,barrel,
-server/services/dynamut.ts,barrel,server/routes/biophysics.test.ts
 server/services/energy-models.ts,barrel,
 server/services/evidence-context/alignment.ts,server,server/routes/evidence-context.http.test.ts;server/services/evidence-context/alignmentPext.test.ts
 server/services/evidence-context/allianceRelease.ts,server,server/services/evidence-context/modelOrganisms.test.ts
@@ -125,7 +123,7 @@ server/services/external-api/remoteFailure.ts,server,
 server/services/external-api/spliceai_broad.ts,server,server/routes/variant/spliceai.test.ts;server/services/external-api/spliceai_broad.live.test.ts;server/services/external-api/spliceai_broad.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/prediction/predictors.test.ts
 server/services/external-api/string.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/infra/cache-hygiene.test.ts
 server/services/external-api/uniprot.ts,server,server/services/external-api/ppi.test.ts;server/services/external-api/uniprot.entry-types.test.ts;server/services/external-api/uniprot.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/prediction/landscape.test.ts;server/services/structure/structure-fetcher.test.ts;server/services/structure/structure-resolver.test.ts;server/services/translation/sequence-isoform-proof.test.ts
-server/services/external.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/generate-mutant-numbering.test.ts;server/routes/foldx-sharing.test.ts;server/routes/session.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/tests/integration.test.ts
+server/services/external.ts,barrel,server/routes/session.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/tests/integration.test.ts
 server/services/foldx.ts,barrel,server/services/stability/foldx.test.ts
 server/services/gemini.ts,barrel,server/routes/biophysics.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
 server/services/gnomad.ts,barrel,server/tests/smoke.test.ts
@@ -146,9 +144,9 @@ server/services/infra/cache.ts,server,server/routes/variant/translation.test.ts;
 server/services/infra/compute-telemetry.ts,server,server/services/infra/admission.test.ts
 server/services/infra/cost-models.ts,server,server/services/infra/cost-models.test.ts
 server/services/infra/credential-response.ts,server,
-server/services/infra/credentials.ts,server,server/routes/credentials.http.test.ts;server/services/infra/credentials.test.ts;server/services/stability/tamarind-sharing.test.ts
+server/services/infra/credentials.ts,server,server/routes/credentials.http.test.ts;server/services/infra/credentials.test.ts
 server/services/infra/egress-context.ts,server,server/services/infra/credentials.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/prewarm-manager.test.ts
-server/services/infra/egress-governor.ts,server,server/routes/capabilities-egress.test.ts;server/services/infra/credentials.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/provider-pause.test.ts;server/services/stability/tamarind-sharing.test.ts
+server/services/infra/egress-governor.ts,server,server/routes/capabilities-egress.test.ts;server/services/infra/credentials.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/provider-pause.test.ts
 server/services/infra/failure-class.ts,server,server/services/infra/admission.test.ts
 server/services/infra/foldx-archive.ts,server,server/agent/agent.test.ts
 server/services/infra/foldx-job-registry.ts,server,server/routes/agent.test.ts;server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics/generate-mutant-numbering.test.ts;server/routes/foldx-sharing.test.ts;server/routes/shared-cache.test.ts;server/services/infra/foldx-job-registry.test.ts;server/services/infra/prewarm-manager.test.ts;server/services/infra/review-fixes.test.ts
@@ -161,10 +159,10 @@ server/services/infra/openapi-compute.ts,server,
 server/services/infra/openapi.ts,server,
 server/services/infra/prewarm-manager.ts,server,server/routes/biophysics-prewarm-join.test.ts;server/services/infra/prewarm-manager.test.ts
 server/services/infra/process-sampler.ts,server,server/services/infra/admission.test.ts;server/services/infra/process-sampler.test.ts
-server/services/infra/provider-pause.ts,server,server/routes/biophysics.test.ts;server/routes/capabilities-egress.test.ts;server/services/infra/credentials.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/provider-pause.test.ts;server/services/infra/stale-on-rate-limit.test.ts
+server/services/infra/provider-pause.ts,server,server/routes/capabilities-egress.test.ts;server/services/infra/credentials.test.ts;server/services/infra/egress-governor.test.ts;server/services/infra/egress-review-fixes.test.ts;server/services/infra/provider-pause.test.ts;server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/queue-invariants.fixture.ts,server,server/services/infra/biophysical-queue.handover.invariants.test.ts;server/services/infra/biophysical-queue.invariants.test.ts
 server/services/infra/queue-owners.ts,server,server/services/infra/egress-review-fixes.test.ts
-server/services/infra/shared-flight.ts,server,server/services/infra/stale-on-rate-limit.test.ts
+server/services/infra/shared-flight.ts,server,server/services/infra/cache-hygiene.test.ts;server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/sidecar-budget.ts,server,server/services/stability/stabilityoracle.test.ts;server/tests/sidecar-budget.test.ts
 server/services/infra/stale-response.ts,server,server/services/infra/stale-on-rate-limit.test.ts
 server/services/infra/tool-bundles.ts,server,
@@ -230,8 +228,7 @@ server/services/stability/biophysics-pool.ts,server,
 server/services/stability/biophysics.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/prediction/predictors.test.ts;server/services/stability/biophysics.test.ts
 server/services/stability/build-rasp-sqlite.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.test.ts
 server/services/stability/ddmut-ppi.ts,server,server/services/external-api/ppi.test.ts;server/services/stability/ddmut-ppi.test.ts
-server/services/stability/dynamut.ts,server,server/services/infra/cache-hygiene.test.ts;server/services/stability/dynamut.test.ts
-server/services/stability/energy-models.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.consensus.test.ts;server/services/stability/energy-models.test.ts;server/services/stability/foldx.test.ts;server/services/stability/tamarind-sharing.test.ts;server/tests/sidecar-budget.test.ts
+server/services/stability/energy-models.ts,server,server/routes/capabilities.test.ts;server/services/stability/energy-models.consensus.test.ts;server/services/stability/energy-models.test.ts;server/services/stability/foldx.test.ts;server/tests/sidecar-budget.test.ts
 server/services/stability/foldx-queue-job.ts,server,server/services/stability/foldx-queue-job.test.ts
 server/services/stability/foldx.ts,barrel,server/services/stability/foldx.test.ts
 server/services/stability/foldx/background-repair.ts,server,server/services/stability/foldx/background-repair.test.ts;server/services/stability/foldx/runner-background-repair.test.ts

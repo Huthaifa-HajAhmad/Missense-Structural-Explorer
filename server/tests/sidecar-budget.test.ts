@@ -107,14 +107,11 @@ describe("ThermoMPNN in-flight submissions", () => {
   it("releases a settled promise at once so the next analysis submits again", () => {
     const key = `thermo-release-${Math.random()}`;
     const settled = Promise.resolve({ jobId: null, prediction: 1, status: "done" as const });
-    const dyna = Promise.resolve("dyna-job");
-    inFlightRemoteSubmissions.set(key, { thermompnnPromise: settled as any, dynamut2Promise: dyna });
+    inFlightRemoteSubmissions.set(key, { thermompnnPromise: settled as any });
     try {
       releaseThermoSubmission(key, settled);
       const current = inFlightRemoteSubmissions.get(key);
-      expect(current?.thermompnnPromise).toBeUndefined();
-      // Pollable submissions keep their own grace period; this release is ThermoMPNN-only.
-      expect(current?.dynamut2Promise).toBe(dyna);
+      expect(current).toBeUndefined();
     } finally {
       inFlightRemoteSubmissions.delete(key);
     }

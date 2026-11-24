@@ -427,7 +427,7 @@ describe("PrewarmManager", () => {
       await activeBackgroundTasks[0].promise;
 
       // Without this flag a reader request that joins the job assumes the original submitter ran
-      // DynaMut2 / DDMut / ThermoMPNN / StabilityOracle — and the pre-warm runs none of them.
+      // ThermoMPNN / StabilityOracle / RaSP — and the pre-warm runs none of them.
       expect(mockPushJob).toHaveBeenCalledWith("foldx", expect.objectContaining({ prewarm: true }), expect.anything());
     });
 

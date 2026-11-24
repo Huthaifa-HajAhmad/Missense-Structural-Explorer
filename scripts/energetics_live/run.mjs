@@ -10,11 +10,10 @@
  * setup-users.mjs). A case may name a `pdbFile` to send as the structure. Passwords are never printed
  * and structure text is left out of the output.
  *
- * Remote engines (DynaMut2, DDMut, ThermoMPNN jobs) are polled as src/hooks/useJobPoller.ts does:
- * from the moment their id appears, every 3 s, then 5 s, then 10 s; an answer of UNAVAILABLE that is
- * `retryable` and not `stale`, or three failed polls in a row, starts "listening" (every 45 s), and the
- * listening window closes 5 minutes after polling began whatever later answers say; any other failed
- * HTTP answer ends the poll; the whole poll ends after 10 minutes.
+ * Companion engines run synchronously inside the FoldX worker or alongside a cached response:
+ * there are no remote BioSig or Tamarind polling jobs. When a cached FoldX answer triggers a
+ * background ThermoMPNN refresh, the server returns `remoteSubmissionToken` for one long-poll
+ * GET /api/v1/remote-submissions/:token.
  */
 import fs from "node:fs";
 
@@ -26,8 +25,6 @@ const BASE = args.base;
 // Queue limit (30 min) + FoldX run limit (1,000 s) + 5 minutes for the companion engines.
 const FOLDX_LIMIT_MS = 30 * 60_000 + 1_000_000 + 5 * 60_000;
 const FOLDX_POLL_MS = 3_000;
-const REMOTE = { maxElapsedMs: 10 * 60_000, listenWindowMs: 5 * 60_000, listenIntervalMs: 45_000 };
-const REMOTE_TOOLS = ["dynamut2", "ddmut", "thermompnn"];
 const REQUEST_TIMEOUT_MS = 30_000; // the browser's per-request ceiling (CLIENT_FOLDX_POLL_REQUEST_MS)
 if (!BASE || !args.cases || !args.users) {
   console.error("Need --base, --cases and --users.");
@@ -79,40 +76,8 @@ function findKey(obj, key) {
   return undefined;
 }
 
-/** Polls one remote engine job the way the browser does. */
-async function pollRemote(tool, id, cookie, t0) {
-  const out = { id, idSeenMs: Date.now() - t0, polls: 0, listeningFromMs: null };
-  const pollStart = Date.now();
-  let listening = false;
-  let failedPolls = 0;
-  const listen = () => { if (!listening) { listening = true; out.listeningFromMs = Date.now() - t0; } };
-  for (let attempt = 1; Date.now() - pollStart < REMOTE.maxElapsedMs; attempt++) {
-    // The browser's listening timer runs on its own: later RUNNING answers do not extend it.
-    if (listening && Date.now() - pollStart >= REMOTE.listenWindowMs) return { ...out, endedMs: Date.now() - t0, final: "listening window closed" };
-    if (out.polls === 0) out.firstPollMs = Date.now() - t0;
-    const r = await call("GET", `/api/v1/${tool}-job/${encodeURIComponent(id)}`, undefined, cookie);
-    out.polls += 1;
-    const d = r.json ?? {};
-    const status = String(d.status ?? "").toUpperCase();
-    Object.assign(out, { httpStatus: r.status, status, prediction: d.prediction ?? null, error: d.error ?? r.error ?? null,
-      reason: d.reason ?? null, retryable: d.retryable ?? null });
-    if (r.status === 0 || r.status >= 500) {
-      if (++failedPolls >= 3) listen(); // three failed polls in a row: the browser starts listening
-    } else if (r.status !== 200) {
-      return { ...out, endedMs: Date.now() - t0, final: `http ${r.status}` };
-    } else {
-      failedPolls = 0;
-      if (["DONE", "SUCCESS", "COMPLETED"].includes(status)) return { ...out, endedMs: Date.now() - t0, final: "done" };
-      if (status === "UNAVAILABLE" && d.retryable === true && d.reason !== "stale") listen();
-      else if (["ERROR", "FAILED", "UNAVAILABLE"].includes(status)) return { ...out, endedMs: Date.now() - t0, final: status.toLowerCase() };
-    }
-    await sleep(listening ? REMOTE.listenIntervalMs : attempt < 5 ? 3_000 : attempt < 15 ? 5_000 : 10_000);
-  }
-  return { ...out, endedMs: Date.now() - t0, final: "browser deadline (10 min)" };
-}
-
-/** Polls the FoldX job until it ends, starting remote pollers as their ids appear. */
-async function followJob(jobId, cookie, t0, timeline, remotes) {
+/** Polls the FoldX job until it ends. */
+async function followJob(jobId, cookie, t0, timeline) {
   let last = null;
   let lastState = "";
   const deadline = Date.now() + FOLDX_LIMIT_MS;
@@ -123,12 +88,6 @@ async function followJob(jobId, cookie, t0, timeline, remotes) {
     if (state !== lastState) { timeline.push({ ms: Date.now() - t0, event: state, queuedAhead: j.queuedAhead ?? null }); lastState = state; }
     if (!timeline.some(e => e.event === "foldx core finished") && findKey(j, "foldxStatus") !== undefined) {
       timeline.push({ ms: Date.now() - t0, event: "foldx core finished", foldxStatus: findKey(j, "foldxStatus") });
-    }
-    for (const tool of REMOTE_TOOLS) {
-      const id = findKey(j, `${tool}JobId`);
-      if (id && !remotes[tool] && /^[0-9A-Za-z_-]+$/.test(String(id)) && !String(id).startsWith("local")) {
-        remotes[tool] = pollRemote(tool, String(id), cookie, t0);
-      }
     }
     if (["completed", "failed", "cancelled"].includes(String(j.status).toLowerCase())) {
       timeline.push({ ms: Date.now() - t0, event: "job final", status: j.status });
@@ -148,25 +107,18 @@ async function runCase(c, cookie) {
   const timeline = [{ ms: submit.ms, event: `submitted HTTP ${submit.status}` }];
   const out = { case: c.name, user: c.user ?? 0, uniprotId: c.uniprotId, mutation: c.mutation, startedAt: new Date(t0).toISOString(),
     submit: { status: submit.status, ms: submit.ms, error: submit.error ?? submit.json?.error ?? submit.text } };
-  const remotes = {};
   const jobId = submit.json?.foldxJobId ?? submit.json?.jobId;
-  const final = jobId ? await followJob(jobId, cookie, t0, timeline, remotes) : submit;
-  // A cached FoldX answer submits DynaMut2/DDMut in the background and hands back a token; the browser
-  // collects the job ids with one long poll (foldxService.ts), then polls each engine as usual.
+  const final = jobId ? await followJob(jobId, cookie, t0, timeline) : submit;
   const token = submit.json?.remoteSubmissionToken;
   if (!jobId && token) {
     const sub = await call("GET", `/api/v1/remote-submissions/${encodeURIComponent(token)}`, undefined, cookie);
     timeline.push({ ms: Date.now() - t0, event: `remote submissions answered HTTP ${sub.status}`, settled: sub.json?.settled ?? null });
-    for (const tool of REMOTE_TOOLS) {
-      const id = sub.json?.[`${tool}JobId`];
-      if (id && !remotes[tool] && !String(id).startsWith("local")) remotes[tool] = pollRemote(tool, String(id), cookie, t0);
-    }
+    out.remoteSubmission = sub.json ?? null;
   }
   out.foldxJobId = jobId ?? null;
   out.result = slim(final.json?.result ?? final.json);
-  out.remote = Object.fromEntries(await Promise.all(Object.entries(remotes).map(async ([k, p]) => [k, await p])));
   out.timeline = timeline;
-  out.settledMs = Math.max(timeline.at(-1).ms, ...Object.values(out.remote).map(r => r.endedMs ?? 0));
+  out.settledMs = timeline.at(-1).ms;
   return out;
 }
 

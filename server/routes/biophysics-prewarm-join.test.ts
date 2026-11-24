@@ -20,10 +20,10 @@ const MUTATION = "SA489C";
  * actually joins one, and the two halves must not be confused:
  *
  *   • joining a job submitted by ANOTHER READER request means that request already dispatched the
- *     remote engines (DynaMut2 / DDMut / ThermoMPNN / StabilityOracle) and owns the job record — so
+ *     companion engines (ThermoMPNN / StabilityOracle / RaSP) and owns the job record — so
  *     the joiner must NOT resubmit them (`isExistingActiveJob`).
  *   • joining a PRE-WARM job means nobody dispatched them and nobody owns the record — the pre-warm
- *     has no reader tokens and is only warming FoldX. The joiner must do BOTH, or the reader is
+ *     has no reader context and is only warming FoldX. The joiner must do BOTH, or the reader is
  *     answered with engines that are missing and nothing on the way to fill them in.
  *
  * The queue's worker here never finishes, which is what keeps the job joinable.
@@ -57,19 +57,16 @@ describe("/generate-mutant joins an in-flight pre-warm FoldX job", () => {
   /** Everything the route reaches for on a non-cache-hit run, mocked to settle instantly. */
   async function mockRouteDependencies() {
     const biophysics = await import("../services/biophysics.ts");
-    const external = await import("../services/external.ts");
     const stabilityOracle = await import("../services/stabilityoracle.ts");
     const uniprot = await import("../services/uniprot.ts");
 
     vi.spyOn(biophysics, "getMutantFromCache").mockResolvedValue(undefined as any);
-    const d2 = vi.spyOn(external, "submitDynaMut2Job").mockResolvedValue("d2-job");
-    const ddmut = vi.spyOn(external, "submitDdmutJob").mockResolvedValue("ddmut-job");
-    vi.spyOn(biophysics, "submitThermoMpnnJob").mockResolvedValue({ status: "unavailable" } as any);
+    const thermompnn = vi.spyOn(biophysics, "submitThermoMpnnJob").mockResolvedValue({ status: "done", jobId: null, prediction: 0.42 } as any);
     vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(null as any);
     vi.spyOn(stabilityOracle, "runStabilityOracleAnalysis").mockResolvedValue(null as any);
-    vi.spyOn(stabilityOracle, "runStabilityOracleAnalysisDetailed").mockResolvedValue({ kind: "unavailable", reason: "test" } as any);
+    const oracle = vi.spyOn(stabilityOracle, "runStabilityOracleAnalysisDetailed").mockResolvedValue({ kind: "unavailable", reason: "test" } as any);
     vi.spyOn(uniprot, "fetchUniprotSequence").mockResolvedValue("");
-    return { d2, ddmut };
+    return { thermompnn, oracle };
   }
 
   beforeEach(() => {
@@ -85,12 +82,12 @@ describe("/generate-mutant joins an in-flight pre-warm FoldX job", () => {
     resetActiveFoldxJobs();
   });
 
-  it("joins the pre-warm job, submits the remote engines it could not, and starts no second FoldX job", async () => {
+  it("joins the pre-warm job, submits the companion engines it could not, and starts no second FoldX job", async () => {
     const prewarmJobId = await pushFoldxJob({ options: DEFAULT_FOLDX_CONDITIONS, prewarm: true });
     const cacheKey = buildFoldxCacheKey(PDB, MUTATION, DEFAULT_FOLDX_CONDITIONS);
     registerActiveFoldxJob(cacheKey, prewarmJobId);
 
-    const { d2, ddmut } = await mockRouteDependencies();
+    const { thermompnn, oracle } = await mockRouteDependencies();
     const queue = BiophysicalJobQueue.getInstance();
     // Installed AFTER the pre-warm's own submission: any further push is the duplicate this test forbids.
     const pushSpy = vi.spyOn(BiophysicalJobQueue.prototype, "pushJob");
@@ -107,25 +104,24 @@ describe("/generate-mutant joins an in-flight pre-warm FoldX job", () => {
     expect(res.body.foldxJobId).toBe(prewarmJobId);
     expect(res.body.status).toBe("queued");
 
-    // The engines the pre-warm never submitted are this request's responsibility…
-    expect(d2).toHaveBeenCalledTimes(1);
-    expect(ddmut).toHaveBeenCalledTimes(1);
-    // …and their ids are written to the job the reader is polling, which the pre-warm never did.
+    // The companion engine the pre-warm never submitted is this request's responsibility…
+    expect(thermompnn).toHaveBeenCalledTimes(1);
+    // …and its outcome is written to the job the reader is polling, which the pre-warm never did.
     const jobData = await queue.getJobData(prewarmJobId);
-    expect(jobData?.remoteJobs?.dynamut2JobId).toBe("d2-job");
-    expect(jobData?.remoteJobs?.ddmutJobId).toBe("ddmut-job");
+    expect(jobData?.remoteJobs?.thermompnnVal).toBe(0.42);
+    expect(jobData?.remoteJobs?.thermompnnStatus).toBe("done");
     // The pre-warm's record had no reader context at all; the joining request supplies the
     // provenance the reader's export cites.
     expect(jobData?.structureProvenance?.source).toBe("client-provided");
   });
 
   it("still treats a job submitted by another reader request as fully owned, and resubmits nothing", async () => {
-    // No `prewarm: true`: this is a reader's own job, whose submitter is running the remote engines.
+    // No `prewarm: true`: this is a reader's own job, whose submitter is running the companion engines.
     const readerJobId = await pushFoldxJob({});
     const cacheKey = buildFoldxCacheKey(PDB, MUTATION, DEFAULT_FOLDX_CONDITIONS);
     registerActiveFoldxJob(cacheKey, readerJobId);
 
-    const { d2, ddmut } = await mockRouteDependencies();
+    const { thermompnn } = await mockRouteDependencies();
 
     const res = responseDouble();
     await handlerFor("/generate-mutant")(
@@ -135,7 +131,6 @@ describe("/generate-mutant joins an in-flight pre-warm FoldX job", () => {
     );
 
     expect(res.body.foldxJobId).toBe(readerJobId);
-    expect(d2, "the original submitter already dispatched DynaMut2").not.toHaveBeenCalled();
-    expect(ddmut, "the original submitter already dispatched DDMut").not.toHaveBeenCalled();
+    expect(thermompnn, "the original submitter already dispatched ThermoMPNN").not.toHaveBeenCalled();
   });
 });

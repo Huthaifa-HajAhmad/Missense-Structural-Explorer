@@ -30,8 +30,8 @@ function fixture(settings: any = { narrativeMode: "off" }) {
   const sinks: any = {
     search: sink(["setGene", "setVariant", "setUniprotId", "setSearchVal", "setCustomGene", "setCustomVariant", "setCustomUniprot", "addToHistory", "setSelectedResidueIndex"]),
     analysis: sink(["setLoadingStep", "setIsBiophysicalLoading", "setIsClinicalLoading", "setIsStructuralLoading", "setIsNarrativeLoading"]),
-    structure: sink(["setPdbText", "setPdbTextProvenance", "setComputedPocket", "setIsPocketLoading", "setPocketError", "setHomologs", "setIsHomologsLoading", "setComputedResiduesCache", "setDisruptionPredictor", "resetViewerState", "clearDynaMutPoll"]),
-    biophysical: { ...sink(["setIsFolding", "setFoldingError", "setFoldingStatus", "setMutantPdb", "setFoldxWtPdb", "setFoldedResidueIndex", "setFoldingDdG", "setFoldingEnergetics", "setDynamut2JobId", "setDynamut2Status", "setDdmutJobId", "setDdmutStatus", "setThermompnnJobId", "setThermompnnStatus", "setThermompnnError"]), lastFetchedFoldRef: { current: "" } }
+    structure: sink(["setPdbText", "setPdbTextProvenance", "setComputedPocket", "setIsPocketLoading", "setPocketError", "setHomologs", "setIsHomologsLoading", "setComputedResiduesCache", "setDisruptionPredictor", "resetViewerState"]),
+    biophysical: { ...sink(["setIsFolding", "setFoldingError", "setFoldingStatus", "setMutantPdb", "setFoldxWtPdb", "setFoldedResidueIndex", "setFoldingDdG", "setFoldingEnergetics", "setThermompnnStatus", "setThermompnnError"]), lastFetchedFoldRef: { current: "" } }
   };
   sinks.analysis.setAnalysisState = vi.fn(updater => { state = typeof updater === "function" ? updater(state) : updater; });
   return {

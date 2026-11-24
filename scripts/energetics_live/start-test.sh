@@ -7,7 +7,7 @@ T=/home/ubuntu/energetics-test; P=/home/ubuntu/Missense-Structural-Explorer; IMG
 docker rm -f energetics-test >/dev/null 2>&1 || true
 docker run -d --name energetics-test --env-file $P/.env.oci \
   -e NODE_ENV=production -e PORT=3000 -e AUTH_MODE=accounts -e ADMIN_SETUP_SECRET="$(cat $T/admin_secret)" \
-  -e DEPLOYMENT_STANDBY=false -e THERMOMPNN_PROVIDER=local -e REDIS_URL= -e PREWARM_FOLDX_ENABLED=false \
+  -e DEPLOYMENT_STANDBY=false -e REDIS_URL= -e PREWARM_FOLDX_ENABLED=false \
   -e BUILD_COMMIT="$(echo "$IMG" | sed 's/.*cand-//')" -e PUBLIC_BASE_URL=http://127.0.0.1:3101 \
   -p 127.0.0.1:3100:3000 --memory 5g \
   -v $T/data:/app/data -v $P/data/df_rasp_gnomad_clinvar.sqlite:/app/data/df_rasp_gnomad_clinvar.sqlite:ro \

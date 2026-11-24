@@ -10,9 +10,102 @@
  */
 
 import crypto from "node:crypto";
+import https from "node:https";
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry, reportEgressAnswer, withHostLock } from "../infra/http-client.ts";
-import { httpGetWithBody } from "./dynamut.ts";
+
+const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024; // 5 MB max response size
+
+/**
+ * Executes an HTTP GET request with a form body using native node:https.
+ * Required because BioSig DDMut-PPI Flask route reads request.form['job_id'] on GET,
+ * whereas standard WHATWG fetch forbids bodies on GET requests.
+ */
+export function httpGetWithBody(
+  urlStr: string,
+  body: string,
+  headers: Record<string, string>,
+  timeoutMs = 15000
+): Promise<{ status: number; text: string; retryAfter?: string }> {
+  return new Promise((resolve, reject) => {
+    let isSettled = false;
+    const url = new URL(urlStr);
+    const postData = body;
+
+    const safeReject = (err: Error) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(deadlineTimer);
+      reject(err);
+    };
+
+    const safeResolve = (val: { status: number; text: string; retryAfter?: string }) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(deadlineTimer);
+      resolve(val);
+    };
+
+    const req = https.request(
+      url,
+      {
+        method: "GET",
+        headers: {
+          ...headers,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(postData)
+        },
+        timeout: timeoutMs
+      },
+      (res) => {
+        res.setEncoding("utf8");
+        let data = "";
+        let byteCount = 0;
+
+        res.on("data", (chunk: string) => {
+          byteCount += Buffer.byteLength(chunk);
+          if (byteCount > MAX_PAYLOAD_BYTES) {
+            req.destroy();
+            safeReject(new Error("BioSig response exceeded maximum allowed payload size (5MB)"));
+            return;
+          }
+          data += chunk;
+        });
+
+        res.on("error", (err) => {
+          req.destroy();
+          safeReject(err);
+        });
+
+        res.on("end", () => {
+          const retryAfter = res.headers?.["retry-after"];
+          safeResolve({
+            status: res.statusCode || 200,
+            text: data,
+            ...(typeof retryAfter === "string" ? { retryAfter } : {})
+          });
+        });
+      }
+    );
+
+    const deadlineTimer = setTimeout(() => {
+      req.destroy();
+      safeReject(new Error(`BioSig request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    req.on("timeout", () => {
+      req.destroy();
+      safeReject(new Error(`BioSig socket timed out after ${timeoutMs}ms`));
+    });
+
+    req.on("error", (err) => {
+      safeReject(err);
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
 
 /**
  * One DDMut-PPI prediction. `ddgBind` is in DDMut-PPI's own sign convention: ΔΔG ≤ 0 is REDUCED

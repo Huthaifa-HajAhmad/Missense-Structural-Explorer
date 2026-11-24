@@ -33,7 +33,7 @@
  * WHAT IT ALSO PROVIDES (the honest fallback for deep-model evidence)
  * -----------------------------------------------------------------
  * `NARRATIVE_DEEP_EVIDENCE.integrated` is `false`, and that is a measurement, not a placeholder: the
- * narrative prompt carries no FoldX/DynaMut2/ThermoMPNN/ESM evaluation, so no synthesis can have
+ * narrative prompt carries no FoldX/ThermoMPNN/StabilityOracle/RaSP evaluation, so no synthesis can have
  * used one. Rather than let a report imply otherwise, a narrative now records the evidence revision
  * it was written from (`NarrativeEvidenceStamp`, stamped onto `result.metadata.narrativeEvidence`),
  * and `narrativeFreshness`/`narrativeDeepEvidenceStatus` report — accurately, from the result object —

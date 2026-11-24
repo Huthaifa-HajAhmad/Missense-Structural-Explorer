@@ -216,7 +216,7 @@ describe("narrative cache key — the evidence contract", () => {
     const deepEvidence = buildDeepModelEvidence({
       stability: {
         foldingEnergetics: { foldx: 2.62, structureProvenance: { source: "experimental", pdbId: "1abc" } },
-        dynamut2Status: "done",
+        thermompnnStatus: "done",
       },
     });
 

@@ -458,19 +458,20 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.uid).toBe("123456");
   });
 
-  it("should validate energeticsDataSchema successfully", () => {
+  it("should validate energeticsDataSchema successfully and tolerate legacy dynamut2/ddmut keys", () => {
     const validPayload = {
       foldx: 2.34,
       foldxMean: 2.30,
       foldxSd: 0.12,
       dynamut2: -0.45,
       ddmut: 1.2,
+      thermompnn: 0.85,
       consensusVerdict: "High Misfolding Risk"
     };
 
-    const parsed = energeticsDataSchema.parse(validPayload);
+    const parsed = energeticsDataSchema.parse(validPayload) as Record<string, unknown>;
     expect(parsed.foldx).toBe(2.34);
-    expect(parsed.dynamut2).toBe(-0.45);
+    expect(parsed.thermompnn).toBe(0.85);
     expect(parsed.consensusVerdict).toBe("High Misfolding Risk");
 
     // Test with nullable foldxError and binary flags
@@ -502,16 +503,12 @@ describe("Shared Zod API Contracts", () => {
       ddG: 1.5,
       status: "success",
       foldxJobId: "job-123",
-      dynamut2JobId: "55555",
-      dynamut2Status: "pending",
-      ddmutJobId: "66666",
-      ddmutStatus: "pending"
+      thermompnnStatus: "done"
     };
 
     const parsed = generateMutantResponseSchema.parse(validPayload);
     expect(parsed.status).toBe("success");
-    expect(parsed.dynamut2JobId).toBe("55555");
-    expect(parsed.ddmutJobId).toBe("66666");
+    expect(parsed.thermompnnStatus).toBe("done");
   });
 
   it("should validate analyzeVariantResponseSchema with serviceTimings successfully", () => {

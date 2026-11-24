@@ -5,7 +5,7 @@
  * elsewhere: engineered mutations (1R3S, the UROD structure chosen for p.Gly318Arg, is the D86G
  * mutant), thermostabilising or cysteine-free constructs, a natural variant in the cloned allele, a
  * sequence conflict. Such a chain is not a wild type, and every engine that mutates a template
- * (FoldX BuildModel, DynaMut2, DDMut, ThermoMPNN, StabilityOracle) would compute the queried change
+ * (FoldX BuildModel, ThermoMPNN, StabilityOracle) would compute the queried change
  * against a background carrying another substitution. The resolver refuses such a chain for those
  * engines and says which residues disqualified it.
  *

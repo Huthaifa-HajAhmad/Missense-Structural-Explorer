@@ -18,7 +18,7 @@ import { SettingsProvider } from "../../context/SettingsContext";
 
 const CLASS_PROPS = { classCard: "" };
 
-/** The observed run: only DynaMut2 returned a value; FoldX timed out with a failed repair. */
+/** The observed run: only StabilityOracle returned a value; FoldX timed out with a failed repair. */
 const MACO1_ENERGETICS = {
   foldx: null,
   foldxMean: null,
@@ -28,12 +28,11 @@ const MACO1_ENERGETICS = {
   electrostatics: null,
   localSidechainRmsd: null,
   stericClashWarning: false,
-  dynamut2: -0.09,
-  ddmut: null,
   rasp: null,
   raspReason: "Residue position is not present in the pre-computed database",
   thermompnn: null,
-  stabilityoracle: null,
+  stabilityoracle: 0.09,
+  stabilityoracleStatus: "done",
 };
 
 function analysisState() {
@@ -56,9 +55,7 @@ function renderView(overrides: Record<string, unknown> = {}, opts: { records?: b
     foldingDdG: null,
     foldingStatus: "failed",
     foldingEnergetics: MACO1_ENERGETICS,
-    dynamut2Status: "done",
-    ddmutStatus: "unavailable",
-    // Post-settle state: ThermoMPNN reported pending with no job id, so it is terminal, not live.
+    // Post-settle state: ThermoMPNN reported unavailable cleanly, not live.
     thermompnnStatus: "unavailable",
     thermompnnError: null,
     disruptionPredictor: { plddt: 92 },
@@ -88,7 +85,7 @@ describe("EnergeticsView — the observed single-engine run", () => {
   it("states coverage in the finding, and says one engine is too few to read as agreement", () => {
     const { container } = renderView();
     const text = container.textContent ?? "";
-    expect(text).toContain("1 of 6 engines");
+    expect(text).toContain("1 of 4 engines");
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent("too few to read as agreement");
     expect(screen.getByTestId("energetics-summary").getAttribute("data-tone")).toBe("warning");
     expect(screen.getByTestId("energetics-median")).toHaveTextContent("+0.09");
@@ -98,7 +95,7 @@ describe("EnergeticsView — the observed single-engine run", () => {
   it("never prints one value with two opposite signs", () => {
     const { container } = renderView();
     const text = container.textContent ?? "";
-    // DynaMut2 reported −0.09 natively; the canonical form is +0.09 and MUST be the only form shown.
+    // StabilityOracle reported +0.09; only the positive form MUST be shown.
     expect(text).not.toMatch(/[-−]0\.09/);
     expect(text).toContain("+0.09");
   });
@@ -118,7 +115,7 @@ describe("EnergeticsView — the observed single-engine run", () => {
 
   it("explains each degraded engine in plain language inside its row", () => {
     renderView();
-    expect(screen.getByTestId("energetics-ddmut")).toHaveTextContent("did not answer in time");
+    expect(screen.getByTestId("energetics-thermompnn")).toHaveTextContent(/local model service could not be reached/i);
     const rasp = screen.getByTestId("energetics-rasp");
     expect(rasp).toHaveTextContent("No precomputed RaSP score is available for this variant");
     // ...and says how small the bundled set is, so "not covered" is not read as rare.
@@ -129,7 +126,6 @@ describe("EnergeticsView — the observed single-engine run", () => {
   it("says why a value is shown but not counted", () => {
     renderView({
       foldingEnergetics: { ...MACO1_ENERGETICS, foldx: 3.0, foldxMean: 3.0 },
-      dynamut2Status: "done",
     });
     const foldx = screen.getByTestId("energetics-foldx");
     expect(within(foldx).getAllByText("Not counted").length).toBeGreaterThan(0);
@@ -149,7 +145,7 @@ describe("EnergeticsView — the observed single-engine run", () => {
     expect(screen.queryByText("Running")).toBeNull();
   });
 
-  it("does show a live remote engine as running, because a pending status implies a poller", () => {
+  it("does show a live running engine as running", () => {
     renderView({ thermompnnStatus: "pending", isFolding: false });
     const row = screen.getByTestId("energetics-thermompnn");
     expect(row.getAttribute("data-state")).toBe("running");
@@ -164,8 +160,6 @@ describe("EnergeticsView — a fully populated run", () => {
     foldxMean: 2.0,
     foldxSd: 0.3,
     foldxRepairFailed: false,
-    dynamut2: -1.5,
-    ddmut: -1.2,
     rasp: 1.4,
     thermompnn: 1.1,
     stabilityoracle: 1.3,
@@ -175,15 +169,13 @@ describe("EnergeticsView — a fully populated run", () => {
     foldingEnergetics: FULL,
     foldingStatus: "success",
     foldingError: null,
-    dynamut2Status: "done",
-    ddmutStatus: "done",
     thermompnnStatus: "done",
   };
 
   it("marks the verdict provisional while an engine is still running, and not once all have settled", () => {
-    renderView({ ...settled, dynamut2Status: "pending", dynamut2: undefined, foldingEnergetics: { ...FULL, dynamut2: null } });
+    renderView({ ...settled, thermompnnStatus: "pending", foldingEnergetics: { ...FULL, thermompnn: null } });
     expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · 1 still running");
-    expect(screen.getByTestId("energetics-summary")).toHaveTextContent("DynaMut2 is still running, so this reading may change.");
+    expect(screen.getByTestId("energetics-summary")).toHaveTextContent("ThermoMPNN is still running, so this reading may change.");
   });
 
   it("explains FoldX's error in plain words, with this value's own range, visibly rather than on hover", () => {
@@ -202,7 +194,7 @@ describe("EnergeticsView — a fully populated run", () => {
   });
 
   it("marks the default Comparison headline provisional too, not only the records tab", () => {
-    renderView({ ...settled, dynamut2Status: "pending", dynamut2: undefined, foldingEnergetics: { ...FULL, dynamut2: null } }, { records: false });
+    renderView({ ...settled, thermompnnStatus: "pending", foldingEnergetics: { ...FULL, thermompnn: null } }, { records: false });
     expect(screen.getByTestId("energetics-verdict").tagName).toBe("H2");
     expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · 1 still running");
   });
@@ -216,10 +208,10 @@ describe("EnergeticsView — a fully populated run", () => {
   it("reports full coverage and full agreement", () => {
     const { container } = renderView(settled);
     const text = container.textContent ?? "";
-    expect(text).toContain("6 of 6 engines");
+    expect(text).toContain("4 of 4 engines");
     expect(screen.getByTestId("energetics-verdict")).toHaveTextContent("Destabilizing");
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent(
-      "All 6 counted engines predict destabilization."
+      "All 4 counted engines predict destabilization."
     );
     expect(text).not.toContain("too few");
   });
@@ -241,14 +233,11 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(link).toHaveAttribute("href", "https://alphafold.ebi.ac.uk/entry/Q13564");
   });
 
-  it("reports a four-of-five majority as 'Mostly no destabilization' and names the exception", () => {
-    // UROD p.Gly318Arg: the run the audit's screenshots came from.
+  it("reports a three-of-four majority as 'Mostly no destabilization' and names the exception", () => {
     renderView({
       foldingEnergetics: {
-        foldx: null,
-        foldxMean: null,
-        dynamut2: -0.528,
-        ddmut: -0.03,
+        foldx: 0.62,
+        foldxMean: 0.62,
         rasp: -1.4533,
         raspStatus: "done",
         thermompnn: -0.106,
@@ -256,13 +245,11 @@ describe("EnergeticsView — a fully populated run", () => {
         stabilityoracleStatus: "done",
       },
       foldingStatus: "success",
-      dynamut2Status: "done",
-      ddmutStatus: "done",
       thermompnnStatus: "done",
     });
     expect(screen.getByTestId("energetics-verdict")).toHaveTextContent("Mostly no destabilization");
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent(
-      "4 of the 5 counted engines predict no destabilization; DynaMut2 (+0.53 kcal/mol) sits in its moderately destabilizing band"
+      "3 of the 4 counted engines predict no destabilization; FoldX (+0.62 kcal/mol) sits in its moderately destabilizing band"
     );
   });
 
@@ -293,7 +280,7 @@ describe("EnergeticsView — a fully populated run", () => {
   it("puts every engine on the same labelled axis", () => {
     renderView(settled);
     const rulers = screen.getAllByRole("img");
-    expect(rulers).toHaveLength(6);
+    expect(rulers).toHaveLength(4);
     expect(rulers[0].getAttribute("aria-label")).toContain("on a −3 to +5 kcal/mol axis");
     expect(rulers[0].getAttribute("aria-label")).toContain("local destabilizing mark +1.5");
   });
@@ -326,8 +313,6 @@ describe("EnergeticsView — the comparison tab", () => {
       foldingDdG: null,
       foldingStatus: "failed",
       foldingEnergetics: MACO1_ENERGETICS,
-      dynamut2Status: "done",
-      ddmutStatus: "unavailable",
       thermompnnStatus: "unavailable",
       thermompnnError: null,
       disruptionPredictor: { plddt: 92 },
@@ -343,15 +328,14 @@ describe("EnergeticsView — the comparison tab", () => {
   }
 
   it("does not call a two-engine reading an agreement", async () => {
-    // FoldX returned a value its failed repair excludes; DynaMut2 and DDMut are the only counted
+    // FoldX returned a value its failed repair excludes; ThermoMPNN and RaSP are the only counted
     // engines. The old comparison finding said "The methods agree" while Engine records, on the
     // same screen, said two is too few to read as agreement.
     const { container } = renderComparisonView({
       foldingStatus: "success",
       foldingError: null,
-      foldingEnergetics: { foldx: 2.5, foldxMean: 2.5, foldxRepairFailed: true, dynamut2: -2.0, ddmut: -1.5 },
-      dynamut2Status: "done",
-      ddmutStatus: "done",
+      foldingEnergetics: { foldx: 2.5, foldxMean: 2.5, foldxRepairFailed: true, thermompnn: 2.0, rasp: 1.5, raspStatus: "done" },
+      thermompnnStatus: "done",
     });
     const finding = await screen.findByText(/Both methods/);
     expect(finding).toBeInTheDocument();
@@ -531,7 +515,7 @@ describe("EnergeticsView — FoldX progress banner", () => {
     expect(text).toContain("FoldX score ready");
     expect(container.querySelectorAll('[data-foldx-stage][data-active="true"]')).toHaveLength(0);
     // Every row stays in view, the ProtVar reference row included.
-    expect(container.querySelectorAll(".nrg-progress__engine")).toHaveLength(7);
+    expect(container.querySelectorAll(".nrg-progress__engine")).toHaveLength(5);
   });
 
   it("offers the hide control only once a row has settled", () => {
@@ -539,9 +523,10 @@ describe("EnergeticsView — FoldX progress banner", () => {
     // the banner it hides — so pressing it early left no way back and no progress surface at all.
     const allNull = {
       ...MACO1_ENERGETICS,
-      dynamut2: null,
+      stabilityoracle: null,
+      stabilityoracleStatus: null,
     };
-    const noResults = renderView({ isFolding: true, foldingEnergetics: allNull, dynamut2Status: "pending" });
+    const noResults = renderView({ isFolding: true, foldingEnergetics: allNull, thermompnnStatus: "pending" });
     expect(within(noResults.container).queryByText("Hide pending engines")).toBeNull();
 
     // With one engine settled there is something to reveal, so the control is offered.
@@ -577,13 +562,13 @@ describe("EnergeticsView — FoldX progress banner", () => {
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent("pLDDT 60.0");
     expect(container.textContent ?? "").toContain("unrepaired template");
   });
-  it('opens the actual explanation from each of the six engine records, including absent results', () => {
+  it('opens the actual explanation from each of the four engine records, including absent results', () => {
     HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
     HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
     renderView();
     const records = screen.queryByRole('tab', { name: 'Engine records' });
     if (records) fireEvent.click(records);
-    for (const name of ['FoldX', 'DynaMut2', 'DDMut', 'RaSP', 'ThermoMPNN', 'StabilityOracle']) {
+    for (const name of ['FoldX', 'RaSP', 'ThermoMPNN', 'StabilityOracle']) {
       fireEvent.click(screen.getByRole('button', { name: `About ${name}` }));
       const dialog = screen.getByRole('dialog');
       expect(within(dialog).getByRole('heading', { level: 2 }).textContent).toContain(name);
@@ -624,18 +609,18 @@ describe("EnergeticsView — ProtVar FoldX reference row", () => {
     expect(text).toContain("ProtVar FoldX");
     expect(text).toContain("AF-Q13564-F1");
     expect(text).toMatch(/Not counted/);
-    for (const count of baseText.match(/\d+ of 6 engines/g) ?? []) expect(text).toContain(count);
-    expect(text).not.toMatch(/of 7 engines/);
+    for (const count of baseText.match(/\d+ of 4 engines/g) ?? []) expect(text).toContain(count);
+    expect(text).not.toMatch(/of 5 engines/);
   });
 });
 
 describe("EnergeticsView — header, call chip and repair note", () => {
   const MODERATE = {
-    foldx: 0.58, foldxMean: 0.58, foldxSd: 0, ddmut: -0.08, thermompnn: -0.38,
+    foldx: 0.58, foldxMean: 0.58, foldxSd: 0, thermompnn: -0.38,
     foldxRepairSkipped: true, foldxRepairSkippedReason: "large-structure",
     structureProvenance: { source: "alphafold", chainId: "A", foldxRuns: 5 } as any,
   };
-  const settled = { foldingEnergetics: MODERATE, foldingStatus: "success", foldingError: null, dynamut2Status: "unavailable", ddmutStatus: "done", thermompnnStatus: "done" };
+  const settled = { foldingEnergetics: MODERATE, foldingStatus: "success", foldingError: null, thermompnnStatus: "done" };
 
   it("keeps the guide button in the header, beside the title", () => {
     const { container } = renderView(settled);
@@ -657,9 +642,10 @@ describe("EnergeticsView — header, call chip and repair note", () => {
     expect(row).toHaveTextContent(LARGE_STRUCTURE_REPAIR_NOTE);
   });
 
-  it("offers a DynaMut2-only retry when DynaMut2 returned nothing", () => {
-    renderView(settled);
-    expect(screen.getByRole("button", { name: "Retry DynaMut2" })).toBeInTheDocument();
+  it("offers Retry ThermoMPNN when ThermoMPNN returned nothing, and no Retry DynaMut2", () => {
+    renderView({ ...settled, foldingEnergetics: { ...MODERATE, thermompnn: null }, thermompnnStatus: "unavailable" });
+    expect(screen.getByRole("button", { name: "Retry ThermoMPNN" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry DynaMut2" })).toBeNull();
   });
 });
 

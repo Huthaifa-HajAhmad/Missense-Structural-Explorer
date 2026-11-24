@@ -38,8 +38,7 @@ describe("useVariantAnalysisStore State Normalization", () => {
       isFolding: true,
       foldingStatus: "folding_in_progress",
       foldingDdG: 2.15,
-      dynamut2Status: "complete",
-      thermompnnStatus: "complete"
+      thermompnnStatus: "done"
     });
 
     let state = useVariantAnalysisStore.getState();
@@ -48,7 +47,7 @@ describe("useVariantAnalysisStore State Normalization", () => {
     expect(state.primaryBiophysics.isFolding).toBe(true);
     expect(state.primaryBiophysics.foldingStatus).toBe("folding_in_progress");
     expect(state.primaryBiophysics.foldingDdG).toBe(2.15);
-    expect(state.primaryBiophysics.dynamut2Status).toBe("complete");
+    expect(state.primaryBiophysics.thermompnnStatus).toBe("done");
 
     // Verify flat backward-compatible mirrors
     expect(state.mutantPdb).toBe("ATOM 1 CA ALA A 1");
@@ -56,7 +55,7 @@ describe("useVariantAnalysisStore State Normalization", () => {
     expect(state.isFolding).toBe(true);
     expect(state.foldingStatus).toBe("folding_in_progress");
     expect(state.foldingDdG).toBe(2.15);
-    expect(state.dynamut2Status).toBe("complete");
+    expect(state.thermompnnStatus).toBe("done");
   });
 
   it("synchronizes legacy flat setters into the normalized sub-model", () => {

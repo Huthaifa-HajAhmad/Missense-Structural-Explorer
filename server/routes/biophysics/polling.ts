@@ -5,35 +5,23 @@ import { z } from "zod";
 
 import {
   sendError,
-  AuditLogger,
   formatZodError,
   onClientDisconnect,
 } from "../../utils.ts";
 import {
-  pollDynaMut2Job,
-  submitDynaMut2Job,
-  pollDdmutJob,
-  submitDdmutJob,
-} from "../../services/external.ts";
-import {
   parseResiduesFromPdbMaybeAsync,
   cleanPdbForFoldX,
   submitThermoMpnnJob,
-  pollThermoMpnnJob,
   enrichBiophysicalResult,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 // NOTE: the consensus is deliberately NOT computed in this file. Its one authoritative computation
-// is `enrichBiophysicalResult`, which sees all six engines; recomputing it per remote-engine poll
-// from a five-engine subset produced a verdict that disagreed with the one on screen.
-import { findJobInRegistry, recordJobInRegistry } from "../shared.ts";
+// is `enrichBiophysicalResult`, which sees all counted engines.
 import { requireUser, noStore } from "../../auth/middleware.ts";
 import { submitterId } from "../../auth/principal.ts";
 import { withProvenanceFor } from "../../../src/shared/computeProvenance.ts";
-import { LEGACY_OWNER, SYSTEM_OWNER } from "../../services/infra/queue-owners.ts";
+import { LEGACY_OWNER } from "../../services/infra/queue-owners.ts";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
-import { PROVIDER_RATE_LIMITED } from "../../../src/shared/providerLimits.ts";
-import { isProviderRateLimited } from "../../services/infra/provider-pause.ts";
 
 /** FoldX and independent engine values that are safe to publish before the overall job settles. */
 function engineUpdatesFromJob(jobData: any, remoteJobs: any): Record<string, unknown> | undefined {
@@ -127,8 +115,6 @@ const biophysicsSubmitSchema = z.object({
   message: "Either wtPdb, pdbRef, or uniprotId must be provided."
 });
 
-const dynamut2SubmitSchema = biophysicsSubmitSchema;
-const ddmutSubmitSchema = biophysicsSubmitSchema;
 const thermompnnSubmitSchema = biophysicsSubmitSchema;
 
 async function resolvePdbTextFromParam(body: { wtPdb?: string; pdbRef?: string; uniprotId?: string }): Promise<string | null> {
@@ -164,7 +150,7 @@ const sseConnectionsByClient = new Map<string, number>();
 
 export function broadcastJobUpdate(update: {
   jobId: string;
-  tool: "foldx" | "dynamut2" | "ddmut" | "thermompnn" | "p2rank";
+  tool: "foldx" | "p2rank";
   status: string;
   prediction?: number | null;
   result?: any;
@@ -304,11 +290,6 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
       const jobData = await queue.getJobData(jobId);
       const remoteJobs = jobData?.remoteJobs || {
-        dynamut2JobId: null,
-        dynamut2Status: "pending",
-        ddmutJobId: null,
-        ddmutStatus: "pending",
-        thermompnnJobId: null,
         thermompnnStatus: "pending",
         thermompnnError: null,
         thermompnnVal: null,
@@ -332,11 +313,6 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
           status: "completed",
           result: withProvenanceFor(enriched, submitterId(req)),
           runsOn: queue.runsOn(jobId, submitterId(req) ?? null),
-          dynamut2JobId: remoteJobs.dynamut2JobId,
-          dynamut2Status: remoteJobs.dynamut2Status,
-          ddmutJobId: remoteJobs.ddmutJobId,
-          ddmutStatus: remoteJobs.ddmutStatus,
-          thermompnnJobId: remoteJobs.thermompnnJobId,
           thermompnnStatus: remoteJobs.thermompnnStatus,
           thermompnnError: remoteJobs.thermompnnError
         });
@@ -359,11 +335,6 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
           error: jobInfo.error || "FoldX job failed during execution",
           result: withProvenanceFor(enriched, submitterId(req)),
           runsOn: queue.runsOn(jobId, submitterId(req) ?? null),
-          dynamut2JobId: remoteJobs.dynamut2JobId,
-          dynamut2Status: remoteJobs.dynamut2Status,
-          ddmutJobId: remoteJobs.ddmutJobId,
-          ddmutStatus: remoteJobs.ddmutStatus,
-          thermompnnJobId: remoteJobs.thermompnnJobId,
           thermompnnStatus: remoteJobs.thermompnnStatus,
           thermompnnError: remoteJobs.thermompnnError
         });
@@ -372,30 +343,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return res.json({
         jobId,
         status: jobInfo.status,
-        /**
-         * Progress, carried verbatim from the job record the worker annotates.
-         *
-         * `phase` is `queued` whenever the QUEUE says the job is queued, regardless of what the
-         * record last held. Two reasons, both observed:
-         *
-         *   • A job's queue wait is a stage in its own right, and nothing ever writes it to the
-         *     record — the first poll would otherwise replace the honest "Queued" the submit
-         *     response reported with a blank, for the whole wait.
-         *   • A restart re-queues unfinished jobs, and the record keeps the phase it died in
-         *     ("repairing"), which would then be reported for work that is waiting for a slot. The
-         *     startup pass clears it as well; this is the second, independent guard.
-         *
-         * `startedAt` is when the queue began EXECUTING (null while queued) and `queuedAhead` is
-         * only meaningful while queued, so a wait that is not the reader's fault reads as a queue
-         * position instead of an unqualified spinner.
-         */
         phase: jobInfo.status === "queued" ? "queued" : (jobData?.phase ?? null),
         startedAt: jobInfo.startedAt ?? null,
-        /**
-         * Execution time measured HERE, so a client never subtracts its own clock from this host's.
-         * Null while the job is queued — there is no execution to measure yet, and reporting 0 would
-         * read as "just started".
-         */
         elapsedMs: jobInfo.status === "running" && jobInfo.startedAt ? Math.max(0, Date.now() - jobInfo.startedAt) : null,
         createdAt: jobInfo.createdAt ?? null,
         queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : 0,
@@ -404,11 +353,6 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         queueHold: jobInfo.status === "queued" ? queue.getHoldFor(jobId) : null,
         // Where it runs and why (live routing, WP-G2); null when it is simply the server's, as always.
         runsOn: queue.runsOn(jobId, submitterId(req) ?? null),
-        dynamut2JobId: remoteJobs.dynamut2JobId,
-        dynamut2Status: remoteJobs.dynamut2Status,
-        ddmutJobId: remoteJobs.ddmutJobId,
-        ddmutStatus: remoteJobs.ddmutStatus,
-        thermompnnJobId: remoteJobs.thermompnnJobId,
         thermompnnStatus: remoteJobs.thermompnnStatus,
         thermompnnError: remoteJobs.thermompnnError,
         engineUpdates: engineUpdatesFromJob(jobData, remoteJobs)
@@ -416,338 +360,6 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     } catch (err: any) {
       console.error(`[Route Error] FoldX job polling failed for ${jobId}:`, err.message);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", `FoldX job polling failed: ${err.message}`);
-    }
-  });
-
-  apiRouter.get("/thermompnn-job/:jobId", async (req, res) => {
-    const jobId = req.params.jobId;
-    if (!jobId || !/^[a-zA-Z0-9_\-]{1,100}$/.test(jobId)) {
-      sendError(res, 400, "BAD_REQUEST", "Invalid ThermoMPNN Job ID format.");
-      return;
-    }
-    try {
-      // Only what the request brought; the poll resolves saved and team keys itself (WP-I4).
-      const apiKey = (req.headers["x-tamarind-api-key"] as string) || (req.query?.tamarindApiKey as string) || (req.query?.apiKey as string) || undefined;
-      const result = await pollThermoMpnnJob(jobId, apiKey);
-      if (result.status === "done" || result.status === "error") {
-        broadcastJobUpdate({ jobId, tool: "thermompnn", status: result.status, prediction: result.prediction });
-        if (result.status === "done" && result.prediction !== null) {
-          await backfillRemotePredictionToCache(jobId, "thermompnn", result.prediction);
-        }
-      }
-      // Always return 200 so the client can deterministically terminate polling on
-      // terminal statuses (error/done) instead of rescheduling on 502/504. (P0-3)
-      return res.json({
-        jobId,
-        status: result.status,
-        prediction: result.prediction,
-        error: result.status === "error" ? (result.error || "ThermoMPNN job execution failed on upstream server.") : undefined
-      });
-    } catch (err: any) {
-      console.error(`[Route Error] ThermoMPNN job polling failed for ${jobId}:`, err.message);
-      return res.json({ jobId, status: "error", prediction: null, error: `ThermoMPNN job polling failed: ${err.message}` });
-    }
-  });
-
-  const BIOSIG_MAX_AGE_MS = 300 * 1000; // 300s (5 min) max wait for remote academic server queue
-  /**
-   * `reason` is what lets the client tell the two UNAVAILABLE answers apart:
-   *   "stale"     — the job outlived the staleness window and is no longer polled upstream; terminal.
-   *   "transient" — one upstream poll failed while the job may well still be running; the client
-   *                 keeps listening at a slow cadence (`retryable: true`).
-   * A job past its window is stale however the upstream poll went, so staleness wins.
-   */
-  const finishBioSigUnavailable = (
-    res: any,
-    jobId: string,
-    tool: "dynamut2" | "ddmut",
-    error: string,
-    isStale = false,
-    rateLimit?: { retryAfterSec: number }
-  ) => {
-    // A rate-limited poll (WP-I3) is still a live job: the client keeps listening instead of failing it,
-    // and the reader is told the provider is limiting requests, not that it is down. A stale job is past
-    // its window either way, so staleness wins.
-    const rateLimited = Boolean(rateLimit) && !isStale;
-    const payload = {
-      jobId,
-      status: "UNAVAILABLE",
-      prediction: null,
-      error: isStale ? `${tool === "dynamut2" ? "DynaMut2" : "DDMut"} remained unfinished after the 5-minute polling window.` : error,
-      reason: isStale ? "stale" : rateLimited ? "rate_limited" : "transient",
-      retryable: !isStale,
-      ...(rateLimited ? { code: PROVIDER_RATE_LIMITED, retryAfterSec: rateLimit!.retryAfterSec } : {})
-    };
-    broadcastJobUpdate({ ...payload, tool });
-    return res.json(payload);
-  };
- 
-  async function checkBioSigJobStaleness(jobId: string, tool: "dynamut2" | "ddmut"): Promise<boolean> {
-    try {
-      const entry = await findJobInRegistry(jobId, tool);
-      if (entry) {
-        const ageMs = Date.now() - new Date(entry.timestamp).getTime();
-        if (ageMs > BIOSIG_MAX_AGE_MS) {
-          console.warn(`[BioSig Staleness] ${tool} job ${jobId} is ${Math.round(ageMs / 1000)}s old (>300s timeout).`);
-          return true;
-        }
-      }
-    } catch (err: any) {
-      console.warn(`[BioSig Staleness] Failed to read registry for ${tool}:`, err.message);
-    }
-    return false;
-  }
-
-  /**
-   * Writes an engine's late value back into the FoldX cache entry it belongs to.
-   *
-   * DynaMut2 and DDMut are submitted after the FoldX job is cached and land on their own pollers;
-   * ThermoMPNN is submitted the same way but had no backfill, so a cache hit served `thermompnn:
-   * null` for ever and re-submitted the job on every revisit (production UROD G318R: the job record
-   * held −0.106 while the cache kept null).
-   */
-  async function backfillRemotePredictionToCache(jobId: string, tool: "dynamut2" | "ddmut" | "thermompnn", prediction: number): Promise<void> {
-    try {
-      const entry = await findJobInRegistry(jobId, tool);
-      if (entry && entry.foldxCacheKey) {
-        const { getMutantFromCacheForBackfill, writeMutantToCache } = await import("../../services/biophysics.ts");
-        const cached = await getMutantFromCacheForBackfill(entry.foldxCacheKey);
-        if (cached && cached.energetics) {
-          let updated = false;
-          if (tool === "dynamut2" && cached.energetics.dynamut2 !== prediction) {
-            cached.energetics.dynamut2 = prediction;
-            updated = true;
-          } else if (tool === "ddmut" && cached.energetics.ddmut !== prediction) {
-            cached.energetics.ddmut = prediction;
-            updated = true;
-          } else if (tool === "thermompnn" && cached.energetics.thermompnn !== prediction) {
-            cached.energetics.thermompnn = prediction;
-            updated = true;
-          }
-          if (updated) {
-            writeMutantToCache(entry.foldxCacheKey, cached);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.warn(`[BioSig Cache Backfill Warning] Failed to backfill ${tool} for ${jobId}:`, err.message);
-    }
-  }
-
-  apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
-    const { jobId } = req.params;
-    const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
-
-    if (!jobId || !/^\d{1,20}$/.test(jobId)) {
-      sendError(res, 400, "BAD_REQUEST", "Invalid DynaMut2 Job ID format: must be numeric digits.");
-      return;
-    }
-
-    const isStale = await checkBioSigJobStaleness(jobId, "dynamut2");
-
-    try {
-      const result = await pollDynaMut2Job(jobId);
-      if (!result || result.status === "ERROR") {
-        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 upstream server currently unavailable.", isStale);
-      }
-      if (result.status !== "DONE" && isStale) {
-        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
-        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 remained unfinished after the 5-minute polling window.", true);
-      }
-
-      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
-
-      if (result.status === "DONE") {
-        broadcastJobUpdate({ jobId, tool: "dynamut2", status: "DONE", prediction: result.prediction });
-        if (result.prediction !== null) {
-          await backfillRemotePredictionToCache(jobId, "dynamut2", result.prediction);
-        }
-      }
-
-      // No consensus here.
-      //
-      // The verdict is a property of the WHOLE run, not of "the DynaMut2 job finished", and its one
-      // authoritative computation is `enrichBiophysicalResult`, which sees all six engines. This
-      // route used to recompute it from FIVE — no ThermoMPNN, no foldxBinaryMissing — and send that
-      // over the top, so the persisted/exported verdict could disagree with the one on screen
-      // (measured: "Insufficient Biophysical Data" exported for a run the tab called "Elevated
-      // Misfolding Risk (Single-Tool Estimate)").
-      //
-      // Consumers already prefer their own value: the client merges with
-      // `data.consensusVerdict ?? prev?.consensusVerdict` and maintains `pendingTools` itself, so
-      // omitting these fields leaves the run's real verdict in place.
-      res.json({
-        jobId,
-        status: result.status,
-        prediction: result.prediction
-      });
-    } catch (err: any) {
-      console.warn(`[Route Warning] DynaMut2 job polling failed for ${jobId}:`, err.message);
-      if (isProviderRateLimited(err)) {
-        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "RATE_LIMITED" });
-        return finishBioSigUnavailable(res, jobId, "dynamut2", err.message, isStale, { retryAfterSec: err.retryAfterSec });
-      }
-      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-      return finishBioSigUnavailable(res, jobId, "dynamut2", `DynaMut2 upstream unavailable: ${err.message}`, isStale);
-    }
-  });
-
-  apiRouter.get("/ddmut-job/:jobId", async (req, res) => {
-    const { jobId } = req.params;
-    const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
-
-    if (!jobId || !/^\d{1,20}$/.test(jobId)) {
-      sendError(res, 400, "BAD_REQUEST", "Invalid DDMut Job ID format: must be numeric digits.");
-      return;
-    }
-
-    const isStale = await checkBioSigJobStaleness(jobId, "ddmut");
-
-    try {
-      const result = await pollDdmutJob(jobId);
-      if (!result || result.status === "ERROR") {
-        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut upstream server currently unavailable.", isStale);
-      }
-      if (result.status !== "DONE" && isStale) {
-        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
-        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut remained unfinished after the 5-minute polling window.", true);
-      }
-
-      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
-
-      if (result.status === "DONE") {
-        broadcastJobUpdate({ jobId, tool: "ddmut", status: "DONE", prediction: result.prediction });
-        if (result.prediction !== null) {
-          await backfillRemotePredictionToCache(jobId, "ddmut", result.prediction);
-        }
-      }
-
-      // No consensus here either — same reasoning as the DynaMut2 route above.
-      res.json({
-        jobId,
-        status: result.status,
-        prediction: result.prediction
-      });
-    } catch (err: any) {
-      console.warn(`[Route Warning] DDMut job polling failed for ${jobId}:`, err.message);
-      if (isProviderRateLimited(err)) {
-        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "RATE_LIMITED" });
-        return finishBioSigUnavailable(res, jobId, "ddmut", err.message, isStale, { retryAfterSec: err.retryAfterSec });
-      }
-      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-      return finishBioSigUnavailable(res, jobId, "ddmut", `DDMut upstream unavailable: ${err.message}`, isStale);
-    }
-  });
-
-  apiRouter.post("/dynamut2-submit", jsonParserPdb, async (req, res) => {
-    const parseResult = dynamut2SubmitSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
-      return;
-    }
-    try {
-      const { mutation } = req.body;
-      const wtPdb = await resolvePdbTextFromParam(req.body);
-      if (!wtPdb) {
-        sendError(res, 404, "NOT_FOUND", "PDB structure could not be resolved from provided reference or payload.");
-        return;
-      }
-
-      const parsed = parseMutationParam(mutation);
-      if (!parsed) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
-        return;
-      }
-      const { wtLetter, mutLetter, posNum, chainParam } = parsed;
-
-      // The same preparation and residue check the analysis route applies before it submits to DynaMut2,
-      // so a retry is scored on the input the first attempt would have used, or is refused for the same reason.
-      const cleanedPdb = cleanPdbForFoldX(wtPdb);
-      const pdbResidues = await parseResiduesFromPdbMaybeAsync(cleanedPdb);
-      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain.toUpperCase() === chainParam.toUpperCase()));
-      if (!targetRes) {
-        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum}${chainParam ? ` on chain ${chainParam.toUpperCase()}` : ""} is not found in the PDB structure.`);
-        return;
-      }
-      const expectedWt3 = AMINO_ACID_1_TO_3[wtLetter.toUpperCase()];
-      if (expectedWt3 && targetRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
-        sendError(
-          res,
-          422,
-          "UNPROCESSABLE_ENTITY",
-          `Wild-type residue mismatch: the mutation expects ${wtLetter} (${expectedWt3}) at position ${posNum}, but the structure has ${targetRes.resName3} on chain ${targetRes.chain}. The structure may use its own numbering.`
-        );
-        return;
-      }
-      const resolvedChainUpper = targetRes.chain.toUpperCase() || "A";
-
-      const dynamut2JobId = await submitDynaMut2Job(cleanedPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
-      if (dynamut2JobId) {
-        await recordJobInRegistry(dynamut2JobId, "dynamut2", mutation.trim());
-      }
-      res.json({
-        dynamut2JobId,
-        dynamut2Status: dynamut2JobId ? "pending" : "unavailable"
-      });
-    } catch (err: any) {
-      console.error("DynaMut2 submit endpoint failure:", err);
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to submit DynaMut2 job.");
-    }
-  });
-
-  apiRouter.post("/ddmut-submit", jsonParserPdb, async (req, res) => {
-    const parseResult = ddmutSubmitSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
-      return;
-    }
-    try {
-      const { mutation } = req.body;
-      const wtPdb = await resolvePdbTextFromParam(req.body);
-      if (!wtPdb) {
-        sendError(res, 404, "NOT_FOUND", "PDB structure could not be resolved from provided reference or payload.");
-        return;
-      }
-
-      const parsed = parseMutationParam(mutation);
-      if (!parsed) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
-        return;
-      }
-      const { wtLetter, mutLetter, posNum, chainParam } = parsed;
-
-      const cleanedPdb = cleanPdbForFoldX(wtPdb);
-      const pdbResidues = await parseResiduesFromPdbMaybeAsync(cleanedPdb);
-      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain.toUpperCase() === chainParam.toUpperCase()));
-      if (!targetRes) {
-        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum}${chainParam ? ` on chain ${chainParam.toUpperCase()}` : ""} is not found in the PDB structure.`);
-        return;
-      }
-      const expectedWt3 = AMINO_ACID_1_TO_3[wtLetter.toUpperCase()];
-      if (expectedWt3 && targetRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
-        sendError(
-          res,
-          422,
-          "UNPROCESSABLE_ENTITY",
-          `Wild-type residue mismatch: the mutation expects ${wtLetter} (${expectedWt3}) at position ${posNum}, but the structure has ${targetRes.resName3} on chain ${targetRes.chain}. The structure may use its own numbering.`
-        );
-        return;
-      }
-      const resolvedChainUpper = targetRes.chain.toUpperCase() || "A";
-
-      const ddmutJobId = await submitDdmutJob(cleanedPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
-      if (ddmutJobId) {
-        await recordJobInRegistry(ddmutJobId, "ddmut", mutation.trim());
-      }
-      res.json({
-        ddmutJobId,
-        ddmutStatus: ddmutJobId ? "pending" : "unavailable"
-      });
-    } catch (err: any) {
-      console.error("DDMut submit endpoint failure:", err);
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to submit DDMut job.");
     }
   });
 
@@ -792,27 +404,16 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const resolvedChainUpper = targetRes.chain.toUpperCase() || "A";
       const canonicalMutation = `${wtLetter}${resolvedChainUpper}${posNum}${mutLetter}`;
 
-      const apiKey = (req.headers["x-tamarind-api-key"] as string) || undefined;
-      const thermoRes = await submitThermoMpnnJob(cleanedPdb, canonicalMutation, apiKey);
-
-      // Only a job that can be POLLED has anything to register. The local sidecar answers with a value
-      // and a non-pollable id (`local_thermompnn`); registering that id put an entry in
-      // `job_registry.json` no poller would ever claim or backfill.
-      if (thermoRes.jobId && thermoRes.status === "pending") {
-        await recordJobInRegistry(thermoRes.jobId, "thermompnn", canonicalMutation);
-      }
+      const thermoRes = await submitThermoMpnnJob(cleanedPdb, canonicalMutation);
 
       res.json({
-        thermompnnJobId: thermoRes.jobId || null,
-        thermompnnStatus: thermoRes.status || "pending",
+        thermompnnStatus: thermoRes.status,
         prediction: thermoRes.prediction ?? null,
-        error: thermoRes.error || null,
-        thermoJobId: thermoRes.jobId || null,
-        thermoStatus: thermoRes.status || "pending"
+        error: thermoRes.error || null
       });
     } catch (err: any) {
       console.error("ThermoMPNN submit endpoint failure:", err);
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to submit ThermoMPNN job.");
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to run ThermoMPNN.");
     }
   });
 }

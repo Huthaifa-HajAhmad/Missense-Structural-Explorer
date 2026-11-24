@@ -37,7 +37,7 @@ describe("Thresholds Modular Sub-Domain Tests", () => {
 
   describe("consensus.ts", () => {
     it("counts engines on their own marks and reports the median", () => {
-      const consensus = computeStabilityConsensus({ foldxMean: 2.5, dynamut2: -1.5, rasp: 1.8 });
+      const consensus = computeStabilityConsensus({ foldxMean: 2.5, thermompnn: 1.5, rasp: 1.8 });
       expect(consensus.consensusVerdict).toBe("Destabilizing (Engines Agree)");
       expect(consensus.enginesCounted).toBe(3);
       expect(consensus.enginesDestabilizing).toBe(3);

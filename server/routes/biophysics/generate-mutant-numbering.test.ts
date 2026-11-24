@@ -29,13 +29,10 @@ describe("/generate-mutant numbering proof in the audit entry", () => {
     clearInFlightRemoteSubmissions();
     try { BiophysicalJobQueue.initialize(2, async () => ({})); } catch (_) {}
     vi.stubEnv("APP_SESSION_SECRET", "generate-mutant-test-secret");
-    const external = await import("../../services/external.ts");
-    vi.spyOn(external, "submitDynaMut2Job").mockResolvedValue("1");
-    vi.spyOn(external, "submitDdmutJob").mockResolvedValue("2");
     const biophysics = await import("../../services/biophysics.ts");
     vi.spyOn(biophysics, "getMutantFromCache").mockResolvedValue({
       pdb: PDB, ddG: 1.25, status: "success",
-      energetics: { foldx: 1.25, foldxMean: 1.25, rasp: 1.7, thermompnn: 0.8, stabilityoracle: 0.4, dynamut2: -0.5, ddmut: -0.4 }
+      energetics: { foldx: 1.25, foldxMean: 1.25, rasp: 1.7, thermompnn: 0.8, stabilityoracle: 0.4 }
     } as any);
     vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue({ score: 1.7 });
     vi.spyOn(biophysics, "writeMutantToCache").mockImplementation(() => {});

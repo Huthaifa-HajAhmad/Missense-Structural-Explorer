@@ -285,8 +285,8 @@ describe("narrativeEvidence — deep-model evidence is integrated, and its ident
 
   it("reports the observations a result carries, from the same projection the prompt uses", () => {
     const status = narrativeDeepEvidenceStatus({
-      foldingEnergetics: { foldx: 2.62, dynamut2: -1.4, raspSource: "experimental" },
-      dynamut2Status: "done",
+      foldingEnergetics: { foldx: 2.62, thermompnn: 1.4, raspSource: "experimental" },
+      thermompnnStatus: "done",
       esm2Eval: { llr: -3.2 },
     });
     expect(status.integrated).toBe(true);

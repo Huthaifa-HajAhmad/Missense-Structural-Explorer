@@ -32,9 +32,7 @@ export async function runRaspLocal(
 }
 
 export const thermompnnCache = energyModels.thermompnnCache;
-export const testTamarindConnection = energyModels.testTamarindConnection;
 export const submitThermoMpnnJob = energyModels.submitThermoMpnnJob;
-export const pollThermoMpnnJob = energyModels.pollThermoMpnnJob;
 export const enrichBiophysicalResult = energyModels.enrichBiophysicalResult;
 export const RASP_STORE_UNAVAILABLE_REASON = energyModels.RASP_STORE_UNAVAILABLE_REASON;
 export { runStabilityOracleAnalysis } from "./stabilityoracle.ts";

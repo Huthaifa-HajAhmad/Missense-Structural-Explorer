@@ -38,25 +38,13 @@ export interface FoldxExecutionOptions {
   /** When present, the run is recorded as a span in the Console's pipeline waterfall. */
   traceContext?: TraceContext;
   /**
-   * The remote-engine state this variant ALREADY has, as restored from its cached bundle.
-   *
-   * The settle at the end of a failed run used to reason from the run's own belief alone, which is
-   * empty until the POST returns — so (a) an exit that throws before that, such as a non-ok response
-   * or a stalled body, settled nothing and left the engines `pending` with no poller, the original
-   * stuck-"Running" defect; and (b) it could not see a job id the STORE was holding from a previous
-   * attempt, so it marked an engine unavailable that `useJobPoller` was at that moment polling —
-   * tearing the live poller down and discarding the result it was about to deliver.
+   * The companion-engine state this variant ALREADY has, as restored from its cached bundle.
    *
    * Supplied only where it is unambiguously this variant's state (the backfill dispatch, which has the
    * restored bundle in hand). A fresh run passes nothing, which is correct: nothing is pending yet.
    */
   initialRemoteState?: {
-    dynamut2Status?: string | null;
-    dynamut2JobId?: string | null;
-    ddmutStatus?: string | null;
-    ddmutJobId?: string | null;
     thermompnnStatus?: string | null;
-    thermompnnJobId?: string | null;
   };
 }
 
@@ -247,85 +235,60 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
   publishProgress(null);
 
   /**
-   * The latest remote-engine state seen — seeded with what this variant ALREADY had, so the error
+   * The latest ThermoMPNN state seen — seeded with what this variant ALREADY had, so the error
    * exits can settle from the store's view rather than only from this run's.
    */
   let lastRemoteState: {
-    dynamut2Status?: string | null;
-    dynamut2JobId?: string | null;
-    ddmutStatus?: string | null;
-    ddmutJobId?: string | null;
     thermompnnStatus?: string | null;
-    thermompnnJobId?: string | null;
   } = { ...(options.initialRemoteState ?? {}) };
 
   /**
-   * Settles remote engines that reported "pending" with no job id.
-   *
-   * `useJobPoller` requires a job id before it will start, and the SSE channel for these engines is
-   * only ever emitted from inside that poller's own handler — so an engine left at "pending" with no
-   * id has no route to a result, and the store carries that non-terminal status forever. The FoldX
-   * run ending is the last moment anything could resolve it, which is why this is called on the
-   * terminal commits AND on every error exit.
-   *
-   * Defined above the `try` on purpose: it previously lived inside it, so the `catch` could not
-   * reach it and the error exits — exactly the paths that leave `pending` with a null id, because
-   * the POST seeds that state before its submission race resolves — never settled anything.
-   *
-   * Engines that DO have a job id are deliberately left alone: their poller is live and will report
-   * the real outcome.
+   * Returns an energetics copy with `"ThermoMPNN"` cleared from `pendingTools` (and `evidenceComplete`
+   * recomputed) plus an optional late ThermoMPNN value merged in.
+   */
+  const withSettledThermompnn = (
+    energeticsData: any,
+    thermompnnVal?: number | null
+  ): any => {
+    if (!energeticsData && typeof thermompnnVal !== "number") return energeticsData ?? null;
+    const base = (energeticsData && typeof energeticsData === "object") ? energeticsData : {};
+    const nextPending = Array.isArray(base.pendingTools)
+      ? base.pendingTools.filter((tool: string) => tool !== "ThermoMPNN")
+      : base.pendingTools;
+    return {
+      ...base,
+      ...(typeof thermompnnVal === "number" ? { thermompnn: thermompnnVal } : {}),
+      ...(Array.isArray(nextPending)
+        ? { pendingTools: nextPending, evidenceComplete: nextPending.length === 0 }
+        : {}),
+    };
+  };
+
+  /**
+   * Settles ThermoMPNN if left "pending" when the synchronous /generate-mutant run ends or errors.
    */
   const settleUnreachableRemoteEngines = (payload: {
-    dynamut2Status?: string | null;
-    dynamut2JobId?: string | null;
-    ddmutStatus?: string | null;
-    ddmutJobId?: string | null;
     thermompnnStatus?: string | null;
-    thermompnnJobId?: string | null;
   }) => {
     /**
-     * CLEARS the status rather than writing "unavailable".
-     *
-     * `unavailable` is not a neutral "no result" — the registry reads it as a property of the
-     * DEPLOYMENT, so ThermoMPNN rendered "Not available in this deployment — the local model service
-     * is not running" and DynaMut2/DDMut "provider did not answer in time" for what is actually a
-     * client-side FoldX or poll failure. That replaced one false statement ("Calculation in
-     * progress", forever) with a different false one, which a review caught.
-     *
-     * A cleared status resolves to `no-result` — "The run ended without returning a value for this
-     * engine" — which is exactly what happened, and is verified by executing the registry:
-     *
-     *   unavailable -> thermompnn=not-installed, dynamut2/ddmut=upstream-busy
-     *   null        -> thermompnn/dynamut2/ddmut = no-result
+     * CLEARS the status rather than writing "unavailable", which the registry reads as missing
+     * deployment infrastructure; `null` resolves cleanly to `no-result`.
      */
-    if (payload.dynamut2Status === "pending" && !payload.dynamut2JobId) {
-      sink.setDynamut2Status(null);
-    }
-    if (payload.ddmutStatus === "pending" && !payload.ddmutJobId) {
-      sink.setDdmutStatus(null);
-    }
-    if (payload.thermompnnStatus === "pending" && !payload.thermompnnJobId) {
+    if (payload.thermompnnStatus === "pending") {
       sink.setThermompnnStatus(null);
     }
   };
 
   /**
-   * Marks the remote engines an expired session severed, by keying `energeticsAuthLapsed` on the
-   * run's energetics.
-   *
-   * An engine that was pending WITH a job id is deliberately not marked: its poller still owns a
-   * route to an answer, and the flag must not outrank whatever that poller reports. Only engines
-   * with no id and no poller — the ones `settleUnreachableRemoteEngines` clears into an unpauseable
-   * "No result" — are recorded, because the resolver can name their cause only through this flag.
+   * Marks ThermoMPNN when an expired session severed a pending `/remote-submissions/:token` wait,
+   * by keying `energeticsAuthLapsed` on the run's energetics.
    *
    * Merged rather than replaced: a second lapse in the same run cannot erase the first.
    */
   const noteAuthExpiredEngines = (): void => {
-    const lapsedEngines: Partial<Record<"dynamut2" | "ddmut" | "thermompnn", boolean>> = {};
-    if (lastRemoteState.dynamut2Status === "pending" && !lastRemoteState.dynamut2JobId) lapsedEngines.dynamut2 = true;
-    if (lastRemoteState.ddmutStatus === "pending" && !lastRemoteState.ddmutJobId) lapsedEngines.ddmut = true;
-    if (lastRemoteState.thermompnnStatus === "pending" && !lastRemoteState.thermompnnJobId) lapsedEngines.thermompnn = true;
-    if (!lapsedEngines.dynamut2 && !lapsedEngines.ddmut && !lapsedEngines.thermompnn) return;
+    const lapsedEngines: Partial<Record<"thermompnn", boolean>> = {};
+    if (lastRemoteState.thermompnnStatus === "pending") lapsedEngines.thermompnn = true;
+    if (!lapsedEngines.thermompnn) return;
     if (!sink.setFoldingEnergetics) return;
     sink.setFoldingEnergetics((prev: any) => ({
       ...((prev && typeof prev === "object") ? prev : {}),
@@ -406,30 +369,15 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
      */
     publishProgress(progressFrom(data));
 
-    // Propagate remote job IDs and statuses immediately from initial /generate-mutant response
-    if (data.dynamut2JobId != null) sink.setDynamut2JobId(data.dynamut2JobId);
-    if (data.dynamut2Status != null) sink.setDynamut2Status(data.dynamut2Status as any);
-    if (data.ddmutJobId != null) sink.setDdmutJobId(data.ddmutJobId);
-    if (data.ddmutStatus != null) sink.setDdmutStatus(data.ddmutStatus as any);
-    if (data.thermompnnJobId != null) sink.setThermompnnJobId(data.thermompnnJobId);
     if (data.thermompnnStatus != null) sink.setThermompnnStatus(data.thermompnnStatus as any);
     if (data.thermompnnError != null) {
       sink.setThermompnnError(data.thermompnnError);
       noteThermompnnError(data.thermompnnError, thermompnnLog);
     }
 
-    // Remember what the run has told us, so a later error exit can settle the engines it left
-    // "pending" without a job id. Engines WITH a live id are left alone by the helper.
-    //
-    // MERGED, not replaced: a POST that omits an id must not erase one this variant already had, or
-    // the settle would mark an engine unavailable while its poller is live.
+    // Remember what the run has told us, so a later error exit can settle ThermoMPNN if left "pending".
     lastRemoteState = {
-      dynamut2Status: data.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
-      dynamut2JobId: data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-      ddmutStatus: data.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
-      ddmutJobId: data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
       thermompnnStatus: data.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
-      thermompnnJobId: data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
     };
 
     // Helper to update energetics with structureProvenance
@@ -478,8 +426,6 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
         return {
           ...base,
           ...energeticsData,
-          dynamut2: energeticsData?.dynamut2 ?? base?.dynamut2 ?? null,
-          ddmut: energeticsData?.ddmut ?? base?.ddmut ?? null,
           thermompnn: energeticsData?.thermompnn ?? base?.thermompnn ?? null,
           stabilityoracle: energeticsData?.stabilityoracle ?? base?.stabilityoracle ?? null,
           structureProvenance: structureProvenance ?? base?.structureProvenance
@@ -507,9 +453,14 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
       if (!isFoldxSuccess) noteFoldxFailure(effectiveFoldingStatus, variant, data.error || data.energetics?.foldxError);
 
       let resolvedProvenance: StructureProvenance | undefined;
+      let mergedEnergetics: any = data.energetics ? { ...data.energetics } : null;
       if (data.energetics) {
         resolvedProvenance = applyEnergetics(data.energetics, data.provenance);
+        if (resolvedProvenance && mergedEnergetics) {
+          mergedEnergetics.structureProvenance = resolvedProvenance;
+        }
       }
+      let settledThermompnnError: string | null = data.thermompnnError ?? null;
       /**
        * A cache hit answers before the remote submissions have returned their job ids, so the server
        * hands back a token to collect them. Without this the engines below were settled to "No
@@ -544,26 +495,21 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
             noteAuthExpiredEngines();
           }
           if (sub?.settled) {
-            if (sub.dynamut2JobId) sink.setDynamut2JobId(sub.dynamut2JobId);
-            if (sub.dynamut2Status) sink.setDynamut2Status(sub.dynamut2Status);
-            if (sub.ddmutJobId) sink.setDdmutJobId(sub.ddmutJobId);
-            if (sub.ddmutStatus) sink.setDdmutStatus(sub.ddmutStatus);
-            if (sub.thermompnnJobId) sink.setThermompnnJobId(sub.thermompnnJobId);
             if (sub.thermompnnStatus) sink.setThermompnnStatus(sub.thermompnnStatus);
             if (sub.thermompnnError) {
               sink.setThermompnnError(sub.thermompnnError);
               noteThermompnnError(sub.thermompnnError, thermompnnLog);
+              settledThermompnnError = sub.thermompnnError;
             }
-            if (typeof sub.thermompnnVal === "number") {
-              sink.setFoldingEnergetics((prev: any) => ({ ...(prev ?? {}), thermompnn: sub.thermompnnVal }));
+            const thermompnnSettled =
+              typeof sub.thermompnnVal === "number" ||
+              (Boolean(sub.thermompnnStatus) && sub.thermompnnStatus !== "pending");
+            if (thermompnnSettled) {
+              sink.setFoldingEnergetics((prev: any) => withSettledThermompnn(prev, sub.thermompnnVal));
+              mergedEnergetics = withSettledThermompnn(mergedEnergetics, sub.thermompnnVal);
             }
             lastRemoteState = {
-              dynamut2Status: sub.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
-              dynamut2JobId: sub.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-              ddmutStatus: sub.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
-              ddmutJobId: sub.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
               thermompnnStatus: sub.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
-              thermompnnJobId: sub.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
             };
           }
         } catch (subErr: any) {
@@ -572,34 +518,24 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
         }
       }
 
-      // The run is over: nobody will resolve an engine that is still pending without an id.
-      //
-      // Settled from the MERGED view rather than from this response. `data` alone cannot see an id the
-      // store already holds, so a response that omits one — the ordinary submission race — would look
-      // like an engine with no id, and the settle would clear its status and tear down the live poller
-      // that was about to deliver the result. That is the defect this whole change exists to remove, and
-      // this was one of the three sites still feeding the settle a narrower view than the store's.
+      // The run is over: settle ThermoMPNN if still pending locally.
       settleUnreachableRemoteEngines(lastRemoteState);
+      if (lastRemoteState.thermompnnStatus === "pending") {
+        sink.setFoldingEnergetics((prev: any) => withSettledThermompnn(prev));
+        mergedEnergetics = withSettledThermompnn(mergedEnergetics);
+        lastRemoteState = { thermompnnStatus: null };
+      }
+      const resolvedThermompnnStatus = lastRemoteState.thermompnnStatus ?? null;
       setCachedVariant(cacheGeneKey, variant, uniprotId, {
         biophysicsContext: biophysicsContextOf(conditions),
         mutantPdb: data.pdb ?? null,
         foldxWtPdb: data.wtReferencePdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
-        foldingEnergetics: data.energetics
-          ? {
-              ...data.energetics,
-              ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
-            }
-          : null,
+        foldingEnergetics: mergedEnergetics,
         foldingStatus: effectiveFoldingStatus,
-        dynamut2JobId: data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-        dynamut2Status: data.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
-        ddmutJobId: data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
-        ddmutStatus: data.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
-        thermompnnJobId: data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
-        thermompnnStatus: data.thermompnnStatus ?? null,
-        thermompnnError: data.thermompnnError ?? null
+        thermompnnStatus: resolvedThermompnnStatus,
+        thermompnnError: settledThermompnnError
       });
     } else if (data.status === "queued" || data.status === "running") {
       const jobId = data.foldxJobId;
@@ -725,29 +661,12 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
         // The worker's own account of what it is doing — rendered verbatim, never guessed at.
         publishProgress(progressFrom(pollData));
 
-        // Update remote job IDs dynamically if newly resolved
-        if (pollData.dynamut2JobId != null) sink.setDynamut2JobId(pollData.dynamut2JobId);
-        if (pollData.ddmutJobId != null) sink.setDdmutJobId(pollData.ddmutJobId);
-        if (pollData.thermompnnJobId != null) sink.setThermompnnJobId(pollData.thermompnnJobId);
-
-        // Keep the error paths' view of the run current: a job id learned from polling must not be
-        // forgotten, or a later failure would settle an engine whose poller is live.
+        // Update ThermoMPNN error state if any
         lastRemoteState = {
-          dynamut2Status: pollData.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
-          dynamut2JobId: pollData.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-          ddmutStatus: pollData.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
-          ddmutJobId: pollData.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
           thermompnnStatus: pollData.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
-          thermompnnJobId: pollData.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
         };
 
         // Only propagate terminal failures/errors from backend snapshot; never clobber client's terminal status back to pending
-        if (pollData.dynamut2Status === "unavailable" || pollData.dynamut2Status === "error") {
-          sink.setDynamut2Status(pollData.dynamut2Status as any);
-        }
-        if (pollData.ddmutStatus === "unavailable" || pollData.ddmutStatus === "error") {
-          sink.setDdmutStatus(pollData.ddmutStatus as any);
-        }
         if (pollData.thermompnnStatus === "unavailable" || pollData.thermompnnStatus === "error" || pollData.thermompnnStatus === "busy") {
           sink.setThermompnnStatus(pollData.thermompnnStatus as any);
         }
@@ -801,20 +720,21 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
                 resolvedProvenance = applyEnergetics(resResult.energetics, resResult.provenance);
               }
 
-              const d2Status = resResult.energetics?.dynamut2 != null ? "done" : (pollData.dynamut2Status ?? data.dynamut2Status ?? null);
-              const ddmStatus = resResult.energetics?.ddmut != null ? "done" : (pollData.ddmutStatus ?? data.ddmutStatus ?? null);
               const tmStatus = resResult.energetics?.thermompnn != null ? "done" : (pollData.thermompnnStatus ?? data.thermompnnStatus ?? null);
 
-              // The FoldX run has finished, so any engine still pending without a job id is
-              // unreachable; one WITH an id is left to its live poller.
+              // The FoldX run has finished; settle ThermoMPNN if still marked pending.
               settleUnreachableRemoteEngines({
-                dynamut2Status: d2Status,
-                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-                ddmutStatus: ddmStatus,
-                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
                 thermompnnStatus: tmStatus,
-                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null
               });
+              const settledQueuedEnergetics = resResult.energetics
+                ? withSettledThermompnn({
+                    ...resResult.energetics,
+                    ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
+                  })
+                : null;
+              if (tmStatus === "pending") {
+                sink.setFoldingEnergetics((prev: any) => withSettledThermompnn(prev));
+              }
 
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
         biophysicsContext: biophysicsContextOf(conditions),
@@ -822,19 +742,9 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
                 foldxWtPdb: resResult.wtReferencePdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
                 foldingDdG: resResult.ddG ?? null,
-                foldingEnergetics: resResult.energetics
-                  ? {
-                      ...resResult.energetics,
-                      ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
-                    }
-                  : null,
+                foldingEnergetics: settledQueuedEnergetics,
                 foldingStatus: effectiveFoldingStatus,
-                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-                dynamut2Status: d2Status,
-                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
-                ddmutStatus: ddmStatus,
-                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
-                thermompnnStatus: tmStatus,
+                thermompnnStatus: tmStatus === "pending" ? null : tmStatus,
                 thermompnnError: pollData.thermompnnError ?? data.thermompnnError ?? null
               });
             } else {
@@ -842,14 +752,9 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
               if (resResult?.energetics) {
                 applyEnergetics(resResult.energetics, resResult.provenance);
               }
-              // The job failed, so nothing will resolve a still-pending remote engine.
+              // The job failed, so nothing will resolve a still-pending ThermoMPNN state.
               settleUnreachableRemoteEngines({
-                dynamut2Status: pollData.dynamut2Status ?? data.dynamut2Status ?? null,
-                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
-                ddmutStatus: pollData.ddmutStatus ?? data.ddmutStatus ?? null,
-                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
                 thermompnnStatus: pollData.thermompnnStatus ?? data.thermompnnStatus ?? null,
-                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null
               });
             }
           }

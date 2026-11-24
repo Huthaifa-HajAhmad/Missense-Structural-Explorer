@@ -19,11 +19,10 @@ export const PROVIDER_RATE_LIMITED = "PROVIDER_RATE_LIMITED";
 /**
  * Reader-facing names for the remote hosts the server calls, keyed by hostname.
  *
- * One host can serve several tools (UQ BioSig serves DynaMut2 and DDMut), and the pause is per host,
- * because that is what the provider counts. Callers that know the tool pass its name instead.
+ * Callers that know the tool pass its name instead; otherwise the host label is shown.
  */
 const HOST_LABELS: Readonly<Record<string, string>> = {
-  "biosig.lab.uq.edu.au": "UQ BioSig (DynaMut2, DDMut)",
+  "biosig.lab.uq.edu.au": "UQ BioSig (DDMut-PPI)",
   "rest.ensembl.org": "Ensembl",
   "grch37.rest.ensembl.org": "Ensembl (GRCh37)",
   "rest.variantvalidator.org": "VariantValidator",
@@ -42,7 +41,6 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   "router.huggingface.co": "Hugging Face",
   "api.japanfold.aiand.com": "JapanFold",
   "myvariant.info": "MyVariant.info",
-  "app.tamarind.bio": "Tamarind Bio",
   "zenodo.org": "Zenodo",
   "www.alliancegenome.org": "Alliance of Genome Resources",
   "rest.genenames.org": "HGNC",
@@ -75,7 +73,7 @@ export function retryAfterSeconds(ms: number): number {
 }
 
 /**
- * "DynaMut2 is limiting requests; retrying in 8 s."
+ * "DDMut-PPI is limiting requests; retrying in 8 s."
  *
  * Never "unavailable" or "down": the provider is answering, and it answers again after the pause.
  */

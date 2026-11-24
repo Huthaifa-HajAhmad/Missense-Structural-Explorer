@@ -39,9 +39,6 @@ import { CONFIG } from "../../config.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 import { governedFetch } from "../infra/http-client.ts";
 import { SIDECAR_BUDGET_HEADER, sidecarFailure } from "../infra/sidecar-budget.ts";
-import { credentialForCall, noteRefusal, resolveCredential } from "../infra/credentials.ts";
-import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
-import type { GovernedCredential } from "../infra/egress-governor.ts";
 
 // ---------------------------------------------------------------------------
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
@@ -530,27 +527,25 @@ export async function runRaspLocal(
 }
 
 // ---------------------------------------------------------------------------
-// ThermoMPNN (Tamarind Bio Remote Predictor)
+// ThermoMPNN (Local Python Sidecar — Kuhlman-Lab ProteinMPNN Neural Backbone)
 // ---------------------------------------------------------------------------
 
 /**
  * How long the model server may spend BEFORE it starts a ThermoMPNN pass (sent as `X-Budget-Ms`), and
  * how long this call then waits for its answer.
  *
- * The prediction itself takes about 1 s; the wait is the queue behind the ESM-2 passes of the same
- * analysis, and a running pass cannot be stopped. 15 s ran out during analyses, and 60 s still ran out
- * behind a 650M ESM-2 pass plus StabilityOracle's `pdb2pqr` on an 806-residue chain.
+ * The prediction itself takes < 1.6 s on CPU up to ~711 aa (97–1,508 ms measured on OCI ARM64);
+ * the wait is the queue behind StabilityOracle's `pdb2pqr` pass on the shared CPU gate, and a
+ * running pass cannot be stopped.
  *
  * Two numbers, on purpose: the budget is what the sidecar may use to refuse a pass it cannot start
  * (`PriorityCpuGate` answers its own `503 busy`), and the wait is 30 s longer so that refusal REACHES
- * us. With one shared number the client aborted in the same second the server was about to explain
- * itself. Both stay below the 180 s `backgroundRemoteSignal` the analysis route wraps every remote
- * submission in: a budget above it would be the caller aborting first, which is the defect this fixes.
+ * us. Both stay below the 180 s `BACKGROUND_REMOTE_TIMEOUT_MS` on `/generate-mutant`.
  */
 const THERMOMPNN_SIDECAR_BUDGET_MS = 120_000;
 const THERMOMPNN_SIDECAR_TIMEOUT_MS = 150_000;
 export const THERMOMPNN_SIDECAR_BUDGET = { budgetMs: THERMOMPNN_SIDECAR_BUDGET_MS, waitMs: THERMOMPNN_SIDECAR_TIMEOUT_MS };
-export const thermompnnCache = new LRUCache<string, { prediction: number | null; jobId?: string; status: "pending" | "running" | "done" | "error" }>({ max: 200 });
+export const thermompnnCache = new LRUCache<string, { prediction: number | null; status: "done" | "error" }>({ max: 200 });
 defaultCacheRegistry.registerCache("thermompnnCache", thermompnnCache, { ttlDesc: "none" });
 
 export function clearEnergyModelCaches(): void {
@@ -558,43 +553,16 @@ export function clearEnergyModelCaches(): void {
   raspCache.clear();
 }
 
-export async function testTamarindConnection(apiKey?: string): Promise<{ valid: boolean; message: string }> {
-  const keyToUse = resolveCredential("tamarind", apiKey, { statusOnly: true }).token;
-  if (!keyToUse) {
-    return { valid: false, message: "No Tamarind Bio API Key provided." };
-  }
-  try {
-    const res = await governedFetch("https://app.tamarind.bio/api/tools", {
-      headers: {
-        "x-api-key": keyToUse
-      },
-      signal: AbortSignal.timeout(10000),
-      credential: credentialForCall("tamarind", keyToUse, { charge: false })
-    });
-    if (res.ok) {
-      return { valid: true, message: "Connection to Tamarind Bio API verified successfully." };
-    }
-    if (res.status === 401 || res.status === 403) {
-      return { valid: false, message: "Invalid Tamarind Bio API Key (Unauthorized)." };
-    }
-    const txt = await res.text();
-    return { valid: false, message: `Tamarind API returned HTTP ${res.status}: ${txt.slice(0, 100)}` };
-  } catch (err: any) {
-    return { valid: false, message: `Network error connecting to Tamarind Bio API: ${err.message}` };
-  }
-}
-
 export async function submitThermoMpnnJob(
   pdbContent: string,
   mutation: string,
-  apiKey?: string,
   signal?: AbortSignal
-): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error" | "busy" | "unavailable"; error?: string }> {
+): Promise<{ jobId: string | null; prediction: number | null; status: "done" | "error" | "busy" | "unavailable"; error?: string }> {
   const pdbHash = crypto.createHash("sha256").update(pdbContent).digest("hex").slice(0, 16);
   const cacheKey = `${mutation}_${pdbHash}`;
   const cached = thermompnnCache.get(cacheKey);
   if (cached && cached.prediction !== null) {
-    return { jobId: cached.jobId || "cached", prediction: cached.prediction, status: "done" };
+    return { jobId: null, prediction: cached.prediction, status: "done" };
   }
 
   let chain = "A";
@@ -606,305 +574,58 @@ export async function submitThermoMpnnJob(
     chain = fourPartMatch[1].toUpperCase();
   }
 
-  const provider = (process.env.THERMOMPNN_PROVIDER || "local").toLowerCase();
-  // The caller's key, else this person's saved one, else the team's under the lending policy (WP-I4).
-  const keyToUse = resolveCredential("tamarind", apiKey).token;
-
-  // 1. Local Python Sidecar Evaluation (Sovereign 100% Pre-Trained Kuhlman-Lab Engine)
-  if (provider === "local" || !keyToUse) {
-    try {
-      const sidecarSecret = process.env.SIDECAR_SECRET || "";
-      const fetchSignal = signal
-        ? anySignal([signal, AbortSignal.timeout(THERMOMPNN_SIDECAR_TIMEOUT_MS)])
-        : AbortSignal.timeout(THERMOMPNN_SIDECAR_TIMEOUT_MS);
-
-      const localRes = await governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/thermompnn`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Sidecar-Secret": sidecarSecret,
-          // How long we wait, so the model server does not start a pass nobody is waiting for.
-          [SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_BUDGET_MS)
-        },
-        body: JSON.stringify({
-          pdb_content: pdbContent,
-          mutation,
-          chain
-        }),
-        signal: fetchSignal
-      });
-
-      if (localRes.ok) {
-        const localData = await localRes.json() as { status?: string; ddG?: number; error?: string };
-        if (localData && typeof localData.ddG === "number") {
-          thermompnnCache.set(cacheKey, { prediction: localData.ddG, jobId: "local_thermompnn", status: "done" });
-          return { jobId: "local_thermompnn", prediction: localData.ddG, status: "done" };
-        }
-      } else {
-        const errJson = await localRes.json().catch(() => ({}));
-        const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
-        console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
-        if ((errJson as any)?.status === "busy") {
-          // Not warming up: the model server answered and was busy with earlier work. Retrying later can work,
-          // and the engine is there, so surface it as busy rather than unavailable or a provider error.
-          // No cloud retry: that fallback is for a local service that gives no answer (a timeout, an unreachable
-          // server), and a server that says it is busy will answer soon.
-          return { jobId: null, prediction: null, status: "busy", error: sidecarFailure("ThermoMPNN", localRes.status).error };
-        }
-        if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
-          /**
-           * Warming is a deployment phase, not a job: no pollable id may exist for it.
-           *
-           * The previous answer, `{ jobId: "local_warming", status: "pending" }`, was registered
-           * as a real job and handed to the client as pollable — every poll then hit a Tamarind
-           * job named `local_warming`, 404'd, and the warming engine surfaced as "Provider
-           * error". Say what is true instead: not-available-yet, with the reason it will change.
-           */
-          return { jobId: null, prediction: null, status: "unavailable", error: `ThermoMPNN engine is warming up: ${detail}` };
-        }
-        if (!keyToUse) {
-          noteRefusal("tamarind");
-          return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN in standby: ${detail}` };
-        }
-        console.log(`[ThermoMPNN] Local sidecar in standby (${detail}). Attempting remote Tamarind Bio cloud fallback...`);
-      }
-    } catch (localErr: any) {
-      console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
-      if (!keyToUse && localErr?.name === "TimeoutError") {
-        // No answer in time means the local service was busy with earlier work, not missing or broken.
-        return {
-          jobId: null,
-          prediction: null,
-          status: "busy",
-          error: `ThermoMPNN did not answer within ${THERMOMPNN_SIDECAR_TIMEOUT_MS / 1000} s: the model service was busy with earlier work. Retrying ThermoMPNN on its own usually succeeds.`
-        };
-      }
-      if (!keyToUse) {
-        noteRefusal("tamarind");
-        return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN sidecar in standby: ${localErr.message}` };
-      }
-      console.log(`[ThermoMPNN] Local sidecar unavailable (${localErr.message}). Attempting remote Tamarind Bio cloud fallback...`);
-    }
-  }
-
-  // 2. Remote Tamarind Bio API (Fallback when key is configured)
-  if (!keyToUse) {
-    noteRefusal("tamarind");
-    return { jobId: null, prediction: null, status: "unavailable", error: "Local ThermoMPNN sidecar in standby. Start sidecar or enter Tamarind API key." };
-  }
-
-  /**
-   * One submission for every concurrent caller using the same token (WP-I4): the team's, or one person's
-   * own. A pending Tamarind job can only be polled with the key that submitted it, so callers on
-   * different tokens get their own jobs. The job id stays joinable for a minute after it arrives.
-   */
-  const credential = credentialForCall("tamarind", keyToUse);
-  const flightKey = `${cacheKey}|${credential.bucket ?? "team"}`;
   try {
-    return await sharedFlight(
-      tamarindSubmissions,
-      flightKey,
-      () => sendTamarindSubmission(pdbContent, mutation, chain, keyToUse, cacheKey, credential),
-      { signal, lingerMs: 60_000, lingerIf: r => r.jobId !== null }
-    );
-  } catch (err: any) {
-    // This caller gave up (its signal aborted); the shared submission carries on for any others.
-    return { jobId: null, prediction: null, status: "error", error: err?.message ?? "Cancelled" };
-  }
-}
+    const sidecarSecret = process.env.SIDECAR_SECRET || "";
+    const fetchSignal = signal
+      ? anySignal([signal, AbortSignal.timeout(THERMOMPNN_SIDECAR_TIMEOUT_MS)])
+      : AbortSignal.timeout(THERMOMPNN_SIDECAR_TIMEOUT_MS);
 
-type ThermoMpnnSubmission = { jobId: string | null; prediction: number | null; status: "pending" | "done" | "error" | "unavailable"; error?: string };
-
-/**
- * The key each Tamarind job was submitted with, by job id, for 6 hours: a pending job can only be read with
- * that key. In memory only (tokens are held in memory for the call anyway), never logged, never persisted.
- */
-const submittingKeys = new LRUCache<string, string>({ max: 1000, ttl: 6 * 60 * 60 * 1000 });
-
-function submittingKeyFor(jobId: string): string | null {
-  return submittingKeys.get(jobId) ?? null;
-}
-
-/** Tamarind submissions in flight (or settled less than a minute ago), by run and token bucket. */
-const tamarindSubmissions: SharedFlights<ThermoMpnnSubmission> = new Map();
-
-/** Test seam. */
-export function resetTamarindSubmissionsForTests(): void {
-  tamarindSubmissions.clear();
-  submittingKeys.clear();
-}
-
-async function sendTamarindSubmission(
-  pdbContent: string,
-  mutation: string,
-  chain: string,
-  keyToUse: string,
-  cacheKey: string,
-  credential: GovernedCredential
-): Promise<ThermoMpnnSubmission> {
-  const generatedJobName = `thermompnn_${mutation.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
-
-  try {
-    // Bounded by its own timeout, not by a caller's signal: the submission is shared (see above).
-    const fetchSignal = AbortSignal.timeout(15000);
-
-    const response = await governedFetch("https://app.tamarind.bio/api/submit-job", {
-      credential,
+    const localRes = await governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/thermompnn`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": keyToUse
+        "X-Sidecar-Secret": sidecarSecret,
+        // How long we wait, so the model server does not start a pass nobody is waiting for.
+        [SIDECAR_BUDGET_HEADER]: String(THERMOMPNN_SIDECAR_BUDGET_MS)
       },
       body: JSON.stringify({
-        type: "thermompnn",
-        tool: "thermompnn",
-        pdb: pdbContent,
-        pdbFile: pdbContent,
+        pdb_content: pdbContent,
         mutation,
-        jobName: generatedJobName,
-        chains: [chain],
-        settings: {
-          pdbFile: pdbContent,
-          chains: [chain]
-        }
+        chain
       }),
       signal: fetchSignal
     });
 
-    if (!response.ok) {
-      const errText = typeof response.text === "function" ? await response.text() : "Unknown Error";
-      return { jobId: null, prediction: null, status: "error", error: `Tamarind API HTTP ${response.status}: ${errText.slice(0, 100)}` };
+    if (localRes.ok) {
+      const localData = await localRes.json() as { status?: string; ddG?: number; error?: string };
+      if (localData && typeof localData.ddG === "number") {
+        thermompnnCache.set(cacheKey, { prediction: localData.ddG, status: "done" });
+        return { jobId: null, prediction: localData.ddG, status: "done" };
+      }
+      return { jobId: null, prediction: null, status: "error", error: localData?.error || "Local ThermoMPNN returned no ΔΔG prediction." };
     }
 
-    let resText = "";
-    if (typeof response.text === "function") {
-      resText = await response.text();
-    } else if (typeof response.json === "function") {
-      resText = JSON.stringify(await response.json());
+    const errJson = await localRes.json().catch(() => ({}));
+    const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
+    console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
+    if ((errJson as any)?.status === "busy") {
+      return { jobId: null, prediction: null, status: "busy", error: sidecarFailure("ThermoMPNN", localRes.status).error };
     }
-    
-    let data: any = null;
-    if (resText && (resText.trim().startsWith("{") || resText.trim().startsWith("["))) {
-      try {
-        data = JSON.parse(resText);
-      } catch (_) {}
+    if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
+      return { jobId: null, prediction: null, status: "unavailable", error: `ThermoMPNN engine is warming up: ${detail}` };
     }
-
-    if (data) {
-      /**
-       * Only a job id Tamarind actually returned is a job. Falling back to our own
-       * `jobName` here fabricated a pending entry from any success-shaped JSON that
-       * carried neither a score nor an id — registered, cached it, and sent the client
-       * to poll a job that did not exist upstream, ending in a false "Tamarind job
-       * execution failed". The plain-text branch below may use the generated name,
-       * because we sent it and Tamarind accepted it ("X submitted to queue").
-       */
-      const jobId = data.jobId || data.id || data.job_id || null;
-      const rawDdg = data.Score ?? data.prediction ?? data.ddg ?? data.delta_delta_g ?? data.score ?? null;
-      if (typeof rawDdg === "number") {
-        thermompnnCache.set(cacheKey, { prediction: rawDdg, jobId, status: "done" });
-        return { jobId, prediction: rawDdg, status: "done" };
-      }
-      if (jobId) {
-        thermompnnCache.set(cacheKey, { prediction: null, jobId, status: "pending" });
-        submittingKeys.set(jobId, keyToUse);
-      return { jobId, prediction: null, status: "pending" };
-      }
+    return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN in standby: ${detail}` };
+  } catch (localErr: any) {
+    console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
+    if (localErr?.name === "TimeoutError") {
       return {
         jobId: null,
         prediction: null,
-        status: "unavailable",
-        error: `Tamarind API answered but returned neither a score nor a job ID: ${JSON.stringify(data).slice(0, 120)}`
-      };
-    } else {
-      // Plain text response "myJobName submitted to queue."
-      const jobId = generatedJobName;
-      thermompnnCache.set(cacheKey, { prediction: null, jobId, status: "pending" });
-      submittingKeys.set(jobId, keyToUse);
-      return { jobId, prediction: null, status: "pending" };
-    }
-
-    return { jobId: null, prediction: null, status: "error", error: "No jobId or score returned by Tamarind API" };
-  } catch (err: any) {
-    console.warn("[ThermoMPNN] Failed to submit job to Tamarind Bio:", err.message);
-    return { jobId: null, prediction: null, status: "error", error: err.message };
-  }
-}
-
-export async function pollThermoMpnnJob(
-  jobId: string,
-  apiKey?: string
-): Promise<{ status: "pending" | "running" | "done" | "error"; prediction: number | null; error?: string }> {
-  // A job is only visible to the key that submitted it, so a poll uses that key when this process
-  // submitted the job (a caller who joined someone else's run may hold a different one). Otherwise the
-  // caller's own key, saved key or the team's; a poll must keep working whatever the hourly share says.
-  const keyToUse = submittingKeyFor(jobId) ?? resolveCredential("tamarind", apiKey, { statusOnly: true }).token;
-  if (!keyToUse) {
-    return { status: "error", prediction: null, error: "Tamarind Bio API key not configured" };
-  }
-
-  try {
-    const response = await governedFetch(`https://app.tamarind.bio/api/jobs?jobName=${encodeURIComponent(jobId)}`, {
-      headers: {
-        "x-api-key": keyToUse
-      },
-      signal: AbortSignal.timeout(10000),
-      credential: credentialForCall("tamarind", keyToUse, { charge: false })
-    });
-
-    if (!response.ok) {
-      return { status: "error", prediction: null, error: `HTTP ${response.status}` };
-    }
-
-    const data: any = await response.json();
-    let jobData = data;
-    if (data && Array.isArray(data.jobs)) {
-      const found = data.jobs.find((j: any) => j.JobName === jobId || j.jobName === jobId);
-      if (found) {
-        jobData = found;
-      } else {
-        return { status: "pending", prediction: null };
-      }
-    }
-
-    const rawStatus = jobData.JobStatus || jobData.status || "";
-    const status = (rawStatus === "Complete" || rawStatus === "DONE" || rawStatus === "completed" || rawStatus === "success")
-      ? "done"
-      : (rawStatus === "ERROR" || rawStatus === "failed" || rawStatus === "Stopped" || rawStatus === "Deleted")
-        ? "error"
-        : (rawStatus === "Running")
-          ? "running"
-          : "pending";
-
-    if (status === "done") {
-      const rawDdg = jobData.Score ?? jobData.prediction ?? jobData.ddg ?? jobData.delta_delta_g ?? jobData.score ?? jobData.result?.ddg ?? null;
-      const prediction = typeof rawDdg === "number" ? rawDdg : null;
-      if (prediction !== null) {
-        return { status: "done", prediction };
-      }
-      /**
-       * "Complete" without a number is an upstream failure to deliver, not a terminal success.
-       *
-       * Returning a terminal `done, null` made the client stop polling on a job that produced
-       * nothing, and the enricher — which only holds engines open on `pending` — declared the
-       * evidence complete with ThermoMPNN silently missing from it. Report it as an upstream
-       * error instead: it renders as "Provider error — can be retried", which is honest about
-       * the run and actionable.
-       */
-      return {
-        status: "error",
-        prediction: null,
-        error: (jobData.error as string) || "Tamarind job completed without returning a numeric ΔΔG score; re-submitting may produce one."
+        status: "busy",
+        error: `ThermoMPNN did not answer within ${THERMOMPNN_SIDECAR_TIMEOUT_MS / 1000} s: the model service was busy with earlier work. Retrying ThermoMPNN on its own usually succeeds.`
       };
     }
-
-    if (status === "error") {
-      return { status: "error", prediction: null, error: jobData.error || "ThermoMPNN job execution failed" };
-    }
-
-    return { status: status === "running" ? "running" : "pending", prediction: null };
-  } catch (err: any) {
-    return { status: "error", prediction: null, error: err.message };
+    return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN sidecar in standby: ${localErr.message}` };
   }
 }
 
@@ -915,13 +636,6 @@ export async function pollThermoMpnnJob(
 export function enrichBiophysicalResult(
   foldxRawResult: any,
   remoteJobs?: Partial<{
-    dynamut2JobId: string | null;
-    dynamut2Status: "pending" | "done" | "unavailable" | "error" | string | null;
-    dynamut2Val: number | null;
-    ddmutJobId: string | null;
-    ddmutStatus: "pending" | "done" | "unavailable" | "error" | string | null;
-    ddmutVal: number | null;
-    thermompnnJobId: string | null;
     thermompnnStatus: "pending" | "done" | "unavailable" | "error" | "busy" | string | null;
     thermompnnError: string | null;
     thermompnnVal: number | null;
@@ -966,8 +680,6 @@ export function enrichBiophysicalResult(
   const stabilityoracleStatus = jobs.stabilityoracleStatus ?? foldxRawResult?.energetics?.stabilityoracleStatus ?? null;
   const stabilityoracleError = jobs.stabilityoracleError ?? foldxRawResult?.energetics?.stabilityoracleError ?? null;
   const thermompnnVal = jobs.thermompnnVal ?? foldxRawResult?.energetics?.thermompnn ?? null;
-  const dynamut2Val = jobs.dynamut2Val ?? foldxRawResult?.energetics?.dynamut2 ?? null;
-  const ddmutVal = jobs.ddmutVal ?? foldxRawResult?.energetics?.ddmut ?? null;
   /**
    * ProtVar's precomputed FoldX: carried, NOT listed in `pendingTools` (a reference lookup must not
    * hold the verdict provisional), and never a second vote beside local FoldX. It reaches
@@ -985,8 +697,6 @@ export function enrichBiophysicalResult(
   };
 
   const pendingTools: string[] = [];
-  if (jobs.dynamut2Status === "pending" && dynamut2Val === null) pendingTools.push("DynaMut2");
-  if (jobs.ddmutStatus === "pending" && ddmutVal === null) pendingTools.push("DDMut");
   if (jobs.thermompnnStatus === "pending" && thermompnnVal === null) pendingTools.push("ThermoMPNN");
   if (raspStatus === "pending" && rasp === null) pendingTools.push("RaSP");
   if (stabilityoracleStatus === "pending" && stabilityoracleVal === null) pendingTools.push("StabilityOracle");
@@ -1003,8 +713,6 @@ export function enrichBiophysicalResult(
     rasp,
     thermompnn: thermompnnVal,
     stabilityoracle: stabilityoracleVal,
-    dynamut2: dynamut2Val,
-    ddmut: ddmutVal,
     foldxRepairFailed,
     foldxBinaryMissing,
     // ProtVar counts as the FoldX reading only on an AlphaFold template with no local value
@@ -1014,13 +722,6 @@ export function enrichBiophysicalResult(
   });
   /**
    * The verdict is a **closed-set** value; provisionality is a separate typed fact.
-   *
-   * This used to concatenate the caveat into the string —
-   * `"… (Preliminary - pending: DynaMut2)"` — which made the field free text: no consumer could
-   * compare it against a verdict, nothing could type-check it, and the same run's verdict differed
-   * textually between the exported payload and the screen. `evidenceComplete` and `pendingTools`
-   * (emitted below) already carry the caveat, and the client maintains `pendingTools` itself as each
-   * engine resolves.
    */
   const consensusVerdict = calResult.consensusVerdict;
 
@@ -1036,11 +737,6 @@ export function enrichBiophysicalResult(
     thermompnnDdG: thermompnnVal,
     status: finalStatus,
     foldedResidueIndex: posNum,
-    dynamut2JobId: jobs.dynamut2JobId ?? null,
-    dynamut2Status: jobs.dynamut2Status ?? null,
-    ddmutJobId: jobs.ddmutJobId ?? null,
-    ddmutStatus: jobs.ddmutStatus ?? null,
-    thermompnnJobId: jobs.thermompnnJobId ?? null,
     thermompnnStatus: jobs.thermompnnStatus ?? null,
     thermompnnError: jobs.thermompnnError ?? null,
     error: foldxRawResult?.error ?? foldxRawResult?.energetics?.foldxError ?? null,
@@ -1048,11 +744,6 @@ export function enrichBiophysicalResult(
       foldx: foldxMean,
       /**
        * The ensemble mean and spread.
-       *
-       * `foldxMean` and `foldxSd` were computed above and then dropped by this literal, so the
-       * client's `formatDdgPair` never received the spread it is designed to print — the same
-       * omission class as the repair flags below, and the number the UI's own doctrine protects
-       * ("a missing spread must not be rendered as ± 0.00").
        */
       foldxMean,
       foldxSd,
@@ -1066,15 +757,6 @@ export function enrichBiophysicalResult(
       seed: foldxSeed,
       foldxRepairFailed,
       foldxBinaryMissing: foldxRawResult?.energetics?.foldxBinaryMissing ?? false,
-      /**
-       * Whether the template this ΔΔG rests on was minimised, whether the repaired coordinates were
-       * reused, and — when repair was deliberately not attempted — why.
-       *
-       * This literal is a WHITELIST: a field the runner produces and this object omits does not
-       * exist as far as every client surface is concerned. These three were omitted when they were
-       * introduced, which made the disclosure copy in `EnergeticsView` unreachable in the shipped
-       * flow while the documentation asserted it landed on the row.
-       */
       foldxRepairSkipped,
       foldxRepairCacheKey: foldxRawResult?.energetics?.foldxRepairCacheKey,
       foldxRepairRefresh: foldxRawResult?.energetics?.foldxRepairRefresh,
@@ -1089,8 +771,6 @@ export function enrichBiophysicalResult(
         templateExtent: foldxRawResult.energetics.templateExtent
       } : {}),
       foldxError: foldxRawResult?.energetics?.foldxError ?? foldxRawResult?.error ?? null,
-      dynamut2: dynamut2Val,
-      ddmut: ddmutVal,
       rasp,
       raspReason,
       raspStatus,
@@ -1103,11 +783,6 @@ export function enrichBiophysicalResult(
       stabilityoracleStatus,
       stabilityoracleError,
       ...protvarFields,
-      /**
-       * The agreement count, not a probability. `consensusProbability` / `consensusConfMin/Max` are no
-       * longer emitted: they came from hand-typed curves (see `thresholds/consensus.ts`). Old cached
-       * payloads may still carry them; the schema keeps them optional and no surface reads them.
-       */
       consensusVerdict,
       consensusEnginesCounted: calResult.enginesCounted,
       consensusEnginesDestabilizing: calResult.enginesDestabilizing,
