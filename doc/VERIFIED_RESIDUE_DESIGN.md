@@ -1,9 +1,12 @@
 # Verified residue: gate and candidate residues (design, approved 2026-11-24)
 
 Status: approved 2026-11-24 (A, B1, B2, C in that order). Step A is built: `numbering-proof.ts` (issue, verify),
-`src/shared/verifiedResidue.ts`, the proof on `POST /translate-variant`, the check in the analysis parser, and
-`numberingProof` in all six analysis audit entries. The routes in `structure.ts`, `biophysics/generation.ts`,
-`literature.ts` and `narrative.ts` do not check the proof yet: nothing there uses the result before B2.
+`src/shared/verifiedResidue.ts`, the proof on `POST /translate-variant` (coordinate and `NP_…` input) and on
+`POST /numbering-proof` (typed protein notation, called by the browser before the requests that run in parallel
+with the analysis), the check in the analysis parser, `numberingProof` in all six analysis audit entries and in
+`GENERATE_MUTANT` (queued, joined or cache hit). The other routes in `structure.ts`, `biophysics/generation.ts`,
+`literature.ts` and `narrative.ts` do not check the proof yet: they have no audit entry, and nothing there uses
+the result before B2 (owner decision, 2026-11-24). Their checks are listed under "Proof on the other routes" in §5.
 Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
 This is the second version, revised after a three-part code review (correctness, tests, architecture).
 
@@ -151,6 +154,33 @@ Correction to the first version: "landscape context" is gene-wide and was listed
 
 Routes that take a position, and so need the proof (six files, not two): `analysis.ts` (six endpoints), `structure.ts`,
 `biophysics/generation.ts`, `literature.ts`, `narrative.ts`, and `translation.ts` (issues the proof).
+
+### Proof on the other routes (decided in step A, built in B2)
+
+- **Inventory.** Besides the routes above: `GET /pdb/entry/:pdbId?uniprot=&pos=&wt=` and
+  `POST /structure/multimer/import`. `GET /alphafold-pdb/:uniprotId` takes no position and needs no proof.
+- **How the proof travels.** POST routes take `numberingProof` in the body (`requestFieldsOf` already sends it to
+  every analysis, landscape, structural, multimer and PPI request). GET routes take it in an `X-Numbering-Proof`
+  header, not the URL, so proofs stay out of the request log. The browser does not send the header in step A:
+  `fetchHomologStructures` and `fetchPdbCoordinates` take long positional argument lists, so the header is added
+  together with the server check, with those signatures changed to one options object.
+- **Position-only match.** `GET /pdb/:uniprotId?pos=` and `GET /homologs/:uniprotId?pos=` name no wild type or
+  mutant. They accept a proof that names the same accession and position (a proof for K281N proves position 281's
+  numbering), through a separate `verifyPositionProof`; `verifyNumberingProof` stays strict for every route that
+  names the substitution (`/literature` with `variant`, `/pdb/entry` with `wt`).
+- **Caching.** These responses set no `Cache-Control` today, Caddy has no response cache, and Cloudflare's cache
+  ignores a custom `Vary`. Once a response can be withheld for one request and not another, every gated response
+  sets `Cache-Control: private, no-store` and `res.vary("X-Numbering-Proof")`, so neither a browser nor a shared
+  cache serves a withheld answer to a request with a valid proof, or the reverse. The server's own caches are keyed
+  by accession and position, not by the proof, and are not affected. Check that the edge Worker forwards the header.
+- **A structure the caller sends** (`wtPdb` on `/generate-mutant`; the retry buttons' `/dynamut2-submit` and
+  `/thermompnn-submit`) is read in its own numbering, so no UniProt proof applies and it is not gated; the audit
+  entry says `caller-structure`. Known defect, not fixed: with a caller's structure, `/generate-mutant` still asks
+  RaSP and ProtVar FoldX for the UniProt accession at the file's position, which is another residue when the
+  file's numbering differs.
+- **B1 and coordinate input.** Without a valid proof the parser falls back to its own canonical-versus-MANE check,
+  so an unverified coordinate translation can be named `canonical-vs-mane`. B1 must accept only `genomic` or
+  `declared-protein` when the request carries a coordinate.
 
 ### Effect on criteria (corrected to the real rule engine)
 
