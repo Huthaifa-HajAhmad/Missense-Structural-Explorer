@@ -1,5 +1,8 @@
 # RNA splicing tab — scientific-integrity and UI review
 
+> [!NOTE]
+> **Historical baseline (28 September 2026):** The "Decision taken" section below records the September 2026 Phase 3 design ("tab only, engine unchanged"). In **Phase 5c (24 November 2026)**, `doc/PRIMARY_PREDICTOR_DECISION.md` updated the engine so `SpliceAI` now applies ClinGen/Walker 2023 splicing `PP3` once (when `PVS1` is absent, with gene-specific VCEP cutoffs from the 113 Released CSpec records) and both this tab and its inspector read those VCEP/Walker rules from `buildSplicingEvidence`.
+
 Reviewed against NAE1 p.Asp116Gly (NM_003905.4, MANE Select; payload coordinate `16-66823281-A-G`,
 GRCh38), 28 September 2026. Branch `splicing-redesign`.
 
@@ -140,8 +143,7 @@ genomic (reverse-strand genes flip) and the annotated sites sit at `junction −
 
 ## Not done (follow-ups)
 
-- **Engine**: splicing is not an engine input. If that changes, Walker 2023's "PP3 once" rule and
-  the missense-BP4 interaction need implementing in `criteria.ts`, not in a surface.
+- **Engine (implemented 2026-11-24 on `feat/phase5c-vcep-walker-pp3`, following Phase 5b PR #294)**: `src/shared/insilico/spliceGate.ts`, `src/shared/insilico/primaryPredictor.ts`, and `server/services/prediction/acmg/pp3-bp4.ts` now implement Walker 2023 splicing PP3 ("PP3 once", never added when PVS1 is met), VCEP-specific splicing thresholds, and the SpliceAI BP4 block + missing-locus gate. `SplicingTab` and `SplicingRail` read the engine record cleanly alongside the SpliceAI rule view.
 - **Client cache**: a result already held in the browser's own history is not re-fetched when the
   window setting changes; it is recomputed when the server sees it (new analysis or reopen).
 - **Strand**: when the resolver leaves the strand unresolved, SpliceAI's positions are not placed on

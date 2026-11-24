@@ -1,5 +1,8 @@
 # Predictors tab — scientific-integrity and UI review
 
+> [!NOTE]
+> **Historical baseline (28 September 2026):** The "Decision taken" section below records the September 2026 Phase 3 design ("keep the vote, fix its inputs"). That rule was superseded in **Phase 5a/5c (24 November 2026)** by `doc/PRIMARY_PREDICTOR_DECISION.md`: the engine now uses the single primary calibrated predictor (`REVEL → BayesDel noAF → AlphaMissense → ESM1b`) or the gene's audited ClinGen VCEP specification (113 Active Released CSpec records covering 110 genes) alongside Walker 2023 splicing `PP3`.
+
 Reviewed against GZF1 p.Arg591Trp (NM_022482.5, 20-23369727-C-T, GRCh38), 28 September 2026.
 Branch `predictors-redesign`.
 
@@ -76,8 +79,7 @@ labelled in the rail as classified by an earlier engine.
   replacing it with the percentile.
 - The heatmaps' REVEL/CADD/AlphaMissense colour breaks (`THRESHOLDS.revel` etc.) are unchanged; their
   comments now say they are display breaks, not evidence.
-- ClinGen's PP3 + PM1 ≤ Strong cap is described in the rail but not enforced by the engine.
-- A single pre-specified calibrated tool for PP3/BP4 remains the ClinGen recommendation.
+- ClinGen's `PP3 + PM1 ≤ Strong` cap, single primary calibrated predictor (`REVEL → BayesDel noAF → AlphaMissense → ESM1b`), 113-spec ClinGen VCEP gene overrides, and Walker 2023 splicing PP3 ("PP3 once", never added on top of PVS1) are now enforced by the engine and surfaced in the rule trace (`Phase 5b + 5c`, `2026-11-24`).
 
 ## Sources
 

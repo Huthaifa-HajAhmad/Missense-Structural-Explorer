@@ -1025,7 +1025,8 @@ export const biophysicalAnalysisResponseSchema = z.object({
     acmgCriteria: z.array(z.object({
       code: z.string(),
       reason: z.string()
-    })).optional()
+    })).optional(),
+    insilicoHasPvs1: z.boolean().optional(),
   }).nullable().optional(),
   metadata: z.object({
     ...runtimeTimingFields,
@@ -1774,6 +1775,7 @@ export const analyzeVariantResponseSchema = z.object({
     plausibility: z.string(),
     acmgVerdict: z.string(),
     acmgCriteria: z.array(acmgCriteriaItemSchema),
+    insilicoHasPvs1: z.boolean().optional(),
     partialEvidence: z.object({
       available: z.array(z.string()),
       unavailable: z.array(z.string())

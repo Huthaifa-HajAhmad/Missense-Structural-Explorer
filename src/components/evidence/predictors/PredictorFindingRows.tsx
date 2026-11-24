@@ -1,5 +1,6 @@
 import React from "react";
 import { ENGINE_STATE_LABELS } from "../../../shared/engineStatus";
+import { PREDICTOR_TOOL_LABEL } from "../../../shared/insilico/primaryPredictor";
 import { formatEvidenceCode } from "../../../shared/thresholds";
 import type { PredictorEvidence, PredictorReading } from "../../../shared/predictorEvidence";
 import { CHAIN_ORDER_TEXT } from "../../../shared/predictorSummary";
@@ -78,11 +79,34 @@ export function ChainRow({ evidence }: { evidence: PredictorEvidence }) {
     : disagreeing.has(r.chainKey!) ? "disagrees"
     : "after";
   const roleText = { active: "sets PP3/BP4", skipped: "no score", disagrees: "points the other way", after: "not used for strength" } as const;
+  const activeName = primary.activeTool
+    ? (chain.find(r => r.chainKey === primary.activeTool)?.name ?? PREDICTOR_TOOL_LABEL[primary.activeTool])
+    : null;
+  const title = primary.vcepRule
+    ? (primary.vcepApplied
+      ? `ClinGen VCEP · ${primary.vcepRule.cspecId} v${primary.vcepRule.version}`
+      : `Fixed order · VCEP advisory (${primary.vcepRule.cspecId} v${primary.vcepRule.version})`)
+    : "Fixed order";
+  const sub = primary.vcepRule ? primary.vcepRule.summary : "The first calibrated tool with a score sets PP3/BP4";
+  const keyText = (() => {
+    if (primary.outcome === "vcep-excluded") return "Missense computational predictors excluded by ClinGen VCEP.";
+    if (primary.criterionSource === "spliceai") {
+      return `SpliceAI max Δ ${primary.activeScore?.toFixed(2) ?? ""} triggered splicing ${formatEvidenceCode(primary.code!)}.`;
+    }
+    if (primary.activeTool === null) {
+      if (primary.outcome === "withheld-base") {
+        return evidence.pending ? "Waiting for dbNSFP scores." : "The dbNSFP scores did not arrive; re-run the analysis to get PP3/BP4.";
+      }
+      if (primary.vcepNotes.length > 0 && primary.outcome === "indeterminate") return primary.vcepNotes[0];
+      return "No calibrated tool scored this variant.";
+    }
+    return `${activeName} answered${primary.skippedBefore.length ? ` after ${primary.skippedBefore.length} without a score` : ""}${primary.disagreeingTools.length ? ` · ${primary.disagreeingTools.length} ${primary.disagreeingTools.length === 1 ? "points" : "point"} the other way` : ""}.`;
+  })();
   return (
     <div className="prd-frow" data-testid="predictor-chain-row" data-outcome={primary.outcome}>
       <div className="prd-frow__label">
-        <span className="prd-frow__name">Fixed order</span>
-        <span className="prd-frow__sub">The first calibrated tool with a score sets PP3/BP4</span>
+        <span className="prd-frow__name">{title}</span>
+        <span className="prd-frow__sub">{sub}</span>
       </div>
       <div className="prd-frow__body">
         <ol className="prd-tally" aria-label={`Calibrated tools in order: ${CHAIN_ORDER_TEXT}`}>
@@ -102,13 +126,7 @@ export function ChainRow({ evidence }: { evidence: PredictorEvidence }) {
             );
           })}
         </ol>
-        <p className="prd-tally__key" data-testid="predictor-chain-key">
-          {primary.activeTool === null
-            ? (primary.outcome !== "withheld-base" ? "No calibrated tool scored this variant."
-              : evidence.pending ? "Waiting for dbNSFP scores."
-              : "The dbNSFP scores did not arrive; re-run the analysis to get PP3/BP4.")
-            : `${chain.find(r => r.chainKey === primary.activeTool)?.name} answered${primary.skippedBefore.length ? ` after ${primary.skippedBefore.length} without a score` : ""}${primary.disagreeingTools.length ? ` · ${primary.disagreeingTools.length} ${primary.disagreeingTools.length === 1 ? "points" : "point"} the other way` : ""}.`}
-        </p>
+        <p className="prd-tally__key" data-testid="predictor-chain-key">{keyText}</p>
       </div>
       <div className="prd-frow__call">
         <RowChip code={primary.code} testId="predictor-chain-call" />
@@ -120,17 +138,36 @@ export function ChainRow({ evidence }: { evidence: PredictorEvidence }) {
 /** The answering tool on its own ruler with its published bands. Absence is a state, not a gap. */
 export function PrimaryToolRow({ evidence }: { evidence: PredictorEvidence }) {
   const { primary } = evidence;
-  const reading = primary.activeTool ? evidence.readings.find(r => r.chainKey === primary.activeTool) ?? null : null;
+  const reading = primary.activeTool === "cadd"
+    ? evidence.readings.find(r => r.key === "cadd") ?? null
+    : primary.activeTool && primary.activeTool !== "spliceai"
+    ? evidence.readings.find(r => r.chainKey === primary.activeTool) ?? null
+    : null;
   const call = primary.activeCall;
-  const pending = !reading && evidence.readings.some(r => r.chainKey !== null && r.availability.state === "pending");
+  const isSplicePrimary = primary.activeTool === "spliceai" && primary.activeScore !== null && primary.code !== null;
+  const pending = !reading && !isSplicePrimary && evidence.readings.some(r => r.chainKey !== null && r.availability.state === "pending");
+  const subLabel = isSplicePrimary
+    ? (primary.vcepRule?.splice?.pp3Missense && primary.vcepRule.splice.pp3Missense !== "none"
+      ? `SpliceAI · ${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version})`
+      : "SpliceAI · Walker 2023 splicing rule")
+    : reading
+    ? (primary.criterionSource === "vcep" && primary.vcepRule
+      ? `${reading.name} · ${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version})`
+      : `${reading.name} · ClinGen, ${reading.cutpoints.source}`)
+    : CHAIN_ORDER_TEXT;
   return (
     <div className="prd-frow" data-testid="predictor-primary-row" data-outcome={primary.outcome}>
       <div className="prd-frow__label">
         <span className="prd-frow__name">Primary tool</span>
-        <span className="prd-frow__sub">{reading ? `${reading.name} · ClinGen, ${reading.cutpoints.source}` : CHAIN_ORDER_TEXT}</span>
+        <span className="prd-frow__sub">{subLabel}</span>
       </div>
       <div className="prd-frow__body">
-        {reading && call ? (
+        {isSplicePrimary ? (
+          <span className="prd-frow__note">
+            <span className="prd-mono">SpliceAI max Δ {primary.activeScore!.toFixed(2)}</span>{" "}
+            supports splicing {formatEvidenceCode(primary.code!)} (PP3 applied once when PVS1 is absent)
+          </span>
+        ) : reading && call ? (
           <>
             <ScoreRuler reading={reading} thresholds="all" />
             <span className="prd-frow__note">
@@ -140,19 +177,29 @@ export function PrimaryToolRow({ evidence }: { evidence: PredictorEvidence }) {
           </>
         ) : (
           <span className="prd-dim">
-            {pending ? "Still being computed for this variant."
+            {primary.outcome === "vcep-excluded"
+              ? (primary.vcepRule
+                ? `${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}) excludes missense computational predictors.`
+                : "Missense computational predictors excluded by ClinGen VCEP.")
+              : primary.outcome === "indeterminate"
+              ? (primary.vcepNotes[primary.vcepNotes.length - 1] ?? "VCEP multi-tool threshold requirement was not met (tools disagreed or sat between bands).")
+              : pending ? "Still being computed for this variant."
               : primary.outcome === "withheld-base" ? "The dbNSFP scores did not arrive, so the primary tool is not known."
               : "None of the calibrated tools scored this variant."}
           </span>
         )}
       </div>
       <div className="prd-frow__call">
-        {call ? (
+        {isSplicePrimary ? (
+          <RowChip code={primary.code} testId="predictor-primary-call" />
+        ) : call ? (
           call.direction ? <RowChip code={call.code} testId="predictor-primary-call" />
           : <span className="ev-tier" data-tone="neutral" data-testid="predictor-primary-call">Indeterminate</span>
+        ) : primary.outcome === "indeterminate" ? (
+          <span className="ev-tier" data-tone="neutral" data-testid="predictor-primary-call">Indeterminate</span>
         ) : (
           <span className="ev-tier" data-tone={pending ? "neutral" : "muted"} data-testid="predictor-primary-call">
-            {pending ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}
+            {primary.outcome === "vcep-excluded" ? "Excluded" : pending ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}
           </span>
         )}
       </div>

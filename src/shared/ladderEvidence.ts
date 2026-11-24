@@ -42,6 +42,7 @@ import {
 } from "./thresholds.ts";
 import {
   buildPredictorEvidence,
+  isReadingParticipatingInRule,
   type EngineRecord,
   type PredictorEvidence,
   type PredictorReading,
@@ -201,7 +202,7 @@ export function buildLadder(predictor: PredictorEvidence): { columns: LadderColu
       key,
       name: reading.name,
       source: CALIBRATION_SOURCES[b.source].short,
-      inChain: reading.chainKey !== null,
+      inChain: isReadingParticipatingInRule(reading, predictor.primary),
       reachable,
       at,
       scoreText: reading.scoreText,
@@ -215,7 +216,7 @@ export function buildLadder(predictor: PredictorEvidence): { columns: LadderColu
       key: r.key,
       name: r.name,
       source: r.cutpoints.source ?? "Authors",
-      inChain: r.chainKey !== null,
+      inChain: isReadingParticipatingInRule(r, predictor.primary),
       side: r.score === null ? null : SIDE_OF_SIGNAL[r.signal],
       scoreText: r.scoreText,
       availability: r.availability,

@@ -87,4 +87,53 @@ describe("PredictorsRail", () => {
     expect(rail.textContent).toContain("ProtVar");
     expect(rail.textContent).toContain("Ensembl VEP (GRCh38)");
   });
+
+  it("shows VCEP specification details and Walker 2023 splicing PP3 wording in the rule trace", () => {
+    const ptenResult: any = {
+      ...result,
+      metadata: { gene: "PTEN", variant: "p.Arg130Gln", acmgWeighting: "standard" },
+      conservationData: { ...result.conservationData, revel: 0.95, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "PTEN VCEP" }] },
+    };
+    render(<EvidenceWorkspaceProvider result={ptenResult}><PredictorsRail analysisResult={ptenResult} /></EvidenceWorkspaceProvider>);
+    const trace = screen.getByTestId("predictor-rule-trace");
+    expect(trace.textContent).toContain("GN003 v3.2");
+    expect(trace.textContent).toContain("applies splicing PP3 once when PVS1 is absent");
+
+    const rail = screen.getByTestId("predictors-rail");
+    expect(rail.textContent).toContain("active ClinGen VCEP specification");
+  });
+
+  it("renders dynamic splicePp3Corroboration, VCEP notes, and marks CADD counted when active on CEP290", () => {
+    const gba1Corrob: any = {
+      ...result,
+      metadata: { gene: "GBA1", variant: "p.Asn370Ser", acmgWeighting: "standard" },
+      conservationData: { ...result.conservationData, revel: 0.95, spliceai: { max_ds: 0.45 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Strong", reason: "REVEL 0.95" }] },
+    };
+    const first = render(<EvidenceWorkspaceProvider result={gba1Corrob}><PredictorsRail analysisResult={gba1Corrob} /></EvidenceWorkspaceProvider>);
+    expect(screen.getByTestId("predictor-rule-trace").textContent).toContain("SpliceAI max Δ 0.45 also supports splicing PP3");
+    first.unmount();
+
+    const cep290: any = {
+      ...result,
+      metadata: { gene: "CEP290", variant: "p.Arg100Gln", acmgWeighting: "standard" },
+      predictorData: { caddPhred: 28.5, amPathogenicity: 0.835 },
+      conservationData: { ...result.conservationData, revel: 0.90, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "CEP290 CADD" }] },
+    };
+    const second = render(<EvidenceWorkspaceProvider result={cep290}><PredictorsRail analysisResult={cep290} /></EvidenceWorkspaceProvider>);
+    expect(screen.getByTestId("predictor-bands-reached").textContent).not.toContain("CADD 28.5 · PP3 Moderate (not counted)");
+    second.unmount();
+
+    const palb2: any = {
+      ...result,
+      metadata: { gene: "PALB2", variant: "p.Leu100Pro", acmgWeighting: "standard" },
+      conservationData: { ...result.conservationData, revel: 0.95, spliceai: { max_ds: 0.01 } },
+      ruleBasedInsights: { acmgCriteria: [] },
+    };
+    render(<EvidenceWorkspaceProvider result={palb2}><PredictorsRail analysisResult={palb2} /></EvidenceWorkspaceProvider>);
+    const excludedStep = screen.getByTestId("predictor-rule-trace").children[1];
+    expect(excludedStep.getAttribute("data-state")).toBe("done");
+  });
 });

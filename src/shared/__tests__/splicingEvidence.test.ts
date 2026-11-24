@@ -186,6 +186,7 @@ describe("the engine record is read, never inferred from splicing", () => {
     const ev = withEngine(null, 0.9);
     expect(ev.engine.code).toBeNull();
     expect(ev.rule.code).toBe("PP3");
+    expect(ev.engine.fromSplicing).toBe(true);
   });
 });
 
@@ -486,5 +487,43 @@ describe("independent splicing settlement", () => {
   it("keeps an unfinished source pending even without a global loading flag", () => {
     const ev = build({ conservationData: null, serviceStatus: { conservationData: "pending" } });
     expect(ev.pending).toBe(true);
+  });
+});
+
+describe("VCEP splicing rules and engine-applied SpliceAI state", () => {
+  it("applies gene-specific VCEP splicing cutoffs for PAH (> 0.50 PP3, >= 0.10 blocks BP4) and ABCA4 (PP3_Moderate >= 0.80)", () => {
+    const pah = build({
+      metadata: { gene: "PAH", variant: "p.Arg408Trp" },
+      conservationData: { revel: 0.002, spliceai: sai(0.25) },
+      ruleBasedInsights: { acmgCriteria: [] },
+    });
+    expect(pah.rule.state).toBe("between");
+    expect(pah.rule.code).toBeNull();
+    expect(pah.readings.find(r => r.key === "spliceai")?.call?.isCode).toBe(false);
+
+    const abca4 = build({
+      metadata: { gene: "ABCA4", variant: "p.Arg1108Cys" },
+      conservationData: { revel: 0.70, spliceai: sai(0.80) },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "ABCA4 SpliceAI" }] },
+    });
+    expect(abca4.rule.state).toBe("pp3");
+    expect(abca4.rule.code).toBe("PP3_Moderate");
+    expect(abca4.readings.find(r => r.key === "spliceai")?.call).toMatchObject({
+      label: "PP3 Moderate · splicing",
+      unapplied: false,
+    });
+  });
+
+  it("marks the SpliceAI reading as applied (not unapplied) when the engine records splicing PP3", () => {
+    const ev = build({
+      metadata: { gene: "GBA1", variant: "p.Asn370Ser" },
+      conservationData: { revel: 0.002, spliceai: sai(0.45) },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "SpliceAI 0.45" }] },
+    });
+    expect(ev.engine.fromSplicing).toBe(true);
+    expect(ev.readings.find(r => r.key === "spliceai")?.call).toMatchObject({
+      label: "PP3 · splicing",
+      unapplied: false,
+    });
   });
 });

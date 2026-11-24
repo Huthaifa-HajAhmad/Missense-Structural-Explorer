@@ -11,7 +11,7 @@ export * from "./criteria.ts";
  * computes 5-tier classification verdict, and generates plausibility insight narrative.
  */
 export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsights {
-  const { criteria, available, unavailable } = evaluateAcmgCriteria(input);
+  const { criteria, available, unavailable, insilicoHasPvs1 } = evaluateAcmgCriteria(input);
 
   // -------------------------------------------------------------------------
   // 5. ACMG five-tier verdict
@@ -39,6 +39,7 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
     plausibility,
     acmgVerdict,
     acmgCriteria: criteria,
+    insilicoHasPvs1,
     partialEvidence: { available, unavailable },
   };
 }

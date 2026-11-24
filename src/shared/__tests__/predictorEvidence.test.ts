@@ -270,10 +270,21 @@ describe("predictorSummary — one line for every engine state", () => {
     expect(s.tone).toBe("neutral");
   });
 
-  it("SpliceAI at 0.20 or more blocks BP4", () => {
-    const s = summary({ ...record(), ...scores({ spliceai: { ds_ag: 0.3, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.3 } }) });
-    expect(s.state).toBe("none");
-    expect(s.lead.startsWith("No BP4: REVEL 0.234 reads BP4, but SpliceAI max Δ 0.30 ≥ 0.20")).toBe(true);
+  it("SpliceAI at 0.20 or more blocks BP4 and emits Walker 2023 splicing PP3 when PVS1 is absent", () => {
+    // Uncovered gene (GZF1): SpliceAI 0.30 blocks REVEL BP4 and triggers Walker 2023 splicing PP3.
+    const s = summary({ ...record("PP3"), ...scores({ spliceai: { ds_ag: 0.3, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.3 } }) });
+    expect(s.state).toBe("recorded");
+    expect(s.lead).toBe("The engine recorded PP3 from SpliceAI max Δ 0.30.");
+    expect(s.rest.join(" ")).toContain("REVEL 0.234 reads BP4 for missense impact, which SpliceAI max Δ 0.30 overrides");
+
+    // When splicing PP3 is suppressed (e.g., VCEP PAH > 0.50), BP4 is still blocked without PP3.
+    const pahBlocked = summary({
+      metadata: { gene: "PAH", variant: "p.Val245Ala", acmgWeighting: "standard" },
+      ...record(),
+      ...scores({ spliceai: { ds_ag: 0.3, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.3 } }),
+    });
+    expect(pahBlocked.state).toBe("none");
+    expect(pahBlocked.lead.startsWith("No BP4: REVEL 0.234 reads BP4, but SpliceAI max Δ 0.30 ≥ 0.20")).toBe(true);
   });
 
   it("no engine record: the rule's code is called unconfirmed", () => {
@@ -362,5 +373,65 @@ describe("local informational agreement", () => {
       }),
     });
     expect(settled.readings.find(r => r.key === "revel")!.availability.label).toBe("No result");
+  });
+});
+
+describe("VCEP rules and Walker 2023 splicing PP3 in predictorEvidence", () => {
+  it("applies gene-specific VCEP strength bounds (PTEN cap) and exclusions (PALB2)", () => {
+    const pten = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "PTEN", variant: "p.Arg130Gln", acmgWeighting: "standard" },
+        conservationData: { revel: 0.95, spliceai: { max_ds: 0.01 } },
+        ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "PTEN VCEP" }] },
+      }),
+    });
+    expect(pten.primary).toMatchObject({ outcome: "met", code: "PP3", vcepApplied: true, criterionSource: "vcep" });
+    expect(predictorSummary(pten).lead).toContain("GN003 v3.2");
+
+    const palb2 = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "PALB2", variant: "p.Leu100Pro", acmgWeighting: "standard" },
+        conservationData: { revel: 0.95, spliceai: { max_ds: 0.01 } },
+        ruleBasedInsights: { acmgCriteria: [] },
+      }),
+    });
+    expect(palb2.primary).toMatchObject({ outcome: "vcep-excluded", code: null, vcepApplied: true });
+    expect(predictorSummary(palb2).lead).toContain("excludes missense computational predictors");
+  });
+
+  it("emits Walker 2023 splicing PP3 when SpliceAI >= 0.20 overrides BP4 without PVS1", () => {
+    const ev = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "GBA1", variant: "p.Asn370Ser", acmgWeighting: "standard" },
+        conservationData: { revel: 0.002, spliceai: { max_ds: 0.45 } },
+        ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "SpliceAI 0.45" }] },
+      }),
+    });
+    expect(ev.primary).toMatchObject({ outcome: "met", code: "PP3", activeTool: "spliceai", criterionSource: "spliceai" });
+    expect(predictorSummary(ev).lead).toContain("SpliceAI max Δ 0.45");
+  });
+
+  it("reads authoritative ruleBasedInsights.insilicoHasPvs1 without re-deriving from acmgCriteria", () => {
+    const ev = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "GBA1", variant: "p.Gln32Ter", acmgWeighting: "standard" },
+        conservationData: { revel: 0.002, spliceai: { max_ds: 0.65 } },
+        ruleBasedInsights: { acmgCriteria: [], insilicoHasPvs1: true },
+      }),
+    });
+    expect(ev.primary).toMatchObject({ outcome: "blocked-spliceai", code: null });
+  });
+
+  it("treats CADD as participating and excludes it from uncounted informational agreement on CADD VCEPs", () => {
+    const cep290 = buildPredictorEvidence({
+      result: gzf1({
+        metadata: { gene: "CEP290", variant: "p.Arg100Gln", acmgWeighting: "standard" },
+        predictorData: { caddPhred: 28.5, amPathogenicity: 0.835 },
+        conservationData: { revel: 0.90, spliceai: { max_ds: 0.01 } },
+        ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "CEP290 CADD" }] },
+      }),
+    });
+    const agreement = localPredictorAgreement(cep290);
+    expect(agreement.calibrated.some(x => x.reading.key === "cadd")).toBe(false);
   });
 });

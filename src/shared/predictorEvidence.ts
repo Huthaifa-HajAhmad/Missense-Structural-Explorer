@@ -247,12 +247,19 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
 
+  const engineCriteria: Array<{ code?: string; reason?: string }> | null =
+    (r.ruleBasedInsights?.acmgCriteria ?? r.insights?.acmgCriteria ?? null) as any;
+  const hasPvs1 =
+    typeof r.ruleBasedInsights?.insilicoHasPvs1 === "boolean"
+      ? r.ruleBasedInsights.insilicoHasPvs1
+      : Boolean(engineCriteria?.some(c => typeof c?.code === "string" && /^PVS1(_|$)/i.test(c.code)));
   const primary = decidePrimaryInsilico(
     primaryInsilicoInputFromResult({
       gene: result.metadata?.gene ?? null,
       predictorData: pd,
       conservationData: cd,
       serviceStatus: result.serviceStatus,
+      hasPvs1,
     }),
   );
   const signalOf = (call: CalibratedCall | null): PredictorSignal =>
@@ -564,8 +571,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   });
 
   // ── What the engine recorded ──
-  const engineCriteria: Array<{ code?: string; reason?: string }> | null =
-    (r.ruleBasedInsights?.acmgCriteria ?? r.insights?.acmgCriteria ?? null) as any;
   const weighting: string | null = r.metadata?.acmgWeighting ?? null;
   const recorded = engineCriteria?.find(c => typeof c?.code === "string" && /^(PP3|BP4)(_|$)/i.test(c.code)) ?? null;
   // The engine's own gates (`criteria.ts`): conservative weighting keeps a computational code only when
@@ -685,8 +690,27 @@ export const LOCAL_AGREEMENT_COPY = {
  * string, so the wording cannot drift even though the chrome differs. Absent readings are stated
  * only when they exist — "none" is not a finding.
  */
+/**
+ * True when `reading` participates in the active PP3/BP4 rule for this gene (either the VCEP's
+ * computable tool list, or the default 4-tool chain). Used everywhere we label or exclude uncounted tools.
+ */
+export function isReadingParticipatingInRule(
+  reading: Pick<PredictorReading, "key" | "chainKey">,
+  primary: Pick<PrimaryInsilicoDecision, "vcepApplied" | "vcepRule">,
+): boolean {
+  const toolKey = reading.chainKey ?? (reading.key === "cadd" ? "cadd" : null);
+  if (primary.vcepApplied && primary.vcepRule) {
+    const rule = primary.vcepRule.rule;
+    if (rule.kind === "exclude-missense") return false;
+    if (rule.kind !== "advisory") {
+      return toolKey !== null && rule.tools.some(t => t.tool === toolKey);
+    }
+  }
+  return reading.chainKey !== null;
+}
+
 export function localPredictorAgreement(evidence: PredictorEvidence) {
-  const rows = evidence.readings.filter(r => r.chainKey === null);
+  const rows = evidence.readings.filter(r => r.group !== "primary" && !isReadingParticipatingInRule(r, evidence.primary));
   const scoredRows = rows.filter(r => r.score !== null);
   const unclassified = scoredRows.filter(r => !r.calibrated);
   const missing = rows.filter(r => r.score === null);

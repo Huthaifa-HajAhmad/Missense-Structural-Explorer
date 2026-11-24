@@ -1,6 +1,6 @@
 # In-silico tools: pruning and repair plan
 
-Status: plan, 2026-11-23. Phases 0 to 4 are built (see each phase below); Phases 5 and 6 are not.
+Status: plan updated 2026-11-24. Phases 0 to 5b are merged on `main` (PR #294); Phase 5c is built on `feat/phase5c-vcep-walker-pp3`; Phase 6 remains.
 
 ## Principle
 
@@ -149,7 +149,7 @@ The dev checkout has no local store, on purpose. Tests use fixtures.
 - **Done (5b):** D2 is reopened: one primary calibrated tool, chosen in advance, gives PP3/BP4 at its calibrated
   strength. There is a fixed fallback order when that tool has no score, and the `PP3 + PM1 ≤ Strong` cap is
   active. The plurality vote has ended.
-- **Next (5c):** the version-pinned, hand-audited ClinGen VCEP table (`src/shared/insilico/vcepRules.ts`).
+- **Done (5c, `feat/phase5c-vcep-walker-pp3`, building on PR #294):** the version-pinned, hand-audited 113-spec / 110-gene ClinGen VCEP table (`src/shared/insilico/vcepRules.ts`, `vcepDataRevelSingle.ts`, `vcepDataRevelMulti.ts`, `vcepDataSpecial.ts`), Walker 2023 splicing PP3 ("PP3 once", never added on top of PVS1), and strict SpliceAI BP4 missing-locus & MyVariant provenance gating (`src/shared/insilico/spliceGate.ts`, `server/services/prediction/predictors/conservation-orchestrator.ts`).
 
 Every step here changes verdicts: measured on the reference variants and the ClinVar benchmark set in
 `RELEASE_NOTE_PRIMARY_PREDICTOR.md`.
@@ -215,10 +215,7 @@ answered. VariantValidator names the RefSeq protein (`NP_…`) but no UniProt ac
 3. **Done (PR #286):** every analysis audit entry records `numberingBasis` and `numberingVerified`, so the
    unverified rate of protein-notation runs can be measured. Replay of the 14 production protein variants:
    0 unverified.
-4. **Approved 2026-11-24, A built (PR #289):** `VERIFIED_RESIDUE_DESIGN.md`. In order: A, a signed numbering proof from the translate
-   route that the analysis routes check (4 days, no visible change); B1, refuse an unverified residue (1 day);
-   B2, the full gate with a `withheld` state, only if the two weeks of #286 data show refusal is too blunt
-   (about 11 days); C, candidate residues (about 5 weeks).
+4. **Approved 2026-11-24, A built (PR #289), B1 merged (PR #292), reverted (PR #293, `8ee3994d`), fixed (PR #295, `561be6bf`), and re-shipped (PR #296, `50d04f54`):** `VERIFIED_RESIDUE_DESIGN.md`. PR #295 added sequence-identity proof for single-isoform UniProt entries (`PAH`, `HBB`, `SOD1`, `BRCA2`) where Ensembl VEP omits `uniprot_isoform`, enabling B1 unverified-numbering refusal in PR #296.
 
 ## Future work
 

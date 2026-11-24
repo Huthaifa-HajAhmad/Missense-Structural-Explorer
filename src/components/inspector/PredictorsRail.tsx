@@ -8,7 +8,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
 import { REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
-import { CHAIN_ORDER_TEXT, disagreementText, noCriterionText } from "../../shared/predictorSummary";
+import { CHAIN_ORDER_TEXT, activeToolText, disagreementText, noCriterionText } from "../../shared/predictorSummary";
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import {
   CLINGEN_CLASS_BANDS,
@@ -83,7 +83,9 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const { constraint } = ev;
   const { primary, engine } = evidence;
   const chain = evidence.readings.filter(r => r.chainKey !== null);
-  const active = chain.find(r => r.chainKey === primary.activeTool) ?? null;
+  const active = primary.activeTool === "cadd"
+    ? evidence.readings.find(r => r.key === "cadd") ?? null
+    : chain.find(r => r.chainKey === primary.activeTool) ?? null;
   // The engine's own PP3/BP4 on the point scale, as recorded: "PP3" is +1, "BP4_Strong" is -4.
   const insilicoPoints = (() => {
     if (!engine.code) return null;
@@ -153,16 +155,34 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               </span>
             )}
           </Step>
-          <Step n={2} label="First with a score" state={active ? "done" : "idle"}>
-            <span>{active ? `${active.name} ${active.scoreText} · ${formatEvidenceCode(active.callLabel)}` : "None"}</span>
-            <span className="prd-step__sub">Order: {CHAIN_ORDER_TEXT}. Informational tools are listed but never used.</span>
+          <Step n={2} label={primary.vcepApplied && primary.vcepRule ? `Deciding input · ${primary.vcepRule.cspecId} v${primary.vcepRule.version}` : "First with a score"} state={active || primary.activeTool === "spliceai" || primary.outcome === "vcep-excluded" ? "done" : "idle"}>
+            <span>
+              {primary.outcome === "vcep-excluded"
+                ? "Missense predictors excluded"
+                : primary.activeTool === "spliceai"
+                ? `${activeToolText(primary)} · ${formatEvidenceCode(primary.code ?? "PP3")}`
+                : active
+                ? `${active.name} ${active.scoreText} · ${formatEvidenceCode(primary.activeCall?.code ?? active.callLabel)}`
+                : "None"}
+            </span>
+            <span className="prd-step__sub">
+              {primary.vcepRule
+                ? `${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}): ${primary.vcepRule.summary}`
+                : `Order: ${CHAIN_ORDER_TEXT}. Informational tools are listed but never used.`}
+            </span>
           </Step>
           <Step n={3} label="Rule" state={primary.code ? "done" : primary.outcome === "blocked-spliceai" || primary.outcome.startsWith("withheld") ? "warn" : "idle"}>
-            <span>{primary.code ? `${formatEvidenceCode(primary.code)} at its calibrated strength` : noCriterionText(primary)}</span>
+            <span>{primary.code ? `${formatEvidenceCode(primary.code)} at ${primary.vcepApplied ? "VCEP" : "its calibrated"} strength` : noCriterionText(primary)}</span>
             {primary.disagreeingTools.length > 0 && (
               <span className="prd-step__warn">{disagreementText(primary)}</span>
             )}
-            <span className="prd-step__sub">SpliceAI ≥ 0.20 blocks BP4 (Walker 2023).</span>
+            {primary.splicePp3Corroboration && (
+              <span className="prd-step__sub">{primary.splicePp3Corroboration}</span>
+            )}
+            {primary.vcepNotes.map((note, idx) => (
+              <span key={idx} className="prd-step__sub">{note}</span>
+            ))}
+            <span className="prd-step__sub">SpliceAI ≥ 0.20 blocks BP4 and applies splicing PP3 once when PVS1 is absent (Walker 2023; VCEP cut-points apply where specified).</span>
           </Step>
           <Step n={4} label="Regional constraint → PP2" state={ev.engine.pp2Stale ? "warn" : constraint.regionalOe === null ? "idle" : "done"}>
             <span>
@@ -292,23 +312,29 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           <ul>
             <li>
               ClinGen (Pejaver 2022) recommends one calibrated tool chosen in advance, not a count of correlated
-              tools. The engine reads {CHAIN_ORDER_TEXT} in that order, and the first tool with a score gives
-              PP3 or BP4 at its calibrated strength. A score between its bands gives neither; the next tool is not asked.
+              tools. When a gene matches an active ClinGen VCEP specification (113 Released specs across 110 genes),
+              its ordered tools, multi-tool agreement rules, or missense exclusion govern; otherwise the engine reads{" "}
+              {CHAIN_ORDER_TEXT} in that order, and the first tool with a score gives PP3 or BP4 at its calibrated
+              strength (a score between bands gives neither, and the next tool is not asked).
             </li>
             <li>
-              The order was chosen on ClinVar variants classified after each tool was trained: REVEL first gave
-              more Moderate-or-stronger calls and fewer wrong-direction calls than any other order.
+              The default order was chosen on ClinVar variants classified after each tool was trained: REVEL first
+              gave more Moderate-or-stronger calls and fewer wrong-direction calls than any other order.
             </li>
             <li>
-              When another calibrated tool points the other way, a note says so. It never changes the strength.
+              When another calibrated tool in the active rule set points the other way, a note says so. It never
+              changes the strength.
             </li>
             <li>
-              BP4 is withheld when SpliceAI is 0.20 or more, or when SpliceAI did not finish (Walker 2023).
-              PP3 and PM1 together are capped at Strong.
+              Under Walker et al. 2023 (or gene-specific VCEP splicing cut-points), SpliceAI max Δ ≥ 0.20 or an
+              incomplete SpliceAI check withholds missense BP4, and SpliceAI ≥ 0.20 (or the VCEP threshold) applies
+              splicing PP3 once when PVS1 is absent. It never stacks onto missense PP3, and PP3 and PM1 together remain
+              capped at Strong.
             </li>
             <li>
-              CADD, popEVE, AlphaGenome and the conservation scores are informational; the card on the
-              Predictors tab explains each family and why it does not set PP3/BP4.
+              popEVE, AlphaGenome, and conservation scores are always informational context; CADD is informational on
+              the default chain and counts only in VCEP genes whose specification adopts it (e.g. HBB, HBA2, CEP290,
+              CTLA4, PIK3CD, PIK3R1, BMPR2).
             </li>
             <li>
               The strength ladder places a tool on a strength only where ClinGen has calibrated it. A tool with just its

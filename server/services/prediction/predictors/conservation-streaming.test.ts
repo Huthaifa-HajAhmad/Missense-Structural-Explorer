@@ -160,4 +160,41 @@ describe("conservation models stream independently", () => {
     expect(expired.modelStatus).toEqual({ base: "settled", spliceai: "timeout", alphagenome: "timeout" });
     expect(expired.revel).toBe(0.9);
   });
+
+  it("drops protein-selected MyVariant SpliceAI scores when live Broad failed or no single coordinate was verified", async () => {
+    mocks.local.mockResolvedValue(null);
+    mocks.alphagenome.mockResolvedValue(null);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).includes("myvariant.info")) throw new TypeError("offline");
+      return new Response(JSON.stringify({ hits: [{ dbnsfp: {
+        hgvsp: ["p.Arg273His"], revel: { score: 0.2 },
+        spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0, ds_dl: 0 },
+      } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    mocks.spliceai.mockResolvedValue({ record: null, failure: { kind: "rate-limited", httpStatus: 429, detail: null } });
+    const broadFailed = await fetchConservationDataProgressive({
+      gene: "TP53", variant: "p.Arg273His", pos: 273,
+      predictorPromise: Promise.resolve({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" }) as any,
+    });
+    expect(broadFailed.spliceai).toBeNull();
+    expect(broadFailed.spliceaiFailure?.kind).toBe("rate-limited");
+
+    mocks.spliceai.mockClear();
+    const noSingleCoord = await fetchConservationDataProgressive({
+      gene: "GZF1", variant: "p.Gln867His", pos: 867,
+      predictorPromise: Promise.resolve({
+        gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [] },
+      }) as any,
+    });
+    expect(noSingleCoord.spliceai).toBeNull();
+    expect(mocks.spliceai).not.toHaveBeenCalled();
+
+    const noPred = await fetchConservationDataProgressive({
+      gene: "GZF1", variant: "p.Gln867His", pos: 867,
+      predictorPromise: Promise.resolve(null),
+    });
+    expect(noPred.spliceai).toBeNull();
+  });
 });

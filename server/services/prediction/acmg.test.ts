@@ -39,8 +39,8 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 
   it("uses BayesDel noAF in the primary fallback chain when REVEL has no score", () => {
     const res = computeRuleBasedACMG({
-      gene: "PAH",
-      variant: "p.Arg408Trp",
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
       conservationData: { available: true, revel: null, bayesdel: 0.2 }
@@ -82,7 +82,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     // 0.65 is "likely_pathogenic" in the authors' classes (> 0.564) but below ClinGen's PP3 band
     // (≥ 0.792, Bergquist 2025): when AlphaMissense answers the chain, it stops as indeterminate.
     const res = computeRuleBasedACMG({
-      gene: "LDLR",
+      gene: "GBA1",
       variant: "p.Glu101Lys",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 32 },
@@ -93,7 +93,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 
   it("falls back to AlphaMissense when REVEL and BayesDel have no score", () => {
     const res = computeRuleBasedACMG({
-      gene: "PTEN",
+      gene: "GBA1",
       variant: "p.Arg130Gln",
       clinvar: null,
       predictorData: { available: true, amPathogenicity: 0.85, amClass: "pathogenic", caddPhred: null },
@@ -220,7 +220,8 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     );
     expect(spliceSignalHigh).toBe("pathogenic");
 
-    // SpliceAI >= 0.20 blocks BP4 from REVEL, without creating a splicing PP3 criterion on its own.
+    // PAH VCEP requires SpliceAI > 0.5 for splicing PP3 and >= 0.10 to block BP4:
+    // at SpliceAI 0.25, REVEL BP4 is blocked without emitting splicing PP3.
     const blocked = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
@@ -229,6 +230,54 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     });
     expect(blocked.acmgCriteria.some(c => c.code.startsWith("BP4") || c.code.startsWith("PP3"))).toBe(false);
     expect(blocked.partialEvidence.unavailable.some(u => u.includes("SpliceAI max Δ 0.25"))).toBe(true);
+
+    // Default gene (Walker 2023): SpliceAI >= 0.20 blocks BP4 and emits splicing PP3 once when PVS1 is absent.
+    const walkerPp3 = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      predictorData: { available: true, caddPhred: 10 },
+      conservationData: { available: true, revel: 0.002, spliceai: { ds_ag: 0.25, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.25 } },
+    });
+    expect(walkerPp3.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+    expect(walkerPp3.acmgCriteria.some(c => c.code.startsWith("BP4"))).toBe(false);
+
+    // PP3 once: missense PP3_Strong + high SpliceAI stays one PP3_Strong criterion.
+    const pp3Once = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      predictorData: { available: true },
+      conservationData: { available: true, revel: 0.95, spliceai: { ds_ag: 0.85, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.85 } },
+    });
+    expect(pp3Once.acmgCriteria.filter(c => c.code.startsWith("PP3")).map(c => c.code)).toEqual(["PP3_Strong"]);
+    expect(pp3Once.acmgCriteria.find(c => c.code === "PP3_Strong")?.reason).toContain("PP3 is applied once");
+
+    // Never add splicing PP3 on top of PVS1.
+    const withPvs1 = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Gln100*",
+      curatedLofMechanism: { lofEstablished: true, nonLofOnly: false, source: "ClinGen", mechanisms: ["loss of function"], records: 1 },
+      predictorData: { available: true },
+      conservationData: { available: true, revel: 0.002, spliceai: { ds_ag: 0.85, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.85 } },
+    });
+    expect(withPvs1.acmgCriteria.some(c => c.code.startsWith("PVS1"))).toBe(true);
+    expect(withPvs1.acmgCriteria.some(c => c.code.startsWith("PP3"))).toBe(false);
+    expect(withPvs1.insilicoHasPvs1).toBe(true);
+
+    // VCEP caps and exclusions in full engine: PTEN REVEL 0.95 caps at PP3 Supporting; PALB2 excludes missense.
+    const pten = computeRuleBasedACMG({
+      gene: "PTEN",
+      variant: "p.Arg130Gln",
+      predictorData: { available: true },
+      conservationData: { available: true, revel: 0.95 },
+    });
+    expect(pten.acmgCriteria.filter(c => c.code.startsWith("PP3")).map(c => c.code)).toEqual(["PP3"]);
+    const palb2 = computeRuleBasedACMG({
+      gene: "PALB2",
+      variant: "p.Leu100Pro",
+      predictorData: { available: true },
+      conservationData: { available: true, revel: 0.95, spliceai: { ds_ag: 0.01, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.01 } },
+    });
+    expect(palb2.acmgCriteria.some(c => c.code.startsWith("PP3") || c.code.startsWith("BP4"))).toBe(false);
   });
 
   it("should throttle concurrent operations using ConcurrencySemaphore", async () => {
@@ -428,7 +477,8 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 
     const resObj = computeRuleBasedACMG(input);
     expect(resObj.acmgVerdict).toBeDefined();
-    expect(resObj.acmgCriteria.some(c => c.code === "PP3_Strong")).toBe(true);
+    // BRAF uses the RASopathy VCEP specification (GN049 v2.3), which caps missense REVEL at Supporting PP3.
+    expect(resObj.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(resObj.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resObj.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
   });
@@ -664,9 +714,9 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 });
 
 describe("PP3/BP4 over a salvaged conservation composite and SpliceAI gate", () => {
-  const run = (modelStatus?: Record<string, string>, extraCons: Record<string, unknown> = {}) => computeRuleBasedACMG({
-    gene: "PAH",
-    variant: "p.Arg408Trp",
+  const run = (modelStatus?: Record<string, string>, extraCons: Record<string, unknown> = {}, gene = "GBA1") => computeRuleBasedACMG({
+    gene,
+    variant: gene === "PAH" ? "p.Arg408Trp" : "p.Asn370Ser",
     clinvar: null,
     predictorData: { available: true, amPathogenicity: 0.95, amClass: "pathogenic", caddPhred: 33 },
     conservationData: { available: true, revel: 0.95, bayesdel: 0.3, ...extraCons, ...(modelStatus ? { modelStatus } : {}) } as any,
@@ -707,6 +757,13 @@ describe("PP3/BP4 over a salvaged conservation composite and SpliceAI gate", () 
     );
     expect(res.acmgCriteria.some(c => c.code === "BP4_VeryStrong")).toBe(true);
     expect(res.acmgVerdict).toBe("Benign");
+
+    const pah = run(
+      { base: "settled", spliceai: "settled" },
+      { revel: 0.002, spliceai: { max_ds: 0.02, ds_ag: 0.02, ds_al: 0, ds_dg: 0, ds_dl: 0 } },
+      "PAH",
+    );
+    expect(pah.acmgCriteria.some(c => c.code === "BP4_Strong")).toBe(true);
   });
 });
 

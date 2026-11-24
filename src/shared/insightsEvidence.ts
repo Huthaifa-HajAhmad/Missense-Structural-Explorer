@@ -323,6 +323,33 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const compLean: Lean = peCounted ? CODE_LEAN(peCode) : ruleLean;
   const activeTool = activeToolText(pe.primary);
   const disagreement = disagreementText(pe.primary);
+  const compLead = (() => {
+    if (pe.primary.outcome === "vcep-excluded" && pe.primary.vcepRule) {
+      const v = pe.primary.vcepRule;
+      return `${v.vcep} (${v.cspecId} v${v.version}) excludes missense computational predictors.`;
+    }
+    if (activeTool === null) return "No calibrated predictor returned a score.";
+    if (!ruleCode) return `${noCriterionText(pe.primary)}.`;
+    if (pe.primary.criterionSource === "spliceai") {
+      return `${activeTool} supports ${formatEvidenceCode(ruleCode)} for predicted splicing impact (PP3 applied once when PVS1 is absent).`;
+    }
+    if (pe.primary.criterionSource === "vcep" && pe.primary.vcepRule) {
+      const v = pe.primary.vcepRule;
+      return `${activeTool} gives ${formatEvidenceCode(ruleCode)} under ${v.vcep} (${v.cspecId} v${v.version}).`;
+    }
+    return `${activeTool}, the first calibrated tool with a score, gives ${formatEvidenceCode(ruleCode)}.`;
+  })();
+  const compRest = (() => {
+    if (activeTool === null) {
+      return peCounted ? "The engine recorded this criterion, but its calibrated inputs are unavailable in this payload." : "Nothing is counted for this lane.";
+    }
+    if ((peCode ?? null) !== ruleCode && pe.engine.known) {
+      return "The recorded criterion differs from the current rule. Re-run the analysis to refresh it.";
+    }
+    if (disagreement) return `Contested: ${disagreement}`;
+    if (pe.primary.splicePp3Corroboration && peCounted) return pe.primary.splicePp3Corroboration;
+    return peCounted ? "The engine recorded this call." : "The engine recorded no code for it.";
+  })();
   lanes.push({
     key: "computational",
     name: "Computational",
@@ -332,19 +359,9 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     code: peCounted ? peCode : null,
     length: peCounted ? recordedLength(peCode) : 1,
     unconfirmed: !peCounted && Boolean(ruleCode) && pe.engine.known,
-    state: pe.pending && activeTool === null ? "pending" : activeTool === null ? "absent" : "read",
-    lead: activeTool === null
-      ? "No calibrated predictor returned a score."
-      : ruleCode
-        ? `${activeTool}, the first calibrated tool with a score, gives ${formatEvidenceCode(ruleCode)}.`
-        : `${noCriterionText(pe.primary)}.`,
-    rest: activeTool === null
-      ? peCounted ? "The engine recorded this criterion, but its calibrated inputs are unavailable in this payload." : "Nothing is counted for this lane."
-      : (peCode ?? null) !== ruleCode && pe.engine.known
-          ? "The recorded criterion differs from the current rule. Re-run the analysis to refresh it."
-        : disagreement
-          ? `Contested: ${disagreement}`
-          : peCounted ? "The engine recorded this call." : "The engine recorded no code for it.",
+    state: pe.pending && activeTool === null ? "pending" : activeTool === null && pe.primary.outcome !== "vcep-excluded" ? "absent" : "read",
+    lead: compLead,
+    rest: compRest,
   });
 
   // Population ─ the frequency tab's own criterion and what the engine recorded.
@@ -385,7 +402,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
           : "Rarity (PM2) was not computed because no frequency was read.",
   });
 
-  // Splicing ─ the engine never reads it (see SplicingTab), so it is context by construction.
+  // Splicing ─ context row beside Computational (so PP3 is never counted twice across two lanes).
   const sp = buildSplicingEvidence({ result, isLoading });
   const spState = sp.rule.state;
   const dsText = sp.rule.maxDs !== null ? sp.rule.maxDs.toFixed(2) : null;
@@ -405,8 +422,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : spState === "pending" ? "The splicing prediction is still running."
       : "No splicing score was returned.",
     rest: spState === "no-score" || spState === "pending"
-      ? "The engine records no splicing criterion; it withholds BP4 until SpliceAI has answered."
-      : `The ClinGen splicing rule reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 and \u2264 ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as BP4. The engine records no splicing criterion; at ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} it withholds BP4.`,
+      ? "The engine withholds missense BP4 until SpliceAI has answered; no separate splicing-only code is added while pending or unscored."
+      : `The ClinGen splicing rule (Walker 2023) reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 (applied once in the Computational lane when PVS1 is absent, blocking BP4) and ≤ ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as clearing the missense BP4 gate.`,
   });
 
   // Function ─ PM1.
@@ -633,12 +650,12 @@ const CODE_TEXT: Record<string, string> = {
   PM2: "The change is very rare or absent in healthy population databases. Supporting.",
   PM4: "The change alters protein length. Moderate.",
   PP2: "The change sits in a stretch of the protein where healthy people carry far fewer missense changes than expected (gnomAD regional O/E, calibrated band). Supporting, or Moderate at the deepest depletion.",
-  PP3: "One calibrated computer model, chosen in advance, reads the change as damaging. Its strength (Supporting to Strong) comes from the model's published bands.",
+  PP3: "One calibrated missense model (or gene-specific ClinGen VCEP specification) or SpliceAI splicing prediction (applied once, when PVS1 is absent) supports impact.",
   BA1: "The change is common in healthy people. Stand-alone benign.",
   BS1: "More common in healthy people than the disorder allows.",
   BS2: "Seen in healthy adults who carry two copies.",
   BP3: "An in-frame change in a repetitive region with no known function.",
-  BP4: "One calibrated computer model, chosen in advance, reads the change as harmless. Its strength (Supporting to Very strong) comes from the model's published bands.",
+  BP4: "One calibrated missense model (or gene-specific ClinGen VCEP specification) reads harmless after SpliceAI clears splicing.",
 };
 
 function glossaryFor(codes: ReadonlyArray<{ code: string }>, tierIndex: number) {

@@ -339,16 +339,29 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
 function mergeConservationParts(parts: ConservationParts): ConservationData {
   const baseConservation = parts.base ?? UNSETTLED_BASE;
   const assemblyRefusals = parts.locus?.assemblyRefusals ?? null;
+  // MyVariant's precomputed SpliceAI is selected by protein change without an exact allele guarantee;
+  // keep it only when a scorable coordinate was established and live Broad did not fail on this request.
+  const trail = parts.locus?.pred?.locusResolution ?? null;
+  const fallbackUnverified = trail?.route === "fallback" && trail.canonicalBy === null;
+  const hasVerifiedSpliceLocus = Boolean(
+    parts.locus?.parsedCoord &&
+    parts.locus.usableBy("spliceai-lookup") &&
+    !fallbackUnverified
+  );
+  const sanitizedBase =
+    !hasVerifiedSpliceLocus || Boolean(parts.liveSpliceAi?.failure)
+      ? { ...baseConservation, spliceai: null }
+      : baseConservation;
 
   return applyLiveSpliceAi({
-    ...baseConservation,
-    scorecons: parts.scorecons ?? baseConservation.scorecons ?? null,
-    popeve: baseConservation.popeve ?? parts.popeve ?? null,
-    spliceProximity: parts.spliceProximity ?? baseConservation.spliceProximity,
+    ...sanitizedBase,
+    scorecons: parts.scorecons ?? sanitizedBase.scorecons ?? null,
+    popeve: sanitizedBase.popeve ?? parts.popeve ?? null,
+    spliceProximity: parts.spliceProximity ?? sanitizedBase.spliceProximity,
     assemblyRefusals: assemblyRefusals && assemblyRefusals.length > 0
       ? assemblyRefusals
-      : baseConservation.assemblyRefusals ?? null,
-    alphagenome: parts.alphagenome ?? baseConservation.alphagenome ?? null
+      : sanitizedBase.assemblyRefusals ?? null,
+    alphagenome: parts.alphagenome ?? sanitizedBase.alphagenome ?? null
   }, parts.liveSpliceAi ?? null);
 }
 
