@@ -198,6 +198,16 @@ export function redactUrl(url: string): string {
   }
 }
 
+/**
+ * Cuts every URL inside a sentence down to its host name.
+ *
+ * `redactUrl` keeps the path, and a path can hold the variant itself (an Ensembl VEP request has the
+ * HGVS notation in it). Text that goes to the audit log, which keeps variants only as hashes, uses this.
+ */
+export function reduceUrlsToHosts(text: string): string {
+  return text.replace(/https?:\/\/([^/\s]+)\S*/g, "$1");
+}
+
 async function withHostLockInner<T>(
   hostname: string,
   fn: () => Promise<T>,

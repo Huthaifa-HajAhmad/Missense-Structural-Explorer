@@ -409,6 +409,22 @@ async function fetchPredictorsViaCoordinateUcsc(
  * Any failure returns null. The caller retains submitted identity, without claiming a successful
  * VEP binding or replacing the allele via the protein-HGVS ladder.
  */
+/**
+ * Request options for every Ensembl VEP lookup made here.
+ *
+ * The predictor waits 8 s, but Ensembl VEP often needs 10-30 s for a variant it has not answered
+ * before (measured from the production VM, 2026-11-23). Running out of that time is our choice, not
+ * a sign that Ensembl is down, so `cappedByCaller` keeps it out of the circuit breaker (the switch
+ * that stops all calls to a host after repeated failures). Without it, one or two analyses opened
+ * the breaker that every rest.ensembl.org caller shares, and coordinate translation then skipped
+ * Ensembl VEP and fell back to VariantValidator, whose answers cannot be checked against UniProt.
+ */
+const ENSEMBL_VEP_LOOKUP = {
+  headers: { Accept: "application/json" },
+  timeout: 8000,
+  cappedByCaller: true,
+} as const;
+
 async function fetchPredictorsViaCoordinate(
   lifted: { chrom: string; pos: number; ref: string; alt: string },
   canonicalEnsemblId: string | null,
@@ -417,7 +433,7 @@ async function fetchPredictorsViaCoordinate(
 ): Promise<PredictorData | null> {
   const url = `https://rest.ensembl.org/vep/human/region/${encodeURIComponent(lifted.chrom)}:${lifted.pos}-${lifted.pos}/${encodeURIComponent(lifted.alt)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
   try {
-    const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000, deadlineAt }, 1);
+    const res = await fetchWithRetry(url, { ...ENSEMBL_VEP_LOOKUP, deadlineAt }, 1);
     if (res.ok) {
       const data = await res.json();
       const parsed = vepResponseSchema.parse(data) as VepParsed;
@@ -918,10 +934,7 @@ export async function fetchPredictorData(
         const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(target)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
         try {
           console.log(`[VEP Fetch] Querying target: ${target}`);
-          const res = await fetchWithRetry(url, {
-            headers: { "Accept": "application/json" },
-            timeout: 8000
-          }, 1);
+          const res = await fetchWithRetry(url, ENSEMBL_VEP_LOOKUP, 1);
           if (res.ok) {
             const data = await res.json() as any;
             parsedData = vepResponseSchema.parse(data);

@@ -695,3 +695,23 @@ describe("candidate alleles cross-checked with ProtVar", () => {
     expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("ProtVar"))).toBe(false);
   });
 });
+
+describe("Ensembl VEP lookups and the shared Ensembl circuit breaker", () => {
+  // The predictor gives each VEP lookup a few seconds, while Ensembl VEP often needs 10-30 s for a
+  // variant it has not seen before. A lookup that runs out of that short time says nothing about
+  // Ensembl's health. If it counted as a failure, a few analyses would open the breaker that every
+  // rest.ensembl.org caller shares, and coordinate translation would then skip Ensembl VEP.
+  it("marks every Ensembl VEP lookup's timeout as the caller's own limit", async () => {
+    const coordinate = { chrom: "1", pos: 100, ref: "C", alt: "A", assembly: "GRCh38" as const };
+    mocks.lift.mockResolvedValue(coordinate);
+    await fetchPredictorData("TEST", "D116G", "P1", coordinate);
+    predictorCache.clear();
+    mocks.l2.clear();
+    await fetchPredictorData("TEST", "D116G", "P1");
+
+    const vepCalls = mocks.fetch.mock.calls.filter(([url]) => String(url).includes("rest.ensembl.org/vep/"));
+    expect(vepCalls.some(([url]) => String(url).includes("/vep/human/region/"))).toBe(true);
+    expect(vepCalls.some(([url]) => String(url).includes("/vep/human/hgvs/"))).toBe(true);
+    for (const [, options] of vepCalls) expect(options).toMatchObject({ cappedByCaller: true });
+  });
+});

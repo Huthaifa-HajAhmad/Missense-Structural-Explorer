@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchWithRetry } from "./http-client.ts";
+import {
+  fetchWithRetry,
+  isHostAvailable,
+  reduceUrlsToHosts,
+  resetHostStateForTests,
+  setBackoffScaleForTests,
+} from "./http-client.ts";
 
 /**
  * Regression suite for fetchWithRetry's Retry-After handling.
@@ -104,4 +110,55 @@ describe("fetchWithRetry — Retry-After bounds", () => {
     // Without an abort-aware sleep this would have waited the full clamped interval.
     expect(elapsed).toBeLessThan(2000);
   }, 30_000);
+});
+
+describe("reduceUrlsToHosts", () => {
+  it("cuts every URL in a sentence to its host, so a variant in the path never reaches the audit log", () => {
+    const text =
+      "Failed to fetch https://rest.ensembl.org/vep/human/hgvs/chr1%3Ag.25484258G%3EA?x=1 after 1 attempt (last status 503).";
+    expect(reduceUrlsToHosts(text)).toBe("Failed to fetch rest.ensembl.org after 1 attempt (last status 503).");
+  });
+
+  it("leaves text without a URL unchanged, such as the circuit-breaker refusal", () => {
+    const text = "Upstream service rest.ensembl.org is temporarily unavailable (circuit breaker open).";
+    expect(reduceUrlsToHosts(text)).toBe(text);
+  });
+});
+
+describe("fetchWithRetry - a timeout the caller chose and the shared circuit breaker", () => {
+  const url = "https://rest.ensembl.org/vep/human/hgvs/test-variant";
+  const timeoutError = () => Object.assign(new Error("attempt timeout"), { name: "TimeoutError" });
+
+  afterEach(() => {
+    resetHostStateForTests();
+    setBackoffScaleForTests(1);
+  });
+
+  async function callFiveTimes(options: { cappedByCaller?: boolean }): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      await fetchWithRetry(url, options, 1).catch(() => undefined);
+    }
+  }
+
+  it("keeps the breaker closed after five timeouts the caller chose (cappedByCaller)", async () => {
+    resetHostStateForTests();
+    vi.spyOn(global, "fetch").mockRejectedValue(timeoutError());
+    await callFiveTimes({ cappedByCaller: true });
+    expect(isHostAvailable(url)).toBe(true);
+  });
+
+  it("still opens the breaker after five timeouts the caller did not choose", async () => {
+    resetHostStateForTests();
+    vi.spyOn(global, "fetch").mockRejectedValue(timeoutError());
+    await callFiveTimes({});
+    expect(isHostAvailable(url)).toBe(false);
+  });
+
+  it("still counts a server error even when the caller chose its timeout", async () => {
+    resetHostStateForTests();
+    setBackoffScaleForTests(0);
+    vi.spyOn(global, "fetch").mockImplementation(async () => response503(null));
+    await callFiveTimes({ cappedByCaller: true });
+    expect(isHostAvailable(url)).toBe(false);
+  });
 });

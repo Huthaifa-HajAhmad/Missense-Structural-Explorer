@@ -227,6 +227,11 @@ Rules: one trial at a time; other callers fail at once with "temporarily unavail
 `isAvailable()` only looks; `canExecute()` takes the trial. Health probes, caller aborts and timeouts the
 caller imposed are not counted as failures.
 
+The breaker is shared by every caller of a host. A caller whose timeout is shorter than the provider's
+usual answer time passes `cappedByCaller: true`, so running out of its own time is not counted. The
+predictor's Ensembl VEP lookups (8 s against 10-30 s measured) do this: before, a few analyses opened the
+`rest.ensembl.org` breaker and coordinate translation skipped Ensembl VEP for the whole cooldown.
+
 **8b. Provider pause**, one per host: `ok` ⇄ `paused until T`. A 429, or a 503 with `Retry-After`, sets it
 (5 s by default, at most 10 s); a later answer can lengthen it, never shorten it.
 
