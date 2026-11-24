@@ -184,11 +184,16 @@ answered. VariantValidator names the RefSeq protein (`NP_…`) but no UniProt ac
 1. **Done (`feat/verified-residue`):** a fallback answer is verified through the RefSeq protein it names,
    with the same resolver typed `NP_…:p.…` input uses. It becomes canonical or renumbered, or stays
    unverified when the check cannot complete. The audit log records `numberingVerifiedBy`.
-2. **Next:** one residue type, built only by the numbering step, that engines require. An unverified
-   residue then reaches no engine, and each engine reports "not assessed: numbering unverified".
-3. **Later (needs a design):** treat unverified or ambiguous numbering as a set of candidate residues,
-   as ambiguous alleles already are: score every candidate, and count a criterion only if all agree.
-4. **Separately:** find out why VEP failed 11 times on 2026-11-20 (the root of most fallback answers).
+2. **Done (PR #285):** why VEP failed. The predictor's 8 s Ensembl VEP lookups opened the circuit breaker
+   that all `rest.ensembl.org` callers share, so 11 translations on 2026-11-20 skipped VEP in about 1 ms.
+   The audit entry now records `vepFailure`. Four earlier fallbacks were VEP using its whole 25 s window.
+3. **Done (PR #286):** every analysis audit entry records `numberingBasis` and `numberingVerified`, so the
+   unverified rate of protein-notation runs can be measured. Replay of the 14 production protein variants:
+   0 unverified.
+4. **Awaiting approval:** `VERIFIED_RESIDUE_DESIGN.md`. In order: A, a signed numbering proof from the translate
+   route that the analysis routes check (4 days, no visible change); B1, refuse an unverified residue (1 day);
+   B2, the full gate with a `withheld` state, only if the two weeks of #286 data show refusal is too blunt
+   (about 11 days); C, candidate residues (about 5 weeks).
 
 ## Future work
 
