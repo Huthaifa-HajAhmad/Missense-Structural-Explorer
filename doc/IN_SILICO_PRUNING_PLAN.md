@@ -135,7 +135,7 @@ The dev checkout has no local store, on purpose. Tests use fixtures.
 
 Every step here changes verdicts: measure on the reference variants and write a release note.
 
-#### How the primary tool is chosen (5a, before any engine code)
+#### How the primary tool is chosen (5a, done on `docs/primary-predictor-benchmark`; see `PRIMARY_PREDICTOR_DECISION.md`)
 
 Every candidate has known limits, and a vote does not remove them; it only hides them. ClinGen's answer is
 to choose one tool in advance, follow a gene's ClinGen expert-panel (VCEP) rule where one exists, and show
@@ -167,7 +167,10 @@ The choice is made by a comparison, with its rules written down before any resul
 - When the other calibrated tools point the opposite way, show a disagreement note to the curator. The
   strength does not change.
 
-The result is written up as a decision record, like `PROTEIN_LANGUAGE_MODELS_DECISION.md`.
+The result is written up in `PRIMARY_PREDICTOR_DECISION.md` (pending owner approval before Phase 5b):
+**BayesDel noAF** is selected as primary (`BayesDel noAF → REVEL → AlphaMissense → ESM1b` fallback), paired with
+a version-pinned audited VCEP table covering the 113 active Released ClinGen CSpec specifications (`110` genes)
+and an informational disagreement note.
 
 ### Phase 6 — Energetics remote engines (approved, after the VM checks)
 

@@ -654,11 +654,13 @@ def summarize_variants(
     for t_i, tool in enumerate(tools):
         c18 = total_vec[t_i * 18 : (t_i + 1) * 18]
         m = _metrics_from_counts(c18)
-        scored_all = (c18[0] + c18[1] + c18[2] + c18[3] + c18[4] + c18[5] + c18[6] + c18[7])
+        n_scored_p = sum(c18[0:8])
+        n_scored_b = sum(c18[9:17])
+        scored_all = n_scored_p + n_scored_b
         m["cov_b"] = (scored_all / n_b) if n_b > 0 else None
         m["n_scored"] = scored_all
-        m["n_scored_p"] = sum(c18[0:8])
-        m["n_scored_b"] = sum(c18[9:17])
+        m["n_scored_p"] = n_scored_p
+        m["n_scored_b"] = n_scored_b
         point_by_tool[tool] = m
         lr_by_tool[tool] = _empirical_lr_from_counts(c18)
         counts_by_tool[tool] = {

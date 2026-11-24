@@ -306,6 +306,8 @@ class SelectionAndDisagreementTests(unittest.TestCase):
         s1 = m.summarize_variants(variants, reps=200, seed=20261124)
         s2 = m.summarize_variants(variants, reps=200, seed=20261124)
         self.assertEqual(s1["cis"], s2["cis"])
+        self.assertEqual(s1["tools"]["revel"]["cov_b"], 1.0)
+        self.assertEqual(s1["tools"]["revel"]["n_scored"], 50)
         self.assertEqual(s1["tools"]["revel"]["h_mod"], 1.0)
         self.assertEqual(s1["tools"]["alphamissense"]["h_mod"], 0.0)
 
