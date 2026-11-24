@@ -180,6 +180,7 @@ describe("analysis path — protein notation handling", () => {
     });
     expect(withoutBuild.statusCode).toBe(200);
     expect(withoutBuild.context?.genomicCoordinates).toBeUndefined();
+    expect(withoutBuild.context?.numberingAudit?.inputKind).toBe("protein");
 
     // Coordinate + declared build: forwarded verbatim for the predictor's coordinate-first query.
     const withBuild = await parse({
@@ -189,6 +190,8 @@ describe("analysis path — protein notation handling", () => {
     expect(withBuild.statusCode).toBe(200);
     expect(withBuild.context?.genomicCoordinates).toBe("X-23723975-C-A");
     expect(withBuild.context?.assembly).toBe("GRCh37");
+    // The audit entry says the run came from a coordinate, so the two input kinds can be counted apart.
+    expect(withBuild.context?.numberingAudit?.inputKind).toBe("coordinate");
 
     // Malformed coordinate (trailing components): the strict parser refuses it despite the build.
     const malformed = await parse({

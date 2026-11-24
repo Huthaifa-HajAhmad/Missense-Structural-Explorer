@@ -176,6 +176,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       gene: context.gene,
       variant: context.variant,
       pos: context.pos,
+      ...context.numberingAudit,
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 
@@ -207,6 +208,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       gene: context.gene,
       variant: context.variant,
       pos: context.pos,
+      ...context.numberingAudit,
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 
@@ -232,6 +234,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       gene: context.gene,
       variant: context.variant,
       pos: context.pos,
+      ...context.numberingAudit,
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 

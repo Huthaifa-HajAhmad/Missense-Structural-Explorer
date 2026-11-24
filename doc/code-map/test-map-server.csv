@@ -50,7 +50,7 @@ server/routes/variant/literature.ts,server,
 server/routes/variant/narrative.ts,server,
 server/routes/variant/spliceai.ts,server,
 server/routes/variant/translation.ts,server,
-server/routes/variant/variant-parser.ts,server,server/routes/variant/sanitize-url.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
+server/routes/variant/variant-parser.ts,server,server/routes/variant/analysis.test.ts;server/routes/variant/sanitize-url.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
 server/services/acmg.ts,barrel,server/invariants.test.ts;server/tests/canary.test.ts
 server/services/adapters/index.ts,barrel,
 server/services/adapters/registry.ts,barrel,
@@ -300,7 +300,7 @@ server/services/uniprot.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;
 server/sidecar-supervisor.ts,server,server/tests/sidecar-supervisor.test.ts
 server/spa-shell-cache.ts,server,server/spa-shell-cache.test.ts
 server/types/express-layer.d.ts,server,
-server/utils.ts,barrel,server/routes/auth.test.ts;server/routes/session.test.ts;server/routes/variant/translation.test.ts;server/services/prediction/acmg.test.ts;server/utils.test.ts
+server/utils.ts,barrel,server/routes/auth.test.ts;server/routes/session.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/translation.test.ts;server/services/prediction/acmg.test.ts;server/utils.test.ts
 server/utils/audit-logger.ts,server,
 server/utils/client-disconnect.ts,server,server/utils/client-disconnect.test.ts
 server/utils/concurrency.ts,server,server/utils/circuit-breaker.test.ts
