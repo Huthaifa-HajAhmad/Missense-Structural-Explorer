@@ -566,6 +566,7 @@ export async function validateAndParseVariantRequest(
   const { residue, rejectedProof } = residueOfRequest({
     token: req.body?.numberingProof,
     identity: { accession: uniprotId, position: pos, wildType: wt1Letter, mutant: mut1Letter },
+    inputKind: genomicCoordinates ? "coordinate" : "protein",
     ownCheck: { canonicalConfirmed, status: numbering?.status, reason: numbering?.reason },
   });
 

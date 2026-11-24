@@ -6,7 +6,10 @@
  * doc/VERIFIED_RESIDUE_DESIGN.md §3: a canonical answer from the canonical-versus-MANE comparison is
  * `canonical-vs-mane`, the reader's choice at the ambiguity prompt is `user-confirmed` (only when the check
  * did find two readings: the choice settles an ambiguity, it proves nothing on its own), and anything
- * else (no answer, or an answer that is not canonical) is `unverified`. A route without a check of its own
+ * else (no answer, or an answer that is not canonical) is `unverified`. For a request that carries the genomic
+ * coordinate it was translated from, only the translation's proof counts: the own check compares canonical and
+ * MANE numbering of the protein notation, which says nothing about whether the coordinate was translated to
+ * the right residue. A route without a check of its own
  * (`/generate-mutant`) passes none, so a residue without a valid proof is `unverified`.
  */
 import type { Residue, ResidueProof } from "../../../src/shared/verifiedResidue.ts";
@@ -15,6 +18,9 @@ import {
   type NumberingProofCheck,
   type ResidueIdentity,
 } from "../../services/translation/numbering-proof.ts";
+
+const COORDINATE_WITHOUT_PROOF =
+  "The coordinate's translation sent no valid numbering proof, so the residue it was translated to is not verified.";
 
 export interface RequestResidue {
   residue: Residue;
@@ -25,11 +31,16 @@ export interface RequestResidue {
 export function residueOfRequest(params: {
   token: unknown;
   identity: ResidueIdentity;
+  inputKind?: "coordinate" | "protein";
   ownCheck?: { canonicalConfirmed: boolean; status?: string; reason?: string };
 }): RequestResidue {
-  const { token, identity, ownCheck } = params;
+  const { token, identity, inputKind, ownCheck } = params;
   const check = verifyNumberingProof(token, identity);
   if (check.status === "valid") return { residue: { ...identity, proof: check.proof } };
+  if (inputKind === "coordinate") {
+    const residue: Residue = { ...identity, proof: "unverified", reason: COORDINATE_WITHOUT_PROOF };
+    return check.status === "absent" ? { residue } : { residue, rejectedProof: check.status };
+  }
 
   let proof: ResidueProof = "unverified";
   if (ownCheck?.canonicalConfirmed && ownCheck.status === "ambiguous") proof = "user-confirmed";

@@ -43,6 +43,19 @@ describe("residueOfRequest", () => {
     expect(residue.proof).toBe(proof);
   });
 
+  it("names a coordinate's residue unverified without the translation's proof: the route's own check cannot prove it", () => {
+    const { residue } = residueOfRequest({
+      token: undefined, identity, inputKind: "coordinate", ownCheck: { canonicalConfirmed: false, status: "canonical" },
+    });
+    expect(residue.proof).toBe("unverified");
+    expect(residue.reason).toMatch(/translation/);
+  });
+
+  it("takes the translation's proof for a coordinate's residue", () => {
+    const { residue } = residueOfRequest({ token: proofOf(), identity, inputKind: "coordinate", ownCheck: { canonicalConfirmed: false } });
+    expect(residue.proof).toBe("declared-protein");
+  });
+
   it("keeps the reason when the numbering is unverified", () => {
     const { residue } = residueOfRequest({ token: undefined, identity, ownCheck: { canonicalConfirmed: false, status: "unverified", reason: "UniProt did not answer" } });
     expect(residue).toMatchObject({ proof: "unverified", reason: "UniProt did not answer" });

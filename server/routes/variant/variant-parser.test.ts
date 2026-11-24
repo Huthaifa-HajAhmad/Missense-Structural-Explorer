@@ -195,6 +195,10 @@ describe("analysis path — protein notation handling", () => {
     expect(withBuild.context?.assembly).toBe("GRCh37");
     // The audit entry says the run came from a coordinate, so the two input kinds can be counted apart.
     expect(withBuild.context?.numberingAudit?.inputKind).toBe("coordinate");
+    // The canonical-versus-MANE check says nothing about a translated coordinate: without the translation's
+    // proof its residue is unverified, even though the same check passes for the typed notation above.
+    expect(withBuild.context?.numberingAudit?.numberingProof).toBe("unverified");
+    expect(withoutBuild.context?.numberingAudit?.numberingProof).toBe("canonical-vs-mane");
 
     // Malformed coordinate (trailing components): the strict parser refuses it despite the build.
     const malformed = await parse({

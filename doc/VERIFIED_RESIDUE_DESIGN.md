@@ -185,9 +185,10 @@ Routes that take a position, and so need the proof (six files, not two): `analys
   "these numbers are canonical" proves nothing and the residue stays `unverified` (or `canonical-vs-mane`).
 - **`POST /numbering-proof` signs only what it checks.** It ignores a proof sent to it, so an old proof cannot be
   renewed.
-- **B1 and coordinate input.** Without a valid proof the parser falls back to its own canonical-versus-MANE check,
-  so an unverified coordinate translation can be named `canonical-vs-mane`. B1 must accept only `genomic` or
-  `declared-protein` when the request carries a coordinate.
+- **Coordinate input needs the translation's proof.** The parser's own check compares canonical and MANE
+  numbering of the protein notation; it says nothing about whether a coordinate was translated to the right
+  residue. So a request that carries a coordinate and no valid proof is `unverified` (`residue-of-request.ts`),
+  and B1 refuses it like any other unverified residue. A coordinate never ends up `canonical-vs-mane`.
 
 ### Effect on criteria (corrected to the real rule engine)
 
