@@ -336,6 +336,37 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
       }
     });
 
+    it("lets a later caller join the newest search when a forced one starts while another is running", async () => {
+      const originalFetch = global.fetch;
+      const releases: Array<(value: Response) => void> = [];
+      const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>(resolve => { releases.push(resolve); }));
+      const page = (id: string) => new Response(JSON.stringify({
+        hitCount: 1,
+        resultList: { result: [{ id, pmid: id, source: "MED", title: `Hit ${id}`, abstractText: "FORCEJOIN study.", pubYear: "2026" }] },
+      }));
+      global.fetch = fetchMock;
+      try {
+        const first = searchGeneLiterature("FORCEJOIN");
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+        const forced = searchGeneLiterature("FORCEJOIN", undefined, undefined, undefined, true);
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+        // A third, ordinary caller arrives while both run. It must join the forced (newest) search.
+        const joiner = searchGeneLiterature("FORCEJOIN");
+        await Promise.resolve();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        releases[1](page("222"));
+        expect((await forced).citations.map(c => c.id)).toEqual(["222"]);
+        expect((await joiner).citations.map(c => c.id)).toEqual(["222"]);
+
+        releases[0](page("111"));
+        expect((await first).citations.map(c => c.id)).toEqual(["111"]);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
     it("retries a transient 503 or HTML error page once and recovers", async () => {
       const originalFetch = global.fetch;
       const fetchMock = vi

@@ -16,7 +16,7 @@ rule, threshold, tool vote or evidence strength changed.
   the disjoint literal-mention figure and abstract-availability counts. Selecting a group opens
   its matching papers. Exact records remain inspectable; selection is separate from report inclusion.
 - Report: Full document remains an export preview. Interpretation and Evidence readings select
-  document sections, not independent analyses. Narrative & notes owns editable prose; Citations &
+  document sections, not independent analyses. Summary & notes owns editable prose; Citations &
   methods owns pinned publications and provenance. Screen filters never alter export inclusion.
 
 ## Findings and fixes

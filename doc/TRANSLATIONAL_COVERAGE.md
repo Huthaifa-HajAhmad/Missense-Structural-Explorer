@@ -155,7 +155,7 @@ breakdown (with/without an abstract, denominator = all loaded papers). The expla
 states that missing abstracts restrict screening to titles and that missing mentions do not establish
 irrelevance. Selecting a group opens its papers in the single Reading desk. Insights separates
 **Evidence gaps** from the direction map and criterion audit; hypothetical additions remain explicitly
-uncounted. Report separates **Narrative & notes** from **Citations & methods**. See
+uncounted. Report separates **Summary & notes** from **Citations & methods**. See
 [SYNTHESIS_WORKSPACES_REVIEW.md](SYNTHESIS_WORKSPACES_REVIEW.md) for integrity fixes and verification.
 
 **Predictors local agreement.** The Comparison and Native score scales name each non-voting

@@ -71,7 +71,7 @@ describe("ClinicalReportBar", () => {
 
   it("leaves a block out, lists it under Not in this report, and names it in the footer", () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Leave out RNA splicing" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "RNA splicing in export" }));
 
     expect(document.querySelector('[data-block="splicing"]')).toBeNull();
     expect(within(screen.getByTestId("report-left-out")).getByText("RNA splicing")).toBeInTheDocument();
@@ -83,7 +83,7 @@ describe("ClinicalReportBar", () => {
 
   it("warns when a left-out block's criterion is still counted", () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Leave out Computational evidence" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Computational evidence in export" }));
     expect(screen.getByTestId("report-left-out")).toHaveTextContent("PP3 is still counted in the classification");
   });
 
@@ -109,6 +109,21 @@ describe("ClinicalReportBar", () => {
     const card = document.querySelector('[data-block="computational"]') as HTMLElement;
     fireEvent.click(within(card).getByRole("button", { name: "In-silico predictors" }));
     expect(onOpenEvidenceTab).toHaveBeenCalledWith("predictors");
+  });
+
+  it("titles the page once, with no label that repeats the title and no chip that never changes", () => {
+    renderScreen();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NAE1 p.Asp116Gly evidence report");
+    expect(screen.queryByText("Variant evidence report")).toBeNull();
+    expect(screen.queryByText("Draft")).toBeNull();
+  });
+
+  it("offers no export tick on a section with nothing to export, and invites writing instead", () => {
+    renderScreen();
+    const notes = document.getElementById("report-notes")!;
+    expect(within(notes).queryByRole("checkbox")).toBeNull();
+    expect(within(notes).getByRole("button", { name: "Write" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Classification in export" })).toBeChecked();
   });
 
   it("renders an empty state rather than a blank report when nothing is loaded", () => {
@@ -152,7 +167,7 @@ describe("report views", () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Citations & methods' }));
     expect(document.getElementById('report-method')!.closest('[hidden]')).toBeNull();
     expect(document.getElementById('report-classification')!.closest('[hidden]')).not.toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: 'Narrative & notes' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary & notes' }));
     expect(document.getElementById('report-method')!.closest('[hidden]')).not.toBeNull();
     expect(useVariantAnalysisStore.getState().reportSections).toEqual(before);
   });
@@ -170,7 +185,7 @@ describe("report views", () => {
 
   it("lists a left-out block only under its own part", () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Leave out RNA splicing" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "RNA splicing in export" }));
     fireEvent.click(screen.getByRole("tab", { name: "Interpretation" }));
     expect(screen.queryByTestId("report-left-out")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Evidence readings" }));

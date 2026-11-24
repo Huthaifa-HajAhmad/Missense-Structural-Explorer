@@ -67,7 +67,7 @@ describe("Insights rail — inference provenance", () => {
 
     expect(screen.queryByText("Inference Ready")).not.toBeInTheDocument();
     // With no configured key the honest state is that synthesis is not available yet.
-    expect(screen.getByText(/AI not configured|Narrative not generated/i)).toBeInTheDocument();
+    expect(screen.getByText(/AI not configured|No summary yet/i)).toBeInTheDocument();
   });
 
   it("marks a degraded narrative as rule-based, not as an AI synthesis", () => {
@@ -99,7 +99,7 @@ describe("Insights rail — inference provenance", () => {
 
   it("reports a synthesis in flight as in flight", () => {
     renderRow({ analysis: "", insights: null }, true);
-    expect(screen.getByText(/synthesizing/i)).toBeInTheDocument();
+    expect(screen.getByText(/writing summary/i)).toBeInTheDocument();
     expect(screen.queryByText("Inference Ready")).not.toBeInTheDocument();
   });
 

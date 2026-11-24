@@ -47,9 +47,9 @@ export function LiteratureEmptyState({
     <div className="lit-empty" data-testid="literature-empty">
       {isNarrowingFilter ? (
         <>
-          <p className="lit-empty__title">No matches in the loaded list</p>
+          <p className="lit-empty__title">{total === 0 ? "No papers loaded" : "No matches in the loaded list"}</p>
           <p className="lit-empty__body">
-            None of the {total} loaded papers match “{activeFilter}”. Press Enter to search Europe PMC for it.
+            {total === 0 ? "No papers are loaded yet." : `None of the ${total} loaded papers match “${activeFilter}”.`} Press Enter to search Europe PMC for it.
           </p>
         </>
       ) : (tierFilter !== "all" || tagFilters.length > 0) && total > 0 ? (

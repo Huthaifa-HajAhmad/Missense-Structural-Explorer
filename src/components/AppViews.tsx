@@ -515,16 +515,13 @@ export function AppViews({
                 name="Clinical Report"
                 onError={handleReportError}
               >
-                <ClinicalReportBar 
-                  analysisState={analysisState} 
-                  isDark={isDark} 
-                  isNarrativeLoading={isNarrativeLoading}
+                <ClinicalReportBar
+                  analysisState={analysisState}
                   onNavigateToView={setMasterView}
                   onOpenEvidenceTab={(tab) => {
                     setActiveEvidenceTab(tab);
                     setMasterView("evidence");
                   }}
-                  fullPage
                 />
               </ErrorBoundary>
             )}

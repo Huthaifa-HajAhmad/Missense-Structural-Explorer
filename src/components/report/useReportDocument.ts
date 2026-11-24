@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
+import { useShallow } from "zustand/react/shallow";
+import { selectNarrativeEvidence } from "../../hooks/useNarrativeEvidenceContext";
+import { useFoldxRunState } from "../../hooks/useFoldxRunState";
 import type { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { deepEvidenceContextFromStore } from "../../shared/deepModelEvidence";
 import { buildReportDocument, defaultReportSections, type ReportDocument } from "../../shared/reportDocument";
 import { reportInputFromRun, type ReportDraft } from "../../shared/reportInput";
 import { readReportDraft, removeReportDraft, reportDraftKeys, writeReportDraft } from "../../stores/reportDraftStorage";
+
+/*
+ * The screen and its rail both render the document. The last build is kept here, keyed by every value
+ * it reads, so the second caller in a render reuses the first caller's document instead of building
+ * the whole evidence model again (a build reads Insights, the predictors and the stability engines).
+ * It keeps one entry, which is enough for one screen. Two different documents on screen at once would
+ * evict each other and each rebuild, which is slower but never wrong.
+ */
+let lastBuild: { key: readonly unknown[]; doc: ReportDocument } | null = null;
+const sameKey = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 
 /**
  * The Report document for the run on screen, from the same builder the copy-as-text path uses.
@@ -13,42 +26,49 @@ import { readReportDraft, removeReportDraft, reportDraftKeys, writeReportDraft }
  * when it is merely looked at (the old page printed today's date every time it rendered).
  */
 export function useReportDocument(result: AnalysisResult | null): { doc: ReportDocument; stamped: () => ReportDocument } {
-  const narrativeContext = useNarrativeEvidenceContext();
+  const evidence = useVariantAnalysisStore(useShallow(selectNarrativeEvidence));
   const gene = useVariantAnalysisStore(s => s.gene);
   const variant = useVariantAnalysisStore(s => s.variant);
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const foldingEnergetics = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingEnergetics ?? s.foldingEnergetics);
   const foldingDdG = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingDdG ?? s.foldingDdG);
-  const foldingStatus = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingStatus ?? s.foldingStatus);
+  const { isFolding, foldingStatus } = useFoldxRunState();
   const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
-  const isFolding = useVariantAnalysisStore(s => s.primaryBiophysics?.isFolding ?? s.isFolding ?? false);
   const sections = useVariantAnalysisStore(s => s.reportSections);
   const edits = useVariantAnalysisStore(s => s.reportEdits);
   const meta = useVariantAnalysisStore(s => s.reportMeta);
   const citations = useVariantAnalysisStore(s => s.reportCitations);
 
+  const key = [result, ...Object.values(evidence), gene, variant, uniprotId, foldingEnergetics, foldingDdG, foldingStatus, isFolding, isBiophysicalLoading, sections, edits, meta, citations];
   const build = useCallback(
     (generatedAt: string | null) =>
       buildReportDocument(
         reportInputFromRun({
           result,
-          narrativeContext,
+          narrativeContext: deepEvidenceContextFromStore(evidence),
           gene,
           variant,
           uniprotId,
-          foldingEnergetics: foldingEnergetics as any,
+          foldingEnergetics: foldingEnergetics as Record<string, any> | null,
           foldingDdG: foldingDdG as number | null,
-          foldingStatus: foldingStatus as string | null,
+          foldingStatus,
           isFolding,
           isLoading: isBiophysicalLoading,
           draft: { sections, edits, meta, citations },
           generatedAt,
         })
       ),
-    [result, narrativeContext, gene, variant, uniprotId, foldingEnergetics, foldingDdG, foldingStatus, isFolding, isBiophysicalLoading, sections, edits, meta, citations]
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` lists every value `build` reads.
+    key
   );
 
-  const doc = useMemo(() => build(null), [build]);
+  const doc = useMemo(() => {
+    if (lastBuild && sameKey(lastBuild.key, key)) return lastBuild.doc;
+    const built = build(null);
+    lastBuild = { key, doc: built };
+    return built;
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` lists every value `build` reads.
+  }, key);
   const stamped = useCallback(() => build(new Date().toISOString()), [build]);
   return { doc, stamped };
 }

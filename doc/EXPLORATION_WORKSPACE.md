@@ -15,8 +15,8 @@ reference for variant measurements.
 | Indexed coordinates, guarded picks, selected-residue facts | `shared/structureSelection.ts` |
 | View coordination and memoised coordinate index | `components/AppViews.tsx` |
 
-Report also uses the frame (`kind="report"`): a heading, view pills for the document's parts
-(`REPORT_GROUPS` in `shared/reportDocument.ts`, chosen view in `reportView` so the rail's contents list
+Report also uses the frame (`kind="report"`): a heading, ruled tabs for the document's parts
+(`REPORT_GROUPS` in `shared/reportModel.ts`, chosen view in `reportView` so the rail's contents list
 can bring a block's part on screen), one panel per block and a rail led by a review-status box. It
 has no residue selection, so it does not use `WorkspaceSelection`.
 

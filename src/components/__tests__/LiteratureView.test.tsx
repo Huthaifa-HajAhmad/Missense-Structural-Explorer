@@ -274,6 +274,19 @@ describe("Literature tab — the papers", () => {
     expect(empty.textContent).toContain("Press Enter to search Europe PMC");
   });
 
+  it("points the Filters button at its panel only while the panel exists", async () => {
+    serve();
+    renderView();
+    await screen.findByTestId("paper-41695624");
+    const toggle = screen.getByRole("button", { name: /^Filters/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.hasAttribute("aria-controls")).toBe(false);
+    fireEvent.click(toggle);
+    const panelId = toggle.getAttribute("aria-controls");
+    expect(panelId).toBe("lit-filters");
+    expect(document.getElementById(panelId!)).not.toBeNull();
+  });
+
   it("shows a failed search as an amber, recoverable statement with the old list kept", async () => {
     serve();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});

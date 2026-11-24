@@ -71,6 +71,17 @@ it("marks a failed later page incomplete without dropping its first-page citatio
   expect(selected.coverage?.every(row => row.state === "error")).toBe(true);
 });
 
+it("reads a later page when the budget allows, adds its papers, and reports the scope as complete and not truncated", async () => {
+  mocks.search.mockResolvedValue({ citations: [paper("gene", "PAH activity.")], degraded: false });
+  mocks.cursor.mockReturnValue("next"); mocks.count.mockReturnValue(2);
+  mocks.page.mockResolvedValue({ citations: [paper("gene2", "PAH activity again.")], nextCursor: null });
+  const selected = await selectSummaryCitations("PAH", "p.Arg408Trp", "");
+  expect(mocks.page).toHaveBeenCalled();
+  expect(selected.citations.map(c => c.id)).toEqual(expect.arrayContaining(["gene", "gene2"]));
+  expect(selected.scopes).toMatchObject({ gene: "complete", variant: "complete" });
+  expect(selected.coverage).toEqual(expect.arrayContaining([expect.objectContaining({ scope: "gene", loaded: 2, matched: 2, truncated: false, state: "complete" })]));
+});
+
 it("finishes phase 1 for every scope and preserves complete truncated page-1 state when remaining budget is below the pagination floor", async () => {
   vi.useFakeTimers();
   const slowMs = LITERATURE_SUMMARY_BUDGET_MS - LITERATURE_SUMMARY_PAGINATION_FLOOR_MS + 200;
