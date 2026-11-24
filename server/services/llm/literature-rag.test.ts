@@ -304,6 +304,110 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
         global.fetch = originalFetch;
       }
     });
+
+    it("coalesces concurrent searches and keeps the live fetch alive when only one caller aborts", async () => {
+      const originalFetch = global.fetch;
+      let releaseFetch!: (value: Response) => void;
+      const fetchMock = vi.fn().mockImplementation(
+        () => new Promise<Response>((resolve) => { releaseFetch = resolve; })
+      );
+      global.fetch = fetchMock;
+      try {
+        const c1 = new AbortController();
+        const c2 = new AbortController();
+        const p1 = searchGeneLiterature("COALESCE", undefined, c1.signal);
+        const p2 = searchGeneLiterature("COALESCE", undefined, c2.signal);
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+        c1.abort();
+        await expect(p1).resolves.toEqual({ citations: [], degraded: true });
+
+        releaseFetch(new Response(JSON.stringify({
+          hitCount: 1,
+          resultList: {
+            result: [{ id: "555", pmid: "555", source: "MED", title: "COALESCE live hit", abstractText: "COALESCE activity.", pubYear: "2026" }],
+          },
+        })));
+        const r2 = await p2;
+        expect(r2.degraded).toBe(false);
+        expect(r2.citations.map(c => c.id)).toEqual(["555"]);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("retries a transient 503 or HTML error page once and recovers", async () => {
+      const originalFetch = global.fetch;
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("<html>gateway error</html>", { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hitCount: 1,
+          resultList: {
+            result: [{ id: "556", pmid: "556", source: "MED", title: "Recovered hit", abstractText: "RETRYG study.", pubYear: "2026" }],
+          },
+        })));
+      global.fetch = fetchMock;
+      try {
+        const result = await searchGeneLiterature("RETRYG", undefined, undefined, "RETRYG AND variant", true);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(result.degraded).toBe(false);
+        expect(result.citations.map(c => c.id)).toEqual(["556"]);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe("fetchCitationsByPmids resilience and embedding skip", () => {
+    it("retries a transient 503 and survives latency past 5 seconds", async () => {
+      vi.useFakeTimers();
+      const originalFetch = global.fetch;
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("", { status: 503 }))
+        .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve(new Response(JSON.stringify({
+              hitCount: 1,
+              resultList: { result: [{ id: "123", source: "MED", title: "Slow curated hit", abstractText: "Text.", pubYear: "2024" }] },
+            })));
+          }, 6_000);
+        }));
+      global.fetch = fetchMock;
+      try {
+        const work = fetchCitationsByPmids(["123"]);
+        await vi.advanceTimersByTimeAsync(7_000);
+        const rows = await work;
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(rows.map(r => r.id)).toEqual(["123"]);
+      } finally {
+        global.fetch = originalFetch;
+        vi.useRealTimers();
+      }
+    });
+
+    it("skips Gemini embedding calls when cached rows carry no embeddings", async () => {
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        hitCount: 1,
+        resultList: { result: [{ id: "801", pmid: "801", source: "MED", title: "NOEMBED hit", abstractText: "NOEMBED text.", pubYear: "2026" }] },
+      }))) as any;
+      const geminiModule = await import("./gemini.ts");
+      const embedSpy = vi.fn();
+      const clientSpy = vi.spyOn(geminiModule, "getGeminiClient").mockReturnValue({
+        models: { embedContent: embedSpy },
+      } as any);
+      try {
+        await searchGeneLiterature("NOEMBED", undefined, undefined, undefined, true);
+        const ranked = await retrieveRelevantLiterature("NOEMBED", "NOEMBED query");
+        expect(ranked).toEqual([]);
+        expect(embedSpy).not.toHaveBeenCalled();
+      } finally {
+        clientSpy.mockRestore();
+        global.fetch = originalFetch;
+      }
+    });
   });
 
   describe("formatQueryForEuropePmc gene scoping (word boundary)", () => {

@@ -158,6 +158,7 @@ src/components/inspector/LandscapeInspector.tsx,component,src/components/inspect
 src/components/inspector/LandscapeLocalContext.tsx,component,
 src/components/inspector/LandscapeMethods.tsx,component,
 src/components/inspector/LandscapeSubstitutionStrip.tsx,component,
+src/components/inspector/LiteratureExportSection.tsx,component,
 src/components/inspector/LiteratureInspector.tsx,component,src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts
 src/components/inspector/NarrativeProvenanceRow.tsx,component,src/components/inspector/__tests__/InsightsInspector.provenance.test.tsx
 src/components/inspector/PinHeader.tsx,component,
@@ -175,14 +176,19 @@ src/components/inspector/StructureInspector.tsx,component,src/components/__tests
 src/components/inspector/StructureSelectionCard.tsx,component,src/components/inspector/__tests__/StructureFoldTrack.test.tsx
 src/components/inspector/ViewInspector.tsx,component,src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/__tests__/ConstraintInspector.test.tsx;src/components/inspector/__tests__/ViewInspector.test.tsx
 src/components/inspector/assemblyLiftNote.ts,client,src/components/inspector/__tests__/PopulationRail.buildProvenance.test.tsx
+src/components/inspector/literatureExport.ts,client,
 src/components/jobs/JobsMenu.tsx,component,src/components/jobs/__tests__/JobsMenu.test.tsx
 src/components/knowledge/ResearchGuideButton.tsx,component,src/components/__tests__/CommandPalette.test.tsx;src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx
 src/components/knowledge/ResearchGuideDrawer.tsx,component,src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx
+src/components/literature/LiteratureControls.tsx,component,
+src/components/literature/LiteratureCoverage.tsx,component,
+src/components/literature/LiteratureEmptyState.tsx,component,
 src/components/literature/MarkedText.tsx,component,
 src/components/literature/MechanismPanel.tsx,component,src/components/__tests__/LiteratureView.test.tsx
 src/components/literature/PaperTable.tsx,component,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/literature/__tests__/PaperTable.security.test.tsx
 src/components/literature/ScreeningChips.tsx,component,
 src/components/literature/screeningFilters.ts,client,
+src/components/literature/useLiteratureSearch.ts,client,src/components/literature/__tests__/useLiteratureSearch.test.tsx
 src/components/modals/HowToInspectModal.tsx,component,
 src/components/modals/ModelKnowledgeModal.tsx,component,src/components/knowledge/__tests__/ResearchGuideDrawer.test.tsx
 src/components/modals/OnboardingModal.tsx,component,src/components/modals/__tests__/OnboardingModal.test.tsx

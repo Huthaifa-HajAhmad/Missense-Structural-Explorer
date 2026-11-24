@@ -332,16 +332,45 @@ export async function getCuratedVariantCitations(
     return { citations: [], state: "unavailable", reason: "The accession is not a valid UniProt accession." };
   }
 
+  if (signal?.aborted) {
+    return { citations: [], state: "error", reason: "The curated citation lookup was cancelled." };
+  }
+
   // The gene is part of the identity: resolution validates that the entry names it, so a result
   // resolved for one gene must never be served for another that happens to share the accession.
   const key = `curated-variant/v1::${cleanGene}::${accession}::${residues.wildType}${residues.position}${residues.alternate}`;
-  return getCachedOrFetch<CuratedVariantCitations>({
+  // Deliberately no caller `signal` inside the shared fill (same invariant as `uniprot.ts`): a
+  // short-budget caller such as the AI summary selector must never abort a shared cache fill that
+  // the Literature tab is also awaiting.
+  const shared = getCachedOrFetch<CuratedVariantCitations>({
     key,
     source: "UniProt curated variant citations",
     l1Cache: curatedVariantCitationsCache,
     bypassSqlite: true,
     // Never remember a transient failure: an `error` answer is retried on the next call.
     shouldCache: (result) => result.state !== "error",
-    fetcher: () => resolveCuratedVariantCitations(cleanGene, accession, residues, signal),
+    fetcher: () => resolveCuratedVariantCitations(cleanGene, accession, residues),
   });
+
+  if (!signal) return shared;
+
+  // Prevent unhandled rejections if this caller detaches early while the shared fill continues.
+  shared.catch(() => {});
+  let onAbort: (() => void) | null = null;
+  try {
+    return await Promise.race([
+      shared,
+      new Promise<CuratedVariantCitations>((resolve) => {
+        onAbort = () => resolve({
+          citations: [],
+          state: "error",
+          reason: "The curated citation lookup did not finish in time.",
+        });
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }

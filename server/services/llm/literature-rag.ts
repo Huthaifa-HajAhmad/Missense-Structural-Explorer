@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "path";
 import fs from "fs";
 import { getGeminiClient } from "./gemini.ts";
-import { governedFetch } from "../infra/http-client.ts";
+import { governedFetch, UPSTREAM_USER_AGENT } from "../infra/http-client.ts";
 import { isEgressRefusal } from "../infra/egress-governor.ts";
 
 /**
@@ -257,6 +257,10 @@ function replaceLiteratureMembership(cacheKey: string, paperIds: string[]): void
 
 export function resetDbForTesting(): void {
   dbInstance = null;
+  inFlightSyncs.clear();
+  inFlightSearches.clear();
+  pmcFailureCount = 0;
+  pmcCircuitOpenedUntil = 0;
 }
 
 /** Closes the literature RAG SQLite handle during server shutdown. */
@@ -302,9 +306,51 @@ interface InFlightSyncEntry {
 }
 const inFlightSyncs = new Map<string, InFlightSyncEntry>();
 
+// In-flight live search de-duplication map so concurrent callers (e.g. LiteratureView and
+// AI summary selection opening together) share one upstream request per (gene, query).
+interface InFlightSearchEntry {
+  promise: Promise<LiteratureSearchResult>;
+  attachSignal: (signal?: AbortSignal) => Promise<LiteratureSearchResult>;
+}
+const inFlightSearches = new Map<string, InFlightSearchEntry>();
+
 // Europe PMC Circuit Breaker state
 let pmcFailureCount = 0;
 let pmcCircuitOpenedUntil = 0;
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function isRetryablePmcError(err: unknown, status?: number): boolean {
+  if (isEgressRefusal(err)) return false;
+  const effectiveStatus = status ?? (err as { statusCode?: unknown } | null | undefined)?.statusCode;
+  if (typeof effectiveStatus === "number") {
+    return effectiveStatus >= 500;
+  }
+  if (err instanceof SyntaxError) return true;
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  if (/circuit breaker is OPEN|every curated PMID|exceeds one page|\b429\b/i.test(message)) {
+    return false;
+  }
+  const name = (err as { name?: string } | null | undefined)?.name;
+  if (name === "AbortError" || name === "TimeoutError") return false;
+  if (/Europe PMC API request failed:\s*4\d\d\b/.test(message)) return false;
+  return true;
+}
 
 function checkPmcCircuit(): void {
   if (Date.now() < pmcCircuitOpenedUntil) {
@@ -614,16 +660,22 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
 /** Europe PMC returns one page per request; this is that page's size. The UI reports the
  *  true hit count so a shorter list is explained rather than looking like a bug. */
 export const EUROPE_PMC_PAGE_SIZE = 25;
+export const EUROPE_PMC_PAGE_TIMEOUT_MS = 15_000;
+export const EUROPE_PMC_SEARCH_TIMEOUT_MS = 25_000;
+export const EUROPE_PMC_HYDRATE_TIMEOUT_MS = 15_000;
 
 /** One explicit page; never replaces the cached first-page membership or its provenance. */
 export async function fetchLiteraturePage(gene: string, query: string | undefined, cursor: string, signal?: AbortSignal): Promise<{ citations: NormalizedCitation[]; hitCount: number | null; nextCursor: string | null }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), EUROPE_PMC_PAGE_TIMEOUT_MS);
   const combined = AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]);
   try {
     checkPmcCircuit();
     const params = new URLSearchParams({ query: formatQueryForEuropePmc(query, gene), format: "json", resultType: "core", pageSize: String(EUROPE_PMC_PAGE_SIZE), cursorMark: cursor });
-    const res = await governedFetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`, { signal: combined, headers: { Accept: "application/json" } });
+    const res = await governedFetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`, {
+      signal: combined,
+      headers: { Accept: "application/json", "User-Agent": UPSTREAM_USER_AGENT },
+    });
     if (!res.ok) throw new Error(`Europe PMC API request failed: ${res.status}`);
     const data = await res.json();
     const records = data.resultList?.result ?? [];
@@ -641,23 +693,56 @@ export async function fetchCitationsByPmids(pmids: readonly string[], signal?: A
   if (ids.length === 0) return [];
   if (ids.length > EUROPE_PMC_PAGE_SIZE) throw new Error("Curated PMID hydration exceeds one page");
   const query = `(${ids.map(id => `EXT_ID:${id}`).join(" OR ")}) AND SRC:MED`;
-  const boundedSignal = AbortSignal.any([AbortSignal.timeout(5000), ...(signal ? [signal] : [])]);
   checkPmcCircuit();
+  const timeoutController = new AbortController();
+  const deadlineAt = Date.now() + EUROPE_PMC_HYDRATE_TIMEOUT_MS;
+  const timer = setTimeout(
+    () => timeoutController.abort(new DOMException("Curated PMID hydration timed out", "TimeoutError")),
+    EUROPE_PMC_HYDRATE_TIMEOUT_MS
+  );
+  const combinedSignal = AbortSignal.any([timeoutController.signal, ...(signal ? [signal] : [])]);
   const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
   try {
-    const response = await governedFetch(url, { headers: { Accept: "application/json" }, signal: boundedSignal });
-    if (!response.ok) throw new Error(`Europe PMC API request failed: ${response.status}`);
-    const data = await response.json();
-    if (boundedSignal.aborted) throw boundedSignal.reason;
-    const { citations } = mapPapers(data.resultList?.result ?? []);
-    const expected = new Set(ids);
-    const exact = citations.filter(c => expected.has(c.id));
-    if (exact.length !== ids.length) throw new Error("Europe PMC did not return every curated PMID");
-    recordPmcSuccess();
-    return exact;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await governedFetch(url, {
+          headers: { Accept: "application/json", "User-Agent": UPSTREAM_USER_AGENT },
+          signal: combinedSignal,
+          deadlineAt,
+        });
+        if (!response.ok) {
+          const err = new Error(`Europe PMC API request failed: ${response.status}`);
+          (err as { statusCode?: number }).statusCode = response.status;
+          throw err;
+        }
+        const data = await response.json();
+        if (combinedSignal.aborted) throw combinedSignal.reason ?? new DOMException("Aborted", "AbortError");
+        const { citations } = mapPapers(data.resultList?.result ?? []);
+        const expected = new Set(ids);
+        const exact = citations.filter(c => expected.has(c.id));
+        if (exact.length !== ids.length) throw new Error("Europe PMC did not return every curated PMID");
+        recordPmcSuccess();
+        return exact;
+      } catch (error) {
+        if (
+          attempt === 0 &&
+          !combinedSignal.aborted &&
+          isRetryablePmcError(error) &&
+          deadlineAt - Date.now() >= 3_000
+        ) {
+          await abortableDelay(250, combinedSignal);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Europe PMC curated PMID hydration failed");
   } catch (error) {
-    if (!signal?.aborted && !isEgressRefusal(error)) recordPmcFailure();
+    const isSemantic = error instanceof Error && error.message.includes("every curated PMID");
+    if (!signal?.aborted && !isEgressRefusal(error) && !isSemantic) recordPmcFailure();
     throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -703,7 +788,7 @@ export async function syncLiteratureForGene(
       let res: Response;
       try {
         res = await governedFetch(url, { 
-          headers: { "Accept": "application/json" },
+          headers: { "Accept": "application/json", "User-Agent": UPSTREAM_USER_AGENT },
           signal: fetchController.signal
         });
       } finally {
@@ -971,7 +1056,7 @@ export async function retrieveRelevantLiterature(
     )
     .all(cacheKey) as unknown as Array<AbstractRow & { embedding: Uint8Array; has_embedding: number }>;
 
-  if (rows.length === 0) {
+  if (rows.length === 0 || !rows.some(row => row.has_embedding)) {
     return [];
   }
   
@@ -1089,6 +1174,14 @@ export async function searchGeneLiterature(
     return { citations: cached.map(rowToCitation), degraded: false };
   }
 
+  if (signal?.aborted) {
+    return { citations: [], degraded: true };
+  }
+
+  if (!force && inFlightSearches.has(cacheKey)) {
+    return inFlightSearches.get(cacheKey)!.attachSignal(signal);
+  }
+
   // A live search is a completed sweep of its own query, so it writes the same cache the
   // list reads. Rows are inserted first and membership is pruned after (same ordering as
   // the sync loop above), so a mid-store failure cannot strand a partial overwrite; the
@@ -1107,89 +1200,197 @@ export async function searchGeneLiterature(
     recordLiteratureSync(cacheKey, formattedQuery, hitCount, nextCursor);
   };
 
-  // The live call used to run with no timeout and no circuit-breaker participation: a
-  // stalled upstream hung the request indefinitely, and repeated live failures never
-  // counted toward the breaker. It now gets the same 15 s fetch ceiling the sync loop
-  // uses, shares the breaker, and honours the caller's abort.
-  const liveController = new AbortController();
-  const liveTimeoutId = setTimeout(() => liveController.abort(), 15000);
-  const onCallerAbort = () => liveController.abort();
-  if (signal) {
-    if (signal.aborted) {
+  // Shared per-search upstream attempt with a 25 s ceiling (live FGFR3 gene queries measured
+  // ~22.5 s) and one quick retry on transient 5xx / HTML error pages / transport drops. Waiters
+  // attach per-caller signals so one caller detaching (e.g. a shorter summary deadline) never
+  // aborts the fetch for another active caller such as the Literature tab.
+  const startedAt = Date.now();
+  const upstreamController = new AbortController();
+  const deadlineAt = startedAt + EUROPE_PMC_SEARCH_TIMEOUT_MS;
+  const liveTimeoutId = setTimeout(
+    () => upstreamController.abort(new DOMException("Europe PMC search timed out", "TimeoutError")),
+    EUROPE_PMC_SEARCH_TIMEOUT_MS
+  );
+  let activeWaiters = 0;
+  let callerCancelled = false;
+
+  const searchPromise: Promise<LiteratureSearchResult> = (async () => {
+    let lastStatus: number | undefined;
+    let succeeded = false;
+    try {
+      checkPmcCircuit();
+      const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (upstreamController.signal.aborted) break;
+        try {
+          const res = await governedFetch(url, {
+            headers: { Accept: "application/json", "User-Agent": UPSTREAM_USER_AGENT },
+            signal: upstreamController.signal,
+            deadlineAt,
+          });
+          if (!res.ok) {
+            lastStatus = res.status;
+            const err = new Error(`Europe PMC API request failed: ${res.status} ${res.statusText}`);
+            (err as { statusCode?: number }).statusCode = res.status;
+            if (
+              attempt === 0 &&
+              !upstreamController.signal.aborted &&
+              isRetryablePmcError(err, res.status) &&
+              deadlineAt - Date.now() >= 4_000
+            ) {
+              await abortableDelay(250, upstreamController.signal);
+              continue;
+            }
+            throw err;
+          }
+
+          const data = await res.json();
+          if (callerCancelled) {
+            return { citations: [], degraded: true };
+          }
+          recordPmcSuccess();
+          const { citations } = mapPapers(data.resultList?.result || []);
+          const hitCount = typeof data.hitCount === "number" ? data.hitCount : null;
+          // A successful query with no matches is a real answer; recording it caches the
+          // empty set so it is not re-queried the next time the same search is executed.
+          storeResults(citations, hitCount, typeof data.nextCursorMark === "string" && citations.length < (hitCount ?? 0) ? data.nextCursorMark : null);
+          succeeded = true;
+          break;
+        } catch (attemptErr: any) {
+          if (
+            attempt === 0 &&
+            !upstreamController.signal.aborted &&
+            isRetryablePmcError(attemptErr) &&
+            deadlineAt - Date.now() >= 4_000
+          ) {
+            await abortableDelay(250, upstreamController.signal);
+            continue;
+          }
+          throw attemptErr;
+        }
+      }
+    } catch (err: any) {
+      if (callerCancelled) {
+        return { citations: [], degraded: true };
+      }
+      const isCircuitOpen = typeof err?.message === "string" && err.message.includes("circuit breaker is OPEN");
+      const isTimedOut =
+        upstreamController.signal.aborted &&
+        (upstreamController.signal.reason as { name?: string } | undefined)?.name === "TimeoutError";
+      if (!isEgressRefusal(err) && !isCircuitOpen && (!upstreamController.signal.aborted || isTimedOut)) {
+        recordPmcFailure();
+      }
+      console.warn(
+        `[RAG Warning] Live Europe PMC search failed for "${safeLog(formattedQuery)}" (${Date.now() - startedAt}ms${lastStatus ? `, HTTP ${lastStatus}` : ""}):`,
+        err?.message || err
+      );
+    } finally {
       clearTimeout(liveTimeoutId);
+    }
+
+    if (callerCancelled) {
       return { citations: [], degraded: true };
     }
-    signal.addEventListener("abort", onCallerAbort);
-  }
 
-  try {
-    checkPmcCircuit();
-
-    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
-    const res = await governedFetch(url, {
-      headers: { "Accept": "application/json" }, signal: liveController.signal
-    });
-
-    if (res.ok) {
-      recordPmcSuccess();
-      const data = await res.json();
-      const { citations } = mapPapers(data.resultList?.result || []);
-      const hitCount = typeof data.hitCount === "number" ? data.hitCount : null;
-      // A successful query with no matches is a real answer; recording it caches the
-      // empty set so it is not re-queried the next time the same search is executed.
-      storeResults(citations, hitCount, typeof data.nextCursorMark === "string" && citations.length < (hitCount ?? 0) ? data.nextCursorMark : null);
+    if (succeeded) {
       // Return the canonical cache read, not the raw upstream page: the cached SELECT
       // orders by year (nulls last) while Europe PMC's page order is upstream-defined,
       // and serving upstream order here but cached order on re-render flipped the top-8
       // between the first and every later render of the same query.
-      const ordered = await getGeneCitations(cleanGene, signal, customQuery);
+      const ordered = await getGeneCitations(cleanGene, undefined, customQuery);
       return { citations: ordered, degraded: false };
     }
-    recordPmcFailure();
-  } catch (err: any) {
-    clearTimeout(liveTimeoutId);
-    if (signal) {
-      signal.removeEventListener("abort", onCallerAbort);
-    }
-    // An intentional client abort is not a failure to report: the caller is gone, so
-    // skip the gene-wide fallback read and return empty instead of work nobody wants.
-    // (A timeout abort is different — the caller is still waiting, so it falls through
-    // to the degraded fallback below.)
-    if (signal?.aborted) {
-      return { citations: [], degraded: true };
-    }
-    if (err.message && err.message.includes("Europe PMC API")) {
-      recordPmcFailure();
-    }
-    console.warn(`[RAG Warning] Live Europe PMC search failed for "${safeLog(formattedQuery)}":`, err.message);
-  } finally {
-    clearTimeout(liveTimeoutId);
-    signal?.removeEventListener("abort", onCallerAbort);
-  }
 
-  // Fallback (degraded): the upstream call failed, so search the cached abstracts for
-  // this gene. These rows are NOT this query's own result set, which is exactly what
-  // `degraded` tells the route so it does not report a mismatched hit count.
-  if (customQuery && customQuery.trim()) {
-    const rawTerms = customQuery
-      .replace(/\[.*?\]/g, " ")
-      .replace(/\b(AND|OR|NOT)\b/gi, " ")
-      .replace(/[()",]/g, " ")
-      .split(/\s+/)
-      .map(t => t.trim().toLowerCase())
-      .filter(t => t.length > 2 && t !== cleanGene.toLowerCase());
+    // Fallback (degraded): the upstream call failed, so search the cached abstracts for
+    // this gene. These rows are NOT this query's own result set, which is exactly what
+    // `degraded` tells the route so it does not report a mismatched hit count.
+    if (customQuery && customQuery.trim()) {
+      const rawTerms = customQuery
+        .replace(/\[.*?\]/g, " ")
+        .replace(/\b(AND|OR|NOT)\b/gi, " ")
+        .replace(/[()",]/g, " ")
+        .split(/\s+/)
+        .map(t => t.trim().toLowerCase())
+        .filter(t => t.length > 2 && t !== cleanGene.toLowerCase());
 
-    if (rawTerms.length > 0) {
-      const cached = await getGeneCitations(cleanGene, signal);
-      const matched = cached.filter((row) => {
-        const text = `${row.title} ${row.abstract}`.toLowerCase();
-        return rawTerms.every(t => text.includes(t));
-      });
-      if (matched.length > 0) {
-        return { citations: matched, degraded: true };
+      if (rawTerms.length > 0) {
+        const cached = await getGeneCitations(cleanGene, upstreamController.signal);
+        const matched = cached.filter((row) => {
+          const text = `${row.title} ${row.abstract}`.toLowerCase();
+          return rawTerms.every(t => text.includes(t));
+        });
+        if (matched.length > 0) {
+          return { citations: matched, degraded: true };
+        }
       }
     }
+
+    return { citations: await getGeneCitations(cleanGene, upstreamController.signal), degraded: true };
+  })();
+
+  function releaseSearch() {
+    if (inFlightSearches.get(cacheKey) === entry) {
+      inFlightSearches.delete(cacheKey);
+    }
   }
 
-  return { citations: await getGeneCitations(cleanGene, signal), degraded: true };
+  const attachSignal = (waiterSignal?: AbortSignal): Promise<LiteratureSearchResult> => {
+    if (!waiterSignal) {
+      activeWaiters++;
+      return searchPromise.then(
+        (res) => {
+          activeWaiters = Math.max(0, activeWaiters - 1);
+          return res;
+        },
+        (err) => {
+          activeWaiters = Math.max(0, activeWaiters - 1);
+          throw err;
+        }
+      );
+    }
+    if (waiterSignal.aborted) {
+      return Promise.resolve({ citations: [], degraded: true });
+    }
+    activeWaiters++;
+    return new Promise<LiteratureSearchResult>((resolve) => {
+      let waiterSettled = false;
+      const onAbort = () => {
+        if (waiterSettled) return;
+        waiterSettled = true;
+        waiterSignal.removeEventListener("abort", onAbort);
+        activeWaiters = Math.max(0, activeWaiters - 1);
+        if (activeWaiters === 0) {
+          callerCancelled = true;
+          releaseSearch();
+          upstreamController.abort(waiterSignal.reason ?? new DOMException("Aborted", "AbortError"));
+        }
+        resolve({ citations: [], degraded: true });
+      };
+      waiterSignal.addEventListener("abort", onAbort, { once: true });
+      searchPromise.then(
+        (res) => {
+          if (waiterSettled) return;
+          waiterSettled = true;
+          waiterSignal.removeEventListener("abort", onAbort);
+          activeWaiters = Math.max(0, activeWaiters - 1);
+          resolve(res);
+        },
+        () => {
+          if (waiterSettled) return;
+          waiterSettled = true;
+          waiterSignal.removeEventListener("abort", onAbort);
+          activeWaiters = Math.max(0, activeWaiters - 1);
+          resolve({ citations: [], degraded: true });
+        }
+      );
+    });
+  };
+
+  const entry: InFlightSearchEntry = { promise: searchPromise, attachSignal };
+  if (!force || !inFlightSearches.has(cacheKey)) {
+    inFlightSearches.set(cacheKey, entry);
+  }
+  searchPromise.then(releaseSearch, releaseSearch);
+
+  return attachSignal(signal);
 }

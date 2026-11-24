@@ -281,4 +281,31 @@ describe("getCuratedVariantCitations — provider boundaries are explicit", () =
     const result = await getCuratedVariantCitations("NAE1", "p.Leu49Phe", "Q13564");
     expect(result.citations.map(citation => citation.id)).toEqual(["36608681"]);
   });
+
+  it("detaches an aborted short-budget caller without cancelling the shared cache fill for concurrent callers", async () => {
+    let releaseEntry!: (value: Response) => void;
+    mockedFetch.mockImplementationOnce(() => new Promise<Response>(resolve => { releaseEntry = resolve; }));
+    mockedHydrate.mockResolvedValueOnce([row("36608681")] as any);
+
+    const shortBudget = new AbortController();
+    const tabSignal = new AbortController();
+    const first = getCuratedVariantCitations("NAE1", "p.Leu49Phe", "Q13564", shortBudget.signal);
+    const second = getCuratedVariantCitations("NAE1", "p.Leu49Phe", "Q13564", tabSignal.signal);
+
+    shortBudget.abort(new Error("summary budget ended"));
+    const firstResult = await first;
+    expect(firstResult.state).toBe("error");
+    expect(firstResult.citations).toEqual([]);
+
+    releaseEntry(jsonResponse(entry({ features: [naturalVariant()] })));
+    const secondResult = await second;
+    expect(secondResult.state).toBe("complete");
+    expect(secondResult.citations.map(c => c.id)).toEqual(["36608681"]);
+
+    // Cache is populated from the completed shared fill; a third call does not re-fetch.
+    const cached = await getCuratedVariantCitations("NAE1", "p.Leu49Phe", "Q13564");
+    expect(cached.state).toBe("complete");
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedHydrate).toHaveBeenCalledTimes(1);
+  });
 });

@@ -512,7 +512,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       headline: null,
       predicate: c === 0
         ? `Searched ${gene} with ${forms.forms.join(", ")} in titles, abstracts and open-access full text. A report under another notation, such as a nucleotide change, would not match`
-        : `Matched on ${gene} with ${forms.forms.join(", ")}; ${scope === "variant" ? "inspect them in the reading desk" : `choose "Naming ${label}" in the reading desk to read them`}`,
+        : `Matched on ${gene} with ${forms.forms.join(", ")} in titles, abstracts or open-access full text; ${scope === "variant" ? "inspect them in the reading desk" : `choose "Naming ${label}" in the reading desk to read them`}`,
     };
   } else if (probe.state === "error") {
     finding = {
@@ -537,7 +537,9 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
   if (probe.state === "error") faults.push("The variant-specific search did not complete, so its count is not shown.");
   const curated = input.curated ?? null;
   if (curated?.state === "error") {
-    faults.push(`The curated variant-citation lookup did not complete${curated.reason ? ` (${curated.reason})` : ""}. Papers cited only by a curated variant record may be missing.`);
+    // The server's reason is already a full sentence ("The curated citation lookup failed (…)."), so
+    // wrapping it in another sentence printed "did not complete (… failed (…).)." on screen.
+    faults.push(`${curated.reason ?? "The curated variant-citation lookup did not complete."} Papers cited only by a curated variant record may be missing.`);
   }
 
   const sent = response?.europePmcQuery ?? null;
@@ -561,7 +563,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       key: "matched",
       label: "Europe PMC matched",
       value: degraded ? "No answer" : hitCount !== null ? `${n(hitCount)} ${plural(hitCount, "record", "records")}` : "Not reported",
-      sub: hitCount !== null && !degraded ? `${n(queryTotal)} ${plural(queryTotal, "query match", "query matches")} loaded. Retrieval uses Europe PMC's default ranking; the cached list is ordered by year before screening.` : undefined,
+      sub: degraded ? "The papers shown are this gene's cached set and may not match the query." : hitCount !== null ? `${n(queryTotal)} ${plural(queryTotal, "query match", "query matches")} loaded. Retrieval uses Europe PMC's default ranking; the cached list is ordered by year before screening.` : undefined,
       state: degraded ? "warn" : hitCount !== null ? "done" : "idle",
     },
     {

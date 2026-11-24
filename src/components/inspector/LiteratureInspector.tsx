@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Check, Database, Download, ExternalLink, GitBranch, Pin, RotateCcw, Search, Sparkles } from "lucide-react";
-import type { Citation, LiteratureEvidence, PaperReading } from "../../shared/literatureEvidence";
+import { Check, Database, ExternalLink, FileText, GitBranch, RotateCcw, Search, Sparkles } from "lucide-react";
+import { paperIdentifier, type LiteratureEvidence } from "../../shared/literatureEvidence";
+import { SUMMARY_CITATION_LIMIT, summaryScopeRows } from "../../shared/literatureSummary";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
-import { LEXICON_VERSION } from "../../shared/literatureScreening";
-import { curatedLinkLabel } from "../../shared/curatedLiterature";
-import { useReviewWorkspace } from '../review/ReviewWorkspace';
+import { useReviewWorkspace } from "../review/ReviewWorkspace";
 import { tagsByQuote } from "../literature/ScreeningChips";
-import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
-import { safeExternalHref } from '../../shared/externalLink';
-import { downloadBlob } from '../../lib/download';
+import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import { safeExternalHref } from "../../shared/externalLink";
+import { LiteratureExportSection } from "./LiteratureExportSection";
+
+export { shortlistRecords, toBibtex, toRis, toCsv } from "./literatureExport";
 
 interface LiteratureInspectorProps {
   gene: string;
@@ -20,165 +21,6 @@ interface LiteratureInspectorProps {
    *  serialises `evidence.displayed` — never canned data. */
   evidence?: LiteratureEvidence | null;
 }
-
-/* ── Citation serializers ──────────────────────────────────────────────────
- * Each operates on the citations the user can actually see in the Literature
- * view, with field-level escaping appropriate to the format. Exported for the
- * unit tests in ./__tests__/literatureExport.test.ts. */
-
-const splitAuthors = (authors: string): string[] =>
-  authors.split(",").map(a => a.trim()).filter(Boolean);
-
-/**
- * "Wang W" → "Wang, W" — the surname-first form BibTeX and RIS expect.
- *
- * Europe PMC author strings put the given name last ("van der Burg A"), and the
- * surname itself may be multi-word (particles). Splitting on the *first* space
- * mangled those: "van der Burg A" became "van, der Burg A". Instead the trailing
- * initial-like tokens are treated as the given name and everything before them as
- * the surname. Names with no trailing initials — consortium names ("The GTEx
- * Consortium") or full given names — are left intact: with no initial to anchor on,
- * any comma we inserted would cut the surname at the wrong boundary.
- */
-const NAME_SUFFIX = /^(Jr|Sr|II|III|IV|V)\.?$/i;
-const GIVEN_INITIAL = /^[A-Z]{1,4}\.?$/;
-const toSurnameFirst = (name: string): string => {
-  const tokens = name.trim().split(/\s+/);
-  if (tokens.length < 2) return name;
-  // Set "Smith J Jr." aside so the suffix does not read as the given name.
-  const suffix: string[] = [];
-  while (tokens.length > 2 && NAME_SUFFIX.test(tokens[tokens.length - 1])) {
-    suffix.unshift(tokens.pop() as string);
-  }
-  let cut = tokens.length;
-  while (cut > 1 && GIVEN_INITIAL.test(tokens[cut - 1])) cut--;
-  if (cut === tokens.length) return name;
-  const head = tokens.slice(0, cut).join(" ");
-  const tail = [...tokens.slice(cut), ...suffix].join(" ");
-  return `${head}, ${tail}`;
-};
-
-/**
- * BibTeX special characters that must be escaped. Beyond the classic `\\{}%&` set,
- * `#$ _` break compilation when a title is typeset, and bare `~`/`^` are TeX accent
- * macros that error without an argument — hence the `\textasciitilde{}` /
- * `\textasciicircum{}` forms instead of a backslash.
- */
-const bibtexEscape = (text: string): string =>
-  text
-    .replace(/([\\{}%&#_$])/g, "\\$1")
-    .replace(/~/g, "\\textasciitilde{}")
-    .replace(/\^/g, "\\textasciicircum{}");
-
-const exportKey = (c: Citation): string =>
-  (/^\d+$/.test(c.id) ? `pmid${c.id}` : c.id.replace(/[^A-Za-z0-9]/g, "")) || "citation";
-
-/* Two records whose ids differ only in stripped punctuation (e.g. PPR ids) would
- * otherwise emit the same key; de-duplicate per export so every entry stays keyed. */
-const uniqueKeys = (list: Citation[]): string[] => {
-  const seen = new Set<string>();
-  return list.map((c) => {
-    const base = exportKey(c);
-    let key = base;
-    let n = 2;
-    while (seen.has(key)) key = `${base}${n++}`;
-    seen.add(key);
-    return key;
-  });
-};
-
-const identifierLabel = (id: string): string => (/^\d+$/.test(id) ? `PMID: ${id}` : `ID: ${id}`);
-
-type ExportItem = Citation | PaperReading;
-interface ExportHeader { query: string; lexiconVersion: number; date: string; }
-const citationOf = (item: ExportItem): Citation => "citation" in item ? item.citation : item;
-const screeningOf = (item: ExportItem) => "screening" in item ? item.screening : null;
-/**
- * Curated record relationships on the record, as provenance — label, provider id and the provider's own
- * URL. Deliberately not a quote and not a screening tag; the export keeps the two apart the same way the
- * table does.
- */
-const curatedNote = (item: ExportItem): string => {
-  const links = citationOf(item).curatedLinks ?? [];
-  return links
-    .map(link => `${curatedLinkLabel(link.provider)} [PMID ${link.pmid}${link.featureId ? ` ${link.featureId}` : ""}]: ${link.sourceUrl}`)
-    .join(" | ");
-};
-const exportNote = (item: ExportItem): string => {
-  const screening = screeningOf(item);
-  const curated = curatedNote(item);
-  const parts: string[] = [];
-  if (screening) parts.push(`tier ${screening.tier}; tags ${screening.tags.map(tag => `${tag.tag} [${tag.source}]: ${tag.quote}`).join(" | ")}`);
-  if (curated) parts.push(`curated: ${curated}`);
-  return parts.join("; ");
-};
-/** The export action is deliberately based on the attention rule, not a currently selected table filter. */
-export const shortlistRecords = (papers: readonly PaperReading[]): PaperReading[] => papers.filter(paper => paper.screening.tier <= 4);
-const headerText = (header: ExportHeader) => `Query: ${header.query}; Lexicon version: ${header.lexiconVersion}; Date: ${header.date}`;
-
-export const toBibtex = (list: readonly ExportItem[], header?: ExportHeader): string => {
-  const citations = list.map(citationOf);
-  const keys = uniqueKeys(citations);
-  const prefix = header ? `@comment{${bibtexEscape(headerText(header))}}\n\n` : "";
-  return `${prefix}${citations.map((c, i) => {
-    const note = [identifierLabel(c.id), exportNote(list[i])].filter(Boolean).join("; ");
-    const fields = [
-      `  author  = {${splitAuthors(c.authors).map(toSurnameFirst).map(bibtexEscape).join(" and ")}}`,
-      `  title   = {${bibtexEscape(c.title)}}`,
-      `  journal = {${bibtexEscape(c.journal)}}`,
-      ...(c.year ? [`  year    = {${c.year}}`] : []),
-      ...(c.url ? [`  url     = {${bibtexEscape(c.url)}}`] : []),
-      `  note    = {${bibtexEscape(note)}}`
-    ];
-    return `@article{${keys[i]},\n${fields.join(",\n")}\n}`;
-  }).join("\n\n")}\n`;
-};
-
-/** RIS is line-oriented: a newline inside a value would start a bogus record line. */
-const risLine = (text: string): string => text.replace(/\s*\r?\n\s*/g, " ");
-
-export const toRis = (list: readonly ExportItem[], header?: ExportHeader): string =>
-  `${header ? `N1  - ${risLine(headerText(header))}\n\n` : ""}${list.map(item => {
-    const c = citationOf(item);
-    const lines = [
-      "TY  - JOUR",
-      `TI  - ${risLine(c.title)}`,
-      ...splitAuthors(c.authors).map(a => `AU  - ${toSurnameFirst(a)}`),
-      `JO  - ${risLine(c.journal)}`,
-      ...(c.abstract ? [`AB  - ${risLine(c.abstract)}`] : []),
-      ...(c.year ? [`PY  - ${c.year}`] : []),
-      ...(c.url ? [`UR  - ${c.url}`] : []),
-      ...(exportNote(item) ? [`N1  - ${risLine(exportNote(item))}`] : []),
-      `AN  - ${c.id}`,
-      "ER  - "
-    ];
-    return lines.join("\n");
-  }).join("\n\n")}\n`;
-
-/** Quote a CSV field only when it needs it; double internal quotes (RFC 4180). */
-const csvCell = (value: string | number | null | undefined): string => {
-  let text = value === null || value === undefined ? "" : String(value);
-  // Neutralize formula injection: Excel/Sheets *execute* a cell beginning with =, +, -
-  // @ (or a leading tab/CR) instead of displaying it, turning a citation title into
-  // arbitrary spreadsheet formula. The leading apostrophe is inert and is not shown
-  // by spreadsheet apps.
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-};
-
-export const toCsv = (list: readonly ExportItem[], gene: string, variant: string, exportHeader?: ExportHeader): string => {
-  const header = ["Gene", "Variant", "ID", "Title", "Authors", "Journal", "Year", "URL", "Tier", "Screening tags", "Curated links"];
-  const rows = list.map(item => {
-    const c = citationOf(item);
-    const screening = screeningOf(item);
-    return [gene, variant, c.id, c.title, c.authors, c.journal, c.year ?? "", c.url ?? "", screening?.tier ?? "", screening ? screening.tags.map(tag => `${tag.tag} [${tag.source}]: ${tag.quote}`).join(" | ") : "", curatedNote(item)]
-      .map(csvCell)
-      .join(",");
-  });
-  // CRLF line endings keep Excel happy when a field contains quotes or newlines.
-  const preamble = exportHeader ? [`# Query,${csvCell(exportHeader.query)}`, `# Lexicon version,${exportHeader.lexiconVersion}`, `# Date,${csvCell(exportHeader.date)}`] : [];
-  return `${[...preamble, header.join(","), ...rows].join("\r\n")}\r\n`;
-};
 
 function Step({ n, label, state = "done", last = false, children }: { n: number; label: string; state?: "done" | "warn" | "idle"; last?: boolean; children: React.ReactNode }) {
   return (
@@ -211,7 +53,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   onSearch,
   evidence
 }) => {
-  const workspace = useReviewWorkspace('literature');
+  const workspace = useReviewWorkspace("literature");
   const summaryReceipt = useVariantAnalysisStore(st => {
     const result = st.analysisState.result;
     return result?.metadata?.gene === gene && result.metadata.variant === variant && !result.isFallback ? result.insights?.literature : undefined;
@@ -252,62 +94,26 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   };
 
   const readings = evidence?.visible ?? [];
-  // The shortlist is defined by the shared attention rule, not by whichever tier/filter the reader
-  // happens to have selected in the table. Otherwise the default Read first view could silently omit
-  // every Read next record from an action explicitly labelled "Export shortlist".
-  const shortlistReadings = evidence ? shortlistRecords(evidence.papers) : [];
-  const citationCount = readings.length;
   const sentQuery = evidence?.response?.europePmcQuery ?? null;
   const notSearched = searchQuery.trim() === "" && customQuery === suggestion;
   const sweep = formatSweep(evidence?.response?.fetchedAt ?? null);
   const selected = evidence?.papers.find(paper => paper.citation.id === workspace.selected);
-  const selectionHidden = selected && !readings.some(paper => paper.citation.id === workspace.selected);
-
-  const handleExportCitations = (format: "bibtex" | "ris" | "csv", shortlistOnly = false) => {
-    if (workspace.view !== 'map') return;
-    const records = shortlistOnly ? shortlistReadings : readings;
-    if (records.length === 0) return;
-
-    const exportHeader = { query: (sentQuery ?? searchQuery) || "Gene-wide default", lexiconVersion: LEXICON_VERSION, date: new Date(evidence?.response?.fetchedAt ?? Date.now()).toISOString().slice(0, 10) };
-
-    let content = "";
-    let mime = "text/plain";
-    let ext = "txt";
-
-    if (format === "bibtex") {
-      content = toBibtex(records, exportHeader);
-      ext = "bib";
-    } else if (format === "ris") {
-      content = toRis(records, exportHeader);
-      ext = "ris";
-    } else {
-      content = toCsv(records, gene || "", variant || "", exportHeader);
-      mime = "text/csv;charset=utf-8";
-      ext = "csv";
-    }
-
-    downloadBlob(
-      `${gene || "gene"}_literature_${shortlistOnly ? "shortlist" : "export"}.${ext}`,
-      mime,
-      content,
-      4000
-    );
-  };
+  const selectionHidden = workspace.view === "map" && Boolean(selected && !readings.some(paper => paper.citation.id === workspace.selected));
 
   return (
     <div className="lit-rail" data-testid="literature-rail">
       <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected paper">
-        <div className="review-selection__head"><span className="eyebrow"><Pin size={13} aria-hidden="true" />{selected ? 'Pinned source' : workspace.selected ? 'Selected source' : 'Explore a source'}</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
+        <div className="review-selection__head"><span className="eyebrow"><FileText size={13} aria-hidden="true" />{workspace.selected ? "Selected source" : "Explore a source"}</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
         <div className="review-selection__body">
-        {selected ? <><h3>{selected.citation.title}</h3><p className="lit-mono">{selected.identifier.label} · {selected.citation.year ?? 'Year not reported'}</p>
-          <p>{selected.citation.journal || 'Journal not reported'}</p>
-          <p>Reading tier {selected.screening.tier} · a screening priority, not a quality score.</p>
-          <p>{selected.pinned ? 'Added to the report.' : 'Not added to the report.'}</p>
-          {selectionHidden && <p className="lit-rail__warn">This paper is outside the current reading desk or filters. Its source remains selected.</p>}
-          {tagsByQuote(selected.screening.tags).map(tag => <blockquote key={tag.quote}><span>{tag.label} · {tag.source.replace(/-/g, ' ')}</span><p>{tag.quote}</p></blockquote>)}
-          <details><summary>Abstract</summary><p>{selected.citation.abstract || 'Europe PMC returned no abstract for this record.'}</p></details>
-          <div className="review-selection__actions"><button type="button" className="review-action" onClick={workspace.showSelected}>Show selected source record</button><a className="lit-link" href={selected.href} target="_blank" rel="noopener noreferrer">Open paper<span className="sr-only"> (opens in a new tab)</span></a></div></>
-          : <p>{workspace.selected ? 'The selected paper is not in this search result. Clear the selection or select another loaded source.' : 'Select a paper to inspect its quoted observations and abstract here. Adding it to the report is a separate action.'}</p>}
+          {selected ? <><h3>{selected.citation.title}</h3><p className="lit-mono">{selected.identifier.label} · {selected.citation.year ?? "Year not reported"}</p>
+            <p>{selected.citation.journal || "Journal not reported"}</p>
+            <p>Reading tier {selected.screening.tier} · a screening priority, not a quality score.</p>
+            <p>{selected.pinned ? "Added to the report." : "Not added to the report."}</p>
+            {selectionHidden && <p className="lit-rail__warn">This paper is outside the current reading desk or filters. Its source remains selected.</p>}
+            {tagsByQuote(selected.screening.tags).map(tag => <blockquote key={tag.quote}><span>{tag.label} · {tag.source.replace(/-/g, " ")}</span><p>{tag.quote}</p></blockquote>)}
+            <details><summary>Abstract</summary><p>{selected.citation.abstract || "Europe PMC returned no abstract for this record."}</p></details>
+            <div className="review-selection__actions"><button type="button" className="review-action" onClick={workspace.showSelected}>Show selected source record</button><a className="lit-link" href={selected.href} target="_blank" rel="noopener noreferrer">Open paper<span className="sr-only"> (opens in a new tab)</span></a></div></>
+            : <p>{workspace.selected ? "The selected paper is not in this search result. Clear the selection or select another loaded source." : "Select a paper to inspect its quoted observations and abstract here. Adding it to the report is a separate action."}</p>}
         </div>
       </section>
       {/* ── 1. How the list was obtained ── */}
@@ -328,9 +134,6 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
         ) : (
           <p className="lit-rail__empty">No search has run yet.</p>
         )}
-        {evidence?.faults.map(f => (
-          <p key={f} className="lit-rail__warn" role="status">{f}</p>
-        ))}
       </section>
 
       {/* ── 2. Change the search ── */}
@@ -370,45 +173,17 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
       </section>
 
       {/* ── 3. Export ── */}
-      <section className="rail-section" aria-labelledby="lit-rail-export">
-        <h3 className="eyebrow" id="lit-rail-export">
-          <Download className="w-3.5 h-3.5" />
-          Export
-        </h3>
-        <p className="lit-rail__lead">
-          {citationCount > 0
-            ? `The ${citationCount} ${citationCount === 1 ? "paper" : "papers"} shown, with any filter applied.`
-            : "No papers are shown, so there is nothing to export."}
-        </p>
-        <div className="lit-rail__export">
-          {(["bibtex", "ris", "csv"] as const).map(fmt => (
-            <button
-              key={fmt}
-              type="button"
-              className="lit-btn lit-btn--quiet"
-              onClick={() => handleExportCitations(fmt)}
-              disabled={workspace.view !== 'map' || citationCount === 0}
-              title={workspace.view !== 'map' ? "Open the reading desk to export papers" : citationCount === 0 ? "Load papers first" : `Download ${fmt.toUpperCase()} of the shown papers`}
-            >
-              <Download aria-hidden="true" />
-              {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="lit-btn lit-btn--quiet lit-shortlist-export"
-          onClick={() => handleExportCitations("csv", true)}
-          disabled={workspace.view !== 'map' || shortlistReadings.length === 0}
-          title={workspace.view !== 'map' ? "Open the reading desk to export papers" : "Download all loaded Read first and Read next papers as CSV, regardless of desk filters"}
-        >
-          <Download aria-hidden="true" /> Export shortlist
-        </button>
-        <p className="rail-step__sub">{workspace.view !== 'map' ? "Open the reading desk to export papers." : "Shortlist export includes all loaded Read first and Read next papers, including those outside the current filters."}</p>
-        {evidence && evidence.counts.pinned > 0 && (
-          <p className="rail-step__sub">{evidence.counts.pinned} pinned for the Report — pins are kept per variant and appear in its literature block.</p>
-        )}
-      </section>
+      <LiteratureExportSection
+        gene={gene}
+        variant={variant}
+        searchQuery={searchQuery}
+        evidence={evidence}
+        view={workspace.view}
+        onOpenReadingDesk={() => {
+          workspace.setView("map");
+          document.getElementById("review-literature-tab-map")?.focus();
+        }}
+      />
 
       {/* ── 4. What reads this list ── */}
       <section className="rail-section" aria-labelledby="lit-rail-reads">
@@ -416,9 +191,9 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
           <Sparkles className="w-3.5 h-3.5" />
           What reads this list
         </h3>
-        <dl className="rail-kv">
+        <dl className="rail-kv lit-rail__reads">
           <div className="rail-kv__row"><dt>ACMG engine</dt><dd>Nothing. No criterion is scored from literature.</dd></div>
-          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to 5 relevant abstracts from bounded gene, protein-notation and clinical/functional searches plus curated links. Ordered by screening tier, then available similarity and date. Searches here do not change the summary.</dd></div>
+          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to {SUMMARY_CITATION_LIMIT} relevant abstracts from bounded gene, protein-notation and clinical/functional searches plus curated links. Ordered by screening tier, then available similarity and date. Searches here do not change the summary.</dd></div>
           <div className="rail-kv__row"><dt>Screener</dt><dd>Reads titles and abstracts to order this list. It is not evidence and enters no ACMG criterion.</dd></div>
           <div className="rail-kv__row"><dt>Report</dt><dd>Only papers you pin.</dd></div>
         </dl>
@@ -428,10 +203,9 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
       <section className="rail-section" aria-labelledby="lit-rail-summary-inputs">
         <h3 className="eyebrow" id="lit-rail-summary-inputs"><Sparkles className="w-3.5 h-3.5" />Summary inputs</h3>
         {summaryReceipt ? <>
-          <p className="lit-rail__lead">{summaryReceipt.citations.length} {summaryReceipt.citations.length === 1 ? "abstract" : "abstracts"} supplied to the current AI narrative. Selection is separate from this tab's filters.</p>
-          <ol className="lit-summary-papers">{summaryReceipt.citations.map(c => <li key={c.id}><a className="lit-link" href={safeExternalHref(c.url) ?? `https://europepmc.org/search?query=${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer">{c.title}</a><span className="lit-dim lit-mono">{c.id} / tier {c.tier}</span></li>)}</ol>
-          {summaryReceipt.coverage.map((row, i) => <p className="lit-rail__field" key={`${row.scope}-${i}`}>{row.scope}: {row.loaded} loaded{row.matched !== null ? ` of ${row.matched}` : "; total not reported"}{row.truncated ? " / bounded, more matches remain" : ""}{row.state === "error" ? " / retrieval incomplete" : ""}</p>)}
-          {Object.entries(summaryReceipt.scopes).filter(([, state]) => state !== "complete").map(([scope, state]) => <p className="lit-rail__field" key={scope}>{scope}: {state === "error" ? "retrieval incomplete" : "not available"}</p>)}
+          <p className="lit-rail__lead">{summaryReceipt.citations.length} {summaryReceipt.citations.length === 1 ? "abstract" : "abstracts"} supplied to the current AI narrative. Selection is separate from this tab&apos;s filters.</p>
+          <ol className="lit-summary-papers">{summaryReceipt.citations.map(c => <li key={c.id}><a className="lit-link" href={safeExternalHref(c.url) ?? `https://europepmc.org/search?query=${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer">{c.title}</a><span className="lit-dim lit-mono">{paperIdentifier(c.id).label} · reading tier {c.tier}</span></li>)}</ol>
+          <dl className="rail-kv lit-rail__reads">{summaryScopeRows(summaryReceipt).map(row => <div className="rail-kv__row" key={row.label}><dt>{row.label}</dt><dd>{row.text}</dd></div>)}</dl>
         </> : <p className="lit-rail__lead">Summary inputs are not recorded for this result. Generate a new AI narrative to inspect its selected abstracts.</p>}
       </section>
 

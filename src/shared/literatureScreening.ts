@@ -346,13 +346,30 @@ const TIER_NAMES: Record<AttentionTier, string> = {
   6: "Full-text only",
 };
 
+/** The tags `attentionTier` reads to place a paper in each tier; tier 6 is reached by having none. */
+const TIER_REASONS: Record<AttentionTier, readonly ScreeningTagName[]> = {
+  1: ["functional-assay", "clinical-case", "names-variant"],
+  2: ["names-variant"],
+  3: ["same-residue"],
+  4: ["functional-assay", "clinical-case", "mechanism", "review"],
+  5: ["names-gene"],
+  6: [],
+};
+
 /** One rule-built line for the paper list; no quote means no line. */
 export function whyRead(screening: PaperScreening): string | null {
   const sourceOrder: ScreeningTagSource[] = ["sentence-anchor", "curated", "pubtype", "lexicon"];
-  const useful = screening.tags.filter(tag => !["names-gene", "model-system", "full-text-only"].includes(tag.tag));
+  // Quote a tag that earned this tier. Picking the best-sourced tag of any kind put a review's
+  // publication type ("review-article") on a row that is tier 2 because it names the variant.
+  const earning = screening.tags.filter(tag => TIER_REASONS[screening.tier].includes(tag.tag));
+  // A paper placed by its provider record alone has no tag that earned the tier. Falling back to any
+  // other tag would quote a gene mention as the reason, so the provider relationship is the line.
+  const provider = screening.citedBy?.[0];
+  if (!earning.length && provider) return `${TIER_NAMES[screening.tier]} · ${provider.label}`;
+  const useful = earning.length ? earning : screening.tags.filter(tag => !["model-system", "full-text-only"].includes(tag.tag));
   const strongest = sourceOrder
     .map(source => useful.find(tag => tag.source === source))
-    .find(Boolean) ?? screening.tags.find(tag => tag.tag !== "model-system");
+    .find(Boolean);
   if (!strongest) {
     // A curated-only row has no quotable sentence; its line is the provider relationship, not a quote.
     const curated = screening.citedBy?.[0];
