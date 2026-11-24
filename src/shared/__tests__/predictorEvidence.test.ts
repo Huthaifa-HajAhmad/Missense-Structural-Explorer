@@ -6,18 +6,18 @@
  *   • popEVE −3.93 voted "pathogenic" on an unsourced −2.0 cut (the authors' cut is −4.617);
  *   • the AlphaGenome AVI voted, and set PP3's strength, although it is a rank that contains
  *     AlphaMissense;
- *   • the tab's verdict rule (majority) differed from the engine's (plurality).
+ *   • the tab's verdict rule (majority) differed from the engine's (plurality);
+ *   • a count of correlated tools set PP3/BP4 at all — the rule is now one calibrated tool, the
+ *     first with a score in the fixed order REVEL → BayesDel noAF → AlphaMissense → ESM1b.
  */
 import { describe, expect, it } from "vitest";
 import {
   PP3_BP4_CALIBRATION,
   calibratedCall,
   calibrationBands,
-  countPredictorConcordance,
   evaluateAlphaGenomeAvi,
   evaluateAlphaMissense,
   evaluatePopEve,
-  insilicoVoteOutcome,
 } from "../thresholds";
 import { buildPredictorEvidence, localPredictorAgreement, predictorFinding, predictorSummary } from "../predictorEvidence";
 
@@ -29,6 +29,7 @@ function gzf1(overrides: Record<string, any> = {}) {
     conservationData: {
       revel: 0.234,
       bayesdel: 0.092,
+      // Retired tools a saved analysis may still carry: none of them draws a reading.
       metarnn: 0.767,
       clinpred: 0.998,
       eigenPhred: 6.3,
@@ -110,7 +111,7 @@ describe("calibration — the published bands, transcribed", () => {
   });
 });
 
-describe("evaluators — no unsourced cut-point reaches the vote", () => {
+describe("evaluators — no unsourced cut-point reaches PP3/BP4", () => {
   it("popEVE calls pathogenic only at the authors' −4.617, and never benign", () => {
     expect(evaluatePopEve(-3.931)).toBe("vus");
     expect(evaluatePopEve(-4.617)).toBe("pathogenic");
@@ -129,75 +130,46 @@ describe("evaluators — no unsourced cut-point reaches the vote", () => {
     expect(evaluateAlphaGenomeAvi({ aviPhred: 2 })).toBe("vus");
     expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
   });
-
-  it("AlphaGenome is informational in the concordance", () => {
-    const c = countPredictorConcordance(null, null, null, null, null, null, {
-      alphagenome: { status: "live", aviPhred: 40 } as any,
-    });
-    expect(c.nPathogenic + c.nBenign + c.nVus).toBe(0);
-    expect(insilicoVoteOutcome(c).direction).toBe("no-votes");
-  });
-});
-
-describe("insilicoVoteOutcome — the engine's plurality rule", () => {
-  it("PP3 on a plurality even when most voters are indeterminate", () => {
-    expect(insilicoVoteOutcome({ nPathogenic: 1, nBenign: 0, nVus: 5 }).code).toBe("PP3");
-  });
-  it("nothing on a tie", () => {
-    expect(insilicoVoteOutcome({ nPathogenic: 2, nBenign: 2, nVus: 0 })).toMatchObject({ direction: "tie", code: null });
-  });
-  it("BP4 when benign outnumber pathogenic", () => {
-    expect(insilicoVoteOutcome({ nPathogenic: 1, nBenign: 3, nVus: 1 }).code).toBe("BP4");
-  });
 });
 
 describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
   const evidence = buildPredictorEvidence({ result: gzf1() });
 
-  it("counts six voting tools: four pathogenic, one benign, one indeterminate", () => {
-    expect(evidence.vote).toMatchObject({ nPathogenic: 4, nBenign: 1, nIndeterminate: 1, nVoting: 6, code: "PP3" });
-    expect(evidence.voters.pathogenic.map(r => r.key).sort()).toEqual(["am", "cadd", "clinpred", "metarnn"]);
-    expect(evidence.voters.benign.map(r => r.key)).toEqual(["revel"]);
-    expect(evidence.voters.indeterminate.map(r => r.key).sort()).toEqual(["bayesdel"]);
+  it("takes BP4 from REVEL, the first calibrated tool with a score, and notes AlphaMissense's opposite call", () => {
+    expect(evidence.primary).toMatchObject({ outcome: "met", activeTool: "revel", code: "BP4", skippedBefore: [] });
+    expect(evidence.primary.disagreeingTools.map(d => d.key)).toEqual(["alphaMissense"]);
+    expect(evidence.readings.filter(r => r.chainKey !== null).map(r => r.key)).toEqual(["revel", "bayesdel", "am", "esm"]);
   });
 
   it("shows ProtVar's residue conservation as an informational 0-1 reading with no cut-points", () => {
     const row = evidence.readings.find(r => r.key === "scorecons")!;
-    expect(row).toMatchObject({ group: "conservation", votes: false, score: 0.957, scoreText: "0.96", scale: { min: 0, max: 1 }, orientation: "higher" });
+    expect(row).toMatchObject({ group: "conservation", chainKey: null, score: 0.957, scoreText: "0.96", scale: { min: 0, max: 1 }, orientation: "higher" });
     expect(row.cutpoints.kind).toBe("none");
     expect(row.source).toMatch(/ProtVar/);
     expect(evidence.readings.find(r => r.key === "consurf")).toBeUndefined();
   });
 
-  it("shows popEVE as a cross-gene severity reading that never votes", () => {
+  it("shows popEVE as a cross-gene severity reading that never sets PP3/BP4", () => {
     const popeve = evidence.readings.find(r => r.key === "popeve")!;
-    expect(popeve.votes).toBe(false);
+    expect(popeve.chainKey).toBeNull();
     expect(popeve.group).toBe("severity");
     expect(popeve.caveats).toContain("no-benign-cut");
   });
 
-  it("states that the calibrated reference points the other way", () => {
-    expect(evidence.reference).toMatchObject({ key: "revel", relation: "opposes" });
-    expect(evidence.reference?.call.code).toBe("BP4");
-  });
-
-  it("never lets an informational tool vote", () => {
-    for (const r of evidence.readings.filter(x => !x.votes)) {
-      expect(["popeve", "alphagenome", "esm", "phylop", "gerp", "scorecons"]).toContain(r.key);
+  it("keeps every informational tool out of the fixed order", () => {
+    for (const r of evidence.readings.filter(x => x.chainKey === null)) {
+      expect(["cadd", "popeve", "alphagenome", "phylop", "gerp", "scorecons"]).toContain(r.key);
     }
-    // DANN and Eigen were retired; the fixture's stored scores draw no reading.
-    expect(evidence.readings.map(r => r.key)).not.toEqual(expect.arrayContaining(["dann"]));
-    expect(evidence.readings.map(r => r.key)).not.toEqual(expect.arrayContaining(["eigen"]));
+    // DANN, Eigen, MetaRNN and ClinPred were retired; the fixture's stored scores draw no reading.
+    for (const key of ["dann", "eigen", "metarnn", "clinpred"]) expect(evidence.readings.find(r => r.key === key)).toBeUndefined();
     const avi = evidence.readings.find(r => r.key === "alphagenome")!;
     expect(avi.callLabel).toBe("Informational");
     expect(avi.caveats).toEqual(expect.arrayContaining(["rank-not-probability", "includes-alphamissense"]));
   });
 
-  it("flags the tools that take allele frequency as a feature", () => {
-    for (const key of ["metarnn", "clinpred"]) {
-      expect(evidence.readings.find(r => r.key === key)!.caveats).toContain("uses-af");
-    }
-    expect(evidence.readings.find(r => r.key === "revel")!.caveats).not.toContain("uses-af");
+  it("shows CADD with its calibrated band, as a genome-wide model that is not counted", () => {
+    const cadd = evidence.readings.find(r => r.key === "cadd")!;
+    expect(cadd).toMatchObject({ group: "genome", chainKey: null, callLabel: "PP3_Moderate" });
   });
 
   it("shows no row for the retired runtime language models a saved analysis still carries, and keeps ESM1b", () => {
@@ -206,7 +178,8 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(evidence.readings.map(r => r.name).join(" ")).not.toMatch(/ESM-2|ESMC|VESM|SaProt/);
     const esm1b = evidence.readings.find(r => r.key === "esm")!;
     expect(esm1b.name).toBe("ESM1b");
-    expect(esm1b.group).toBe("protein-lm");
+    expect(esm1b.group).toBe("primary");
+    expect(esm1b.chainKey).toBe("esm1b");
   });
 
   it("reads the engine record rather than inferring it", () => {
@@ -217,6 +190,18 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(withRecord.engine).toMatchObject({ known: true, code: "PP3_Moderate" });
   });
 
+  it("does not call a code withheld by the conservative weighting when ClinVar corroborates its direction", () => {
+    // GZF1's rule gives BP4. Conservative weighting keeps BP4 when ClinVar says benign, as the engine does.
+    const corroborated = buildPredictorEvidence({
+      result: gzf1({ metadata: { acmgWeighting: "conservative" }, clinvar: { classification: "Benign" }, ruleBasedInsights: { acmgCriteria: [] } }),
+    });
+    expect(corroborated.engine.withheldByWeighting).toBe(false);
+    const uncorroborated = buildPredictorEvidence({
+      result: gzf1({ metadata: { acmgWeighting: "conservative" }, clinvar: { classification: "Pathogenic" }, ruleBasedInsights: { acmgCriteria: [] } }),
+    });
+    expect(uncorroborated.engine.withheldByWeighting).toBe(true);
+  });
+
   it("marks a criterion withheld by the weighting", () => {
     const e = buildPredictorEvidence({
       result: gzf1({ metadata: { acmgWeighting: "strict-structural" }, ruleBasedInsights: { acmgCriteria: [] } }),
@@ -224,10 +209,16 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(e.engine.withheldByWeighting).toBe(true);
   });
 
-  it("words the finding from the vote", () => {
+  it("words the finding from the first calibrated tool with a score", () => {
     const f = predictorFinding(evidence);
-    expect(f.headline).toBe("Pathogenic calls outnumber benign");
-    expect(f.predicate).toMatch(/^4 to 1, with 1 indeterminate/);
+    expect(f.headline).toBe("REVEL 0.234 is in its BP4 band");
+    expect(f.predicate).toBe("it is the first calibrated tool with a score (REVEL → BayesDel noAF → AlphaMissense → ESM1b), and it sets BP4");
+  });
+
+  it("names the tools skipped before a fallback answers", () => {
+    const f = predictorFinding(buildPredictorEvidence({ result: gzf1({ conservationData: { ...gzf1().conservationData, revel: null, bayesdel: null } }) }));
+    expect(f.headline).toBe("AlphaMissense 0.835 is in its PP3 band");
+    expect(f.predicate.startsWith("REVEL, BayesDel noAF had no score, so it is the first")).toBe(true);
   });
 
   it("reports a missing score as pending while the analysis runs, and as no result after", () => {
@@ -239,105 +230,71 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
   });
 });
 
-describe("predictorSummary — one line for every engine and reference state", () => {
+describe("predictorSummary — one line for every engine state", () => {
   const summary = (overrides: Record<string, any>, extra: Record<string, unknown> = {}) =>
     predictorSummary(buildPredictorEvidence({ result: gzf1(overrides), ...extra }));
   const record = (...codes: string[]) => ({ ruleBasedInsights: { acmgCriteria: codes.map(code => ({ code, reason: "" })) } });
   const scores = (patch: Record<string, unknown>) => ({ conservationData: { ...gzf1().conservationData, ...patch } });
-  const ADVICE = "ClinGen advises one pre-specified calibrated tool over a count of correlated ones.";
+  const NO_SPLICE = "SpliceAI had no score in this payload; verify splicing manually.";
+  const SPLICE_CLEAR = { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.01, max_ds: 0.01 } };
+  const AM_DISAGREES = "AlphaMissense 0.835 (PP3) points the other way. The strength stays with the first tool; weigh the disagreement before you accept it.";
 
-  it("recorded, reference opposes: says both in the lead and warns", () => {
-    const s = summary(record("PP3"));
+  it("recorded, another calibrated tool disagrees: says which, and warns", () => {
+    const s = summary(record("BP4"));
     expect(s).toMatchObject({ state: "recorded", tone: "warning" });
-    expect(s.lead).toBe("The engine recorded PP3 from a 4 to 1 vote, but REVEL, the calibrated reference, reads BP4.");
-    expect(s.rest).toEqual([ADVICE]);
+    expect(s.lead).toBe("The engine recorded BP4 from REVEL 0.234.");
+    expect(s.rest).toEqual([AM_DISAGREES, NO_SPLICE]);
   });
 
-  it("recorded, reference agrees: no warning, the reference's own strength named", () => {
-    const s = summary({ ...record("PP3"), ...scores({ revel: 0.8 }) });
+  it("recorded, no disagreement: no warning, the strength named", () => {
+    const s = summary({ ...record("PP3_Moderate"), ...scores({ revel: 0.8 }) });
     expect(s).toMatchObject({ state: "recorded", tone: "neutral" });
-    expect(s.lead).toBe("The engine recorded PP3 from a 5 to 0 vote, and REVEL, the calibrated reference, agrees (PP3 Moderate).");
+    expect(s.lead).toBe("The engine recorded PP3 Moderate from REVEL 0.800.");
     expect(s.rest).toEqual([]);
   });
 
-  it("recorded, reference between its bands: says the vote rests on weaker tools, no warning", () => {
-    const s = summary({ ...record("PP3"), ...scores({ revel: 0.5 }) });
+  it("recorded from a fallback: names the tools that had no score", () => {
+    const s = summary({ ...record("BP4_Moderate"), ...scores({ revel: null, bayesdel: -0.4, ...SPLICE_CLEAR }), predictorData: { amPathogenicity: 0.1 } });
+    expect(s.lead).toBe("The engine recorded BP4 Moderate from BayesDel noAF -0.400, after REVEL had no score.");
+  });
+
+  it("first tool between its bands: no criterion, later tools not asked", () => {
+    const s = summary({ ...record(), ...scores({ revel: 0.5 }) });
+    expect(s.state).toBe("none");
+    expect(s.lead).toBe("No PP3 or BP4: REVEL 0.500, the first tool with a score, sits between its bands.");
+  });
+
+  it("no calibrated tool at all: says so", () => {
+    const s = summary({ predictorData: {}, conservationData: {}, ...record() });
+    expect(s.lead).toBe("No PP3 or BP4: none of the calibrated tools scored this variant.");
     expect(s.tone).toBe("neutral");
-    expect(s.rest[0]).toMatch(/^REVEL, the calibrated reference, sits between its bands/);
-    expect(s.rest[0]).toMatch(/rests on uncalibrated or weaker tools/);
   });
 
-  it("falls back to BayesDel when REVEL is absent", () => {
-    const s = summary({ ...record("PP3"), ...scores({ revel: null, bayesdel: -0.4 }) });
-    expect(s.lead).toMatch(/but BayesDel, the calibrated reference, reads BP4 Moderate\.$/);
+  it("SpliceAI at 0.20 or more blocks BP4", () => {
+    const s = summary({ ...record(), ...scores({ spliceai: { ds_ag: 0.3, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.3 } }) });
+    expect(s.state).toBe("none");
+    expect(s.lead.startsWith("No BP4: REVEL 0.234 reads BP4, but SpliceAI max Δ 0.30 ≥ 0.20")).toBe(true);
   });
 
-  it("no calibrated tool at all: says so, never implies agreement", () => {
-    const s = summary({ ...record("PP3"), ...scores({ revel: null, bayesdel: null }) });
-    expect(s.tone).toBe("neutral");
-    expect(s.rest).toEqual(["Neither REVEL nor BayesDel scored this variant, so there is no calibrated reading to set beside the vote."]);
-  });
-
-  it("calibrated tool still running: says pending, not absent", () => {
-    const s = summary({ ...record("PP3"), ...scores({ revel: null, bayesdel: null }) }, { isLoading: true });
-    expect(s.rest.join(" ")).toMatch(/still being computed/);
-    expect(s.rest.join(" ")).not.toMatch(/Neither REVEL nor BayesDel scored/);
-  });
-
-  it("no engine record: the vote's code is called unconfirmed", () => {
+  it("no engine record: the rule's code is called unconfirmed", () => {
     const s = summary({});
     expect(s.state).toBe("unconfirmed");
-    expect(s.lead).toMatch(/^The vote supports PP3, 4 to 1, but REVEL/);
+    expect(s.lead).toBe("The rule gives BP4 from REVEL 0.234.");
     expect(s.rest[0]).toBe("This result carries no engine record to confirm it against.");
   });
 
   it("withheld by the weighting: named, and warned", () => {
     const s = summary({ metadata: { acmgWeighting: "strict-structural" }, ...record() });
     expect(s).toMatchObject({ state: "withheld", tone: "warning" });
-    expect(s.lead).toBe("The vote supports PP3, 4 to 1, but the engine recorded no in-silico criterion.");
+    expect(s.lead).toBe("The rule gives BP4 from REVEL 0.234, but the engine recorded no in-silico criterion.");
     expect(s.rest[0]).toBe("The strict-structural ACMG weighting withholds it.");
-    expect(s.rest).toContain("REVEL, the calibrated reference, reads BP4, the other way from the vote.");
   });
 
-  it("an earlier engine's stronger code: says the record is stale", () => {
-    const s = summary(record("PP3_Moderate"));
+  it("an earlier engine's vote: says the record is stale", () => {
+    const s = summary(record("PP3"));
     expect(s).toMatchObject({ state: "stale", tone: "warning" });
-    expect(s.lead).toBe("The engine recorded PP3 Moderate where the current rule gives PP3 (4 to 1).");
+    expect(s.lead).toBe("The engine recorded PP3 where the current rule gives BP4 from REVEL 0.234.");
     expect(s.rest[0]).toMatch(/earlier engine; re-run the analysis/);
-  });
-
-  it("an earlier engine recorded nothing the current rule would give: stale, not withheld", () => {
-    const s = summary(record());
-    expect(s.state).toBe("stale");
-    expect(s.lead).toBe("The engine recorded no PP3 or BP4 where the current rule gives PP3 (4 to 1).");
-  });
-
-  it("a tie, with the calibrated reference reaching a band: no criterion, and the reference flagged", () => {
-    const s = summary({ predictorData: { caddPhred: 29.5 }, conservationData: { revel: 0.234 }, ...record() });
-    expect(s).toMatchObject({ state: "none", tone: "warning" });
-    expect(s.lead).toBe("No PP3 or BP4: the vote is split, 1 pathogenic against 1 benign.");
-    expect(s.rest[0]).toBe("REVEL, the calibrated reference, reads BP4 on its own, which the vote does not reflect.");
-  });
-
-  it("every scored voter indeterminate: no criterion", () => {
-    const s = summary({ predictorData: { caddPhred: 24 }, conservationData: { bayesdel: 0.0 }, ...record() });
-    expect(s.lead).toBe("No PP3 or BP4: all 2 scored voting tools sit in their indeterminate range.");
-  });
-
-  it("nothing scored: one sentence, no second word about the missing reference", () => {
-    const s = summary({ predictorData: {}, conservationData: {}, ...record() });
-    expect(s.lead).toBe("No PP3 or BP4: no voting tool scored this variant.");
-    expect(s.rest).toEqual([]);
-    expect(s.tone).toBe("neutral");
-  });
-
-  it("a benign vote the reference agrees with", () => {
-    const s = summary({
-      predictorData: { caddPhred: 10, amPathogenicity: 0.05 },
-      conservationData: { revel: 0.1, bayesdel: -0.4, metarnn: 0.1, clinpred: 0.1 },
-      ...record("BP4"),
-    });
-    expect(s.lead).toBe("The engine recorded BP4 from a 6 to 0 vote, and REVEL, the calibrated reference, agrees (BP4 Moderate).");
   });
 });
 
@@ -360,17 +317,17 @@ describe("AlphaGenome reference-base refusal", () => {
 });
 
 describe("local informational agreement", () => {
-  it("keeps calibrated bands, unclassified scores and missingness separate from the vote", () => {
-    const evidence = buildPredictorEvidence({ result: gzf1() });
+  it("keeps calibrated bands, unclassified scores and missingness separate from PP3/BP4", () => {
+    const evidence = buildPredictorEvidence({ result: gzf1({ conservationData: { ...gzf1().conservationData, gerp: null } }) });
     const agreement = localPredictorAgreement(evidence);
     expect(agreement.unclassified.map(r => r.key)).toContain("alphagenome");
-    expect(agreement.missing.map(r => r.key)).toContain("esm");
-    expect(agreement.calibrated.every(x => !x.reading.votes)).toBe(true);
+    expect(agreement.missing.map(r => r.key)).toContain("gerp");
+    expect(agreement.calibrated.every(x => x.reading.chainKey === null)).toBe(true);
     const empty = localPredictorAgreement(buildPredictorEvidence({ result: {} as any }));
     expect(empty.scored).toBe(0);
     // The tab card and the rail render these strings verbatim, so gaps are stated only when they
     // exist: "None" is not a finding, and a calibrated code names its band without counting it.
-    expect(agreement.lead[0]).toContain("non-voting readings scored");
+    expect(agreement.lead[0]).toContain("informational readings scored");
     expect(agreement.tail.some(t => t.startsWith("No published band:"))).toBe(true);
     expect(agreement.tail.some(t => t.startsWith("Not scored:"))).toBe(true);
     expect(agreement.tail.every(t => !/\bnone\b/i.test(t))).toBe(true);
@@ -386,13 +343,13 @@ describe("local informational agreement", () => {
       result: gzf1({
         conservationData: {
           ...gzf1().conservationData,
-          metarnn: null,
+          revel: null,
           popeve: null,
           modelStatus: { base: "timeout", popeve: "timeout" },
         },
       }),
     });
-    for (const key of ["metarnn", "popeve"]) {
+    for (const key of ["revel", "popeve"]) {
       const availability = evidence.readings.find(r => r.key === key)!.availability;
       expect(availability.label).toBe("Timed out");
       expect(availability.action).toBe("retry");
@@ -401,9 +358,9 @@ describe("local informational agreement", () => {
     // A provider that answered and holds no score is a completed miss, and stays worded as one.
     const settled = buildPredictorEvidence({
       result: gzf1({
-        conservationData: { ...gzf1().conservationData, metarnn: null, modelStatus: { base: "settled" } },
+        conservationData: { ...gzf1().conservationData, revel: null, modelStatus: { base: "settled" } },
       }),
     });
-    expect(settled.readings.find(r => r.key === "metarnn")!.availability.label).toBe("No result");
+    expect(settled.readings.find(r => r.key === "revel")!.availability.label).toBe("No result");
   });
 });

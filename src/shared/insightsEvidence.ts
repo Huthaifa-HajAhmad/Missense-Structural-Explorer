@@ -23,7 +23,7 @@
  * with rules it was never checked against.
  */
 import type { AnalysisResult } from "./contracts.ts";
-import { classifyVariant, codeWeight } from "./acmgClassifier.ts";
+import { classifyVariant, codeWeight, strengthWord } from "./acmgClassifier.ts";
 import {
   acmgCriteriaView,
   baseAcmgCode,
@@ -31,6 +31,7 @@ import {
   type AcmgCriteriaView,
 } from "./acmgCriteriaView.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
+import { activeToolText, disagreementText, noCriterionText } from "./predictorSummary.ts";
 import { buildFrequencyEvidence, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
 import { buildSplicingEvidence } from "./splicingEvidence.ts";
 import { buildFunctionEvidence, type FunctionEvidenceInput } from "./functionEvidence.ts";
@@ -181,7 +182,8 @@ export function criterionForLane(evidence: InsightsEvidence, lane: Pick<Lane, 'c
 // ── Strength vocabulary ──────────────────────────────────────────────────────────────────────────
 
 const STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
-const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Moderate", 1: "Supporting" };
+// −8 is BA1 (stand-alone) or BP4 Very Strong; as a count of strengths it reads "Very strong". `strengthWord` names BA1.
+const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
 
 function recordedLength(code: string | null): 1 | 2 | 3 {
   if (!code) return 1;
@@ -312,13 +314,15 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
 
   const lanes: Lane[] = [];
 
-  // Computational ─ the vote is the shared rule; "counted" is what the engine recorded.
+  // Computational ─ the primary calibrated tool is the shared rule; "counted" is what the engine recorded.
   const pe = buildPredictorEvidence({ result, isLoading });
   const peCode = pe.engine.code;
   const peCounted = Boolean(peCode) && ["PP3", "BP4"].includes(baseAcmgCode(peCode!));
-  const voteLean: Lean = pe.vote.direction === "pathogenic" ? "pathogenic" : pe.vote.direction === "benign" ? "benign" : "none";
-  const compLean: Lean = peCounted ? CODE_LEAN(peCode) : voteLean;
-  const { nPathogenic: nP, nBenign: nB, nIndeterminate: nI, nVoting } = pe.vote;
+  const ruleCode = pe.primary.code;
+  const ruleLean: Lean = pe.primary.direction === "PP3" ? "pathogenic" : pe.primary.direction === "BP4" ? "benign" : "none";
+  const compLean: Lean = peCounted ? CODE_LEAN(peCode) : ruleLean;
+  const activeTool = activeToolText(pe.primary);
+  const disagreement = disagreementText(pe.primary);
   lanes.push({
     key: "computational",
     name: "Computational",
@@ -327,17 +331,19 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     counted: peCounted,
     code: peCounted ? peCode : null,
     length: peCounted ? recordedLength(peCode) : 1,
-    unconfirmed: !peCounted && Boolean(pe.vote.code) && pe.engine.known,
-    state: pe.pending && nVoting === 0 ? "pending" : nVoting === 0 ? "absent" : "read",
-    lead: nVoting === 0
-      ? "No voting predictor returned a score."
-      : `${nP} ${plural(nP, "predictor says", "predictors say")} damaging, ${nB} ${plural(nB, "says", "say")} tolerated, ${nI} ${plural(nI, "is", "are")} unsure.`,
-    rest: nVoting === 0
-      ? peCounted ? "The engine recorded this criterion, but its voting inputs are unavailable in this payload." : "Nothing is counted for this lane."
-      : peCounted && baseAcmgCode(peCode!) !== pe.vote.code
-          ? "The recorded criterion differs from the current predictor vote. Re-run the analysis to refresh it."
-        : nP > 0 && nB > 0
-          ? peCounted ? "Contested. The engine still recorded the plurality call." : "Contested, and the engine recorded no code."
+    unconfirmed: !peCounted && Boolean(ruleCode) && pe.engine.known,
+    state: pe.pending && activeTool === null ? "pending" : activeTool === null ? "absent" : "read",
+    lead: activeTool === null
+      ? "No calibrated predictor returned a score."
+      : ruleCode
+        ? `${activeTool}, the first calibrated tool with a score, gives ${formatEvidenceCode(ruleCode)}.`
+        : `${noCriterionText(pe.primary)}.`,
+    rest: activeTool === null
+      ? peCounted ? "The engine recorded this criterion, but its calibrated inputs are unavailable in this payload." : "Nothing is counted for this lane."
+      : (peCode ?? null) !== ruleCode && pe.engine.known
+          ? "The recorded criterion differs from the current rule. Re-run the analysis to refresh it."
+        : disagreement
+          ? `Contested: ${disagreement}`
           : peCounted ? "The engine recorded this call." : "The engine recorded no code for it.",
   });
 
@@ -399,8 +405,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : spState === "pending" ? "The splicing prediction is still running."
       : "No splicing score was returned.",
     rest: spState === "no-score" || spState === "pending"
-      ? "The engine does not read splicing."
-      : `The ClinGen splicing rule reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 and \u2264 ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as BP4. The engine does not read splicing.`,
+      ? "The engine records no splicing criterion; it withholds BP4 until SpliceAI has answered."
+      : `The ClinGen splicing rule reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 and \u2264 ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as BP4. The engine records no splicing criterion; at ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} it withholds BP4.`,
   });
 
   // Function ─ PM1.
@@ -488,8 +494,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
         : "The engine does not read assembly.",
   });
 
-  // Protein and genome language models ─ informational readings, none of them voting.
-  const lm = pe.readings.filter(r => (r.group === "protein-lm" || r.group === "genome") && r.score !== null);
+  // Genome-wide models ─ informational readings; none of them sets PP3/BP4.
+  const lm = pe.readings.filter(r => r.group === "genome" && r.score !== null);
   const lmP = lm.filter(r => r.callTone === "danger").length;
   const lmB = lm.filter(r => r.callTone === "good").length;
   lanes.push({
@@ -505,7 +511,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     lead: lm.length
       ? `${lm.length} ${plural(lm.length, "protein or genome model scored", "protein and genome models scored")} this variant; ${lmP} flag it and ${lmB} read it as tolerated.`
       : "No protein or genome model returned a score.",
-    rest: "ESM1b has published calibrated bands; the genome models are informational. None votes in this engine.",
+    rest: "These genome-wide models are informational; none sets PP3/BP4. CADD has published bands but is not in the fixed order.",
   });
 
   // Contrasts ─ generated from the lanes' own calls, never from a new score.
@@ -520,10 +526,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const silent = readLanes.filter(l => l.lean === "none");
   if (silent.length >= 2) agree.push({ text: `${oxfordList(silent.map(l => l.name))} provide context without an assessed clinical direction.` });
 
-  if (nP > 0 && nB > 0) {
-    const names = (rs: typeof pe.voters.pathogenic) => oxfordList(rs.slice(0, 3).map(r => r.name));
-    differ.push({ text: `${names(pe.voters.benign)} ${pe.voters.benign.length === 1 ? "reads" : "read"} the change as tolerated while ${names(pe.voters.pathogenic)} ${pe.voters.pathogenic.length === 1 ? "reads" : "read"} it as damaging.` });
-  }
+  if (disagreement) differ.push({ text: disagreement });
   const path = readLanes.filter(l => l.lean === "pathogenic");
   const ben = readLanes.filter(l => l.lean === "benign");
   if (path.length && ben.length) {
@@ -551,11 +554,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
 
   // Criteria table ─ every code the engine owns, with what became of it.
   const laneOf = (key: LaneKey) => lanes.find(l => l.key === key)!;
-  const strengthOf = (code: string) => {
-    const w = codeWeight(code);
-    const word = w > 0 ? STRENGTH_WORD[Math.abs(w)] : BENIGN_STRENGTH_WORD[Math.abs(w)];
-    return word ?? "Not weighted";
-  };
+  const strengthOf = strengthWord;
   const OWNERS: Array<[string, EvidenceTabId | null, LaneKey | null]> = [
     ["PVS1", null, null], ["PS1", null, null], ["PM1", "function", "function"], ["PM2", "clinical", "population"],
     ["PM4", null, null], ["PP2", null, null], ["PP3", "predictors", "computational"],
@@ -634,12 +633,12 @@ const CODE_TEXT: Record<string, string> = {
   PM2: "The change is very rare or absent in healthy population databases. Supporting.",
   PM4: "The change alters protein length. Moderate.",
   PP2: "The change sits in a stretch of the protein where healthy people carry far fewer missense changes than expected (gnomAD regional O/E, calibrated band). Supporting, or Moderate at the deepest depletion.",
-  PP3: "Computer models mostly agree the change is damaging. The weakest kind of evidence; several are needed together.",
+  PP3: "One calibrated computer model, chosen in advance, reads the change as damaging. Its strength (Supporting to Strong) comes from the model's published bands.",
   BA1: "The change is common in healthy people. Stand-alone benign.",
   BS1: "More common in healthy people than the disorder allows.",
   BS2: "Seen in healthy adults who carry two copies.",
   BP3: "An in-frame change in a repetitive region with no known function.",
-  BP4: "Computer models mostly agree the change is harmless. Supporting.",
+  BP4: "One calibrated computer model, chosen in advance, reads the change as harmless. Its strength (Supporting to Very strong) comes from the model's published bands.",
 };
 
 function glossaryFor(codes: ReadonlyArray<{ code: string }>, tierIndex: number) {

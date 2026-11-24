@@ -77,12 +77,10 @@ function scoresFromDbnsfpOrgTabs(tabs: Record<string, { rows?: DbnsfpOrgRow[] } 
     phylop: safeParseFloat(conservation.phyloP100way_vertebrate ?? row.phyloP100way_vertebrate),
     // The noAF score only: the calibrated BayesDel bands are for the score without allele frequency.
     bayesdel: read("BayesDel_noAF_score"),
-    metarnn: read("MetaRNN_score"),
-    clinpred: read("ClinPred_score"),
     esm1b: read("ESM1b_score"),
     popeve: read("popEVE_score"),
   };
-  const hasAny = [scores.revel, scores.gerp, scores.phylop, scores.bayesdel, scores.metarnn,
-    scores.clinpred, scores.esm1b, scores.popeve].some(v => v !== null);
+  const hasAny = [scores.revel, scores.gerp, scores.phylop, scores.bayesdel,
+    scores.esm1b, scores.popeve].some(v => v !== null);
   return hasAny ? scores : null;
 }

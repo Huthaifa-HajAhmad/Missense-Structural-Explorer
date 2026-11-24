@@ -12,7 +12,7 @@ import type { LocalDbnsfpRecord } from "../dbnsfp_local.ts";
  */
 export type DbnsfpScores = Pick<
   ConservationData,
-  | "revel" | "gerp" | "phylop" | "bayesdel" | "metarnn" | "metarnnPred" | "clinpred" | "clinpredPred"
+  | "revel" | "gerp" | "phylop" | "bayesdel"
   | "esm1b" | "esm1bPred" | "popeve" | "aouFrequency" | "spliceai"
 > & { revel: number | null; popeve: number | null };
 
@@ -28,10 +28,6 @@ export const NO_DBNSFP_SCORES: DbnsfpScores = {
   gerp: null,
   phylop: null,
   bayesdel: null,
-  metarnn: null,
-  metarnnPred: null,
-  clinpred: null,
-  clinpredPred: null,
   esm1b: null,
   esm1bPred: null,
   popeve: null,
@@ -58,8 +54,6 @@ export function scoresFromLocalRecord(rec: LocalDbnsfpRecord): DbnsfpScores {
     gerp: rec.gerp ?? null,
     phylop: rec.phylop ?? null,
     bayesdel: rec.bayesdel ?? null,
-    metarnn: rec.metarnn ?? null,
-    clinpred: rec.clinpred ?? null,
     esm1b: rec.esm1b ?? null,
     popeve: rec.popeve ?? null,
     aouFrequency: aouFromCounts(rec.aou_ac, rec.aou_an, rec.aou_het, rec.aou_hom),

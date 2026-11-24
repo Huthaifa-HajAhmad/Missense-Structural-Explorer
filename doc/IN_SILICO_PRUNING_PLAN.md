@@ -142,14 +142,17 @@ The dev checkout has no local store, on purpose. Tests use fixtures.
 
 ### Phase 5 — Clinical engine
 
-- Retire MetaRNN and ClinPred. Both are trained on clinical labels and overlap the calibrated tools. MetaRNN
-  comes back only if a use is found that no calibrated tool covers.
-- SpliceAI ≥ 0.20 blocks BP4 for a missense variant (ClinGen splicing guidance, Walker 2023).
-- D2 is reopened: one primary calibrated tool, chosen in advance, gives PP3/BP4 at its calibrated strength.
-  There is a fixed fallback order when that tool has no score, and the `PP3 + PM1 ≤ Strong` cap becomes
-  active. The plurality vote ends.
+- **Done (5b, `feat/primary-predictor-engine`):** retire MetaRNN and ClinPred. Both are trained on clinical
+  labels and overlap the calibrated tools. MetaRNN comes back only if a use is found that no calibrated tool covers.
+- **Done (5b):** SpliceAI ≥ 0.20 blocks BP4 for a missense variant (ClinGen splicing guidance, Walker 2023). BP4
+  is also withheld while SpliceAI has not finished, or when no single nucleotide change was resolved.
+- **Done (5b):** D2 is reopened: one primary calibrated tool, chosen in advance, gives PP3/BP4 at its calibrated
+  strength. There is a fixed fallback order when that tool has no score, and the `PP3 + PM1 ≤ Strong` cap is
+  active. The plurality vote has ended.
+- **Next (5c):** the version-pinned, hand-audited ClinGen VCEP table (`src/shared/insilico/vcepRules.ts`).
 
-Every step here changes verdicts: measure on the reference variants and write a release note.
+Every step here changes verdicts: measured on the reference variants and the ClinVar benchmark set in
+`RELEASE_NOTE_PRIMARY_PREDICTOR.md`.
 
 #### How the primary tool is chosen (5a, done on `docs/primary-predictor-benchmark`; see `PRIMARY_PREDICTOR_DECISION.md`)
 

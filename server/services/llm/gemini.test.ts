@@ -35,10 +35,8 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       gerp: 4.5,
       phylop: 6.2,
       bayesdel: 0.42,
-      metarnn: 0.88,
-      clinpred: 0.95,
-      // An analysis saved before DANN and Eigen were retired may still carry their scores.
-      ...({ eigenPhred: 14.2, dann: 0.99 } as object),
+      // An analysis saved before these tools were retired may still carry their scores.
+      ...({ eigenPhred: 14.2, dann: 0.99, metarnn: 0.88, clinpred: 0.95 } as object),
       esm1b: -12.4,
       popeve: -6.1,
       scorecons: 0.9,
@@ -49,10 +47,8 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     const analysisPrompt = JSON.stringify(mockGenerateContent.mock.calls[0][0].contents);
     expect(analysisPrompt).toContain('BayesDel Score: 0.42');
-    expect(analysisPrompt).toContain('MetaRNN Score: 0.88');
-    expect(analysisPrompt).toContain('ClinPred Score: 0.95');
-    // DANN and Eigen were retired: an old stored score is not put in the prompt.
-    expect(analysisPrompt).not.toMatch(/Eigen|DANN/);
+    // DANN, Eigen, MetaRNN and ClinPred were retired: an old stored score is not put in the prompt.
+    expect(analysisPrompt).not.toMatch(/Eigen|DANN|MetaRNN|ClinPred/);
     expect(analysisPrompt).toContain('ESM-1b LLR Score: -12.4');
     expect(analysisPrompt).toContain('PopEVE Score: -6.1');
     expect(analysisPrompt).not.toContain('GPN');

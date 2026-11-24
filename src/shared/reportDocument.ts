@@ -32,10 +32,11 @@
  */
 import type { AnalysisResult } from "./contracts.ts";
 import type { EvidenceTabId, InsightsEvidence, Lane, LaneKey } from "./insightsEvidence.ts";
-import { codeWeight } from "./acmgClassifier.ts";
+import { codeWeight, strengthWord } from "./acmgClassifier.ts";
 import { variantNumberingView } from "./numbering.ts";
 import { formatEvidenceCode } from "./thresholds.ts";
 import { CAVEAT_TEXT, buildPredictorEvidence } from "./predictorEvidence.ts";
+import { disagreementText } from "./predictorSummary.ts";
 import { buildEnergeticsEvidence, energeticsSummary } from "./energeticsEvidence.ts";
 import { buildFrequencyEvidence, formatAlleleFrequency, frequencySourceLabel, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
 import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
@@ -373,15 +374,8 @@ export function checksum(input: string): string {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
 
-const PATHOGENIC_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
-const BENIGN_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Moderate", 1: "Supporting" };
-
-/** The strength the engine's combining rule gives a code, in words. Same weights the tier used. */
-export function strengthWord(code: string): string {
-  const w = codeWeight(code);
-  if (w === 0) return "Not weighted";
-  return (w > 0 ? PATHOGENIC_WORD : BENIGN_WORD)[Math.abs(w)] ?? "Not weighted";
-}
+/** The strength the engine's combining rule gives a code, in words (`acmgClassifier.ts`). */
+export { strengthWord };
 
 const bold = (s: string) => `**${s}**`;
 const sentence = (s: string) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
@@ -576,13 +570,14 @@ function computationalExtras(b: ReportBlock, input: ReportDocumentInput) {
   const rows = pe.readings
     .filter(r => r.availability.state === "available")
     .map(r => [r.name, `${r.scoreText}${r.unit ? ` ${r.unit}` : ""}`, formatEvidenceCode(r.callLabel),
-      r.votes ? "Voting predictor" : r.group === "conservation" ? "Conservation" : "Informational",
+      r.chainKey === pe.primary.activeTool && r.chainKey !== null ? "Primary predictor" : r.chainKey !== null ? "Calibrated, fixed order" : r.group === "conservation" ? "Conservation" : "Informational",
       `${r.cutpoints.source ?? "No published calibration"}; ${r.orientation === "higher" ? "higher" : "lower"} scores indicate ${r.group === "conservation" ? "greater evolutionary constraint" : "greater predicted impact"}${r.note ? `; ${r.note}` : ""}${r.caveats.length ? `; ${r.caveats.map(c => CAVEAT_TEXT[c].detail).join("; ")}` : ""}`]);
   if (rows.length) {
     b.table = { headers: ["Tool", "Score", "Reading", "Role", "Method and caveats"], rows, numeric: [1] };
     b.caption = "Scores are not probabilities; correlated tools are not independent evidence. Per-tool calibrated strengths describe each score, not the aggregate engine criterion.";
   }
-  b.warnings.push("The engine uses an app-defined multi-tool vote at Supporting strength. This is not the pre-specified single-tool policy recommended by ClinGen SVI.");
+  const disagreement = disagreementText(pe.primary);
+  if (disagreement) b.warnings.push(disagreement);
   b.references = [...REPORT_SOURCES.slice(1, 3)];
 }
 
@@ -797,7 +792,7 @@ export function buildReportDocument(input: ReportDocumentInput): ReportDocument 
         b.warnings.push("ClinVar is a source assertion, distinct from the automated classification; review its condition and evidence independently.");
       }
     }
-    if (key === "language-models") b.caption = "Individual scores and their calibration are listed once in Computational evidence. These models do not vote in this engine.";
+    if (key === "language-models") b.caption = "Individual scores and their calibration are listed once in Computational evidence. These models do not set PP3/BP4 in this engine.";
     b.evidenceId = checksum(JSON.stringify([b.drafted, b.facts, b.table, b.verdict, b.warnings, b.references, b.counted]));
     const edit = input.edits[key];
     const hasEdit = Boolean(edit);

@@ -29,7 +29,7 @@ function points(c: LadderColumn) {
   return c.points > 0 ? `+${c.points}` : c.points === 0 ? "0" : `−${Math.abs(c.points)}`;
 }
 
-export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvidence; referenceKey: string | null }) {
+export function StrengthLadder({ evidence, primaryKey }: { evidence: LadderEvidence; primaryKey: string | null }) {
   const { columns, ladder, directional } = evidence;
   const nBenign = columns.filter(c => c.direction === "BP4").length;
   const nPath = columns.filter(c => c.direction === "PP3").length;
@@ -53,7 +53,7 @@ export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvi
       className="prd-ladder__side"
       data-side={s}
       data-here={d.side === s || undefined}
-      data-votes={d.votes || undefined}
+      data-chain={d.inChain || undefined}
       style={{
         gridColumn: s === "benign" ? `2 / span ${nBenign}` : s === "between" ? `${mid} / span 1` : `${mid + 1} / span ${nPath}`,
       }}
@@ -80,7 +80,7 @@ export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvi
             {l.name}
             <small>
               {l.source}
-              {l.key === referenceKey ? " · reference" : !l.votes ? " · not counted" : ""}
+              {l.key === primaryKey ? " · sets PP3/BP4" : !l.inChain ? " · not counted" : ""}
             </small>
           </span>
           {l.at === null ? (
@@ -124,7 +124,7 @@ export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvi
                 {d.name}
                 <small>
                   {d.source}
-                  {!d.votes ? " · not counted" : ""}
+                  {!d.inChain ? " · not counted" : ""}
                 </small>
               </span>
               {d.side === null ? (

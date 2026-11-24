@@ -8,6 +8,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
 import { REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
+import { CHAIN_ORDER_TEXT, disagreementText, noCriterionText } from "../../shared/predictorSummary";
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import {
   CLINGEN_CLASS_BANDS,
@@ -27,14 +28,13 @@ import { constraintSourceLabel } from "../header/constraintMetrics";
  * PredictorsRail — the Evidence Lineage inspector for the Predictors tab.
  *
  * The column states WHAT each tool said; the rail states HOW the computational criteria were reached —
- * a six-step trace (tools → calls → rule → PP2 → BP1 → engine), the bands this variant reached, the
+ * a six-step trace (tools → first scored tool → rule → PP2 → BP1 → engine), the bands this variant reached, the
  * ClinGen point scale as a reference, the method caveats and the sources. The PP2 / BP1 steps, the
  * bands and the point scale came from the retired Score thresholds rail.
  *
  * It replaced a rail that asserted two things the code did not do: that scores were "calibrated
- * against local odds of pathogenicity" (the vote used uncalibrated cut-points for most tools) and
- * that "consensus voting prevents circular double-counting" (a vote of correlated tools is exactly
- * what double-counts, and the AlphaGenome AVI re-counted AlphaMissense). Its model registry was four
+ * against local odds of pathogenicity" and that "consensus voting prevents circular double-counting"
+ * (a count of correlated tools is exactly what double-counts). Its model registry was four
  * hard-coded version strings, one for a splicing model this tab does not show.
  *
  * Built from the same `buildPredictorEvidence` object as the column, so the two panes cannot report
@@ -81,14 +81,16 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const ev = useMemo(() => buildLadderEvidence({ result: analysisResult, predictor: evidence }), [analysisResult, evidence]);
   const comparisonRows = useMemo(() => buildPredictorComparison(evidence, ev).rows, [evidence, ev]);
   const { constraint } = ev;
-  const { vote, voters, engine } = evidence;
+  const { primary, engine } = evidence;
+  const chain = evidence.readings.filter(r => r.chainKey !== null);
+  const active = chain.find(r => r.chainKey === primary.activeTool) ?? null;
   // The engine's own PP3/BP4 on the point scale, as recorded: "PP3" is +1, "BP4_Strong" is -4.
   const insilicoPoints = (() => {
     if (!engine.code) return null;
     const strength = (engine.code.includes("_") ? engine.code.split("_")[1] : "Supporting") as keyof typeof CLINGEN_POINTS;
     return (engine.code.startsWith("PP3") ? 1 : -1) * (CLINGEN_POINTS[strength] ?? 1);
   })();
-  // Bands this variant reached: calibrated tools in a band, then voters on their authors' cut.
+  // Bands this variant reached: calibrated tools in a band, then tools on their authors' cut.
   const reached = [
     ...ev.ladder
       .filter(l => l.at && l.at !== "none")
@@ -97,7 +99,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
         const line = l.cutLines.find(x => x.startsWith(dir)) ?? "";
         return {
           key: l.key,
-          text: `${l.name} ${l.scoreText} · ${formatEvidenceCode(dir + (strength === "Supporting" ? "" : `_${strength}`))}${l.votes ? "" : " (not counted)"}`,
+          text: `${l.name} ${l.scoreText} · ${formatEvidenceCode(dir + (strength === "Supporting" ? "" : `_${strength}`))}${l.inChain ? "" : " (not counted)"}`,
           rule: line.replace(/^(PP3|BP4) /, "").split(" · ")[0],
         };
       }),
@@ -105,8 +107,8 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
       .filter(d => d.side === "pathogenic" || d.side === "benign")
       .map(d => ({ key: d.key, text: `${d.name} ${d.scoreText} · authors' cut`, rule: d.cutText })),
   ];
-  const scored = vote.nVoting;
-  const totalVoters = scored + voters.missing.length;
+  const scored = chain.filter(r => r.score !== null).length;
+  const missing = chain.filter(r => r.score === null);
 
   const sources: Array<[string, string]> = [];
   const add = (label: string, value: unknown) => {
@@ -137,12 +139,12 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           Rule trace
         </h3>
         <ol className="prd-steps" data-testid="predictor-rule-trace">
-          <Step n={1} label="Voting tools scored" state={scored === 0 ? "idle" : "done"}>
-            <span>{scored} of {totalVoters}</span>
-            {voters.missing.length > 0 && (
+          <Step n={1} label="Calibrated tools scored" state={scored === 0 ? "idle" : "done"}>
+            <span>{scored} of {chain.length}</span>
+            {missing.length > 0 && (
               <span className="prd-step__sub">
-                Not counted:{" "}
-                {voters.missing
+                No score:{" "}
+                {missing
                   .map(v => {
                     const label = v.availability.label;
                     return label && label !== ENGINE_STATE_LABELS["no-result"] ? `${v.name} (${label})` : v.name;
@@ -151,20 +153,16 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               </span>
             )}
           </Step>
-          <Step n={2} label="Calls">
-            <span>
-              {vote.nPathogenic} pathogenic · {vote.nBenign} benign · {vote.nIndeterminate} indeterminate
-            </span>
-            <span className="prd-step__sub">Informational tools are listed but never counted.</span>
+          <Step n={2} label="First with a score" state={active ? "done" : "idle"}>
+            <span>{active ? `${active.name} ${active.scoreText} · ${formatEvidenceCode(active.callLabel)}` : "None"}</span>
+            <span className="prd-step__sub">Order: {CHAIN_ORDER_TEXT}. Informational tools are listed but never used.</span>
           </Step>
-          <Step n={3} label="Rule" state={vote.code ? "done" : "idle"}>
-            <span>
-              {vote.direction === "pathogenic" ? "Pathogenic > benign → PP3"
-                : vote.direction === "benign" ? "Benign > pathogenic → BP4"
-                : vote.direction === "tie" ? "Split vote → no criterion"
-                : "Nothing to count → no criterion"}
-            </span>
-            <span className="prd-step__sub">Plurality of calls; applied at Supporting strength.</span>
+          <Step n={3} label="Rule" state={primary.code ? "done" : primary.outcome === "blocked-spliceai" || primary.outcome.startsWith("withheld") ? "warn" : "idle"}>
+            <span>{primary.code ? `${formatEvidenceCode(primary.code)} at its calibrated strength` : noCriterionText(primary)}</span>
+            {primary.disagreeingTools.length > 0 && (
+              <span className="prd-step__warn">{disagreementText(primary)}</span>
+            )}
+            <span className="prd-step__sub">SpliceAI ≥ 0.20 blocks BP4 (Walker 2023).</span>
           </Step>
           <Step n={4} label="Regional constraint → PP2" state={ev.engine.pp2Stale ? "warn" : constraint.regionalOe === null ? "idle" : "done"}>
             <span>
@@ -187,7 +185,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               <span className="prd-step__warn">This result records BP1 from an earlier engine. Re-run the analysis to refresh it.</span>
             )}
           </Step>
-          <Step n={6} label="Engine record" state={engine.withheldByWeighting || (engine.known && (engine.code ?? null) !== vote.code) ? "warn" : "done"}>
+          <Step n={6} label="Engine record" state={engine.withheldByWeighting || (engine.known && (engine.code ?? null) !== primary.code) ? "warn" : "done"}>
             <span className="prd-step__verdict">
               {engine.known ? (
                 ev.engine.codes.length ? (
@@ -197,8 +195,8 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
                 ) : (
                   "No computational code recorded"
                 )
-              ) : vote.code ? (
-                <>unconfirmed (supports {vote.code})</>
+              ) : primary.code ? (
+                <>unconfirmed (rule gives {formatEvidenceCode(primary.code)})</>
               ) : (
                 "Not in payload"
               )}
@@ -207,11 +205,11 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               <span className="prd-step__sub">ACMG weighting: {engine.weighting}</span>
             )}
             {engine.withheldByWeighting && (
-              <span className="prd-step__warn">The vote supports {vote.code}; the {engine.weighting} weighting withholds it.</span>
+              <span className="prd-step__warn">The rule gives {formatEvidenceCode(primary.code ?? "")}; the {engine.weighting} weighting withholds it.</span>
             )}
-            {engine.known && !engine.withheldByWeighting && engine.code && vote.code && engine.code !== vote.code && (
+            {engine.known && !engine.withheldByWeighting && (engine.code ?? null) !== primary.code && (
               <span className="prd-step__warn">
-                The payload records {formatEvidenceCode(engine.code)} where the current rule gives {vote.code} — it was classified by an earlier engine. Re-run the analysis to refresh it.
+                The payload records {engine.code ? formatEvidenceCode(engine.code) : "no PP3 or BP4"} where the current rule gives {primary.code ? formatEvidenceCode(primary.code) : "neither"} — it was classified by an earlier engine. Re-run the analysis to refresh it.
               </span>
             )}
           </Step>
@@ -290,25 +288,27 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           Method
         </h3>
         <details className="prd-notes">
-          <summary>How to read this vote</summary>
+          <summary>How PP3/BP4 is decided</summary>
           <ul>
             <li>
-              ClinGen (Pejaver 2022) recommends a single calibrated tool chosen in advance (REVEL, BayesDel,
-              MutPred2 or VEST4), not a count of correlated tools. The vote here is kept at Supporting strength for that reason; the
-              calibrated reference on the tab is the reading ClinGen would apply.
+              ClinGen (Pejaver 2022) recommends one calibrated tool chosen in advance, not a count of correlated
+              tools. The engine reads {CHAIN_ORDER_TEXT} in that order, and the first tool with a score gives
+              PP3 or BP4 at its calibrated strength. A score between its bands gives neither; the next tool is not asked.
             </li>
             <li>
-              REVEL, BayesDel, CADD and AlphaMissense vote on ClinGen&apos;s calibrated bands. MetaRNN and ClinPred
-              vote on their authors&apos; cut-points, which are not calibrated. popEVE is shown but not counted: its
-              authors publish no benign cut-point.
+              The order was chosen on ClinVar variants classified after each tool was trained: REVEL first gave
+              more Moderate-or-stronger calls and fewer wrong-direction calls than any other order.
             </li>
             <li>
-              MetaRNN and ClinPred take gnomAD allele frequency as a feature and are trained on ClinVar:
-              their votes overlap with PM2/BS1 and are partly circular for a variant already in ClinVar.
+              When another calibrated tool points the other way, a note says so. It never changes the strength.
             </li>
             <li>
-              Protein language, genome-wide and conservation scores are informational; the card on the
-              Predictors tab explains each family and why it does not vote.
+              BP4 is withheld when SpliceAI is 0.20 or more, or when SpliceAI did not finish (Walker 2023).
+              PP3 and PM1 together are capped at Strong.
+            </li>
+            <li>
+              CADD, popEVE, AlphaGenome and the conservation scores are informational; the card on the
+              Predictors tab explains each family and why it does not set PP3/BP4.
             </li>
             <li>
               The strength ladder places a tool on a strength only where ClinGen has calibrated it. A tool with just its

@@ -133,8 +133,8 @@ describe("conservation scores are keyed to the analysed allele", () => {
 
     const exact = await fetchConservationData("TP53", "p.Arg273His", null, null, 273);
     expect(exact.available).toBe(true);
-    expect(exact.clinpred).toBe(0.91);
-    expect(exact.clinpredPred).toBe("D");
+    expect(exact).not.toHaveProperty("clinpred");
+    expect(exact).not.toHaveProperty("clinpredPred");
     expect(exact).not.toHaveProperty("eigenPhred");
     expect(exact).not.toHaveProperty("eigenRaw");
 

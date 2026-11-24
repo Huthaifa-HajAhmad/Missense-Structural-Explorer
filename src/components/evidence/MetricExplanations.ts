@@ -77,16 +77,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Diaz et al. Nat Commun (2024)",
     paperUrl: "https://doi.org/10.1038/s41467-024-49780-2",
   },
-  metarnn: {
-    name: "MetaRNN",
-    paperTitle: "Li et al. Genome Med (2022)",
-    paperUrl: "https://doi.org/10.1186/s13073-022-01120-z",
-  },
-  clinpred: {
-    name: "ClinPred",
-    paperTitle: "Alirezaie et al. Am J Hum Genet (2018)",
-    paperUrl: "https://doi.org/10.1016/j.ajhg.2018.08.005",
-  },
   spliceai: {
     name: "SpliceAI",
     paperTitle: "Jaganathan et al. Cell (2019)",

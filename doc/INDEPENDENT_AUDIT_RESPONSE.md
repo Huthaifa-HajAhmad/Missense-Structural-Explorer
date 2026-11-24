@@ -71,7 +71,9 @@ engine, so it was not introduced silently.
 
 Both were closed in `feat/pm2-supporting-and-svi-pvs1-rule`: **D1 adopted** (PM2 at Supporting plus the SVI PVS1 + Supporting rule; measured effect and
 canary changes in `REPORT_TAB_REVIEW.md`, "Resolution") and **D2 decided as "keep"** (the engine continues to emit bare Supporting PP3, so the PP3 + PM1
-cap stays dormant; the dormancy is pinned by a test). The original text of each decision follows.
+cap stays dormant; the dormancy is pinned by a test). **D2 was reopened and changed to "emit" on 2026-11-24**
+(`PRIMARY_PREDICTOR_DECISION.md`): PP3/BP4 now comes from one calibrated tool at its calibrated strength, and the
+PP3 + PM1 cap is active (`RELEASE_NOTE_PRIMARY_PREDICTOR.md`). The original text of each decision follows.
 
 **D1 — PM2 strength (audit HIGH-A1; `REPORT_TAB_REVIEW.md` decision record).** *Verified now*: ClinGen SVI
 Recommendation for PM2, Version 1.0 (approved September 2020), reduces PM2 from Moderate to **Supporting**

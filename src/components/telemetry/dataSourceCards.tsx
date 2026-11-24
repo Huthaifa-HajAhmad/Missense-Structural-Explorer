@@ -106,7 +106,7 @@ export function myvariantCard(ctx: ServiceCardContext): ServiceStatusCard {
     id: "myvariant",
     name: "MyVariant.info & dbNSFP",
     category: "genomic",
-    description: source ? `${source} · REVEL, CADD, AlphaMissense, MetaRNN` : "REVEL, CADD, AlphaMissense, MetaRNN",
+    description: source ? `${source} · REVEL, BayesDel, AlphaMissense, ESM1b` : "REVEL, BayesDel, AlphaMissense, ESM1b",
     state,
     latency: formatLatency(health?.latencyMs ?? local?.latencyMs),
     explain: explainProbe(state, ready, {

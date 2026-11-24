@@ -209,7 +209,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     name: "dbNSFP",
     provider: "Liu & Boerwinkle laboratory, UTHealth Houston",
     kind: "dataset",
-    role: "Precomputed per-substitution predictor columns — REVEL, CADD, AlphaMissense, MetaRNN, ClinPred, BayesDel, ESM-1b, GERP++, phyloP — used to answer predictor lookups locally instead of over the network.",
+    role: "Precomputed per-substitution predictor columns — REVEL, CADD, AlphaMissense, BayesDel, ESM-1b, GERP++, phyloP — used to answer predictor lookups locally instead of over the network.",
     url: "https://sites.google.com/site/jpopgen/dbNSFP",
     /*
      * No single release is stated. The local store records its own release in `build_meta`, and
@@ -398,7 +398,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     name: "AlphaMissense",
     provider: "Google DeepMind",
     kind: "model",
-    role: "A 0–1 pathogenicity score for the substitution, voted in the PP3/BP4 rule against ClinGen's calibrated bands (Bergquist et al. 2025: PP3 ≥ 0.792, BP4 ≤ 0.169). The authors' own classes (0.34 / 0.564) are not a calibration.",
+    role: "A 0–1 pathogenicity score for the substitution, third in the fixed PP3/BP4 order, read against ClinGen's calibrated bands (Bergquist et al. 2025: PP3 ≥ 0.792, BP4 ≤ 0.169). The authors' own classes (0.34 / 0.564) are not a calibration.",
     url: "https://github.com/google-deepmind/alphamissense",
     release: "Precomputed genome-wide tracks, read via dbNSFP or the AlphaMissense release",
     citation:
@@ -434,7 +434,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     name: "REVEL",
     provider: "Ioannidis et al. (ensemble of 13 predictors)",
     kind: "model",
-    role: "Ensemble pathogenicity score; one arm of the PP3/BP4 vote, called against ClinGen's calibrated bands (Pejaver et al. 2022: PP3 ≥ 0.644, BP4 ≤ 0.290) and shown as the calibrated single-tool reference.",
+    role: "Ensemble pathogenicity score; the primary PP3/BP4 tool, read against ClinGen's calibrated bands (Pejaver et al. 2022: PP3 ≥ 0.644, BP4 ≤ 0.290).",
     url: "https://sites.google.com/site/revelgenomics/",
     release: null,
     citation:
@@ -452,30 +452,6 @@ const MODEL_SOURCES: AttributionEntry[] = [
     citation:
       "Kircher, M., et al. (2014). A general framework for estimating the relative pathogenicity of human genetic variants. Nature Genetics 46, 310–315. https://doi.org/10.1038/ng.2892",
     usedBy: ["src/shared/thresholds/evaluators.ts", "src/components/evidence/PredictorsTab.tsx"]
-  },
-  {
-    id: "metarnn",
-    name: "MetaRNN",
-    provider: "Li et al. (Genome Medicine)",
-    kind: "model",
-    role: "Recurrent ensemble over 28 deep-learning, conservation and structural features, used as a supporting computational signal.",
-    url: "https://doi.org/10.1186/s13073-022-01120-z",
-    release: null,
-    citation:
-      "Li, C., et al. (2022). MetaRNN: differentiating rare pathogenic and rare benign missense SNVs and InDels using deep learning. Genome Medicine 14, 115. https://doi.org/10.1186/s13073-022-01120-z",
-    usedBy: ["src/shared/thresholds/evaluators.ts"]
-  },
-  {
-    id: "clinpred",
-    name: "ClinPred",
-    provider: "Alirezaie et al. (American Journal of Human Genetics)",
-    kind: "model",
-    role: "Gradient-boosted classifier trained directly on ClinVar pathogenic versus benign labels, with allele frequency as a feature.",
-    url: "https://doi.org/10.1016/j.ajhg.2018.08.005",
-    release: null,
-    citation:
-      "Alirezaie, N., Kernohan, K. D., Hartley, T., Majewski, J., & Hocking, T. D. (2018). ClinPred: prediction tool to identify disease-relevant nonsynonymous single-nucleotide variants. American Journal of Human Genetics 103, 474–483. https://doi.org/10.1016/j.ajhg.2018.08.005",
-    usedBy: ["src/shared/thresholds/evaluators.ts"]
   },
   {
     id: "bayesdel",

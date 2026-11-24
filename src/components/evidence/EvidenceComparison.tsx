@@ -98,7 +98,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
           <span className="evw-legend"><i className="evw-legend__dot" data-tone="danger" />Pathogenic direction</span>
           <span className="evw-legend"><i className="evw-legend__dot" data-tone="good" />Benign direction</span>
           <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Indeterminate or no call</span>
-          <span>* Informational: not counted by the voting rule.</span>
+          <span>* Does not set PP3/BP4 for this variant.</span>
         </>}
         {tab === 'alphagenome' && <>
           <span className="evw-legend"><i className="evw-legend__dot" data-tone="accent" />Molecular prediction</span>

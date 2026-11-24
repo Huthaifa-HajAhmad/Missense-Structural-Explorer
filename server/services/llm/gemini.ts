@@ -908,8 +908,6 @@ Please use this database grounding to inform your pathogenicity assessment and A
         conservationData.gerp,
         conservationData.phylop,
         conservationData.bayesdel,
-        conservationData.metarnn,
-        conservationData.clinpred,
         conservationData.esm1b,
         conservationData.popeve,
         conservationData.spliceai?.max_ds,
@@ -927,8 +925,6 @@ Please use this database grounding to inform your pathogenicity assessment and A
 - GERP++ Score: ${conservationData.gerp ?? "not measured"}
 - phyloP Vertebrate Score: ${conservationData.phylop ?? "not measured"}
 - BayesDel Score: ${conservationData.bayesdel ?? "not measured"}
-- MetaRNN Score: ${conservationData.metarnn ?? "not measured"}
-- ClinPred Score: ${conservationData.clinpred ?? "not measured"}
 - ESM-1b LLR Score: ${conservationData.esm1b ?? "not measured"}
 - PopEVE Score: ${conservationData.popeve ?? "not measured"}
 - SpliceAI Max Delta Score: ${conservationData.spliceai?.max_ds ?? "not measured"}

@@ -4,11 +4,11 @@
  * CADD scores one exact nucleotide allele, and G>A and G>C at the same base get different scores.
  * When a protein-only input maps to multiple candidate alleles at one locus:
  *   - All candidates must carry a finite CADD PHRED score from the same `caddSource` release.
- *   - If every candidate agrees on PP3 (≥ 25.3) or BP4 (≤ 22.7), CADD votes at the weakest agreed
+ *   - If every candidate agrees on PP3 (≥ 25.3) or BP4 (≤ 22.7), CADD reads the weakest agreed
  *     ClinGen calibrated strength (never stronger than any candidate allele supports).
  *   - If every candidate is indeterminate (22.7 < CADD < 25.3), CADD is evaluated as indeterminate.
  *   - If candidates disagree across bands (e.g. PP3 vs Indeterminate, or PP3 vs BP4), or come from
- *     different CADD releases, or any candidate lacks a score, CADD does not vote.
+ *     different CADD releases, or any candidate lacks a score, CADD shows no call.
  * Pure.
  */
 import { candidateNucleotideChange } from "./candidateFrequency.ts";
@@ -25,7 +25,7 @@ import type { PredictorSignal } from "./thresholds/evaluators.ts";
 
 export type CandidateCaddDecision =
   | {
-      kind: "vote";
+      kind: "agreed";
       signal: "pathogenic" | "benign";
       calibrated: CalibratedCall & { direction: "PP3" | "BP4"; strength: EvidenceStrength };
       scoreText: string;
@@ -137,8 +137,8 @@ export function decideCandidateCadd(
       unavailableEntry: hasInvalid ? `CADD — NO VALID SCORE FOR ${list}` : `CADD — NO SCORE FOR ${list}`,
       availabilityLabel: hasInvalid ? "Invalid score" : missing.length === entries.length ? "No result" : "Incomplete",
       availabilityReason: hasInvalid
-        ? `Invalid CADD PHRED score for ${list}, so CADD does not vote.`
-        : `No CADD score for ${list}, so CADD does not vote.`,
+        ? `Invalid CADD PHRED score for ${list}, so CADD shows no call.`
+        : `No CADD score for ${list}, so CADD shows no call.`,
     };
   }
   if (distinctSources.length > 1) {
@@ -149,7 +149,7 @@ export function decideCandidateCadd(
       sources: distinctSources,
       unavailableEntry: `CADD — MIXED SOURCES (${joined})`,
       availabilityLabel: "Mixed sources",
-      availabilityReason: `Candidate CADD scores came from different releases (${joined}); CADD does not vote across releases.`,
+      availabilityReason: `Candidate CADD scores came from different releases (${joined}); CADD shows no call across releases.`,
     };
   }
 
@@ -167,8 +167,8 @@ export function decideCandidateCadd(
       unavailableEntry: `CADD — UNVERIFIED SOURCE (${detail})`,
       availabilityLabel: "Unverified source",
       availabilityReason: unverifiedLabels.length > 0
-        ? `CADD release is not verified (${detail}); one confirmed release is required before voting.`
-        : `CADD source release is not stated for ${detail}; one shared release is required before voting.`,
+        ? `CADD release is not verified (${detail}); one confirmed release is required before a call is shown.`
+        : `CADD source release is not stated for ${detail}; one shared release is required before a call is shown.`,
     };
   }
 
@@ -195,7 +195,7 @@ export function decideCandidateCadd(
     const code = strengthCode(direction, weakest);
     const distinctCodes = new Set(calls.map(c => c.code));
     return {
-      kind: "vote",
+      kind: "agreed",
       signal: direction === "PP3" ? "pathogenic" : "benign",
       calibrated: { direction, strength: weakest, code },
       scoreText,
@@ -214,7 +214,7 @@ export function decideCandidateCadd(
     source,
     unavailableEntry: `CADD — CANDIDATE ALLELES DISAGREE (${detail})`,
     availabilityLabel: "Candidates disagree",
-    availabilityReason: `Candidate alleles disagree (${detail}, ${source}), so CADD does not vote.`,
+    availabilityReason: `Candidate alleles disagree (${detail}, ${source}), so CADD shows no call.`,
   };
 }
 
@@ -228,7 +228,7 @@ export function candidateCaddNote(
     const name = candidateName(c);
     const score = validCaddScore(c.caddPhred);
     if (score !== null) {
-      const band = decision?.kind === "vote" || decision?.kind === "indeterminate"
+      const band = decision?.kind === "agreed" || decision?.kind === "indeterminate"
         ? ` (${formatEvidenceCode(calibratedCall("cadd", score)!.code)})`
         : "";
       return `${name} ${score}${band} from ${cleanSource(c.caddSource) ?? "a source not stated"}`;
@@ -239,11 +239,11 @@ export function candidateCaddNote(
     return `${name} not reported`;
   });
 
-  if (decision?.kind === "vote") {
+  if (decision?.kind === "agreed") {
     const codeText = formatEvidenceCode(decision.calibrated.code);
     const suffix = decision.weakestAdopted
-      ? `Every candidate supports ${decision.calibrated.direction}; CADD votes ${codeText} (weakest agreed band).`
-      : `Every candidate supports ${codeText}; CADD votes ${codeText}.`;
+      ? `Every candidate supports ${decision.calibrated.direction}; CADD reads ${codeText} (weakest agreed band).`
+      : `Every candidate supports ${codeText}; CADD reads ${codeText}.`;
     return `Each candidate allele has its own CADD: ${each.join("; ")}. ${suffix}`;
   }
 
@@ -251,6 +251,6 @@ export function candidateCaddNote(
     return `Each candidate allele has its own CADD: ${each.join("; ")}. Every candidate is indeterminate.`;
   }
 
-  return `Each candidate allele has its own CADD: ${each.join("; ")}. No single allele was selected, so CADD does not vote.`;
+  return `Each candidate allele has its own CADD: ${each.join("; ")}. No single allele was selected, so CADD shows no call.`;
 }
 

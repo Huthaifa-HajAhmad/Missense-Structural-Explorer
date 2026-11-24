@@ -66,7 +66,7 @@ describe("SplicingTab — scored variant", () => {
 
   it("warns when splicing supports PP3 and the engine recorded BP4", () => {
     renderTab(scored(0.45, "BP4"));
-    expect(screen.getByTestId("relation-callout").textContent).toMatch(/review it\s+before accepting BP4/);
+    expect(screen.getByTestId("relation-callout").textContent).toMatch(/classified by an earlier engine[\s\S]*before accepting BP4/);
   });
 
   it("shows AlphaGenome's splicing share, not a signed SHAP ×100", () => {

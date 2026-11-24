@@ -15,7 +15,7 @@ export function evidenceWorkspaceFixture(example = 'Mixed'): AnalysisResult {
     metadata: { gene: 'GZF1', variant: example === 'New variant' ? 'p.Arg591Gln' : 'p.Arg591Trp', uniprotId: 'Q9H116', residueIndex: 591, acmgWeighting: 'standard' },
     predictorData: { gnomadVariantAssembly: 'GRCh38', gnomadVariantId: '20-23369727-C-T', caddPhred: missing ? null : 29.5, amPathogenicity: missing ? null : .835 },
     conservationData: missing ? { alphagenome: { status: 'unavailable', aviPhred: null, message: 'AlphaGenome Atlas query timed out.' } } : {
-      revel: .234, bayesdel: .092, metarnn: .767, clinpred: .998, popeve: -3.931, gerp: 5, phylop: 4.91,
+      revel: .234, bayesdel: .092, popeve: -3.931, gerp: 5, phylop: 4.91,
       alphagenome: { status: 'live', aviPhred: 26.4, aviRaw: Object.values(fullAttributions).reduce((s, v) => s + v, 0), aviQuantile: .99771, topPercentile: .229,
         atlasUrl: 'https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=chr20:23369727:C%3ET',
         featureAttributions: example === 'Partial' ? { Splicing: -.08, AlphaMissense: .68, 'RNA-seq': 0 } : fullAttributions },

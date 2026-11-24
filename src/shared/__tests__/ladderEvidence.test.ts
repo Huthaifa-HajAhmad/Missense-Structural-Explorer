@@ -10,12 +10,12 @@ import { NAE1_RESULT } from "./fixtures/nae1Result";
 const build = (over: any = {}) => buildLadderEvidence({ result: { ...NAE1_RESULT, ...over } });
 
 describe("buildLadderEvidence — NAE1 p.Asp116Gly", () => {
-  it("reads the engine's PP3 and the same 3–1 vote the Predictors tab counts", () => {
+  it("reads the engine's recorded PP3 beside the current rule's BP4 from REVEL, the first scored tool", () => {
     const ev = build();
+    // The saved payload was classified under the retired vote; the current rule reads REVEL 0.231 alone.
     expect(ev.engine.codes).toEqual(["PP3"]);
-    expect(ev.predictor.vote.nPathogenic).toBe(3);
-    expect(ev.predictor.vote.nBenign).toBe(1);
-    expect(ev.predictor.vote.nIndeterminate).toBe(2);
+    expect(ev.predictor.primary.activeTool).toBe("revel");
+    expect(ev.predictor.primary.code).toBe("BP4");
   });
 
   it("places the calibrated tools on the strength ladder: REVEL BP4, CADD and phyloP PP3", () => {
@@ -38,20 +38,10 @@ describe("buildLadderEvidence — NAE1 p.Asp116Gly", () => {
 
   it("gives the authors' cut-point tools a side, never a strength", () => {
     const ev = build();
-    const side = Object.fromEntries(ev.directional.map(d => [d.key, d.side]));
-    // MetaRNN 0.529 and ClinPred 0.977 are at or above their 0.5 cut; popEVE has no score here.
-    expect(side).toEqual({ metarnn: "pathogenic", clinpred: "pathogenic", popeve: null });
-    // MetaRNN and ClinPred are counted; popEVE is shown but never counted. None is a calibrated ladder row.
-    expect(Object.fromEntries(ev.directional.map(d => [d.key, d.votes]))).toEqual({ metarnn: true, clinpred: true, popeve: false });
+    // popEVE is the only tool with just its authors' cut-point; it has no score here and never sets PP3/BP4.
+    expect(Object.fromEntries(ev.directional.map(d => [d.key, d.side]))).toEqual({ popeve: null });
+    expect(Object.fromEntries(ev.directional.map(d => [d.key, d.inChain]))).toEqual({ popeve: false });
     expect(ev.directional.some(d => ev.ladder.some(l => l.key === d.key))).toBe(false);
-    expect(ev.directional.find(d => d.key === "metarnn")!.cutText).toBe("≥ 0.5");
-  });
-
-  it("puts a score below the authors' cut off the pathogenic side", () => {
-    const ev = build({ conservationData: { ...NAE1_RESULT.conservationData, metarnn: 0.05, clinpred: 0.2 } });
-    const side = Object.fromEntries(ev.directional.map(d => [d.key, d.side]));
-    expect(side.metarnn).not.toBe("pathogenic");
-    expect(side.clinpred).not.toBe("pathogenic");
   });
 
   it("writes the cut-points in words, weakest first", () => {

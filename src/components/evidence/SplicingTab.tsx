@@ -92,11 +92,11 @@ function EngineFact({ ev }: { ev: SplicingEvidence }) {
       <span>No PP3 / BP4</span>
     );
   }
-  if (engine.voteCode) {
+  if (engine.missenseCode) {
     return (
       <span className="spl-engine">
-        <span className="ev-tier chip-code spl-verdict--unapplied" data-tone="accent" title="The missense vote supports this; the payload carries no engine record to confirm it">
-          {engine.voteCode}
+        <span className="ev-tier chip-code spl-verdict--unapplied" data-tone="accent" title="The primary missense predictor gives this; the payload carries no engine record to confirm it">
+          {engine.missenseCode}
         </span>
         <span className="spl-dim">unconfirmed</span>
       </span>
@@ -107,7 +107,7 @@ function EngineFact({ ev }: { ev: SplicingEvidence }) {
 
 function Callouts({ ev }: { ev: SplicingEvidence }) {
   const S = THRESHOLDS.spliceai;
-  const code = ev.engine.known ? ev.engine.code : ev.engine.voteCode;
+  const code = ev.engine.known ? ev.engine.code : ev.engine.missenseCode;
   return (
     <>
       {ev.referenceMismatch && (
@@ -125,9 +125,9 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
           <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
           <span>
             <strong>SpliceAI supports PP3 for splicing, but the engine&apos;s in-silico code is {code}.</strong>{" "}
-            That BP4 comes from the missense vote alone; the engine does not read splicing. BP4 asserts
-            computational evidence of no impact, and a predicted splicing change is evidence of impact — review it
-            before accepting BP4.
+            The current engine withholds BP4 when SpliceAI is ≥ {S.splicingPp3.toFixed(2)} (Walker 2023), so this
+            payload was classified by an earlier engine. A predicted splicing change is evidence of impact — re-run the
+            analysis before accepting BP4.
           </span>
         </p>
       )}
@@ -135,8 +135,8 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
         <p className="spl-callout" data-tone="neutral" data-testid="relation-callout">
           <Info className="w-3.5 h-3.5" aria-hidden="true" />
           <span>
-            The engine&apos;s in-silico code is {code}, from the missense vote. SpliceAI has no score for this
-            variant, so nothing here checks the splicing side of that {code}.
+            The engine&apos;s in-silico code is {code}, from the primary missense predictor. SpliceAI has no score
+            for this variant, so nothing here checks the splicing side of that {code}.
           </span>
         </p>
       )}
@@ -144,7 +144,7 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
         <p className="spl-callout" data-tone="neutral" data-testid="relation-callout">
           <Info className="w-3.5 h-3.5" aria-hidden="true" />
           <span>
-            The missense vote already supports PP3. PP3 is applied once, whichever prediction supports it; SpliceAI
+            The primary missense predictor already gives PP3. PP3 is applied once, whichever prediction supports it; SpliceAI
             at ≥ {S.splicingPp3.toFixed(1)} does not add a second.
           </span>
         </p>
@@ -496,7 +496,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
             <div className="spl-fact">
               <dt>Engine record</dt>
               <dd><EngineFact ev={ev} /></dd>
-              <dd className="spl-fact__sub">Missense vote · splicing not read</dd>
+              <dd className="spl-fact__sub">Primary missense predictor · SpliceAI ≥ 0.20 blocks BP4</dd>
             </div>
           </dl>
         </div>

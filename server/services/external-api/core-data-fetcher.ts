@@ -186,10 +186,10 @@ const isAbsent = (value: unknown): boolean => value === null || value === undefi
 /**
  * Every field of the conservation/ensemble record that carries a model's answer. The record is "not
  * found" only when none of them has one: judging it by REVEL, GERP and phyloP alone called a record
- * with BayesDel, ClinPred, PopEVE or SpliceAI values "not found".
+ * with BayesDel, PopEVE or SpliceAI values "not found".
  */
 const CONSERVATION_SCORE_FIELDS = [
-  "revel", "gerp", "phylop", "scorecons", "bayesdel", "metarnn", "clinpred",
+  "revel", "gerp", "phylop", "scorecons", "bayesdel",
   "esm1b", "popeve", "spliceai", "alphagenome"
 ] as const;
 

@@ -8,7 +8,6 @@ import {
   evaluateEsm1b,
   evaluateSplicePredictor,
   evaluateAlphaGenomeAvi,
-  countPredictorConcordance,
   computeConsensusVerdict,
   computeStabilityConsensus,
   THRESHOLDS
@@ -106,52 +105,6 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateAlphaGenomeAvi({ aviPhred: -1.0 })).toBe("unavailable");
       expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
       expect(evaluateAlphaGenomeAvi(undefined)).toBe("unavailable");
-    });
-  });
-
-  describe("Predictor Concordance Counts", () => {
-    it("should count concordance correctly and exclude ESM-1b and popEVE from the vote", () => {
-      // 3 pathogenic voters (CADD, REVEL, AM) + 1 vus (BayesDel); popEVE and ESM-1b are pathogenic but informational
-      const res = countPredictorConcordance(
-        28, // CADD -> pathogenic
-        0.8, // REVEL -> pathogenic
-        0.99, "pathogenic", // AM -> pathogenic
-        0.0, // BayesDel -> vus
-        -11.0, // ESM-1b -> pathogenic (informational, excluded from voting)
-        { popeve: -4.9 } // popEVE -> pathogenic (≤ −4.617)
-      );
-
-      expect(res.nPathogenic).toBe(3);
-      expect(res.nDeleterious).toBe(3);
-      expect(res.signals.popeve).toBe("pathogenic");
-      expect(res.nBenign).toBe(0);
-      expect(res.nTolerated).toBe(0);
-      expect(res.signals.esm).toBe("pathogenic");
-      expect(res.available).toContain("ESM-1B");
-      expect(res.available).toContain("POPEVE");
-    });
-
-    it("lists no DANN or Eigen row: both were retired, and the vote is unchanged", () => {
-      const res = countPredictorConcordance(null, null, null, null, 0.25, null, { clinpred: 0.95 });
-      const listed = [...res.available, ...res.unavailable];
-      expect(listed).toContain("CLINPRED");
-      expect(listed).toContain("BAYESDEL");
-      expect(listed.some(name => /DANN|EIGEN/.test(name))).toBe(false);
-      expect(Object.keys(res.signals)).not.toContain("dann");
-      expect(Object.keys(res.signals)).not.toContain("eigen");
-      expect(res.nPathogenic).toBe(2); // BayesDel 0.25 and ClinPred 0.95 vote
-    });
-
-    it("should list AlphaGenome AVI as informational, never as a vote", () => {
-      // The AVI is a rank that contains AlphaMissense; voting it counted AlphaMissense twice.
-      for (const aviPhred of [36.2, 4.8]) {
-        const res = countPredictorConcordance(null, null, null, null, null, null, {
-          alphagenome: { status: "live", aviPhred, acmgStrength: "PP3_Strong", topModality: "RNA-seq" } as any,
-        });
-        expect(res.nPathogenic + res.nBenign + res.nVus).toBe(0);
-        expect(res.available).toContain("ALPHAGENOME");
-        expect([...res.pathogenicTools, ...res.benignTools, ...res.vusTools].find(t => t.key === "alphagenome")?.isInformationalOnly).toBe(true);
-      }
     });
   });
 

@@ -160,9 +160,9 @@ describe("Insights rail — how the case was built", () => {
     expect(screen.queryByText(/reconciled with rule-based/i)).not.toBeInTheDocument();
   });
 
-  it("reads the in-silico vote live from the predictor model", () => {
+  it("reads the in-silico call live from the predictor model", () => {
     renderRail();
-    expect(screen.getByText("Pathogenic")).toBeInTheDocument();
+    expect(screen.getByText("Primary tool")).toBeInTheDocument();
     expect(screen.getByText(/REVEL/)).toBeInTheDocument();
   });
 

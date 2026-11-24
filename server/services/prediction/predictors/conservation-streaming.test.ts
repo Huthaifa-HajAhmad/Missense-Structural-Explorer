@@ -116,7 +116,7 @@ describe("conservation models stream independently", () => {
     predictor.resolve({ gnomadVariantId: "8-11708788-C-G", gnomadVariantAssembly: "GRCh38" });
     const result = await final;
     expect(result.popeve).toBe(-3.376);
-    expect(result.metarnn).toBe(0.73214996);
+    expect(result).not.toHaveProperty("metarnn");
     expect(result.esm1b).toBe(-5.5976105);
     expect(mocks.popeveOnline).toHaveBeenCalledTimes(1);
   });

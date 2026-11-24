@@ -13,8 +13,6 @@ export const myVariantResponseSchema = z.object({
       bayesdel_noaf_score: z.any().optional(),
       bayesdel: z.any().optional(),
       hgvsp: z.any().optional(),
-      metarnn: z.any().optional(),
-      clinpred: z.any().optional(),
       esm1b: z.any().optional(),
       spliceai: z.any().optional(),
       SpliceAI_pred_DS_AG: z.any().optional(),
@@ -27,7 +25,7 @@ export const myVariantResponseSchema = z.object({
 
 type MyVariantDbnsfp = NonNullable<NonNullable<z.infer<typeof myVariantResponseSchema>["hits"]>[number]["dbnsfp"]>;
 
-const TARGET_FIELDS = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.bayesdel,dbnsfp.esm1b";
+const TARGET_FIELDS = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.bayesdel,dbnsfp.esm1b";
 
 /**
  * MyVariant.info's dbNSFP record for this exact substitution, or null when it has none or the
@@ -77,7 +75,6 @@ function scoresFromMyVariant(db: MyVariantDbnsfp): DbnsfpScores {
   const label = (v: unknown) => { const p = first(v); return typeof p === "string" ? p : null; };
   const gerpObj = db["gerp++"] || db.gerp || {};
   const phylop = db.phylop;
-  const clinpred = first(db.clinpred);
   return {
     ...NO_DBNSFP_SCORES,
     revel: db.revel ? num(db.revel.score !== undefined ? db.revel.score : db.revel) : null,
@@ -89,10 +86,6 @@ function scoresFromMyVariant(db: MyVariantDbnsfp): DbnsfpScores {
       : null,
     // The noAF score only: the calibrated BayesDel bands are for the score without allele frequency.
     bayesdel: num(db.bayesdel?.no_af?.score ?? db.bayesdel_noaf_score),
-    metarnn: num(db.metarnn?.score),
-    metarnnPred: label(db.metarnn?.pred),
-    clinpred: num(clinpred?.score),
-    clinpredPred: label(clinpred?.pred),
     esm1b: num(db.esm1b?.score),
     esm1bPred: label(db.esm1b?.pred),
     // EVE is never read as popEVE: EVE runs 0 to 1 (higher = harmful), popEVE is a negative scale.

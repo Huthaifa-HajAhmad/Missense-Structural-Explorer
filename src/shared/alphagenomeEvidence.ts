@@ -94,7 +94,7 @@ export const AVI_GROUP_LABEL: Record<AviFeatureGroup, string> = {
  */
 export const AVI_GROUP_NOTE: Record<AviFeatureGroup, string> = {
   molecular: "largest predicted effect across biosamples",
-  coding: "also a voting tool on the Predictors tab",
+  coding: "also a calibrated tool on the Predictors tab",
   conservation: "same kind of evidence as phyloP and GERP; constraint, not mechanism",
   indicator: "fixed by the variant type, not predicted",
 };

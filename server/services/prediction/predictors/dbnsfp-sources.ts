@@ -18,7 +18,7 @@ export interface DbnsfpRequest {
  * MyVariant.info. Null when none has it. A failing source is logged and the next one is asked.
  * query.dbnsfp.org counts only when it has REVEL, GERP++ or phyloP; a thinner row falls through.
  *
- * The allele is passed on when known, because REVEL, BayesDel, MetaRNN and ClinPred score a
+ * The allele is passed on when known, because REVEL and BayesDel score a
  * nucleotide change and one protein change can come from several (Q867H: CAA→CAC or CAT).
  */
 export async function firstDbnsfpAnswer(req: DbnsfpRequest): Promise<DbnsfpAnswer | null> {

@@ -16,8 +16,9 @@
  *
  * INVARIANTS
  *   • Every call comes from `evaluators.ts` / `calibration.ts`; nothing here re-tests a score.
- *   • The vote comes from `insilicoVoteOutcome`, the function the engine itself calls.
- *   • What the engine recorded is READ from its criteria list, never inferred from the vote.
+ *   • The PP3/BP4 call comes from `decidePrimaryInsilico`, the function the engine itself calls:
+ *     the first tool with a score in the fixed order REVEL → BayesDel noAF → AlphaMissense → ESM1b.
+ *   • What the engine recorded is READ from its criteria list, never inferred from that call.
  *   • A cut-point is drawn only with its provenance: ClinGen-calibrated, the authors' own, local, or
  *     none. An uncalibrated cut-point is never presented as a calibrated one.
  */
@@ -29,57 +30,50 @@ import {
   THRESHOLDS,
   calibratedCall,
   calibrationBands,
-  countPredictorConcordance,
+  evaluatePopEve,
   formatEvidenceCode,
-  insilicoVoteOutcome,
   type CalibratedCall,
   type CalibratedToolKey,
   type CalibrationBand,
-  type InsilicoVoteOutcome,
   type PredictorSignal,
 } from "./thresholds.ts";
+import {
+  CHAIN_TOOL_LABEL,
+  decidePrimaryInsilico,
+  primaryInsilicoInputFromResult,
+  type ChainToolKey,
+  type PrimaryInsilicoDecision,
+} from "./insilico/primaryPredictor.ts";
 import { resolveSourceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { classifyClinvar } from "./clinvarClassification.ts";
 import { fmtPercentAbove } from "./alphagenomeEvidence.ts";
 
 /** The canonical absence word — the engine-status vocabulary, not a local synonym. */
 const NO_RESULT = ENGINE_STATE_LABELS["no-result"];
 
-export type PredictorGroup = "vote" | "severity" | "protein-lm" | "genome" | "conservation";
+export type PredictorGroup = "primary" | "severity" | "genome" | "conservation";
 
 export const PREDICTOR_GROUP_LABEL: Record<PredictorGroup, string> = {
-  vote: "Voting tools",
+  primary: "Calibrated tools, in order",
   severity: "Cross-gene severity",
-  "protein-lm": "Protein language models",
   genome: "Genome-wide models",
   conservation: "Conservation",
 };
 
 export const PREDICTOR_GROUP_NOTE: Record<PredictorGroup, string> = {
-  vote: "Counted by the PP3/BP4 rule",
+  primary: "The first one with a score sets PP3/BP4",
   severity: "Informational · not counted",
-  "protein-lm": "Informational · not counted",
   genome: "Informational · not counted",
   conservation: "Constraint, not pathogenicity · not counted",
 };
 
 export type Caveat =
-  | "uses-af"
-  | "clinvar-trained"
   | "includes-alphamissense"
   | "rank-not-probability"
   | "no-benign-cut";
 
 export const CAVEAT_TEXT: Record<Caveat, { label: string; detail: string }> = {
-  "uses-af": {
-    label: "Uses gnomAD AF",
-    detail:
-      "Allele frequency is one of its input features. Combined with PM2/BS1, population frequency is counted twice (Pejaver 2022 permits free combination only for tools without an AF feature).",
-  },
-  "clinvar-trained": {
-    label: "ClinVar-trained",
-    detail: "Trained on ClinVar labels, so its call on a variant already in ClinVar is partly circular.",
-  },
   "includes-alphamissense": {
     label: "Contains AlphaMissense",
     detail: "AlphaMissense is one of the AVI's input features, and it already appears in this panel on its own.",
@@ -109,11 +103,11 @@ export interface PredictorReading {
   /** One line: what the model is. */
   description: string;
   group: PredictorGroup;
-  /** Counted by the PP3/BP4 rule. */
-  votes: boolean;
+  /** Its place in the fixed PP3/BP4 order, or `null` for a tool that is shown but never sets PP3/BP4. */
+  chainKey: ChainToolKey | null;
   score: number | null;
   scoreText: string;
-  /** Range of candidate scores when an ambiguous locus votes by consensus; `score` stays `null`. */
+  /** Range of candidate scores when an ambiguous locus agrees on one call; `score` stays `null`. */
   scoreRange?: [number, number] | null;
   unit: string | null;
   scale: { min: number; max: number };
@@ -125,7 +119,7 @@ export interface PredictorReading {
     bands: CalibrationBand[];
     marks: CutMark[];
   };
-  /** The vote signal (for voters) or the calibrated call (for calibrated informational tools). */
+  /** The reading's direction: its calibrated band, or its authors' cut-point, or "vus" with no call. */
   signal: PredictorSignal;
   calibrated: CalibratedCall | null;
   /** The chip text: "PP3_Moderate", "BP4", "Indeterminate", "Pathogenic", "Informational"… */
@@ -152,31 +146,17 @@ export interface EngineRecord {
   code: string | null;
   reason: string | null;
   weighting: string | null;
-  /** The vote supports a code the engine did not record, under a weighting that withholds it. */
+  /** The rule gives a code the engine did not record, under a weighting that withholds it. */
   withheldByWeighting: boolean;
-}
-
-export interface CalibratedReference {
-  key: "revel" | "bayesdel";
-  name: string;
-  score: number;
-  call: CalibratedCall;
-  bands: CalibrationBand[];
-  source: string;
-  /** How the calibrated reading relates to the vote's direction. */
-  relation: "agrees" | "opposes" | "indeterminate" | "no-vote";
 }
 
 export interface PredictorEvidence {
   readings: PredictorReading[];
-  vote: InsilicoVoteOutcome;
-  voters: { pathogenic: PredictorReading[]; benign: PredictorReading[]; indeterminate: PredictorReading[]; missing: PredictorReading[] };
+  /** The PP3/BP4 decision from the fixed order of calibrated tools — the engine's own function. */
+  primary: PrimaryInsilicoDecision;
   engine: EngineRecord;
-  reference: CalibratedReference | null;
   /** Readings still being computed. */
   pending: boolean;
-  /** Concordance's own list of skipped sources (with build-gate reasons). */
-  unavailable: string[];
 }
 
 export interface PredictorEvidenceInput {
@@ -197,20 +177,6 @@ function fmt(value: number | null, decimals: number): string {
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-
-const SIGNAL_LABEL: Record<PredictorSignal, string> = {
-  pathogenic: "Pathogenic",
-  benign: "Benign",
-  vus: "Indeterminate",
-  unavailable: NO_RESULT,
-};
-
-const SIGNAL_TONE: Record<PredictorSignal, PredictorReading["callTone"]> = {
-  pathogenic: "danger",
-  benign: "good",
-  vus: "neutral",
-  unavailable: "muted",
-};
 
 function callFromCalibrated(call: CalibratedCall | null): { label: string; tone: PredictorReading["callTone"] } {
   if (call === null) return { label: NO_RESULT, tone: "muted" };
@@ -273,8 +239,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const amClass = pd?.amClass ?? null;
   const revel = finite(cd?.revel);
   const bayesdel = finite(cd?.bayesdel);
-  const metarnn = finite(cd?.metarnn);
-  const clinpred = finite(cd?.clinpred);
   const popeve = finite(cd?.popeve);
   const esm1b = finite(cd?.esm1b);
   const gerp = finite(cd?.gerp);
@@ -283,16 +247,16 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   const alphagenome = cd?.alphagenome ?? null;
   const avi = finite(alphagenome?.aviPhred);
 
-  const concordance = countPredictorConcordance(cadd, revel, am, amClass, bayesdel, esm1b, {
-    metarnn,
-    clinpred,
-    popeve,
-    alphagenome,
-    caddCandidates: candidateCaddList,
-    assemblyRefusals: refusals,
-    alphagenomeConfigured,
-  });
-  const vote = insilicoVoteOutcome(concordance);
+  const primary = decidePrimaryInsilico(
+    primaryInsilicoInputFromResult({
+      gene: result.metadata?.gene ?? null,
+      predictorData: pd,
+      conservationData: cd,
+      serviceStatus: result.serviceStatus,
+    }),
+  );
+  const signalOf = (call: CalibratedCall | null): PredictorSignal =>
+    call === null ? "unavailable" : call.direction === "PP3" ? "pathogenic" : call.direction === "BP4" ? "benign" : "vus";
 
   const dbSource = cd?.source || "dbNSFP via MyVariant.info";
   const vepSource = pd?.source || "Ensembl VEP";
@@ -348,8 +312,8 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
 
   const readings: PredictorReading[] = [];
 
-  // ── Voting tools, calibrated first ──
-  const calibratedVoter = (
+  // ── Calibrated tools, in the fixed PP3/BP4 order ──
+  const calibratedReading = (
     key: string,
     name: string,
     tool: CalibratedToolKey,
@@ -364,15 +328,15 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       key,
       name,
       description: "",
-      group: "vote",
-      votes: true,
+      group: "primary",
+      chainKey: null,
       score,
       scoreText: fmt(score, decimals),
       unit: null,
       scale: { min: 0, max: 1 },
       orientation: PP3_BP4_CALIBRATION[tool].orientation,
       cutpoints: calibratedCutpoints(tool),
-      signal: concordance.signals[key] ?? "unavailable",
+      signal: signalOf(call),
       calibrated: call,
       callLabel: score === null ? NO_RESULT : label,
       callTone: score === null ? "muted" : tone,
@@ -386,21 +350,33 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     });
   };
 
-  calibratedVoter("revel", "REVEL", "revel", revel, 3, {
+  calibratedReading("revel", CHAIN_TOOL_LABEL.revel, "revel", revel, 3, {
+    chainKey: "revel",
     description: "Ensemble of 13 missense predictors; no allele-frequency feature.",
     knowledgeKey: "revel",
   }, "base");
-  calibratedVoter("bayesdel", "BayesDel", "bayesdel", bayesdel, 3, {
+  calibratedReading("bayesdel", CHAIN_TOOL_LABEL.bayesdel, "bayesdel", bayesdel, 3, {
+    chainKey: "bayesdel",
     description: "Naïve-Bayes combination of deleteriousness scores — the build without allele frequency.",
     scale: { min: -1.3, max: 0.8 },
     knowledgeKey: "bayesdel",
   }, "base");
-  calibratedVoter("am", "AlphaMissense", "alphaMissense", am, 3, {
+  calibratedReading("am", CHAIN_TOOL_LABEL.alphaMissense, "alphaMissense", am, 3, {
+    chainKey: "alphaMissense",
     description: "Protein language and structure model, weakly labelled from primate and human population variants.",
     note: amClass ? `AlphaMissense's own label: ${amClass.replace(/_/g, " ")}` : null,
     source: vepSource,
     knowledgeKey: "am",
   });
+  calibratedReading("esm", CHAIN_TOOL_LABEL.esm1b, "esm1b", esm1b, 2, {
+    chainKey: "esm1b",
+    description: "Protein language model log-likelihood ratio (Brandes et al. 2023).",
+    unit: "LLR",
+    scale: { min: -25, max: 5 },
+    knowledgeKey: "esm1b",
+  }, "base");
+
+  // ── CADD: calibrated bands are shown, but it is not in the fixed order ──
   const caddExtra: Partial<PredictorReading> = (() => {
     if (!caddDecision) {
       return {
@@ -408,7 +384,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
         note: candidateCaddNote(candidateCaddList),
       };
     }
-    if (caddDecision.kind === "vote" || caddDecision.kind === "indeterminate") {
+    if (caddDecision.kind === "agreed" || caddDecision.kind === "indeterminate") {
       const { label, tone } = callFromCalibrated(caddDecision.calibrated);
       return {
         score: null,
@@ -445,7 +421,8 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     };
   })();
 
-  calibratedVoter("cadd", "CADD", "cadd", cadd, 1, {
+  calibratedReading("cadd", "CADD", "cadd", cadd, 1, {
+    group: "genome",
     description: "Genome-wide deleteriousness from about 100 annotations, conservation among them.",
     unit: "PHRED",
     scale: { min: 0, max: 50 },
@@ -453,66 +430,15 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     ...caddExtra,
   });
 
-  // ── Voting tools with the authors' own cut-points ──
-  const authorVoter = (
-    key: string,
-    name: string,
-    score: number | null,
-    cut: number,
-    extra: Partial<PredictorReading>,
-    statusKey: ConservationStatusKey | null = null,
-  ) => {
-    const signal = concordance.signals[key] ?? "unavailable";
-    readings.push({
-      key,
-      name,
-      description: "",
-      group: "vote",
-      votes: true,
-      score,
-      scoreText: fmt(score, 3),
-      unit: null,
-      scale: { min: 0, max: 1 },
-      orientation: "higher",
-      cutpoints: {
-        kind: "authors",
-        source: null,
-        bands: [],
-        marks: [{ value: cut, side: "path", label: `≥ ${cut}` }],
-      },
-      signal,
-      calibrated: null,
-      callLabel: SIGNAL_LABEL[signal],
-      callTone: SIGNAL_TONE[signal],
-      caveats: ["uses-af", "clinvar-trained"],
-      note: null,
-      availability: statusKey ? availFor(score, statusKey) : avail(score),
-      source: dbSource,
-      knowledgeKey: null,
-      link: null,
-      ...extra,
-    });
-  };
-  authorVoter("metarnn", "MetaRNN", metarnn, THRESHOLDS.metaRnn.pathogenic, {
-    description: "Recurrent network over 16 scores, 8 conservation measures and gnomAD allele frequency.",
-    knowledgeKey: "metarnn",
-    cutpoints: { kind: "authors", source: "Li et al. 2022", bands: [], marks: [{ value: THRESHOLDS.metaRnn.pathogenic, side: "path", label: "≥ 0.5" }] },
-  }, "base");
-  authorVoter("clinpred", "ClinPred", clinpred, THRESHOLDS.clinPred.pathogenic, {
-    description: "Random forest and gradient boosting over existing scores and gnomAD allele frequency.",
-    knowledgeKey: "clinpred",
-    cutpoints: { kind: "authors", source: "Alirezaie et al. 2018", bands: [], marks: [{ value: THRESHOLDS.clinPred.pathogenic, side: "path", label: "≥ 0.5" }] },
-  }, "base");
-
   {
-    const signal = concordance.signals.popeve ?? "unavailable";
+    const signal = evaluatePopEve(popeve);
     const popAvail = resolveSourceAvailability({ source: "popEVE", refusals, value: popeve, status: null });
     readings.push({
       key: "popeve",
       name: "popEVE",
       description: "EVE and ESM-1v on one proteome-wide scale, calibrated with human population data.",
       group: "severity",
-      votes: false,
+      chainKey: null,
       score: popeve,
       scoreText: fmt(popeve, 3),
       unit: null,
@@ -540,35 +466,6 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     });
   }
 
-  // ── Protein language models (informational) ──
-  {
-    const call = calibratedCall("esm1b", esm1b);
-    const { label, tone } = callFromCalibrated(call);
-    readings.push({
-      key: "esm",
-      name: "ESM1b",
-      description: "Protein language model log-likelihood ratio (Brandes et al. 2023).",
-      group: "protein-lm",
-      votes: false,
-      score: esm1b,
-      scoreText: fmt(esm1b, 2),
-      unit: "LLR",
-      scale: { min: -25, max: 5 },
-      orientation: "lower",
-      cutpoints: calibratedCutpoints("esm1b"),
-      signal: concordance.signals.esm ?? "unavailable",
-      calibrated: call,
-      callLabel: esm1b === null ? NO_RESULT : label,
-      callTone: esm1b === null ? "muted" : tone,
-      caveats: [],
-      note: null,
-      availability: availFor(esm1b, "base"),
-      source: dbSource,
-      knowledgeKey: "esm1b",
-      link: null,
-    });
-  }
-
   // ── Genome-wide models (informational) ──
   {
     const aviAvail = resolveSourceAvailability({
@@ -585,7 +482,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       name: "AlphaGenome AVI",
       description: "Composite variant-impact rank across AlphaGenome's 18 features.",
       group: "genome",
-      votes: false,
+      chainKey: null,
       score: avi,
       scoreText: fmt(avi, 1),
       unit: "rank-Phred",
@@ -620,7 +517,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       name,
       description,
       group: "conservation",
-      votes: false,
+      chainKey: null,
       score,
       scoreText: fmt(score, 2),
       unit: null,
@@ -646,7 +543,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     name: "Residue conservation",
     description: "How conserved this amino-acid position is across UniRef90 protein homologues (ScoreCons, 0 variable – 1 fully conserved).",
     group: "conservation",
-    votes: false,
+    chainKey: null,
     score: scorecons,
     scoreText: fmt(scorecons, 2),
     unit: null,
@@ -666,264 +563,59 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     link: null,
   });
 
-  const voterRows = readings.filter(x => x.votes);
-  const voters = {
-    pathogenic: voterRows.filter(x => x.signal === "pathogenic"),
-    benign: voterRows.filter(x => x.signal === "benign"),
-    indeterminate: voterRows.filter(x => x.signal === "vus"),
-    missing: voterRows.filter(x => x.signal === "unavailable"),
-  };
-
   // ── What the engine recorded ──
   const engineCriteria: Array<{ code?: string; reason?: string }> | null =
     (r.ruleBasedInsights?.acmgCriteria ?? r.insights?.acmgCriteria ?? null) as any;
   const weighting: string | null = r.metadata?.acmgWeighting ?? null;
   const recorded = engineCriteria?.find(c => typeof c?.code === "string" && /^(PP3|BP4)(_|$)/i.test(c.code)) ?? null;
-  const weightingSuppresses = weighting === "strict-structural" || weighting === "conservative";
+  // The engine's own gates (`criteria.ts`): conservative weighting keeps a computational code only when
+  // ClinVar's classification points the same way.
+  const clinvarClass = classifyClinvar(result.clinvar?.classification);
+  const corroborated = primary.direction === "PP3" ? clinvarClass === "plp" : primary.direction === "BP4" && clinvarClass === "blb";
+  const weightingSuppresses = weighting === "strict-structural" || (weighting === "conservative" && !corroborated);
   const engine: EngineRecord = {
     known: engineCriteria !== null,
     code: recorded?.code ?? null,
     reason: recorded?.reason ?? null,
     weighting,
-    withheldByWeighting: engineCriteria !== null && !recorded && vote.code !== null && weightingSuppresses,
+    withheldByWeighting: engineCriteria !== null && !recorded && primary.code !== null && weightingSuppresses,
   };
-
-  // ── The calibrated single-tool reading ClinGen recommends ──
-  let reference: CalibratedReference | null = null;
-  const refTool = revel !== null ? ("revel" as const) : bayesdel !== null ? ("bayesdel" as const) : null;
-  if (refTool) {
-    const score = (refTool === "revel" ? revel : bayesdel) as number;
-    const call = calibratedCall(refTool, score) as CalibratedCall;
-    const relation: CalibratedReference["relation"] =
-      vote.code === null ? "no-vote"
-      : call.direction === null ? "indeterminate"
-      : (call.direction === vote.code) ? "agrees"
-      : "opposes";
-    reference = {
-      key: refTool,
-      name: refTool === "revel" ? "REVEL" : "BayesDel",
-      score,
-      call,
-      bands: calibrationBands(refTool),
-      source: CALIBRATION_SOURCES[PP3_BP4_CALIBRATION[refTool].source].short,
-      relation,
-    };
-  }
 
   return {
     readings,
-    vote,
-    voters,
+    primary,
     engine,
-    reference,
     pending: readings.some(x => x.availability.state === "pending"),
-    unavailable: concordance.unavailable,
   };
 }
 
 /** Readings grouped for the table, in display order. Empty groups are dropped. */
 export function groupReadings(readings: PredictorReading[]): Array<{ group: PredictorGroup; rows: PredictorReading[] }> {
-  const order: PredictorGroup[] = ["vote", "severity", "protein-lm", "genome", "conservation"];
+  const order: PredictorGroup[] = ["primary", "severity", "genome", "conservation"];
   return order
     .map(group => ({ group, rows: readings.filter(x => x.group === group) }))
     .filter(g => g.rows.length > 0);
 }
 
-/**
- * The finding in words: the headline and its predicate, as the Population tab words its own.
- * Never says more than the vote and the engine record do.
- */
-export function predictorFinding(evidence: PredictorEvidence): { headline: string; predicate: string } {
-  const { vote } = evidence;
-  const tail = vote.nIndeterminate > 0 ? `, with ${vote.nIndeterminate} indeterminate` : "";
-  switch (vote.direction) {
-    case "no-votes":
-      return {
-        headline: "No voting tool scored this variant",
-        predicate: "so the in-silico rule has nothing to count and no PP3 or BP4 is supported",
-      };
-    case "tie":
-      return {
-        headline: vote.nPathogenic === 0 ? "No voting tool reached a call" : "The vote is split",
-        predicate:
-          vote.nPathogenic === 0
-            ? `all ${vote.nVoting} scored voting tools sit in their indeterminate range, so neither PP3 nor BP4 is supported`
-            : `${vote.nPathogenic} pathogenic against ${vote.nBenign} benign${tail}, so the rule supports neither PP3 nor BP4`,
-      };
-    case "pathogenic":
-      return {
-        headline: "Pathogenic calls outnumber benign",
-        predicate: `${vote.nPathogenic} to ${vote.nBenign}${tail}, so the engine's plurality rule supports PP3 at Supporting strength`,
-      };
-    case "benign":
-      return {
-        headline: "Benign calls outnumber pathogenic",
-        predicate: `${vote.nBenign} to ${vote.nPathogenic}${tail}, so the engine's plurality rule supports BP4 at Supporting strength`,
-      };
-  }
-}
-
-/**
- * The finding card's one summary line: what the engine recorded, how the vote relates to it, and
- * what the calibrated reference reads beside it — the three facts a curator needs, said ONCE.
- *
- * It replaced a card that stated the count four times (figure, caption, finding sentence, legend)
- * and REVEL's reading three times (a full-width yellow banner, a meta line, the table), while never
- * saying in words when the engine record and the current rule disagreed (only the rail did).
- *
- * `tone` is "warning" exactly when a curator must reconcile two readings: the calibrated reference
- * reaches a band the vote does not, the weighting withheld the vote's code, or the payload's record
- * differs from what the current rule gives.
- */
-export interface PredictorSummary {
-  tone: "warning" | "neutral";
-  /** The bold sentence, ending in a full stop. */
-  lead: string;
-  /** Plain sentences after it, each ending in a full stop. */
-  rest: string[];
-  /** Which engine situation produced the lead — pinned by tests, used for `data-state`. */
-  state: "recorded" | "unconfirmed" | "withheld" | "stale" | "none";
-}
-
-export function predictorSummary(evidence: PredictorEvidence): PredictorSummary {
-  const { vote, engine, reference } = evidence;
-  const code = (c: string) => formatEvidenceCode(c);
-  const count =
-    vote.direction === "pathogenic" ? `${vote.nPathogenic} to ${vote.nBenign}`
-    : vote.direction === "benign" ? `${vote.nBenign} to ${vote.nPathogenic}`
-    : null;
-
-  // What the calibrated reference reads, relative to the vote. `joinable` is the short clause
-  // that can close the lead; `sentence` is the same fact standing alone.
-  let refClause: { joinable: string | null; sentence: string; disagrees: boolean; advice: string | null } | null = null;
-  if (reference) {
-    const ref = `${reference.name}, the calibrated reference,`;
-    const band = reference.call.direction ? code(reference.call.code) : null;
-    switch (reference.relation) {
-      case "agrees":
-        refClause = { joinable: `, and ${ref} agrees (${band})`, sentence: `${ref} agrees: ${band}.`, disagrees: false, advice: null };
-        break;
-      case "opposes":
-        refClause = {
-          joinable: `, but ${ref} reads ${band}`,
-          sentence: `${ref} reads ${band}, the other way from the vote.`,
-          disagrees: true,
-          advice: "ClinGen advises one pre-specified calibrated tool over a count of correlated ones.",
-        };
-        break;
-      case "indeterminate":
-        refClause = {
-          joinable: null,
-          sentence: `${ref} sits between its bands, so on its own it supports neither PP3 nor BP4; the vote's ${vote.code} rests on uncalibrated or weaker tools.`,
-          disagrees: false,
-          advice: null,
-        };
-        break;
-      case "no-vote":
-        refClause = band
-          ? {
-              joinable: null,
-              sentence: `${ref} reads ${band} on its own, which the vote does not reflect.`,
-              disagrees: true,
-              advice: "With the vote split, read that one calibrated tool by itself, as ClinGen advises, rather than counting correlated ones.",
-            }
-          : { joinable: null, sentence: `${ref} also sits between its bands.`, disagrees: false, advice: null };
-        break;
-    }
-  } else if (vote.direction !== "no-votes") {
-    // REVEL and BayesDel both vote, so with no votes at all their absence is already said.
-    const pending = evidence.readings.some(x => (x.key === "revel" || x.key === "bayesdel") && x.availability.state === "pending");
-    refClause = {
-      joinable: null,
-      sentence: pending
-        ? "The calibrated reference (REVEL, else BayesDel) is still being computed."
-        : "Neither REVEL nor BayesDel scored this variant, so there is no calibrated reading to set beside the vote.",
-      disagrees: false,
-      advice: null,
-    };
-  }
-
-  const finish = (state: PredictorSummary["state"], clause: string, extra: string[], forceWarn: boolean, joinRef: boolean): PredictorSummary => {
-    const join = joinRef && refClause?.joinable;
-    const lead = `${clause}${join ? refClause!.joinable : ""}.`;
-    const rest = [...extra, ...(join || !refClause ? [] : [refClause.sentence]), ...(refClause?.advice ? [refClause.advice] : [])];
-    return { tone: forceWarn || refClause?.disagrees ? "warning" : "neutral", lead, rest, state };
-  };
-
-  // 1. No engine record in the payload: the vote's code is shown, and called unconfirmed.
-  if (!engine.known) {
-    if (vote.code) {
-      return finish("unconfirmed", `The vote supports ${vote.code}, ${count}`, ["This result carries no engine record to confirm it against."], false, true);
-    }
-    return finish("none", noCriterion(vote), [], false, false);
-  }
-
-  // 2. The weighting withheld the vote's code.
-  if (engine.withheldByWeighting) {
-    return finish(
-      "withheld",
-      `The vote supports ${vote.code}, ${count}, but the engine recorded no in-silico criterion`,
-      [`The ${engine.weighting} ACMG weighting withholds it.`],
-      true,
-      false,
-    );
-  }
-
-  // 3. The record differs from what the current rule gives: an earlier engine classified it.
-  if ((engine.code ?? null) !== vote.code) {
-    const recorded = engine.code ? `recorded ${code(engine.code)}` : "recorded no PP3 or BP4";
-    const current = vote.code ? `${vote.code}${count ? ` (${count})` : ""}` : "neither PP3 nor BP4";
-    return finish(
-      "stale",
-      `The engine ${recorded} where the current rule gives ${current}`,
-      ["This result was classified by an earlier engine; re-run the analysis to refresh it."],
-      true,
-      false,
-    );
-  }
-
-  // 4. The record matches the vote.
-  if (engine.code) {
-    return finish("recorded", `The engine recorded ${code(engine.code)} from a ${count} vote`, [], false, true);
-  }
-  return finish("none", noCriterion(vote), [], false, false);
-}
-
-/** The lead when the vote supports no criterion: why, in one clause. */
-function noCriterion(vote: InsilicoVoteOutcome): string {
-  if (vote.direction === "no-votes") return "No PP3 or BP4: no voting tool scored this variant";
-  if (vote.nPathogenic === 0) {
-    return `No PP3 or BP4: all ${vote.nVoting} scored voting ${vote.nVoting === 1 ? "tool sits" : "tools sit"} in their indeterminate range`;
-  }
-  const tail = vote.nIndeterminate > 0 ? `, with ${vote.nIndeterminate} indeterminate` : "";
-  return `No PP3 or BP4: the vote is split, ${vote.nPathogenic} pathogenic against ${vote.nBenign} benign${tail}`;
-}
+export { predictorFinding, predictorSummary, type PredictorSummary } from "./predictorSummary.ts";
 
 
-// ── Informational models: what they are, why they do not vote ────────────────────────────────
+// ── Informational models: what they are, why they never set PP3/BP4 ──────────────────────────
 //
-// The three non-voting families used to appear only as grouped rows in the readings table, with a
-// four-word note ("Informational · not counted"). A researcher who has not met a protein language
-// model or a Phred-scaled composite had no way to learn what the number means or why it is not in the
-// vote. Each family now states (a) what it measures, (b) why it is outside PP3/BP4, and (c) how to
-// read it — in plain words, from the same readings the table renders.
+// Each family states (a) what it measures, (b) why it is outside PP3/BP4, and (c) how to read it —
+// in plain words, from the same readings the table renders.
 
-export type InformationalGroup = Exclude<PredictorGroup, "vote">;
+export type InformationalGroup = Exclude<PredictorGroup, "primary">;
 
 export const INFORMATIONAL_FAMILY: Record<InformationalGroup, { what: string; why: string; read: string }> = {
   severity: {
     what: "popEVE places every possible missense change in the human proteome on one scale, so a variant can be compared with variants in other genes. It combines an evolutionary model (EVE) and a protein language model (ESM-1v), adjusted with human population data.",
-    why: "Its authors publish cut-points for deleterious changes only, so in a count it could add pathogenic votes but never a benign one. It also uses population data, which PM2 and BS1 already count.",
+    why: "Its authors publish cut-points for deleterious changes only, so it can point one way but never the other. It also uses population data, which PM2 and BS1 already count.",
     read: "More negative means more severe. At or below −4.617 the authors call the change deleterious, and at or below −5.056 highly deleterious. A score above these is not a benign call.",
-  },
-  "protein-lm": {
-    what: "Trained on millions of natural protein sequences to learn which amino acids evolution tolerates at each position. The score is a log-likelihood ratio (LLR): how much less likely the substituted residue is than the original.",
-    why: "ESM1b has a published evidence calibration, but ClinGen has not adopted any language model for PP3/BP4, so it is not counted.",
-    read: "More negative means the change is less expected by the model.",
   },
   genome: {
     what: "Models that score a variant from DNA context rather than protein sequence alone: a rank of regulatory and splicing impact, a language model over a vertebrate alignment, or a combination of existing annotations.",
-    why: "They are ranks or unsupervised combinations, not probabilities, and no ClinGen calibration exists. Some already contain predictors that vote, so counting them would count the same evidence twice.",
+    why: "PP3/BP4 comes from one calibrated tool chosen in advance, not from a count. CADD has a published calibration but was not chosen, and it already uses conservation; the others are ranks with no ClinGen calibration.",
     read: "Compare a score with its own axis only. A high rank says the variant stands out among all possible changes, not that it causes disease.",
   },
   conservation: {
@@ -947,7 +639,7 @@ export interface InformationalFamilySummary {
 }
 
 export function informationalSummary(evidence: PredictorEvidence): InformationalFamilySummary[] {
-  const groups: InformationalGroup[] = ["severity", "protein-lm", "genome", "conservation"];
+  const groups: InformationalGroup[] = ["severity", "genome", "conservation"];
   return groups
     .map(group => {
       const readings = evidence.readings.filter(r => r.group === group);
@@ -974,12 +666,12 @@ export function informationalSummary(evidence: PredictorEvidence): Informational
 
 /**
  * The shared copy for the local-agreement summary, so the tab card and the inspector rail hold the
- * same wording and cannot drift apart. Descriptive agreement is never an ACMG vote or a combined
+ * same wording and cannot drift apart. Descriptive agreement is never ACMG evidence or a combined
  * pathogenicity score.
  */
 export const LOCAL_AGREEMENT_COPY = {
   descriptive: "Descriptive agreement only. Correlated models are not independent evidence; these readings never change PP3 / BP4.",
-  /** A calibrated tool's own code (ESM1b's PP3) is a published band, not a counted vote here. */
+  /** A calibrated tool's own code (CADD's PP3) is a published band, not a criterion here. */
   calibratedBand: "(published band, not counted)",
   /** Conservation and genome-wide scores have a direction, but no published band. */
   noBand: "No published band",
@@ -994,11 +686,11 @@ export const LOCAL_AGREEMENT_COPY = {
  * only when they exist — "none" is not a finding.
  */
 export function localPredictorAgreement(evidence: PredictorEvidence) {
-  const rows = evidence.readings.filter(r => !r.votes);
+  const rows = evidence.readings.filter(r => r.chainKey === null);
   const scoredRows = rows.filter(r => r.score !== null);
   const unclassified = scoredRows.filter(r => !r.calibrated);
   const missing = rows.filter(r => r.score === null);
-  const descriptive = `${scoredRows.length} of ${rows.length} non-voting readings scored. ${LOCAL_AGREEMENT_COPY.descriptive}`;
+  const descriptive = `${scoredRows.length} of ${rows.length} informational readings scored. ${LOCAL_AGREEMENT_COPY.descriptive}`;
   return {
     total: rows.length,
     scored: scoredRows.length,
@@ -1008,7 +700,7 @@ export function localPredictorAgreement(evidence: PredictorEvidence) {
       ...(unclassified.length ? [`${LOCAL_AGREEMENT_COPY.noBand}: ${unclassified.map(r => r.name).join(", ")}.`] : []),
       ...(missing.length ? [`Not scored: ${missing.map(r => `${r.name} (${r.availability.label})`).join(", ")}.`] : []),
     ],
-    // A calibrated non-voting tool keeps its published code only as a band name: naming it is not
+    // A calibrated informational tool keeps its published code only as a band name: naming it is not
     // counting it, and the section above says so. The code is formatted here, not in the renderer,
     // so the tab and the inspector cannot show `PP3_Moderate` in one place and `PP3 Moderate` in another.
     calibrated: scoredRows.filter(r => r.calibrated).map(r => ({

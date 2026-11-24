@@ -148,10 +148,10 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
     const calibrated = ladder.ladder.find(l => l.key === r.key);
     const at = calibrated?.at == null || r.cutpoints.bands.length === 0 ? -1 : ladder.columns.findIndex(c => c.id === calibrated.at);
     return { key: r.key, name: r.name, value: at < 0 ? null : at, valueText: r.availability.state === 'available' ? r.scoreText : (r.availability.label ?? r.callLabel),
-      description: r.description, group: PREDICTOR_GROUP_LABEL[r.group], counted: r.votes, knowledgeKey: r.knowledgeKey ?? undefined,
+      description: r.description, group: PREDICTOR_GROUP_LABEL[r.group], counted: r.chainKey !== null && r.chainKey === evidence.primary.activeTool, knowledgeKey: r.knowledgeKey ?? undefined,
       tone: r.callTone === 'muted' ? 'neutral' : r.callTone,
       facts: [{ label: 'Raw score', value: `${r.scoreText}${r.unit ? ` ${r.unit}` : ''}` },
-        { label: 'Reading', value: formatEvidenceCode(r.callLabel) }, { label: 'Engine use', value: r.votes ? 'Included in the voting rule' : 'Informational · not counted' },
+        { label: 'Reading', value: formatEvidenceCode(r.callLabel) }, { label: 'Engine use', value: r.chainKey === null ? 'Informational · not counted' : r.chainKey === evidence.primary.activeTool ? 'Sets PP3/BP4 (first calibrated tool with a score)' : 'Calibrated · used for the disagreement note only' },
         { label: 'Cut-point source', value: r.cutpoints.source ?? 'No published cut-point' }, { label: 'Score source', value: r.source }],
       notes: [r.note, r.availability.reason, ...r.caveats.map(c => CAVEAT_TEXT[c].detail),
         ...(calibrated?.cutLines ?? []),

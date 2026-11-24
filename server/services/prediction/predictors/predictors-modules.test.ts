@@ -190,8 +190,8 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
         expect(res?.gerp).toBeCloseTo(5.41, 2);
         expect(res?.phylop).toBeCloseTo(6.163, 3);
         expect(res?.bayesdel).toBeCloseTo(0.5462, 4);
-        expect(res?.metarnn).toBe(0.9912145);
-        expect(res?.clinpred).toBeCloseTo(0.9929, 4);
+        expect(res).not.toHaveProperty("metarnn");
+        expect(res).not.toHaveProperty("clinpred");
         expect(res?.esm1b).toBe(-10.123794);
         expect(res?.popeve).toBeNull();
       } finally {

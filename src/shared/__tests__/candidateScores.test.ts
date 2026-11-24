@@ -5,7 +5,6 @@ import { buildInsightsEvidence } from "../insightsEvidence";
 import { buildLadderEvidence } from "../ladderEvidence";
 import { buildPredictorEvidence } from "../predictorEvidence";
 import { buildReportDocument, defaultReportSections } from "../reportDocument";
-import { countPredictorConcordance } from "../thresholds/concordance";
 import type { AlleleCandidate } from "../locusResolution";
 
 const candidate = (alt: string, caddPhred: number | null, caddSource: string | null = "ProtVar"): AlleleCandidate =>
@@ -21,9 +20,9 @@ const candidateRun = (candidates: AlleleCandidate[]) => ({
 } as any);
 
 describe("candidateCaddNote", () => {
-  it("names each candidate allele's own CADD and its source, and says CADD does not vote", () => {
+  it("names each candidate allele's own CADD and its source, and says CADD shows no call", () => {
     expect(candidateCaddNote([candidate("C", 24.5), candidate("A", 25.7, "dbNSFP 5.3a (local)")])).toBe(
-      "Each candidate allele has its own CADD: G>C 24.5 from ProtVar; G>A 25.7 from dbNSFP 5.3a (local). No single allele was selected, so CADD does not vote.",
+      "Each candidate allele has its own CADD: G>C 24.5 from ProtVar; G>A 25.7 from dbNSFP 5.3a (local). No single allele was selected, so CADD shows no call.",
     );
   });
 
@@ -37,7 +36,7 @@ describe("decideCandidateCadd", () => {
   it("votes PP3 at the weakest agreed band when all candidates support PP3 from the same source", () => {
     const d = decideCandidateCadd([candidate("A", 25.7), candidate("C", 28.5)]);
     expect(d).toEqual({
-      kind: "vote",
+      kind: "agreed",
       signal: "pathogenic",
       calibrated: { direction: "PP3", strength: "Supporting", code: "PP3" },
       scoreText: "25.7–28.5",
@@ -50,7 +49,7 @@ describe("decideCandidateCadd", () => {
   it("keeps PP3_Moderate when every candidate reaches Moderate", () => {
     const d = decideCandidateCadd([candidate("A", 28.5), candidate("C", 31.2)]);
     expect(d).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       signal: "pathogenic",
       calibrated: { direction: "PP3", strength: "Moderate", code: "PP3_Moderate" },
       scoreText: "28.5–31.2",
@@ -61,7 +60,7 @@ describe("decideCandidateCadd", () => {
   it("votes BP4 when every candidate reaches BP4 from the same source", () => {
     const d = decideCandidateCadd([candidate("A", 22.5), candidate("C", 18.1)]);
     expect(d).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       signal: "benign",
       calibrated: { direction: "BP4", strength: "Supporting", code: "BP4" },
       scoreText: "18.1–22.5",
@@ -82,7 +81,7 @@ describe("decideCandidateCadd", () => {
   it("collapses identical candidate scores into one formatted score text", () => {
     const d = decideCandidateCadd([candidate("A", 26.0), candidate("C", 26.0)]);
     expect(d).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       scoreText: "26.0",
       range: [26.0, 26.0],
     });
@@ -153,7 +152,7 @@ describe("decideCandidateCadd", () => {
 
     const aboveRulerMax = decideCandidateCadd([candidate("A", 52.3), candidate("C", 55.0)]);
     expect(aboveRulerMax).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       signal: "pathogenic",
       calibrated: { direction: "PP3", strength: "Moderate", code: "PP3_Moderate" },
       scoreText: "52.3–55.0",
@@ -188,7 +187,7 @@ describe("decideCandidateCadd", () => {
     expect(decideCandidateCadd([])).toBeNull();
     expect(decideCandidateCadd(null)).toBeNull();
     expect(decideCandidateCadd([candidate("A", 28.5)])).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       calibrated: { direction: "PP3", strength: "Moderate", code: "PP3_Moderate" },
       scoreText: "28.5",
       weakestAdopted: false,
@@ -196,7 +195,7 @@ describe("decideCandidateCadd", () => {
 
     const strongAndMod = decideCandidateCadd([candidate("A", 0.1), candidate("C", 10.0)]);
     expect(strongAndMod).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       signal: "benign",
       calibrated: { direction: "BP4", strength: "Moderate", code: "BP4_Moderate" },
       weakestAdopted: true,
@@ -204,7 +203,7 @@ describe("decideCandidateCadd", () => {
 
     const modAndSup = decideCandidateCadd([candidate("A", 10.0), candidate("C", 20.0)]);
     expect(modAndSup).toMatchObject({
-      kind: "vote",
+      kind: "agreed",
       signal: "benign",
       calibrated: { direction: "BP4", strength: "Supporting", code: "BP4" },
       weakestAdopted: true,
@@ -219,10 +218,10 @@ describe("Predictors tab CADD reading on a candidate run", () => {
     expect(cadd.score).toBeNull();
     expect(cadd.availability).toMatchObject({ state: "absent", label: "Candidates disagree" });
     expect(cadd.note).toMatch(/G>C 24\.5 from ProtVar; G>A 25\.7 from ProtVar/);
-    expect(evidence.voters.missing.some(v => v.key === "cadd")).toBe(true);
+    expect(cadd.chainKey).toBeNull();
   });
 
-  it("votes PP3 with range 25.7–28.5 across evidence, ladder, comparison, and report when all candidates agree", () => {
+  it("reads PP3 with range 25.7–28.5 across evidence, ladder, comparison, and report when all candidates agree", () => {
     const result = candidateRun([candidate("A", 25.7), candidate("C", 28.5)]);
     const evidence = buildPredictorEvidence({ result });
     const cadd = evidence.readings.find(r => r.key === "cadd")!;
@@ -234,8 +233,10 @@ describe("Predictors tab CADD reading on a candidate run", () => {
     expect(cadd.availability.state).toBe("available");
     expect(cadd.source).toBe("ProtVar");
     expect(cadd.note).toMatch(/weakest agreed band/);
-    expect(evidence.voters.pathogenic.some(v => v.key === "cadd")).toBe(true);
-    expect(evidence.vote.nPathogenic).toBe(3); // AlphaMissense + REVEL + CADD
+    // CADD is shown with its band but never sets PP3/BP4: REVEL 0.72 does (PP3 Supporting).
+    expect(cadd.chainKey).toBeNull();
+    expect(evidence.primary.activeTool).toBe("revel");
+    expect(evidence.primary.code).toBe("PP3");
 
     const ladder = buildLadderEvidence({ result, predictor: evidence });
     expect(ladder.ladder.find(l => l.key === "cadd")?.at).toBe("PP3:Supporting");
@@ -274,7 +275,6 @@ describe("Predictors tab CADD reading on a candidate run", () => {
     expect(cadd.signal).toBe("vus");
     expect(cadd.callLabel).toBe("Indeterminate");
     expect(cadd.availability.state).toBe("available");
-    expect(evidence.voters.indeterminate.some(v => v.key === "cadd")).toBe(true);
 
     const ladder = buildLadderEvidence({ result, predictor: evidence });
     expect(ladder.ladder.find(l => l.key === "cadd")?.at).toBe("none");
@@ -301,12 +301,9 @@ describe("Predictors tab CADD reading on a candidate run", () => {
     expect(compBlock.table?.rows.some(row => row[0] === "CADD" && row[1] === "23.4–24.5 PHRED" && row[2] === "Indeterminate")).toBe(true);
   });
 
-  it("keeps concordance and predictorEvidence aligned when scalar caddPhred is NaN, Infinity, or negative", () => {
+  it("reads the candidates' agreed CADD when the scalar caddPhred is NaN, Infinity, or negative", () => {
     const candidates = [candidate("A", 26.0), candidate("C", 28.5)];
     for (const badScalar of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
-      const concordance = countPredictorConcordance(badScalar, 0.72, 0.9, "likely_pathogenic", 0.09, null, {
-        caddCandidates: candidates,
-      });
       const evidence = buildPredictorEvidence({
         result: {
           ...candidateRun(candidates),
@@ -316,9 +313,9 @@ describe("Predictors tab CADD reading on a candidate run", () => {
           },
         },
       });
-      expect(concordance.signals.cadd).toBe("pathogenic");
-      expect(evidence.readings.find(r => r.key === "cadd")?.signal).toBe("pathogenic");
-      expect(concordance.pathogenicTools.find(d => d.key === "cadd")?.scoreLabel).toBe("26.0–28.5");
+      const cadd = evidence.readings.find(r => r.key === "cadd");
+      expect(cadd?.signal).toBe("pathogenic");
+      expect(cadd?.scoreText).toBe("26.0–28.5");
     }
   });
 });

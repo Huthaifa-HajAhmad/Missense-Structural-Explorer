@@ -102,6 +102,7 @@ describe("classification", () => {
     expect(strengthWord("BP4")).toBe("Supporting");
     expect(strengthWord("BP4_Moderate")).toBe("Moderate");
     expect(strengthWord("BP4_Strong")).toBe("Strong");
+    expect(strengthWord("BP4_VeryStrong")).toBe("Very strong");
     expect(strengthWord("BA1")).toBe("Stand-alone");
   });
 
@@ -136,7 +137,7 @@ describe("evidence blocks", () => {
     const comp = block(doc, "computational");
     expect(comp.counted).toEqual(["PP3"]);
     expect(comp.chips.map(c => c.label)).toContain("PP3 counted");
-    expect(comp.text).toContain("says tolerated");
+    expect(comp.text).toContain("REVEL 0.231, the first calibrated tool with a score, gives BP4");
     expect(comp.table!.headers).toEqual(["Tool", "Score", "Reading", "Role", "Method and caveats"]);
   });
 
@@ -292,7 +293,7 @@ describe("json", () => {
     const json: any = renderReportJson(doc);
     const comp = json.blocks.find((b: any) => b.key === "computational");
     expect(comp.authorText).toBe("Mine.");
-    expect(comp.drafted).toContain("says tolerated");
+    expect(comp.drafted).toContain("REVEL 0.231, the first calibrated tool with a score, gives BP4");
     expect(json.documentId).toBe(doc.footer.documentId);
     expect(json.schema).toBe("mse.report-document/1");
   });

@@ -23,10 +23,10 @@ function renderPane(result: any = NAE1_RESULT, tab = "predictors") {
 }
 
 describe("EvidenceInspector — predictors pane", () => {
-  it("traces the vote, the regional PP2 rule, BP1 and the engine record", () => {
+  it("traces the first scored calibrated tool, the regional PP2 rule, BP1 and the engine record", () => {
     const { unmount } = renderPane();
     const trace = within(screen.getByTestId("predictor-rule-trace"));
-    expect(trace.getByText("3 pathogenic · 1 benign · 2 indeterminate")).toBeTruthy();
+    expect(trace.getByText("REVEL 0.231 · BP4")).toBeTruthy();
     // NAE1 has no regional interval for this variant, so PP2 is not tested. It is no longer read from gene Z and o/e.
     expect(trace.getByText("No regional O/E at this variant, so PP2 was not tested")).toBeTruthy();
     expect(trace.getByText(/^Rule: O\/E ≤ 0\.36 Moderate, ≤ 0\.59 Supporting/)).toBeTruthy();
@@ -43,9 +43,9 @@ describe("EvidenceInspector — predictors pane", () => {
     renderPane();
     const bands = within(screen.getByTestId("predictor-bands-reached"));
     expect(bands.getByText("REVEL 0.231 · BP4")).toBeTruthy();
-    expect(bands.getByText("CADD 26.3 · PP3")).toBeTruthy();
+    expect(bands.getByText("CADD 26.3 · PP3 (not counted)")).toBeTruthy();
     expect(bands.getByText("phyloP 7.64 · PP3 (not counted)")).toBeTruthy();
-    expect(bands.getByText("MetaRNN 0.529 · authors' cut")).toBeTruthy();
+    expect(bands.queryByText(/MetaRNN|ClinPred/)).toBeNull();
     expect(bands.queryByText(/AlphaMissense/)).toBeNull();
   });
 

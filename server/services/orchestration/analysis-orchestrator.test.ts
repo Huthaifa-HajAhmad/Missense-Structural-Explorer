@@ -239,7 +239,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const cachedPayload = stamp({
       metadata: { gene: "PAH", variant: "p.Arg408Trp" },
       clinvar: { classification: "Pathogenic" },
-      conservationData: { available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0 },
+      conservationData: { available: true, dann: 0.9, bayesdel: 0.5, eigenPhred: 12.0 },
       ruleBasedInsights: { acmgVerdict: "Pathogenic" }
     });
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayload, id: "1" });
@@ -293,7 +293,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
       metadata: { gene: "PAH", variant: "p.Arg408Trp" },
       clinvar: { classification: "Pathogenic" },
       conservationData: {
-        available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12,
+        available: true, dann: 0.9, bayesdel: 0.5, eigenPhred: 12,
         // This cached fixture is otherwise fresh even when provider credentials exist in the test env.
         assemblyRefusals: [{ source: "alphagenome", reason: "No verified allele", retryable: false }],
       },
@@ -580,7 +580,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const cachedCore = stamp({
       metadata: { gene: "PAH", variant: "p.Arg408Trp", serviceTimings: { clinvar: 12 } },
       clinvar: { classification: "Pathogenic" },
-      conservationData: { available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0 },
+      conservationData: { available: true, dann: 0.9, bayesdel: 0.5, eigenPhred: 12.0 },
       serviceStatus: { ...mockCoreData.serviceStatus },
       serviceTimings: { clinvar: 12 },
       esm2Eval: { llr: -3.8, provenance: "ESM-2 650M (Local)" },
@@ -605,7 +605,6 @@ describe("Analysis Orchestrator Unit Tests", () => {
         available: true,
         dann: 0.9,
         bayesdel: 0.5,
-        clinpred: 0.8,
         eigenPhred: 12.0,
         alphagenome: null
       }
@@ -633,7 +632,6 @@ describe("Analysis Orchestrator Unit Tests", () => {
         available: true,
         dann: 0.9,
         bayesdel: 0.5,
-        clinpred: 0.8,
         eigenPhred: 12.0,
         alphagenome: {
           status: "unavailable",
@@ -670,7 +668,6 @@ describe("Analysis Orchestrator Unit Tests", () => {
       available: true,
       dann: 0.9,
       bayesdel: 0.5,
-      clinpred: 0.8,
       eigenPhred: 12.0,
       alphagenome: null,
       assemblyRefusals: [
@@ -884,7 +881,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
 describe("isStaleCachedPayload — SpliceAI window", () => {
   const payload = (source: string | null, distanceBp: number | null) => ({
     conservationData: {
-      available: true, dann: 1, bayesdel: 1, clinpred: 1, eigenPhred: 1,
+      available: true, dann: 1, bayesdel: 1, eigenPhred: 1,
       spliceai: source ? { max_ds: 0.1, provenance: { source, distanceBp } } : null,
     },
   });
@@ -978,17 +975,33 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
     };
     const withNullCells: any = {
       predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
-      conservationData: { ...baseCons, bayesdel: null, clinpred: null },
+      conservationData: { ...baseCons, bayesdel: null },
       serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }
     };
-    // DANN and Eigen were retired, so a fresh payload has no keys for them and is not stale.
+    // DANN, Eigen, MetaRNN and ClinPred were retired, so a fresh payload has no keys for them and is not stale.
     expect(isStaleCachedPayload(withNullCells, ctx)).toBe(false);
 
     const withUndefinedSchemaKey: any = {
       ...withNullCells,
-      conservationData: { ...baseCons, bayesdel: 0.5, clinpred: undefined }
+      conservationData: { ...baseCons, bayesdel: undefined }
     };
     expect(isStaleCachedPayload(withUndefinedSchemaKey, ctx)).toBe(true);
+  });
+
+  it("recomputes, once, a payload classified by the retired PP3/BP4 vote", () => {
+    // Only payloads written before the primary-predictor rule carry ClinPred (even as null): their PP3/BP4
+    // came from the plurality vote. A recompute writes a payload without the key, so it is not stale again.
+    const base: any = {
+      predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
+      conservationData: { available: true, revel: 0.8, bayesdel: 0.5 },
+      serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }
+    };
+    expect(isStaleCachedPayload(base, ctx)).toBe(false);
+    for (const clinpred of [0.8, null]) {
+      expect(isStaleCachedPayload({ ...base, conservationData: { ...base.conservationData, clinpred } }, ctx)).toBe(true);
+    }
+    // Without a dbNSFP answer the vote still counted AlphaMissense and CADD, so such a payload is stale too.
+    expect(isStaleCachedPayload({ ...base, conservationData: { available: false, revel: null, clinpred: null } }, ctx)).toBe(true);
   });
 
   it("honors refusal retry window for recent transient AlphaGenome outages without thrashing cache", () => {
@@ -997,7 +1010,7 @@ describe("isStaleCachedPayload — an expired core source is not a finished anal
     const basePayload: any = {
       predictorData: { caddPhred: 25, gnomadVariantId: "7-104836979-C-T", gnomadVariantAssembly: "GRCh38" },
       conservationData: {
-        available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0,
+        available: true, dann: 0.9, bayesdel: 0.5, eigenPhred: 12.0,
         alphagenome: { status: "unavailable", aviPhred: null, message: "503 upstream timeout" }
       },
       serviceStatus: { clinvar: "ok", gnomadFrequency: "ok", gnomadConstraint: "ok", predictorData: "ok" }
