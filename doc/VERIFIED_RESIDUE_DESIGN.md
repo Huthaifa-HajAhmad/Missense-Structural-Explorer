@@ -1,6 +1,10 @@
 # Verified residue: gate and candidate residues (design, awaiting approval)
 
-Status: design only. Nothing here is built. Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
+Status: approved 2026-11-24 (A, B1, B2, C in that order). Step A is built: `numbering-proof.ts` (issue, verify),
+`src/shared/verifiedResidue.ts`, the proof on `POST /translate-variant`, the check in the analysis parser, and
+`numberingProof` in all six analysis audit entries. The routes in `structure.ts`, `biophysics/generation.ts`,
+`literature.ts` and `narrative.ts` do not check the proof yet: nothing there uses the result before B2.
+Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
 This is the second version, revised after a three-part code review (correctness, tests, architecture).
 
 ## 1. What was measured (2026-11-23)

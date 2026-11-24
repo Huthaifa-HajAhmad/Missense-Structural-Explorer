@@ -966,6 +966,8 @@ export const biophysicalAnalysisRequestSchema = z.object({
   coordinateLift: coordinateLiftSchema.optional(),
   /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
   numberingBasis: z.enum(["canonical"]).optional(),
+  /** The translate route's signed numbering proof, sent back unchanged. */
+  numberingProof: z.string().max(1024).optional(),
   options: z.any().optional()
 });
 

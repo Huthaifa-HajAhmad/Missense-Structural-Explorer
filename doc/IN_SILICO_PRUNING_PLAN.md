@@ -206,7 +206,7 @@ answered. VariantValidator names the RefSeq protein (`NP_…`) but no UniProt ac
 3. **Done (PR #286):** every analysis audit entry records `numberingBasis` and `numberingVerified`, so the
    unverified rate of protein-notation runs can be measured. Replay of the 14 production protein variants:
    0 unverified.
-4. **Awaiting approval:** `VERIFIED_RESIDUE_DESIGN.md`. In order: A, a signed numbering proof from the translate
+4. **Approved 2026-11-24, A built:** `VERIFIED_RESIDUE_DESIGN.md`. In order: A, a signed numbering proof from the translate
    route that the analysis routes check (4 days, no visible change); B1, refuse an unverified residue (1 day);
    B2, the full gate with a `withheld` state, only if the two weeks of #286 data show refusal is too blunt
    (about 11 days); C, candidate residues (about 5 weeks).

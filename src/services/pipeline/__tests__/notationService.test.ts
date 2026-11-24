@@ -107,7 +107,8 @@ describe("notationService", () => {
           genomicCoordinates: "1-1256452-C-A",
           resolvedAssembly: "GRCh38",
           liftedGenomicCoordinates: "1-1321072-C-A",
-          coordinateLift
+          coordinateLift,
+          numberingProof: "np1.body.sig"
         })
       };
 
@@ -121,6 +122,8 @@ describe("notationService", () => {
       expect(result.transcriptMeta.resolvedAssembly).toBe("GRCh38");
       expect(result.transcriptMeta.liftedGenomicCoordinates).toBe("1-1321072-C-A");
       expect(result.transcriptMeta.coordinateLift).toEqual(coordinateLift);
+      // Kept verbatim: the browser cannot read or change the signed proof, only send it back.
+      expect(result.transcriptMeta.numberingProof).toBe("np1.body.sig");
     });
 
     it("reports the canonical-pair fields as null when the route did not lift", async () => {

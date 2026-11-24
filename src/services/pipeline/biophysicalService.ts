@@ -36,6 +36,8 @@ export interface BiophysicalAnalysisParams {
   resolvedAssembly?: "GRCh37" | "GRCh38";
   /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
   numberingBasis?: string;
+  /** The translate route's signed numbering proof, sent back unchanged. */
+  numberingProof?: string;
   /** Client-only ownership guard for progressive cache writes. */
   pipelineRunId?: string;
 }
@@ -68,7 +70,7 @@ export async function fetchBiophysicalAnalysis(
   traceContext?: TraceContext
 ): Promise<any> {
   const { gene, variant, uniprotId, assembly, genomicCoordinates, numberingBasis } = params;
-  const { liftedGenomicCoordinates, resolvedAssembly } = params;
+  const { liftedGenomicCoordinates, resolvedAssembly, numberingProof } = params;
   const bpStart = performance.now();
 
   const requestBody = {
@@ -93,7 +95,8 @@ export async function fetchBiophysicalAnalysis(
      */
     ...(liftedGenomicCoordinates ? { liftedGenomicCoordinates } : {}),
     ...(resolvedAssembly ? { resolvedAssembly } : {}),
-    ...(numberingBasis ? { numberingBasis } : {})
+    ...(numberingBasis ? { numberingBasis } : {}),
+    ...(numberingProof ? { numberingProof } : {})
   };
 
   const streamOrPromise = apiClient.streamBiophysicalAnalysis

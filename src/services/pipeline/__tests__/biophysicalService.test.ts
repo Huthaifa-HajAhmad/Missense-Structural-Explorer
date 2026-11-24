@@ -140,7 +140,8 @@ describe("biophysicalService", () => {
           genomicCoordinates: "1-1256452-C-A",
           resolvedAssembly: "GRCh38",
           liftedGenomicCoordinates: "1-1321072-C-A",
-          coordinateLift
+          coordinateLift,
+          numberingProof: "np1.body.sig"
         } as any,
         { getBiophysicalAnalysis },
         new AbortController().signal
@@ -155,6 +156,8 @@ describe("biophysicalService", () => {
       expect(body.liftedGenomicCoordinates).toBe("1-1321072-C-A");
       // … and the caller's own claim about the lift is NOT sent.
       expect(body.coordinateLift).toBeUndefined();
+      // The signed numbering proof goes back unchanged; the server checks it.
+      expect(body.numberingProof).toBe("np1.body.sig");
     });
 
     it("forwards nothing extra when the transcript meta carries no build trail", async () => {

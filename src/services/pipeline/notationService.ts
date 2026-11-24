@@ -106,6 +106,8 @@ export async function translateVariantNotation(
         numberingBasis: data.numberingBasis,
         numberingUnverifiedReason: data.numberingUnverifiedReason,
         numberingRemap: data.numberingRemap,
+        // The signed numbering proof, kept verbatim so the analysis requests can send it back.
+        numberingProof: data.numberingProof,
         // Preserved so callers/reports can state which build the coordinate resolved against — the
         // build the SUBMITTED coordinate is expressed in (the user's spelling), which is not
         // necessarily the one that produced the annotation below.

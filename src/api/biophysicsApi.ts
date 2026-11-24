@@ -180,6 +180,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         liftedGenomicCoordinates?: string;
         resolvedAssembly?: string;
         numberingBasis?: string;
+        numberingProof?: string;
         options?: any;
       },
       signal?: AbortSignal
@@ -213,6 +214,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         liftedGenomicCoordinates?: string;
         resolvedAssembly?: string;
         numberingBasis?: string;
+        numberingProof?: string;
         options?: any;
       },
       onChunk: (chunk: any) => void,
