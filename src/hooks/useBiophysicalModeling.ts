@@ -1,18 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
-import { EnergeticsData, StructuralDiffResult, PocketResult, UserSettings } from "../types";
+import { StructuralDiffResult, PocketResult } from "../types";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { getCachedVariant, setCachedVariant } from "../services/pipeline/variantCache";
 
-export function useBiophysicalModeling(
-  _settings: UserSettings,
-  _addNotification: (
-    type: "success" | "info" | "error" | "warn",
-    message: string,
-    options?: { background?: boolean }
-  ) => void,
-  apiClient: any,
-  _fetchWithAuth: (url: string, options?: any) => Promise<Response>
-) {
+export function useBiophysicalModeling(apiClient: any) {
   const [mutantPdb, setMutantPdb] = useState<string | null>(null);
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);

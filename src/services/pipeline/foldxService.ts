@@ -243,6 +243,28 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
   } = { ...(options.initialRemoteState ?? {}) };
 
   /**
+   * Returns an energetics copy with `"ThermoMPNN"` cleared from `pendingTools` (and `evidenceComplete`
+   * recomputed) plus an optional late ThermoMPNN value merged in.
+   */
+  const withSettledThermompnn = (
+    energeticsData: any,
+    thermompnnVal?: number | null
+  ): any => {
+    if (!energeticsData && typeof thermompnnVal !== "number") return energeticsData ?? null;
+    const base = (energeticsData && typeof energeticsData === "object") ? energeticsData : {};
+    const nextPending = Array.isArray(base.pendingTools)
+      ? base.pendingTools.filter((tool: string) => tool !== "ThermoMPNN")
+      : base.pendingTools;
+    return {
+      ...base,
+      ...(typeof thermompnnVal === "number" ? { thermompnn: thermompnnVal } : {}),
+      ...(Array.isArray(nextPending)
+        ? { pendingTools: nextPending, evidenceComplete: nextPending.length === 0 }
+        : {}),
+    };
+  };
+
+  /**
    * Settles ThermoMPNN if left "pending" when the synchronous /generate-mutant run ends or errors.
    */
   const settleUnreachableRemoteEngines = (payload: {
@@ -431,9 +453,14 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
       if (!isFoldxSuccess) noteFoldxFailure(effectiveFoldingStatus, variant, data.error || data.energetics?.foldxError);
 
       let resolvedProvenance: StructureProvenance | undefined;
+      let mergedEnergetics: any = data.energetics ? { ...data.energetics } : null;
       if (data.energetics) {
         resolvedProvenance = applyEnergetics(data.energetics, data.provenance);
+        if (resolvedProvenance && mergedEnergetics) {
+          mergedEnergetics.structureProvenance = resolvedProvenance;
+        }
       }
+      let settledThermompnnError: string | null = data.thermompnnError ?? null;
       /**
        * A cache hit answers before the remote submissions have returned their job ids, so the server
        * hands back a token to collect them. Without this the engines below were settled to "No
@@ -472,9 +499,14 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
             if (sub.thermompnnError) {
               sink.setThermompnnError(sub.thermompnnError);
               noteThermompnnError(sub.thermompnnError, thermompnnLog);
+              settledThermompnnError = sub.thermompnnError;
             }
-            if (typeof sub.thermompnnVal === "number") {
-              sink.setFoldingEnergetics((prev: any) => ({ ...(prev ?? {}), thermompnn: sub.thermompnnVal }));
+            const thermompnnSettled =
+              typeof sub.thermompnnVal === "number" ||
+              (Boolean(sub.thermompnnStatus) && sub.thermompnnStatus !== "pending");
+            if (thermompnnSettled) {
+              sink.setFoldingEnergetics((prev: any) => withSettledThermompnn(prev, sub.thermompnnVal));
+              mergedEnergetics = withSettledThermompnn(mergedEnergetics, sub.thermompnnVal);
             }
             lastRemoteState = {
               thermompnnStatus: sub.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
@@ -488,21 +520,22 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
 
       // The run is over: settle ThermoMPNN if still pending locally.
       settleUnreachableRemoteEngines(lastRemoteState);
+      if (lastRemoteState.thermompnnStatus === "pending") {
+        sink.setFoldingEnergetics((prev: any) => withSettledThermompnn(prev));
+        mergedEnergetics = withSettledThermompnn(mergedEnergetics);
+        lastRemoteState = { thermompnnStatus: null };
+      }
+      const resolvedThermompnnStatus = lastRemoteState.thermompnnStatus ?? null;
       setCachedVariant(cacheGeneKey, variant, uniprotId, {
         biophysicsContext: biophysicsContextOf(conditions),
         mutantPdb: data.pdb ?? null,
         foldxWtPdb: data.wtReferencePdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
-        foldingEnergetics: data.energetics
-          ? {
-              ...data.energetics,
-              ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
-            }
-          : null,
+        foldingEnergetics: mergedEnergetics,
         foldingStatus: effectiveFoldingStatus,
-        thermompnnStatus: data.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
-        thermompnnError: data.thermompnnError ?? null
+        thermompnnStatus: resolvedThermompnnStatus,
+        thermompnnError: settledThermompnnError
       });
     } else if (data.status === "queued" || data.status === "running") {
       const jobId = data.foldxJobId;
@@ -693,6 +726,15 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
               settleUnreachableRemoteEngines({
                 thermompnnStatus: tmStatus,
               });
+              const settledQueuedEnergetics = resResult.energetics
+                ? withSettledThermompnn({
+                    ...resResult.energetics,
+                    ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
+                  })
+                : null;
+              if (tmStatus === "pending") {
+                sink.setFoldingEnergetics((prev: any) => withSettledThermompnn(prev));
+              }
 
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
         biophysicsContext: biophysicsContextOf(conditions),
@@ -700,14 +742,9 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<FoldxRu
                 foldxWtPdb: resResult.wtReferencePdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
                 foldingDdG: resResult.ddG ?? null,
-                foldingEnergetics: resResult.energetics
-                  ? {
-                      ...resResult.energetics,
-                      ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
-                    }
-                  : null,
+                foldingEnergetics: settledQueuedEnergetics,
                 foldingStatus: effectiveFoldingStatus,
-                thermompnnStatus: tmStatus,
+                thermompnnStatus: tmStatus === "pending" ? null : tmStatus,
                 thermompnnError: pollData.thermompnnError ?? data.thermompnnError ?? null
               });
             } else {

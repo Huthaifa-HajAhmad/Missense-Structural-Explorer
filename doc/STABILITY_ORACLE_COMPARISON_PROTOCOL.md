@@ -94,13 +94,13 @@ Every benchmark dataset is evaluated **as-shipped** using the production pipelin
 
 ## 6. Fixed decision gates
 
-The evaluation leads directly to one of three pre-committed dispositions for StabilityOracle:
+The evaluation leads directly to one of three mutually exclusive, collectively exhaustive dispositions for StabilityOracle, evaluated in order (**Retire** > **Keep** > **Freeze**):
 
-| Outcome | Quantitative trigger (evaluated on **Stratum 2** primary endpoint + operational telemetry) | Action |
+| Outcome | Quantitative trigger (evaluated in precedence order on **Stratum 2** + operational telemetry) | Action |
 |---|---|---|
-| **Keep (active default)** | `ΔAccuracy > 0` with lower bound of 95% cluster bootstrap CI `> 0` (or `>= +2.0 percentage points` on consensus coverage where Arm A lacks quorum and Arm B matches or beats Arm A AUROC with 95% CI lower bound `>= -0.02`), **and** OCI ARM64 p95 latency `<= 30 s` with structural rejection rate `< 10%`. | Retain StabilityOracle in `COUNTED_ENERGY_ENGINES` and maintain PDB2PQR/charge support. |
-| **Freeze (no new engineering)** | `ΔAccuracy` 95% CI spans `0` cleanly (e.g. `[-3, +3]` pts) without hurting accuracy, OCI ARM64 p95 latency and RAM remain within budget, and StabilityOracle's sole value is recovering a 3-engine quorum when RaSP has no lookup row. | Keep current code frozen (`doc/FUTURE_WORK.md`), invest zero additional engineering on input reconstruction or ChargeFW2, and revisit only if a cheaper local predictor replaces it. |
-| **Retire (Phase 7 candidate)** | Upper bound of 95% CI on `ΔAccuracy` is `<= +1.0 percentage point` **or** `ΔAccuracy < 0` at 90% CI (`Arm B` degrades consensus accuracy), **or** OCI ARM64 p95 latency/OOM pressure repeatedly exceeds budget (`> 60 s` p95 or `> 10%` failure rate). | Retire StabilityOracle following the Phase 6 pattern; keep `FoldX + ThermoMPNN + RaSP` (with sensitivity review of `MIN_ENGINES_FOR_CONSENSUS`). |
+| **Retire (Phase 7 candidate)** | Any one holds: **(a)** upper bound of 95% CI on `ΔAccuracy <= +1.0 percentage point` **or** 90% CI on `ΔAccuracy` lies strictly `< 0` (`Arm B` degrades consensus accuracy); **or (b)** OCI ARM64 p95 latency `> 60 s`; **or (c)** operational/structural failure rate `> 10%` (combined PDB2PQR rejections, `180 s` timeouts, and `503` failures). | Retire StabilityOracle following the Phase 6 pattern; keep `FoldX + ThermoMPNN + RaSP` (with sensitivity review of `MIN_ENGINES_FOR_CONSENSUS`). |
+| **Keep (active default)** | No **Retire** trigger fires (`p95 <= 60 s`, failure rate `<= 10%`), **and** all of: **(a)** lower bound of 95% CI on `ΔAccuracy > +1.0 percentage point` (or consensus coverage gain `>= +2.0 percentage points` where `Arm A` lacks quorum while `Arm B` keeps `ΔAccuracy` 90% CI lower bound `>= 0` and AUROC 95% CI lower bound `>= -0.02`); **and (b)** OCI ARM64 p95 latency `<= 30 s` and failure rate `< 10%`. | Retain StabilityOracle in `COUNTED_ENERGY_ENGINES` and maintain PDB2PQR/charge support. |
+| **Freeze (no new engineering)** | Every remaining case that triggers neither **Retire** nor **Keep** — specifically when `(a)` `ΔAccuracy` 95% CI straddles `+1.0` (`lower <= +1.0 < upper` without failing 90% CI `< 0`) while `p95 <= 60 s` and failure rate `<= 10%`, **or** `(b)` accuracy meets **Keep** while OCI ARM64 p95 latency falls in `(30 s, 60 s]` or failure rate equals `10%`. | Keep current code frozen (`doc/FUTURE_WORK.md`), invest zero additional engineering on input reconstruction or ChargeFW2, and revisit only if a cheaper local predictor replaces it. |
 
 ---
 

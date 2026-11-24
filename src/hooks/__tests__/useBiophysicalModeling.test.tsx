@@ -23,7 +23,7 @@ describe("useBiophysicalModeling Hook State Binding", () => {
 
   it("exposes biophysical store controls without running legacy client polling", () => {
     renderHook(
-      () => useBiophysicalModeling({} as any, vi.fn(), { detectPocket: vi.fn() }, vi.fn()),
+      () => useBiophysicalModeling({ detectPocket: vi.fn() }),
       { wrapper }
     );
 
@@ -41,7 +41,7 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     const pocket = { pockets: [{ id: 1, probability: 0.85 }] };
     const apiClient = { detectPocket: vi.fn().mockResolvedValue(pocket) };
     const { result } = renderHook(
-      () => useBiophysicalModeling({} as any, vi.fn(), apiClient, vi.fn()),
+      () => useBiophysicalModeling(apiClient),
       { wrapper }
     );
 

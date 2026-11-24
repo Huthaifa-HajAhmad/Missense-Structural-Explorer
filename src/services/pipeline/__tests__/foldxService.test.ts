@@ -519,6 +519,7 @@ describe("foldxService", () => {
   });
 
   it("collects background ThermoMPNN results a cache-hit response carried via token", async () => {
+    clearClientVariantCache();
     const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
       if (url.includes("/generate-mutant")) {
         return {
@@ -527,7 +528,11 @@ describe("foldxService", () => {
             status: "success",
             pdb: "ATOM",
             ddG: 1.5,
-            energetics: { foldx: 1.5 },
+            energetics: {
+              foldx: 1.5,
+              evidenceComplete: false,
+              pendingTools: ["ThermoMPNN"],
+            },
             thermompnnStatus: "pending",
             remoteSubmissionToken: "11111111-2222-4333-8444-555555555555"
           })
@@ -565,6 +570,63 @@ describe("foldxService", () => {
       undefined
     );
     expect(finalEnergetics?.thermompnn).toBe(1.2);
+    expect(finalEnergetics?.pendingTools).toEqual([]);
+    expect(finalEnergetics?.evidenceComplete).toBe(true);
+
+    const cached = getCachedVariant("P00439", "p.Arg408Trp");
+    expect(cached?.thermompnnStatus).toBe("done");
+    expect(cached?.foldingEnergetics?.thermompnn).toBe(1.2);
+    expect((cached?.foldingEnergetics as any)?.pendingTools).toEqual([]);
+    expect((cached?.foldingEnergetics as any)?.evidenceComplete).toBe(true);
+  });
+
+  it("clears ThermoMPNN from pendingTools and cache status when a token fails or settles with error", async () => {
+    clearClientVariantCache();
+    const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
+      if (url.includes("/generate-mutant")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "success",
+            pdb: "ATOM",
+            ddG: 1.5,
+            energetics: {
+              foldx: 1.5,
+              evidenceComplete: false,
+              pendingTools: ["ThermoMPNN"],
+            },
+            thermompnnStatus: "pending",
+            remoteSubmissionToken: "22222222-2222-4333-8444-555555555555"
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          settled: true,
+          thermompnnStatus: "error",
+          thermompnnError: "sidecar timed out"
+        })
+      };
+    });
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    const cached = getCachedVariant("P00439", "p.Arg408Trp");
+    expect(cached?.thermompnnStatus).toBe("error");
+    expect(cached?.thermompnnError).toBe("sidecar timed out");
+    expect((cached?.foldingEnergetics as any)?.pendingTools).toEqual([]);
+    expect((cached?.foldingEnergetics as any)?.evidenceComplete).toBe(true);
   });
 
   it("marks ThermoMPNN when a refused session severs its wait, and clears the record when a fresh run starts", async () => {

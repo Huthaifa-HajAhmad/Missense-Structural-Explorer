@@ -39,12 +39,7 @@ export default function useVariantAnalysis() {
   useStoreSettingsSync(settings);
 
   // Subsystem execution hooks
-  const biophysical = useBiophysicalModeling(
-    settings,
-    useVariantAnalysisStore.getState().addNotification,
-    apiClient,
-    fetchWithAuth
-  );
+  const biophysical = useBiophysicalModeling(apiClient);
   // Pairs the FoldX variant with its own template for the 3D superposition and its measurements.
   useFoldxSuperposition(apiClient);
   const pipeline = useAnalysisPipeline();

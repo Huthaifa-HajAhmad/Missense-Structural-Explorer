@@ -12,7 +12,6 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DEPLOYMENT_STANDBY=${DEPLOYMENT_STANDBY:-false}
-      - THERMOMPNN_PROVIDER=${THERMOMPNN_PROVIDER:-local}
       # Revision this image was built from, surfaced by GET /api/v1/version so "did my fix ship?"
       # is answerable from outside the host. Supplied by the deploy workflow; a hand-built image
       # reports `unknown` rather than omitting the field, so the API contract stays a string.
