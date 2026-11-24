@@ -48,6 +48,11 @@ Rather than relying on static, hardcoded variants, the application dynamically p
 
 ## 🚀 Local Quickstart
 
+> **The deployed app is the running app.** The app runs on the production server described in
+> **Production Deployment Architecture** below. A merged pull request reaches it
+> through CI and CD, and changes are checked there, not on a local copy. Set up a local copy to run the tests
+> and the lint checks in **Verification & Testing**; those still apply to every change.
+
 ### Prerequisites
 *   **Node.js** (>=22.5.0 required, matches runtime engine)
 *   **Google Gemini API Key**: Anyone with a Google account can obtain a free API key from [Google AI Studio](https://aistudio.google.com/).
@@ -78,11 +83,12 @@ Rather than relying on static, hardcoded variants, the application dynamically p
     APP_SESSION_SECRET=32_character_random_string_here
     APP_API_TOKEN=optional_secret_api_token
     ```
-4.  **Run Development Server**:
+4.  **Run a local server (optional)**:
     ```bash
     npm run dev
     ```
-    Open `http://localhost:3000` to view the explorer.
+    This starts a local copy at `http://localhost:3000`. It is not kept up as a way to use or check the app:
+    use the deployed app for that.
 
 ---
 
