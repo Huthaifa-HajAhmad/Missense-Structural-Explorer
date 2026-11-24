@@ -300,7 +300,8 @@ export async function executeFullAnalysisWorkflow({
       const intake = await requestNumberingProof(
         apiClient, { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot, numberingBasis }, activeSignal, NUMBERING_PROOF_FAN_OUT_WAIT_MS
       );
-      if (intake?.numberingProof) pipelineContext.numberingProof = intake.numberingProof;
+      // A run left behind (a newer search started) keeps the context it saved; nothing is written into it late.
+      if (intake?.numberingProof && !run.isStale()) pipelineContext.numberingProof = intake.numberingProof;
     };
     /** The remote engines as restored, handed to FoldX so a failure settles against what the store holds. */
     let restoredRemoteState: RestoredRemoteState = NO_RESTORED_REMOTE_STATE;
@@ -382,8 +383,6 @@ export async function executeFullAnalysisWorkflow({
         }
         analysisSink.setLoadingStep("Analysis complete!");
         clearAnalysisActivity();
-        await awaitNumberingProof();
-        if (run.isStale()) return "aborted";
 
         const cachedTemplateProv = cached.foldingEnergetics?.structureProvenance;
         const cachedTemplatePdb =
@@ -395,7 +394,15 @@ export async function executeFullAnalysisWorkflow({
           Boolean(cachedTemplatePdb) &&
           (!Array.isArray(cached.homologs) ||
             !cached.homologs.some((h: any) => typeof h?.pdbId === "string" && h.pdbId.toUpperCase() === cachedTemplatePdb));
-        if ((!cached.homologs || cached.homologs.length === 0 || missingTemplate) && targetUniprot) {
+        const needsHomologs = (!cached.homologs || cached.homologs.length === 0 || missingTemplate) && Boolean(targetUniprot);
+        // The proof goes only with follow-up requests: a revisit that sends none does not ask for it.
+        const sendsFollowUps = needsHomologs || !cached.pdbText || (shouldDispatchFoldx() && Boolean(posMatch && targetUniprot)) ||
+          (Boolean(targetUniprot) && stagesToResume(cached.analysisResult).length > 0);
+        if (sendsFollowUps) {
+          await awaitNumberingProof();
+          if (run.isStale()) return "aborted";
+        }
+        if (needsHomologs) {
           void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
         }
         if (!cached.pdbText) {

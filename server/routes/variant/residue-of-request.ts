@@ -19,13 +19,19 @@ import {
   type ResidueIdentity,
 } from "../../services/translation/numbering-proof.ts";
 
+/** The proofs a translation issues: the only ones that prove a coordinate's residue. */
+const TRANSLATION_PROOFS: ReadonlySet<ResidueProof> = new Set(["genomic", "declared-protein"]);
+
 const COORDINATE_WITHOUT_PROOF =
   "The coordinate's translation sent no valid numbering proof, so the residue it was translated to is not verified.";
 
 export interface RequestResidue {
   residue: Residue;
-  /** Why a proof that was sent was not used; absent when none was sent or it was used. */
-  rejectedProof?: Exclude<NumberingProofCheck["status"], "valid" | "absent">;
+  /**
+   * Why a proof that was sent was not used; absent when none was sent or it was used. `not-a-translation`:
+   * a valid proof of the protein notation, sent with a coordinate, which only a translation proof covers.
+   */
+  rejectedProof?: Exclude<NumberingProofCheck["status"], "valid" | "absent"> | "not-a-translation";
 }
 
 export function residueOfRequest(params: {
@@ -36,11 +42,13 @@ export function residueOfRequest(params: {
 }): RequestResidue {
   const { token, identity, inputKind, ownCheck } = params;
   const check = verifyNumberingProof(token, identity);
-  if (check.status === "valid") return { residue: { ...identity, proof: check.proof } };
   if (inputKind === "coordinate") {
+    if (check.status === "valid" && TRANSLATION_PROOFS.has(check.proof)) return { residue: { ...identity, proof: check.proof } };
     const residue: Residue = { ...identity, proof: "unverified", reason: COORDINATE_WITHOUT_PROOF };
-    return check.status === "absent" ? { residue } : { residue, rejectedProof: check.status };
+    if (check.status === "absent") return { residue };
+    return { residue, rejectedProof: check.status === "valid" ? "not-a-translation" : check.status };
   }
+  if (check.status === "valid") return { residue: { ...identity, proof: check.proof } };
 
   let proof: ResidueProof = "unverified";
   if (ownCheck?.canonicalConfirmed && ownCheck.status === "ambiguous") proof = "user-confirmed";

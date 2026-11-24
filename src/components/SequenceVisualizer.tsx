@@ -6,6 +6,7 @@ import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useApiClient } from "../apiClient";
 import { requestFieldsOf, type AnalysisCacheContext } from "../services/pipeline/analysisContext";
+import { variantNumberingView } from "../shared/numbering";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
 import { landscapeFinding, landscapeKey, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
 import { isRegionFeatureType, regionKindOf } from "../shared/residueRegions";
@@ -155,9 +156,14 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
    * The run's own request fields (genome build, coordinate, numbering proof), read from the context it
    * saved, so the landscape requests are judged on the same residue as the run. None for another protein.
    */
-  const runMetadata = useVariantAnalysisStore((s) => s.analysisState.result?.metadata);
+  const runResult = useVariantAnalysisStore((s) => s.analysisState.result);
+  const runMetadata = runResult?.metadata;
   const runContext = runMetadata?.pipelineContext as AnalysisCacheContext | undefined;
-  const sameRun = Boolean(runContext) && runMetadata?.variant === variant && runContext?.uniprotId?.toUpperCase() === uniprotId?.toUpperCase();
+  // The search may show the reported, renumbered form (`Q9Y305-4:p.Lys281Asn`) of the run's canonical variant.
+  const runVariants = runMetadata?.variant
+    ? [runMetadata.variant, variantNumberingView({ variant: runMetadata.variant, uniprotId, numberingRemap: (runResult as any)?.numberingRemap ?? null }).reportedQualified]
+    : [];
+  const sameRun = Boolean(runContext) && runVariants.includes(variant) && runContext?.uniprotId?.toUpperCase() === uniprotId?.toUpperCase();
   // Keyed by value: the run's saved context is copied on every write, and a new copy must not restart a request.
   const runFieldsKey = sameRun && runContext ? JSON.stringify(requestFieldsOf(runContext)) : "{}";
   const runFields = useMemo(() => JSON.parse(runFieldsKey) as ReturnType<typeof requestFieldsOf> | Record<string, never>, [runFieldsKey]);

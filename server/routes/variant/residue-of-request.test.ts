@@ -51,6 +51,13 @@ describe("residueOfRequest", () => {
     expect(residue.reason).toMatch(/translation/);
   });
 
+  it("does not take a proof of the protein notation for a coordinate's residue", () => {
+    const notationProof = issueNumberingProof({ ...identity, proof: "canonical-vs-mane" });
+    const result = residueOfRequest({ token: notationProof, identity, inputKind: "coordinate", ownCheck: { canonicalConfirmed: false } });
+    expect(result.residue.proof).toBe("unverified");
+    expect(result.rejectedProof).toBe("not-a-translation");
+  });
+
   it("takes the translation's proof for a coordinate's residue", () => {
     const { residue } = residueOfRequest({ token: proofOf(), identity, inputKind: "coordinate", ownCheck: { canonicalConfirmed: false } });
     expect(residue.proof).toBe("declared-protein");

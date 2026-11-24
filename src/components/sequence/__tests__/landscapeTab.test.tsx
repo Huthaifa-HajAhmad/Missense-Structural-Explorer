@@ -248,6 +248,21 @@ describe("SequenceVisualizer residue window", () => {
     expect(landscapeApi.getLandscapeData.mock.calls[0][0]).not.toHaveProperty("genomicCoordinates");
   });
 
+  it("takes the run's fields when the search shows the reported, renumbered form of the same variant", async () => {
+    useVariantAnalysisStore.setState({
+      landscapeOverview: null,
+      analysisState: { isLoading: false, error: null, result: {
+        metadata: { variant: "p.Asp107Gly", uniprotId: "Q13564", pipelineContext },
+        numberingRemap: { from: { hgvsp: "p.Asp116Gly", isoform: "Q13564-2" } }
+      } } as any
+    });
+    landscapeApi.getLandscapeData.mockResolvedValue({ landscapeData: [] });
+    render(<SequenceVisualizer uniprotId="Q13564" gene="NAE1" variant="Q13564-2:p.Asp116Gly" residueIndex={116} landscapeData={[...rows.values()]} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalled());
+    expect(landscapeApi.getLandscapeData.mock.calls[0][0]).toMatchObject({ numberingProof: "np1.body.sig" });
+  });
+
   it("keeps a window request running when the run's saved context is replaced by an equal copy", async () => {
     showRun("p.Asp116Gly");
     landscapeApi.getLandscapeData.mockReturnValue(new Promise(() => {}));

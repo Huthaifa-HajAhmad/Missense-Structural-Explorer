@@ -177,9 +177,11 @@ Routes that take a position, and so need the proof (six files, not two): `analys
   by accession and position, not by the proof, and are not affected. Check that the edge Worker forwards the header.
 - **A structure the caller sends** (`wtPdb` on `/generate-mutant`; the retry buttons' `/dynamut2-submit` and
   `/thermompnn-submit`) is read in its own numbering, so no UniProt proof applies and it is not gated; the audit
-  entry says `caller-structure`. Known defect, not fixed: with a caller's structure, `/generate-mutant` still asks
-  RaSP and ProtVar FoldX for the UniProt accession at the file's position, which is another residue when the
-  file's numbering differs.
+  entry says `caller-structure`. Its RaSP and ProtVar FoldX lookups (tables keyed
+  by UniProt position) are skipped with the reason, since the file's position may be another UniProt residue
+  (`CALLER_NUMBERING_REASON`, `foldx-queue-job.ts`). A cached result for the same structure bytes keeps its
+  values: the FoldX cache key hashes the structure, and bytes that match a server-resolved structure are in
+  UniProt numbering.
 - **A user's choice is not a proof on its own.** `user-confirmed` is named only when the check found two readings
   and the reader chose the canonical one. Without an answer from the check, or without an ambiguity, the reader's
   "these numbers are canonical" proves nothing and the residue stays `unverified` (or `canonical-vs-mane`).

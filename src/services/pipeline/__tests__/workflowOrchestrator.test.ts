@@ -184,6 +184,26 @@ describe("workflowOrchestrator", () => {
       expect(variantCache.getCachedVariant("PAH", "p.Arg408Trp")?.analysisResult?.metadata?.pipelineContext?.numberingProof).toBe("np1.saved");
     });
 
+    it("does not ask for a proof on a cached revisit that sends no follow-up request", async () => {
+      const pipelineContext = createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any);
+      variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
+        biophysicsContext: pipelineContext.simulationConditions,
+        analysisResult: {
+          analysis: "Cached report", isFallback: false, clinvar: { classification: "Pathogenic" }, predictorData: { revel: 0.88 },
+          multimerData: {}, ppiBindingData: {}, landscapeData: [],
+          metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineContext, pipelineStages: { landscape: "complete", structural: "complete" } }
+        },
+        homologs: [{ pdbId: "1ABC" }],
+        pdbText: "ATOM CA ...", mutantPdb: "ATOM CA ...", foldingStatus: "success", foldingDdG: 2.1, foldingEnergetics: { foldx: 2.1 }
+      } as any);
+      const apiClient = { getNumberingProof: vi.fn() };
+
+      await run(apiClient, "P00439");
+
+      expect(vi.mocked(executeFoldxPipeline)).not.toHaveBeenCalled();
+      expect(apiClient.getNumberingProof).not.toHaveBeenCalled();
+    });
+
     it("runs as before when the intake check fails: the gene lookup, and no proof", async () => {
       const apiClient = {
         getNumberingProof: vi.fn().mockRejectedValue(new Error("UniProt unavailable")),
