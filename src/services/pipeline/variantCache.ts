@@ -83,7 +83,8 @@ import { settleStagesForStorage } from "./resultMerge";
 //   fixes: a stored bundle would replay a PP3/BP4 call the current engine no longer gives.
 // v4.15 discards verdicts from the retired PP3/BP4 plurality vote: PP3/BP4 now comes from one calibrated tool
 //   (REVEL → BayesDel noAF → AlphaMissense → ESM1b) at its calibrated strength, so a stored call would be wrong.
-export const CACHE_VERSION = "v4.15";
+// v4.16 discards bundles from before Phase 6 retired DynaMut2, DDMut, and Tamarind ThermoMPNN job polling.
+export const CACHE_VERSION = "v4.16";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 
@@ -114,11 +115,6 @@ export interface CachedVariantBundle {
   /** Conditions actually submitted for these cached solver artifacts. */
   biophysicsContext?: string;
   foldingStatus?: string | null;
-  dynamut2JobId?: string | null;
-  dynamut2Status?: string | null;
-  ddmutJobId?: string | null;
-  ddmutStatus?: string | null;
-  thermompnnJobId?: string | null;
   thermompnnStatus?: string | null;
   thermompnnError?: string | null;
   computedPocket?: any | null;
@@ -127,8 +123,8 @@ export interface CachedVariantBundle {
   timestamp: number;
 }
 
-/** What a FoldX run and its remote engines produced. None of it is valid outside that run's conditions. */
-const BIOPHYSICS_RESULT_FIELDS = ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "dynamut2JobId", "dynamut2Status", "ddmutJobId", "ddmutStatus", "thermompnnJobId", "thermompnnStatus", "thermompnnError"] as const;
+/** What a FoldX run and its companion engines produced. None of it is valid outside that run's conditions. */
+const BIOPHYSICS_RESULT_FIELDS = ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "thermompnnStatus", "thermompnnError"] as const;
 
 const memoryVariantCache = new Map<string, CachedVariantBundle>();
 

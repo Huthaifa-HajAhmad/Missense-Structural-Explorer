@@ -290,8 +290,8 @@ describe("narrativeService", () => {
       serviceStatus: { clinvar: "timeout", gnomad: "ok" },
       gnomadFrequency: { groupMaxAF: 0.0001 },
       aouFrequency: { aouAC: 2, aouAN: 50000 },
-      energetics: { foldx: 2.2, dynamut2: -1.4 },
-      dynamut2Status: "done",
+      energetics: { foldx: 2.2, thermompnn: 1.4 },
+      thermompnnStatus: "done",
       metadata: { sequence: "MSTAVL" }
     };
 

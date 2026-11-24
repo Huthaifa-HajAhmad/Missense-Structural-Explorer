@@ -10,13 +10,13 @@ describe("truthful pipeline outcomes", () => {
     expect(getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: { foldx: 0 }, foldingStatus: "success" })).toEqual({ status: "complete", desc: "FoldX ΔΔG = 0.00 kcal/mol · Available" });
   });
   // UROD p.Gly318Arg: a bundle saved before FoldX returned. The rail read "ΔΔG = +0.53 kcal/mol ·
-  // Available" — DynaMut2's value, unnamed, on a stage it called complete. It now reports the
+  // Available" — a secondary engine's value on a stage it called complete. It now reports the
   // consensus it actually has (the median, with its count) and still names FoldX's absence.
   it("shows the median with its engine count and degrades the stage when FoldX has no value", () => {
-    const energetics = { dynamut2: -0.528, ddmut: -0.03, rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034, stabilityoracleStatus: "done", raspStatus: "done" };
-    const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: energetics, dynamut2Status: "done", ddmutStatus: "done", thermompnnStatus: "done" });
+    const energetics = { rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034, stabilityoracleStatus: "done", raspStatus: "done" };
+    const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: energetics, thermompnnStatus: "done" });
     expect(status.status).toBe("degraded");
-    expect(status.desc).toBe("Median ΔΔG = -0.11 kcal/mol (5 engines) · FoldX: no result");
+    expect(status.desc).toBe("Median ΔΔG = -0.50 kcal/mol (3 engines) · FoldX: no result");
   });
   it("names ProtVar's FoldX when it is the stand-in reading", () => {
     const status = getWorkflowStageStatus({
@@ -24,30 +24,36 @@ describe("truthful pipeline outcomes", () => {
       result,
       foldingEnergetics: { foldx: null, foldxMean: null, protvar: 1.9, structureProvenance: { source: "alphafold" } },
       foldingStatus: "failed",
-      dynamut2Status: "unavailable",
-      ddmutStatus: "unavailable",
+      thermompnnStatus: "unavailable",
     });
     expect(status.desc).toContain("ProtVar FoldX ΔΔG = +1.90 kcal/mol");
   });
   it("does not mark an empty or non-finite energetics object complete", () => {
-    for (const energetics of [{}, { foldx: NaN }, { ddmut: Infinity }]) {
+    for (const energetics of [{}, { foldx: NaN }, { thermompnn: Infinity }]) {
       expect(getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: energetics }).status).toBe("unavailable");
     }
   });
-  it("settles all three failed engines instead of leaving Energetics pending", () => {
-    const status = getWorkflowStageStatus({ view: "energetics", result, foldingStatus: "failed", foldingError: "Box64 Signal 11", dynamut2Status: "unavailable", ddmutStatus: "unavailable" });
+  it("settles failed engines instead of leaving Energetics pending", () => {
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      result,
+      foldingStatus: "failed",
+      foldingError: "Box64 Signal 11",
+      foldingEnergetics: { stabilityoracleStatus: "error" },
+      thermompnnStatus: "error",
+    });
     expect(status.status).toBe("error");
     expect(status.desc).toContain("FoldX");
-    expect(status.desc).toContain("DynaMut2");
-    expect(status.desc).toContain("DDMut");
+    expect(status.desc).toContain("ThermoMPNN");
+    expect(status.desc).toContain("StabilityOracle");
   });
   it("retains partial numeric evidence while disclosing other engine failures", () => {
-    const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: { dynamut2: -1.25 }, foldingStatus: "failed", foldingError: "Native crash", ddmutStatus: "unavailable" });
+    const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: { thermompnn: 1.25 }, foldingStatus: "failed", foldingError: "Native crash", thermompnnStatus: "done" });
     expect(status.status).toBe("degraded");
     expect(status.desc).toContain("+1.25");
   });
   it("keeps only actually pending remote engines running after FoldX settles", () => {
-    expect(getWorkflowStageStatus({ view: "energetics", result, isFolding: false, dynamut2Status: "pending" }).status).toBe("progress");
+    expect(getWorkflowStageStatus({ view: "energetics", result, isFolding: false, thermompnnStatus: "pending" }).status).toBe("progress");
   });
   it("marks an empty completed Landscape and a skipped source unavailable", () => {
     for (const outcome of ["complete", "skipped"]) {

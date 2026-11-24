@@ -95,8 +95,8 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
     // plaintext (tamarindApiKey and hfToken were leaked here historically).
     let needsPersistOnMount = false;
     // `hfToken` and `gpnApiUrl` belonged to the retired GPN-MSA integration; `biohubApiToken` and
-    // `defaultStructureModel` to the retired ESMFold view.
-    for (const key of [...TRANSIENT_SETTING_KEYS, "hfToken", "gpnApiUrl", "biohubApiToken", "defaultStructureModel"]) {
+    // `defaultStructureModel` to the retired ESMFold view; `tamarindApiKey` to the retired Tamarind fallback.
+    for (const key of [...TRANSIENT_SETTING_KEYS, "hfToken", "gpnApiUrl", "biohubApiToken", "tamarindApiKey", "defaultStructureModel"]) {
       if (parsed[key] !== undefined) {
         delete parsed[key];
         if (saved) needsPersistOnMount = true;
@@ -104,10 +104,11 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
     }
 
     const transient = readTransientCredentials();
-    // A Biohub token an older release kept for this tab: drop it from the stored copy too, so a later
-    // credential write does not carry it forward.
-    if ("biohubApiToken" in transient) {
+    // Tokens from retired integrations an older release kept for this tab: drop them from the
+    // stored copy too, so a later credential write does not carry them forward.
+    if ("biohubApiToken" in transient || "tamarindApiKey" in transient) {
       delete (transient as Record<string, unknown>).biohubApiToken;
+      delete (transient as Record<string, unknown>).tamarindApiKey;
       try {
         sessionStorage.setItem(TRANSIENT_STORAGE_KEY, JSON.stringify(transient));
       } catch {
@@ -136,7 +137,6 @@ function loadInitialSettingsState(): { initialSettings: UserSettings; needsPersi
       geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
       appApiToken: transient.appApiToken || "",
       japanfoldApiKey: transient.japanfoldApiKey || "",
-      tamarindApiKey: transient.tamarindApiKey || "",
       alphagenomeApiKey: transient.alphagenomeApiKey || "",
       alphagenomeApiUrl: transient.alphagenomeApiUrl || "",
       show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,

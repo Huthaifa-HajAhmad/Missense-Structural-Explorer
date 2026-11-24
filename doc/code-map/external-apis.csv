@@ -5,9 +5,7 @@ alphafold.ebi.ac.uk,server/services/structure/structure-fetcher.ts
 api.genome.ucsc.edu,server/services/prediction/predictors/locus-resolver.ts
 api.genome.ucsc.edu,server/services/prediction/splice_resolver.ts
 api.japanfold.aiand.com,server/config.ts
-app.tamarind.bio,server/services/stability/energy-models.ts
 biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts
-biosig.lab.uq.edu.au,server/services/stability/dynamut.ts
 cdn.jsdelivr.net,server/express-config.ts
 cdn.jsdelivr.net,server/routes/docs.ts
 data.evemodel.org,server/services/prediction/predictors/popeve-resolver.ts
@@ -24,7 +22,6 @@ files.rcsb.org,server/services/structure/structure-fetcher.ts
 github.com,server/agent/tools.ts
 github.com,server/services/infra/egress-governor.ts
 github.com,server/services/stability/ddmut-ppi.ts
-github.com,server/services/stability/dynamut.ts
 gnomad.broadinstitute.org,server/services/evidence-context/pext.ts
 gnomad.broadinstitute.org,server/services/external-api/gnomad.ts
 gnomad.broadinstitute.org,server/services/prediction/landscape-context.ts

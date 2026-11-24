@@ -479,7 +479,7 @@ describe("Shared variant notation grammar", () => {
 
     it("states the missense-only scope in shared user-facing copy", () => {
       expect(MISSENSE_ONLY_NOTE).toContain("missense");
-      expect(MISSENSE_ONLY_NOTE).toContain("FoldX/DynaMut2");
+      expect(MISSENSE_ONLY_NOTE).toContain("FoldX, ThermoMPNN");
     });
   });
 

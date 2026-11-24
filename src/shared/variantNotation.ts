@@ -283,7 +283,7 @@ export function isSupportedCdnaHgvs(input: string): boolean {
 export const MISSENSE_ONLY_NOTE =
   "MissenseResolve models single amino-acid substitutions (missense variants) only. " +
   "Deletions, insertions, duplications, inversions, delins and no-change notations cannot be " +
-  "modeled with missense biophysical stability predictors (FoldX/DynaMut2).";
+  "modeled with missense biophysical stability predictors (FoldX, ThermoMPNN, StabilityOracle, RaSP).";
 
 // ============================================================================
 // Classification & normalization

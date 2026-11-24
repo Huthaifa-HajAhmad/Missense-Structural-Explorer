@@ -171,12 +171,13 @@ describe("BiophysicalJobQueue Unit Tests", () => {
     const data = await queue.getJobData(job);
     expect(data.phase).toBe("repairing");
     expect(typeof data.phaseAt).toBe("number");
-    // The rest of the record survives the annotation — remote job ids in particular.
-    await queue.updateJobData(job, { ...data, remoteJobs: { dynamut2JobId: "dyn-1" } });
+    // The rest of the record survives the annotation — companion metadata in particular.
+    await queue.updateJobData(job, { ...data, remoteJobs: { thermompnnStatus: "done", thermompnnVal: 0.42 } });
     await queue.updateJobPhase(job, "modelling");
     const after = await queue.getJobData(job);
     expect(after.phase).toBe("modelling");
-    expect(after.remoteJobs.dynamut2JobId).toBe("dyn-1");
+    expect(after.remoteJobs.thermompnnStatus).toBe("done");
+    expect(after.remoteJobs.thermompnnVal).toBe(0.42);
 
     releaseJob();
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -227,14 +228,14 @@ describe("BiophysicalJobQueue Unit Tests", () => {
      */
     const slowRemoteWrite = queue.mutateJobData(job, async data => {
       await new Promise(resolve => setTimeout(resolve, 50));
-      return { ...(data || {}), remoteJobs: { dynamut2JobId: "dyn-9" } };
+      return { ...(data || {}), remoteJobs: { thermompnnStatus: "done" } };
     });
     const phaseWrite = queue.updateJobPhase(job, "repairing");
 
     await Promise.all([slowRemoteWrite, phaseWrite]);
 
     const data = await queue.getJobData(job);
-    expect(data.remoteJobs?.dynamut2JobId, "the remote job id was lost").toBe("dyn-9");
+    expect(data.remoteJobs?.thermompnnStatus, "the remote job status was lost").toBe("done");
     expect(data.phase, "the phase was lost to the other writer").toBe("repairing");
 
     release();

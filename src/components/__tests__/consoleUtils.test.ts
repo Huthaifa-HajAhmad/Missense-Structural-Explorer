@@ -121,19 +121,19 @@ describe("buildCurl", () => {
 });
 
 describe("waterfall timeline", () => {
-  // A real run: sub-second fetches beside two ~5 minute polling jobs.
+  // A real run: sub-second fetches beside slow external interface jobs.
   const spans = [
     span("VEP", 0, 3719),
     span("PDB", 3719, 546),
     span("Pocket", 4265, 26545),
     span("ESM", 30810, 17358),
-    span("DYNAMUT2", 400, 304821, { status: "unavailable" }),
-    span("DDMUT", 7000, 313822, { status: "unavailable" }),
+    span("FOLDX", 400, 304821, { status: "unavailable" }),
+    span("DDMUT-PPI", 7000, 313822, { status: "unavailable" }),
   ];
   const r = run(spans);
 
   it("flags only the runaway spans", () => {
-    expect([...findOutlierSpans(spans)].sort()).toEqual(["DDMUT", "DYNAMUT2"]);
+    expect([...findOutlierSpans(spans)].sort()).toEqual(["DDMUT-PPI", "FOLDX"]);
   });
 
   it("focus scale clips the axis to the readable spans; full keeps the whole run", () => {

@@ -12,13 +12,13 @@ import type { LogSource } from "../types/devConsole";
 const RULES: Array<[LogSource, RegExp]> = [
   ["component", /errorboundary/],
   ["notification", /notification/],
-  ["biophysics", /foldx|dynamut|ddmut|thermompnn|stabilityoracle|rasp|biophysic|comparison|structuralmodel|structuralanalysis/],
+  ["biophysics", /foldx|ddmut-?ppi|thermompnn|stabilityoracle|rasp|biophysic|comparison|structuralmodel|structuralanalysis/],
   ["structure-3d", /alphafold|pdb|pocket|mol\*|molstar|structure|3d|homolog|residue|uniprot|sequence/],
   ["genomics", /vep|mane|splice|genomic|notation|alphagenome|landscape|coordinate/],
   ["ai-narrative", /gemini|narrative|acmg|clinical/],
   ["literature", /pubmed|litrag|literature/],
   ["system", /cache|worker|webgl|vite|lazyretry/],
-  ["workflow", /retry|pipeline|workflow|backfill|jobpoller|orchestrator/],
+  ["workflow", /retry|pipeline|workflow|backfill|orchestrator/],
   ["network", /network|http|fetch|apiclient|stream/],
 ];
 

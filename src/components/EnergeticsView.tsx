@@ -8,7 +8,6 @@ import { energeticsComparisonHeadline, energeticsComparisonFinding, energeticsCo
 import type { FoldxProgress } from "../shared/foldxPhase";
 import { requestInspectorFocus, INSPECTOR_SECTIONS } from '../lib/inspectorFocus';
 import { WorkspaceTabs } from './ui/WorkspaceTabs';
-import { RetryDynamut2 } from "./energetics/RetryDynamut2";
 import { RetryThermompnn } from "./energetics/RetryThermompnn";
 import { ProgressPanel } from "./energetics/ProgressPanel";
 import { EngineTally, StructureFact } from "./energetics/FindingFacts";
@@ -95,7 +94,7 @@ const EnergeticsView = memo(function EnergeticsView({
   const [hidePendingEngines, setHidePendingEngines] = useState(false);
   const handleHidePendingEngines = useCallback(() => setHidePendingEngines(true), []);
   const { evidence, unit } = useEnergeticsEvidence(run, result, hidePendingEngines);
-  const { foldingEnergetics, dynamut2Status, thermompnnStatus, foldingStatus } = run;
+  const { foldingEnergetics, thermompnnStatus, foldingStatus } = run;
 
   if (!result) {
     return (
@@ -106,7 +105,7 @@ const EnergeticsView = memo(function EnergeticsView({
               <h1 className="screen-title">Energetics</h1>
               <ResearchGuideButton topic="energetics" label="How to read stability estimates" />
             </div>
-            <p className="screen-tab-description">Predicted change in folding stability (ΔΔG) from six engines.</p>
+            <p className="screen-tab-description">Predicted change in folding stability (ΔΔG) from four engines.</p>
           </header>
           <p className="nrg-dim">Run a variant to estimate its effect on folding stability.</p>
         </div>
@@ -140,13 +139,6 @@ const EnergeticsView = memo(function EnergeticsView({
         </header>
         <div className="nrg-navigation">
           <WorkspaceTabs id="energetics" label="Energetics views" tabs={ENERGY_TABS} value={tab} onChange={setTab} />
-          <RetryDynamut2
-            variant={result.metadata?.variant}
-            uniprotId={result.metadata?.uniprotId ?? null}
-            energetics={foldingEnergetics}
-            status={dynamut2Status}
-            onSubmitted={() => setHidePendingEngines(false)}
-          />
           <RetryThermompnn
             variant={result.metadata?.variant}
             uniprotId={result.metadata?.uniprotId ?? null}

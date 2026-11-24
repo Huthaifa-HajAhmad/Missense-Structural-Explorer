@@ -365,7 +365,7 @@ export class PrewarmManager {
                    * Marks this job as SPECULATIVE, and it is load-bearing.
                    *
                    * A reader request that joins this job must know that nobody has submitted
-                   * DynaMut2 / DDMut / ThermoMPNN / StabilityOracle for it — the pre-warm has no
+                   * ThermoMPNN / StabilityOracle / RaSP for it — the pre-warm has no
                    * reader tokens and is only warming FoldX. The interactive path therefore takes
                    * over the remote engines for a joined pre-warm job instead of assuming the
                    * original submitter is running them (`generation.ts`, `joinedJobIsPrewarm`).

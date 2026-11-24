@@ -8,7 +8,7 @@ export type LogSource =
   | "network"       // fetch calls & HTTP API requests
   | "component"     // ErrorBoundary catches
   | "workflow"      // background orchestrator and workflow events
-  | "biophysics"    // FoldX, StabilityOracle, DynaMut2, DDMut, ThermoMPNN
+  | "biophysics"    // FoldX, ThermoMPNN, StabilityOracle, RaSP
   | "genomics"      // Ensembl VEP, MANE Select, Splice Resolver, transcript parsing
   | "structure-3d"  // AlphaFold, PDB parser, Pocket Finder, Mol* viewer
   | "ai-narrative"  // Gemini clinical reasoning, ACMG synthesis

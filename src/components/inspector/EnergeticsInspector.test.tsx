@@ -33,8 +33,6 @@ function renderInspector(overrides: Record<string, unknown> = {}) {
     foldingEnergetics: null,
     foldingStatus: null,
     foldingError: null,
-    dynamut2Status: null,
-    ddmutStatus: null,
     thermompnnStatus: null,
     thermompnnError: null,
     disruptionPredictor: null,
@@ -55,8 +53,6 @@ const NAE1 = {
   foldxSd: 0,
   foldxRepairSkipped: true,
   foldxRepairSkippedReason: "large-structure",
-  dynamut2: null,
-  ddmut: null,
   rasp: null,
   raspReason: "Residue position is not present in the pre-computed database",
   thermompnn: -0.36,
@@ -81,10 +77,9 @@ describe("EnergeticsInspector — the rule trace", () => {
     expect(steps[0]).toHaveTextContent("Experimental structure · 1YOV:A · 2.8 Å");
     expect(steps[0]).toHaveTextContent("FoldX template: not repaired (large structure)");
     expect(steps[0].getAttribute("data-state")).toBe("warn");
-    expect(steps[1]).toHaveTextContent("3 of 6 engines");
+    expect(steps[1]).toHaveTextContent("3 of 4 engines");
     // F8: a missing engine carries its reason, not a bare name.
-    expect(steps[1]).toHaveTextContent("No value: DynaMut2 — The run ended without returning a value");
-    expect(steps[1]).toHaveTextContent("RaSP — No precomputed RaSP score is available");
+    expect(steps[1]).toHaveTextContent("No value: RaSP — No precomputed RaSP score is available");
     // Each reason ends in a full stop; joining them with "; " used to print ".;" between engines.
     expect(steps[1].textContent).not.toMatch(/\.;/);
     expect(steps[1].textContent).toMatch(/No value: .*\.$/);
@@ -167,13 +162,15 @@ describe("EnergeticsInspector — FoldX on two templates", () => {
 describe("EnergeticsInspector — engines without a value", () => {
   it("gives each missing engine its state and reason, with raw detail behind a disclosure", () => {
     renderInspector({
-      foldingEnergetics: NAE1,
+      foldingEnergetics: { ...NAE1, thermompnn: null },
       foldingStatus: "success",
-      thermompnnStatus: "done",
-      ddmutStatus: "unavailable",
+      thermompnnStatus: "error",
+      thermompnnError: "Model server returned HTTP 502",
     });
     const missing = screen.getByTestId("energetics-missing");
-    expect(within(missing).getByText("DDMut").closest("li")).toHaveTextContent("Provider busy");
+    const thermo = within(missing).getByText("ThermoMPNN").closest("li")!;
+    expect(thermo).toHaveTextContent("Provider error");
+    expect(thermo.querySelector("details")).toHaveTextContent("Model server returned HTTP 502");
     const rasp = within(missing).getByText("RaSP").closest("li")!;
     expect(rasp).toHaveTextContent("Not covered");
     expect(rasp.querySelector("details")).toHaveTextContent("Residue position is not present in the pre-computed database");
@@ -188,14 +185,10 @@ describe("EnergeticsInspector — engines without a value", () => {
       foldingEnergetics: {
         foldx: 1.2,
         foldxMean: 1.2,
-        dynamut2: -0.4,
-        ddmut: -0.3,
         rasp: 0.9,
         thermompnn: 0.8,
         stabilityoracle: 0.7,
       },
-      dynamut2Status: "done",
-      ddmutStatus: "done",
       thermompnnStatus: "done",
       disruptionPredictor: { plddt: 55 },
     });
@@ -288,13 +281,13 @@ describe("EnergeticsInspector — the method inspector section", () => {
     // The section used to carry `aria-live="polite"` itself: every pin re-announced the method's
     // description, dl rows, caveat paragraphs… The announcement is now one bounded sr-only status
     // line with the name and value.
-    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done", selectedEngine: "dynamut2" });
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done", selectedEngine: "stabilityoracle" });
     expect(screen.getByTestId("energetics-rail").querySelector("section")).not.toHaveAttribute("aria-live");
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("DynaMut2");
+    expect(status).toHaveTextContent("StabilityOracle");
     // The sign-convention sentence the inspector is the only surface for.
     const sign = document.getElementById("nrg-selected-title")!.closest("section")!;
-    expect(sign.textContent).toContain("Provider sign reversed for comparison; positive here means less stable folding.");
+    expect(sign.textContent).toContain("Positive means less stable folding.");
   });
 
   it("states FoldX's native sign convention without claiming a reversal", () => {

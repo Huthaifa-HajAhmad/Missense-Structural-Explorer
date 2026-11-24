@@ -14,13 +14,10 @@ export function stabilityConsensusFor(args: FoldxRunState & {
   if (!result) return null;
   return computeStabilityConsensus(
     {
-      // Mirrors `EnergeticsView`'s `energetics` memo key for key. The five remote engines read from
-      // `foldingEnergetics` only — an extra `?? result.dynamut2` fallback here would be a divergence,
-      // not a safety net.
+      // Mirrors `EnergeticsView`'s `energetics` memo key for key. Companion engines read from
+      // `foldingEnergetics` only so the panel verdict and shared consensus stay aligned.
       foldx: fe?.foldx ?? foldingDdG ?? null,
       foldxMean: fe?.foldxMean ?? foldingDdG ?? null,
-      dynamut2: fe?.dynamut2 ?? null,
-      ddmut: fe?.ddmut ?? null,
       rasp: fe?.rasp ?? null,
       thermompnn: fe?.thermompnn ?? null,
       stabilityoracle: fe?.stabilityoracle ?? null,

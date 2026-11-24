@@ -4,7 +4,7 @@ import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { clearInvalidApiKey } from "../api/authSession";
 
-type TestId = "japanfold" | "alphagenome" | "tamarind";
+type TestId = "japanfold" | "alphagenome";
 
 interface TestState {
   testing: boolean;
@@ -31,11 +31,6 @@ const ENDPOINTS: Record<TestId, EndpointSpec> = {
     endpoint: "/api/v1/alphagenome/verify-connection",
     payload: (token) => ({ apiKey: token }),
     emptyMessage: "No AlphaGenome Atlas API key entered."
-  },
-  tamarind: {
-    endpoint: "/api/v1/test-tamarind-connection",
-    payload: (token) => ({ tamarindApiKey: token }),
-    emptyMessage: "No Tamarind Bio API key entered."
   }
 };
 
@@ -44,16 +39,15 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 /**
- * Consolidates the credential test/link flows that used to live as three
- * near-identical handlers inside SettingsModal plus a Gemini link handler.
+ * Consolidates the credential test/link flows that used to live as near-identical handlers
+ * inside SettingsModal plus a Gemini link handler.
  * Consumes settings directly from context — no prop drilling.
  */
 export function useApiConnections() {
   const { settings, updateSetting } = useSettings();
   const [tests, setTests] = useState<Record<TestId, TestState>>({
     japanfold: IDLE_TEST,
-    alphagenome: IDLE_TEST,
-    tamarind: IDLE_TEST
+    alphagenome: IDLE_TEST
   });
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -65,9 +59,7 @@ export function useApiConnections() {
   const tokenFor = (id: TestId): string | undefined =>
     id === "japanfold"
       ? settings.japanfoldApiKey
-      : id === "tamarind"
-        ? settings.tamarindApiKey
-        : settings.alphagenomeApiKey;
+      : settings.alphagenomeApiKey;
 
   // What a test result is about. AlphaGenome is tested against a key AND an endpoint.
   const inputFor = (id: TestId): string =>
@@ -141,7 +133,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.japanfoldApiKey, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
+    [settings.japanfoldApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {
@@ -203,7 +195,7 @@ export function useApiConnections() {
     return current;
     // inputFor reads only the settings listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tests, settings.japanfoldApiKey, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
+  }, [tests, settings.japanfoldApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl]);
 
   return {
     tests: currentTests,

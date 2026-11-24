@@ -5,11 +5,11 @@ import type { AnalysisResult } from "../contracts.ts";
 /** The argument order these cases were written in, mapped onto the one object form. */
 const positionalStatus = (
   view: string, result?: any, isFolding?: boolean, isBiophysicalLoading?: boolean, isClinicalLoading?: boolean,
-  isLoadingSearch?: boolean, loadingStep?: string, isPocketLoading?: boolean, dynamut2Status?: string | null,
-  ddmutStatus?: string | null, isNarrativeLoading?: boolean, hasStructureCoordinates?: boolean
+  isLoadingSearch?: boolean, loadingStep?: string, isPocketLoading?: boolean, thermompnnStatus?: string | null,
+  _unused?: string | null, isNarrativeLoading?: boolean, hasStructureCoordinates?: boolean
 ) => getWorkflowStageStatus({
   view, result, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep,
-  isPocketLoading, dynamut2Status, ddmutStatus, isNarrativeLoading, hasStructureCoordinates
+  isPocketLoading, thermompnnStatus, isNarrativeLoading, hasStructureCoordinates
 });
 
 describe("workflowStatus Helper Unit Tests (C-7)", () => {
@@ -40,10 +40,9 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       },
       foldingEnergetics: { 
         foldx: 2.5,
-        dynamut2: null,
-        ddmut: null,
         rasp: null,
-        thermompnn: null
+        thermompnn: null,
+        stabilityoracle: null
       }
     };
 
@@ -61,8 +60,6 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       biophysicalEnergetics: { predictedStabilityChange: "destabilizing" } as any
     };
 
-    // FoldX job still running (isFolding=true) AND predictors pending — the tab must still
-    // be "complete" because the Gemini narrative resolved (async-chip decision).
     const status = positionalStatus(
       "energetics",
       geminiOnlyResult,
@@ -72,8 +69,8 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       undefined,
       undefined,
       undefined,
-      /* dynamut2Status */ "pending",
-      /* ddmutStatus */ "pending"
+      /* thermompnnStatus */ "pending",
+      undefined
     );
 
     // Available qualitative evidence does not make still-running engines complete.
@@ -252,11 +249,11 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(status.desc).not.toContain("Query failed");
   });
 
-  it("counts a restored remote-engine value even when nothing else of the run survived", () => {
+  it("counts a restored sidecar-engine value even when nothing else of the run survived", () => {
     const status = getWorkflowStageStatus({
       view: "energetics",
-      result: { analysis: "", dynamut2: -0.9, metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineStages: { core: "error" } } } as any,
-      dynamut2Status: "done",
+      result: { analysis: "", foldingEnergetics: { thermompnn: 0.9 }, metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineStages: { core: "error" } } } as any,
+      thermompnnStatus: "done",
     } as any);
     expect(status.status).not.toBe("unavailable");
   });
@@ -320,9 +317,8 @@ describe("workflowStatus — paused engines after a session lapse", () => {
     foldingEnergetics: {
       foldx: 2.5,
       foldxMean: 2.5,
-      ddmut: 1.2,
       thermompnn: 0.8,
-      energeticsAuthLapsed: { dynamut2: true },
+      energeticsAuthLapsed: { stabilityoracle: true },
     },
   };
 
@@ -337,7 +333,7 @@ describe("workflowStatus — paused engines after a session lapse", () => {
     const status = getWorkflowStageStatus({
       view: "energetics",
       foldingStatus: "success",
-      foldingEnergetics: { energeticsAuthLapsed: { dynamut2: true, ddmut: true } },
+      foldingEnergetics: { energeticsAuthLapsed: { thermompnn: true, stabilityoracle: true } },
     });
     expect(status.status).toBe("unavailable");
     expect(status.desc).toContain("paused by an expired session");
@@ -348,7 +344,7 @@ describe("workflowStatus — paused engines after a session lapse", () => {
     const status = getWorkflowStageStatus({
       view: "energetics",
       foldingStatus: "failed",
-      foldingEnergetics: { energeticsAuthLapsed: { dynamut2: true } },
+      foldingEnergetics: { energeticsAuthLapsed: { stabilityoracle: true } },
     });
     expect(status.status).toBe("error");
     expect(status.desc).toContain("failed or unavailable");

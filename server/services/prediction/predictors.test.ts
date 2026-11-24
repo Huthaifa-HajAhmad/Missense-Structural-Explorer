@@ -103,7 +103,7 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
       const opposed = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2 });
       expect(opposed).toBe("Engines Disagree");
 
-      const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, ddmut: 0.2 });
+      const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, thermompnn: 0.2 });
       expect(conflicting).toBe("Engines Disagree");
 
       const neutral = computeConsensusVerdict({ foldxMean: 0.4, rasp: 0.2 });

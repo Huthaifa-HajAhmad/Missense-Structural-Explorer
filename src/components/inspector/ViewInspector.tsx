@@ -51,8 +51,6 @@ export interface ViewInspectorProps {
   isHomologsLoading?: boolean;
   customPdbUrl?: string | null;
   setCustomPdbUrl?: (url: string | null) => void;
-  dynamut2Status?: "pending" | "unavailable" | "done" | null;
-  ddmutStatus?: "pending" | "unavailable" | "done" | null;
   thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | "busy" | null;
   thermompnnError?: string | null;
   disruptionPredictor?: { plddt?: number | null } | null;
@@ -155,8 +153,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   isHomologsLoading = false,
   customPdbUrl = null,
   setCustomPdbUrl,
-  dynamut2Status = null,
-  ddmutStatus = null,
   thermompnnStatus = null,
   thermompnnError = null,
   disruptionPredictor = null,
@@ -525,8 +521,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             foldingEnergetics={foldingEnergetics}
             foldingStatus={foldingStatus}
             foldingError={foldingError}
-            dynamut2Status={dynamut2Status}
-            ddmutStatus={ddmutStatus}
             thermompnnStatus={thermompnnStatus}
             thermompnnError={thermompnnError}
             disruptionPredictor={disruptionPredictor}

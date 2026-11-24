@@ -12,14 +12,13 @@ import type { AnalysisResult, EnergeticsData } from '../../src/types';
 
 // Labelled examples, not live measurements. Same production AppViews and inspector as the app.
 const result = { metadata: { gene: 'SOD1', variant: 'p.Ala5Val', uniprotId: 'P00441', residueIndex: 5 }, conservationData: {} } as AnalysisResult;
-const full = { foldx: 2.62, foldxMean: 2.62, foldxSd: 0.3, foldxRepairFailed: false, dynamut2: 0.36, ddmut: -0.7, thermompnn: 1.45, stabilityoracle: -0.8, rasp: 1.1,
+const full = { foldx: 2.62, foldxMean: 2.62, foldxSd: 0.3, foldxRepairFailed: false, thermompnn: 1.45, stabilityoracle: -0.8, rasp: 1.1,
   structureProvenance: { source: 'experimental', pdbId: '2C9V', chainId: 'A', resolution: 1.8, foldxRuns: 5 } } as EnergeticsData;
 function scenario(name: string) {
-  const energetics = name === 'Missing' ? {} : name === 'Single' ? { dynamut2: -0.09 } : name === 'Excluded' ? { ...full, foldxRepairFailed: true } : name === 'Extreme' ? { ...full, foldx: 24, foldxMean: 24, ddmut: 12 } : full;
+  const energetics = name === 'Missing' ? {} : name === 'Single' ? { stabilityoracle: -0.09 } : name === 'Excluded' ? { ...full, foldxRepairFailed: true } : name === 'Extreme' ? { ...full, foldx: 24, foldxMean: 24, thermompnn: 12 } : full;
   store.setState({ gene: 'SOD1', variant: 'p.Ala5Val', uniprotId: 'P00441',
     analysisState: { result, isLoading: false, error: null }, foldingEnergetics: energetics as EnergeticsData,
     foldingDdG: null, foldingStatus: name === 'Missing' || name === 'Single' ? 'unavailable' : 'success',
-    dynamut2Status: name === 'Missing' ? 'unavailable' : 'done', ddmutStatus: name === 'Missing' || name === 'Single' ? 'unavailable' : 'done',
     thermompnnStatus: name === 'Missing' ? 'pending' : name === 'Single' ? 'unavailable' : 'done', isFolding: false,
   });
 }

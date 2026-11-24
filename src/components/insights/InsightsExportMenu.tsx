@@ -56,8 +56,8 @@ export function InsightsExportMenu({ analysisState, gene, variant, uniprotId, se
         variant: variant,
         uniprotId: uniprotId || analysisState.result.metadata?.uniprotId || "",
         timestamp: new Date().toISOString(),
-        // Model and version strings were literals here ("DynaMut2 Consensus", "RaSP Precomputed",
-        // appVersion "1.0.0") that named engines whether or not they served the run. Only what the
+        // Model and version strings were literals here ("DynaMut2", "RaSP Precomputed",
+        // appVersion "1.0.0") that named engines regardless of what ran. Only what the
         // payload records is exported.
         narrativeModel: (analysisState.result.insights as { model?: string } | undefined)?.model ?? null
       },
@@ -87,8 +87,6 @@ export function InsightsExportMenu({ analysisState, gene, variant, uniprotId, se
           stericClashWarning: foldingEnergetics?.stericClashWarning ?? false,
           sidechainRmsd: foldingEnergetics?.localSidechainRmsd ?? null
         },
-        dynamut2: foldingEnergetics?.dynamut2 ?? analysisState.result.dynamut2 ?? null,
-        ddmut: foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null,
         rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
         thermompnn: foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null,
         stabilityoracle: foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null,
@@ -109,9 +107,7 @@ export function InsightsExportMenu({ analysisState, gene, variant, uniprotId, se
         consensusEnginesDestabilizing: derivedConsensus?.enginesDestabilizing ?? null,
         consensusMedianDdg: derivedConsensus?.medianDdg ?? null,
         /**
-         * Every engine in ONE sign convention. The per-engine keys above are the providers' raw values
-         * (kept as they were for existing readers); DynaMut2 and DDMut report negative = destabilizing,
-         * so a reader comparing engines must use these.
+         * Every engine in ONE sign convention.
          */
         signConvention: "canonicalDdg: kcal/mol, positive = destabilizing for every engine",
         canonicalDdg: {
@@ -124,8 +120,6 @@ export function InsightsExportMenu({ analysisState, gene, variant, uniprotId, se
               foldingDdG ??
               null
           ),
-          dynamut2: toCanonicalDdg("dynamut2", foldingEnergetics?.dynamut2 ?? analysisState.result.dynamut2 ?? null),
-          ddmut: toCanonicalDdg("ddmut", foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null),
           rasp: toCanonicalDdg("rasp", foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null),
           thermompnn: toCanonicalDdg("thermompnn", foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null),
           stabilityoracle: toCanonicalDdg(

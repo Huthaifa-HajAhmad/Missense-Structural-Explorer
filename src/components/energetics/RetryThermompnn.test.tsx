@@ -24,7 +24,7 @@ describe('ThermoMPNN retry', () => {
     fetchWithAuth.mockReset();
     onSubmitted.mockReset();
     store.setState({
-      thermompnnStatus: 'error', thermompnnJobId: null, thermompnnError: BUSY, foldingEnergetics: ENERGETICS,
+      thermompnnStatus: 'error', thermompnnError: BUSY, foldingEnergetics: ENERGETICS,
       // The repacked pair is deliberately different from the template: the retry must not submit it.
       foldxReferencePdb: 'REPACKED', pdbText: 'TEMPLATE', pdbTextProvenance: { source: 'alphafold' }, foldedResidueIndex: 380,
       analysisState: { result: RESULT, isLoading: false, error: null },
@@ -33,7 +33,7 @@ describe('ThermoMPNN retry', () => {
   afterEach(cleanup);
 
   it('writes the synchronous local prediction into the run and preserves FoldX', async () => {
-    accepted({ thermompnnJobId: 'local_thermompnn', thermompnnStatus: 'done', prediction: 0.87, error: null });
+    accepted({ thermompnnStatus: 'done', prediction: 0.87, error: null });
     view();
     click();
     await waitFor(() => expect(store.getState().foldingEnergetics?.thermompnn).toBe(0.87));
@@ -45,21 +45,11 @@ describe('ThermoMPNN retry', () => {
   });
 
   it('still submits when the run recorded no chain; the server finds it', async () => {
-    accepted({ thermompnnJobId: 'local_thermompnn', thermompnnStatus: 'done', prediction: 0.87 });
+    accepted({ thermompnnStatus: 'done', prediction: 0.87 });
     view({ energetics: { ...ENERGETICS, structureProvenance: { source: 'alphafold' } } });
     click();
     await waitFor(() => expect(fetchWithAuth).toHaveBeenCalled());
     expect(JSON.parse(fetchWithAuth.mock.calls[0][1].body).mutation).toBe('G380R');
-  });
-
-  it('hands a cloud job id to the existing poller instead of inventing a value', async () => {
-    accepted({ thermompnnJobId: 'tamarind-7', thermompnnStatus: 'pending', prediction: null });
-    view();
-    click();
-    await waitFor(() => expect(store.getState().thermompnnJobId).toBe('tamarind-7'));
-    expect(store.getState().thermompnnStatus).toBe('pending');
-    expect(store.getState().foldingEnergetics?.thermompnn).toBeUndefined();
-    expect(onSubmitted).toHaveBeenCalledTimes(1);
   });
 
   it('does not submit when the template or position is unknown', () => {
@@ -87,7 +77,7 @@ describe('ThermoMPNN retry', () => {
   });
 
   it('keeps the engine retryable and shows the server reason when the sidecar is still busy', async () => {
-    accepted({ thermompnnJobId: null, thermompnnStatus: 'busy', prediction: null, error: 'ThermoMPNN did not start: the model server was still busy with earlier work' });
+    accepted({ thermompnnStatus: 'busy', prediction: null, error: 'ThermoMPNN did not start: the model server was still busy with earlier work' });
     view({ status: 'busy' });
     click();
     expect(await screen.findByRole('alert')).toHaveTextContent('still busy with earlier work');
@@ -121,9 +111,8 @@ describe('ThermoMPNN retry', () => {
     click();
     await waitFor(() => expect(fetchWithAuth).toHaveBeenCalled());
     store.setState({ analysisState: { result: { metadata: { variant: 'p.Gly1Ala' } }, isLoading: false, error: null } } as any);
-    finish(new Response(JSON.stringify({ thermompnnJobId: 'late-job', thermompnnStatus: 'pending' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    finish(new Response(JSON.stringify({ thermompnnStatus: 'done', prediction: 0.55 }), { status: 200, headers: { 'content-type': 'application/json' } }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry ThermoMPNN' })).toBeInTheDocument());
-    expect(store.getState().thermompnnJobId).toBeNull();
     expect(store.getState().foldingEnergetics?.thermompnn).toBeUndefined();
     expect(onSubmitted).not.toHaveBeenCalled();
   });

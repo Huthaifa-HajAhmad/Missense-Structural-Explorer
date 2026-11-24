@@ -6,9 +6,9 @@ import { credentialSourceLabel, type CredentialKind } from "../../../shared/cred
 import { SettingsBlock } from "../ui/Section";
 
 /**
- * Whose token pays for Tamarind calls (WP-I4).
+ * Whose token pays for JapanFold calls (WP-I4).
  *
- * The plain-words explanation, the "last used" line under each token, and (for a signed-in person) saving
+ * The plain-words explanation, the "last used" line under the token, and (for a signed-in person) saving
  * a token to their account so it follows them to other browsers (WP-I4b).
  */
 
@@ -16,9 +16,9 @@ export function TokenOwnershipIntro() {
   return (
     <SettingsBlock className="!py-3">
       <p className="text-[12px] leading-relaxed text-cs-text-secondary" data-testid="token-ownership-intro">
-        With your own JapanFold and Tamarind tokens, your requests use <strong>your</strong> allowance at
-        those services instead of the team's. Without one, this server may lend the team token, which everyone
-        shares. When a result calls one of these services, you are told which token it ran on.
+        With your own JapanFold token, your requests use <strong>your</strong> allowance at that service instead
+        of the team's. Without one, this server may lend the team token, which everyone shares. When a result calls
+        JapanFold, you are told which token it ran on.
       </p>
     </SettingsBlock>
   );

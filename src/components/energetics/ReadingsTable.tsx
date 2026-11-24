@@ -184,7 +184,7 @@ export function ReadingsTable({
               ))}
             </table>
             <div className="nrg-table-foot" aria-label="Legend">
-              <span className="nrg-legend__item">Positive = destabilizing; DynaMut2 and DDMut signs normalized</span>
+              <span className="nrg-legend__item">Positive = destabilizing</span>
               <span className="nrg-legend__item"><i className="nrg-legend__tick" />Local destabilizing mark (not published)</span>
               <span className="nrg-legend__item"><i className="nrg-legend__tick" data-side="stabilizing" />Local stabilizing mark</span>
               <span className="nrg-legend__item"><i className="nrg-legend__marker" />This variant</span>

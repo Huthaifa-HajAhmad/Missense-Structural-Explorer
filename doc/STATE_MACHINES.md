@@ -189,14 +189,7 @@ itself is published early, so this is a wait and not a hang. StabilityOracle `un
 service could not be reached) keeps the connection error in `stabilityoracleError`; the screen says the
 service could not be reached and shows that error in the detail. **Read**; covered by `foldx-queue-job.test.ts`.
 
-**6c. DynaMut2 and DDMut** (`routes/biophysics/polling.ts`): the job row records only the submission
-(`dynamut2Status` / `ddmutStatus` = `pending` with a job id) and is never updated afterwards, because the
-browser polls BioSig through `/dynamut2-job/:jobId` and `/ddmut-job/:jobId`. The final outcome is
-written in two places only: the value goes into the FoldX cache entry (`backfillRemotePredictionToCache`),
-and every poll writes a `DYNAMUT2_POLL` / `DDMUT_POLL` audit event with the job id and `DONE`, `RUNNING`
-or `UNAVAILABLE` (with `TIMEOUT` or `RATE_LIMITED`). To count outcomes, read the last audit event per job
-id. The verdict stored in the job row (`energetics.consensusVerdict`, `pendingTools`) is a snapshot from
-before these engines answered; the screen recomputes it and uses the stored one only as a fallback.
+**6c. ThermoMPNN** (`routes/biophysics/generation.ts`, `services/stability/energy-models.ts`): runs synchronously in-process against the local Python sidecar (`127.0.0.1:8000`) and settles inline with the FoldX job (or during `/remote-submissions/:token` when a cached FoldX result still refreshes ThermoMPNN). Legacy DynaMut2 and DDMut BioSig polling and their poll audit events were retired in Phase 6 (`doc/IN_SILICO_PRUNING_PLAN.md`). The verdict stored in the job row (`energetics.consensusVerdict`, `pendingTools`) is a snapshot from commit time; the screen recomputes it from engine values and uses the stored one only as a fallback.
 
 ## 7. Pre-warm claim
 
@@ -382,34 +375,28 @@ FoldX cooldown (`recordBiophysicsAttempt`): written when a run **finishes** (suc
 variant and conditions. An abandoned or reloaded run records nothing, because sending it again joins the
 running server job (section 4) or reads the server's cache.
 
-The useJobPoller hook (`src/hooks/useJobPoller.ts`, **Read**, tested by its own suites) follows remote
-engines: `polling` → `listening` (a retryable "unavailable", or 3 failed polls, within 5 min; HTTP polling
-pauses while the tab is hidden, resumes on focus, and backs off while the SSE channel is `OPEN`) → `done`,
-`error` or `unavailable`, with exactly one final callback. `shouldRunBiophysics` allows a re-run 15 min
-after an attempt, unless FoldX cannot run here and no remote engine failed. A failed remote engine here
+`shouldRunBiophysics` allows a re-run 15 min
+after an attempt, unless FoldX cannot run here and no companion engine failed. A failed companion engine here
 includes a StabilityOracle timeout or busy answer (the server then reruns StabilityOracle beside the
-cached FoldX value), but not a StabilityOracle rejection of the structure, which would only repeat.
-StabilityOracle has no retry control of its own.
+cached FoldX value), or a synchronous ThermoMPNN error/busy failure, but not a StabilityOracle rejection
+of the structure, which would only repeat. StabilityOracle has no retry control of its own.
 
-One failed engine is retried on its own (`src/components/energetics/RetryThermompnn.tsx`,
-`src/components/energetics/RetryDynamut2.tsx`), through `POST /api/v1/thermompnn-submit` and
-`/dynamut2-submit`. A retry never re-runs FoldX: it submits the template FoldX started from. ThermoMPNN's
-local sidecar answers with a value synchronously, so its control writes `done` plus the value and clears
-`thermompnnError` itself; DynaMut2 answers with a job id and the existing poller takes over. DynaMut2's
-control is hidden while its engine is `pending` or already holds a value; ThermoMPNN's appears only after a
-terminal `error`/`unavailable`, because before a run there is nothing to retry. A 15 s cooldown
-(`RETRY_COOLDOWN_MS`) follows every attempt, so a busy CPU sidecar is not flooded. ThermoMPNN's control
-additionally stays disabled while FoldX is still running, because every request it sends would only queue
-behind the same CPU passes it failed on. ThermoMPNN's sidecar budget
-(`THERMOMPNN_SIDECAR_BUDGET_MS`, 120 s, sent as `X-Budget-Ms`) is shorter than its own wait
-(`THERMOMPNN_SIDECAR_TIMEOUT_MS`, 150 s), so the model server can refuse a pass it cannot start
-(`503 busy`) and that refusal reaches the reader instead of being cut off by the client's own timer. Both stay
-below `BACKGROUND_REMOTE_TIMEOUT_MS` (180 s), the signal that wraps every remote submission in
-`generation.ts`; `server/tests/sidecar-budget.test.ts` fails if the nesting breaks. Two concurrent
-analyses of one variant share a single ThermoMPNN submission (`thermompnnPromise`); because that promise
-carries a value or a refusal rather than a pollable job id, it is released the moment it settles —
-`releaseThermoSubmission` — instead of after the 60 s grace the other engines keep. A second analysis
-therefore re-submits instead of inheriting an old busy answer.
+ThermoMPNN can be retried on its own (`src/components/energetics/RetryThermompnn.tsx`) through
+`POST /api/v1/thermompnn-submit`, sending the wild-type template FoldX started from. ThermoMPNN's local
+sidecar answers synchronously with a value, so its control writes `done` plus the value and clears
+`thermompnnError` itself. Its control appears only after a terminal `error`/`unavailable`/`busy` status,
+and stays disabled while FoldX is still running, because every request it sends would queue behind the
+same CPU work it failed on. A 15 s cooldown (`RETRY_COOLDOWN_MS`) follows every attempt, so a busy CPU
+sidecar is not flooded. ThermoMPNN's sidecar budget (`THERMOMPNN_SIDECAR_BUDGET_MS`, 120 s, sent as
+`X-Budget-Ms`) is shorter than its own wait (`THERMOMPNN_SIDECAR_TIMEOUT_MS`, 150 s), so the model server
+can refuse a pass it cannot start (`503 busy`) and that refusal reaches the reader instead of being cut off
+by the client's own timer. Both stay below `BACKGROUND_REMOTE_TIMEOUT_MS` (180 s), the signal that wraps
+companion submissions in `generation.ts`; `server/tests/sidecar-budget.test.ts` fails if the nesting breaks.
+Two concurrent analyses of one variant share a single ThermoMPNN submission (`thermompnnPromise`); because
+that promise carries a value or a refusal rather than a pollable job id, it is released the moment it settles —
+`releaseThermoSubmission` — so a second analysis re-submits instead of inheriting an old busy answer.
+Legacy BioSig client polling, DynaMut2/DDMut routes, and DynaMut2 retry controls were retired
+in Phase 6 (`doc/IN_SILICO_PRUNING_PLAN.md`).
 
 The structural stage (`fetchProgressiveStructuralAssessments`) is one streamed request for the burial
 refresh and the rule insights: heartbeats keep it alive, its bounded silence is

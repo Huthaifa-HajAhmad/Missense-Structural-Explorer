@@ -23,11 +23,6 @@ export interface TraceContext {
 }
 
 export interface RemoteJobStatuses {
-  dynamut2JobId?: string | null;
-  dynamut2Status?: "pending" | "unavailable" | "done" | null;
-  ddmutJobId?: string | null;
-  ddmutStatus?: "pending" | "unavailable" | "done" | null;
-  thermompnnJobId?: string | null;
   thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | "busy" | null;
   thermompnnError?: string | null;
 }
@@ -72,11 +67,6 @@ export interface PipelineBiophysicalSink {
   setFoldedResidueIndex: (index: number | null) => void;
   setFoldingDdG: (ddG: number | null) => void;
   setFoldingEnergetics: React.Dispatch<React.SetStateAction<any>>;
-  setDynamut2JobId: (id: string | null) => void;
-  setDynamut2Status: (status: "pending" | "unavailable" | "done" | null) => void;
-  setDdmutJobId: (id: string | null) => void;
-  setDdmutStatus: (status: "pending" | "unavailable" | "done" | null) => void;
-  setThermompnnJobId: (id: string | null) => void;
   setThermompnnStatus: (status: "pending" | "unavailable" | "done" | "error" | null) => void;
   setThermompnnError: (err: string | null) => void;
 }
@@ -93,9 +83,6 @@ export interface PipelineStructureSink {
   setComputedResiduesCache: React.Dispatch<React.SetStateAction<Record<string, NearestResidue[]>>>;
   setDisruptionPredictor: React.Dispatch<React.SetStateAction<DisruptionPredictorResult | null>> | ((val: DisruptionPredictorResult | null) => void);
   resetViewerState: () => void;
-  clearDynaMutPoll: () => void;
-  clearDdmutPoll?: () => void;
-  clearThermoMpnnPoll?: () => void;
 }
 
 export interface PipelineStateSinks {

@@ -52,7 +52,7 @@ export function jsonErrorHandler(err: any, _req: express.Request, res: express.R
   /*
    * Never log or echo the request body. body-parser attaches the raw body to a parse error (`err.body`)
    * and Node's JSON error message can quote part of it, so a malformed request that carried a token
-   * (a saved provider token, `tamarindApiKey`, ...) would otherwise land in the logs and in
+   * (a saved provider token, `japanfoldApiKey`, ...) would otherwise land in the logs and in
    * the reply. Only the error's kind, status and stack are logged; a parse failure gets a fixed sentence.
    */
   const parseFailure = err?.type === "entity.parse.failed";

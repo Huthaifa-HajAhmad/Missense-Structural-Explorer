@@ -138,11 +138,11 @@ export function accountsDb(): DatabaseSync {
 
 /**
  * Deletes saved tokens for providers the app no longer calls (Hugging Face, retired with GPN-MSA; Biohub,
- * retired with ESMFold), so an unused encrypted secret does not stay in the database. Runs on every open;
- * it is a no-op once done.
+ * retired with ESMFold; Tamarind, retired with Phase 6), so an unused encrypted secret does not stay in
+ * the database. Runs on every open; it is a no-op once done.
  */
 export function purgeRetiredSecrets(d: DatabaseSync): void {
-  d.prepare("DELETE FROM user_secrets WHERE kind IN ('huggingface', 'biohub')").run();
+  d.prepare("DELETE FROM user_secrets WHERE kind IN ('huggingface', 'biohub', 'tamarind')").run();
 }
 
 /**

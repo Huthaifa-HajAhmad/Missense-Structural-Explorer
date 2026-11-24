@@ -5,7 +5,6 @@ import { SettingsBlock, SettingsSection } from "../ui/Section";
 import { clearInvalidApiKey } from "../../../api/authSession";
 import { AccountTokenControls, LastCredentialUse, TokenOwnershipIntro, useSavedSecrets } from "./TokenOwnership";
 import { HowTo, TokenField } from "./connectionParts";
-import { OptionalProviders } from "./OptionalProviders";
 import { CredentialStatus, useKeyFieldStatus } from "./CredentialStatus";
 
 export function ConnectionsSection() {
@@ -149,8 +148,6 @@ export function ConnectionsSection() {
           <CredentialStatus card={keyStatus.alphagenome} />
         </TokenField>
       </SettingsSection>
-
-      <OptionalProviders tests={tests} runTest={runTest} secrets={secrets} />
     </div>
   );
 }

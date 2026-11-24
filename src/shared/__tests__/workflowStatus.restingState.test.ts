@@ -22,7 +22,7 @@ describe("a stage may not wait after the run has ended", () => {
 
 describe("the idle Energetics row", () => {
   it("describes the stage like every other idle row", () => {
-    expect(getWorkflowStageStatus({ view: "energetics" }).desc).toBe("FoldX, DynaMut2 & DDMut stability engines");
+    expect(getWorkflowStageStatus({ view: "energetics" }).desc).toBe("FoldX, ThermoMPNN, StabilityOracle & RaSP stability engines");
   });
 
   it("still says it is waiting once a search is running", () => {

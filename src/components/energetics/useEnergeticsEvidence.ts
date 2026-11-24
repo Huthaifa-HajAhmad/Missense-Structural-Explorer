@@ -13,7 +13,7 @@ import { buildEnergeticsEvidence, type EnergeticsEvidence, type EnergeticsInputs
  */
 export type EnergeticsRun = Pick<
   EnergeticsInputs,
-  "foldingDdG" | "foldingStatus" | "foldingError" | "dynamut2Status" | "ddmutStatus" | "thermompnnStatus" | "thermompnnError" | "isFolding"
+  "foldingDdG" | "foldingStatus" | "foldingError" | "thermompnnStatus" | "thermompnnError" | "isFolding"
 > & {
   foldingEnergetics?: EnergeticsData | null;
   disruptionPredictor?: { plddt?: number | null } | null;
@@ -35,15 +35,13 @@ export function useEnergeticsEvidence(
   const unit: EnergyUnit = settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol";
   const plddt = run.disruptionPredictor?.plddt ?? context?.disruptionPredictor?.plddt ?? null;
   const uniprotId = context?.metadata?.uniprotId ?? null;
-  const { foldingDdG, foldingStatus, foldingEnergetics, foldingError, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError, isFolding } = run;
+  const { foldingDdG, foldingStatus, foldingEnergetics, foldingError, thermompnnStatus, thermompnnError, isFolding } = run;
   const evidence = useMemo(
     () =>
       buildEnergeticsEvidence({
         foldingDdG,
         foldingStatus,
         foldingEnergetics,
-        dynamut2Status,
-        ddmutStatus,
         thermompnnStatus,
         thermompnnError,
         foldingError,
@@ -52,7 +50,7 @@ export function useEnergeticsEvidence(
         hidePending,
         uniprotId,
       }),
-    [foldingDdG, foldingStatus, foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError, foldingError, isFolding, plddt, hidePending, uniprotId]
+    [foldingDdG, foldingStatus, foldingEnergetics, thermompnnStatus, thermompnnError, foldingError, isFolding, plddt, hidePending, uniprotId]
   );
   return { evidence, unit };
 }

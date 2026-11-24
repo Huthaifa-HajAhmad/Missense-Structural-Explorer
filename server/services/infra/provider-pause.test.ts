@@ -26,7 +26,7 @@ import { resetEgressGovernorForTests } from "./egress-governor.ts";
  * failures, so "not tripped" is checked after more 429s than that.
  */
 
-const BIOSIG = "https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single?job_id=1";
+const BIOSIG = "https://biosig.lab.uq.edu.au/ddmut_ppi/api/prediction_single?job_id=1";
 const BIOSIG_HOST = "biosig.lab.uq.edu.au";
 
 function answer(status: number, retryAfter: string | null = null) {
@@ -98,7 +98,7 @@ describe("EGRESS_GOVERNOR=on", () => {
     process.env.EGRESS_GOVERNOR = "on";
   });
 
-  it("a 429 from DynaMut2 pauses it for every caller; paused calls never reach the provider", async () => {
+  it("a 429 from BioSig pauses it for every caller; paused calls never reach the provider", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async () => answer(429, "8"));
 
@@ -107,7 +107,7 @@ describe("EGRESS_GOVERNOR=on", () => {
     expect(isProviderRateLimited(first)).toBe(true);
     expect(first.statusCode).toBe(429);
     expect(first.retryAfterSec).toBe(8);
-    expect(first.message).toBe("UQ BioSig (DynaMut2, DDMut) is limiting requests; retrying in 8 s.");
+    expect(first.message).toBe("UQ BioSig (DDMut-PPI) is limiting requests; retrying in 8 s.");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     // User Y, a different caller, does not get through either, and nothing is sent.
@@ -210,7 +210,7 @@ describe("EGRESS_GOVERNOR=on", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("withHostLock (node:https callers such as the DDMut poll) honours the pause", async () => {
+  it("withHostLock (node:https callers such as the DDMut-PPI poll) honours the pause", async () => {
     recordRateLimit(BIOSIG_HOST, 429, "8");
     const fn = vi.fn(async () => "sent");
     const err = await withHostLock(BIOSIG_HOST, fn).catch(e => e);
@@ -226,7 +226,7 @@ describe("EGRESS_GOVERNOR=on", () => {
     expect(health.providers).toEqual([
       expect.objectContaining({
         hostname: BIOSIG_HOST,
-        provider: "UQ BioSig (DynaMut2, DDMut)",
+        provider: "UQ BioSig (DDMut-PPI)",
         state: "paused",
         retryAfterSec: 8,
         recentRateLimits: 1,

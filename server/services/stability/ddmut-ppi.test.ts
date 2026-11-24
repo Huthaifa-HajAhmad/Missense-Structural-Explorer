@@ -3,6 +3,7 @@ import https from "node:https";
 import { EventEmitter } from "node:events";
 import {
   getUniqueChainsFromPdb,
+  httpGetWithBody,
   submitDdmutPpiJob,
   pollDdmutPpiJob,
   evaluateDdmutPpi,
@@ -308,6 +309,72 @@ describe("DDMut-PPI Service Unit Tests", () => {
       expect(secondRun.status === "done" && secondRun.result.ddgBind).toBe(0.72);
       // Key assertion: submitDdmutPpiJob was NOT called a second time!
       expect(submitCallCount).toBe(1);
+    });
+  });
+
+  describe("httpGetWithBody", () => {
+    it("rejects when response stream emits an error mid-stream", async () => {
+      const mockReq = new EventEmitter() as any;
+      mockReq.write = vi.fn();
+      mockReq.end = vi.fn();
+      mockReq.destroy = vi.fn();
+
+      vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+        const mockRes = new EventEmitter() as any;
+        mockRes.statusCode = 200;
+        mockRes.setEncoding = vi.fn();
+
+        process.nextTick(() => {
+          callback(mockRes);
+          mockRes.emit("data", "partial-data");
+          mockRes.emit("error", new Error("ECONNRESET"));
+        });
+
+        return mockReq;
+      });
+
+      await expect(httpGetWithBody("https://biosig.lab.uq.edu.au/test", "a=1", {}, 5000))
+        .rejects.toThrow("ECONNRESET");
+      expect(mockReq.destroy).toHaveBeenCalled();
+    });
+
+    it("rejects and destroys request when payload exceeds 5MB size limit", async () => {
+      const mockReq = new EventEmitter() as any;
+      mockReq.write = vi.fn();
+      mockReq.end = vi.fn();
+      mockReq.destroy = vi.fn();
+
+      vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+        const mockRes = new EventEmitter() as any;
+        mockRes.statusCode = 200;
+        mockRes.setEncoding = vi.fn();
+
+        process.nextTick(() => {
+          callback(mockRes);
+          mockRes.emit("data", "x".repeat(6 * 1024 * 1024));
+        });
+
+        return mockReq;
+      });
+
+      await expect(httpGetWithBody("https://biosig.lab.uq.edu.au/test", "a=1", {}, 5000))
+        .rejects.toThrow("BioSig response exceeded maximum allowed payload size (5MB)");
+      expect(mockReq.destroy).toHaveBeenCalled();
+    });
+
+    it("rejects when request exceeds overall timeout deadline", async () => {
+      const mockReq = new EventEmitter() as any;
+      mockReq.write = vi.fn();
+      mockReq.end = vi.fn();
+      mockReq.destroy = vi.fn();
+
+      vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+        return mockReq;
+      });
+
+      await expect(httpGetWithBody("https://biosig.lab.uq.edu.au/test", "a=1", {}, 50))
+        .rejects.toThrow("BioSig request timed out after 50ms");
+      expect(mockReq.destroy).toHaveBeenCalled();
     });
   });
 });

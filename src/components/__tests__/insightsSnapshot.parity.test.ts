@@ -13,7 +13,7 @@ const cases: Array<[string, any, number | null]> = [
   ["FoldX only, from the single value", null, 2.6],
   ["three engines agreeing", { foldx: 2.6, foldxMean: 2.6, thermompnn: 1.4, stabilityoracle: 1.1 }, 2.6],
   ["engines disagreeing in sign", { foldx: 2.62, foldxMean: 2.62, thermompnn: -0.36, stabilityoracle: -0.06 }, 2.62],
-  ["FoldX repair failed", { foldx: 2.6, foldxMean: 2.6, foldxRepairFailed: true, dynamut2: 1.2 }, 2.6],
+  ["FoldX repair failed", { foldx: 2.6, foldxMean: 2.6, foldxRepairFailed: true, thermompnn: 1.2 }, 2.6],
 ];
 
 describe("stabilityInputFor", () => {

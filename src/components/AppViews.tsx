@@ -99,9 +99,6 @@ export function AppViews({
   const foldingDdG = useVariantAnalysisStore(s => s.foldingDdG);
   const foldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
   const foldingEnergetics = useVariantAnalysisStore(s => s.foldingEnergetics);
-  // The store types these three as plain strings; the components below read them as these states.
-  const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status) as "pending" | "unavailable" | "done" | null;
-  const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus) as "pending" | "unavailable" | "done" | null;
   const thermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus) as "pending" | "unavailable" | "done" | "error" | "busy" | null;
   const thermompnnError = useVariantAnalysisStore(s => s.thermompnnError);
   const computedPocket = useVariantAnalysisStore(s => s.computedPocket);
@@ -375,8 +372,6 @@ export function AppViews({
                   foldingDdG={foldingDdG}
                   foldingStatus={foldingStatus as "failed" | "success" | "unavailable" | null}
                   foldingEnergetics={foldingEnergetics}
-                  dynamut2Status={dynamut2Status}
-                  ddmutStatus={ddmutStatus}
                   thermompnnStatus={thermompnnStatus}
                   thermompnnError={thermompnnError}
                   disruptionPredictor={disruptionPredictor}
@@ -611,8 +606,6 @@ export function AppViews({
                 isHomologsLoading={isHomologsLoading}
                 customPdbUrl={customPdbUrl}
                 setCustomPdbUrl={setCustomPdbUrl}
-                dynamut2Status={dynamut2Status}
-                ddmutStatus={ddmutStatus}
                 thermompnnStatus={thermompnnStatus}
                 thermompnnError={thermompnnError}
                 disruptionPredictor={disruptionPredictor}

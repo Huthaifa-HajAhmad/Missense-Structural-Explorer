@@ -54,8 +54,6 @@ export default function App() {
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
   const isFolding = useVariantAnalysisStore(s => s.isFolding);
   const foldingPhase = useVariantAnalysisStore(s => s.foldingProgress?.phase ?? null);
-  const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status);
-  const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus);
   const loadingStep = useVariantAnalysisStore(s => s.loadingStep);
   const notifications = useVariantAnalysisStore(s => s.notifications);
 
@@ -282,8 +280,6 @@ export default function App() {
           isClinicalLoading={isClinicalLoading}
           isNarrativeLoading={isNarrativeLoading}
           isPocketLoading={isPocketLoading}
-          dynamut2Status={dynamut2Status}
-          ddmutStatus={ddmutStatus}
           isLoadingSearch={analysisState.isLoading}
           loadingStep={loadingStep}
           unreadConsoleCount={consoleState.errorState.unreadCount}

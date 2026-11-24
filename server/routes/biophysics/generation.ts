@@ -42,15 +42,12 @@ import {
   isGeminiApiKeyPlaceholder,
 } from "../../services/gemini.ts";
 import {
-  submitDynaMut2Job,
-  submitDdmutJob,
   fetchAlphafoldPdb,
 } from "../../services/external.ts";
 import { resolveStructure, type ResolvedStructure } from "../../services/structure-resolver.ts";
-import { resetBioSigSubmissionsForTests } from "../../services/stability/dynamut.ts";
 import { type FoldXResult } from "../state.ts";
 // (the consensus is computed once, in `enrichBiophysicalResult`, and is no longer recomputed here)
-import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
+import { getFromCache, writeToCache, enrichBiophysicalResult } from "../shared.ts";
 import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
 import { submitterId, submitterLimits, submitterPlacementPref } from "../../auth/principal.ts";
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
@@ -69,7 +66,6 @@ const generateMutantSchema = z.object({
   temperature: z.union([z.number(), z.string()]).optional(),
   ionicStrength: z.union([z.number(), z.string()]).optional(),
   seed: z.union([z.number(), z.string()]).optional(),
-  tamarindApiKey: z.string().optional(),
   /** The run's signed numbering proof (`numbering-proof.ts`), sent back unchanged. */
   numberingProof: z.string().max(1024).optional()
 });
@@ -84,10 +80,8 @@ const generateMutantSchema = z.object({
 export { activeFoldxJobs };
 
 export interface InFlightSubmissions {
-  dynamut2Promise?: Promise<string | null>;
-  ddmutPromise?: Promise<string | null>;
   /**
-   * ThermoMPNN's submission answers with more than a job id: a prediction (local sidecar, synchronous)
+   * ThermoMPNN's submission answers with a prediction (local sidecar, synchronous)
    * or a refusal with its reason. Two callers for one variant therefore share ONE call; joining a
    * second submission would queue it behind the very CPU pass the first is waiting on.
    */
@@ -96,43 +90,29 @@ export interface InFlightSubmissions {
 export const inFlightRemoteSubmissions = new Map<string, InFlightSubmissions>();
 
 /**
- * Release a settled ThermoMPNN call immediately. Unlike the pollable dyna/ddmut ids, this promise
- * carries a value OR a refusal: keeping it for their 60 s grace would make the next analysis join an
- * old busy/error answer instead of submitting again. A newer promise for the same cache key is kept.
+ * Release a settled ThermoMPNN call immediately: this promise carries a value OR a refusal, so
+ * keeping it would make the next analysis join an old busy/error answer instead of submitting
+ * again. A newer promise for the same cache key is kept.
  */
 export function releaseThermoSubmission(cacheKey: string, promise: Promise<unknown>): void {
   const current = inFlightRemoteSubmissions.get(cacheKey);
   if (!current) return;
   if (current.thermompnnPromise === promise) delete current.thermompnnPromise;
-  if (!current.dynamut2Promise && !current.ddmutPromise && !current.thermompnnPromise) {
+  if (!current.thermompnnPromise) {
     inFlightRemoteSubmissions.delete(cacheKey);
   }
 }
 
 export function clearInFlightRemoteSubmissions(): void {
   inFlightRemoteSubmissions.clear();
-  resetBioSigSubmissionsForTests();
   activeFoldxJobs.clear();
   pendingRemoteSubmissions.clear();
 }
 
 /**
- * Remote submissions still resolving when a CACHE-HIT response was sent, keyed by an opaque token.
- *
- * WHY: a FoldX cache hit answers synchronously, after giving the BioSig and ThermoMPNN submissions
- * 1.5 s to return a job id. A BioSig submission uploads the whole structure (DDMut is also staggered
- * 350 ms and followed through a redirect), so it almost never finishes in that window. The response
- * therefore said `pending` with no job id, the ids arrived on the server a few seconds later with no
- * queue job to carry them, and the client — which can poll only with an id — settled both engines
- * to "No result". That is why DDMut and DynaMut2 read "No result" on every revisit even after their
- * endpoints were fixed. The token lets the client ask once, with a bounded wait, for the ids.
+ * Companion ThermoMPNN submission still resolving when a CACHE-HIT response was sent, keyed by an opaque token.
  */
 export interface RemoteSubmissionOutcome {
-  dynamut2JobId: string | null;
-  dynamut2Status: string | null;
-  ddmutJobId: string | null;
-  ddmutStatus: string | null;
-  thermompnnJobId: string | null;
   thermompnnStatus: string | null;
   thermompnnError: string | null;
   thermompnnVal: number | null;
@@ -303,7 +283,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         temperature,
         ionicStrength,
         seed,
-        tamarindApiKey: bodyTamarindKey,
         numberingProof
       } = parseResult.data;
 
@@ -352,21 +331,12 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let foldxResult: FoldXResult | null = null;
         let foldxError: any = null;
 
-        let dynamut2JobId: string | null = null;
-        let dynamut2Status: "pending" | "done" | "unavailable" | null = null;
-
-        let ddmutJobId: string | null = null;
-        let ddmutStatus: "pending" | "done" | "unavailable" | null = null;
-        let thermompnnJobId: string | null = null;
         let thermompnnStatus: "pending" | "done" | "unavailable" | "error" | "busy" | null = null;
         let thermompnnError: string | null = null;
         let thermompnnVal: number | null = null;
         let rasp: number | null = null;
         let raspReason: string | undefined = undefined;
         let stabilityoracleVal: number | null = null;
-
-        // Only what the request brought; ThermoMPNN resolves saved and team keys when it submits (WP-I4).
-        const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || bodyTamarindKey || undefined;
 
       const pHVal = pH !== undefined ? parseFloat(String(pH)) : undefined;
       const tempVal = temperature !== undefined ? parseFloat(String(temperature)) : undefined;
@@ -542,12 +512,12 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
          * True when the job joined here was submitted by the PRE-WARM, not by a reader's request.
          *
          * The two are not interchangeable. A joined reader request relies on the original submitter
-         * having already dispatched DynaMut2 / DDMut / ThermoMPNN / StabilityOracle and being the
-         * writer of the job's `remoteJobs` — the pre-warm does neither (it has no reader tokens and
-         * its results are only a cache warm). Treating a joined pre-warm job as a joined request
-         * would answer the reader with those engines missing and nothing on the way to fill them in,
-         * which is the "pending with no route to a result" defect this file has already been fixed
-         * for once. So a pre-warm join takes over BOTH jobs: the remote submissions and the writes.
+         * having already dispatched ThermoMPNN / StabilityOracle and writing the job's companion
+         * fields — the pre-warm does neither (it has no reader tokens and its results are only a
+         * cache warm). Treating a joined pre-warm job as a joined request would answer the reader
+         * with those engines missing and nothing on the way to fill them in, which is the
+         * "pending with no route to a result" defect this file has already been fixed for once. So
+         * a pre-warm join takes over BOTH jobs: the companion submissions and the writes.
          */
         let joinedJobIsPrewarm = false;
 
@@ -599,11 +569,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 options: foldxOptions,
                 structureProvenance,
                 remoteJobs: {
-                  dynamut2JobId: null,
-                  dynamut2Status: "pending",
-                  ddmutJobId: null,
-                  ddmutStatus: "pending",
-                  thermompnnJobId: null,
                   thermompnnStatus: "pending",
                   thermompnnError: null,
                   thermompnnVal: null,
@@ -644,17 +609,12 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             const existingJobData = submission.jobData;
             joinedJobIsPrewarm = existingJobData?.prewarm === true;
             if (existingJobData && existingJobData.remoteJobs) {
-              dynamut2JobId = existingJobData.remoteJobs.dynamut2JobId;
-              dynamut2Status = existingJobData.remoteJobs.dynamut2Status;
-              ddmutJobId = existingJobData.remoteJobs.ddmutJobId;
-              ddmutStatus = existingJobData.remoteJobs.ddmutStatus;
-              thermompnnJobId = existingJobData.remoteJobs.thermompnnJobId;
               thermompnnStatus = existingJobData.remoteJobs.thermompnnStatus;
               thermompnnError = existingJobData.remoteJobs.thermompnnError;
             }
             console.log(
               `[Biophysical Deduplication] Joined existing active queued/running FoldX job: ${queueJobId}` +
-                (joinedJobIsPrewarm ? " (speculative pre-warm; this request owns the remote engines)" : "")
+                (joinedJobIsPrewarm ? " (speculative pre-warm; this request owns the companion engines)" : "")
             );
 
             let claimedPrewarm = false;
@@ -662,7 +622,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               /**
                * The pre-warm was submitted with no reader context, so its record carries no
                * structure provenance. Atomically flip `prewarm: false` inside `mutateJobData` so at
-               * most one concurrent reader claims ownership of remote-engine submissions and writes
+               * most one concurrent reader claims ownership of companion-engine submissions and writes
                * provenance/remoteJobs; any competing reader picks up recorded remoteJobs instead.
                */
               await queue.mutateJobData(submission.queueJobId, (data: any) => {
@@ -672,11 +632,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   return { ...data, prewarm: false, structureProvenance };
                 }
                 if (data.remoteJobs) {
-                  dynamut2JobId = data.remoteJobs.dynamut2JobId ?? dynamut2JobId;
-                  dynamut2Status = data.remoteJobs.dynamut2Status ?? dynamut2Status;
-                  ddmutJobId = data.remoteJobs.ddmutJobId ?? ddmutJobId;
-                  ddmutStatus = data.remoteJobs.ddmutStatus ?? ddmutStatus;
-                  thermompnnJobId = data.remoteJobs.thermompnnJobId ?? thermompnnJobId;
                   thermompnnStatus = data.remoteJobs.thermompnnStatus ?? thermompnnStatus;
                   thermompnnError = data.remoteJobs.thermompnnError ?? thermompnnError;
                 }
@@ -720,27 +675,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           }
         }
 
-        let d2Promise = Promise.resolve();
-        let ddmutPromise = Promise.resolve();
         let tmPromise = Promise.resolve();
-
-        const existingDynamut2 = cachedFoldx?.energetics?.dynamut2;
-        const needDynamut2 = ownsRemoteSubmissions && (typeof existingDynamut2 !== "number");
-
-        const existingDdmut = cachedFoldx?.energetics?.ddmut;
-        const needDdmut = ownsRemoteSubmissions && (typeof existingDdmut !== "number");
 
         const existingThermompnn = cachedFoldx?.energetics?.thermompnn;
         const needThermompnn = ownsRemoteSubmissions && (typeof existingThermompnn !== "number");
 
         const existingStabilityoracle = cachedFoldx?.energetics?.stabilityoracle;
 
-        if (typeof existingDynamut2 === "number") {
-          dynamut2Status = "done";
-        }
-        if (typeof existingDdmut === "number") {
-          ddmutStatus = "done";
-        }
         if (typeof existingThermompnn === "number") {
           thermompnnVal = existingThermompnn;
           thermompnnStatus = "done";
@@ -752,91 +693,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         const backgroundRemoteSignal = AbortSignal.timeout(BACKGROUND_REMOTE_TIMEOUT_MS);
         const cleanedRemotePdb = cleanPdbForFoldX(effectiveWtPdb);
 
-        if (needDynamut2) {
-          dynamut2Status = "pending";
-          let inFlight = inFlightRemoteSubmissions.get(foldxCacheKey);
-          if (!inFlight) {
-            inFlight = {};
-            inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
-          }
-          if (!inFlight.dynamut2Promise) {
-            const createdD2Promise = submitDynaMut2Job(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
-              .finally(() => {
-                setTimeout(() => {
-                  const current = inFlightRemoteSubmissions.get(foldxCacheKey);
-                  if (current && current.dynamut2Promise === createdD2Promise) {
-                    delete current.dynamut2Promise;
-                  }
-                  if (current && !current.dynamut2Promise && !current.ddmutPromise && !current.thermompnnPromise) {
-                    inFlightRemoteSubmissions.delete(foldxCacheKey);
-                  }
-                }, 60000).unref?.();
-              });
-            inFlight.dynamut2Promise = createdD2Promise;
-          }
-
-          d2Promise = inFlight.dynamut2Promise
-            .then(async (id) => {
-              if (id) {
-                dynamut2JobId = id;
-                dynamut2Status = "pending";
-                await recordJobInRegistry(id, "dynamut2", actualMutation, foldxCacheKey);
-              } else {
-                dynamut2Status = "unavailable";
-              }
-              await updateQueueJobRemoteData({ dynamut2JobId, dynamut2Status });
-            })
-            .catch(async (err) => {
-              console.warn("[DynaMut2 Background Submission Error] Failed to submit:", err.message);
-              dynamut2Status = "unavailable";
-              await updateQueueJobRemoteData({ dynamut2Status });
-            });
-        }
-
-        if (needDdmut) {
-          ddmutStatus = "pending";
-          let inFlight = inFlightRemoteSubmissions.get(foldxCacheKey);
-          if (!inFlight) {
-            inFlight = {};
-            inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
-          }
-          if (!inFlight.ddmutPromise) {
-            // Stagger DDMut submission slightly (350ms) to avoid instantaneous host lock / rate limit collision on biosig.lab.uq.edu.au
-            const createdDdmutPromise = (async () => {
-              await new Promise(r => setTimeout(r, 350));
-              return submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal);
-            })().finally(() => {
-              setTimeout(() => {
-                const current = inFlightRemoteSubmissions.get(foldxCacheKey);
-                if (current && current.ddmutPromise === createdDdmutPromise) {
-                  delete current.ddmutPromise;
-                }
-                if (current && !current.dynamut2Promise && !current.ddmutPromise) {
-                  inFlightRemoteSubmissions.delete(foldxCacheKey);
-                }
-              }, 60000).unref?.();
-            });
-            inFlight.ddmutPromise = createdDdmutPromise;
-          }
-
-          ddmutPromise = inFlight.ddmutPromise
-            .then(async (id) => {
-              if (id) {
-                ddmutJobId = id;
-                ddmutStatus = "pending";
-                await recordJobInRegistry(id, "ddmut", actualMutation, foldxCacheKey);
-              } else {
-                ddmutStatus = "unavailable";
-              }
-              await updateQueueJobRemoteData({ ddmutJobId, ddmutStatus });
-            })
-            .catch(async (err) => {
-              console.warn("[DDMut Background Submission Error] Failed to submit:", err.message);
-              ddmutStatus = "unavailable";
-              await updateQueueJobRemoteData({ ddmutStatus });
-            });
-        }
-
         if (needThermompnn) {
           thermompnnStatus = "pending";
           let inFlight = inFlightRemoteSubmissions.get(foldxCacheKey);
@@ -845,7 +701,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
           }
           if (!inFlight.thermompnnPromise) {
-            const createdThermoPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, tamarindApiKey, backgroundRemoteSignal)
+            const createdThermoPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, backgroundRemoteSignal)
               .finally(() => releaseThermoSubmission(foldxCacheKey, createdThermoPromise));
             inFlight.thermompnnPromise = createdThermoPromise;
           }
@@ -866,18 +722,14 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                     }
                   });
                 }
-              } else if (resObj.jobId && resObj.status === "pending") {
-                thermompnnJobId = resObj.jobId;
-                thermompnnStatus = "pending";
-                await recordJobInRegistry(resObj.jobId, "thermompnn", actualMutation, foldxCacheKey);
               } else if (resObj.status === "error" || resObj.status === "busy") {
                 thermompnnStatus = resObj.status;
-                thermompnnError = resObj.error || "ThermoMPNN API submission error";
+                thermompnnError = resObj.error || "ThermoMPNN submission error";
               } else {
                 thermompnnStatus = "unavailable";
+                if (resObj.error) thermompnnError = resObj.error;
               }
               await updateQueueJobRemoteData({
-                thermompnnJobId,
                 thermompnnStatus,
                 thermompnnError,
                 thermompnnVal
@@ -894,10 +746,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             });
         }
 
-        // Give remote submissions up to 1.5s to acquire job IDs on fast connections before responding,
-        // while allowing slower background submissions to continue without blocking indefinitely.
+        // Give local ThermoMPNN up to 1.5s to answer on cache hits before returning immediately,
+        // while allowing a queued CPU pass to settle in the background and report via `/remote-submissions/:token`.
         await Promise.race([
-          Promise.allSettled([d2Promise, ddmutPromise, tmPromise]),
+          Promise.allSettled([tmPromise]),
           new Promise(r => setTimeout(r, 1500))
         ]);
 
@@ -1062,17 +914,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             }
           }
 
-          let finalDynamut2Val = typeof existingDynamut2 === "number" ? existingDynamut2 : null;
-          let finalDdmutVal = typeof existingDdmut === "number" ? existingDdmut : null;
-
           const enriched = enrichBiophysicalResult(responseRecord, {
-            dynamut2JobId,
-            dynamut2Status,
-            dynamut2Val: finalDynamut2Val,
-            ddmutJobId,
-            ddmutStatus,
-            ddmutVal: finalDdmutVal,
-            thermompnnJobId,
             thermompnnStatus,
             thermompnnError,
             thermompnnVal: finalThermompnnVal,
@@ -1089,24 +931,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           }, structureProvenance, posNum);
 
           /**
-           * Engines whose submission has not returned an id yet: hand the client a token to collect
-           * it, rather than a bare `pending` it has no way to poll (see `pendingRemoteSubmissions`).
+           * ThermoMPNN still running behind another CPU task: hand the client a token to collect
+           * its synchronous result once the sidecar pass finishes.
            */
-          const unresolved =
-            (dynamut2Status === "pending" && !dynamut2JobId) ||
-            (ddmutStatus === "pending" && !ddmutJobId) ||
-            (thermompnnStatus === "pending" && !thermompnnJobId && finalThermompnnVal === null);
+          const unresolved = thermompnnStatus === "pending" && finalThermompnnVal === null;
           let remoteSubmissionToken: string | null = null;
           if (unresolved) {
             remoteSubmissionToken = crypto.randomUUID();
             pruneRemoteSubmissions();
             pendingRemoteSubmissions.set(remoteSubmissionToken, {
-              promise: Promise.allSettled([d2Promise, ddmutPromise, tmPromise]).then(() => ({
-                dynamut2JobId,
-                dynamut2Status,
-                ddmutJobId,
-                ddmutStatus,
-                thermompnnJobId,
+              promise: Promise.allSettled([tmPromise]).then(() => ({
                 thermompnnStatus,
                 thermompnnError,
                 thermompnnVal,
@@ -1122,14 +956,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         res.json({
           status: "queued",
           foldxJobId: queueJobId,
-          /**
-           * The job's first honest progress report.
-           *
-           * A NEW job is queued by definition. A JOINED job is reported as it actually is: a
-           * response that echoed `phase:"queued"` at a job already repairing its template made the
-           * banner say "Waiting for a free force-field worker" — with a queue position belonging to
-           * no wait — for up to one poll interval.
-           */
           phase: joinedJobStatus === "running" ? joinedJobPhase : "queued",
           startedAt: joinedJobStartedAt,
           // Measured here, in this host's clock, for the same reason the poll route does it.
@@ -1144,11 +970,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             : ((await BiophysicalJobQueue.getInstance().getEta(queueJobId))?.waitMs ?? null),
           // Where it runs and why (live routing, WP-G2); null when it is simply the server's, as always.
           runsOn: queueJobId ? BiophysicalJobQueue.getInstance().runsOn(queueJobId, submitterId(req) ?? null) : null,
-          dynamut2JobId,
-          dynamut2Status,
-          ddmutJobId,
-          ddmutStatus,
-          thermompnnJobId,
           thermompnnStatus,
           thermompnnError
         });

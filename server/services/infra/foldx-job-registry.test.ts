@@ -168,7 +168,7 @@ describe("FoldX job registry", () => {
       const enqueue = vi.fn(() => held);
       const queue = fakeQueue({
         getJobStatus: vi.fn(async () => ({ status: "running" as const, startedAt: 42 })),
-        getJobData: vi.fn(async () => ({ phase: "modelling", remoteJobs: { dynamut2JobId: "remote-1" } })),
+        getJobData: vi.fn(async () => ({ phase: "modelling", stabilityoracleStatus: "pending" })),
       });
 
       const first = submitOrJoinFoldxJob({ cacheKey: "KEY", queue, enqueue });
@@ -193,7 +193,7 @@ describe("FoldX job registry", () => {
         startedAt: 42,
         phase: "modelling",
       });
-      expect(follower.jobData).toMatchObject({ remoteJobs: { dynamut2JobId: "remote-1" } });
+      expect(follower.jobData).toMatchObject({ stabilityoracleStatus: "pending" });
     });
 
     it("keeps a follower on the leader's job even when it settled before the follower could read it", async () => {

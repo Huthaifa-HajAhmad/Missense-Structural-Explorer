@@ -103,7 +103,7 @@ export function validateVariant(variant: any): string {
   }
   if (!match) {
     if (NONSENSE_PATTERN.test(trimmed)) {
-      throw new Error(`Nonsense / stop-gain variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations). Truncation and termination variants cannot be modeled with missense biophysical stability predictors (FoldX/DynaMut2).`);
+      throw new Error(`Nonsense / stop-gain variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations). Truncation and termination variants cannot be modeled with missense biophysical stability predictors (FoldX/ThermoMPNN).`);
     }
     if (FRAMESHIFT_PATTERN.test(trimmed)) {
       throw new Error(`Frameshift variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations).`);

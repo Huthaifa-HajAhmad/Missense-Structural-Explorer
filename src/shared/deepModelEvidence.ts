@@ -5,7 +5,7 @@
  * WHY THIS EXISTS
  * ---------------
  * The narrative prompt was given the fast evidence set (ClinVar, predictors, conservation, STRING)
- * and nothing else, while the report beside it displayed FoldX, DynaMut2, DDMut, ThermoMPNN and RaSP.
+ * and nothing else, while the report beside it displayed FoldX, ThermoMPNN, StabilityOracle and RaSP.
  * So the report's AI narrative could not have considered
  * the deep evidence, and no surface said which of the two facts was true: a reader saw "AI synthesis"
  * over a page containing a ΔΔG the model was never shown. Disclosure alone was the first answer to
@@ -51,14 +51,13 @@ import { RASP_SOURCE_LABEL, type RaspSource } from "./raspIndex.ts";
  *
  * Version 3 (2026-11-18): the protein-language-model observations (SaProt, ESM-2, ESM-C, ESM3) were
  * removed with the models themselves (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md).
+ * Version 4 (2026-11-24): DynaMut2 and DDMut were retired in Phase 6 (doc/IN_SILICO_PRUNING_PLAN.md).
  */
-export const DEEP_MODEL_EVIDENCE_VERSION = 3;
+export const DEEP_MODEL_EVIDENCE_VERSION = 4;
 
 /** One entry per model, in prompt order. The ids are also the schema's enum. */
 export const DEEP_EVIDENCE_MODEL_IDS = [
   "foldx",
-  "dynamut2",
-  "ddmut",
   "rasp",
   "thermompnn",
   "stabilityoracle",
@@ -73,8 +72,6 @@ export type DeepEvidenceModelId = (typeof DEEP_EVIDENCE_MODEL_IDS)[number];
  */
 export const DEEP_EVIDENCE_SOURCE_LABELS: Record<DeepEvidenceModelId, string> = {
   foldx: "FoldX folding stability (ΔΔG)",
-  dynamut2: "DynaMut2 ΔΔG",
-  ddmut: "DDMut ΔΔG",
   rasp: "RaSP ΔΔG (precomputed table)",
   thermompnn: "ThermoMPNN ΔΔG",
   stabilityoracle: "StabilityOracle ΔΔG",
@@ -166,8 +163,6 @@ export function deepEvidenceStabilityFromStore(store: any): EnergeticsInputs {
     foldingEnergetics: pick("foldingEnergetics"),
     foldingStatus: pick("foldingStatus"),
     foldingError: pick("foldingError"),
-    dynamut2Status: pick("dynamut2Status"),
-    ddmutStatus: pick("ddmutStatus"),
     thermompnnStatus: pick("thermompnnStatus"),
     thermompnnError: pick("thermompnnError"),
     isFolding: Boolean(pick("isFolding")),
@@ -195,8 +190,6 @@ export function deepEvidenceContextFromResult(result: any): DeepEvidenceContext 
     foldingEnergetics: result?.foldingEnergetics ?? result?.energetics ?? null,
     foldingStatus: result?.foldingStatus ?? null,
     foldingError: result?.foldingError ?? null,
-    dynamut2Status: result?.dynamut2Status ?? null,
-    ddmutStatus: result?.ddmutStatus ?? null,
     thermompnnStatus: result?.thermompnnStatus ?? null,
     thermompnnError: result?.thermompnnError ?? null,
     isFolding: false,
@@ -357,8 +350,7 @@ export function informativeDeepSources(evidence: DeepModelEvidence | null | unde
  * The wording is load-bearing in three places and each is tested:
  *   • "correlated" and "not assays" — a predicted ΔΔG is not a measured one;
  *   • the no-new-criteria rule — a predicted ΔΔG is not PS3 and a predicted score is not PP3;
- *   • the canonical sign statement — the values have already been normalised, and saying so is what
- *     stops a model reasoning about DynaMut2's native negative sign from the wrong side.
+ *   • the canonical sign statement — the values use the normalised positive = destabilizing sign convention.
  */
 export function deepEvidencePromptBlock(evidence: DeepModelEvidence | null | undefined): string | null {
   if (!evidence || !Array.isArray(evidence.observations)) return null;

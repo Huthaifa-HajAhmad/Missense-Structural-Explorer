@@ -90,7 +90,7 @@ describe('Insights reading workspace', () => {
     expect(screen.getByRole('button', { name: 'Computational' })).not.toHaveFocus();
   });
   it('keeps the stability reading in the inspector identical to the screen', () => {
-    const foldingEnergetics = { foldx: 3, dynamut2: -2, ddmut: -2, rasp: 2, thermompnn: 2, stabilityoracle: 2 };
+    const foldingEnergetics = { foldx: 3, rasp: 2, thermompnn: 2, stabilityoracle: 2 };
     const consensus = deriveConsensus({ result, foldingEnergetics })!;
     const ev = buildInsightsEvidence({ result, functionInput: functionEvidenceInputFrom(result), stability: { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing } });
     render(<SettingsProvider><ReviewWorkspaceProvider result={result}><InsightsScreen evidence={ev} narrative={null} /><InsightsInspector analysisResult={result} foldingEnergetics={foldingEnergetics} /></ReviewWorkspaceProvider></SettingsProvider>);

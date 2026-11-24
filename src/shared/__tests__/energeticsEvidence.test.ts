@@ -31,8 +31,6 @@ const NAE1 = {
   foldxRepairFailed: false,
   foldxRepairSkipped: true,
   foldxRepairSkippedReason: "large-structure",
-  dynamut2: null,
-  ddmut: null,
   rasp: null,
   raspReason: "Residue position is not present in the pre-computed database",
   thermompnn: -0.36,
@@ -53,9 +51,6 @@ function nae1(overrides: Record<string, unknown> = {}) {
     foldingDdG: 2.62,
     foldingStatus: "success",
     foldingEnergetics: NAE1,
-    // Settled with no job id: the cache-hit submission race this change fixes.
-    dynamut2Status: null,
-    ddmutStatus: null,
     thermompnnStatus: "done",
     isFolding: false,
     plddt: 45,
@@ -68,16 +63,15 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     // The run remembered which engines its expired session severed (foldxService writes this
     // onto the run's energetics); the evidence model must reflect the cause, not "No result".
     const ev = nae1({
-      foldingEnergetics: { ...NAE1, thermompnn: null, energeticsAuthLapsed: { dynamut2: true } },
-      dynamut2Status: null,
+      foldingEnergetics: { ...NAE1, thermompnn: null, stabilityoracle: null, energeticsAuthLapsed: { thermompnn: true } },
       thermompnnStatus: null,
     });
-    const dynamut2 = ev.readings.find(r => r.key === "dynamut2")!;
-    expect(dynamut2.outcome.state).toBe("paused");
-    expect(dynamut2.outcome.label).toBe("Paused");
-    expect(dynamut2.outcome.reason).toContain("Relink");
+    const thermompnn = ev.readings.find(r => r.key === "thermompnn")!;
+    expect(thermompnn.outcome.state).toBe("paused");
+    expect(thermompnn.outcome.label).toBe("Paused");
+    expect(thermompnn.outcome.reason).toContain("Relink");
     // An engine the session lapse never touched keeps its own truth.
-    expect(ev.readings.find(r => r.key === "thermompnn")!.outcome.state).toBe("no-result");
+    expect(ev.readings.find(r => r.key === "stabilityoracle")!.outcome.state).toBe("no-result");
   });
 
   it("counts engines by their own marks instead of averaging a probability", () => {
@@ -97,32 +91,40 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     const s = energeticsSummary(nae1());
     expect(s.tone).toBe("warning");
     expect(s.lead).toBe("The engines disagree: FoldX (+2.62 kcal/mol) is past the destabilizing mark; the other 2 are not.");
-    expect(s.rest).toContain("3 of 6 engines returned a value.");
+    expect(s.rest).toContain("3 of 4 engines returned a value.");
     expect(s.rest.join(" ")).toContain("FoldX ran on an unrepaired template");
     expect([s.lead, ...s.rest].join(" ")).not.toMatch(/probab|calibrat|conformal/i);
   });
 
-  it("calls a two-thirds majority with one moderate exception 'mostly no destabilization'", () => {
-    // UROD p.Gly318Arg, the run that produced the exception: four engines below their supporting
-    // mark, DynaMut2 at +0.528 against its +0.50 moderate mark. One engine past a weaker mark is not
-    // "the engines disagree", but the exception must stay visible.
+  it("ignores retired dynamut2 and ddmut fields in legacy saved payloads without counting them", () => {
+    const ev = nae1({
+      foldingEnergetics: { ...NAE1, dynamut2: -2.9, ddmut: -3.1 },
+    });
+    expect(ev.readings.map(r => r.key)).not.toContain("dynamut2");
+    expect(ev.readings.map(r => r.key)).not.toContain("ddmut");
+    expect(ev.coverage.computed).toBe(3);
+    expect(ev.coverage.intended).toBe(4);
+    expect(ev.agreement.nCounted).toBe(3);
+  });
+
+  it("calls a three-quarters majority with one moderate exception 'mostly no destabilization'", () => {
+    // Three engines below their supporting mark, ThermoMPNN at +0.60 against its +0.50 moderate mark.
     const ev = buildEnergeticsEvidence({
       foldingEnergetics: {
-        dynamut2: -0.528, ddmut: -0.03, rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034,
+        foldx: 0.1, foldxMean: 0.1, rasp: -1.4533, thermompnn: 0.6, stabilityoracle: -0.5034,
         stabilityoracleStatus: "done", raspStatus: "done",
       },
-      dynamut2Status: "done",
-      ddmutStatus: "done",
+      foldingStatus: "success",
       thermompnnStatus: "done",
     });
-    expect(ev.agreement.nCounted).toBe(5);
-    expect(ev.agreement.moderate.map(r => r.key)).toEqual(["dynamut2"]);
+    expect(ev.agreement.nCounted).toBe(4);
+    expect(ev.agreement.moderate.map(r => r.key)).toEqual(["thermompnn"]);
     expect(ev.agreement.direction).toBe("mostly-not-destabilizing");
     expect(ev.agreement.verdict).toBe("No Destabilization Predicted (Most Engines)");
     expect(AGREEMENT_CHIP[ev.agreement.direction].label).toBe("Mostly no destabilization");
     const s = energeticsSummary(ev);
-    expect(s.lead).toContain("4 of the 5 counted engines");
-    expect(s.lead).toContain("DynaMut2 (+0.53 kcal/mol)");
+    expect(s.lead).toContain("3 of the 4 counted engines");
+    expect(s.lead).toContain("ThermoMPNN (+0.60 kcal/mol)");
     expect(s.lead).toContain("moderately destabilizing band");
     // A majority reading is still something to reconcile.
     expect(s.tone).toBe("warning");
@@ -158,32 +160,16 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     expect(s.lead).toMatch(/^The 4 counted engines split between two neighbouring bands: .* past the destabilizing mark; .* moderately destabilizing band\.$/);
   });
 
-  it("names an even split between no destabilization and moderate", () => {
+  it("keeps a two-sided split when exceptions straddle neutral and destabilizing around moderate", () => {
     const ev = buildEnergeticsEvidence({
-      // DynaMut2's native −0.7 is canonical +0.7 (moderate). StabilityOracle has no moderate band.
-      foldingEnergetics: { foldx: 0.0, rasp: 0.0, thermompnn: 0.7, dynamut2: -0.7, raspStatus: "done" },
-      foldingStatus: "success",
-      thermompnnStatus: "done",
-      dynamut2Status: "done",
-    });
-    expect(ev.agreement.direction).toBe("split-none-moderate");
-    expect(ev.agreement.verdict).toBe("No Destabilization to Moderately Destabilizing (Engines Split)");
-    expect(AGREEMENT_CHIP[ev.agreement.direction].label).toBe("Split: none to moderate");
-  });
-
-  it("keeps a moderate majority with exceptions on both sides split", () => {
-    const ev = buildEnergeticsEvidence({
-      // Four of six moderate is a two-thirds majority, so only the two-sided exceptions keep it split.
       foldingEnergetics: {
-        foldx: 3.0, rasp: 0.7, thermompnn: 0.7, dynamut2: -0.7, ddmut: -0.7, stabilityoracle: 0.0,
+        foldx: 3.0, rasp: 0.7, thermompnn: 0.7, stabilityoracle: 0.0,
         raspStatus: "done", stabilityoracleStatus: "done",
       },
       foldingStatus: "success",
       thermompnnStatus: "done",
-      dynamut2Status: "done",
-      ddmutStatus: "done",
     });
-    expect(ev.agreement.moderate).toHaveLength(4);
+    expect(ev.agreement.moderate).toHaveLength(2);
     expect(ev.agreement.destabilizing).toHaveLength(1);
     expect(ev.agreement.notDestabilizing).toHaveLength(1);
     expect(ev.agreement.direction).toBe("split");
@@ -191,13 +177,11 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
 
   it("keeps a genuine contradiction split: one engine past a DESTABILIZING mark is not a majority", () => {
     const ev = buildEnergeticsEvidence({
-      foldingEnergetics: { foldx: 2.6, dynamut2: 0.21, ddmut: 0.03, thermompnn: -0.1, stabilityoracle: 0.2, stabilityoracleStatus: "done" },
+      foldingEnergetics: { foldx: 2.6, rasp: 0.1, thermompnn: -0.1, stabilityoracle: 0.0, raspStatus: "done", stabilityoracleStatus: "done" },
       foldingStatus: "success",
-      dynamut2Status: "done",
-      ddmutStatus: "done",
       thermompnnStatus: "done",
     });
-    expect(ev.agreement.nCounted).toBe(5);
+    expect(ev.agreement.nCounted).toBe(4);
     expect(ev.agreement.direction).toBe("split");
     expect(energeticsSummary(ev).lead).toContain("engines disagree");
   });
@@ -225,13 +209,11 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     expect(af.readings.find(r => r.key === "thermompnn")!.caveats).toContain("low-plddt");
   });
 
-  it("reports the settled remote engines as no-result and RaSP's reported miss as not covered", () => {
+  it("reports RaSP's reported miss as not covered without retired remote engines", () => {
     const ev = nae1();
     const state = (k: string) => ev.readings.find(r => r.key === k)!.outcome.state;
-    expect(state("dynamut2")).toBe("no-result");
-    expect(state("ddmut")).toBe("no-result");
     expect(state("rasp")).toBe("not-covered");
-    expect(ev.missing.map(r => r.key).sort()).toEqual(["ddmut", "dynamut2", "rasp"]);
+    expect(ev.missing.map(r => r.key).sort()).toEqual(["rasp"]);
   });
 
   it("names a dataset or model in the sources only when the engine that uses it returned a value", () => {
@@ -252,12 +234,12 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
 });
 
 describe("energeticsEvidence — edge cases", () => {
-  it("normalizes DynaMut2's native sign before judging it", () => {
-    const ev = buildEnergeticsEvidence({ foldingEnergetics: { foldx: null, dynamut2: -1.8 }, dynamut2Status: "done" });
-    const d2 = ev.readings.find(r => r.key === "dynamut2")!;
-    expect(d2.ddg).toBeCloseTo(1.8, 5);
-    expect(d2.callLabel).toBe("Destabilizing");
-    expect(signedDdg(d2.ddg)).toBe("+1.80 kcal/mol");
+  it("normalizes ThermoMPNN and formats signed ΔΔG values uniformly", () => {
+    const ev = buildEnergeticsEvidence({ foldingEnergetics: { foldx: null, thermompnn: 1.8 }, thermompnnStatus: "done" });
+    const tm = ev.readings.find(r => r.key === "thermompnn")!;
+    expect(tm.ddg).toBeCloseTo(1.8, 5);
+    expect(tm.callLabel).toBe("Destabilizing");
+    expect(signedDdg(tm.ddg)).toBe("+1.80 kcal/mol");
   });
 
   it("calls a single engine a single engine", () => {
@@ -343,7 +325,7 @@ describe("ProtVar FoldX reference row", () => {
     buildEnergeticsEvidence({
       foldingStatus: "success",
       foldingEnergetics: {
-        foldx: 2.62, foldxMean: 2.62, dynamut2: -1.9, ddmut: -1.4,
+        foldx: 2.62, foldxMean: 2.62, rasp: 1.9, thermompnn: 1.4,
         protvar: 2.09, protvarStatus: "done", protvarPlddt: 49.5, protvarModel: "AF-P15056-F1",
         ...extra,
       },
@@ -366,7 +348,7 @@ describe("ProtVar FoldX reference row", () => {
     const withIt = withProtvar();
     const without = withProtvar({ protvar: null, protvarStatus: null });
     expect(withIt.agreement).toEqual(without.agreement);
-    expect(withIt.coverage.label).toBe("3 of 6 engines");
+    expect(withIt.coverage.label).toBe("3 of 4 engines");
     expect(withIt.coverage).toEqual(without.coverage);
   });
 
@@ -403,7 +385,7 @@ describe("FoldX on two templates", () => {
     buildEnergeticsEvidence({
       foldingStatus: "success",
       foldingEnergetics: {
-        dynamut2: 0.8, ddmut: 0.6, thermompnn: 0.4,
+        thermompnn: 0.4,
         protvarStatus: "done", protvarPlddt: 91, protvarModel: "AF-Q13564-F1",
         ...energetics,
       },
@@ -413,10 +395,10 @@ describe("FoldX on two templates", () => {
   describe("cross-check (both values exist)", () => {
     it('keeps the summary numerator and denominator on the same engine set when ProtVar is present', () => {
       const ev = build({ foldx: 2.6, foldxMean: 2.6, protvar: 2.4, rasp: 1.7, stabilityoracle: 1.8, structureProvenance: experimental });
-      expect(ev.coverage.intended).toBe(6);
-      expect(ev.agreement.nCounted).toBe(6);
-      expect(energeticsSummary(ev).rest.join(' ')).toContain('6 of 6 engines returned a value');
-      expect(energeticsSummary(ev).rest.join(' ')).not.toContain('7 of 6');
+      expect(ev.coverage.intended).toBe(4);
+      expect(ev.agreement.nCounted).toBe(4);
+      expect(energeticsSummary(ev).rest.join(' ')).toContain('4 of 4 engines returned a value');
+      expect(energeticsSummary(ev).rest.join(' ')).not.toContain('5 of 4');
     });
     const check = (local: number, protvar: number, structureProvenance: object = experimental) =>
       build({ foldx: local, foldxMean: local, protvar, structureProvenance }).foldxTemplateCheck!;
@@ -479,16 +461,16 @@ describe("FoldX on two templates", () => {
       build({ foldx: null, foldxMean: null, protvar: 1.9, structureProvenance, ...extra }, { foldingStatus: "failed" });
 
     it("counts ProtVar as THE FoldX reading when the template is the AlphaFold model", () => {
-      const ev = standIn(alphafold);
+      const ev = standIn(alphafold, { rasp: 0.8, stabilityoracle: 0.6 });
       const foldx = ev.readings.find(r => r.key === "foldx")!;
       expect(foldx.ddg).toBe(1.9);
       expect(foldx.counted).toBe(true);
       expect(foldx.caveats).toContain("protvar-stand-in");
       expect(foldx.note).toContain("AF-Q13564-F1");
       expect(ev.foldxStandIn).toEqual({ model: "AF-Q13564-F1", plddt: 91 });
-      // 4 counted: FoldX (as ProtVar) + DynaMut2 + DDMut + ThermoMPNN. Never 7 engines.
+      // 4 counted: FoldX (as ProtVar) + RaSP + ThermoMPNN + StabilityOracle. Never 5 engines.
       expect(ev.agreement.nCounted).toBe(4);
-      expect(ev.coverage.label).toBe("4 of 6 engines");
+      expect(ev.coverage.label).toBe("4 of 4 engines");
     });
 
     it("shows the value once: ProtVar's own row is not listed a second time", () => {
@@ -535,7 +517,7 @@ describe("FoldX on two templates", () => {
     });
 
     it("gives the stored verdict, the export and the screen the same answer", () => {
-      const energetics = { foldx: null, foldxMean: null, protvar: 1.9, dynamut2: -0.8, ddmut: -0.6, thermompnn: 0.4, structureProvenance: alphafold };
+      const energetics = { foldx: null, foldxMean: null, protvar: 1.9, rasp: 0.8, stabilityoracle: 0.6, thermompnn: 0.4, structureProvenance: alphafold };
       const screen = buildEnergeticsEvidence({ foldingEnergetics: energetics }).agreement;
       const stored = computeStabilityConsensus(energetics);
       expect(stored.consensusVerdict).toBe(screen.verdict);
@@ -544,7 +526,7 @@ describe("FoldX on two templates", () => {
     });
 
     it("gives the same answer while local FoldX is still running: ProtVar is not counted as FoldX on either", () => {
-      const energetics = { foldx: null, foldxMean: null, protvar: 1.9, dynamut2: -0.8, ddmut: -0.6, thermompnn: 0.4, structureProvenance: alphafold };
+      const energetics = { foldx: null, foldxMean: null, protvar: 1.9, rasp: 0.8, stabilityoracle: 0.6, thermompnn: 0.4, structureProvenance: alphafold };
       const run = { isFolding: true, foldingStatus: null };
       const screen = buildEnergeticsEvidence({ foldingEnergetics: energetics, ...run }).agreement;
       const stored = computeStabilityConsensus(energetics, run);
@@ -558,19 +540,17 @@ describe("FoldX on two templates", () => {
 });
 
 describe("a run that is still collecting engines is shown as a snapshot", () => {
-  // The review's third screenshot: three engines reported, DynaMut2 still running, and the screen said
-  // "Mostly moderately destabilizing" as if it were final.
   const partial = (extra: Record<string, unknown> = {}, over: Record<string, unknown> = {}) =>
     buildEnergeticsEvidence({
       foldingStatus: "success",
-      foldingEnergetics: { foldx: 0.58, foldxMean: 0.58, ddmut: -0.08, thermompnn: 0.7, ...extra },
-      dynamut2Status: "pending",
+      foldingEnergetics: { foldx: 0.58, foldxMean: 0.58, rasp: 0.08, stabilityoracle: 0.1, ...extra },
+      thermompnnStatus: "pending",
       ...over,
     });
 
   it("marks the agreement provisional while a counting engine runs and at least one has reported", () => {
     const ev = partial();
-    expect(ev.running.map(r => r.name)).toContain("DynaMut2");
+    expect(ev.running.map(r => r.name)).toContain("ThermoMPNN");
     expect(ev.agreement.nCounted).toBeGreaterThan(0);
     expect(ev.agreement.provisional).toBe(true);
   });
@@ -578,31 +558,31 @@ describe("a run that is still collecting engines is shown as a snapshot", () => 
   it("says which engines are still running, so the reader knows what may change", () => {
     const s = energeticsSummary(partial());
     expect(s.tone).toBe("warning");
-    expect(s.rest.join(" ")).toMatch(/DynaMut2 is still running, so this reading may change\./);
+    expect(s.rest.join(" ")).toMatch(/ThermoMPNN is still running, so this reading may change\./);
   });
 
   it("is final once every engine has settled", () => {
-    const ev = partial({ dynamut2: 0.37 }, { dynamut2Status: "done" });
+    const ev = partial({ thermompnn: 0.37 }, { thermompnnStatus: "done" });
     expect(ev.running).toHaveLength(0);
     expect(ev.agreement.provisional).toBe(false);
     expect(energeticsSummary(ev).rest.join(" ")).not.toContain("still running");
   });
 
   it("is not provisional when nothing has reported yet: there is no reading to qualify", () => {
-    const ev = buildEnergeticsEvidence({ foldingEnergetics: {}, dynamut2Status: "pending", isFolding: true });
+    const ev = buildEnergeticsEvidence({ foldingEnergetics: {}, thermompnnStatus: "pending", isFolding: true });
     expect(ev.agreement.nCounted).toBe(0);
     expect(ev.agreement.provisional).toBe(false);
   });
 
   it("is not held back by ProtVar, a reference lookup that never votes", () => {
-    const ev = partial({ dynamut2: 0.37, protvar: null, protvarStatus: "pending" }, { dynamut2Status: "done" });
+    const ev = partial({ thermompnn: 0.37, protvar: null, protvarStatus: "pending" }, { thermompnnStatus: "done" });
     expect(ev.agreement.provisional).toBe(false);
   });
 });
 
 describe("which repair the FoldX value rests on", () => {
   const FIX = "fix-shell:r15-seq14:v1";
-  const base = { foldx: 0.16, foldxMean: 0.16, foldxSd: 0.03, dynamut2: 0.3, ddmut: 0, thermompnn: 0.1, structureProvenance: { source: "alphafold", chainId: "A", foldxRuns: 5 } };
+  const base = { foldx: 0.16, foldxMean: 0.16, foldxSd: 0.03, rasp: 0.3, thermompnn: 0.1, structureProvenance: { source: "alphafold", chainId: "A", foldxRuns: 5 } };
   const run = (extra: Record<string, unknown>) =>
     buildEnergeticsEvidence({ foldingStatus: "success", foldingEnergetics: { ...base, ...extra } });
   const foldx = (ev: ReturnType<typeof run>) => ev.readings.find(r => r.key === "foldx")!;
@@ -672,8 +652,8 @@ describe("signedDdgNumber — a ΔΔG cell that already names its unit", () => {
 describe("hiding pending engines — presentation only", () => {
   const run = {
     foldingStatus: "success" as const,
-    foldingEnergetics: { foldx: 0.58, foldxMean: 0.58, ddmut: -0.08, thermompnn: 0.7 },
-    dynamut2Status: "pending" as const,
+    foldingEnergetics: { foldx: 0.58, foldxMean: 0.58, rasp: 0.08, stabilityoracle: 0.1 },
+    thermompnnStatus: "pending" as const,
   };
 
   it("still reports the hidden engine as running, so the reading stays provisional", () => {

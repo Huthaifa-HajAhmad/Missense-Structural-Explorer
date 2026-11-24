@@ -113,7 +113,7 @@ export interface ProvenanceManifest {
      * False when engines were still resolving, so the verdict rests on a partial engine set.
      *
      * The provisionality marker used to live INSIDE `stabilityVerdict` as a
-     * " (Preliminary - pending: DynaMut2)" suffix. That suffix was removed to make the field a
+     * " (Preliminary - pending: <engine>)" suffix. That suffix was removed to make the field a
      * closed-set value — correctly, since free text in a verdict cannot be compared or typed — but
      * nothing replaced it, so for a while the export carried an incomplete run's verdict with no
      * caveat at all. The caveat belongs in its own fields, where it can be read.

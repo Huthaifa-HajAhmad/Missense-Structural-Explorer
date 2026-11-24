@@ -22,13 +22,8 @@ export interface VariantBiophysicsState {
   foldingDdG: number | null;
   foldingEnergetics: EnergeticsData | null;
   structuralDiff: StructuralDiffResult | null;
-  dynamut2Status: string | null;
-  dynamut2JobId: string | null;
-  ddmutStatus: string | null;
-  ddmutJobId: string | null;
   thermompnnStatus: string | null;
   thermompnnError: string | null;
-  thermompnnJobId: string | null;
 }
 
 export const createInitialBiophysicsState = (variant = ""): VariantBiophysicsState => ({
@@ -42,11 +37,6 @@ export const createInitialBiophysicsState = (variant = ""): VariantBiophysicsSta
   foldingDdG: null,
   foldingEnergetics: null,
   structuralDiff: null,
-  dynamut2Status: null,
-  dynamut2JobId: null,
-  ddmutStatus: null,
-  ddmutJobId: null,
   thermompnnStatus: null,
   thermompnnError: null,
-  thermompnnJobId: null,
 });

@@ -168,7 +168,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
             const traceId = startTraceRun("TP53 R175H");
             addTraceSpan({
               traceId,
-              name: "DDMUT Biophysical Job Execution",
+              name: "THERMOMPNN Biophysical Execution",
               stage: "biophysics",
               startTime: Date.now() - 400,
               offsetMs: 0,
@@ -177,7 +177,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
             });
             addTraceSpan({
               traceId,
-              name: "DYNAMUT2 Biophysical Job Execution",
+              name: "DDMUT-PPI Biophysical Job Execution",
               stage: "biophysics",
               startTime: Date.now() - 400,
               offsetMs: 0,
@@ -195,8 +195,8 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     expect(screen.getByText("No errors captured")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /2 pipeline operations failed or unavailable/i }));
 
-    expect(screen.getByRole("button", { name: /DDMUT Biophysical Job Execution.*unavailable/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /DYNAMUT2 Biophysical Job Execution.*failed/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /THERMOMPNN Biophysical Execution.*unavailable/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /DDMUT-PPI Biophysical Job Execution.*failed/i })).toBeInTheDocument();
   });
 
   it("impact tiles count each entry once and toggle the impact filter", () => {

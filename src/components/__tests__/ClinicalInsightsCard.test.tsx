@@ -126,7 +126,7 @@ describe("ClinicalInsightsCard export handlers", () => {
    *
    * So this drives the real button, captures the Blob the handler builds, and reads the manifest back
    * out of it. The fixture makes the two sources DISAGREE, which is the only way the test can tell which
-   * one was read: the stored snapshot says low risk, the six engines say otherwise.
+   * one was read: the stored snapshot says low risk, the four engines say otherwise.
    */
   it("writes the DERIVED verdict into the provenance manifest, not the stored snapshot", async () => {
     const stale = "Low Misfolding Risk (Neutral Stability)";
@@ -141,8 +141,6 @@ describe("ClinicalInsightsCard export handlers", () => {
       renderCard(baseResult(), {
         foldingEnergetics: {
           foldx: 3.0,
-          dynamut2: -1.5,
-          ddmut: -1.2,
           rasp: 1.5,
           thermompnn: 1.1,
           stabilityoracle: 1.3,
@@ -183,8 +181,6 @@ describe("ClinicalInsightsCard export handlers", () => {
       renderCard(baseResult(), {
         foldingEnergetics: {
           foldx: 3.0,
-          dynamut2: -1.5,
-          ddmut: -1.2,
           rasp: 1.5,
           thermompnn: 1.1,
           stabilityoracle: 1.3,
@@ -204,13 +200,13 @@ describe("ClinicalInsightsCard export handlers", () => {
       expect(consensus).not.toHaveProperty("consensusProbability");
       expect(consensus).not.toHaveProperty("consensusConfMin");
       expect(consensus.consensusStabilityVerdict).toBe("Destabilizing (Engines Agree)");
-      expect(consensus.consensusEnginesCounted).toBe(6);
-      expect(consensus.consensusEnginesDestabilizing).toBe(6);
+      expect(consensus.consensusEnginesCounted).toBe(4);
+      expect(consensus.consensusEnginesDestabilizing).toBe(4);
       expect(consensus.consensusMedianDdg).toBeCloseTo(1.4, 5);
       // Raw provider values are kept for existing readers; the canonical block is what compares.
-      expect(consensus.dynamut2).toBe(-1.5);
-      expect(consensus.canonicalDdg.dynamut2).toBe(1.5);
-      expect(consensus.canonicalDdg.ddmut).toBe(1.2);
+      expect(consensus.stabilityoracle).toBe(1.3);
+      expect(consensus.canonicalDdg.stabilityoracle).toBe(1.3);
+      expect(consensus.canonicalDdg.thermompnn).toBe(1.1);
     } finally {
       (URL as any).createObjectURL = originalCreate;
     }

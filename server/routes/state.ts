@@ -17,8 +17,6 @@ export interface FoldXResult {
     foldxMean: number | null;
     foldxSd: number | null;
     foldx: number | null;
-    dynamut2: number | null;
-    ddmut: number | null;
     rasp: number | null;
     thermompnn: number | null;
     vdw: number | null;
@@ -118,12 +116,6 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/analyze-variant-biophysical",
   "/structural-diff",
   "/api/v1/structural-diff",
-  "/dynamut2-job",
-  "/api/v1/dynamut2-job",
-  "/ddmut-job",
-  "/api/v1/ddmut-job",
-  "/thermompnn-job",
-  "/api/v1/thermompnn-job",
   "/jobs/events",
   "/api/v1/jobs/events",
   "/pocket-detect",
@@ -140,8 +132,6 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/structural-align",
   "/validate-japanfold-key",
   "/api/v1/validate-japanfold-key",
-  "/test-tamarind-connection",
-  "/api/v1/test-tamarind-connection",
   "/structure/multimer",
   "/api/v1/structure/multimer",
   "/structure/multimer/import",
