@@ -18,6 +18,10 @@ import { issueNumberingProof } from "../../services/translation/numbering-proof.
 
 export function registerNumberingIntakeRoute(apiRouter: Router, jsonParserRegular: any): void {
   apiRouter.post("/numbering-proof", jsonParserRegular, async (req, res) => {
+    // A proof sent here is ignored: re-signing it would renew an old proof for another 30 days. The
+    // check below names only what it finds itself.
+    const { numberingProof: _ignored, ...body } = req.body ?? {};
+    req.body = body;
     // The parser has already sent its refusal when it returns null.
     const context = await validateAndParseVariantRequest(req, res);
     if (!context) return;

@@ -34,6 +34,15 @@ describe("residueOfRequest", () => {
     expect(rejectedProof).toBeUndefined();
   });
 
+  it.each([
+    ["the check gave no answer (UniProt down)", undefined, "unverified"],
+    ["the check could not verify", "unverified", "unverified"],
+    ["the check found one reading", "canonical", "canonical-vs-mane"],
+  ])("does not take the reader's choice as proof when there was no ambiguity to settle: %s", (_label, status, proof) => {
+    const { residue } = residueOfRequest({ token: undefined, identity, ownCheck: { canonicalConfirmed: true, status } });
+    expect(residue.proof).toBe(proof);
+  });
+
   it("keeps the reason when the numbering is unverified", () => {
     const { residue } = residueOfRequest({ token: undefined, identity, ownCheck: { canonicalConfirmed: false, status: "unverified", reason: "UniProt did not answer" } });
     expect(residue).toMatchObject({ proof: "unverified", reason: "UniProt did not answer" });

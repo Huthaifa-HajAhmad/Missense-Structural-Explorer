@@ -446,10 +446,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
        * refused on it yet (doc/VERIFIED_RESIDUE_DESIGN.md §4, step A).
        */
       const numberingFields = (() => {
-        if (clientPdbValid || !uniprotId) return { numberingProofCheck: "caller-structure" };
+        if (clientPdbValid || !uniprotId?.trim()) return { numberingProofCheck: "caller-structure" };
         const { residue, rejectedProof } = residueOfRequest({
           token: numberingProof,
-          identity: { accession: uniprotId, position: posNum, wildType: wt1, mutant: mut1 },
+          identity: { accession: uniprotId.trim(), position: posNum, wildType: wt1, mutant: mut1 },
         });
         return { numberingProof: residue.proof, ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}) };
       })();
@@ -588,8 +588,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             // A job running on someone's own computer is joined only if its result may be given to this caller.
             mayJoin: agentJoinGuard(queue, submitterId(req) ?? null),
             enqueue: async () => {
-              await logGenerateMutant("queued");
-              return queue.pushJob("foldx", {
+              // Logged once the job is in the queue: a refused submission (429, 503) queued nothing.
+              const queuedJobId = await queue.pushJob("foldx", {
                 wtPdb: effectiveWtPdb,
                 mutation: actualMutation,
                 uniprotId,
@@ -625,6 +625,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 residues: countResidues(effectiveWtPdb),
                 placementPref: submitterPlacementPref(req),
               });
+              await logGenerateMutant("queued");
+              return queuedJobId;
             }
           });
 

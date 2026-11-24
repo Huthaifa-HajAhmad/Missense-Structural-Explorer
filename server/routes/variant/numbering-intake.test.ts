@@ -61,6 +61,14 @@ describe("POST /numbering-proof", () => {
     expect(json).not.toHaveProperty("numberingProof");
   });
 
+  it("ignores a proof sent to it, so an old proof cannot be renewed for another 30 days", async () => {
+    const parse = vi.spyOn(variantParser, "validateAndParseVariantRequest").mockResolvedValue(parsedAs("canonical-vs-mane"));
+
+    await post({ gene: "ACOT9", variant: "p.Arg55Ala", numberingProof: "np1.old.proof" });
+
+    expect((parse.mock.calls[0][0] as any).body).not.toHaveProperty("numberingProof");
+  });
+
   it("leaves a refusal to the analysis check (it has already answered)", async () => {
     vi.spyOn(variantParser, "validateAndParseVariantRequest").mockImplementation(async (_req: any, res: any) => {
       res.status(422).json({ error: { code: "AMBIGUOUS_PROTEIN_NUMBERING" } });

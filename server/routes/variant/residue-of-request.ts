@@ -4,7 +4,8 @@
  * A signed proof from `POST /translate-variant` wins when it names this residue (`numbering-proof.ts`).
  * Otherwise the analysis route's own check decides, mapped onto the proof names of
  * doc/VERIFIED_RESIDUE_DESIGN.md §3: a canonical answer from the canonical-versus-MANE comparison is
- * `canonical-vs-mane`, the reader's choice at the ambiguity prompt is `user-confirmed`, and anything
+ * `canonical-vs-mane`, the reader's choice at the ambiguity prompt is `user-confirmed` (only when the check
+ * did find two readings: the choice settles an ambiguity, it proves nothing on its own), and anything
  * else (no answer, or an answer that is not canonical) is `unverified`. A route without a check of its own
  * (`/generate-mutant`) passes none, so a residue without a valid proof is `unverified`.
  */
@@ -31,7 +32,7 @@ export function residueOfRequest(params: {
   if (check.status === "valid") return { residue: { ...identity, proof: check.proof } };
 
   let proof: ResidueProof = "unverified";
-  if (ownCheck?.canonicalConfirmed) proof = "user-confirmed";
+  if (ownCheck?.canonicalConfirmed && ownCheck.status === "ambiguous") proof = "user-confirmed";
   else if (ownCheck?.status === "canonical") proof = "canonical-vs-mane";
   const residue: Residue = {
     ...identity,

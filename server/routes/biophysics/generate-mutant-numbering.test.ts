@@ -48,6 +48,8 @@ describe("/generate-mutant numbering proof in the audit entry", () => {
     vi.restoreAllMocks();
   });
 
+  const proofFor = (position: number) =>
+    issueNumberingProof({ accession: "Q9H116", position, wildType: "S", mutant: "C", proof: "genomic" });
   const entries = () => audit.mock.calls.filter((call) => call[0] === "GENERATE_MUTANT").map((call) => call[1]);
 
   it("records the proof for the canonical residue on a cache hit", async () => {
@@ -56,6 +58,41 @@ describe("/generate-mutant numbering proof in the audit entry", () => {
     await generate({ mutation: "SA489C", uniprotId: "Q9H116", numberingProof });
 
     expect(entries()).toEqual([expect.objectContaining({ served: "cache-hit", numberingProof: "genomic" })]);
+  });
+
+  describe("on a cache miss", () => {
+    beforeEach(async () => {
+      const biophysics = await import("../../services/biophysics.ts");
+      vi.mocked(biophysics.getMutantFromCache).mockResolvedValue(null as any);
+    });
+
+    it("records a queued job once it is in the queue", async () => {
+      vi.spyOn(BiophysicalJobQueue.getInstance(), "pushJob").mockResolvedValue("queued-job-1");
+
+      await generate({ mutation: "SA489C", uniprotId: " Q9H116 ", numberingProof: proofFor(489) });
+
+      expect(entries()).toEqual([expect.objectContaining({ served: "queued", numberingProof: "genomic" })]);
+    });
+
+    it("records nothing when the queue refuses the job: nothing ran", async () => {
+      const pushJob = vi.spyOn(BiophysicalJobQueue.getInstance(), "pushJob").mockRejectedValue(new Error("BUSY"));
+
+      await generate({ mutation: "SA489C", uniprotId: "Q9H116", numberingProof: proofFor(489) });
+
+      expect(pushJob).toHaveBeenCalled();
+      expect(entries()).toEqual([]);
+    });
+
+    it("records a request that joins a job already running for the same mutation", async () => {
+      const registry = await import("../../services/infra/foldx-job-registry.ts");
+      vi.spyOn(registry, "submitOrJoinFoldxJob").mockResolvedValue({
+        queueJobId: "running-job-1", joined: true, status: "running", startedAt: null, phase: null, jobData: { remoteJobs: {} }
+      } as any);
+
+      await generate({ mutation: "SA489C", uniprotId: "Q9H116", numberingProof: proofFor(489) });
+
+      expect(entries()).toEqual([expect.objectContaining({ served: "joined", numberingProof: "genomic" })]);
+    });
   });
 
   it("records an unverified residue and why when the proof names another one", async () => {
