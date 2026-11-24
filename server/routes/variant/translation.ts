@@ -36,6 +36,7 @@ import {
   DEFAULT_ASSEMBLY,
   DEFAULT_RESOLUTION_BUDGET_MS,
 } from "../../services/translation/coordinate-resolver.ts";
+import { reduceUrlsToHosts } from "../../services/infra/http-client.ts";
 import {
   CoordinateResolutionError,
   TRANSLATION_PROVIDER_LABELS,
@@ -950,7 +951,7 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
               vepFailure: {
                 kind: vepFailure.failureKind,
                 // The audit log keeps variants only as hashes; a request URL holds the variant itself.
-                reason: vepFailure.reason?.replace(/https?:\/\/([^/\s]+)\S*/g, "$1"),
+                reason: vepFailure.reason ? reduceUrlsToHosts(vepFailure.reason) : undefined,
                 durationMs: vepFailure.durationMs,
               },
             }

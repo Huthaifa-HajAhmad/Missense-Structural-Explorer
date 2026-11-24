@@ -1,7 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { apiRouter } from "../../routes.ts";
 import { clearAllCaches } from "../../services/infra/cache.ts";
-import { resetHostStateForTests } from "../../services/infra/http-client.ts";
+import {
+  fetchWithRetry,
+  isHostAvailable,
+  resetHostStateForTests,
+  setBackoffScaleForTests,
+} from "../../services/infra/http-client.ts";
 import { AuditLogger } from "../../utils.ts";
 import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
 import { translateVariantResponseSchema } from "../../../src/shared/contracts.ts";
@@ -271,6 +276,65 @@ describe("POST /translate-variant — notation normalization & assembly routing"
     expect(resolved.vepFailure.reason).toContain("rest.ensembl.org");
     expect(resolved.vepFailure.reason).toContain("503");
     expect(resolved.vepFailure.reason).not.toContain("25484258");
+  });
+
+  describe("the VEP failure reason tells the causes apart", () => {
+    // The breaker is shared per host, so a test that opens it must not leave it open for the next one.
+    afterEach(() => {
+      resetHostStateForTests();
+      setBackoffScaleForTests(1);
+    });
+
+    const variantValidatorAnswer = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        "NM_018202.6:c.1297G>A": {
+          gene_symbol: "MACO1",
+          hgvs_predicted_protein_consequence: { tlr: "NP_060672.2:p.(Glu433Lys)" },
+          annotations: { chromosome: "1", mane_select: true, ensembl_select: false },
+          primary_assembly_loci: { grch38: { vcf: { alt: "A", chr: "1", pos: "25484258", ref: "G" } } },
+        },
+      }),
+      text: async () => "",
+    } as any;
+
+    async function resolveWith(ensembl: (url: string) => any) {
+      const auditSpy = vi.spyOn(AuditLogger, "log");
+      const fetchImpl = async (url: string) => (url.includes("rest.ensembl.org") ? ensembl(url) : variantValidatorAnswer);
+      await invokeTranslate("chr1:g.25484258G>A", MISSENSE_CONSEQUENCE, fetchImpl);
+      const resolved = auditSpy.mock.calls.find(([action]) => action === "TRANSLATE_VARIANT_RESOLVED")?.[1];
+      auditSpy.mockRestore();
+      return resolved;
+    }
+
+    it("records a timeout as a timeout, after the time Ensembl was given", async () => {
+      setBackoffScaleForTests(0);
+      const resolved = await resolveWith(() => {
+        throw Object.assign(new Error("attempt timeout"), { name: "TimeoutError" });
+      });
+      setBackoffScaleForTests(1);
+      expect(resolved.vepFailure).toMatchObject({ kind: "upstream_unavailable", reason: "attempt timeout" });
+    });
+
+    it("records our own open circuit breaker, which is refused at once and never sent", async () => {
+      // Five fast refusals open the shared breaker for rest.ensembl.org, as the predictor's timeouts did.
+      setBackoffScaleForTests(0);
+      const opener = vi.spyOn(global, "fetch").mockImplementation(async () => ({ ok: false, status: 503, headers: { get: () => null } }) as any);
+      for (let i = 0; i < 5; i++) {
+        await fetchWithRetry("https://rest.ensembl.org/vep/human/hgvs/open-breaker", {}, 1).catch(() => undefined);
+      }
+      opener.mockRestore();
+      setBackoffScaleForTests(1);
+      expect(isHostAvailable("https://rest.ensembl.org")).toBe(false);
+
+      const ensembl = vi.fn();
+      const resolved = await resolveWith(ensembl);
+
+      expect(ensembl).not.toHaveBeenCalled();
+      expect(resolved.vepFailure.reason).toContain("circuit breaker open");
+      expect(resolved.vepFailure.durationMs).toBeLessThan(50);
+    });
   });
 
   it("records no VEP failure when Ensembl VEP answered", async () => {
