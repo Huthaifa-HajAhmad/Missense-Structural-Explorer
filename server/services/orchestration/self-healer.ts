@@ -10,7 +10,6 @@ import type { ParsedVariantContext } from "../../routes/variant/variant-parser.t
 import { persistVariantAnalysisPayload } from "./payload-assembler.ts";
 import {
   buildClinvarKey,
-  buildGenosKey,
   buildGnomadFreqKey,
   buildPredictorsKey,
   buildUniprotFeaturesKey
@@ -23,8 +22,8 @@ export function grch38Allele(context: ParsedVariantContext) {
 }
 
 /**
- * Self-healing on read: Checks if cached analysis has timed-out fields or missing SpliceAI
- * that have since settled into the SQLite external_cache, heals them, and updates variant_analyses.
+ * Self-healing on read: checks whether a cached analysis has timed-out fields that have since
+ * settled into the SQLite external_cache, heals them, and updates variant_analyses.
  */
 export function healCachedAnalysisIfPossible(
   payload: any,
@@ -71,99 +70,25 @@ export function healCachedAnalysisIfPossible(
     }
   }
   const hasTimeouts = Object.values(status).includes("timeout");
-  const missingSplice = !payload.conservationData?.spliceai;
 
-  if (!hasTimeouts && !missingSplice && !didHeal) {
+  if (!hasTimeouts && !didHeal) {
     return payload;
   }
 
   const db = AnalysisDatabase.getInstance();
   const gnomadVarId = verifiedCoordinate ? payload.predictorData.gnomadVariantId : "";
-  const genosCache = db.getExternalCache<any>(
-    buildGenosKey(context.gene, context.variant, gnomadVarId || undefined)
-  );
   const clinvarCache = db.getExternalCache<ClinVarData>(
     buildClinvarKey(context.gene, context.variant, context.originalNotation, grch38Allele(context))
   );
 
-  // 1. Genos & Conservation healing
-  if (genosCache?.data) {
-    const g = genosCache.data;
-    const prevStatus = payload.serviceStatus?.conservationData;
-    const nextConservation = {
-      ...payload.conservationData,
-      revel: g.revel ?? payload.conservationData?.revel ?? null,
-      gerp: g.gerp ?? payload.conservationData?.gerp ?? null,
-      phylop: g.phylop ?? payload.conservationData?.phylop ?? null,
-      bayesdel: g.bayesdel ?? payload.conservationData?.bayesdel ?? null,
-      metarnn: g.metarnn ?? payload.conservationData?.metarnn ?? null,
-      clinpred: g.clinpred ?? payload.conservationData?.clinpred ?? null,
-      esm1b: g.esm1b ?? payload.conservationData?.esm1b ?? null,
-      popeve: g.popeve ?? payload.conservationData?.popeve ?? null,
-      spliceai: g.spliceai ?? payload.conservationData?.spliceai ?? null,
-      // Genos records carry no verified nucleotide identity, even when a cache key contains one.
-      // Keep existing exact-local AoU evidence only; never heal counts from this protein row.
-      aouFrequency: payload.conservationData?.aouFrequency ?? null
-    };
-    const hasAnyConservationMetric = [
-      nextConservation.revel,
-      nextConservation.gerp,
-      nextConservation.phylop,
-      nextConservation.bayesdel,
-      nextConservation.metarnn,
-      nextConservation.clinpred,
-      nextConservation.esm1b,
-      nextConservation.popeve,
-      nextConservation.spliceai,
-      nextConservation.scorecons,
-      (nextConservation as Record<string, unknown>).alphagenome
-    ].some(v => v != null);
-    if (hasAnyConservationMetric || payload.conservationData != null) {
-      payload.conservationData = nextConservation;
-    }
-    /**
-     * Heal the LIFECYCLE with the values. A salvaged composite carries `modelStatus`; the Genos row
-     * answers the dbNSFP ensemble, PopEVE and SpliceAI only, so those entries settle when the row
-     * supplied them and every other model keeps its `timeout`. The composite is "ok" only when no
-     * model is still unanswered — otherwise values would sit beside a lifecycle that contradicts them
-     * and the ACMG engine could not tell the ensemble is still incomplete.
-     */
-    const healedStatus = payload.conservationData?.modelStatus as Record<string, string> | undefined;
-    let statusChanged = false;
-    if (healedStatus) {
-      if (healedStatus.base !== "settled") {
-        healedStatus.base = "settled";
-        statusChanged = true;
-      }
-      if (g.popeve != null && healedStatus.popeve !== "settled") {
-        healedStatus.popeve = "settled";
-        statusChanged = true;
-      }
-      if (g.spliceai && healedStatus.spliceai !== "settled") {
-        healedStatus.spliceai = "settled";
-        statusChanged = true;
-      }
-      if (Object.values(healedStatus).every(state => state === "settled")) {
-        delete payload.conservationData.modelStatus;
-        statusChanged = true;
-      }
-    }
-    if (payload.serviceStatus && !payload.conservationData?.modelStatus && hasAnyConservationMetric) {
-      payload.serviceStatus.conservationData = "ok";
-    }
-    if (hasAnyConservationMetric || statusChanged || payload.serviceStatus?.conservationData !== prevStatus) {
-      didHeal = true;
-    }
-  }
-
-  // 2. ClinVar healing
+  // 1. ClinVar healing
   if (clinvarCache?.data && (status.clinvar === "timeout" || status.clinvar === "error")) {
     payload.clinvar = clinvarCache.data;
     if (payload.serviceStatus) payload.serviceStatus.clinvar = "ok";
     didHeal = true;
   }
 
-  // 3. gnomAD Frequency healing
+  // 2. gnomAD Frequency healing
   if (gnomadVarId && (status.gnomadFrequency === "timeout" || status.gnomadFrequency === "error")) {
     const gnomadFreqCache = db.getExternalCache<any>(buildGnomadFreqKey(gnomadVarId));
     if (gnomadFreqCache?.data) {
@@ -176,7 +101,7 @@ export function healCachedAnalysisIfPossible(
   // Constraint is served by the pinned local snapshot. A gene-only cached object cannot heal
   // a transcript/coordinate-specific regional result; retry the analysis instead.
 
-  // 5. UniProt Features healing
+  // 3. UniProt Features healing
   if (context.uniprotId && (status.uniprotFeatures === "timeout" || status.uniprotFeatures === "error")) {
     const uniprotCache = db.getExternalCache<any>(buildUniprotFeaturesKey(context.uniprotId));
     if (uniprotCache?.data) {
@@ -186,7 +111,7 @@ export function healCachedAnalysisIfPossible(
     }
   }
 
-  // 6. Predictors healing
+  // 4. Predictors healing
   if (status.predictorData === "timeout" || status.predictorData === "error") {
     const predictorCache = db.getExternalCache<any>(
       /**

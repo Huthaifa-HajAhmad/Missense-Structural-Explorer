@@ -64,13 +64,6 @@ export function buildClinvarKey(
   return `clinvar_${normGene}_${cleanVar}${notStr}${alleleStr}_condition-records1_allele1_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
-export function buildGenosKey(gene: string, variant: string, gnomadVarId?: string): string {
-  const normGene = normalizeGeneSymbol(gene);
-  const cleanVar = normalizeVariantTo3Letter(variant);
-  const gId = gnomadVarId ? `_${gnomadVarId.trim()}` : "";
-  return `genos_${normGene}_${cleanVar}${gId}_schema:${CACHE_SCHEMA_VERSION}`;
-}
-
 export function buildPdbKey(pdbId: string, chainId = "A", unpStart = 0, structStart = 0, pos = 0): string {
   const pId = pdbId.trim().toLowerCase();
   const cId = chainId.trim().toUpperCase();
@@ -146,7 +139,7 @@ export function buildPredictorsKey(
  * Cache key for a conservation payload.
  *
  * The build participates because several of the sources folded in here are single-build
- * (local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload assembled from one
+ * (local dbNSFP, dbnsfp.org, PopEVE, gnomAD r4), so a payload assembled from one
  * build's coordinates is not a valid answer for another's. The coordinate id alone was not
  * sufficient: it is also empty on the progressive path, leaving the key build-blind in practice.
  */

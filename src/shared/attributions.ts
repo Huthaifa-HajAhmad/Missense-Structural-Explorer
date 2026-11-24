@@ -79,7 +79,7 @@ export interface AttributionGroup {
  * Group 1 — the evidence floor.
  *
  * Everything here answers "what is already known about this variant" before a model runs.
- * Two entries (`myvariant`, `genos`) are supplementary routes, and one (`string-db`) is
+ * One entry (`myvariant`) is a supplementary route, and one (`string-db`) is
  * recorded as deliberately unpinned: the client queries a live endpoint and never reads a
  * version, so the page must not print one.
  */
@@ -222,7 +222,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
       "Liu, H., et al. (2020). dbNSFP v4: a comprehensive database of transcript-specific functional predictions and annotations for human nonsynonymous and splice-site SNVs. Genome Medicine 12, 103. https://doi.org/10.1186/s13073-020-00803-9",
     licence:
       "Offered by its authors for academic use; the ingest keeps only the columns this workspace reads. Check the release's own terms before redistributing the database itself.",
-    usedBy: ["tools/ingest_dbnsfp.ts", "server/services/dbnsfp_local.ts", "server/services/prediction/predictors/dbnsfp-query.ts"]
+    usedBy: ["tools/ingest_dbnsfp.ts", "server/services/prediction/dbnsfp_local.ts", "server/services/prediction/predictors/dbnsfp-sources.ts", "server/services/prediction/predictors/dbnsfp-query.ts"]
   },
   {
     id: "uniprot",
@@ -270,7 +270,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     release: null,
     citation:
       "Xin, J., et al. (2016). High-performance web services for querying gene and variant annotation. Genome Biology 17, 95. https://doi.org/10.1186/s13059-016-0953-9",
-    usedBy: ["server/services/prediction/predictors/vep-orchestrator.ts", "server/services/prediction/landscape.ts"]
+    usedBy: ["server/services/prediction/predictors/vep-orchestrator.ts", "server/services/prediction/predictors/myvariant-dbnsfp.ts", "server/services/prediction/landscape.ts"]
   },
   {
     id: "alphafold-db",
@@ -369,18 +369,6 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     citation:
       "Orenbuch, R., et al. (2025). Proteome-wide model for human disease genetics. Nature Genetics 57, 3165–3174. https://doi.org/10.1038/s41588-025-02400-1",
     usedBy: ["server/services/prediction/predictors/popeve-resolver.ts", "scripts/setup-popeve.sh"]
-  },
-  {
-    id: "genos",
-    name: "Genos",
-    provider: "Genos (query.genos.us)",
-    kind: "service",
-    role: "A supplementary, credentialed variant-annotation query, consulted beside the primary routes when a deployment configures an account. Calls are serialised through one rate-limited queue because the service throttles per account.",
-    url: "https://query.genos.us/",
-    release: null,
-    citation: null,
-    licence: "Requires a Genos account configured for this deployment (GENOS_EMAIL, GENOS_ACCESS_KEY); without one the route is skipped.",
-    usedBy: ["server/services/external-api/genos_web.ts", "server/services/external-api/core-data-fetcher.ts"]
   }
 ];
 /**
@@ -757,16 +745,15 @@ export const QUERY_TRANSMISSION = {
     { host: "gtexportal.org", sent: "Gene symbol, resolved GENCODE gene identifier and tissue metadata request", note: "Adult GTEx v10 expression context. Disease, onset and review-system selections stay in the browser." },
     { host: "rest.ensembl.org · grch37.rest.ensembl.org", sent: "Gene symbol, HGVS notation, transcript or genomic coordinate", note: "Ensembl VEP. The host is chosen from the genome build, so a GRCh37 notation never reaches the GRCh38 endpoint." },
     { host: "rest.variantvalidator.org", sent: "Gene symbol and HGVS notation", note: "Consulted for validation and isoform numbering only." },
-    { host: "myvariant.info", sent: "Gene symbol and protein change", note: "Fallback route; its records are hg19-keyed." },
+    { host: "myvariant.info", sent: "Gene symbol and protein position (or change)", note: "Fallback route; its records are hg19-keyed." },
     { host: "eutils.ncbi.nlm.nih.gov", sent: "Gene symbol, variant term, publication id", note: "ClinVar and PubMed lookups." },
     { host: "rest.uniprot.org", sent: "Gene symbol or UniProt accession", note: "Returns the canonical sequence and the curated feature annotations." },
     { host: "gnomad.broadinstitute.org", sent: "Variant id (chromosome–position–ref–alt) and gene symbol", note: null },
     { host: "api.genome.ucsc.edu", sent: "Genomic window (hg38 chromosome, start, end) and an annotation track name", note: "Exon boundaries used to resolve the splice architecture." },
-    { host: "query.dbnsfp.org", sent: "Gene symbol and protein change", note: "Used only when the local dbNSFP ingest is absent; the columns are otherwise read from the local SQLite file." },
+    { host: "query.dbnsfp.org", sent: "Gene symbol and protein change, or the GRCh38 coordinate when it is known", note: "Asked only when the local dbNSFP store is absent or has no row for the variant; otherwise the columns are read from the local SQLite file." },
     { host: "alphafold.ebi.ac.uk · files.rcsb.org · search.rcsb.org · data.rcsb.org", sent: "UniProt accession or PDB id", note: "Structure retrieval only — no variant data." },
     { host: "string-db.org", sent: "Gene symbol", note: null },
     { host: "spliceai-38-xwkwwwxdwq-uc.a.run.app · spliceai-37-xwkwwwxdwq-uc.a.run.app", sent: "Genomic coordinate", note: "One endpoint per genome build. Named in full because the hostnames are opaque, which is also how a reader can recognise them in a network log." },
-    { host: "query.genos.us", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace." },
     { host: "data.evemodel.org", sent: "RefSeq transcript id", note: null },
     { host: "api.japanfold.aiand.com", sent: "Sequence, structure payloads", note: "Boltz-2 complexes." },
     { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },

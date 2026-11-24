@@ -1,11 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  genos: vi.fn(),
   dbnsfpOrg: vi.fn(),
   alphagenome: vi.fn(),
 }));
-vi.mock("../../external-api/genos_web.ts", () => ({ queryGenosWebservice: mocks.genos }));
 vi.mock("./dbnsfp-query.ts", () => ({ queryDbnsfpOrg: mocks.dbnsfpOrg }));
 vi.mock("../dbnsfp_local.ts", () => ({
   isLocalDbnsfpAvailable: () => true,
@@ -24,13 +22,15 @@ import { clearAllCaches } from "../../infra/cache.ts";
  * they must be asked about.
  */
 describe("conservation scores are keyed to the analysed allele", () => {
-  const proteinGenosRecord = { revel: 0.11, gerp: 1, phylop: 1, popeve: null };
-
+  const noScores = {
+    revel: null, gerp: null, phylop: null, bayesdel: null, metarnn: null, metarnnPred: null,
+    clinpred: null, clinpredPred: null, esm1b: null, esm1bPred: null, popeve: null,
+    aouFrequency: null, spliceai: null,
+  };
   beforeEach(() => {
     clearAllCaches(true);
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
-    mocks.genos.mockResolvedValue(null);
     mocks.dbnsfpOrg.mockResolvedValue(null);
     mocks.alphagenome.mockResolvedValue({ status: "unavailable" });
   });
@@ -45,36 +45,27 @@ describe("conservation scores are keyed to the analysed allele", () => {
       variant: "p.Arg273His",
       pos: 273,
       predictorPromise: Promise.resolve(pred) as any,
-      genosPromise: Promise.resolve(proteinGenosRecord),
     });
 
-  it("asks Genos by GRCh38 coordinate instead of reusing the protein-keyed record", async () => {
-    // Local store off for this case: the remote tiers are what is under test.
+  it("asks query.dbnsfp.org by GRCh38 coordinate when the local store is absent", async () => {
     const local = await import("../dbnsfp_local.ts");
     vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
-    mocks.genos.mockResolvedValue({ revel: 0.77, gerp: 5, phylop: 7, popeve: null });
+    mocks.dbnsfpOrg.mockResolvedValue({ ...noScores, revel: 0.77, gerp: 5 });
 
     const result = await run({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" });
 
-    expect(mocks.genos).toHaveBeenCalledWith("TP53", "p.Arg273His", "17-7673802-C-T");
-    expect(result.revel).toBe(0.77);
-  });
-
-  it("falls to query.dbnsfp.org with the same coordinate", async () => {
-    const local = await import("../dbnsfp_local.ts");
-    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
-    await run({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" });
     expect(mocks.dbnsfpOrg).toHaveBeenCalledWith("TP53", "p.Arg273His", "17-7673802-C-T");
+    expect(result.revel).toBe(0.77);
+    expect(result.revelProvenance).toBe("query.dbnsfp.org (release not stated)");
   });
 
   it("keeps the protein query when the coordinate is not GRCh38 (those services index GRCh38 only)", async () => {
     const local = await import("../dbnsfp_local.ts");
     vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
-    const result = await run({ gnomadVariantId: "17-7577120-C-T", gnomadVariantAssembly: "GRCh37" });
+    await run({ gnomadVariantId: "17-7577120-C-T", gnomadVariantAssembly: "GRCh37" });
 
-    // The early protein-keyed record is used as before; no hg19 position reaches an hg38 index.
-    expect(result.revel).toBe(0.11);
-    expect(mocks.genos).not.toHaveBeenCalled();
+    // No hg19 position reaches an hg38 index.
+    expect(mocks.dbnsfpOrg).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
   });
 
   it("does not repeat the caller's coordinate enrichment inside the base fetch", async () => {
@@ -99,7 +90,7 @@ describe("conservation scores are keyed to the analysed allele", () => {
   });
 
   it("still enriches by coordinate when called directly (no caller to do it)", async () => {
-    await fetchConservationData("TP53", "p.Arg273His", null, null, 273, "17-7673802-C-T", null, null, null, null, "GRCh38");
+    await fetchConservationData("TP53", "p.Arg273His", null, null, 273, "17-7673802-C-T", null, null, null, "GRCh38");
     expect(mocks.alphagenome).toHaveBeenCalledTimes(1);
   });
 
@@ -185,7 +176,7 @@ describe("conservation scores are keyed to the analysed allele", () => {
     expect(result.popeve).toBeNull();
   });
 
-  it("withholds non-GRCh38 coordinates from Genos and dbNSFP.org on direct calls and reads ProtVar conservation by accession and residue", async () => {
+  it("withholds non-GRCh38 coordinates from dbNSFP.org on direct calls and reads ProtVar conservation by accession and residue", async () => {
     const local = await import("../dbnsfp_local.ts");
     vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
 
@@ -204,12 +195,45 @@ describe("conservation scores are keyed to the analysed allele", () => {
       throw new TypeError("offline");
     }));
 
-    const result = await fetchConservationData("TP53", "p.Arg273His", "1TUP", "A", null, "17-7577120-C-T", null, "P04637", null, null, "GRCh37");
-    expect(mocks.genos).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
+    const result = await fetchConservationData("TP53", "p.Arg273His", "1TUP", "A", null, "17-7577120-C-T", "P04637", null, null, "GRCh37");
     expect(mocks.dbnsfpOrg).toHaveBeenCalledWith("TP53", "p.Arg273His", null);
     // The residue comes from the variant string; no PDB chain is needed.
     expect(seenUrls).toContain("https://www.ebi.ac.uk/ProtVar/api/score/P04637/273?type=CONSERV");
     expect(result.scorecons).toBe(0.957);
+  });
+
+  it("keeps ProtVar conservation on a direct call when no dbNSFP source has the variant", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const s = String(url);
+      if (s.includes("/ProtVar/api/score/")) {
+        return new Response(JSON.stringify([{ type: "CONSERV", score: 0.5 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (s.includes("myvariant.info")) {
+        return new Response(JSON.stringify({ hits: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new TypeError("offline");
+    }));
+
+    const result = await fetchConservationData("TP53", "p.Arg273His", null, null, 273, null, "P04637");
+
+    expect(result.available).toBe(false);
+    expect(result.revel).toBeNull();
+    expect(result.scorecons).toBe(0.5);
+  });
+
+  it("asks AlphaGenome on a direct call only when some dbNSFP source knows the variant", async () => {
+    const local = await import("../dbnsfp_local.ts");
+    vi.spyOn(local, "isLocalDbnsfpAvailable").mockReturnValue(false);
+
+    await fetchConservationData("TP53", "p.Arg273His", null, null, 273, "17-7673802-C-T", null, null, null, "GRCh38");
+    expect(mocks.alphagenome).not.toHaveBeenCalled();
+
+    clearAllCaches(true);
+    mocks.dbnsfpOrg.mockResolvedValue({ ...noScores, revel: 0.8 });
+    await fetchConservationData("TP53", "p.Arg273His", null, null, 273, "17-7673802-C-T", null, null, null, "GRCh38");
+    expect(mocks.alphagenome).toHaveBeenCalledTimes(1);
   });
 
   it("streams ProtVar conservation as its own model, before and without a PDB mapping", async () => {
@@ -225,7 +249,6 @@ describe("conservation scores are keyed to the analysed allele", () => {
       pos: 273,
       uniprotId: "P04637",
       predictorPromise: Promise.resolve({ gnomadVariantId: "17-7673802-C-T", gnomadVariantAssembly: "GRCh38" }) as any,
-      genosPromise: Promise.resolve(proteinGenosRecord),
     });
     expect(result.scorecons).toBe(0.957);
     // A snapshot shows the score only once ProtVar has answered.

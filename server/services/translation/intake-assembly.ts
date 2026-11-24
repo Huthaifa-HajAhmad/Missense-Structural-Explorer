@@ -17,7 +17,7 @@
  * `S` at position 23 and MANE numbers the same substitution `p.Arg17Leu`. Annotating on the
  * canonical build instead makes a GRCh37 and a GRCh38 spelling of one variant converge on the
  * SAME answer — which is what every consumer below this layer already assumes:
- * `ASSEMBLY_SUPPORT` pins eight sources (gnomAD r4, dbNSFP-local, Genos, dbnsfp.org, AlphaGenome,
+ * `ASSEMBLY_SUPPORT` pins six sources (gnomAD r4, dbNSFP-local, dbnsfp.org, AlphaGenome,
  * PopEVE, splice geometry) to GRCh38, and the predictor path already lifts.
  *
  * WHAT IT DOES NOT DO

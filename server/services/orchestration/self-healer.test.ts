@@ -87,7 +87,7 @@ describe("self-healer service", () => {
     expect(healCachedAnalysisIfPossible(withSequence, dummyContext).metadata.sequence).toBe("MK");
   });
 
-  it("heals timed-out services and missing spliceai from SQLite external_cache", () => {
+  it("heals timed-out services from SQLite external_cache", () => {
     const timedOutPayload = {
       serviceStatus: {
         clinvar: "timeout",
@@ -108,16 +108,6 @@ describe("self-healer service", () => {
     };
 
     mockGetExternalCache.mockImplementation((key: string) => {
-      if (key.startsWith("genos_")) {
-        return {
-          data: {
-            revel: 0.85,
-            spliceai: 0.05,
-            aou_ac: 2,
-            aou_an: 1000
-          }
-        };
-      }
       if (key.startsWith("clinvar_")) {
         return {
           data: {
@@ -161,11 +151,9 @@ describe("self-healer service", () => {
 
     const healed = healCachedAnalysisIfPossible(timedOutPayload, dummyContext);
 
-    expect(healed.serviceStatus.conservationData).toBe("ok");
-    expect(healed.conservationData.revel).toBe(0.85);
-    expect(healed.conservationData.spliceai).toBe(0.05);
-    // A protein-selected Genos row has no allele identity even when other services have healed.
-    expect(healed.conservationData.aouFrequency).toBeNull();
+    // No cache holds a conservation answer: a timed-out composite waits for a fresh analysis.
+    expect(healed.serviceStatus.conservationData).toBe("timeout");
+    expect(healed.conservationData).toBeNull();
 
     expect(healed.serviceStatus.clinvar).toBe("ok");
     expect(healed.clinvar.significance).toBe("Pathogenic");
@@ -210,8 +198,7 @@ describe("self-healer service", () => {
   it("never heals protein-keyed AoU into a definitive ambiguity, including a complete splice payload", () => {
     const context = { ...dummyContext, gene: "SLC12A4", variant: "Q867H" };
     for (const spliceai of [null, 0.1]) {
-      mockGetExternalCache.mockImplementation((key: string) => key.startsWith("genos_")
-        ? { data: { revel: 0.5, spliceai: 0.1, aou_ac: 2, aou_an: 1000, aou_hom: 1 } } : null);
+      mockGetExternalCache.mockReturnValue(null);
       const payload: any = {
         serviceStatus: { conservationData: "ok", gnomadFrequency: "unsupported-build" },
         predictorData: { gnomadVariantId: null, gnomadVariantAssembly: null,
@@ -275,7 +262,6 @@ describe("self-healer service", () => {
     const payload = { serviceStatus: { predictorData: "timeout", gnomadFrequency: "timeout" }, predictorData: predictor,
       aouFrequency: counts, conservationData: { spliceai: null, aouFrequency: counts } };
     mockGetExternalCache.mockImplementation((key: string) => key.startsWith("predictors_") ? { data: predictor }
-      : key.startsWith("genos_") ? { data: { aou_ac: 4, aou_an: 1000, aou_hom: 2, spliceai: 0.1 } }
       : key.startsWith("gnomad_freq_") ? { data: { genomeAF: 0.001 } } : null);
     const healed = healCachedAnalysisIfPossible(payload, context);
     expect(healed.aouFrequency).toBe(counts);
@@ -285,21 +271,17 @@ describe("self-healer service", () => {
     expect(healed.gnomadFrequency).toEqual({ genomeAF: 0.001 });
   });
 
-  it("does not flip conservationData status to ok when genos cache has only null conservation metrics", () => {
+  it("leaves a settled payload without a SpliceAI score unchanged and does not re-save it", () => {
     const payload: any = {
-      serviceStatus: { conservationData: "timeout" },
-      conservationData: null,
-      predictorData: { gnomadVariantId: null }
+      serviceStatus: { conservationData: "ok" },
+      conservationData: { revel: 0.4, spliceai: null },
+      predictorData: { source: "Ensembl VEP", gnomadVariantId: "7-140753336-A-T", gnomadVariantAssembly: "GRCh38" }
     };
-    mockGetExternalCache.mockImplementation((key: string) =>
-      key.startsWith("genos_")
-        ? { data: { revel: null, gerp: null, phylop: null, aou_ac: 3 } }
-        : null
-    );
+    mockGetExternalCache.mockReturnValue(null);
 
     const healed = healCachedAnalysisIfPossible(payload, dummyContext);
 
-    expect(healed.serviceStatus.conservationData).toBe("timeout");
+    expect(healed.conservationData).toEqual({ revel: 0.4, spliceai: null });
     expect(mockPersistVariantAnalysisPayload).not.toHaveBeenCalled();
   });
 });

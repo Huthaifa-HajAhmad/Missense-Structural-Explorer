@@ -107,7 +107,6 @@ server/services/external-api/clinvar-vcv.fixture.ts,server,server/services/exter
 server/services/external-api/clinvar.ts,server,server/services/external-api/clinvar-allele.test.ts;server/services/external-api/clinvar.test.ts;server/services/external-api/core-data-fetcher.test.ts;server/services/orchestration/analysis-orchestrator.test.ts
 server/services/external-api/constraint-snapshot.ts,server,server/services/external-api/candidate-constraint.test.ts;server/services/external-api/gnomad.test.ts
 server/services/external-api/core-data-fetcher.ts,server,server/services/external-api/core-data-fetcher.conservation-stream.test.ts;server/services/external-api/core-data-fetcher.test.ts;server/services/orchestration/analysis-orchestrator.test.ts;server/services/orchestration/core-singleflight.test.ts
-server/services/external-api/genos_web.ts,server,server/services/external-api/genos_web.test.ts
 server/services/external-api/gnomad-gene-constraint.ts,server,
 server/services/external-api/gnomad.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/external-api/gnomad.test.ts;server/services/external-api/gnomadFrequency.test.ts;server/services/prediction/landscape-context.test.ts
 server/services/external-api/index.ts,barrel,
@@ -126,7 +125,6 @@ server/services/external-api/uniprot.ts,server,server/services/external-api/ppi.
 server/services/external.ts,barrel,server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/foldx-sharing.test.ts;server/routes/session.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/tests/integration.test.ts
 server/services/foldx.ts,barrel,server/services/stability/foldx.test.ts
 server/services/gemini.ts,barrel,server/routes/biophysics.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts
-server/services/genos_web.ts,barrel,
 server/services/gnomad.ts,barrel,server/tests/smoke.test.ts
 server/services/http-client.ts,barrel,
 server/services/infra/admission.ts,server,server/services/infra/admission.test.ts;server/services/infra/host-probe.test.ts
@@ -207,8 +205,11 @@ server/services/prediction/predictors/allele-candidates.ts,server,
 server/services/prediction/predictors/allele-identity.ts,server,server/services/prediction/predictors/allele-identity.test.ts
 server/services/prediction/predictors/conservation-orchestrator.ts,server,server/services/prediction/predictors/conservation-allele.test.ts;server/services/prediction/predictors/conservation-streaming.test.ts
 server/services/prediction/predictors/dbnsfp-query.ts,server,server/services/prediction/predictors/predictors-modules.test.ts
+server/services/prediction/predictors/dbnsfp-scores.ts,server,server/services/prediction/predictors/dbnsfp-sources.test.ts
+server/services/prediction/predictors/dbnsfp-sources.ts,server,server/services/prediction/predictors/dbnsfp-sources.test.ts
 server/services/prediction/predictors/index.ts,barrel,
 server/services/prediction/predictors/locus-resolver.ts,server,server/services/prediction/predictors/locus-resolver.test.ts
+server/services/prediction/predictors/myvariant-dbnsfp.ts,server,
 server/services/prediction/predictors/normalizer.ts,server,server/services/prediction/predictors/predictors-modules.test.ts
 server/services/prediction/predictors/popeve-resolver.ts,server,server/services/infra/cache-hygiene.test.ts
 server/services/prediction/predictors/speculative-locus.ts,server,server/services/prediction/predictors/speculative-locus.test.ts

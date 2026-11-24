@@ -10,6 +10,8 @@ File:line references are to the worktree as it stood on this date. Test files ar
 
 Later change (2026-11-21): the GPN-Star score (section 4.19, which actually read the GPN-MSA table) and the Hugging Face credential were retired. Their rows describe code that no longer exists.
 
+Later change (2026-11-23): Genos (`query.genos.us`, section 4.15) was retired. Production never had its credential, so it never answered there. Its rows, the `genosFetch` wrapper and the Genos health check describe code that no longer exists.
+
 ## 1. Summary
 
 Counts (server TypeScript, tests excluded):

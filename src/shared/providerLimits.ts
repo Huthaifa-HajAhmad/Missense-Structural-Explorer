@@ -43,7 +43,6 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   "api.japanfold.aiand.com": "JapanFold",
   "myvariant.info": "MyVariant.info",
   "app.tamarind.bio": "Tamarind Bio",
-  "query.genos.us": "Genos",
   "zenodo.org": "Zenodo",
   "www.alliancegenome.org": "Alliance of Genome Resources",
   "rest.genenames.org": "HGNC",

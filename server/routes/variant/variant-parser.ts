@@ -37,7 +37,7 @@ export const analyzeVariantSchema = z.object({
    * Genome build the caller's coordinate notation was expressed in.
    *
    * Carried explicitly because nearly every coordinate-consuming source downstream is
-   * single-build (local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, and
+   * single-build (local dbNSFP, dbnsfp.org, gnomAD r4 variant ids, and
    * the SpliceAI Lookup client), and this application supports GRCh37 input by design.
    * Without it the build was silently assumed to be GRCh38. Defaults to GRCh38 so
    * existing clients keep their current behaviour.

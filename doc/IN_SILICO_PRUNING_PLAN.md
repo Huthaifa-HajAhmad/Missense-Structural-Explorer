@@ -1,6 +1,6 @@
 # In-silico tools: pruning and repair plan
 
-Status: plan, 2026-11-23. Phases 0 to 3 are built (see each phase below); Phases 4 to 6 are not.
+Status: plan, 2026-11-23. Phases 0 to 4 are built (see each phase below); Phases 5 and 6 are not.
 
 ## Principle
 
@@ -112,15 +112,31 @@ What was done:
 - The run identity no longer records a Biohub capability, so each saved analysis is recomputed once when
   next opened (owner decision).
 
-### Phase 4 — Genos and the dbNSFP fallback chain
+### Phase 4 — Genos retired; one dbNSFP record (done on `chore/dbnsfp-source-chain`)
 
 Four parsers for one table (local store → Genos → query.dbnsfp.org → MyVariant) are why the BayesDel and EVE
-bugs drifted in. Steps:
+bugs drifted in. Measured on 2026-11-23:
 
-1. On the VM, measure how often Genos returns a field the local store did not.
-2. Check whether query.dbnsfp.org returns the All of Us columns.
-3. If Genos adds nothing the local store lacks, retire it (and `query.genos.us`).
-4. Parse every source into one shared record type, so a field is read in one place.
+1. **Genos never answered in production.** The production container has never had `GENOS_EMAIL` or
+   `GENOS_ACCESS_KEY` (they are only in the host's `.env`, which the container does not read), so every login
+   failed and the request returned nothing. The cache and logs hold no Genos answer. Only the dev machine used it.
+   Genos also had no column the local store lacks that the analysis keeps: its SpliceAI is replaced by the live
+   Broad lookup, and its All of Us counts were discarded (see step 2).
+2. **query.dbnsfp.org returns All of Us** allele count, number and frequency, overall and by ancestry, but no
+   heterozygote or homozygote counts. They are not parsed: the analysis drops All of Us counts from every
+   conservation source (`withoutUnboundAou`) and keeps only the exact-coordinate local lookup.
+3. Genos is retired: the client, its adapter and health check, the self-healer step that copied its cached
+   scores over the payload, the parallel request at the start of every analysis, the settings and the credit.
+4. Every source fills one record type (`predictors/dbnsfp-scores.ts`), with one parser per source
+   (`dbnsfp-query.ts`, `myvariant-dbnsfp.ts`, and the local row), and one function builds the payload from it.
+   The query.dbnsfp.org parser now reads every score from the transcript the service selected
+   (`function_prediction`, MANE Select), not from the first row of `all_transcripts`, and never mixes rows.
+
+5. Chain rule: query.dbnsfp.org ends the search only when it has REVEL, GERP++ or phyloP. A row with only a
+   secondary score (say ESM1b) falls through to MyVariant, so a thin answer is not kept for 14 days.
+6. Accepted: a variant that no source has is no longer remembered as "not found" for 5 minutes, so the
+   three sources are asked again on the next request. AlphaGenome is asked on a direct call only when some
+   source knows the variant. Saved analyses with SpliceAI source `"genos"` read as precomputed dbNSFP.
 
 The dev checkout has no local store, on purpose. Tests use fixtures.
 

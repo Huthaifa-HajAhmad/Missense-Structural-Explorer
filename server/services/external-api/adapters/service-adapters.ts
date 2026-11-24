@@ -98,47 +98,6 @@ export class DbnsfpAdapter implements ExternalServiceAdapter<any, any> {
   }
 }
 
-export class GenosAdapter implements ExternalServiceAdapter<any, any> {
-  readonly id = "genos";
-  readonly name = "Genos Web Service";
-  readonly version = "1.0";
-  readonly rateLimitPerSecond = 5;
-
-  cacheKey(input: { gene: string; variant: string }): string {
-    return `genos_v${this.version}_${input.gene}_${input.variant}`;
-  }
-
-  async fetch(input: any): Promise<any> {
-    const { queryGenosWebservice } = await import("../genos_web.ts");
-    return queryGenosWebservice(input.gene, input.variant, input.gnomadVariantId);
-  }
-
-  async healthCheck(signal?: AbortSignal): Promise<HealthStatus> {
-    const start = performance.now();
-    try {
-      const res = await fetchWithRetry("https://query.genos.us/", {
-        timeout: 3000,
-        probe: true,
-        signal
-      }, 1);
-      const latencyMs = Math.round(performance.now() - start);
-      return {
-        healthy: res.ok,
-        latencyMs,
-        message: res.ok ? "Genos API Active" : `HTTP ${res.status}`,
-        timestamp: new Date().toISOString()
-      };
-    } catch (err: any) {
-      return {
-        healthy: false,
-        latencyMs: Math.round(performance.now() - start),
-        message: err.message,
-        timestamp: new Date().toISOString()
-      };
-    }
-  }
-}
-
 export class UniProtAdapter implements ExternalServiceAdapter<string, any> {
   readonly id = "uniprot";
   readonly name = "UniProtKB";
@@ -462,7 +421,6 @@ export class AlphaGenomeAdapter implements ExternalServiceAdapter<any, any> {
 export function initStandardAdapters(): void {
   adapterRegistry.register(new ClinVarAdapter());
   adapterRegistry.register(new DbnsfpAdapter());
-  adapterRegistry.register(new GenosAdapter());
   adapterRegistry.register(new UniProtAdapter());
   adapterRegistry.register(new SidecarAdapter());
   adapterRegistry.register(new EnsemblAdapter());

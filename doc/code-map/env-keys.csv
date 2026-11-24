@@ -94,8 +94,6 @@ GEMINI_MODEL,server/services/llm/gemini.ts
 GEMINI_MODEL_FALLBACKS,server/services/llm/gemini.ts
 GENCC_CONTEXT_PATH,server/services/evidence-context/curatedInheritance.ts
 GENCC_CONTEXT_PATH,server/services/evidence-context/store.ts
-GENOS_ACCESS_KEY,server/services/external-api/genos_web.ts
-GENOS_EMAIL,server/services/external-api/genos_web.ts
 GIT_COMMIT,server/routes/health.ts
 HOME,server/services/structure/pocket/java-detector.ts
 HTTP_DEFAULT_TIMEOUT_MS,server/config.ts

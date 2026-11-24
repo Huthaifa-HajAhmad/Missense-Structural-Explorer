@@ -33,7 +33,7 @@ describe("ASSEMBLY_SUPPORT — the declaration table", () => {
   it("pins the known single-build sources to GRCh38", () => {
     // If any of these ever gains GRCh37 support, this assertion should be updated
     // deliberately rather than the gate silently widening.
-    for (const source of ["alphagenome", "dbnsfp-local", "genos", "dbnsfpOrg", "gnomad-variants"] as const) {
+    for (const source of ["alphagenome", "dbnsfp-local", "dbnsfpOrg", "gnomad-variants"] as const) {
       expect(supportedAssemblies(source)).toEqual(["GRCh38"]);
       expect(sourceSupportsAssembly(source, "GRCh38")).toBe(true);
       expect(sourceSupportsAssembly(source, "GRCh37")).toBe(false);
@@ -82,7 +82,6 @@ describe("sourceSupportsAssembly — the production gate", () => {
     // reach it — a silent miss is bad, a coincidental hit at the wrong locus is worse.
     expect(sourceSupportsAssembly("popEVE", "GRCh37")).toBe(false);
     expect(sourceSupportsAssembly("dbnsfp-local", "GRCh37")).toBe(false);
-    expect(sourceSupportsAssembly("genos", "GRCh37")).toBe(false);
     expect(sourceSupportsAssembly("alphagenome", "GRCh37")).toBe(false);
   });
 

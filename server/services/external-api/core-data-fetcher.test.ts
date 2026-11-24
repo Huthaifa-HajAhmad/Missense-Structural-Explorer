@@ -87,9 +87,6 @@ vi.mock("../stability/biophysics.ts", () => ({
   }))
 }));
 
-vi.mock("./genos_web.ts", () => ({
-  queryGenosWebservice: vi.fn(async () => null)
-}));
 
 vi.mock("../prediction/landscape.ts", () => ({
   fetchLocalPopulationFrequencies: vi.fn(async () => null),

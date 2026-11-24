@@ -322,7 +322,7 @@ export interface SplicingEvidence {
   spliceai: {
     availability: EvidenceAvailability;
     provenance: {
-      source: "broad-lookup" | "precomputed-dbnsfp" | "genos";
+      source: "broad-lookup" | "precomputed-dbnsfp";
       distanceBp: number | null;
       masked: number | null;
       computedLive: boolean | null;
@@ -634,7 +634,6 @@ export function describeSpliceAiFailure(f: NonNullable<NonNullable<AnalysisResul
 function describeSpliceAiSource(p: SplicingEvidence["spliceai"]["provenance"]): string {
   if (!p) return "Source not stated in the payload";
   if (p.source === "broad-lookup") return p.computedLive === false ? "Broad SpliceAI Lookup (served from its table)" : "Broad SpliceAI Lookup (model run for this request)";
-  if (p.source === "genos") return "Genos (precomputed)";
   return "dbNSFP (Illumina precomputed, GENCODE v24)";
 }
 
