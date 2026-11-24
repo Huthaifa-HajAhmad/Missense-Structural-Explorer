@@ -55,6 +55,7 @@ import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { fetchVariantValidatorConsequence } from "./variant-validator.ts";
 import { isEgressRefusal } from "../infra/egress-governor.ts";
 import { runShadowTiers } from "./shadow-tiers.ts";
+import { isCanonicalBySequence } from "./sequence-isoform-proof.ts";
 import {
   normalizeIsoformIds,
   reconcileIsoformNumbering,
@@ -381,17 +382,47 @@ function isoformIdForConsequence(
 }
 
 /**
- * Both repairs a provider payload can need, in the order they must run.
+ * Every repair a provider payload can need, in the order they must run.
  *
  * `swissprot` is converted first because the accession is what identifies the UniProt entry the
- * isoform and gene-symbol reference data is read from.
+ * isoform and gene-symbol reference data is read from. The sequence comparison runs last, only for
+ * a selection that still states no isoform.
  */
 export async function normalizeProviderConsequence(
   consequence: ResolvedConsequence,
   signal?: AbortSignal
 ): Promise<ResolvedConsequence> {
   const withAccessions = await normalizeSwissprotAccessions(consequence, signal);
-  return enrichFromUniprotReferenceData(withAccessions, signal);
+  const enriched = await enrichFromUniprotReferenceData(withAccessions, signal);
+  return annotateSelectedIsoformBySequence(enriched, signal);
+}
+
+/**
+ * States the canonical isoform on the selected consequence when its protein sequence is identical
+ * to the canonical UniProt sequence (see `sequence-isoform-proof.ts`). Stored in the payload like
+ * VEP's own field, so the reconciliation, the cache decision and a later cache read all see the same
+ * proven basis.
+ *
+ * Runs only for an answer that would otherwise be "unverified", so a proven answer (fresh or read
+ * from the cache) costs no network call.
+ */
+async function annotateSelectedIsoformBySequence(
+  consequence: ResolvedConsequence,
+  signal?: AbortSignal
+): Promise<ResolvedConsequence> {
+  const consequences = consequence.transcript_consequences ?? [];
+  const numbering = resolveProteinTarget(consequences).numbering;
+  const selected = numbering?.consequence;
+  const canonicalAccession = numbering?.canonicalAccession;
+  if (numbering?.status !== "unverified" || !selected || !canonicalAccession) return consequence;
+  if (!(await isCanonicalBySequence(selected, canonicalAccession, signal))) return consequence;
+
+  return {
+    ...consequence,
+    transcript_consequences: consequences.map((tc) =>
+      tc === selected ? { ...tc, uniprot_isoform: [canonicalAccession] } : tc
+    ),
+  };
 }
 
 /** MANE Select, else Ensembl canonical, else any consequence that reports a protein change. */

@@ -96,22 +96,29 @@ const ensemblProteinSequenceCache = new LRUCache<string, { seq: string | null }>
 // Registered so `clearAllCaches` and the cache diagnostics see it like every other provider cache.
 defaultCacheRegistry.registerCache("ensemblProteinSequenceCache", ensemblProteinSequenceCache, { ttlDesc: "30d" });
 
-async function fetchEnsemblProteinSequence(accession: string): Promise<string | null> {
+export async function fetchEnsemblProteinSequence(
+  accession: string,
+  signal?: AbortSignal
+): Promise<string | null> {
   const cacheKey = accession.toUpperCase();
   const cached = ensemblProteinSequenceCache.get(cacheKey);
   if (cached) return cached.seq;
-  const seq = await fetchEnsemblProteinSequenceUncached(accession);
+  const seq = await fetchEnsemblProteinSequenceUncached(accession, signal);
   ensemblProteinSequenceCache.set(cacheKey, { seq });
   return seq;
 }
 
-async function fetchEnsemblProteinSequenceUncached(accession: string): Promise<string | null> {
+async function fetchEnsemblProteinSequenceUncached(
+  accession: string,
+  signal?: AbortSignal
+): Promise<string | null> {
   const [id, version] = accession.toUpperCase().split(".");
   const response = await fetchWithRetry(
     `https://rest.ensembl.org/sequence/id/${encodeURIComponent(id)}?type=protein;content-type=application/json`,
     {
       headers: { Accept: "application/json" },
       timeout: 15000,
+      ...(signal ? { signal } : {}),
     }
   );
   if (response.status === 400 || response.status === 404) return null;

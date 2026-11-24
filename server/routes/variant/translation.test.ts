@@ -1092,6 +1092,37 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     expect(body.numberingProof).toBeUndefined();
   });
 
+  it("signs a genomic proof for a single-isoform entry whose Ensembl protein matches the canonical sequence", async () => {
+    // PAH-like: VEP names the accession but no isoform, and UniProt's cross-reference names none.
+    const canonical = `M${"A".repeat(406)}R${"A".repeat(44)}`; // Arg at 408, 452 residues like PAH
+    const fetchImpl = (url: string) => {
+      if (url.includes("/sequence/id/")) return { ok: true, status: 200, json: async () => ({ seq: canonical, version: 1 }) };
+      if (url.includes("/uniprotkb/stream")) {
+        const fasta = `>sp|P00439|PH4H_HUMAN Phenylalanine-4-hydroxylase\n${canonical}\n`;
+        return { ok: true, status: 200, text: async () => fasta };
+      }
+      if (url.includes("/uniprotkb/P00439.json")) return { ok: true, status: 200, json: async () => ({}) };
+      return vepPayload({
+        transcript_id: "ENST00000553106",
+        canonical: 1,
+        mane_select: "NM_000277.3",
+        hgvsp: "ENSP00000448059.1:p.Arg408Trp",
+        amino_acids: "R/W",
+        gene_symbol: "PAH",
+        swissprot: ["P00439.266"],
+      });
+    };
+
+    const { statusCode, body } = await invokeTranslate("NM_000277.3:c.1222C>T", MISSENSE_CONSEQUENCE, fetchImpl);
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Arg408Trp");
+    expect(body.numberingBasis).toBe("canonical");
+    expect(body.numberingVerified).toBe(true);
+    // Proven by the coordinate's own translation, not by a protein the caller declared.
+    expect(proofFor(body, 408, "R", "W")).toEqual({ status: "valid", proof: "genomic" });
+  });
+
   it("discloses an unverified basis when the provider reports no accession at all", async () => {
     // VariantValidator's shape: an HGVSp and no UniProt metadata whatsoever.
     const fetchImpl = async (url: string) =>
