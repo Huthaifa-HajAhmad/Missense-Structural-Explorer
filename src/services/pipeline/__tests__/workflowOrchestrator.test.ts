@@ -119,7 +119,8 @@ describe("workflowOrchestrator", () => {
   });
 
   describe("numbering proof for a typed protein notation", () => {
-    const run = (apiClient: Record<string, unknown>, targetUniprotArg = "", sinks = createMockSinks()) => {
+    const run = (apiClient: Record<string, unknown>, targetUniprotArg = "") => {
+      const sinks = createMockSinks();
       return executeFullAnalysisWorkflow({
         targetGeneArg: "PAH",
         targetVariantArg: "p.Arg408Trp",
@@ -201,70 +202,6 @@ describe("workflowOrchestrator", () => {
 
       expect(vi.mocked(executeFoldxPipeline)).not.toHaveBeenCalled();
       expect(apiClient.getNumberingProof).not.toHaveBeenCalled();
-    });
-
-    /** The server's answer when it will not analyse the residue: the analysis would refuse it the same way. */
-    const refusal = () => Object.assign(new Error("Numbering not verified for PAH p.Arg408Trp: the isoform model could not be reached."), {
-      status: 422, code: "UNVERIFIED_RESIDUE_NUMBERING", details: { inputKind: "protein" }
-    });
-    const lastState = (sinks: ReturnType<typeof createMockSinks>) => sinks.analysis.setAnalysisState.mock.calls.at(-1)?.[0];
-
-    it.each([
-      ["without an accession", ""],
-      ["with a known accession", "P00439"],
-    ])("shows the intake check's refusal and starts nothing for the refused residue (%s)", async (_label, accession) => {
-      const { fetchPdbCoordinates } = await import("../structureService");
-      const sinks = createMockSinks();
-      const apiClient = { getNumberingProof: vi.fn().mockRejectedValue(refusal()), resolveGene: vi.fn() };
-
-      const outcome = await run(apiClient, accession, sinks);
-
-      expect(outcome).toBe("failed");
-      expect(lastState(sinks)?.error).toContain("Numbering not verified");
-      // The analysis would refuse the same residue, so FoldX, the structure and the analysis are never asked.
-      expect(vi.mocked(fetchBiophysicalAnalysis)).not.toHaveBeenCalled();
-      expect(vi.mocked(executeFoldxPipeline)).not.toHaveBeenCalled();
-      expect(vi.mocked(fetchPdbCoordinates)).not.toHaveBeenCalled();
-      expect(apiClient.resolveGene).not.toHaveBeenCalled();
-    });
-
-    it("offers the two readings when the intake check finds the notation ambiguous", async () => {
-      // The reader still gets the choice buttons, now without the run first starting FoldX for a coin flip.
-      const ambiguous = Object.assign(new Error("p.Arg408Trp can be read two ways"), {
-        status: 422, code: "AMBIGUOUS_PROTEIN_NUMBERING",
-        details: { notation: "p.Arg408Trp", candidates: [
-          { variant: "p.Arg408Trp", basisId: "P00439", basisKind: "canonical", canonicalPosition: 408 },
-          { variant: "p.Arg399Trp", basisId: "P00439-2", basisKind: "isoform", canonicalPosition: 399 },
-        ] }
-      });
-      const sinks = createMockSinks();
-
-      await run({ getNumberingProof: vi.fn().mockRejectedValue(ambiguous), resolveGene: vi.fn() }, "", sinks);
-
-      expect(lastState(sinks)?.result?.numberingChoices).toHaveLength(2);
-      expect(vi.mocked(executeFoldxPipeline)).not.toHaveBeenCalled();
-    });
-
-    it("keeps a saved result on screen when the check refuses on a revisit", async () => {
-      // The saved result was verified when it was made; the refusal only means its follow-ups go without a proof.
-      const pipelineContext = createAnalysisCacheContext("P00439", { biophysicsConditions: {} } as any);
-      variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
-        biophysicsContext: pipelineContext.simulationConditions,
-        analysisResult: {
-          analysis: "Cached report", isFallback: false, clinvar: { classification: "Pathogenic" }, predictorData: { revel: 0.88 },
-          metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineContext }
-        },
-        pdbText: "ATOM CA ...", foldingStatus: "success", foldingDdG: 2.1, foldingEnergetics: { foldx: 2.1 }
-      } as any);
-      const sinks = createMockSinks();
-      const apiClient = { getNumberingProof: vi.fn().mockRejectedValue(refusal()) };
-
-      const outcome = await run(apiClient, "P00439", sinks);
-
-      expect(apiClient.getNumberingProof).toHaveBeenCalled();
-      expect(outcome).toBe("completed");
-      const states = sinks.analysis.setAnalysisState.mock.calls.map((call: any[]) => call[0]).filter((state: any) => typeof state === "object");
-      expect(states.some((state: any) => state?.error)).toBe(false);
     });
 
     it("runs as before when the intake check fails: the gene lookup, and no proof", async () => {

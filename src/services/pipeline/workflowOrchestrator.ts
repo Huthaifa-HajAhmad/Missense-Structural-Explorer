@@ -292,19 +292,14 @@ export async function executeFullAnalysisWorkflow({
     /**
      * The proof of a typed protein notation whose accession was known, asked for once and only now: the
      * cached paint and the restore above never wait for it, and the parallel requests wait at most
-     * NUMBERING_PROOF_FAN_OUT_WAIT_MS, then start without one. A refusal ends a new run (the outer catch
-     * shows it); on a revisit it is only logged, because the saved result on screen was verified when made.
+     * NUMBERING_PROOF_FAN_OUT_WAIT_MS, then start without one.
      */
-    const awaitNumberingProof = async (onRefusal: "end-run" | "keep-saved-result") => {
+    const awaitNumberingProof = async () => {
       if (!typedProtein || intakeTried || pipelineContext.numberingProof) return;
       intakeTried = true;
       const intake = await requestNumberingProof(
         apiClient, { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot, numberingBasis }, activeSignal, NUMBERING_PROOF_FAN_OUT_WAIT_MS
-      ).catch((refusal: unknown) => {
-        if (onRefusal === "end-run") throw refusal;
-        console.warn("[WorkflowOrchestrator] The numbering check refused a saved run's follow-ups:", refusal);
-        return null;
-      });
+      );
       // A run left behind (a newer search started) keeps the context it saved; nothing is written into it late.
       if (intake?.numberingProof && !run.isStale()) pipelineContext.numberingProof = intake.numberingProof;
     };
@@ -404,7 +399,7 @@ export async function executeFullAnalysisWorkflow({
         const sendsFollowUps = needsHomologs || !cached.pdbText || (shouldDispatchFoldx() && Boolean(posMatch && targetUniprot)) ||
           (Boolean(targetUniprot) && stagesToResume(cached.analysisResult).length > 0);
         if (sendsFollowUps) {
-          await awaitNumberingProof("keep-saved-result");
+          await awaitNumberingProof();
           if (run.isStale()) return "aborted";
         }
         if (needsHomologs) {
@@ -467,7 +462,7 @@ export async function executeFullAnalysisWorkflow({
       structureSink.resetViewerState();
     }
 
-    await awaitNumberingProof("end-run");
+    await awaitNumberingProof();
     if (run.isStale()) return "aborted";
     void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
 

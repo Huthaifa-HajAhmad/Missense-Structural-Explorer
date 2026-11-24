@@ -7,7 +7,7 @@ src/api/biophysicsApi.ts,client,src/api/__tests__/apiError.test.ts;src/api/__tes
 src/api/clinicalApi.ts,client,src/api/__tests__/literatureRetry.test.ts
 src/api/index.ts,barrel,
 src/api/jobsApi.ts,client,src/components/jobs/__tests__/JobsMenu.test.tsx
-src/api/structureApi.ts,client,src/api/__tests__/apiError.test.ts;src/api/__tests__/structureRefTransport.test.ts;src/api/structureApi.test.ts;src/services/pipeline/__tests__/structureService.test.ts
+src/api/structureApi.ts,client,src/api/__tests__/structureRefTransport.test.ts;src/api/structureApi.test.ts;src/services/pipeline/__tests__/structureService.test.ts
 src/api/structureRefRegistry.ts,client,src/api/__tests__/structureRefTransport.test.ts;src/services/pipeline/__tests__/structureService.test.ts
 src/api/systemApi.ts,client,
 src/apiClient.ts,client,src/api/__tests__/versionSkewWiring.test.tsx;src/apiClient.test.ts
@@ -314,7 +314,7 @@ src/services/pipeline/biophysicsRetryPolicy.ts,client,src/services/pipeline/__te
 src/services/pipeline/foldxService.ts,client,src/services/pipeline/__tests__/foldxService.test.ts;src/services/pipeline/__tests__/workflowOrchestrator.test.ts;src/services/pipeline/__tests__/workflowReadiness.test.ts
 src/services/pipeline/narrativeService.ts,client,src/services/pipeline/__tests__/narrativeService.test.ts;src/services/pipeline/__tests__/staleRunWrites.test.ts;src/services/pipeline/__tests__/workflowReadiness.test.ts
 src/services/pipeline/notationService.ts,client,src/services/pipeline/__tests__/notationService.test.ts
-src/services/pipeline/numberingIntake.ts,client,src/services/pipeline/__tests__/numberingIntake.test.ts
+src/services/pipeline/numberingIntake.ts,client,
 src/services/pipeline/pipelineRun.ts,client,src/services/pipeline/__tests__/pipelineRun.test.ts
 src/services/pipeline/pipelineStateFactory.ts,client,src/services/pipeline/__tests__/buildHint.test.ts;src/services/pipeline/__tests__/numberingChoices.test.ts;src/services/pipeline/__tests__/pipelineStateFactory.test.ts;src/services/pipeline/__tests__/resultMerge.test.ts
 src/services/pipeline/refusalAttachments.ts,client,src/services/pipeline/__tests__/buildHint.test.ts;src/services/pipeline/__tests__/numberingChoices.test.ts
