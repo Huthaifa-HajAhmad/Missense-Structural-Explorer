@@ -10,7 +10,7 @@ import type { EnergeticsChartOptions } from '../../shared/energeticsComparison';
 function Fixture({ missing = false }: { missing?: boolean }) {
   const [selected, setSelected] = useState<EnergyEngineId | null>(null);
   const [options, setOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: false, showMarks: false });
-  const evidence = buildEnergeticsEvidence({ foldingStatus: 'success', foldingEnergetics: missing ? {} : { foldxMean: 2, foldx: 2, dynamut2: 0.5, ddmut: 0 } });
+  const evidence = buildEnergeticsEvidence({ foldingStatus: 'success', foldingEnergetics: missing ? {} : { foldxMean: 2, foldx: 2, thermompnn: -0.5, rasp: 0 } });
   return <><EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={selected} onSelect={setSelected} options={options} onOptions={setOptions} /><output aria-label="Pinned method">{selected ?? 'None'}</output></>;
 }
 
@@ -20,7 +20,7 @@ function PinnedFoldxFixture({ showCountedOnly = false }: { showCountedOnly?: boo
   // Failed repair → the FoldX value is displayed but excluded from agreement.
   const evidence = buildEnergeticsEvidence({
     foldingStatus: 'success',
-    foldingEnergetics: { foldx: 3, foldxMean: 3, foldxRepairFailed: true, dynamut2: 0.5, ddmut: 1.2 },
+    foldingEnergetics: { foldx: 3, foldxMean: 3, foldxRepairFailed: true, thermompnn: -0.5, rasp: 1.2 },
   });
   return <><EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={selected} onSelect={setSelected} options={options} onOptions={setOptions} /><output aria-label="Pinned method">{selected ?? 'None'}</output></>;
 }
@@ -29,7 +29,7 @@ describe('missing methods in the comparison', () => {
   it('names why a method has no point once: its reason, not its state followed by a reason that repeats it', async () => {
     const evidence = buildEnergeticsEvidence({
       foldingStatus: 'success',
-      foldingEnergetics: { foldx: 2, foldxMean: 2, dynamut2: 0.5, ddmut: 0, stabilityoracleStatus: 'unavailable' },
+      foldingEnergetics: { foldx: 2, foldxMean: 2, rasp: 0, stabilityoracleStatus: 'unavailable' },
       thermompnnStatus: 'unavailable',
     });
     render(<EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={null} onSelect={() => {}} options={{ sort: 'method', countedOnly: false, showMarks: false }} onOptions={() => {}} />);
@@ -49,11 +49,11 @@ describe('TanStack stability comparison', () => {
     fireEvent.focus(chart);
     fireEvent.keyDown(chart, { key: 'Home' });
     fireEvent.keyDown(chart, { key: 'Enter' });
-    expect(screen.getByLabelText('Pinned method')).toHaveTextContent('dynamut2');
+    expect(screen.getByLabelText('Pinned method')).toHaveTextContent('thermompnn');
     fireEvent.keyDown(chart, { key: 'ArrowRight' });
     fireEvent.keyDown(chart, { key: 'Enter' });
     // Neither the stem midpoint, direct label nor pin ring is another focus stop.
-    await waitFor(() => expect(screen.getByLabelText('Pinned method')).toHaveTextContent('ddmut'));
+    await waitFor(() => expect(screen.getByLabelText('Pinned method')).toHaveTextContent('rasp'));
   });
   it('puts each value label at the outer end of its stem: left of a negative dot, right of a positive one', async () => {
     render(<Fixture />);
@@ -69,7 +69,7 @@ describe('TanStack stability comparison', () => {
       const evidence = buildEnergeticsEvidence({
         foldingStatus: 'success',
         foldingEnergetics: {
-          foldx: 2.62, foldxMean: 2.62, dynamut2: 0.5, ddmut: 0, protvar: 1.12, protvarStatus: 'done', protvarModel: 'AF-Q13564-F1',
+          foldx: 2.62, foldxMean: 2.62, thermompnn: -0.5, rasp: 0, protvar: 1.12, protvarStatus: 'done', protvarModel: 'AF-Q13564-F1',
           structureProvenance: { source: 'experimental', pdbId: '1yov', chainId: 'A', resolution: 2.8 },
         },
       });
@@ -88,7 +88,7 @@ describe('TanStack stability comparison', () => {
     fireEvent.focus(chart);
     fireEvent.keyDown(chart, { key: 'Home' });
     fireEvent.keyDown(chart, { key: 'Enter' });
-    await waitFor(() => expect(screen.getByLabelText('Pinned method')).toHaveTextContent('dynamut2'));
+    await waitFor(() => expect(screen.getByLabelText('Pinned method')).toHaveTextContent('thermompnn'));
     expect(screen.getByRole('status', { name: 'Estimate readout' })).toHaveTextContent('−0.50 kcal/mol');
     // The positive FoldX estimate remains reachable after selection rebuilds the chart definition.
     fireEvent.keyDown(chart, { key: 'End' });

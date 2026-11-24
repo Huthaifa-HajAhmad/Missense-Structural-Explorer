@@ -26,7 +26,7 @@ export function isOnDemandView(view: string): boolean {
 const STAGE_DESCRIPTIONS: Record<string, string> = {
   evidence: "ClinVar, gnomAD & ACMG rules engine",
   structure: "AlphaFold DB & PDB 3D templates",
-  energetics: "FoldX, DynaMut2 & DDMut stability engines",
+  energetics: "FoldX, ThermoMPNN, StabilityOracle & RaSP stability engines",
   landscape: "3D spatial mutation mapping & pocket impact",
   insights: "AI-driven variant interpretation narrative",
   literature: "PubMed Central & Europe PMC citation mining",
@@ -69,12 +69,10 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   const result = params.result;
   const energetics = params.foldingEnergetics !== undefined ? params.foldingEnergetics : result?.foldingEnergetics;
   const evidence = buildEnergeticsEvidence({
-    foldingEnergetics: { ...energetics, dynamut2: energetics?.dynamut2 ?? result?.dynamut2, ddmut: energetics?.ddmut ?? result?.ddmut },
+    foldingEnergetics: energetics ?? null,
     foldingDdG: params.foldingDdG,
     foldingStatus: params.foldingStatus === "success" || params.foldingStatus === "failed" || params.foldingStatus === "unavailable" ? params.foldingStatus : null,
     foldingError: params.foldingError ?? energetics?.foldxError,
-    dynamut2Status: remoteStatus(params.dynamut2Status),
-    ddmutStatus: remoteStatus(params.ddmutStatus),
     thermompnnStatus: remoteStatus(params.thermompnnStatus),
     thermompnnError: params.thermompnnError,
     isFolding: params.isFolding
@@ -82,8 +80,8 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   // The run's ΔΔG comes from an engine that can count — never from a reference row (ProtVar), which
   // would otherwise be presented as this run's estimate whenever every counted engine failed.
   const computed = evidence.readings.find(reading => reading.ddg !== null && !reading.outcome.engine.referenceOnly);
-  // A failed core query says nothing about engines that answered anyway (including values restored on
-  // their own, such as `result.dynamut2`): only a run with no value and no work left reads as unavailable.
+  // A failed core query says nothing about engines that answered anyway:
+  // only a run with no value and no work left reads as unavailable.
   if (result?.metadata?.pipelineStages?.core === "error" && !evidence.readings.some(r => r.ddg !== null) && !params.foldingStatus && !params.isFolding) {
     return {
       status: "unavailable",
@@ -94,8 +92,8 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
    * The figure is NAMED, and it says whose number it is.
    *
    * The rail used to print the first engine with a value as "ΔΔG = … · Available", so when FoldX had
-   * none it showed DynaMut2's +0.53 as the run's ΔΔG and called the stage complete (UROD
-   * p.Gly318Arg, a bundle saved before FoldX returned). FoldX's own value is still the headline when
+   * none it showed a secondary engine's ΔΔG as the run's ΔΔG and called the stage complete.
+   * FoldX's own value is still the headline when
    * it exists; otherwise the figure is the median of the counted engines, with the count, so it
    * cannot be mistaken for one engine's estimate. With a single engine that engine is named instead.
    */
@@ -222,8 +220,6 @@ export interface WorkflowStageStatusParams {
   isLoadingSearch?: boolean;
   loadingStep?: string;
   isPocketLoading?: boolean;
-  dynamut2Status?: string | null;
-  ddmutStatus?: string | null;
   isNarrativeLoading?: boolean;
   hasStructureCoordinates?: boolean;
   foldingEnergetics?: Record<string, any> | null;
@@ -252,8 +248,6 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
     loadingStep = "",
     isPocketLoading = false,
     isNarrativeLoading = false,
-    dynamut2Status = null,
-    ddmutStatus = null,
     hasStructureCoordinates = false,
     landscapeOverviewStatus = null
   } = p;

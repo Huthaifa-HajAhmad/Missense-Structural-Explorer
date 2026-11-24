@@ -520,8 +520,6 @@ function VariantSearchPanel({
   const engineState = useVariantAnalysisStore(s => s.primaryBiophysics);
   // Submission is blocked only during intake/core, never by optional background work.
   const isForegroundActive = Boolean((propsAnalysisState ?? storeAnalysisState).isLoading || isBiophysicalLoading || isClinicalLoading);
-  const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
-  const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
   const landscapeOverview = useVariantAnalysisStore(s => s.landscapeOverview);
 
   const actions = useVariantAnalysisActions();
@@ -576,8 +574,6 @@ function VariantSearchPanel({
       isLoadingSearch: analysisState.isLoading,
       loadingStep,
       isPocketLoading,
-      dynamut2Status,
-      ddmutStatus,
       isNarrativeLoading,
       hasStructureCoordinates: Boolean(loadedPdb),
       landscapeOverviewStatus: overviewStatus,
@@ -620,8 +616,6 @@ function VariantSearchPanel({
     isStructuralLoading ||
     isPocketLoading ||
     isFolding ||
-    dynamut2Status === "pending" ||
-    ddmutStatus === "pending" ||
     engineState.thermompnnStatus === "pending" ||
     Object.values(result?.metadata?.pipelineStages ?? {}).some(outcome => outcome === "running") ||
     stageInfos.some(({ info }) => info.rawStatus === "progress"

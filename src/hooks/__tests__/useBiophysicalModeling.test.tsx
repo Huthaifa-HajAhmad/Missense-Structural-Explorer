@@ -21,249 +21,40 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     vi.restoreAllMocks();
   });
 
-  it("automatically initiates DynaMut2 polling when Zustand store receives job ID and status", async () => {
-    const fetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        status: "DONE",
-        prediction: -0.387,
-        consensusVerdict: "Low Misfolding Risk"
-      })
-    });
-
-    const addNotification = vi.fn();
-    const apiClient = {};
-    const settings = {} as any;
-
+  it("exposes biophysical store controls without running legacy client polling", () => {
     renderHook(
-      () => useBiophysicalModeling(settings, addNotification, apiClient, fetchWithAuth),
-      { wrapper }
-    );
-
-    // Initially, no polling occurs
-    expect(fetchWithAuth).not.toHaveBeenCalled();
-
-    // Now variant analysis pipeline dispatches job ID and pending status into Zustand
-    act(() => {
-      useVariantAnalysisStore.getState().setDynamut2Status("pending");
-      useVariantAnalysisStore.getState().setDynamut2JobId("178931919574");
-    });
-
-    // Advance timer for useJobPoller
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-
-    // Poller should have called the endpoint
-    expect(fetchWithAuth).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/dynamut2-job/178931919574"), { signal: expect.any(AbortSignal) }
-    );
-
-    // Zustand store should be updated with the completed prediction!
-    const state = useVariantAnalysisStore.getState();
-    expect(state.dynamut2Status).toBe("done");
-    expect(state.foldingEnergetics?.dynamut2).toBe(-0.387);
-    // The verdict is RECOMPUTED from the merged values, not copied from the poll response (the route
-    // no longer sends one, and a copied verdict froze at the FoldX commit). DynaMut2's native −0.387 is
-    // canonical +0.387: below its moderate mark, and the only engine with a value.
-    expect(state.foldingEnergetics?.consensusVerdict).toBe("No Destabilization (Single-Engine Estimate)");
-    expect(state.foldingEnergetics?.consensusEnginesCounted).toBe(1);
-  });
-
-  it("automatically initiates DDMut polling when Zustand store receives job ID and status", async () => {
-    const fetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        status: "DONE",
-        prediction: -0.45
-      })
-    });
-
-    const addNotification = vi.fn();
-    const apiClient = {};
-    const settings = {} as any;
-
-    renderHook(
-      () => useBiophysicalModeling(settings, addNotification, apiClient, fetchWithAuth),
+      () => useBiophysicalModeling({} as any, vi.fn(), { detectPocket: vi.fn() }, vi.fn()),
       { wrapper }
     );
 
     act(() => {
-      useVariantAnalysisStore.getState().setDdmutStatus("pending");
-      useVariantAnalysisStore.getState().setDdmutJobId("17893192007005534");
+      useVariantAnalysisStore.getState().setFoldingEnergetics({ foldx: 2.1, thermompnn: 1.5 } as any);
+      useVariantAnalysisStore.getState().setThermompnnStatus("done");
     });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-
-    expect(fetchWithAuth).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/ddmut-job/17893192007005534"), { signal: expect.any(AbortSignal) }
-    );
 
     const state = useVariantAnalysisStore.getState();
-    expect(state.ddmutStatus).toBe("done");
-    expect(state.foldingEnergetics?.ddmut).toBe(-0.45);
+    expect(state.thermompnnStatus).toBe("done");
+    expect(state.foldingEnergetics?.thermompnn).toBe(1.5);
   });
 
-  it("counts ThermoMPNN in the stability consensus when it finishes after FoldX", async () => {
-    const fetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ status: "DONE", prediction: 1.5 })
-    });
-
-    renderHook(
-      () => useBiophysicalModeling({} as any, vi.fn(), {}, fetchWithAuth),
-      { wrapper }
-    );
-
-    act(() => {
-      useVariantAnalysisStore.getState().setFoldingEnergetics({ foldx: 2.1, pendingTools: ["ThermoMPNN"] } as any);
-      useVariantAnalysisStore.getState().setThermompnnStatus("pending");
-      useVariantAnalysisStore.getState().setThermompnnJobId("tm-1");
-    });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-
-    const energetics = useVariantAnalysisStore.getState().foldingEnergetics as any;
-    expect(energetics.thermompnn).toBe(1.5);
-    expect(energetics.consensusEnginesCounted).toBe(2);
-  });
-
-  it("does not count ProtVar as FoldX in the stored verdict while local FoldX is still running", async () => {
-    const fetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ status: "DONE", prediction: 1.5 })
-    });
-
-    renderHook(
-      () => useBiophysicalModeling({} as any, vi.fn(), {}, fetchWithAuth),
-      { wrapper }
-    );
-
-    // ProtVar answered within seconds; local FoldX has no value yet and is still working.
-    act(() => {
-      useVariantAnalysisStore.getState().setIsFolding(true);
-      useVariantAnalysisStore.getState().setFoldingEnergetics({
-        foldx: null, foldxMean: null, protvar: 1.9, structureProvenance: { source: "alphafold" }, pendingTools: ["ThermoMPNN"]
-      } as any);
-      useVariantAnalysisStore.getState().setThermompnnStatus("pending");
-      useVariantAnalysisStore.getState().setThermompnnJobId("tm-2");
-    });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-
-    const energetics = useVariantAnalysisStore.getState().foldingEnergetics as any;
-    expect(energetics.thermompnn).toBe(1.5);
-    // Only ThermoMPNN counts; ProtVar waits for local FoldX to end.
-    expect(energetics.consensusEnginesCounted).toBe(1);
-  });
-
-  it("does not carry one job's 'still listening' flag onto a retried job", async () => {
-    /**
-     * Job 1 enters the slow "keep listening" mode (the provider answered UNAVAILABLE but retryable),
-     * which sets `dynamut2Listening` on the run record. A retry swaps the job id WITHOUT first
-     * ending the old poll, and the flag path used to survive it — the engine detail then read
-     * "Still listening" over a freshly queued request. The flag must be cleared on the job-id
-     * change; the new job sets it again only if IT goes silent.
-     */
-    const fetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ status: "UNAVAILABLE", retryable: true, error: "Provider did not answer." }),
-    });
-    const addNotification = vi.fn();
-    const apiClient = {};
-    const settings = {} as any;
-
-    // A value on the record first, so `setFoldingEnergetics` merges instead of ignoring an empty run.
-    useVariantAnalysisStore.getState().setFoldingEnergetics({ foldx: 2.5, foldxMean: 2.5 });
-
-    renderHook(() => useBiophysicalModeling(settings, addNotification, apiClient, fetchWithAuth), { wrapper });
-
-    act(() => {
-      useVariantAnalysisStore.getState().setDynamut2Status("pending");
-      useVariantAnalysisStore.getState().setDynamut2JobId("job-one");
-    });
-
-    // The transient failure turns the poll into listening mode and raises the flag.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    expect(useVariantAnalysisStore.getState().foldingEnergetics?.dynamut2Listening).toBe(true);
-
-    // A retry: fresh job id for the same engine.
-    act(() => {
-      useVariantAnalysisStore.getState().setDynamut2JobId("job-two");
-    });
-    expect(useVariantAnalysisStore.getState().foldingEnergetics?.dynamut2Listening).toBe(false);
-
-    // The new job starts clean and may enter listening again — for itself.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    expect(useVariantAnalysisStore.getState().dynamut2Status).toBe("pending");
-    expect(fetchWithAuth).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/dynamut2-job/job-two"),
-      expect.anything()
-    );
-  });
-
-  it("clears polling status and job ID when clearDynaMutPoll and clearDdmutPoll are invoked on abort", async () => {
-    const fetchWithAuth = vi.fn().mockImplementation(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ status: "RUNNING", prediction: null })
-    }));
-    const addNotification = vi.fn();
-    const apiClient = {};
-    const settings = {} as any;
-
+  it("detects pockets via apiClient and mirrors status into store", async () => {
+    const pocket = { pockets: [{ id: 1, probability: 0.85 }] };
+    const apiClient = { detectPocket: vi.fn().mockResolvedValue(pocket) };
     const { result } = renderHook(
-      () => useBiophysicalModeling(settings, addNotification, apiClient, fetchWithAuth),
+      () => useBiophysicalModeling({} as any, vi.fn(), apiClient, vi.fn()),
       { wrapper }
     );
 
-    act(() => {
-      useVariantAnalysisStore.getState().setDynamut2Status("pending");
-      useVariantAnalysisStore.getState().setDynamut2JobId("178931919574");
-      useVariantAnalysisStore.getState().setDdmutStatus("pending");
-      useVariantAnalysisStore.getState().setDdmutJobId("17893192007005534");
-    });
-
-    // Advance by 100ms so initial poll triggers
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
+      await result.current.fetchPocketInfo("ATOM 1 CA ALA A 1", "A", 42, "P00439");
     });
 
-    const callsBeforeAbort = fetchWithAuth.mock.calls.length;
-    expect(callsBeforeAbort).toBeGreaterThan(0);
-
-    // Call cleanup functions as abortAllPendingRequests would
-    act(() => {
-      result.current.clearDynaMutPoll();
-      result.current.clearDdmutPoll();
-    });
-
-    const state = useVariantAnalysisStore.getState();
-    expect(state.dynamut2Status).toBeNull();
-    expect(state.dynamut2JobId).toBeNull();
-    expect(state.ddmutStatus).toBeNull();
-    expect(state.ddmutJobId).toBeNull();
-
-    // Advance timers - no further calls should be made since status was reset and poller aborted
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15000);
-    });
-
-    expect(fetchWithAuth.mock.calls.length).toBe(callsBeforeAbort);
+    expect(apiClient.detectPocket).toHaveBeenCalledWith(
+      expect.objectContaining({ targetChain: "A", targetIndex: 42, uniprotId: "P00439" }),
+      undefined
+    );
+    expect(result.current.computedPocket).toEqual(pocket);
+    expect(useVariantAnalysisStore.getState().computedPocket).toEqual(pocket);
+    expect(result.current.isPocketLoading).toBe(false);
   });
 });

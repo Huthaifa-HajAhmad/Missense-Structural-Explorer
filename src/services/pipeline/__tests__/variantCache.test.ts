@@ -276,7 +276,7 @@ describe("saving evidence while FoldX is unfinished", () => {
 
   it("keeps the newest evidence in storage but not the unfinished FoldX numbers", () => {
     setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(1) });
-    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { foldingEnergetics: { pendingTools: ["ddmut"] }, foldingDdG: 2 });
+    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { foldingEnergetics: { pendingTools: ["thermompnn"] }, foldingDdG: 2 });
     setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(2) });
     expect(stored("PRELIM").analysisResult.version).toBe(2);
     expect(stored("PRELIM").foldingEnergetics).toBeUndefined();
@@ -284,7 +284,7 @@ describe("saving evidence while FoldX is unfinished", () => {
   });
 
   it("still holds the unfinished FoldX numbers in memory for this session", () => {
-    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(1), foldingDdG: 2, foldingEnergetics: { pendingTools: ["ddmut"] } });
+    setCachedVariant("PRELIM", "p.Ala1Val", "P1", { analysisResult: result(1), foldingDdG: 2, foldingEnergetics: { pendingTools: ["thermompnn"] } });
     expect(getCachedVariant("PRELIM", "p.Ala1Val")?.foldingDdG).toBe(2);
   });
 });

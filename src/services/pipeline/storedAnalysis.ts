@@ -67,29 +67,24 @@ export function reloadMayPaint(
 }
 
 export interface RestoredRemoteState {
-  dynamut2Status: string | null;
-  dynamut2JobId: string | null;
-  ddmutStatus: string | null;
-  ddmutJobId: string | null;
   thermompnnStatus: string | null;
-  thermompnnJobId: string | null;
 }
 
 export const NO_RESTORED_REMOTE_STATE: RestoredRemoteState = {
-  dynamut2Status: null, dynamut2JobId: null, ddmutStatus: null, ddmutJobId: null, thermompnnStatus: null, thermompnnJobId: null,
+  thermompnnStatus: null,
 };
 
 /**
- * Whether a saved remote-engine status can still be acted on. A pending engine can only recover if there
- * is a job id to poll, so age is not the question: "can anything still resolve this?" is.
+ * Whether a saved companion-engine status can still be acted on: synchronous ThermoMPNN has no
+ * background poller across page reloads, so a saved "pending" without a score settles to "unavailable".
  */
-function resolveRestoredStatus(status: string | null | undefined, score: number | null | undefined, jobId: string | null | undefined): string | null {
+function resolveRestoredStatus(status: string | null | undefined, score: number | null | undefined): string | null {
   if (score != null) return "done";
-  if (status === "pending" && !jobId) return "unavailable";
+  if (status === "pending") return "unavailable";
   return status ?? null;
 }
 
-type BiophysicalRestoreSink = Pick<PipelineBiophysicalSink, "setMutantPdb" | "setFoldedResidueIndex" | "setFoldingDdG" | "setFoldingEnergetics" | "setFoldingStatus" | "setFoldingError" | "setDynamut2JobId" | "setDynamut2Status" | "setDdmutJobId" | "setDdmutStatus" | "setThermompnnJobId" | "setThermompnnStatus" | "setThermompnnError"> & Partial<Pick<PipelineBiophysicalSink, "setFoldxWtPdb">>;
+type BiophysicalRestoreSink = Pick<PipelineBiophysicalSink, "setMutantPdb" | "setFoldedResidueIndex" | "setFoldingDdG" | "setFoldingEnergetics" | "setFoldingStatus" | "setFoldingError" | "setThermompnnStatus" | "setThermompnnError"> & Partial<Pick<PipelineBiophysicalSink, "setFoldxWtPdb">>;
 type StructureRestoreSink = Pick<PipelineStructureSink, "setPdbText" | "setComputedPocket" | "setHomologs" | "setDisruptionPredictor"> & Partial<Pick<PipelineStructureSink, "setPdbTextProvenance" | "setPocketError">>;
 
 /**
@@ -116,18 +111,8 @@ export function restoreStoredArtifacts(cached: CachedVariantBundle, biophysical:
   biophysical.setFoldingError(null);
 
   const remote: RestoredRemoteState = {
-    dynamut2Status: resolveRestoredStatus(cached.dynamut2Status, cached.foldingEnergetics?.dynamut2, cached.dynamut2JobId),
-    dynamut2JobId: cached.dynamut2JobId ?? null,
-    ddmutStatus: resolveRestoredStatus(cached.ddmutStatus, cached.foldingEnergetics?.ddmut, cached.ddmutJobId),
-    ddmutJobId: cached.ddmutJobId ?? null,
-    thermompnnStatus: resolveRestoredStatus(cached.thermompnnStatus, cached.foldingEnergetics?.thermompnn, cached.thermompnnJobId),
-    thermompnnJobId: cached.thermompnnJobId ?? null,
+    thermompnnStatus: resolveRestoredStatus(cached.thermompnnStatus, cached.foldingEnergetics?.thermompnn),
   };
-  biophysical.setDynamut2JobId(remote.dynamut2JobId);
-  biophysical.setDynamut2Status(remote.dynamut2Status as any);
-  biophysical.setDdmutJobId(remote.ddmutJobId);
-  biophysical.setDdmutStatus(remote.ddmutStatus as any);
-  biophysical.setThermompnnJobId(remote.thermompnnJobId);
   biophysical.setThermompnnStatus(remote.thermompnnStatus as any);
   biophysical.setThermompnnError(cached.thermompnnError ?? null);
   return remote;

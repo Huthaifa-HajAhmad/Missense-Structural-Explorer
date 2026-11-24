@@ -27,8 +27,7 @@ if (typeof document !== "undefined") {
  *      MODULE-SCOPE initialiser and is reachable from `middleware.ts` through a VALUE import of
  *      `PUBLIC_ENDPOINTS`, so merely importing the API router opened the real database. Two
  *      suites additionally `fs.rmSync`'d that same file.
- *   3. `AUDIT_LOG_PATH` / `JOB_REGISTRY_PATH` — route tests appended real records to
- *      `logs/audit.jsonl` and deleted the live `temp_jobs/job_registry.json`.
+ *   3. `AUDIT_LOG_PATH` — route tests appended real records to `logs/audit.jsonl`.
  *   4. `RASP_CSV_PATH` / `RASP_SQLITE_PATH` — `energy-models.test.ts` overwrote the real
  *      414 MB `data/df_rasp_gnomad_clinvar.csv` with a five-line mock and restored it only in
  *      `afterAll`, so an interrupt, timeout or OOM destroyed it permanently. This is the
@@ -49,7 +48,6 @@ const TEST_STATE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "missense-test-sta
 const TEST_STATE_ENV: Record<string, string> = {
   SHARED_STATE_DB_PATH: path.join(TEST_STATE_ROOT, "data", "shared_state.sqlite"),
   AUDIT_LOG_PATH: path.join(TEST_STATE_ROOT, "logs", "audit.jsonl"),
-  JOB_REGISTRY_PATH: path.join(TEST_STATE_ROOT, "temp_jobs", "job_registry.json"),
   RASP_CSV_PATH: path.join(TEST_STATE_ROOT, "data", "df_rasp_gnomad_clinvar.csv"),
   RASP_SQLITE_PATH: path.join(TEST_STATE_ROOT, "data", "df_rasp_gnomad_clinvar.sqlite"),
   /**
@@ -57,8 +55,7 @@ const TEST_STATE_ENV: Record<string, string> = {
    *
    * These were the last unredirectable real-state deleters: the handler used hardcoded
    * `process.cwd()` paths and read no variable, and a route suite calls it directly, so every
-   * suite run emptied the developer's real `logs/foldx_cache` (hours of recomputation) and
-   * deleted the live job registry.
+   * suite run emptied the developer's real `logs/foldx_cache` (hours of recomputation).
    */
   FOLDX_CACHE_DIR: path.join(TEST_STATE_ROOT, "logs", "foldx_cache"),
   GEMINI_CACHE_DIR: path.join(TEST_STATE_ROOT, "logs", "gemini_cache"),

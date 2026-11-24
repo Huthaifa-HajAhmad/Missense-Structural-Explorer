@@ -9,15 +9,8 @@ export function usePipelineAbortController() {
   const mutantFoldAbortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<number>(0);
 
-  const abortAllPendingRequests = useCallback((
-    clearDynaMutPoll?: () => void,
-    clearDdmutPoll?: () => void,
-    clearThermoMpnnPoll?: () => void
-  ) => {
+  const abortAllPendingRequests = useCallback(() => {
     activeRequestIdRef.current += 1;
-    if (clearDynaMutPoll) clearDynaMutPoll();
-    if (clearDdmutPoll) clearDdmutPoll();
-    if (clearThermoMpnnPoll) clearThermoMpnnPoll();
     if (analysisAbortRef.current) {
       try {
         analysisAbortRef.current.abort();

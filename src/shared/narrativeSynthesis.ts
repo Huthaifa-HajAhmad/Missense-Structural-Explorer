@@ -121,7 +121,7 @@ export const NARRATIVE_PROMPT_EVIDENCE = {
     "phyloP",
     "STRING partners",
     "screening-selected literature abstracts and curated citation relationships",
-    "deep-model ΔΔG engines (FoldX, DynaMut2, DDMut, RaSP, ThermoMPNN, StabilityOracle)",
+    "deep-model ΔΔG engines (FoldX, RaSP, ThermoMPNN, StabilityOracle)",
   ],
   notSent: ["gnomAD frequency", "gene constraint", "functional domains", "splicing", "3D structure"],
 } as const;

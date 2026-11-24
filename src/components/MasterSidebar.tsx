@@ -70,8 +70,6 @@ interface MasterSidebarProps {
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
   isPocketLoading?: boolean;
-  dynamut2Status?: string | null;
-  ddmutStatus?: string | null;
   isNarrativeLoading?: boolean;
   isLoadingSearch?: boolean;
   loadingStep?: string;
@@ -353,8 +351,6 @@ function MasterSidebar({
   isBiophysicalLoading = false,
   isClinicalLoading = false,
   isPocketLoading = false,
-  dynamut2Status = null,
-  ddmutStatus = null,
   isNarrativeLoading = false,
   isLoadingSearch = false,
   loadingStep = "",
@@ -515,8 +511,6 @@ function MasterSidebar({
       isLoadingSearch,
       loadingStep,
       isPocketLoading,
-      dynamut2Status,
-      ddmutStatus,
       isNarrativeLoading,
       hasStructureCoordinates: Boolean(loadedPdb),
       landscapeOverviewStatus: overviewStatus,

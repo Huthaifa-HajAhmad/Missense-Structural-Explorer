@@ -24,11 +24,6 @@ const makeSink = () => ({
   setFoldedResidueIndex: vi.fn(),
   setFoldingDdG: vi.fn(),
   setFoldingEnergetics: vi.fn(),
-  setDynamut2JobId: vi.fn(),
-  setDynamut2Status: vi.fn(),
-  setDdmutJobId: vi.fn(),
-  setDdmutStatus: vi.fn(),
-  setThermompnnJobId: vi.fn(),
   setThermompnnStatus: vi.fn(),
   setThermompnnError: vi.fn(),
   setFoldxWtPdb: vi.fn()
@@ -179,12 +174,7 @@ describe("foldxService", () => {
         ddG: 2.34,
         energetics: { totalEnergy: 10.5 },
         provenance: { structureSource: "alphafold", foldxVersion: "5.0" },
-        dynamut2JobId: "dyn-abc",
-        dynamut2Status: "pending",
-        ddmutJobId: "ddm-xyz",
-        ddmutStatus: "pending",
-        thermompnnJobId: "tm-123",
-        thermompnnStatus: "pending",
+        thermompnnStatus: "done",
         thermompnnError: null
       })
     });
@@ -206,12 +196,7 @@ describe("foldxService", () => {
     expect(sink.setMutantPdb).toHaveBeenCalledWith("ATOM 1 N ...");
     expect(sink.setFoldingDdG).toHaveBeenCalledWith(2.34);
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
-    expect(sink.setDynamut2JobId).toHaveBeenCalledWith("dyn-abc");
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith("pending");
-    expect(sink.setDdmutJobId).toHaveBeenCalledWith("ddm-xyz");
-    expect(sink.setDdmutStatus).toHaveBeenCalledWith("pending");
-    expect(sink.setThermompnnJobId).toHaveBeenCalledWith("tm-123");
-    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("pending");
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("done");
     expect(sink.setIsFolding).toHaveBeenLastCalledWith(false);
   });
 
@@ -305,10 +290,7 @@ describe("foldxService", () => {
           json: async () => ({
             status: "queued",
             foldxJobId: "job-999",
-            dynamut2JobId: "dyn-123",
-            dynamut2Status: "pending",
-            ddmutJobId: "ddm-123",
-            ddmutStatus: "pending"
+            thermompnnStatus: "pending"
           })
         };
       }
@@ -342,10 +324,7 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    expect(sink.setDynamut2JobId).toHaveBeenCalledWith("dyn-123");
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith("pending");
-    expect(sink.setDdmutJobId).toHaveBeenCalledWith("ddm-123");
-    expect(sink.setDdmutStatus).toHaveBeenCalledWith("pending");
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("pending");
     expect(sink.setMutantPdb).toHaveBeenCalledWith("ATOM MUT ...");
     expect(sink.setFoldingDdG).toHaveBeenCalledWith(1.8);
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("success");
@@ -393,10 +372,7 @@ describe("foldxService", () => {
           json: async () => ({
             status: "queued",
             foldxJobId: "job-fail-1",
-            dynamut2JobId: "dyn-early-1",
-            dynamut2Status: "pending",
-            ddmutJobId: "ddm-early-1",
-            ddmutStatus: "pending"
+            thermompnnStatus: "pending"
           })
         };
       }
@@ -425,10 +401,7 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    expect(sink.setDynamut2JobId).toHaveBeenCalledWith("dyn-early-1");
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith("pending");
-    expect(sink.setDdmutJobId).toHaveBeenCalledWith("ddm-early-1");
-    expect(sink.setDdmutStatus).toHaveBeenCalledWith("pending");
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
   });
 
@@ -512,12 +485,11 @@ describe("foldxService", () => {
   });
 
   /**
-   * An engine reported as "pending" with no job id can never be resolved: `useJobPoller` needs an
-   * id to start, and the SSE channel for these engines is only emitted from that poller's own
-   * handler. The end of the FoldX run is the last moment anything could settle it, so it must not
-   * be left pending — that is what produced a permanent "Simulating…" row.
+   * Synchronous ThermoMPNN runs inside the FoldX job or background remote-submissions token wait;
+   * a "pending" status that reaches the end of the FoldX pipeline without a value must not stay
+   * stuck as "Simulating…".
    */
-  it("settles a pending engine that has no job id to poll", async () => {
+  it("settles a pending ThermoMPNN status on a completed run when no value arrived", async () => {
     const mockFetchWithAuth = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -525,12 +497,7 @@ describe("foldxService", () => {
         pdb: "ATOM 1 N ...",
         ddG: 1.5,
         energetics: { foldx: 1.5 },
-        dynamut2Status: "pending",
-        dynamut2JobId: null,
-        ddmutStatus: "pending",
-        ddmutJobId: "ddm-live-1",
-        thermompnnStatus: "pending",
-        thermompnnJobId: null
+        thermompnnStatus: "pending"
       })
     });
 
@@ -547,16 +514,11 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    // Unreachable engines become terminal...
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
+    // Unreachable pending status settles cleanly instead of staying "pending".
     expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
-    // ...while an engine with a live poller is left to report its own outcome.
-    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
   });
 
-  it("collects job ids a cache-hit response could not carry, instead of settling to no result", async () => {
-    // The cache-hit route answers before the BioSig submissions return an id, and now hands back a
-    // token to collect them. Settling first is what turned DDMut/DynaMut2 into "No result".
+  it("collects background ThermoMPNN results a cache-hit response carried via token", async () => {
     const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
       if (url.includes("/generate-mutant")) {
         return {
@@ -566,10 +528,7 @@ describe("foldxService", () => {
             pdb: "ATOM",
             ddG: 1.5,
             energetics: { foldx: 1.5 },
-            dynamut2Status: "pending",
-            dynamut2JobId: null,
-            ddmutStatus: "pending",
-            ddmutJobId: null,
+            thermompnnStatus: "pending",
             remoteSubmissionToken: "11111111-2222-4333-8444-555555555555"
           })
         };
@@ -579,10 +538,8 @@ describe("foldxService", () => {
         ok: true,
         json: async () => ({
           settled: true,
-          dynamut2JobId: "178940463982",
-          dynamut2Status: "pending",
-          ddmutJobId: null,
-          ddmutStatus: "unavailable"
+          thermompnnStatus: "done",
+          thermompnnVal: 1.2
         })
       };
     });
@@ -600,18 +557,17 @@ describe("foldxService", () => {
     });
 
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
-    expect(sink.setDynamut2JobId).toHaveBeenCalledWith("178940463982");
-    // An engine that now has a live poller is not settled away...
-    expect(sink.setDynamut2Status).not.toHaveBeenCalledWith(null);
-    // ...and one whose submission failed carries that fact, not a blank.
-    expect(sink.setDdmutStatus).toHaveBeenCalledWith("unavailable");
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("done");
+    expect(sink.setThermompnnStatus).not.toHaveBeenCalledWith(null);
+    const updates = sink.setFoldingEnergetics.mock.calls.map((call: any[]) => call[0]);
+    const finalEnergetics = updates.reduce(
+      (acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater),
+      undefined
+    );
+    expect(finalEnergetics?.thermompnn).toBe(1.2);
   });
 
-  it("marks the engines a refused session severed, and clears the record when a fresh run starts", async () => {
-    // The remote-submission collection got a terminal 401 after re-auth. The engines left
-    // pending with no job id have no route to a result AND a known cause; they must resolve as
-    // Paused rather than a causeless "No result", while an engine with a live poller is not
-    // claimed (its route still exists).
+  it("marks ThermoMPNN when a refused session severs its wait, and clears the record when a fresh run starts", async () => {
     const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
       if (url.includes("/generate-mutant")) {
         return {
@@ -621,10 +577,7 @@ describe("foldxService", () => {
             pdb: "ATOM",
             ddG: 1.5,
             energetics: { foldx: 1.5 },
-            dynamut2Status: "pending",
-            dynamut2JobId: null,
-            ddmutStatus: "pending",
-            ddmutJobId: "d3d-mu7-live",
+            thermompnnStatus: "pending",
             remoteSubmissionToken: "c0ffee00-2222-4333-8444-555555555555"
           })
         };
@@ -649,24 +602,16 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    // The updater chain on foldingEnergetics must end at exactly the one interrupted engine,
-    // starting from the fresh run's cleared record.
     const updates = sink.setFoldingEnergetics.mock.calls.map((call: any[]) => call[0]);
     const finalEnergetics = updates.reduce(
       (acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater),
       undefined
     );
-    expect(finalEnergetics.energeticsAuthLapsed).toEqual({ dynamut2: true });
-
-    // The spinner still settles: the pause NAMES the state, it does not keep an engine running.
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
-    // An engine whose poller was live keeps running; it is not claimed by the lapse.
-    expect(finalEnergetics.energeticsAuthLapsed.ddmut).toBeUndefined();
+    expect(finalEnergetics.energeticsAuthLapsed).toEqual({ thermompnn: true });
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
   });
 
   it("does not claim a pause when the session lapse touches no interrupted engine", async () => {
-    // All pending engines had ids: the 401 severed nothing the resolver could mislabel, so the
-    // energetics record stays empty and every engine keeps its own state.
     const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
       if (url.includes("/generate-mutant")) {
         return {
@@ -676,10 +621,7 @@ describe("foldxService", () => {
             pdb: "ATOM",
             ddG: 1.5,
             energetics: { foldx: 1.5 },
-            dynamut2Status: "pending",
-            dynamut2JobId: "dyn-live",
-            ddmutStatus: "pending",
-            ddmutJobId: "ddm-live",
+            thermompnnStatus: "done",
             remoteSubmissionToken: "beefcafe-2222-4333-8444-555555555555"
           })
         };
@@ -709,29 +651,12 @@ describe("foldxService", () => {
   });
 
   it("settles pending engines on the ERROR exits, not only on the terminal commits", async () => {
-    /**
-     * The defect: the settle helper ran on the three terminal commits only, and it was defined
-     * INSIDE the `try`, so the `catch` could not reach it at all.
-     *
-     * That matters because the error exits are exactly the paths that leave a remote engine at
-     * "pending" with a null job id — the POST seeds that state before its submission race resolves,
-     * so the id is genuinely unknown when the run dies. `useJobPoller` refuses to start without an
-     * id, so nothing could ever resolve it, and the UI read "Calculation in progress" indefinitely
-     * while `summarizeCoverage` kept counting the engine as running.
-     *
-     * This uses the queued-with-no-jobId branch, which throws immediately — no poll backoff.
-     */
     const mockFetchWithAuth = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         status: "queued",
         foldxJobId: null,
-        dynamut2Status: "pending",
-        dynamut2JobId: null,
-        ddmutStatus: "pending",
-        ddmutJobId: "ddm-live-2",
         thermompnnStatus: "pending",
-        thermompnnJobId: null,
       }),
     });
 
@@ -748,159 +673,11 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1,
     });
 
-    // The run failed...
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
-    // ...and the engines it left behind are terminal rather than stuck at "pending".
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
     expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
-    // An engine whose poller is live is still left alone.
-    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
-  });
-
-  it("does not settle an engine whose job id the variant ALREADY had", async () => {
-    /**
-     * Item 5 of the plan. The store can hold a live poller's id from a restored bundle while this
-     * run's POST omits it — the 1.5 s submission race the settle's own comment describes. Settling
-     * would write a terminal status, and `useJobPoller` is gated on `status === "pending"`, so it
-     * would tear the LIVE poller down and discard the result it was about to deliver.
-     */
-    const mockFetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: "queued",
-        foldxJobId: null,
-        dynamut2Status: "pending",
-        dynamut2JobId: null,
-        ddmutStatus: "pending",
-        ddmutJobId: null,
-      }),
-    });
-
-    const sink: any = makeSink();
-
-    await executeFoldxPipeline({
-      uniprotId: "P00439",
-      variant: "p.Arg408Trp",
-      residueIndex: 408,
-      fetchWithAuth: mockFetchWithAuth,
-      sink,
-      signal: new AbortController().signal,
-      requestId: 1,
-      getActiveRequestId: () => 1,
-      initialRemoteState: {
-        dynamut2Status: "pending",
-        dynamut2JobId: "dyn-live-9",
-        ddmutStatus: "pending",
-        ddmutJobId: null,
-      },
-    });
-
-    // The engine with a live id is left to its poller...
-    expect(sink.setDynamut2Status).not.toHaveBeenCalledWith(null);
-    // ...the one without is settled, because nothing can ever resolve it.
-    expect(sink.setDdmutStatus).toHaveBeenCalledWith(null);
-  });
-
-  it("does not settle an engine whose live job id the store already holds, on the TERMINAL path", async () => {
-    /**
-     * F4/R3-1, and the half of the settle fix that was still missing.
-     *
-     * Three of the four settle sites were fed this attempt's response rather than the merged view, so a
-     * POST that omits an id the store is polling read as "pending with no id" — and the settle cleared
-     * the status, tearing down the `useJobPoller` that was about to deliver the result. The CATCH path
-     * was already correct, which is exactly why the earlier tests could not see this: they drove the
-     * catch, the least important of the four.
-     */
-    const mockFetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: "completed",
-        pdb: "ATOM MUT ...",
-        ddG: 1.5,
-        energetics: { foldx: 1.5 },
-        // The store holds both engines as pending with live ids; this response omits the ids, which is
-        // the ordinary submission race.
-        dynamut2Status: "pending",
-        ddmutStatus: "pending",
-      }),
-    });
-
-    const sink: any = makeSink();
-
-    await executeFoldxPipeline({
-      uniprotId: "P00439",
-      variant: "p.Arg408Trp",
-      residueIndex: 408,
-      fetchWithAuth: mockFetchWithAuth,
-      sink,
-      signal: new AbortController().signal,
-      requestId: 1,
-      getActiveRequestId: () => 1,
-      initialRemoteState: {
-        dynamut2Status: "pending",
-        dynamut2JobId: "dyn-live-9",
-        ddmutStatus: "pending",
-        ddmutJobId: "ddm-live-9",
-      },
-    });
-
-    expect(
-      sink.setDynamut2Status,
-      "the settle cleared a status whose live poller it was about to discard the result of"
-    ).not.toHaveBeenCalledWith(null);
-    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
-  });
-
-  it("does not let a response that omits a job id erase one the variant already had", async () => {
-    /**
-     * R3-2. The persisted bundle is what the restore path seeds `initialRemoteState` from, so a cache
-     * write that REPLACES instead of merging loses the id the settle then needs — and the live poller
-     * that id belongs to is torn down. The sink writes already guarded with
-     * `if (data.xJobId != null)`, which is the evidence that omitted ids are expected.
-     */
-    clearClientVariantCache();
-
-    const mockFetchWithAuth = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: "completed",
-        pdb: "ATOM 1 N ...",
-        ddG: 1.5,
-        energetics: { foldx: 1.5 },
-        dynamut2Status: "pending",
-        dynamut2JobId: null,
-        ddmutStatus: "pending",
-        ddmutJobId: null,
-      }),
-    });
-
-    const sink: any = makeSink();
-
-    await executeFoldxPipeline({
-      uniprotId: "P00439",
-      variant: "p.Arg408Trp",
-      residueIndex: 408,
-      fetchWithAuth: mockFetchWithAuth,
-      sink,
-      signal: new AbortController().signal,
-      requestId: 1,
-      getActiveRequestId: () => 1,
-      initialRemoteState: { dynamut2Status: "pending", dynamut2JobId: "dyn-live-1" },
-    });
-
-    const cached = getCachedVariant("P00439", "p.Arg408Trp");
-    expect(
-      cached?.dynamut2JobId,
-      "the cache write replaced the id instead of merging, so the settle can no longer see it"
-    ).toBe("dyn-live-1");
   });
 
   it("settles engines the variant already had pending, even on an exit that throws before the POST returns", async () => {
-    /**
-     * Item 4 of the plan. A non-ok response throws before the POST's statuses can be captured, so
-     * without the seeded state the catch settled an empty object and the engines stayed `pending`
-     * with no poller — the original stuck-"Running" defect, still live on this path.
-     */
     const mockFetchWithAuth = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
@@ -919,15 +696,11 @@ describe("foldxService", () => {
       requestId: 1,
       getActiveRequestId: () => 1,
       initialRemoteState: {
-        dynamut2Status: "pending",
-        dynamut2JobId: null,
         thermompnnStatus: "pending",
-        thermompnnJobId: null,
       },
     });
 
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
     expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
   });
 
@@ -939,8 +712,7 @@ describe("foldxService", () => {
           json: async () => ({
             status: "queued",
             foldxJobId: "job-fail-2",
-            dynamut2Status: "pending",
-            dynamut2JobId: null
+            thermompnnStatus: "pending",
           })
         };
       }
@@ -963,7 +735,7 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
   });
 

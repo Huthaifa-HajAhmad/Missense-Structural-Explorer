@@ -3,8 +3,7 @@
  *
  * Takes the per-variant FoldX rows from scripts/foldx-repair-benchmark.ts, adds ThermoMPNN and StabilityOracle through the same
  * sidecar endpoints the app uses, and feeds all three into the shipped `buildEnergeticsEvidence`, so the verdict tested is the
- * one users see. Only these engines run: DynaMut2 and DDMut are remote academic services and are not for bulk use, and RaSP is
- * a table keyed by accession. So this is the verdict over 3 of 6 engines, and the report says so.
+ * one users see. RaSP is a table keyed by accession, so this benchmarks the verdict over 3 of 4 engines, and the report says so.
  *
  * Needs a running sidecar:  SIDECAR_SECRET=... SIDECAR_PORT=8011 tools/.venv/Scripts/python.exe tools/model_server.py
  *
@@ -99,7 +98,7 @@ export function buildRow(f: FoldxRow, e: EngineRow): Row | null {
   if (e.thermompnn === null || e.stabilityoracle === null) return null;
   const foldx = f.residues <= 233 ? (f.ddg.full as number) : (f.ddg.local as number);
   const evidence = (energetics: Record<string, unknown>) =>
-    buildEnergeticsEvidence({ foldingStatus: "success", foldingEnergetics: { ...energetics, dynamut2: null, ddmut: null, rasp: null, structureProvenance: { source: "experimental", chainId: f.chain } }, dynamut2Status: "unavailable", ddmutStatus: "unavailable", thermompnnStatus: "done" });
+    buildEnergeticsEvidence({ foldingStatus: "success", foldingEnergetics: { ...energetics, rasp: null, structureProvenance: { source: "experimental", chainId: f.chain } }, thermompnnStatus: "done" });
   const all = evidence({ foldx, foldxMean: foldx, thermompnn: e.thermompnn, stabilityoracle: e.stabilityoracle });
   const riskBand = (id: string) => {
     const risk = all.readings.find(r => r.key === id)?.outcome.risk?.id;

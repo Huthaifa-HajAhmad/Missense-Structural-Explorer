@@ -54,7 +54,7 @@ describe("deriveConsensus — the export path's verdict", () => {
 
     const derived = deriveConsensus({
       result: resultWith(),
-      foldingEnergetics: { foldx: 2.0, dynamut2: -1.0, ddmut: -1.0, rasp: 1.5 },
+      foldingEnergetics: { foldx: 2.0, rasp: 1.5, thermompnn: 1.0, stabilityoracle: 1.0 },
     });
     expect(derived?.consensusVerdict).toBeTruthy();
   });
@@ -96,10 +96,10 @@ describe("deriveConsensus — the export path's verdict", () => {
      * sourcing differently, this fails.
      */
     const cases = [
-      { foldx: 2.0, dynamut2: -1.5, ddmut: -1.2, rasp: 1.4, thermompnn: 1.1, stabilityoracle: 1.3 },
-      { foldx: -1.0, dynamut2: -2.0, thermompnn: -0.5 },
+      { foldx: 2.0, rasp: 1.4, thermompnn: 1.1, stabilityoracle: 1.3 },
+      { foldx: -1.0, rasp: -0.8, thermompnn: -0.5 },
       { foldx: 0.5, rasp: 0.6 },
-      { dynamut2: -0.09 },
+      { stabilityoracle: 0.09 },
     ];
 
     for (const fe of cases) {
@@ -150,7 +150,7 @@ describe("deriveConsensus — the export path's verdict", () => {
       result: resultWith(),
       foldingEnergetics: {
         foldx: -1.0,
-        dynamut2: -2.0,
+        rasp: -0.8,
         thermompnn: -0.5,
         consensusVerdict: "Low Misfolding Risk (Neutral Stability)",
       },
@@ -173,7 +173,7 @@ describe("buildExportVerdictContext — what the export actually passes", () => 
       result: resultWith(),
       foldingEnergetics: {
         foldx: -1.0,
-        dynamut2: -2.0,
+        rasp: -0.8,
         thermompnn: -0.5,
         consensusVerdict: "Low Misfolding Risk (Neutral Stability)",
       },

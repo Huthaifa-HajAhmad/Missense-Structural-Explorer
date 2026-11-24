@@ -3,7 +3,7 @@
  * (doc/COMPUTE_ROUTING_PLAN.md WP-I2).
  *
  * `getCachedOrFetch` already does this for registry caches. The expensive remote calls that keep their
- * own caches (JapanFold models, SpliceAI, DynaMut2 and DDMut submits) use this instead, so two people
+ * own caches (JapanFold models, SpliceAI) use this instead, so two people
  * asking for the same answer at the same time cause one call to the provider.
  *
  * The shared work must not use any one caller's AbortSignal: one person closing the tab would fail the

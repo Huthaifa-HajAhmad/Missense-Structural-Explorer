@@ -80,20 +80,10 @@ export interface BiophysicalState {
   foldingDdG: number | null;
   /** @deprecated Use primaryBiophysics.foldingEnergetics */
   foldingEnergetics: EnergeticsData | null;
-  /** @deprecated Use primaryBiophysics.dynamut2Status */
-  dynamut2Status: string | null;
-  /** @deprecated Use primaryBiophysics.dynamut2JobId */
-  dynamut2JobId: string | null;
-  /** @deprecated Use primaryBiophysics.ddmutStatus */
-  ddmutStatus: string | null;
-  /** @deprecated Use primaryBiophysics.ddmutJobId */
-  ddmutJobId: string | null;
   /** @deprecated Use primaryBiophysics.thermompnnStatus */
   thermompnnStatus: string | null;
   /** @deprecated Use primaryBiophysics.thermompnnError */
   thermompnnError: string | null;
-  /** @deprecated Use primaryBiophysics.thermompnnJobId */
-  thermompnnJobId: string | null;
   /** @deprecated Use primaryBiophysics.structuralDiff */
   structuralDiff: StructuralDiffResult | null;
 
@@ -128,13 +118,8 @@ export interface BiophysicalActions {
   setFoldingStatus: (foldingStatus: string | null) => void;
   setFoldingDdG: (foldingDdG: number | null) => void;
   setFoldingEnergetics: (foldingEnergetics: any | null | ((prev: any) => any)) => void;
-  setDynamut2Status: (dynamut2Status: string | null) => void;
-  setDynamut2JobId: (dynamut2JobId: string | null) => void;
-  setDdmutStatus: (ddmutStatus: string | null) => void;
-  setDdmutJobId: (ddmutJobId: string | null) => void;
   setThermompnnStatus: (thermompnnStatus: string | null) => void;
   setThermompnnError: (thermompnnError: string | null) => void;
-  setThermompnnJobId: (thermompnnJobId: string | null) => void;
   setStructuralDiff: (structuralDiff: any | null) => void;
 
   // Flat Comparison Setters (retained for 100% backward compatibility)
@@ -169,13 +154,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   foldingStatus: null,
   foldingDdG: null,
   foldingEnergetics: null,
-  dynamut2Status: null,
-  dynamut2JobId: null,
-  ddmutStatus: null,
-  ddmutJobId: null,
   thermompnnStatus: null,
   thermompnnError: null,
-  thermompnnJobId: null,
   structuralDiff: null,
 
   // Flat Comparison
@@ -198,13 +178,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
       ...(partial.foldingStatus !== undefined ? { foldingStatus: partial.foldingStatus } : {}),
       ...(partial.foldingDdG !== undefined ? { foldingDdG: partial.foldingDdG } : {}),
       ...(partial.foldingEnergetics !== undefined ? { foldingEnergetics: partial.foldingEnergetics } : {}),
-      ...(partial.dynamut2Status !== undefined ? { dynamut2Status: partial.dynamut2Status } : {}),
-      ...(partial.dynamut2JobId !== undefined ? { dynamut2JobId: partial.dynamut2JobId } : {}),
-      ...(partial.ddmutStatus !== undefined ? { ddmutStatus: partial.ddmutStatus } : {}),
-      ...(partial.ddmutJobId !== undefined ? { ddmutJobId: partial.ddmutJobId } : {}),
       ...(partial.thermompnnStatus !== undefined ? { thermompnnStatus: partial.thermompnnStatus } : {}),
       ...(partial.thermompnnError !== undefined ? { thermompnnError: partial.thermompnnError } : {}),
-      ...(partial.thermompnnJobId !== undefined ? { thermompnnJobId: partial.thermompnnJobId } : {}),
       ...(partial.structuralDiff !== undefined ? { structuralDiff: partial.structuralDiff } : {}),
     };
   }),
@@ -220,13 +195,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     foldingStatus: null,
     foldingDdG: null,
     foldingEnergetics: null,
-    dynamut2Status: null,
-    dynamut2JobId: null,
-    ddmutStatus: null,
-    ddmutJobId: null,
     thermompnnStatus: null,
     thermompnnError: null,
-    thermompnnJobId: null,
     structuralDiff: null,
   }),
 
@@ -292,22 +262,6 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
       primaryBiophysics: { ...state.primaryBiophysics, foldingEnergetics: val }
     };
   }),
-  setDynamut2Status: (dynamut2Status) => set((state) => ({
-    dynamut2Status,
-    primaryBiophysics: { ...state.primaryBiophysics, dynamut2Status }
-  })),
-  setDynamut2JobId: (dynamut2JobId) => set((state) => ({
-    dynamut2JobId,
-    primaryBiophysics: { ...state.primaryBiophysics, dynamut2JobId }
-  })),
-  setDdmutStatus: (ddmutStatus) => set((state) => ({
-    ddmutStatus,
-    primaryBiophysics: { ...state.primaryBiophysics, ddmutStatus }
-  })),
-  setDdmutJobId: (ddmutJobId) => set((state) => ({
-    ddmutJobId,
-    primaryBiophysics: { ...state.primaryBiophysics, ddmutJobId }
-  })),
   setThermompnnStatus: (thermompnnStatus) => set((state) => ({
     thermompnnStatus,
     primaryBiophysics: { ...state.primaryBiophysics, thermompnnStatus }
@@ -315,10 +269,6 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   setThermompnnError: (thermompnnError) => set((state) => ({
     thermompnnError,
     primaryBiophysics: { ...state.primaryBiophysics, thermompnnError }
-  })),
-  setThermompnnJobId: (thermompnnJobId) => set((state) => ({
-    thermompnnJobId,
-    primaryBiophysics: { ...state.primaryBiophysics, thermompnnJobId }
   })),
   setStructuralDiff: (structuralDiff) => set((state) => ({
     structuralDiff,
@@ -345,13 +295,8 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     foldingStatus: null,
     foldingDdG: null,
     foldingEnergetics: null,
-    dynamut2Status: null,
-    ddmutStatus: null,
     thermompnnStatus: null,
     thermompnnError: null,
-    dynamut2JobId: null,
-    ddmutJobId: null,
-    thermompnnJobId: null,
     structuralDiff: null,
     computedPocket: null,
     isPocketLoading: false,

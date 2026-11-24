@@ -189,7 +189,6 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
       "electrostatics": -0.45,
       "stericClashWarning": false,
       "localSidechainRmsd": 1.12,
-      "dynamut2": null,
       "consensusVerdict": "Destabilizing (Engines Agree)"
     }
   }
@@ -403,22 +402,11 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Description**: Proxies coordinate fetching for AlphaFold models from the EMBL-EBI CDN to bypass browser cross-origin constraints.
 * **Absence contract**: AlphaFold DB models single chains only up to **2,700 aa**. For a longer UniProt entry the route can never serve a full-length model, so it answers `404 NOT_FOUND` with the response header `X-Alphafold-Absence: beyond-length-limit` and a message naming the sequence length and the ceiling (e.g. PKD1 / `P98161`, 4,302 aa). The marker is sent only when the length is known to exceed the limit — an unreadable length, an entry missing within the limit, and upstream failures all keep the generic, unmarked `404` (or `500`) so a real fault is never silenced.
 
-### 12. Submit Biophysical Stability Job
-* **Routes**: 
-  - `POST /api/v1/dynamut2-submit`
-  - `POST /api/v1/ddmut-submit`
-  - `POST /api/v1/thermompnn-submit`
+### 12. Retry Local ThermoMPNN
+* **Route**: `POST /api/v1/thermompnn-submit`
 * **Auth**: 🔒 (Bearer Token)
-* **Request Body**: (JSON payload containing mutation coordinates and parameters)
-* **Description**: Starts an asynchronous stability job via remote server request and returns a tracking `jobId` immediately.
-
-### 13. Poll Biophysical Stability Job
-* **Routes**: 
-  - `GET /api/v1/dynamut2-job/:jobId`
-  - `GET /api/v1/ddmut-job/:jobId`
-  - `GET /api/v1/thermompnn-job/:jobId`
-* **Auth**: 🔒 (Bearer Token)
-* **Description**: Retrieves current simulation execution progress. Once complete, returns stability change values (ddG) and status values.
+* **Request Body**: `{ "wtPdb": "...", "mutation": "FA47A" }`
+* **Description**: Runs synchronous local ThermoMPNN prediction via the Python model sidecar against the supplied wild-type PDB and mutation (`thermompnnStatus`, `prediction`, `error`). Legacy DynaMut2 and DDMut submit/poll routes were retired in Phase 6 (`doc/IN_SILICO_PRUNING_PLAN.md`).
 
 ### 14. Structural Diff & Superposition
 * **Routes**:
@@ -452,12 +440,12 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   | `providers[]` | hosts paused after a 429 (or 503 with `Retry-After`) or rate-limiting us in the last 15 minutes: `state`, `pausedUntil`, `retryAfterSec`, `recentRateLimits`, `wouldHold`, `limitBasis` |
   | `otherPausedOrRateLimitedHosts` | how many such hosts are not named (request-chosen endpoints); absent when 0 |
   | `governor[]` | per provider seen since start-up: `maxConcurrent`, `inFlight`, `waiting`, `ratePerMin` (null = concurrency only), `limitBasis` (`documented`, `configured`, `observed`, `unmeasured`), `source`, and counts `calls`, `held`, `wouldHold`, `refused`, `rateLimits`; request-chosen hosts are summed into one `other` entry |
-  | `credentials` | how the team's Tamarind token is lent (WP-I4): `fallback` (`on`, `limited`, `off`), `sharePerHour`, and `teamTokens` (which exist); no tokens, hashes or per-person counts |
+  | `credentials` | how the team's JapanFold token is lent (WP-I4): `fallback` (`on`, `limited`, `off`), `sharePerHour`, and `teamTokens` (which exist); no tokens, hashes or per-person counts |
   | `staleServes` | by cache source (for example `UniProt FASTA`): `served` (under `on`) and `wouldServe` (under `shadow`), the expired cache entries returned instead of an error while a provider limited requests |
 
   Hostnames, cache source labels and counts only: no tokens, query strings or user ids. The JapanFold reachability check behind `engines[].japanfold.reachable` is cached for 60 s.
 
-* **`X-MSE-Credentials` (any `/api/v1` response)**: whose token the response's Tamarind calls used: `[{"kind":"tamarind","source":"own"}]`, `source` `own` (sent with the request or saved to the account) or `team`, or `none` with `refusal` `team-token-off` / `team-share-used`. Absent when no such call was made (a cached result). The streamed analysis ends with a `{"type":"credentials","uses":[...]}` frame instead. Exposed to allowed cross-origin pages.
+* **`X-MSE-Credentials` (any `/api/v1` response)**: whose token the response's JapanFold calls used: `[{"kind":"japanfold","source":"own"}]`, `source` `own` (sent with the request or saved to the account) or `team`, or `none` with `refusal` `team-token-off` / `team-share-used`. Absent when no such call was made (a cached result). The streamed analysis ends with a `{"type":"credentials","uses":[...]}` frame instead. Exposed to allowed cross-origin pages.
 
 * **`X-MSE-Stale` (any `/api/v1` response)**: under `EGRESS_GOVERNOR=on`, when a provider limits requests (or the team's calls to it waited past their deadline) and the server answers from a saved copy past its expiry instead of failing, the response carries `X-MSE-Stale: [{"data":"UniProt FASTA","provider":"UniProt","ageSec":10800}]`: one entry per data label and provider, the oldest age, at most five; `"busy": true` when the provider refused nothing and the calls only waited too long; a request-chosen endpoint is named `A remote provider`. The header is exposed to allowed cross-origin pages. `POST /analyze-variant/stream` sends its headers first, so it ends with a `{"type":"stale","notes":[...]}` frame instead. The client shows "Showing UniProt FASTA data saved 3 h ago; UniProt is limiting requests." (`staleDataSentence`, `src/shared/providerLimits.ts`). A response built from such data is not saved (analyses) or cached.
 
@@ -478,7 +466,7 @@ All under `/api/v1`, `Cache-Control: no-store`. Request and response schemas are
 | `POST /auth/change-password` | `{current, next}` | `204`; signs out other browsers |
 | `GET` / `PUT /me/preferences` | `{shareResults?, placementPref?}` | `200 {shareResults, placementPref}` |
 | `GET /me/secrets` | | `200 {available, secrets: [{kind, hint, updatedAt, readable}]}`: provider tokens saved to the account (WP-I4b); never the token |
-| `PUT /me/secrets/tamarind` | `{token}` | `200 {kind, hint, updatedAt, readable}`; `400`; `503 SECRETS_UNAVAILABLE` without `APP_SESSION_SECRET` |
+| `PUT /me/secrets/japanfold` | `{token}` | `200 {kind, hint, updatedAt, readable}`; `400`; `503 SECRETS_UNAVAILABLE` without `APP_SESSION_SECRET` |
 | `DELETE /me/secrets/{kind}` | | `204`; `404` when none is saved |
 
 Passwords need at least 12 characters (`400 WEAK_PASSWORD`). Invite and reset tokens travel in the link's URL fragment (`#invite=…`, `#reset=…`), never in a query string.

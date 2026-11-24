@@ -14,7 +14,7 @@ import { fetchBestPdbStructure } from "../structure/structure-fetcher.ts";
 import { fetchStringInteractionsWithStatus } from "../external-api/string.ts";
 import { clearSpliceAiCache, fetchSpliceAiBroadOutcome } from "../external-api/spliceai_broad.ts";
 import { fetchDisplayedIsoformId, fetchUniprotSequence } from "../external-api/uniprot.ts";
-import { resetBioSigSubmissionsForTests, submitDynaMut2Job } from "../stability/dynamut.ts";
+import { sharedFlight, type SharedFlights } from "./shared-flight.ts";
 import { clearJapanFoldCache } from "../external-api/japanfold-client.ts";
 import { AnalysisDatabase } from "./analysis-db.ts";
 import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
@@ -35,7 +35,6 @@ beforeEach(() => {
   bestPdbCache.clear();
   clearSpliceAiCache();
   clearJapanFoldCache();
-  resetBioSigSubmissionsForTests();
 });
 
 afterEach(() => {
@@ -174,39 +173,38 @@ describe("no credential in a cache key", () => {
 });
 
 describe("one upstream call for concurrent callers", () => {
-  const PDB = "ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND";
-
-  it("DynaMut2: two submits for the same run share one job, and a caller arriving just after joins it", async () => {
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond({ job_id: "J1" }));
+  it("sharedFlight: two concurrent calls share one upstream flight, and a lingerIf-passing result is joined", async () => {
+    const flights: SharedFlights<string | null> = new Map();
+    const run = vi.fn(async (id: string) => id);
     const [a, b] = await Promise.all([
-      submitDynaMut2Job(PDB, "A", 1, "A", "V"),
-      submitDynaMut2Job(PDB, "A", 1, "A", "V"),
+      sharedFlight(flights, "k1", () => run("J1"), { lingerMs: 5_000, lingerIf: v => v !== null }),
+      sharedFlight(flights, "k1", () => run("J1"), { lingerMs: 5_000, lingerIf: v => v !== null }),
     ]);
     expect([a, b]).toEqual(["J1", "J1"]);
-    expect(await submitDynaMut2Job(PDB, "A", 1, "A", "V")).toBe("J1");
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    // A different substitution is a different run.
-    await submitDynaMut2Job(PDB, "A", 1, "A", "G");
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(await sharedFlight(flights, "k1", () => run("J2"), { lingerMs: 5_000, lingerIf: v => v !== null })).toBe("J1");
+    expect(run).toHaveBeenCalledTimes(1);
+    await sharedFlight(flights, "k2", () => run("J3"), { lingerMs: 5_000, lingerIf: v => v !== null });
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it("DynaMut2: a failed submission is not reused", async () => {
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond("nope", 400));
-    expect(await submitDynaMut2Job(PDB, "A", 1, "A", "V")).toBeNull();
-    fetchSpy.mockResolvedValue(respond({ job_id: "J2" }));
-    expect(await submitDynaMut2Job(PDB, "A", 1, "A", "V")).toBe("J2");
+  it("sharedFlight: a null result that fails lingerIf is not reused", async () => {
+    const flights: SharedFlights<string | null> = new Map();
+    const run = vi.fn<() => Promise<string | null>>().mockResolvedValueOnce(null).mockResolvedValueOnce("J2");
+    expect(await sharedFlight(flights, "k1", run, { lingerMs: 5_000, lingerIf: v => v !== null })).toBeNull();
+    expect(await sharedFlight(flights, "k1", run, { lingerMs: 5_000, lingerIf: v => v !== null })).toBe("J2");
   });
 
-  it("DynaMut2: one caller cancelling does not cancel the submission for another", async () => {
-    let release!: (r: Response) => void;
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(r => (release = r)));
+  it("sharedFlight: one caller cancelling does not cancel the flight for another", async () => {
+    let release!: (v: string) => void;
+    const flights: SharedFlights<string> = new Map();
+    const run = vi.fn(() => new Promise<string>(r => (release = r)));
     const ctrl = new AbortController();
-    const quitter = submitDynaMut2Job(PDB, "A", 1, "A", "V", ctrl.signal);
-    const stayer = submitDynaMut2Job(PDB, "A", 1, "A", "V");
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const quitter = sharedFlight(flights, "k1", run, { signal: ctrl.signal });
+    const stayer = sharedFlight(flights, "k1", run);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     ctrl.abort();
-    expect(await quitter).toBeNull();
-    release(respond({ job_id: "J3" }));
+    await expect(quitter).rejects.toThrow();
+    release("J3");
     expect(await stayer).toBe("J3");
   });
 

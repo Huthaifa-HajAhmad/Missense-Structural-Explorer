@@ -58,7 +58,6 @@ export interface UserSettings {
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
   japanfoldApiKey?: string;
-  tamarindApiKey?: string;
   alphagenomeApiKey?: string;
   alphagenomeApiUrl?: string;
   cameraDuration: number; // e.g., 1200

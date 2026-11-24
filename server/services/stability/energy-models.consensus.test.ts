@@ -13,8 +13,6 @@ const REMOTE_ENGINES = [
   ["RaSP", { raspStatus: "done", raspVal: 2.5 }],
   ["ThermoMPNN", { thermompnnStatus: "done", thermompnnVal: 2.5 }],
   ["StabilityOracle", { stabilityoracleStatus: "done", stabilityoracleVal: 2.5 }],
-  ["DynaMut2", { dynamut2Status: "done", dynamut2Val: 2.5 }],
-  ["DDMut", { ddmutStatus: "done", ddmutVal: 2.5 }],
 ] as const;
 
 describe("enrichBiophysicalResult — the consensus counts every engine", () => {
@@ -26,8 +24,13 @@ describe("enrichBiophysicalResult — the consensus counts every engine", () => 
     expect(enrichBiophysicalResult(NO_FOLDX, jobs, null, 489).energetics.consensusEnginesCounted).toBe(1);
   });
 
-  it("counts all six when all six returned a value", () => {
+  it("counts all four when all four returned a value, and omits retired DynaMut2/DDMut", () => {
     const jobs = Object.assign({}, ...REMOTE_ENGINES.map(([, fields]) => fields));
-    expect(enrichBiophysicalResult(FOLDX_ONLY, jobs, null, 489).energetics.consensusEnginesCounted).toBe(6);
+    const enriched = enrichBiophysicalResult(FOLDX_ONLY, jobs, null, 489);
+    expect(enriched.energetics.consensusEnginesCounted).toBe(4);
+    expect((enriched.energetics as Record<string, unknown>).dynamut2).toBeUndefined();
+    expect((enriched.energetics as Record<string, unknown>).ddmut).toBeUndefined();
+    expect(enriched.energetics.pendingTools).not.toContain("DynaMut2");
+    expect(enriched.energetics.pendingTools).not.toContain("DDMut");
   });
 });

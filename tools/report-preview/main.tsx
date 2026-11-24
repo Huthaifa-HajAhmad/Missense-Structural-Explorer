@@ -21,7 +21,7 @@ const result: any = {
 };
 store.setState({ gene: 'NAE1', variant: 'p.Asp116Gly', uniprotId: 'Q13564',
   analysisState: { result, error: null, isLoading: false } as any,
-  foldingEnergetics: { foldx: 2.1, dynamut2: 0.4 } as any, foldingStatus: 'success', isFolding: false });
+  foldingEnergetics: { foldx: 2.1, thermompnn: 0.4 } as any, foldingStatus: 'success', isFolding: false });
 
 const nativeFetch = window.fetch;
 window.fetch = async (input, init) => {

@@ -4,8 +4,7 @@ import type { CachedVariantBundle } from "./variantCache";
 
 export function shouldRunBiophysics(snapshot: CachedVariantBundle | null | undefined, attemptedAt: number | null, now = Date.now()): boolean {
   if (attemptedAt !== null && now - attemptedAt <= BIOPHYSICS_RETRY_COOLDOWN_MS) return false;
-  const remoteFailure = [snapshot?.dynamut2Status, snapshot?.ddmutStatus]
-    .some(status => status === "error" || status === "unavailable" || status === "failed") ||
+  const remoteFailure =
     snapshot?.thermompnnStatus === "error" ||
     snapshot?.thermompnnStatus === "busy" ||
     // A StabilityOracle timeout is worth another run (the server reruns it beside a cached FoldX

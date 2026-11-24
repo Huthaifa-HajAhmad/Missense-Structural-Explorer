@@ -44,12 +44,9 @@ async function submit(principal: any) {
 
 async function mockRouteDependencies() {
   const biophysics = await import("../services/biophysics.ts");
-  const external = await import("../services/external.ts");
   const stabilityOracle = await import("../services/stabilityoracle.ts");
   const uniprot = await import("../services/uniprot.ts");
   vi.spyOn(biophysics, "getMutantFromCache").mockResolvedValue(undefined as any);
-  vi.spyOn(external, "submitDynaMut2Job").mockResolvedValue("d2-job");
-  vi.spyOn(external, "submitDdmutJob").mockResolvedValue("ddmut-job");
   vi.spyOn(biophysics, "submitThermoMpnnJob").mockResolvedValue({ status: "unavailable" } as any);
   vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(null as any);
   vi.spyOn(stabilityOracle, "runStabilityOracleAnalysis").mockResolvedValue(null as any);

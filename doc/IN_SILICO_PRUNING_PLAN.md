@@ -194,11 +194,21 @@ note. The pre-registered single-tool rule picked BayesDel noAF, but it counted R
 disclosed in the record), REVEL first gives more Moderate-or-stronger calls and fewer wrong-direction calls on
 both held-out cohorts, and matches 90 of the 113 VCEP specifications, which set their rules on REVEL.
 
-### Phase 6 — Energetics remote engines (approved, after the VM checks)
+### Phase 6 — Energetics remote engines (done on `t3/9ec9edbd`)
 
-DynaMut2 and DDMut: remote, never benchmarked here, and they hold results in "Provisional". Tamarind:
-paid fallback for ThermoMPNN, which runs locally. Before retiring any of them, check on the VM the local
-ThermoMPNN time and how often the remote engines answer at all. DDMut-PPI on Interfaces & PPI stays.
+Measured read-only on the production OCI VM (`missense-resolve-green`, 2 vCPU ARM64, 2026-11-24) before removing any engine:
+
+| Subject | Finding on production OCI VM |
+|---|---|
+| Local ThermoMPNN latency | 3 runs × 4 protein lengths on `127.0.0.1:8000`: `43 aa` median `97 ms`, `146 aa` median `288 ms`, `307 aa` median `674 ms`, `711 aa` median `1,508 ms`. `15/16` FoldX jobs succeeded (`9/9` after Nov 18 PLM retirement). |
+| Tamarind ThermoMPNN fallback | `0` saved keys in `accounts.sqlite`, `0` Tamarind audit events in `logs/audit.jsonl`, `tamarindRemoteConfigured: false`. Never exercised in production. |
+| DynaMut2 and DDMut (BioSig) | `16/16` completed FoldX jobs remained stuck in `pendingTools: ["DynaMut2", "DDMut"]` (Provisional). `604/1,006` (`60.0%`) audit log events were BioSig polling churn. DynaMut2 completed `32/39` (`82.1%`, `5/39` timed out at `302–310 s`, `2/39` abandoned); DDMut completed `34/36` (`94.4%`, `2/36` abandoned). |
+
+Changes shipped:
+- Retired **DynaMut2**, **DDMut**, and the **Tamarind paid cloud fallback for ThermoMPNN**. Deleted the BioSig monomer client (`server/services/stability/dynamut.ts`), `/dynamut2-*` and `/ddmut-*` submit/poll routes, client `useJobPoller`, `RetryDynamut2`, `OptionalProviders`, and persistent `job_registry.json`.
+- **DDMut-PPI stays**: Interfaces & PPI (`server/services/stability/ddmut-ppi.ts`, `biosig.lab.uq.edu.au` interface egress) is untouched, with `MAX_PAYLOAD_BYTES` and `httpGetWithBody` inlined into `ddmut-ppi.ts`.
+- ThermoMPNN runs exclusively through the synchronous local Python sidecar (`127.0.0.1:8000`), and `"japanfold"` is the sole `CredentialKind` (stored `"tamarind"` secrets are purged via `purgeRetiredSecrets`; browser `tamarindApiKey` is scrubbed on load).
+- Energetics consensus counts **4 engines** (`foldx`, `rasp`, `thermompnn`, `stabilityoracle`) plus `protvar` (`referenceOnly: true`, AlphaFold stand-in rule unchanged), keeping `MIN_ENGINES_FOR_CONSENSUS = 3`. Legacy cached `dynamut2`/`ddmut` values are tolerated by schemas without entering consensus.
 
 ### Residue numbering (in progress)
 
@@ -223,5 +233,5 @@ answered. VariantValidator names the RefSeq protein (`NP_…`) but no UniProt ac
 ## Future work
 
 - **StabilityOracle**: it has the weakest band match in the S669/Ssym benchmark
-  (`FOLDX_LOCAL_SHELL_BENCH_2026-11-02.md` §9.6). Set up in advance a direct comparison of FoldX +
-  ThermoMPNN + RaSP with and without it, before more maintenance goes into it.
+  (`FOLDX_LOCAL_SHELL_BENCH_2026-11-02.md` §9.6). Pre-registered comparison protocol for
+  `FoldX + ThermoMPNN + RaSP` vs `+ StabilityOracle`: [doc/STABILITY_ORACLE_COMPARISON_PROTOCOL.md](STABILITY_ORACLE_COMPARISON_PROTOCOL.md).

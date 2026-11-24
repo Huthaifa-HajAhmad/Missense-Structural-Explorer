@@ -72,7 +72,7 @@ describe("automatic alert banners follow the reader's Settings choice", () => {
 
   it("holds back background warnings when automatic banners are off", () => {
     useVariantAnalysisStore.getState().setAutoShowAlerts(false);
-    useVariantAnalysisStore.getState().addNotification("warn", "DDMut job failed", { background: true });
+    useVariantAnalysisStore.getState().addNotification("warn", "FoldX job failed", { background: true });
 
     expect(messages()).toEqual([]);
   });
@@ -86,8 +86,8 @@ describe("automatic alert banners follow the reader's Settings choice", () => {
 
   it("shows background warnings when automatic banners are on", () => {
     useVariantAnalysisStore.getState().setAutoShowAlerts(true);
-    useVariantAnalysisStore.getState().addNotification("warn", "DDMut job failed", { background: true });
+    useVariantAnalysisStore.getState().addNotification("warn", "FoldX job failed", { background: true });
 
-    expect(messages()).toEqual(["DDMut job failed"]);
+    expect(messages()).toEqual(["FoldX job failed"]);
   });
 });

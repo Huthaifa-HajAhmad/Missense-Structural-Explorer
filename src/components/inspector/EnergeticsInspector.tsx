@@ -39,8 +39,6 @@ interface EnergeticsInspectorProps extends EnergeticsRun {
 /** Method papers, verified against the journals (see doc/ENERGETICS_TAB_REVIEW.md). */
 const REFERENCES: Array<{ citation: string; doi: string }> = [
   { citation: "Schymkowitz et al. The FoldX web server. Nucleic Acids Res 2005 (FoldX)", doi: "10.1093/nar/gki387" },
-  { citation: "Rodrigues et al. DynaMut2. Protein Sci 2021", doi: "10.1002/pro.3942" },
-  { citation: "Zhou et al. DDMut. Nucleic Acids Res 2023", doi: "10.1093/nar/gkad472" },
   { citation: "Dieckhaus et al. ThermoMPNN. PNAS 2024", doi: "10.1073/pnas.2314853121" },
   { citation: "Diaz et al. Stability Oracle. Nat Commun 2024", doi: "10.1038/s41467-024-49780-2" },
   { citation: "Blaabjerg et al. RaSP. eLife 2023", doi: "10.7554/eLife.82593" },
@@ -93,7 +91,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ select
         </table>
         <p className="nrg-step__sub">
           FoldX publishes no threshold; {markText(1.5, unit)} and {markText(0.5, unit)} {unit} are this app&apos;s marks. The{" "}
-          {markText(1, unit)} mark for ThermoMPNN, RaSP, DynaMut2 and DDMut is an app-defined local placeholder pending held-out recalibration. StabilityOracle has one mark, {markText(0.2, unit)}, chosen on S669 and checked on Ssym. None is a clinical cut-point.{" "}
+          {markText(1, unit)} mark for ThermoMPNN and RaSP is an app-defined local placeholder pending held-out recalibration. StabilityOracle has one mark, {markText(0.2, unit)}, chosen on S669 and checked on Ssym. None is a clinical cut-point.{" "}
           {FOLDX_HOW_TO_READ}
         </p>
       </section>
@@ -144,12 +142,11 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ select
               dominant-negative and interface variants can be pathogenic and stable.
             </li>
             <li>
-              Signs are normalized so positive means destabilizing. DynaMut2 and DDMut report the opposite sign
-              natively; their values are negated before display.
+              Positive values predict destabilization and negative values predict stabilization across all four counted engines.
             </li>
             <li>
-              Predictor error is of the order of the marks themselves: DDMut reports RMSE 1.84 kcal/mol on its
-              blind test (Zhou 2023). Differences under about 1 kcal/mol between engines are within noise.
+              Predictor error is of the order of the marks themselves: on S669 FoldX has RMSE about 1.9–2.0 kcal/mol
+              against experiment, and differences under about 1 kcal/mol between engines are within noise.
             </li>
             <li>
               No calibrated probability is shown. The app has no ΔΔG-to-probability calibration fitted to data,

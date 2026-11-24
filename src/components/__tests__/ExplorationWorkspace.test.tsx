@@ -48,15 +48,15 @@ it('keeps the 3D canvas unmounted when visiting an empty workspace and returning
 });
 
 it('links Energetics records to the inspector, retains plot controls, and resets selection for a new query', async () => {
-  store.setState({ foldingEnergetics: { foldx: 2, foldxMean: 2, dynamut2: 0.5 } as any, foldingStatus: 'success' });
+  store.setState({ foldingEnergetics: { foldx: 2, foldxMean: 2, thermompnn: 0.5 } as any, foldingStatus: 'success', thermompnnStatus: 'done' });
   const ui = render(<Workspace initialView="energetics" />);
   // The comparison is a lazy import; under a loaded full-suite worker it needs more than the default second.
   await ui.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 6000 });
   fireEvent.change(ui.getByRole('combobox', { name: 'Order' }), { target: { value: 'value' } });
   fireEvent.click(ui.getByRole('checkbox', { name: 'Local guides' }));
   fireEvent.click(ui.getByRole('tab', { name: 'Engine records' }));
-  fireEvent.click(ui.getByRole('button', { name: 'DynaMut2' }));
-  expect(ui.getByRole('heading', { name: 'DynaMut2' })).toBeInTheDocument();
+  fireEvent.click(ui.getByRole('button', { name: 'ThermoMPNN' }));
+  expect(ui.getByRole('heading', { name: 'ThermoMPNN' })).toBeInTheDocument();
   expect(store.getState().selectedResidueIndex).toBe(5);
   expect(store.getState().analysisState.result?.metadata?.residueIndex).toBe(5);
   fireEvent.click(ui.getByRole('tab', { name: 'Comparison' }));

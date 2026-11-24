@@ -36,7 +36,7 @@ function scenario(name: string) {
     ruleBasedInsights: { acmgVerdict: 'Variant of Uncertain Significance (VUS)', acmgCriteria: [{ code: name === 'Strength suffix' ? 'PP3_Moderate' : 'PP3', reason: 'Illustrative engine record.' }], plausibility: '' },
     insights: { source: 'rule_based', acmgCriteria: [], biochemicalShift: '', structuralImpact: '' } });
   store.setState({ gene: 'NAE1', variant: result.metadata.variant, uniprotId: 'Q13564', analysisState: { result, isLoading: false, error: null }, isBiophysicalLoading: false });
-  store.getState().setFoldingEnergetics(name === 'Missing' ? null : { foldx: 2.62, dynamut2: -1.4, ddmut: -1.2, rasp: .9, thermompnn: 1.1, stabilityoracle: 1.3 });
+  store.getState().setFoldingEnergetics(name === 'Missing' ? null : { foldx: 2.62, rasp: .9, thermompnn: 1.1, stabilityoracle: 1.3 });
 }
 scenario('Dense');
 function Preview() {

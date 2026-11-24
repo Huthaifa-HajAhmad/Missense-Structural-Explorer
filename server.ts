@@ -20,7 +20,6 @@ import { startSidecarSupervisor } from "./server/sidecar-supervisor.ts";
 import { createExpressApp } from "./server/express-config.ts";
 import { keepRunningOnUnhandledRejection, registerGracefulShutdown } from "./server/graceful-shutdown.ts";
 import { activeBackgroundTasks } from "./server/routes.ts";
-import { getRegistryPath } from "./server/routes/shared.ts";
 import { closeStateStores } from "./server/routes/state.ts";
 import { closeAccountsDb } from "./server/auth/store.ts";
 import { closeLocalDbnsfpStore } from "./server/services/prediction/dbnsfp_local.ts";
@@ -110,19 +109,16 @@ async function abortActiveBackgroundTasks(): Promise<void> {
 }
 
 /**
- * Cleans up temporary job directories inside temp_jobs/ on shutdown while preserving the job registry.
+ * Cleans up temporary job directories inside temp_jobs/ on shutdown.
  */
 async function cleanupTempJobsRoot(): Promise<void> {
   try {
     const tempJobsRoot = path.join(process.cwd(), "temp_jobs");
     if (!fs.existsSync(tempJobsRoot)) return;
     console.log(`[Shutdown] Cleaning up temporary jobs directory: ${tempJobsRoot}`);
-    const registryResolved = path.resolve(getRegistryPath());
     const entries = await fs.promises.readdir(tempJobsRoot, { withFileTypes: true });
     for (const entry of entries) {
-      const entryPath = path.join(tempJobsRoot, entry.name);
-      if (path.resolve(entryPath) === registryResolved) continue;
-      await fs.promises.rm(entryPath, { recursive: true, force: true });
+      await fs.promises.rm(path.join(tempJobsRoot, entry.name), { recursive: true, force: true });
     }
   } catch (err: any) {
     console.error(`[Shutdown Error] Failed to clean up temp jobs directory:`, err.message);

@@ -8,14 +8,13 @@ set -eu
 T=/home/ubuntu/energetics-test
 IMG=$(docker inspect -f '{{.Config.Image}}' energetics-test)
 SRC=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' energetics-test)
-BIOSIG=$(getent ahostsv4 biosig.lab.uq.edu.au | awk '{print $1}' | sort -u)
 EBI=$(getent ahostsv4 www.ebi.ac.uk | awk '{print $1}' | sort -u)
 cd $T/run
 
 block() { for ip in $1; do sudo -n iptables -I DOCKER-USER -s "$SRC" -d "$ip" -j REJECT; done; echo "[$(date -u +%T)] blocked $1"; }
 unblock() { for ip in $1; do while sudo -n iptables -D DOCKER-USER -s "$SRC" -d "$ip" -j REJECT 2>/dev/null; do :; done; done; echo "[$(date -u +%T)] unblocked $1"; }
 model_pid() { docker exec energetics-test sh -c "pgrep -f tools/model_server.py | head -1"; }
-cleanup() { unblock "$BIOSIG"; unblock "$EBI"; p=$(model_pid || true); [ -n "$p" ] && docker exec energetics-test kill -CONT "$p" || true; }
+cleanup() { unblock "$EBI"; p=$(model_pid || true); [ -n "$p" ] && docker exec energetics-test kill -CONT "$p" || true; }
 trap cleanup EXIT
 
 case_file() { echo "[{\"name\":\"$1\",\"uniprotId\":\"P49789\",\"mutation\":\"$2\",\"pdbFile\":\"/pdb/1FIT.pdb\",\"user\":$3}]" > outage-$4.json; }
@@ -30,15 +29,6 @@ retry() {  # $1 tool, $2 mutation, $3 user
     retry.mjs --base http://127.0.0.1:3100 --users users.json --user "$3" --tool "$1" --pdbFile /pdb/1FIT.pdb --mutation "$2"
 }
 rm -f outage-*.jsonl
-
-echo "== A: BioSig unreachable from submission"
-case_file "outage A: BioSig blocked at submit, FHIT F47A" FA47A 1 A
-block "$BIOSIG"; docker wait "$(harness A)" >/dev/null; unblock "$BIOSIG"
-echo "-- A retry after restore"; retry dynamut2 FA47A 1
-
-echo "== B: BioSig cut after job ids exist, restored inside the listening window"
-case_file "outage B: BioSig cut while polling, FHIT R130A" RA130A 2 B
-h=$(harness B); sleep 20; block "$BIOSIG"; sleep 150; unblock "$BIOSIG"; docker wait "$h" >/dev/null
 
 echo "== C: www.ebi.ac.uk (ProtVar) unreachable; structure supplied, so no structure fetch needs it"
 case_file "outage C: EBI blocked, FHIT E132A" EA132A 3 C

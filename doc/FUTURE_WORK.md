@@ -85,7 +85,7 @@ To guarantee that the primary variant analysis endpoints (`/analyze-variant`) ar
 ### 6.1. Canonical mmCIF/BinaryCIF Ingestion & Edge PDB Derivation
 * **The PDB Format Ceiling**: Legacy `.pdb` format imposes hard limits (max 99,999 atoms, max 9,999 residues, single-character chain IDs `A-Z`). Giant human proteins (Titin `Q8WZ42` [34,350 residues], Ryanodine Receptor `RYR1` [5,038 residues], Dystrophin `DMD`) and large multimeric complexes cause coordinate truncation or formatting failure.
 * **mmCIF-First Storage**: Migrate canonical structure storage and caching to mmCIF (`.cif`) and BinaryCIF (`.bcif`). Molstar parses mmCIF natively with $3\text{–}5\times$ faster wire transmission and full support for AlphaFold confidence metrics (`_ma_qa_metric_local_values`, PAE matrices).
-* **On-the-Fly Edge PDB Derivation**: Because legacy forcefield tools (FoldX v5, DynaMut2) require classic 80-column PDB text, the Python sidecar will derive temporary `.pdb` files on-the-fly at the calculation boundary using `gemmi` or `biotite`, stripping HETATMs and sanitizing serial numbers.
+* **On-the-Fly Edge PDB Derivation**: Because legacy forcefield tools (FoldX v5) require classic 80-column PDB text, the Python sidecar will derive temporary `.pdb` files on-the-fly at the calculation boundary using `gemmi` or `biotite`, stripping HETATMs and sanitizing serial numbers.
 * **Dual-Numbering Validation**: Enforce strict mapping between author numbering (`auth_seq_id`) and canonical sequence numbering (`label_seq_id`) to ensure zero-drift coordinate alignment with user HGVS input.
 
 ### 6.2. Single-Pass Whole-Protein Saturation Logit Caching
@@ -95,4 +95,7 @@ To guarantee that the primary variant analysis endpoints (`/analyze-variant`) ar
 ### 6.3. Foundation Model Weight Pinning & Stacker Governance
 * **Hugging Face Hub Revisions**: Pin immutable Git commit SHAs (`revision="..."`) for all model weight repositories (ESM-2 650M, SaProt, VESM) to eliminate silent tokenizer or weight drift.
 * **Stacker Calibration Versioning**: Maintain versioned logistic regression stacking weights in `src/shared/thresholds.ts` and record them in `model_versions_json` alongside analysis payloads for long-term clinical auditability.
+
+### 6.4. Pre-Registered StabilityOracle Ensemble Comparison
+* Before investing engineering effort into StabilityOracle input reconstruction or per-engine calibration, execute the pre-registered comparison of `FoldX + ThermoMPNN + RaSP` vs `+ StabilityOracle` in [`doc/STABILITY_ORACLE_COMPARISON_PROTOCOL.md`](STABILITY_ORACLE_COMPARISON_PROTOCOL.md).
 

@@ -142,13 +142,13 @@ describe("generateProvenanceManifest — verdict summary", () => {
       "P00001",
       analysisResult,
       undefined,
-      { consensusVerdict: LIVE, evidenceComplete: false, pendingTools: ["DynaMut2", "DDMut"] } as never
+      { consensusVerdict: LIVE, evidenceComplete: false, pendingTools: ["ThermoMPNN", "StabilityOracle"] } as never
     );
 
     expect(manifest.verdictSummary.stabilityVerdict).toBe(LIVE);
     expect(manifest.verdictSummary.stabilityVerdict).not.toContain("Preliminary");
     expect(manifest.verdictSummary.stabilityEvidenceComplete).toBe(false);
-    expect(manifest.verdictSummary.pendingEngines).toEqual(["DynaMut2", "DDMut"]);
+    expect(manifest.verdictSummary.pendingEngines).toEqual(["ThermoMPNN", "StabilityOracle"]);
   });
 
   it("takes the caller's provisionality when supplied, in preference to the stored bundle", () => {
@@ -221,7 +221,7 @@ describe("generateProvenanceManifest — verdict summary", () => {
       "P00001",
       analysisResult,
       undefined,
-      { consensusVerdict: STALE, evidenceComplete: false, pendingTools: ["DynaMut2"] } as never,
+      { consensusVerdict: STALE, evidenceComplete: false, pendingTools: ["ThermoMPNN"] } as never,
       { derivedVerdict: null, evidenceComplete: null, pendingTools: [] }
     );
 

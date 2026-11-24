@@ -31,9 +31,11 @@ import { CANCELLED_RUN_MESSAGE } from "../jobsCopy.ts";
  */
 
 describe("engineStatus — registry integrity", () => {
-  it("registers six counted engines and one reference-only row, with unique ids", () => {
+  it("registers four counted engines and one reference-only row, with unique ids", () => {
     expect(new Set(ENERGY_ENGINE_IDS).size).toBe(ENERGY_ENGINES.length);
-    expect(COUNTED_ENERGY_ENGINES.map(e => e.id)).toEqual(["foldx", "dynamut2", "ddmut", "rasp", "thermompnn", "stabilityoracle"]);
+    expect(COUNTED_ENERGY_ENGINES.map(e => e.id)).toEqual(["foldx", "rasp", "thermompnn", "stabilityoracle"]);
+    expect(ENERGY_ENGINE_IDS).not.toContain("dynamut2");
+    expect(ENERGY_ENGINE_IDS).not.toContain("ddmut");
     // ProtVar's value IS FoldX (on EBI's AlphaFold model): shown, never a second vote.
     expect(ENERGY_ENGINES.filter(e => e.referenceOnly).map(e => e.id)).toEqual(["protvar"]);
   });
@@ -73,23 +75,13 @@ describe("engineStatus — state vocabulary is total", () => {
   });
 });
 
-describe("engineStatus — one sign convention (regression: ΔΔG printed as +0.09 and −0.09)", () => {
-  it("normalises provider-native sign so positive always means destabilizing", () => {
+describe("engineStatus — one sign convention (positive = destabilizing across all 4 engines)", () => {
+  it("keeps the canonical sign convention across all counted engines", () => {
     expect(toCanonicalDdg("foldx", 1.0)).toBe(1.0);
     expect(toCanonicalDdg("rasp", 1.0)).toBe(1.0);
     expect(toCanonicalDdg("thermompnn", 1.0)).toBe(1.0);
     expect(toCanonicalDdg("stabilityoracle", 1.0)).toBe(1.0);
-    expect(toCanonicalDdg("dynamut2", 1.0)).toBe(-1.0);
-    expect(toCanonicalDdg("ddmut", 1.0)).toBe(-1.0);
-  });
-
-  it("reproduces the observed MACO1 DynaMut2 case in a single convention", () => {
-    // Provider reported −0.09 (native negative = destabilizing); canonical is +0.09.
-    const canonical = toCanonicalDdg("dynamut2", -0.09);
-    expect(canonical).toBeCloseTo(0.09, 10);
-    expect(formatDdg(canonical)).toBe("0.09 kcal/mol");
-    // The same canonical value is what every panel must print — never the raw sign.
-    expect(formatDdg(canonical, "kcal/mol")).toBe(formatDdg(canonical, "kcal/mol"));
+    expect(toCanonicalDdg("protvar", -0.5)).toBe(-0.5);
   });
 
   it("returns null rather than 0 for missing or non-finite input", () => {
@@ -126,15 +118,11 @@ describe("engineStatus — each engine is judged on its own scale", () => {
     expect(classifyRawDdg("foldx", 1.2)?.id).toBe("moderate");
   });
 
-  it("classifies from the raw provider value, so a negative-native value is never inverted", () => {
-    // This is the trap the API is designed to make unrepresentable: passing DynaMut2's raw
-    // −1.2 must read as destabilizing, not stabilizing.
-    expect(classifyRawDdg("dynamut2", -1.2)?.id).toBe("high");
-    expect(classifyRawDdg("ddmut", -1.2)?.id).toBe("high");
-    expect(classifyRawDdg("dynamut2", 0.6)?.id).toBe("stabilizing");
-    // ...and the positive-native engines are unaffected by the same input.
+  it("handles negative and positive inputs consistently across engines", () => {
     expect(classifyRawDdg("rasp", -1.2)?.id).toBe("stabilizing");
     expect(classifyRawDdg("rasp", 1.2)?.id).toBe("high");
+    expect(classifyRawDdg("thermompnn", -0.7)?.id).toBe("stabilizing");
+    expect(classifyRawDdg("stabilityoracle", 0.3)?.id).toBe("high");
   });
 
   it("walks the band boundaries inclusively and returns null for no value", () => {
@@ -146,15 +134,13 @@ describe("engineStatus — each engine is judged on its own scale", () => {
   });
 });
 
-/** The MACO1 p.Glu433Lys run as observed on screen. */
+/** Observed post-Phase-6 4-engine single-value observation pattern. */
 function maco1Observations(): EngineObservation[] {
   return [
     { id: "foldx", value: null, problem: "repair-failed", detail: "FoldX RepairPDB failed" },
-    { id: "dynamut2", value: -0.09, status: "done" },
-    { id: "ddmut", value: null, status: "unavailable" },
     { id: "rasp", value: null, problem: "coverage-miss", detail: "Residue position is not present in the pre-computed database" },
-    { id: "thermompnn", value: null, status: "pending", runActive: false },
-    { id: "stabilityoracle", value: null },
+    { id: "thermompnn", value: 0.09, status: "done" },
+    { id: "stabilityoracle", value: null, status: "pending", runActive: false },
   ];
 }
 
@@ -165,12 +151,9 @@ describe("engineStatus — resolution honesty rules", () => {
     ) as Record<EnergyEngineId, ReturnType<typeof resolveEngineOutcome>>;
 
     expect(byId.foldx.state).toBe("failed");
-    expect(byId.dynamut2.state).toBe("computed");
-    expect(byId.ddmut.state).toBe("upstream-busy");
     expect(byId.rasp.state).toBe("not-covered");
+    expect(byId.thermompnn.state).toBe("computed");
     // A pending engine whose run has ended has no route to a result; it is not "running".
-    expect(byId.thermompnn.state).toBe("no-result");
-    // Nothing is known about StabilityOracle, so the honest answer is not a guess.
     expect(byId.stabilityoracle.state).toBe("no-result");
   });
 
@@ -246,7 +229,7 @@ describe("engineStatus — resolution honesty rules", () => {
 
   it("reports a genuinely in-flight engine as running", () => {
     const outcome = resolveEngineOutcome({
-      id: "ddmut",
+      id: "thermompnn",
       value: null,
       status: "pending",
       runActive: true,
@@ -256,7 +239,7 @@ describe("engineStatus — resolution honesty rules", () => {
   });
 
   it("treats 'done with no value' as no-result rather than success", () => {
-    const outcome = resolveEngineOutcome({ id: "dynamut2", value: null, status: "done" });
+    const outcome = resolveEngineOutcome({ id: "thermompnn", value: null, status: "done" });
     expect(outcome.state).toBe("no-result");
   });
 
@@ -278,19 +261,19 @@ describe("engineStatus — resolution honesty rules", () => {
       // Drive each state through a representative observation.
       const probe: EngineObservation =
         state === "running"
-          ? { id: "ddmut", value: null, status: "pending", runActive: true }
+          ? { id: "thermompnn", value: null, status: "pending", runActive: true }
           : state === "skipped"
-            ? { id: "ddmut", value: null, status: "pending", runActive: true, hidden: true }
+            ? { id: "thermompnn", value: null, status: "pending", runActive: true, hidden: true }
             : state === "paused"
-              ? { id: "dynamut2", value: null, problem: "auth-expired" }
+              ? { id: "thermompnn", value: null, problem: "auth-expired" }
               : state === "not-installed"
                 ? { id: "thermompnn", value: null, status: "unavailable" }
                 : state === "not-covered"
                   ? { id: "rasp", value: null, detail: "Residue position is not present in the pre-computed database" }
                   : state === "upstream-busy"
-                    ? { id: "ddmut", value: null, status: "unavailable" }
+                    ? { id: "thermompnn", value: null, status: "busy" }
                     : state === "upstream-error"
-                      ? { id: "ddmut", value: null, status: "error" }
+                      ? { id: "thermompnn", value: null, status: "error" }
                       : state === "failed"
                       ? { id: "foldx", value: null, problem: "pipeline-failed" }
                       : state === "cancelled"
@@ -307,25 +290,25 @@ describe("engineStatus — coverage must be visible and honest", () => {
   it("counts the observed single-engine run as insufficient", () => {
     const summary = summarizeCoverage(maco1Observations().map(resolveEngineOutcome));
     expect(summary.computed).toBe(1);
-    expect(summary.intended).toBe(6);
+    expect(summary.intended).toBe(4);
     expect(summary.insufficient).toBe(true);
-    expect(summary.label).toBe("1 of 6 engines");
-    expect(summary.missing).toHaveLength(5);
+    expect(summary.label).toBe("1 of 4 engines");
+    expect(summary.missing).toHaveLength(3);
     expect(describeCoverage(summary)).toContain("Single-engine estimate");
   });
 
   it("calls a full run sufficient", () => {
-    const full = ENERGY_ENGINE_IDS.map(id => resolveEngineOutcome({ id, value: 0.1 }));
+    const full = COUNTED_ENERGY_ENGINES.map(e => resolveEngineOutcome({ id: e.id, value: 0.1 }));
     const summary = summarizeCoverage(full);
-    expect(summary.computed).toBe(6);
+    expect(summary.computed).toBe(4);
     expect(summary.insufficient).toBe(false);
     expect(summary.missing).toHaveLength(0);
     expect(summary.running).toHaveLength(0);
-    expect(describeCoverage(summary)).toBe("All 6 engines returned a value.");
+    expect(describeCoverage(summary)).toBe("All 4 engines returned a value.");
   });
 
   it("thresholds sufficiency at MIN_ENGINES_FOR_CONSENSUS", () => {
-    const ids = ENERGY_ENGINE_IDS;
+    const ids = COUNTED_ENERGY_ENGINES.map(e => e.id);
     const atThreshold = ids.map((id, i) =>
       resolveEngineOutcome({ id, value: i < MIN_ENGINES_FOR_CONSENSUS ? 0.1 : null })
     );
@@ -338,18 +321,18 @@ describe("engineStatus — coverage must be visible and honest", () => {
 
   it("handles a run with no values at all", () => {
     const summary = summarizeCoverage(
-      ENERGY_ENGINE_IDS.map(id => resolveEngineOutcome({ id, value: null }))
+      COUNTED_ENERGY_ENGINES.map(e => resolveEngineOutcome({ id: e.id, value: null }))
     );
     expect(summary.computed).toBe(0);
     expect(summary.insufficient).toBe(true);
-    expect(describeCoverage(summary)).toBe("No engine returned a value (0 of 6).");
+    expect(describeCoverage(summary)).toBe("No engine returned a value (0 of 4).");
   });
 
   it("never lets the user's hide choice change the count", () => {
     const base: EngineObservation[] = [
       { id: "foldx", value: 1.0 },
-      { id: "dynamut2", value: -0.09, status: "done" },
-      { id: "ddmut", value: null, status: "pending", runActive: true },
+      { id: "rasp", value: 0.8 },
+      { id: "thermompnn", value: null, status: "pending", runActive: true },
     ];
     const visible = summarizeCoverage(base.map(resolveEngineOutcome));
     const hidden = summarizeCoverage(base.map(o => resolveEngineOutcome({ ...o, hidden: true })));
@@ -357,8 +340,8 @@ describe("engineStatus — coverage must be visible and honest", () => {
     expect(hidden.intended).toBe(visible.intended);
     expect(hidden.label).toBe(visible.label);
     // Hiding only renames the still-running row; the engine is still running and still not missing.
-    expect(hidden.running).toEqual(["ddmut"]);
-    expect(visible.running).toEqual(["ddmut"]);
+    expect(hidden.running).toEqual(["thermompnn"]);
+    expect(visible.running).toEqual(["thermompnn"]);
     expect(hidden.missing.map(o => o.id)).toEqual(visible.missing.map(o => o.id));
   });
 
@@ -431,26 +414,15 @@ describe("engineStatus — a refusal that a retry cannot change", () => {
 
 describe("engineStatus — absence is attributed per engine, not by one rule", () => {
   /**
-   * `unavailable` means two different things: a remote queue that did not answer (retryable) and
-   * an engine this deployment cannot run at all (not retryable). Treating them alike told the
-   * user to retry a service that will never be there.
+   * `unavailable` means a deployment lack for local engines (not retryable via queue) vs `busy`
+   * when a live sidecar is congested.
    */
   const outcomes = buildEngineOutcomes({
-    dynamut2: null,
-    dynamut2Status: "unavailable",
-    ddmut: null,
-    ddmutStatus: "unavailable",
     thermompnn: null,
     thermompnnStatus: "unavailable",
     stabilityoracle: null,
   });
   const byId = Object.fromEntries(outcomes.map(o => [o.id, o]));
-
-  it("treats a remote queue that did not answer as retryable", () => {
-    expect(byId.dynamut2.state).toBe("upstream-busy");
-    expect(byId.ddmut.state).toBe("upstream-busy");
-    expect(byId.dynamut2.reason).toContain("did not answer in time");
-  });
 
   it("does not call a missing local service 'busy'", () => {
     expect(byId.thermompnn.state).toBe("not-installed");
@@ -487,14 +459,14 @@ describe("engineStatus — absence is attributed per engine, not by one rule", (
       thermompnn: null,
       thermompnnStatus: "error",
       thermompnnError: "ThermoMPNN did not start: the model server was still busy with earlier work",
-      ddmut: null,
-      ddmutStatus: "error",
-      ddmutError: "Tamarind API HTTP 500: Internal Server Error",
+      stabilityoracle: null,
+      stabilityoracleStatus: "error",
+      stabilityoracleError: "Sidecar HTTP 500: Internal Server Error",
     });
     const cachedById = Object.fromEntries(cachedBusy.map(o => [o.id, o]));
     expect(cachedById.thermompnn.state).toBe("upstream-busy");
-    expect(cachedById.ddmut.state).toBe("upstream-error");
-    expect(cachedById.ddmut.label).toBe("Provider error");
+    expect(cachedById.stabilityoracle.state).toBe("upstream-error");
+    expect(cachedById.stabilityoracle.label).toBe("Provider error");
   });
 });
 
@@ -508,50 +480,48 @@ describe("engineStatus — a session that expired mid-run pauses the engines it 
     foldxMean: -0.8,
     foldxSd: 0.1,
     foldingStatus: "success",
-    dynamut2Status: null,
-    ddmutStatus: null,
     thermompnnStatus: null,
-    energeticsAuthLapsed: { dynamut2: true, thermompnn: true },
+    stabilityoracleStatus: null,
+    energeticsAuthLapsed: { thermompnn: true },
   });
   const byId = Object.fromEntries(built.map(o => [o.id, o]));
 
   it("resolves a severed engine as Paused with a relink remedy", () => {
-    expect(byId.dynamut2.state).toBe("paused");
-    expect(byId.dynamut2.label).toBe("Paused");
-    expect(byId.dynamut2.reason).toContain("Relink");
+    expect(byId.thermompnn.state).toBe("paused");
+    expect(byId.thermompnn.label).toBe("Paused");
+    expect(byId.thermompnn.reason).toContain("Relink");
     // A paused engine returned nothing, so it stays in the missing bucket, never in running.
-    expect(byId.dynamut2.contributesToConsensus).toBe(false);
+    expect(byId.thermompnn.contributesToConsensus).toBe(false);
   });
 
   it("does not claim the pause for an engine the run never severed", () => {
-    // DDMut was not recorded: its own pre-existing cause wins (no-result here).
-    expect(byId.ddmut.state).toBe("no-result");
-    expect(byId.ddmut.reason).not.toContain("Relink");
+    expect(byId.stabilityoracle.state).toBe("no-result");
+    expect(byId.stabilityoracle.reason).not.toContain("Relink");
   });
 
   it("values and answers outrank the pause", () => {
     // A value from this or an earlier attempt beats the interrupted state entirely.
     expect(buildEngineOutcomes({
-      dynamut2: -1.2,
-      dynamut2Status: null,
-      energeticsAuthLapsed: { dynamut2: true },
-    }).find(o => o.id === "dynamut2")!.state).toBe("computed");
+      thermompnn: -1.2,
+      thermompnnStatus: null,
+      energeticsAuthLapsed: { thermompnn: true },
+    }).find(o => o.id === "thermompnn")!.state).toBe("computed");
     // A provider that actually answered keeps its own truth.
     expect(buildEngineOutcomes({
-      dynamut2: null,
-      dynamut2Status: "done",
-      energeticsAuthLapsed: { dynamut2: true },
-    }).find(o => o.id === "dynamut2")!.state).toBe("no-result");
+      thermompnn: null,
+      thermompnnStatus: "done",
+      energeticsAuthLapsed: { thermompnn: true },
+    }).find(o => o.id === "thermompnn")!.state).toBe("no-result");
   });
 
-  it("keeps a live poller out of the pause while it still has a route to an answer", () => {
-    // pending + runActive: the poller is live; the interruption never touched this engine.
+  it("keeps a live run out of the pause while it still has a route to an answer", () => {
+    // pending + runActive: the run is live; the interruption never touched this engine.
     expect(buildEngineOutcomes({
-      dynamut2: null,
-      dynamut2Status: "pending",
+      thermompnn: null,
+      thermompnnStatus: "pending",
       isFolding: true,
-      energeticsAuthLapsed: { dynamut2: true },
-    }).find(o => o.id === "dynamut2")!.state).toBe("running");
+      energeticsAuthLapsed: { thermompnn: true },
+    }).find(o => o.id === "thermompnn")!.state).toBe("running");
   });
 });
 
@@ -636,38 +606,24 @@ describe("engineStatus — review regressions", () => {
     });
   });
 
-  describe("a remote engine that is still polling is not reported as finished", () => {
+  describe("a pending local sidecar engine is reported as running", () => {
     it("treats a live pending engine as running even after the FoldX leg ends", () => {
-      // `isFolding` clears when the FoldX leg completes, while `useJobPoller` keeps polling the
-      // remote engine for up to ten minutes. Deriving activity from `isFolding` alone rendered a
-      // running engine as "No result — the run ended" for that whole window.
       const outcome = buildEngineOutcomes({
-        dynamut2: null,
-        dynamut2Status: "pending",
+        thermompnn: null,
+        thermompnnStatus: "pending",
         isFolding: false,
-      }).find(o => o.id === "dynamut2")!;
+      }).find(o => o.id === "thermompnn")!;
       expect(outcome.state).toBe("running");
       expect(outcome.reason).toContain("in progress");
     });
 
     it("still reports a completed engine with no value as no-result", () => {
-      // The settle rule converts a pending engine without a job id to `unavailable` at every
-      // terminal commit, so a `pending` that survives implies a live poller — but "done with no
-      // value" is a result, and must stay one.
       const outcome = buildEngineOutcomes({
-        dynamut2: null,
-        dynamut2Status: "done",
+        thermompnn: null,
+        thermompnnStatus: "done",
         isFolding: false,
-      }).find(o => o.id === "dynamut2")!;
+      }).find(o => o.id === "thermompnn")!;
       expect(outcome.state).toBe("no-result");
-    });
-
-    it("covers all three remote engines", () => {
-      for (const id of ["dynamut2", "ddmut", "thermompnn"] as const) {
-        const outcome = buildEngineOutcomes({ [id]: null, [`${id}Status`]: "pending" } as never)
-          .find(o => o.id === id)!;
-        expect(outcome.state, id).toBe("running");
-      }
     });
   });
 
@@ -802,7 +758,7 @@ describe("engineStatus — the exclusion is stated, not inferred", () => {
     // The excluded value returned something, so it is not missing...
     expect(missingIds).not.toContain("foldx");
     // ...while engines that genuinely returned nothing still are.
-    expect(missingIds).toContain("dynamut2");
+    expect(missingIds).toContain("rasp");
     expect(missingIds).toContain("thermompnn");
   });
 
@@ -813,7 +769,7 @@ describe("engineStatus — the exclusion is stated, not inferred", () => {
      * on them would then contradict the spinner beside it.
      */
     const summary = summarizeCoverage(
-      buildEngineOutcomes({ isFolding: true, dynamut2Status: "pending" })
+      buildEngineOutcomes({ isFolding: true, thermompnnStatus: "pending" })
     );
 
     expect(summary.running.length).toBeGreaterThan(0);
@@ -823,30 +779,6 @@ describe("engineStatus — the exclusion is stated, not inferred", () => {
     for (const id of summary.running) {
       expect(missingIds).not.toContain(id);
     }
-  });
-});
-
-describe("engineStatus — a listening remote engine says so", () => {
-  const build = (facts: Parameters<typeof buildEngineOutcomes>[0]) =>
-    buildEngineOutcomes(facts).find(o => o.id === "dynamut2")!;
-
-  it("stays Running but explains that the provider missed a poll and the value may still arrive", () => {
-    const o = build({ dynamut2Status: "pending", dynamut2Listening: true });
-    expect(o.state).toBe("running");
-    expect(o.label).toBe("Running");
-    expect(o.reason).toMatch(/did not answer in time/);
-    expect(o.reason).toMatch(/Still listening/);
-  });
-  it("uses the plain copy when not listening", () => {
-    expect(build({ dynamut2Status: "pending" }).reason).toBe("Calculation in progress.");
-  });
-  it("ignores a stale listening flag once the engine is no longer running", () => {
-    const failed = build({ dynamut2Status: "unavailable", dynamut2Listening: true });
-    expect(failed.state).toBe("upstream-busy");
-    expect(failed.reason).not.toMatch(/listening/i);
-    const done = build({ dynamut2: -1, dynamut2Status: "done", dynamut2Listening: true });
-    expect(done.state).toBe("computed");
-    expect(done.reason).toBe("");
   });
 });
 

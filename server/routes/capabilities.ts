@@ -24,7 +24,7 @@ import { inspectLocalDbnsfpFileForPublic } from "../services/prediction/dbnsfp_l
 import { providerHealth } from "../services/infra/provider-pause.ts";
 import { governorHealth, limitBasisFor } from "../services/infra/egress-governor.ts";
 import { defaultCacheRegistry } from "../services/infra/cache-registry.ts";
-import { credentialPolicyHealth, teamToken } from "../services/infra/credentials.ts";
+import { credentialPolicyHealth } from "../services/infra/credentials.ts";
 import { isKnownProviderHost } from "../../src/shared/providerLimits.ts";
 
 export interface EngineCapability {
@@ -74,7 +74,7 @@ function egressHealth() {
     // Expired cache entries served (`on`) or that would have been (`shadow`) while a provider limited
     // requests, by cache source (WP-I2). Source labels and counts only.
     staleServes: defaultCacheRegistry.staleServeCounts(),
-    // How the team's Tamarind token is lent (WP-I4): the policy, the hourly
+    // How the team's JapanFold token is lent (WP-I4): the policy, the hourly
     // share, and which team tokens exist. No tokens, hashes or per-person counts.
     credentials: credentialPolicyHealth(),
   };
@@ -238,9 +238,6 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     // 8. JapanFold Sovereign Cloud Connectivity Check (Structure Prediction)
     const japanFoldReachable = await japanFoldReachability();
 
-    // The same lookup the resolver uses (WP-I4), aliases included.
-    const tamarindConfigured = Boolean(teamToken("tamarind"));
-
     const exposeHostDetails =
       !CONFIG.server.isProduction ||
       (req.principal?.kind === "user" && req.principal.user?.role === "admin");
@@ -326,12 +323,10 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         id: "thermompnn",
         name: "ThermoMPNN (ProteinMPNN Neural Backbone)",
         category: "biophysical",
-        status: sidecarReachable ? (sidecarState === "ready" ? "ready" : "warming_up") : (tamarindConfigured ? "ready" : "standby"),
+        status: sidecarReachable ? (sidecarState === "ready" ? "ready" : "warming_up") : "standby",
         details: {
           localSidecarReachable: sidecarReachable,
-          sidecarModelStatus: sidecarModelStatus.thermompnn || "unloaded",
-          tamarindRemoteConfigured: tamarindConfigured,
-          preferredProvider: process.env.THERMOMPNN_PROVIDER || "local"
+          sidecarModelStatus: sidecarModelStatus.thermompnn || "unloaded"
         }
       },
       {

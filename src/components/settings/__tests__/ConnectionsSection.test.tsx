@@ -26,7 +26,7 @@ vi.mock("../../../hooks/useApiConnections", () => {
   const quiet = { testing: false, status: null };
   return {
     useApiConnections: () => ({
-      tests: { japanfold: quiet, alphagenome: quiet, tamarind: quiet },
+      tests: { japanfold: quiet, alphagenome: quiet },
       runTest: vi.fn(),
       linking: false,
       linkError: null,
@@ -60,7 +60,7 @@ beforeEach(() => {
   api.savedSecrets.mockResolvedValue({
     available: true,
     secrets: [
-      { kind: "tamarind", hint: "PCMk", updatedAt: 1, readable: true },
+      { kind: "japanfold", hint: "PCMk", updatedAt: 1, readable: true },
     ],
   });
   vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
@@ -124,8 +124,8 @@ describe("ConnectionsSection token rows", () => {
     renderConnections();
 
     const saved = await screen.findByText(/Saved to your account \(ends …PCMk\)/);
-    const strip = saved.closest("[data-testid='account-token-tamarind']");
-    const field = document.querySelector('[data-setting-title="Tamarind Bio API key"]');
+    const strip = saved.closest("[data-testid='account-token-japanfold']");
+    const field = document.querySelector('[data-setting-title="JapanFold API key"]');
 
     expect(strip).not.toBeNull();
     expect(field).not.toBeNull();
@@ -135,18 +135,20 @@ describe("ConnectionsSection token rows", () => {
     expect(strip!.parentElement!.parentElement).toHaveClass("settings-card");
     expect(strip!.parentElement).toHaveClass("settings-token-field");
 
-    // Biohub was retired with ESMFold: no field, no account strip.
+    // Biohub and Tamarind were retired: no field, no account strip.
     expect(document.querySelector('[data-setting-title="EvolutionaryScale (Forge) token"]')).toBeNull();
+    expect(document.querySelector('[data-setting-title="Tamarind Bio API key"]')).toBeNull();
     expect(document.querySelector("[data-testid='account-token-biohub']")).toBeNull();
+    expect(document.querySelector("[data-testid='account-token-tamarind']")).toBeNull();
   });
 
   it("keeps the last-request line with the token it belongs to", async () => {
-    noteCredentialHeader(encodeCredentialUse([{ kind: "tamarind", source: "team" }]));
+    noteCredentialHeader(encodeCredentialUse([{ kind: "japanfold", source: "team" }]));
     renderConnections();
 
-    const field = document.querySelector('[data-setting-title="Tamarind Bio API key"]')!;
-    const lastUse = await screen.findByTestId("last-credential-use-tamarind");
-    const strip = await screen.findByTestId("account-token-tamarind");
+    const field = document.querySelector('[data-setting-title="JapanFold API key"]')!;
+    const lastUse = await screen.findByTestId("last-credential-use-japanfold");
+    const strip = await screen.findByTestId("account-token-japanfold");
 
     expect(field.parentElement).toHaveClass("settings-token-field");
     expect(lastUse.parentElement).toBe(field.parentElement);
@@ -158,24 +160,14 @@ describe("ConnectionsSection token rows", () => {
   });
 });
 
-describe("ConnectionsSection optional providers", () => {
-  const sectionOf = (title: string) =>
-    document.querySelector(`[data-setting-title="${title}"]`)!.closest("section.settings-group");
-
-  it("keeps Tamarind apart from the credentials most people need, and offers no Hugging Face key", async () => {
+describe("ConnectionsSection credentials & instructions", () => {
+  it("retires optional provider tokens (Tamarind Bio, Hugging Face)", async () => {
     renderConnections();
     await screen.findByText(/Saved to your account \(ends …PCMk\)/);
 
-    const optional = document.querySelector('section[data-setting-title="Optional providers"]');
-    expect(optional).not.toBeNull();
-    expect(sectionOf("Tamarind Bio API key")).toBe(optional);
-    expect(sectionOf("AlphaGenome Atlas API key")).not.toBe(optional);
+    expect(document.querySelector('section[data-setting-title="Optional providers"]')).toBeNull();
+    expect(document.querySelector('[data-setting-title="Tamarind Bio API key"]')).toBeNull();
     expect(screen.queryByText(/Hugging Face/)).toBeNull();
-  });
-
-  it("says when the optional key is actually used", () => {
-    renderConnections();
-    expect(screen.getByText(/only when the lab's own ThermoMPNN service does not answer/i)).toBeTruthy();
   });
 
   it("offers a JapanFold API key input and instructions for getting one", () => {

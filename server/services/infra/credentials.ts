@@ -1,8 +1,8 @@
 /**
  * credentials.ts — which token a remote model call uses, and whose allowance it spends (WP-I4).
  *
- * Tamarind counts calls against the token that made them. The server holds a team token
- * (`TAMARIND_API_KEY`), and a person
+ * Remote model providers (JapanFold) count calls against the token that made them. The server
+ * holds a team token (`JAPANFOLD_API_KEY`), and a person
  * may bring their own: in the request (Settings → Connections, this browser) or saved to their account
  * (`auth/user-secrets.ts`). {@link resolveCredential} decides, in this order:
  *
@@ -44,13 +44,11 @@ import { LEGACY_OWNER } from "./queue-owners.ts";
 
 /** The server's team token for each kind, by environment variable in order of preference. */
 const TEAM_ENV: Readonly<Record<CredentialKind, readonly string[]>> = {
-  tamarind: ["TAMARIND_API_KEY"],
   japanfold: ["JAPANFOLD_API_KEY"],
 };
 
 /** The host each kind's calls count against (the sidecar's calls are governed as this host). */
 export const CREDENTIAL_HOSTS: Readonly<Record<CredentialKind, string>> = {
-  tamarind: "app.tamarind.bio",
   japanfold: "api.japanfold.aiand.com",
 };
 
@@ -135,7 +133,7 @@ function noteUse(use: CredentialUse): void {
 }
 
 /**
- * Work several callers share (the core analysis run, a shared Tamarind submission) runs in a record of
+ * Work several callers share (such as a shared JapanFold submission) runs in a record of
  * its own; each caller then copies its uses into theirs, so every response says whose token the shared
  * call ran on (its source is the same for all of them).
  */
@@ -413,7 +411,6 @@ export function credentialPolicyHealth(): {
     fallback: sharedTokenFallback(),
     sharePerHour: teamSharePerHour(),
     teamTokens: {
-      tamarind: Boolean(teamToken("tamarind")),
       japanfold: Boolean(teamToken("japanfold")),
     },
   };

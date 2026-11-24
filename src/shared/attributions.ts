@@ -491,28 +491,16 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     usedBy: ["server/services/stability/foldx/runner.ts", "server/services/stability/foldx.ts"]
   },
   {
-    id: "dynamut2",
-    name: "DynaMut2",
+    id: "ddmut_ppi",
+    name: "DDMut-PPI",
     provider: "Ascher laboratory (Biosig), University of Queensland",
     kind: "service",
-    role: "Second ΔΔG opinion, from normal-mode analysis of protein flexibility combined with a machine-learning regressor trained on experimental stability data.",
-    url: "https://biosig.lab.uq.edu.au/dynamut2/",
+    role: "Interface binding-energy (ΔΔG_bind) prediction on a solved protein complex where the variant residue lies at the protein–protein interface, rendered on the Interfaces & PPI tab.",
+    url: "https://biosig.lab.uq.edu.au/ddmut_ppi/",
     release: null,
     citation:
-      "Rodrigues, C. H. M., Pires, D. E. V., & Ascher, D. B. (2021). DynaMut2: assessing changes in stability and flexibility upon single and multiple point missense mutations. Protein Science 30, 60–69. https://doi.org/10.1002/pro.3942",
-    usedBy: ["server/services/stability/dynamut.ts", "src/shared/engineStatus.ts"]
-  },
-  {
-    id: "ddmut",
-    name: "DDMut and DDMut-PPI",
-    provider: "Ascher laboratory (Biosig), University of Queensland",
-    kind: "service",
-    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; one of the engines counted in the Energetics agreement (not independent of the others: same template, overlapping training data). DDMut-PPI scores the change in binding energy across the interface on the Interfaces & PPI tab, on a solved complex where one has the residue at the interface.",
-    url: "https://biosig.lab.uq.edu.au/ddmut/",
-    release: null,
-    citation:
-      "Zhou, Y., Pan, Q., Pires, D. E. V., Rodrigues, C. H. M., & Ascher, D. B. (2023). DDMut: predicting effects of mutations on protein stability using deep learning. Nucleic Acids Research 51, W122–W128. https://doi.org/10.1093/nar/gkad472 · Zhou, Y., et al. (2024). DDMut-PPI: predicting effects of mutations on protein–protein interactions using graph-based deep learning. Nucleic Acids Research 52, W207–W214. https://doi.org/10.1093/nar/gkae412",
-    usedBy: ["server/services/stability/ddmut-ppi.ts", "server/services/stability/energy-models.ts"]
+      "Zhou, Y., et al. (2024). DDMut-PPI: predicting effects of mutations on protein–protein interactions using graph-based deep learning. Nucleic Acids Research 52, W207–W214. https://doi.org/10.1093/nar/gkae412",
+    usedBy: ["server/services/stability/ddmut-ppi.ts"]
   },
   {
     id: "stabilityoracle",
@@ -543,9 +531,9 @@ const ENGINE_SOURCES: AttributionEntry[] = [
   {
     id: "thermompnn",
     name: "ThermoMPNN",
-    provider: "Kuhlman laboratory, University of North Carolina (served by Tamarind Bio)",
+    provider: "Kuhlman laboratory, University of North Carolina (local sidecar)",
     kind: "model",
-    role: "ΔΔG from a ProteinMPNN-based transfer-learning model, submitted as a job to Tamarind Bio and polled. Optional: it runs only when a Tamarind credential is configured.",
+    role: "ΔΔG from a ProteinMPNN-based transfer-learning model, evaluated locally via the Python model sidecar and counted beside FoldX, StabilityOracle and RaSP in the Energetics agreement.",
     url: "https://github.com/Kuhlman-Lab/ThermoMPNN",
     release: null,
     citation:
@@ -732,8 +720,7 @@ export const QUERY_TRANSMISSION = {
     { host: "spliceai-38-xwkwwwxdwq-uc.a.run.app · spliceai-37-xwkwwwxdwq-uc.a.run.app", sent: "Genomic coordinate", note: "One endpoint per genome build. Named in full because the hostnames are opaque, which is also how a reader can recognise them in a network log." },
     { host: "data.evemodel.org", sent: "RefSeq transcript id", note: null },
     { host: "api.japanfold.aiand.com", sent: "Sequence, structure payloads", note: "Boltz-2 complexes." },
-    { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },
-    { host: "biosig.lab.uq.edu.au", sent: "Structure coordinates (PDB upload) and the mutation string", note: "DynaMut2, DDMut and DDMut-PPI. The whole modelled structure leaves the machine, uploaded to a server in Australia." },
+    { host: "biosig.lab.uq.edu.au", sent: "Structure coordinates (PDB upload) and the mutation string", note: "DDMut-PPI interface binding-energy prediction on solved complexes. The modelled complex leaves the machine, uploaded to a server in Australia." },
     { host: "deepmind.google.com", sent: "GRCh38 interval", note: "GRCh38 only — a GRCh37 coordinate is refused here rather than sent." },
     { host: "www.ebi.ac.uk", sent: "Literature text query and gene symbol; UniProt accession and residue position", note: "Europe PMC's search endpoint, the PDBe API for structure mappings and interface residues, and ProtVar for residue conservation and FoldX values." },
     { host: "generativelanguage.googleapis.com", sent: "The assembled evidence bundle for this run, plus your optional directions field", note: "Directions are screened for identifiers before they are sent, and that screening is best-effort — never type patient data into that field." }
@@ -763,7 +750,7 @@ export const ATTRIBUTION_GROUPS: AttributionGroup[] = [
     id: "about-engines",
     title: "Structure, energetics and cavity engines",
     blurb:
-      "The biophysics: an empirical force field (FoldX), learned ΔΔG estimators (DynaMut2, DDMut, StabilityOracle, RaSP, ThermoMPNN) and a cavity detector (P2Rank). The estimators' agreement — and their disagreement — is what the consensus verdict is built from.",
+      "The biophysics: an empirical force field (FoldX), learned ΔΔG estimators (StabilityOracle, RaSP, ThermoMPNN), a complex interface binding engine (DDMut-PPI) and a cavity detector (P2Rank). The monomer estimators' agreement — and their disagreement — is what the consensus verdict is built from.",
     entries: ENGINE_SOURCES
   },
   {

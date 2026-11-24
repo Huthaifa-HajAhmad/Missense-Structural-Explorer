@@ -17,19 +17,17 @@ import type { EnergeticsInputs } from "../energeticsEvidence";
 /**
  * The deep-model evidence a narrative synthesis is given.
  *
- * The load-bearing assertions here are (1) the SIGN of every ΔΔG is the canonical one — a DynaMut2
- * value reported negative must reach the prompt as destabilizing, because the model reasons about the
- * sign it is shown; (2) the payload is BOUNDED and validated, because it is interpolated into a clinical
- * prompt from a client-supplied request; and (3) the prompt text states what these observations are and
- * are not, including that no ACMG criterion may be created from them.
+ * The load-bearing assertions here are (1) the SIGN of every ΔΔG is the canonical one (positive =
+ * destabilizing), because the model reasons about the sign it is shown; (2) the payload is BOUNDED
+ * and validated, because it is interpolated into a clinical prompt from a client-supplied request;
+ * and (3) the prompt text states what these observations are and are not, including that no ACMG
+ * criterion may be created from them.
  */
 
 const STABLE_RUN: EnergeticsInputs = {
   foldingEnergetics: {
     foldx: 2.62,
     foldxSd: 0.1,
-    dynamut2: -1.8,
-    ddmut: -1.1,
     thermompnn: 1.2,
     rasp: 0.9,
     raspSource: "experimental",
@@ -42,8 +40,6 @@ const STABLE_RUN: EnergeticsInputs = {
       foldxRuns: 5,
     },
   },
-  dynamut2Status: "done",
-  ddmutStatus: "done",
   thermompnnStatus: "done",
 };
 
@@ -54,7 +50,7 @@ function observation(evidence: ReturnType<typeof buildDeepModelEvidence>, id: st
 }
 
 describe("deepModelEvidence — sign, provenance and status per model", () => {
-  it("normalises every ΔΔG to the canonical sign (positive = destabilizing)", () => {
+  it("reports every ΔΔG in the canonical sign (positive = destabilizing)", () => {
     const evidence = buildDeepModelEvidence({ stability: STABLE_RUN });
 
     const foldx = observation(evidence, "foldx");
@@ -67,17 +63,8 @@ describe("deepModelEvidence — sign, provenance and status per model", () => {
     expect(foldx.provenance).toContain("5.1");
     expect(foldx.note).toContain("Mean of 5 BuildModel runs");
 
-    // DynaMut2 reports NEGATIVE = destabilizing. Canonicalised, it is +1.8 and reads destabilizing —
-    // the defect `engineStatus.ts` exists to prevent, asserted at the prompt's own boundary.
-    const dynamut2 = observation(evidence, "dynamut2");
-    expect(dynamut2.value).toBe(1.8);
-    expect(dynamut2.call).toBe("Destabilizing");
-
-    const ddmut = observation(evidence, "ddmut");
-    expect(ddmut.value).toBe(1.1);
-
-    // Positive-native engines are unchanged.
     expect(observation(evidence, "thermompnn").value).toBe(1.2);
+    expect(observation(evidence, "thermompnn").call).toBe("Destabilizing");
     expect(observation(evidence, "rasp").value).toBe(0.9);
   });
 
@@ -90,9 +77,9 @@ describe("deepModelEvidence — sign, provenance and status per model", () => {
           // The lookup's own reason travels inside the energetics bag, which is where the Energetics
           // surfaces read it from too.
           raspReason: "Residue position is not present in the pre-computed database",
+          stabilityoracleStatus: "busy",
         },
         foldingError: "FoldX binary not found",
-        dynamut2Status: "unavailable",
         thermompnnStatus: "unavailable",
       },
     });
@@ -100,20 +87,17 @@ describe("deepModelEvidence — sign, provenance and status per model", () => {
     const foldx = observation(evidence, "foldx");
     expect(foldx.state).toBe("failed");
     expect(foldx.note).toContain("FoldX binary not found");
-    // A remote queue that did not answer is retryable; an engine this deployment cannot run is not —
+    // A busy sidecar queue is retryable; an engine this deployment cannot run is not —
     // the distinction `absenceClass` exists for, carried into the prompt instead of "unavailable".
-    expect(observation(evidence, "dynamut2").state).toBe("upstream-busy");
+    expect(observation(evidence, "stabilityoracle").state).toBe("upstream-busy");
     expect(observation(evidence, "thermompnn").state).toBe("not-installed");
     // A RaSP miss is a statement about the dataset, and only the lookup's own answer may assert it.
     expect(observation(evidence, "rasp").state).toBe("not-covered");
-    expect(observation(evidence, "ddmut").state).toBe("no-result");
   });
 
-  it("reports a pending remote engine as running, because a pending engine has a live poller", () => {
-    const evidence = buildDeepModelEvidence({ stability: { dynamut2Status: "pending" } });
-    // `engineStatus.ts`'s own rule: a pending remote engine that survives to this point still has a
-    // route to a result, so the prompt is told it is running rather than missing.
-    expect(observation(evidence, "dynamut2").state).toBe("running");
+  it("reports a pending sidecar engine as running", () => {
+    const evidence = buildDeepModelEvidence({ stability: { thermompnnStatus: "pending" } });
+    expect(observation(evidence, "thermompnn").state).toBe("running");
   });
 
   it("does not count a value the run excluded from its own consensus", () => {
@@ -206,7 +190,7 @@ describe("deepModelEvidence — the prompt block", () => {
     const block = deepEvidencePromptBlock(buildDeepModelEvidence({ stability: STABLE_RUN }))!;
     expect(block).toContain("[DEEP-MODEL COMPUTATIONAL OBSERVATIONS");
     expect(block).toContain("FoldX folding stability (ΔΔG): +2.62 kcal/mol");
-    expect(block).toContain("DynaMut2 ΔΔG: +1.80 kcal/mol");
+    expect(block).toContain("ThermoMPNN ΔΔG: +1.20 kcal/mol");
     expect(block).toContain("served by: Experimental structure");
     // The engines with no value are listed, so the model cannot infer one for them.
     expect(block).toContain("Returned nothing for this run");
@@ -237,7 +221,6 @@ describe("deepModelEvidence — the prompt block", () => {
 
   it("stays a bounded block", () => {
     const block = deepEvidencePromptBlock(buildDeepModelEvidence({ stability: STABLE_RUN }))!;
-    // 10 rows plus the rules, bounded by construction — a prompt is not an unbounded payload.
     expect(block.length).toBeLessThan(4000);
   });
 });
@@ -247,15 +230,15 @@ describe("deepModelEvidence — the two client paths agree on the supplement", (
     const fromSlice = deepEvidenceContextFromStore({
       foldingDdG: 2.15,
       foldingEnergetics: { foldx: 2.15 },
-      dynamut2Status: "pending",
+      thermompnnStatus: "pending",
       isFolding: false,
     });
     const fromPrimary = deepEvidenceContextFromStore({
-      primaryBiophysics: { foldingDdG: 2.15, foldingEnergetics: { foldx: 2.15 }, dynamut2Status: "pending" },
+      primaryBiophysics: { foldingDdG: 2.15, foldingEnergetics: { foldx: 2.15 }, thermompnnStatus: "pending" },
     });
     expect(fromSlice.stability?.foldingDdG).toBe(2.15);
     expect(fromPrimary.stability?.foldingDdG).toBe(2.15);
-    expect(fromPrimary.stability?.dynamut2Status).toBe("pending");
+    expect(fromPrimary.stability?.thermompnnStatus).toBe("pending");
     expect(fromSlice.stability?.foldingEnergetics).toEqual({ foldx: 2.15 });
   });
 

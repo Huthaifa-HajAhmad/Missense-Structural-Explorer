@@ -158,11 +158,11 @@ describe("streamBiophysicalAnalysis: the credentials frame (WP-I4)", () => {
         chunk => chunks.push(chunk)
       );
       pushLine(JSON.stringify({ chunkIndex: 9, isFinal: true, data: finalPayload }));
-      pushLine(JSON.stringify({ type: "credentials", uses: [{ kind: "tamarind", source: "team" }, { kind: "x", source: "own" }] }));
+      pushLine(JSON.stringify({ type: "credentials", uses: [{ kind: "japanfold", source: "team" }, { kind: "x", source: "own" }] }));
       close();
       await run;
       expect(chunks.every(c => c.type !== "credentials" && !("uses" in c))).toBe(true);
-      expect(seen).toEqual([[{ kind: "tamarind", source: "team" }]]);
+      expect(seen).toEqual([[{ kind: "japanfold", source: "team" }]]);
     } finally {
       off();
     }

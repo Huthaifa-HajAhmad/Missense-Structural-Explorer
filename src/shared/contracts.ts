@@ -209,8 +209,6 @@ export const energeticsDataSchema = z.object({
     .object({ residueCount: z.number(), chainId: z.string(), firstResidue: z.number(), lastResidue: z.number() })
     .optional(),
   foldxError: z.string().nullable().optional(),
-  dynamut2: nullableFiniteNumber.optional(),
-  ddmut: nullableFiniteNumber.optional(),
   rasp: nullableFiniteNumber.optional(),
   /** Lookup lifecycle; `done` with no score means the installed table returned no estimate. */
   raspStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
@@ -1601,11 +1599,6 @@ export const generateMutantResponseSchema = z.object({
   /** Where the job runs and why (live routing); null when it is simply the server's. `jobPlacement.ts`. */
   runsOn: jobRunsOnSchema.nullable().optional(),
   energetics: energeticsDataSchema.optional(),
-  dynamut2JobId: z.string().nullable().optional(),
-  dynamut2Status: z.string().nullable().optional(),
-  ddmutJobId: z.string().nullable().optional(),
-  ddmutStatus: z.string().nullable().optional(),
-  thermompnnJobId: z.string().nullable().optional(),
   thermompnnStatus: z.string().nullable().optional(),
   thermompnnError: z.string().nullable().optional(),
   /** Values from independent engines that finish while the FoldX job is still running. */
@@ -2331,16 +2324,9 @@ export interface Esm2ScoreData {
 }
 
 export interface BiophysicalModelingData {
-  dynamut2?: number | null;
-  dynamut2Status?: string | null;
-  dynamut2JobId?: string | null;
-  ddmut?: number | null;
-  ddmutStatus?: string | null;
-  ddmutJobId?: string | null;
   rasp?: number | null;
   thermompnn?: number | null;
   thermompnnStatus?: string | null;
-  thermompnnJobId?: string | null;
   foldingEnergetics?: EnergeticsData | null;
   biophysicalEnergetics?: any;
 }

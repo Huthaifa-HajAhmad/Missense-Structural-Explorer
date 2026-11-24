@@ -104,7 +104,6 @@ JAPANFOLD_FOLDING_TIMEOUT_MS,server/config.ts
 JAPANFOLD_URL,server/config.ts
 JAPANFOLD_ZEROSHOT_TIMEOUT_MS,server/config.ts
 JAVA_HOME,server/services/structure/pocket/java-detector.ts
-JOB_REGISTRY_PATH,server/routes/health.ts
 LANDSCAPE_REMOTE_FALLBACK,server/services/prediction/landscape.ts
 LOCALAPPDATA,server/agent/state.ts
 MAX_AUDIT_LOG_AGE_DAYS,server/config.ts
@@ -172,8 +171,6 @@ SIDECAR_URL,server/config.ts
 SOURCE_COMMIT,server/routes/health.ts
 STRUCTURAL_TAIL_TIMEOUT_MS,server/config.ts
 SystemRoot,server/agent/tools.ts
-THERMOMPNN_PROVIDER,server/routes/capabilities.ts
-THERMOMPNN_PROVIDER,server/services/stability/energy-models.ts
 TOOL_BUNDLES_DIR,server/services/infra/tool-bundles.ts
 TORCH_NUM_THREADS,server/sidecar-supervisor.ts
 USERPROFILE,server/services/structure/pocket/java-detector.ts

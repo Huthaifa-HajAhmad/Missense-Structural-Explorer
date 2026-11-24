@@ -83,7 +83,7 @@ export function writeSettingsBackup(settings: UserSettings, theme: ThemeMode): s
 }
 
 /** Credential fields a reader types; the Gemini session fields are derived from the Gemini key. */
-const TYPED_KEYS = ["geminiApiKey", "appApiToken", "japanfoldApiKey", "tamarindApiKey", "alphagenomeApiKey"] as const;
+const TYPED_KEYS = ["geminiApiKey", "appApiToken", "japanfoldApiKey", "alphagenomeApiKey"] as const;
 
 /** What a reset deletes beyond preferences, for its confirmation; null when it deletes nothing else. */
 export function resetLossNote(settings: UserSettings): string | null {

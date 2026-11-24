@@ -26,7 +26,7 @@ Never assume a single binary path or hardcoded operating system architecture.
 
 ### ProtVar FoldX (cross-check; one FoldX reading counts)
 * **Source**: EBI ProtVar `GET /ProtVar/api/prediction/foldx/{accession}/{position}` — FoldX precomputed on the AlphaFold DB model (`server/services/external-api/protvar.ts`).
-* **Never a second vote**: it is FoldX again, so its engine descriptor is `referenceOnly` — excluded from coverage ("N of 6 engines"), from the run's running/missing lists and from `pendingTools`. Any new count over engines must skip `referenceOnly` rows (`COUNTED_ENERGY_ENGINES`).
+* **Never a second vote**: it is FoldX again, so its engine descriptor is `referenceOnly` — excluded from coverage ("N of 4 engines"), from the run's running/missing lists and from `pendingTools`. Any new count over engines must skip `referenceOnly` rows (`COUNTED_ENERGY_ENGINES`).
 * **One FoldX reading counts** (`FOLDX_STAND_IN_RULE`, `src/shared/energeticsEvidence.ts`): local FoldX whenever it has a value; ProtVar's value only when there is no local value AND the template is the AlphaFold model. Never on an experimental/homology template. Any caller building a consensus from a narrow object must pass `protvar` and `structureProvenance` (`computeStabilityConsensus`), or its verdict will disagree with the screen.
 * **Cross-check** (`evidence.foldxTemplateCheck`) when both exist: consistent / differs / opposite, with a local 1 kcal/mol gap mark. A gap is a template-and-pipeline difference, not an error bar on either value.
 * **No value, with a reason** when AlphaFold fragment models disagree (proteins > ~2,700 aa) or ProtVar's wild type differs. Never pick a fragment.
@@ -42,6 +42,7 @@ Never assume a single binary path or hardcoded operating system architecture.
 ### Retired: runtime protein language models
 * ESM-2, SaProt, VESM-150M, ESMC and the ESM3 embedding reading were retired on 2026-11-18 (`doc/PROTEIN_LANGUAGE_MODELS_DECISION.md`). The sidecar no longer serves `/predict/esm2`, `/predict/esm3`, `/predict/saprot` or `/predict/vesm`, and nothing in the app calls them. Do not reintroduce them without meeting that document's reopen criteria. ESM1b stays on Predictors from precomputed dbNSFP scores.
 * ESMFold de novo folding, EvolutionaryScale Forge and the Biohub token were retired on 2026-11-23 (`doc/IN_SILICO_PRUNING_PLAN.md`, Phase 3). JapanFold remains for Boltz-2 complexes.
+* DynaMut2, DDMut, and the Tamarind ThermoMPNN cloud fallback were retired on 2026-11-24 (`doc/IN_SILICO_PRUNING_PLAN.md`, Phase 6). DDMut-PPI stays on Interfaces & PPI.
 
 ## 2. Capabilities Diagnostic Endpoint
 

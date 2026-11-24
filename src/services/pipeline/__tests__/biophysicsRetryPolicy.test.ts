@@ -24,10 +24,10 @@ describe("shared biophysics retry policy", () => {
     expect(shouldRunBiophysics({ ...healthy, foldingEnergetics: {} }, null, now)).toBe(true);
     expect(shouldRunBiophysics({ ...healthy, foldingEnergetics: { foldx: NaN } }, null, now)).toBe(true);
   });
-  it("does not retry a structurally impossible repair failure, but retries other FoldX failures after cooldown", () => {
+  it("does not retry a structurally impossible repair failure, but retries other FoldX or ThermoMPNN failures after cooldown", () => {
     const repairFailed = { ...healthy, foldingStatus: "failed", foldingEnergetics: { foldxRepairFailed: true } };
     expect(shouldRunBiophysics(repairFailed, now - BIOPHYSICS_RETRY_COOLDOWN_MS - 1, now)).toBe(false);
-    expect(shouldRunBiophysics({ ...repairFailed, ddmutStatus: "error" }, now - BIOPHYSICS_RETRY_COOLDOWN_MS - 1, now)).toBe(true);
+    expect(shouldRunBiophysics({ ...repairFailed, thermompnnStatus: "error" }, now - BIOPHYSICS_RETRY_COOLDOWN_MS - 1, now)).toBe(true);
     const crashed = { ...healthy, foldingStatus: "failed", foldingEnergetics: { foldx: null } };
     expect(shouldRunBiophysics(crashed, now - BIOPHYSICS_RETRY_COOLDOWN_MS, now)).toBe(false);
     expect(shouldRunBiophysics(crashed, now - BIOPHYSICS_RETRY_COOLDOWN_MS - 1, now)).toBe(true);
@@ -49,10 +49,10 @@ describe("shared biophysics retry policy", () => {
     expect(shouldRunBiophysics(null, now - 1, now)).toBe(false);
     expect(shouldRunBiophysics(null, null, now)).toBe(true);
   });
-  it("does not let a missing FoldX binary permanently suppress retryable remote engines", () => {
+  it("does not let a missing FoldX binary permanently suppress retryable companion engines", () => {
     const snapshot = { ...healthy, foldingEnergetics: { foldxBinaryMissing: true } };
     expect(shouldRunBiophysics(snapshot, null, now)).toBe(false);
-    expect(shouldRunBiophysics({ ...snapshot, ddmutStatus: "unavailable" }, null, now)).toBe(true);
+    expect(shouldRunBiophysics({ ...snapshot, thermompnnStatus: "error" }, null, now)).toBe(true);
     expect(shouldRunBiophysics({ ...snapshot, thermompnnStatus: "busy" }, null, now)).toBe(true);
   });
 });

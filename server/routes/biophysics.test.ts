@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import fs from "fs";
 import { apiRouter } from "../routes.ts";
 import { clearAllCaches } from "../services/cache.ts";
-import { getRegistryPath } from "./shared.ts";
 import { BiophysicalJobQueue } from "../services/biophysical-queue.ts";
 import { clearInFlightRemoteSubmissions } from "./biophysics/generation.ts";
 
@@ -13,17 +11,6 @@ describe("Biophysics Route Endpoints & Helper Unit Tests", () => {
     try {
       BiophysicalJobQueue.initialize(2, async () => ({}));
     } catch (_) {}
-    // Clear the job registry between tests. This hook previously deleted the REAL
-    // temp_jobs/job_registry.json; setup now redirects JOB_REGISTRY_PATH into the OS temp
-    // directory, so the same reset applies to throwaway state only. Clearing it is required,
-    // not optional: the redirected file persists between runs, and a stale entry whose
-    // jobId/type happen to match makes the backfill test pass or fail depending on history.
-    try {
-      const registryPath = getRegistryPath();
-      if (fs.existsSync(registryPath)) {
-        fs.rmSync(registryPath, { force: true });
-      }
-    } catch (err) {}
   });
 
   describe("nearest-residues endpoint", () => {
@@ -207,152 +194,72 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
     });
   });
 
-  describe("/ddmut-submit and /ddmut-job/:jobId endpoints", () => {
-    it("should accept standard missense code R408W in /ddmut-submit", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-submit");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /ddmut-submit not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const dynamutServices = await import("../services/dynamut.ts");
-      const submitSpy = vi.spyOn(dynamutServices, "submitDdmutJob").mockResolvedValue("99999");
-
-      let jsonVal: any = null;
-      const req: any = {
-        body: {
-          wtPdb: "ATOM      1  CA  ARG A 408      1.000   1.000   1.000  1.00  0.00           C\nEND",
-          mutation: "R408W"
-        }
-      };
-      const res: any = {
-        json(body: any) {
-          jsonVal = body;
-          return this;
-        },
-        status(code: number) {
-          return this;
-        }
-      };
-
-      await handler(req, res, () => {});
-      expect(submitSpy).toHaveBeenCalledWith(expect.any(String), "A", 408, "R", "W");
-      expect(jsonVal.ddmutJobId).toBe("99999");
-      expect(jsonVal.ddmutStatus).toBe("pending");
-
-      submitSpy.mockRestore();
-    });
-
-    it("should reject wild-type residue mismatch on /ddmut-submit and /thermompnn-submit with 422", async () => {
-      const ddmutRoute = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-submit");
-      const thermoRoute = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-submit");
-      expect(ddmutRoute).toBeDefined();
-      expect(thermoRoute).toBeDefined();
-
-      for (const route of [ddmutRoute!, thermoRoute!]) {
-        if (!route?.route) throw new Error("Expected route.route to be defined");
-        const handler = route.route.stack[route.route.stack.length - 1].handle;
-        let statusCode = 200;
-        let jsonVal: any = null;
-        const req: any = {
-          headers: {},
-          body: {
-            wtPdb: "ATOM      1  CA  ARG A 408      1.000   1.000   1.000  1.00  0.00           C\nEND",
-            mutation: "L408W"
-          }
-        };
-        const res: any = {
-          status(code: number) {
-            statusCode = code;
-            return this;
-          },
-          json(body: any) {
-            jsonVal = body;
-            return this;
-          }
-        };
-
-        await handler(req, res, () => {});
-        expect(statusCode).toBe(422);
-        expect(jsonVal?.error?.code).toBe("UNPROCESSABLE_ENTITY");
+  describe("retired Phase 6 stability endpoints and synchronous /thermompnn-submit", () => {
+    it("unregisters retired DynaMut2, DDMut, Tamarind, and ThermoMPNN polling routes", () => {
+      for (const path of ["/dynamut2-submit", "/ddmut-submit", "/dynamut2-job/:jobId", "/ddmut-job/:jobId", "/thermompnn-job/:jobId", "/test-tamarind-connection"]) {
+        expect(apiRouter.stack.find(s => s.route && s.route.path === path), `${path} should be removed`).toBeUndefined();
       }
     });
 
-    it("should return prediction on /ddmut-job/:jobId when DONE", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-job/:jobId");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /ddmut-job/:jobId not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const dynamutServices = await import("../services/dynamut.ts");
-      const pollSpy = vi.spyOn(dynamutServices, "pollDdmutJob").mockResolvedValue({
-        status: "DONE",
-        prediction: -1.25
-      });
-
+    it("rejects wild-type residue mismatch on /thermompnn-submit with 422", async () => {
+      const thermoRoute = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-submit");
+      expect(thermoRoute).toBeDefined();
+      if (!thermoRoute?.route) throw new Error("Expected route.route to be defined");
+      const handler = thermoRoute.route.stack[thermoRoute.route.stack.length - 1].handle;
+      let statusCode = 200;
       let jsonVal: any = null;
       const req: any = {
-        params: { jobId: "99999" },
         headers: {},
-        query: {}
+        body: {
+          wtPdb: "ATOM      1  CA  ARG A 408      1.000   1.000   1.000  1.00  0.00           C\nEND",
+          mutation: "L408W"
+        }
       };
       const res: any = {
-        json(body: any) {
-          jsonVal = body;
+        status(code: number) {
+          statusCode = code;
           return this;
         },
-        status(code: number) {
+        json(body: any) {
+          jsonVal = body;
           return this;
         }
       };
 
       await handler(req, res, () => {});
-      expect(pollSpy).toHaveBeenCalledWith("99999");
-      expect(jsonVal.status).toBe("DONE");
-      expect(jsonVal.prediction).toBe(-1.25);
-
-      pollSpy.mockRestore();
+      expect(statusCode).toBe(422);
+      expect(jsonVal?.error?.code).toBe("UNPROCESSABLE_ENTITY");
     });
-  });
 
-  describe("/dynamut2-submit retry endpoint", () => {
-    const pdbWith = (resName: string, chain = "A", resSeq = 408) =>
-      `ATOM      1  CA  ${resName} ${chain}${String(resSeq).padStart(4)}       1.000   1.000   1.000  1.00  0.00           C
-END`;
-    async function submit(body: any) {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-submit");
-      if (!route || !route.route) throw new Error("Route /dynamut2-submit not found");
+    it("returns a synchronous prediction on /thermompnn-submit without a pollable job id", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-submit");
+      expect(route).toBeDefined();
+      if (!route?.route) throw new Error("Route /thermompnn-submit not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
-      const dynamutServices = await import("../services/dynamut.ts");
-      const submitSpy = vi.spyOn(dynamutServices, "submitDynaMut2Job").mockResolvedValue("77777");
-      const out: { status: number; body: any } = { status: 200, body: null };
-      const res: any = {
-        json(payload: any) { out.body = payload; return this; },
-        status(code: number) { out.status = code; return this; },
-      };
-      await handler({ body } as any, res, () => {});
-      return { out, submitSpy };
-    }
 
-    it("submits the cleaned template on the chain the structure has the residue on", async () => {
-      const { out, submitSpy } = await submit({ wtPdb: pdbWith("ARG", "B"), mutation: "R408W" });
-      expect(submitSpy).toHaveBeenCalledWith(expect.any(String), "B", 408, "R", "W");
-      expect(out.body).toEqual({ dynamut2JobId: "77777", dynamut2Status: "pending" });
-      submitSpy.mockRestore();
-    });
+      const biophysics = await import("../services/biophysics.ts");
+      const spy = vi.spyOn(biophysics, "submitThermoMpnnJob").mockResolvedValue({
+        jobId: null,
+        status: "done",
+        prediction: 0.91,
+      });
 
-    it("refuses a wild-type residue that does not match, as the analysis route does", async () => {
-      const { out, submitSpy } = await submit({ wtPdb: pdbWith("ALA"), mutation: "R408W" });
-      expect(out.status).toBe(422);
-      expect(JSON.stringify(out.body)).toContain("Wild-type residue mismatch");
-      expect(submitSpy).not.toHaveBeenCalled();
-      submitSpy.mockRestore();
-    });
+      let jsonVal: any = null;
+      await handler({
+        headers: {},
+        body: {
+          wtPdb: "ATOM      1  CA  ARG B 408      1.000   1.000   1.000  1.00  0.00           C\nEND",
+          mutation: "R408W",
+        },
+      } as any, { status() { return this; }, json(b: any) { jsonVal = b; return this; } } as any, () => {});
 
-    it("refuses a position the structure does not contain", async () => {
-      const { out, submitSpy } = await submit({ wtPdb: pdbWith("ARG", "A", 12), mutation: "R408W" });
-      expect(out.status).toBe(422);
-      expect(submitSpy).not.toHaveBeenCalled();
-      submitSpy.mockRestore();
+      expect(spy).toHaveBeenCalledWith(expect.any(String), "RB408W");
+      expect(jsonVal).toMatchObject({
+        thermompnnStatus: "done",
+        prediction: 0.91,
+        error: null,
+      });
+      spy.mockRestore();
     });
   });
 
@@ -584,18 +491,20 @@ END`;
     });
   });
 
-  describe("/generate-mutant cache-hit remote dispatch", () => {
-    it("should trigger DynaMut2 and DDMut submissions when FoldX has a cache hit but remote jobs are missing", async () => {
+  describe("/generate-mutant cache-hit companion dispatch", () => {
+    it("should trigger local ThermoMPNN submission when FoldX has a cache hit and thermompnn is missing", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       expect(route).toBeDefined();
       if (!route || !route.route) throw new Error("Route /generate-mutant not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
 
-      const externalServices = await import("../services/external.ts");
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("178940463982");
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("1789404644525461");
-
       const biophysicsModule = await import("../services/biophysics.ts");
+      const tmSpy = vi.spyOn(biophysicsModule, "submitThermoMpnnJob").mockResolvedValue({
+        jobId: null,
+        status: "done",
+        prediction: 0.72,
+      });
+
       const mockCachedResult = {
         pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
         ddG: 1.25,
@@ -606,10 +515,8 @@ END`;
           vdw: 0.5,
           electrostatics: 0.1,
           rasp: -0.2,
-          thermompnn: 0.8,
+          thermompnn: null,
           stabilityoracle: 0.4,
-          dynamut2: null,
-          ddmut: null
         }
       };
 
@@ -641,30 +548,26 @@ END`;
 
       expect(statusCode).toBe(200);
       expect(jsonVal).toBeDefined();
-      expect(d2Spy).toHaveBeenCalled();
-      expect(ddmutSpy).toHaveBeenCalled();
-      expect(jsonVal.dynamut2JobId).toBe("178940463982");
-      expect(jsonVal.dynamut2Status).toBe("pending");
-      expect(jsonVal.ddmutJobId).toBe("1789404644525461");
-      expect(jsonVal.ddmutStatus).toBe("pending");
+      expect(tmSpy).toHaveBeenCalled();
+      expect(jsonVal.thermompnnStatus).toBe("done");
       expect(jsonVal.energetics.foldx).toBe(1.25);
+      expect(jsonVal.energetics.thermompnn).toBe(0.72);
+      expect(jsonVal.dynamut2JobId).toBeUndefined();
+      expect(jsonVal.ddmutJobId).toBeUndefined();
 
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
+      tmSpy.mockRestore();
       cacheSpy.mockRestore();
     });
 
-    it("should preserve completed DynaMut2 and DDMut values from cache without resubmitting", async () => {
+    it("should preserve completed ThermoMPNN value from cache without resubmitting", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       expect(route).toBeDefined();
       if (!route || !route.route) throw new Error("Route /generate-mutant not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
 
-      const externalServices = await import("../services/external.ts");
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job");
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob");
-
       const biophysicsModule = await import("../services/biophysics.ts");
+      const tmSpy = vi.spyOn(biophysicsModule, "submitThermoMpnnJob");
+
       const mockCachedResult = {
         pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
         ddG: 1.25,
@@ -677,8 +580,6 @@ END`;
           rasp: -0.2,
           thermompnn: 0.8,
           stabilityoracle: 0.4,
-          dynamut2: -0.387,
-          ddmut: 0.12
         }
       };
 
@@ -710,115 +611,30 @@ END`;
 
       expect(statusCode).toBe(200);
       expect(jsonVal).toBeDefined();
-      expect(d2Spy).not.toHaveBeenCalled();
-      expect(ddmutSpy).not.toHaveBeenCalled();
-      expect(jsonVal.dynamut2Status).toBe("done");
-      expect(jsonVal.ddmutStatus).toBe("done");
-      expect(jsonVal.energetics.dynamut2).toBe(-0.387);
-      expect(jsonVal.energetics.ddmut).toBe(0.12);
+      expect(tmSpy).not.toHaveBeenCalled();
+      expect(jsonVal.thermompnnStatus).toBe("done");
+      expect(jsonVal.energetics.thermompnn).toBe(0.8);
 
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
+      tmSpy.mockRestore();
       cacheSpy.mockRestore();
     });
 
-    it("should handle slow remote submissions (>1.5s) by returning pending status and preliminary consensus", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const externalServices = await import("../services/external.ts");
-      // Simulate slow submission taking 3s
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve("178940463982"), 3000))
-      );
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("1789404644525461");
-
-      const biophysicsModule = await import("../services/biophysics.ts");
-      const mockCachedResult = {
-        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
-        ddG: 1.25,
-        status: "success",
-        energetics: {
-          foldx: 1.25,
-          foldxMean: 1.25,
-          vdw: 0.5,
-          electrostatics: 0.1,
-          rasp: -0.2,
-          thermompnn: 0.8,
-          stabilityoracle: 0.4,
-          dynamut2: null,
-          ddmut: null
-        }
-      };
-
-      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
-
-      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
-      let jsonVal: any = null;
-      let statusCode = 200;
-      const req: any = {
-        body: {
-          wtPdb: mockPdbText,
-          mutation: "SA489C",
-          uniprotId: "Q9H116"
-        },
-        headers: {}
-      };
-      const res: any = {
-        status(code: number) {
-          statusCode = code;
-          return this;
-        },
-        json(body: any) {
-          jsonVal = body;
-          return this;
-        }
-      };
-
-      await handler(req, res, () => {});
-
-      expect(statusCode).toBe(200);
-      expect(jsonVal).toBeDefined();
-      expect(jsonVal.dynamut2Status).toBe("pending");
-      expect(jsonVal.energetics.pendingTools).toContain("DynaMut2");
-      // Provisionality is a typed fact now, not a suffix concatenated onto the verdict. The verdict
-      // itself stays a closed-set value, so no consumer has to parse it.
-      expect(jsonVal.energetics.evidenceComplete).toBe(false);
-      expect(jsonVal.energetics.consensusVerdict).not.toContain("Preliminary");
-
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
-      cacheSpy.mockRestore();
-    });
-
-    /**
-     * The defect behind "DDMut and DynaMut2 still say No result": on a cache hit the response left
-     * after 1.5 s with `pending` and no job id, the id arrived later with nothing to carry it, and
-     * the client settled both engines to no-result. The response now carries a token, and the
-     * long-poll route hands over the id once the submission settles.
-     */
-    it("hands a slow cache-hit submission's job id to the client through the remote-submissions route", async () => {
+    it("should handle slow sidecar ThermoMPNN submissions (>1.5s) by returning pending status and collecting via /remote-submissions/:token", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       const subRoute = apiRouter.stack.find(s => s.route && s.route.path === "/remote-submissions/:token");
       if (!route?.route || !subRoute?.route) throw new Error("routes not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
       const subHandler = subRoute.route.stack[subRoute.route.stack.length - 1].handle;
 
-      const externalServices = await import("../services/external.ts");
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve("178940463982"), 2500))
-      );
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve("1789404644525461"), 2500))
-      );
       const biophysicsModule = await import("../services/biophysics.ts");
+      const tmSpy = vi.spyOn(biophysicsModule, "submitThermoMpnnJob").mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve({ jobId: null, status: "done", prediction: 0.91 }), 2500))
+      );
       const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue({
         pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
         ddG: 1.25,
         status: "success",
-        energetics: { foldx: 1.25, foldxMean: 1.25, rasp: -0.2, thermompnn: 0.8, stabilityoracle: 0.4, dynamut2: null, ddmut: null }
+        energetics: { foldx: 1.25, foldxMean: 1.25, rasp: -0.2, thermompnn: null, stabilityoracle: 0.4 }
       } as any);
 
       const mkRes = () => {
@@ -833,19 +649,19 @@ END`;
         headers: {}
       } as any, res, () => {});
 
-      expect(res.body.dynamut2Status).toBe("pending");
-      expect(res.body.dynamut2JobId ?? null).toBeNull();
+      expect(res.body.thermompnnStatus).toBe("pending");
+      expect(res.body.energetics.pendingTools).toContain("ThermoMPNN");
+      expect(res.body.energetics.evidenceComplete).toBe(false);
+      expect(res.body.energetics.consensusVerdict).not.toContain("Preliminary");
       expect(typeof res.body.remoteSubmissionToken).toBe("string");
 
       const subRes = mkRes();
       await subHandler({ params: { token: res.body.remoteSubmissionToken }, headers: {} } as any, subRes, () => {});
       expect(subRes.body.settled).toBe(true);
-      expect(subRes.body.dynamut2JobId).toBe("178940463982");
-      expect(subRes.body.dynamut2Status).toBe("pending");
-      expect(subRes.body.ddmutJobId).toBe("1789404644525461");
+      expect(subRes.body.thermompnnStatus).toBe("done");
+      expect(subRes.body.thermompnnVal).toBe(0.91);
 
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
+      tmSpy.mockRestore();
       cacheSpy.mockRestore();
     }, 15000);
 
@@ -868,15 +684,12 @@ END`;
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       if (!route?.route) throw new Error("Route /generate-mutant not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
-      const externalServices = await import("../services/external.ts");
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("1");
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("2");
       const biophysicsModule = await import("../services/biophysics.ts");
       const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue({
         pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
         ddG: 1.25,
         status: "success",
-        energetics: { foldx: 1.25, foldxMean: 1.25, rasp: null, raspReason: undefined, thermompnn: 0.8, stabilityoracle: 0.4, dynamut2: -0.5, ddmut: -0.4 }
+        energetics: { foldx: 1.25, foldxMean: 1.25, rasp: null, raspReason: undefined, thermompnn: 0.8, stabilityoracle: 0.4 }
       } as any);
       const raspSpy = vi.spyOn(biophysicsModule, "runRaspLocal").mockResolvedValue({ score: 1.7 });
       // A structure the server resolved is in UniProt numbering, so the lookups by position apply to it.
@@ -894,8 +707,6 @@ END`;
 
       resolveSpy.mockRestore();
       raspSpy.mockRestore();
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
       cacheSpy.mockRestore();
     });
 
@@ -904,12 +715,9 @@ END`;
       if (!route?.route) throw new Error("Route /generate-mutant not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
 
-      const externalServices = await import("../services/external.ts");
       const protvarModule = await import("../services/external-api/protvar.ts");
       const biophysicsModule = await import("../services/biophysics.ts");
 
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("1");
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("2");
       const liveCachedEntry: any = {
         pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
         ddG: 1.25,
@@ -921,8 +729,6 @@ END`;
           raspReason: undefined,
           thermompnn: 0.8,
           stabilityoracle: 0.4,
-          dynamut2: -0.5,
-          ddmut: -0.4
         }
       };
 
@@ -965,21 +771,22 @@ END`;
       raspSpy.mockRestore();
       writeSpy.mockRestore();
       cacheSpy.mockRestore();
-      ddmutSpy.mockRestore();
-      d2Spy.mockRestore();
     });
 
-    it("should gracefully handle external submission failures without crashing", async () => {
+    it("should gracefully handle ThermoMPNN sidecar unavailability on cache hits without crashing", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       expect(route).toBeDefined();
       if (!route || !route.route) throw new Error("Route /generate-mutant not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
 
-      const externalServices = await import("../services/external.ts");
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockRejectedValue(new Error("BioSig server down"));
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue(null);
-
       const biophysicsModule = await import("../services/biophysics.ts");
+      const tmSpy = vi.spyOn(biophysicsModule, "submitThermoMpnnJob").mockResolvedValue({
+        jobId: null,
+        status: "unavailable",
+        prediction: null,
+        error: "Sidecar offline",
+      });
+
       const mockCachedResult = {
         pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
         ddG: 1.25,
@@ -987,8 +794,7 @@ END`;
         energetics: {
           foldx: 1.25,
           foldxMean: 1.25,
-          dynamut2: null,
-          ddmut: null
+          thermompnn: null,
         }
       };
 
@@ -1020,214 +826,10 @@ END`;
 
       expect(statusCode).toBe(200);
       expect(jsonVal).toBeDefined();
-      expect(jsonVal.dynamut2Status).toBe("unavailable");
-      expect(jsonVal.ddmutStatus).toBe("unavailable");
+      expect(jsonVal.thermompnnStatus).toBe("unavailable");
 
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
+      tmSpy.mockRestore();
       cacheSpy.mockRestore();
-    });
-
-    it("should handle mixed cache state: preserving existing prediction while submitting missing one", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const externalServices = await import("../services/external.ts");
-      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job");
-      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("1789404644525461");
-
-      const biophysicsModule = await import("../services/biophysics.ts");
-      const mockCachedResult = {
-        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
-        ddG: 1.25,
-        status: "success",
-        energetics: {
-          foldx: 1.25,
-          foldxMean: 1.25,
-          dynamut2: -0.387,
-          ddmut: null
-        }
-      };
-
-      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
-
-      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
-      let jsonVal: any = null;
-      let statusCode = 200;
-      const req: any = {
-        body: {
-          wtPdb: mockPdbText,
-          mutation: "SA489C",
-          uniprotId: "Q9H116"
-        },
-        headers: {}
-      };
-      const res: any = {
-        status(code: number) {
-          statusCode = code;
-          return this;
-        },
-        json(body: any) {
-          jsonVal = body;
-          return this;
-        }
-      };
-
-      await handler(req, res, () => {});
-
-      expect(statusCode).toBe(200);
-      expect(jsonVal).toBeDefined();
-      expect(d2Spy).not.toHaveBeenCalled();
-      expect(ddmutSpy).toHaveBeenCalled();
-      expect(jsonVal.dynamut2Status).toBe("done");
-      expect(jsonVal.energetics.dynamut2).toBe(-0.387);
-      expect(jsonVal.ddmutStatus).toBe("pending");
-      expect(jsonVal.ddmutJobId).toBe("1789404644525461");
-
-      d2Spy.mockRestore();
-      ddmutSpy.mockRestore();
-      cacheSpy.mockRestore();
-    });
-  });
-
-  describe("BioSig Polling Cache Backfill", () => {
-    it("answers a rate-limited poll as a live, retryable job with the provider's own wording (WP-I3)", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
-      if (!route || !route.route) throw new Error("Route /dynamut2-job/:jobId not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const { ProviderRateLimitedError } = await import("../services/infra/provider-pause.ts");
-      const externalServices = await import("../services/external.ts");
-      const pollSpy = vi
-        .spyOn(externalServices, "pollDynaMut2Job")
-        .mockRejectedValue(new ProviderRateLimitedError("biosig.lab.uq.edu.au", "DynaMut2", 8));
-
-      let jsonVal: any = null;
-      const req: any = { params: { jobId: "178940469999" }, headers: {}, query: {} };
-      const res: any = {
-        status() {
-          return this;
-        },
-        json(body: any) {
-          jsonVal = body;
-          return this;
-        }
-      };
-      await handler(req, res, () => {});
-
-      expect(jsonVal).toMatchObject({
-        status: "UNAVAILABLE",
-        reason: "rate_limited",
-        retryable: true,
-        code: "PROVIDER_RATE_LIMITED",
-        retryAfterSec: 8,
-        error: "DynaMut2 is limiting requests; retrying in 8 s."
-      });
-      // Never the outage wording.
-      expect(jsonVal.error).not.toMatch(/unavailable|down/i);
-      pollSpy.mockRestore();
-    });
-
-    it("should backfill completed DynaMut2 prediction into FoldX cache upon DONE status", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /dynamut2-job/:jobId not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const { recordJobInRegistry } = await import("./shared.ts");
-      await recordJobInRegistry("178940463982", "dynamut2", "SA489C", "test_cache_key_489");
-
-      const externalServices = await import("../services/external.ts");
-      const pollSpy = vi.spyOn(externalServices, "pollDynaMut2Job").mockResolvedValue({
-        status: "DONE",
-        prediction: -0.387
-      });
-
-      const biophysicsModule = await import("../services/biophysics.ts");
-      const cachedMock = {
-        pdb: "ATOM...",
-        ddG: 1.0,
-        energetics: { foldx: 1.0, dynamut2: null }
-      };
-      const getCacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCacheForBackfill").mockResolvedValue(cachedMock as any);
-      const writeCacheSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
-
-      let jsonVal: any = null;
-      let statusCode = 200;
-      const req: any = {
-        params: { jobId: "178940463982" },
-        headers: {},
-        query: {}
-      };
-      const res: any = {
-        status(code: number) {
-          statusCode = code;
-          return this;
-        },
-        json(body: any) {
-          jsonVal = body;
-          return this;
-        }
-      };
-
-      await handler(req, res, () => {});
-
-      expect(statusCode).toBe(200);
-      expect(jsonVal.status).toBe("DONE");
-      expect(jsonVal.prediction).toBe(-0.387);
-      expect(writeCacheSpy).toHaveBeenCalledWith("test_cache_key_489", expect.objectContaining({
-        energetics: expect.objectContaining({ dynamut2: -0.387 })
-      }));
-
-      pollSpy.mockRestore();
-      getCacheSpy.mockRestore();
-      writeCacheSpy.mockRestore();
-    });
-
-    it("backfills a completed ThermoMPNN prediction, so a cache hit stops re-submitting it", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-job/:jobId");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /thermompnn-job/:jobId not found");
-      const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const { recordJobInRegistry } = await import("./shared.ts");
-      await recordJobInRegistry("tm-job-318", "thermompnn", "RA318G", "test_cache_key_318");
-
-      const biophysicsModule = await import("../services/biophysics.ts");
-      const pollSpy = vi.spyOn(biophysicsModule, "pollThermoMpnnJob").mockResolvedValue({
-        status: "done",
-        prediction: -0.106
-      } as any);
-
-      const cachedMock = {
-        pdb: "ATOM...",
-        ddG: 1.0,
-        energetics: { foldx: 1.0, thermompnn: null },
-      };
-      const getCacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCacheForBackfill").mockResolvedValue(cachedMock as any);
-      const writeCacheSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
-
-      const req: any = { params: { jobId: "tm-job-318" }, headers: {}, query: {} };
-      const res: any = {
-        status() {
-          return this;
-        },
-        json(body: any) {
-          return this;
-        }
-      };
-
-      await handler(req, res, () => {});
-
-      expect(writeCacheSpy).toHaveBeenCalledWith("test_cache_key_318", expect.objectContaining({
-        energetics: expect.objectContaining({ thermompnn: -0.106 })
-      }));
-
-      pollSpy.mockRestore();
-      getCacheSpy.mockRestore();
-      writeCacheSpy.mockRestore();
     });
   });
 });

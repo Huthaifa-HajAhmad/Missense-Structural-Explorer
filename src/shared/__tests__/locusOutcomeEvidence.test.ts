@@ -7,11 +7,11 @@ import type { LocusFailureKind } from "../locusResolution";
 /** The argument order these cases were written in, mapped onto the one object form. */
 const positionalStatus = (
   view: string, result?: any, isFolding?: boolean, isBiophysicalLoading?: boolean, isClinicalLoading?: boolean,
-  isLoadingSearch?: boolean, loadingStep?: string, isPocketLoading?: boolean, dynamut2Status?: string | null,
-  ddmutStatus?: string | null, isNarrativeLoading?: boolean, hasStructureCoordinates?: boolean
+  isLoadingSearch?: boolean, loadingStep?: string, isPocketLoading?: boolean, thermompnnStatus?: string | null,
+  _unused?: string | null, isNarrativeLoading?: boolean, hasStructureCoordinates?: boolean
 ) => getWorkflowStageStatus({
   view, result, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep,
-  isPocketLoading, dynamut2Status, ddmutStatus, isNarrativeLoading, hasStructureCoordinates
+  isPocketLoading, thermompnnStatus, isNarrativeLoading, hasStructureCoordinates
 });
 
 const locus = (retryable: boolean, failureKind?: LocusFailureKind) => ({

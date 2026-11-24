@@ -22,7 +22,7 @@ describe("readSettingsBackup", () => {
   });
 
   it("never takes credentials from a file", () => {
-    const { settings } = readSettingsBackup(file({ geminiApiKey: "AIza-x", tamarindApiKey: "t_x", energyUnit: "kJ/mol" }));
+    const { settings } = readSettingsBackup(file({ geminiApiKey: "AIza-x", japanfoldApiKey: "jf_x", energyUnit: "kJ/mol" }));
     expect(settings).toEqual({ energyUnit: "kJ/mol" });
   });
 
@@ -38,9 +38,9 @@ describe("readSettingsBackup", () => {
 
 describe("resetLossNote", () => {
   it("names the keys typed in this tab and saved history, the things reset deletes", () => {
-    expect(resetLossNote({ ...DEFAULT_USER_SETTINGS, geminiApiKey: "AIza", tamarindApiKey: "t", saveHistory: true }))
+    expect(resetLossNote({ ...DEFAULT_USER_SETTINGS, geminiApiKey: "AIza", japanfoldApiKey: "jf", saveHistory: true }))
       .toBe("also clears 2 keys in this tab and saved search history");
-    expect(resetLossNote({ ...DEFAULT_USER_SETTINGS, tamarindApiKey: "t" })).toBe("also clears 1 key in this tab");
+    expect(resetLossNote({ ...DEFAULT_USER_SETTINGS, japanfoldApiKey: "jf" })).toBe("also clears 1 key in this tab");
     expect(resetLossNote(DEFAULT_USER_SETTINGS)).toBeNull();
   });
 });

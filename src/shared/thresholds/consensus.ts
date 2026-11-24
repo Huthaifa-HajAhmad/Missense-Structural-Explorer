@@ -40,8 +40,6 @@ export type ConsensusVerdict = StabilityVerdict;
 export interface StabilityConsensusInput {
   foldxMean?: number | null;
   foldx?: number | null;
-  dynamut2?: number | null;
-  ddmut?: number | null;
   rasp?: number | null;
   thermompnn?: number | null;
   stabilityoracle?: number | null;

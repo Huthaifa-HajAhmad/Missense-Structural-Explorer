@@ -41,20 +41,14 @@ import type { RaspCoverage } from "./raspIndex.ts";
 
 export type EnergyEngineId =
   | "foldx"
-  | "dynamut2"
-  | "ddmut"
   | "rasp"
   | "thermompnn"
   | "stabilityoracle"
   | "protvar";
 
 /**
- * The provider's native sign convention for its raw ΔΔG output.
- *
- * This is the crux of the sign bug this module fixes: FoldX/RaSP/ThermoMPNN/StabilityOracle
- * report *positive = destabilizing*, while DynaMut2 and DDMut report *negative =
- * destabilizing*. Both conventions appeared on the same screen simultaneously. Every consumer
- * now normalises through `toCanonicalDdg()` and never sees a raw sign.
+ * Canonical sign convention: FoldX, RaSP, ThermoMPNN, and StabilityOracle all report
+ * *positive = destabilizing*, normalized cleanly through `toCanonicalDdg()`.
  */
 export type NativeSign = "positive-destabilizing" | "negative-destabilizing";
 
@@ -88,7 +82,7 @@ export interface EngineDescriptor {
   /** One-line description of what the engine measures. */
   summary: string;
   /**
-   * Shown for reference, NEVER counted: not in the consensus, not in coverage ("N of 6 engines"),
+   * Shown for reference, NEVER counted: not in the consensus, not in coverage ("N of 4 engines"),
    * and not in the run's running/missing lists. For a value that repeats a method already counted —
    * ProtVar's precomputed FoldX is FoldX — counting it would count one method twice.
    */
@@ -104,7 +98,7 @@ export interface EngineDescriptor {
  * Canonical cut-points.
  *
  * `strongCut` comes from the tuned per-engine thresholds in `thresholds/constants.ts`, which is
- * what fixes the defect where FoldX's 1.5/0.5 cut-points were applied to all six engines (a
+ * what fixes the defect where FoldX's 1.5/0.5 cut-points were applied to all counted engines (a
  * RaSP ΔΔG of +1.2 was rendered "Moderately Destabilizing" while the consensus counted it as
  * destabilizing).
  *
@@ -125,11 +119,9 @@ const SUPPORTING_CUT = 0.5;
 export const RASP_BUNDLED_PROTEINS = 1345;
 const STABILIZING_CUT = -0.5;
 
-const magnitude = (v: number) => Math.abs(v);
-
 /**
- * The six engines, in the order they are presented. Adding an engine here is the ONLY place a
- * new engine must be registered for it to appear consistently everywhere.
+ * The four counted engines (plus ProtVar FoldX for reference), in the order they are presented.
+ * Adding an engine here is the ONLY place a new engine must be registered for it to appear consistently everywhere.
  */
 export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
   {
@@ -142,28 +134,6 @@ export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
     stabilizingCut: THRESHOLDS.foldxDdG.stabilizing,
     absenceClass: "install",
     summary: "Empirical atomic force field with sidechain repacking on a rigid backbone.",
-  },
-  {
-    id: "dynamut2",
-    name: "DynaMut2",
-    taxonomy: "Normal Mode Analysis / ML",
-    nativeSign: "negative-destabilizing",
-    strongCut: magnitude(THRESHOLDS.dynamut2.destabilizing),
-    supportingCut: SUPPORTING_CUT,
-    stabilizingCut: STABILIZING_CUT,
-    absenceClass: "upstream",
-    summary: "Normal-mode dynamics (elastic network) combined with a trained stability model.",
-  },
-  {
-    id: "ddmut",
-    name: "DDMut",
-    taxonomy: "Graph Deep Learning / Transformers",
-    nativeSign: "negative-destabilizing",
-    strongCut: magnitude(THRESHOLDS.ddmut.destabilizing),
-    supportingCut: SUPPORTING_CUT,
-    stabilizingCut: STABILIZING_CUT,
-    absenceClass: "upstream",
-    summary: "Siamese graph/transformer network over atomic density.",
   },
   {
     id: "rasp",
@@ -763,19 +733,10 @@ export interface EngineFacts {
   /** Single-value FoldX fallback used when no ensemble mean is present. */
   foldxDdg?: number | null;
   foldxSd?: number | null;
-  dynamut2?: number | null;
-  ddmut?: number | null;
   rasp?: number | null;
   thermompnn?: number | null;
   stabilityoracle?: number | null;
-  dynamut2Status?: RemoteStatus;
-  ddmutStatus?: RemoteStatus;
   raspStatus?: RemoteStatus;
-  dynamut2Error?: string | null;
-  ddmutError?: string | null;
-  /** Remote engines whose provider missed a poll while the job is still being listened for. */
-  dynamut2Listening?: boolean;
-  ddmutListening?: boolean;
   raspError?: string | null;
   thermompnnStatus?: RemoteStatus;
   stabilityoracleStatus?: RemoteStatus;
@@ -793,15 +754,12 @@ export interface EngineFacts {
   /** Presentation-only: collapse still-running rows. Never changes coverage. */
   hidePending?: boolean;
   /**
-   * Which remote engines a run's expired authorization cut off, keyed by id.
+   * Which engines a run's expired authorization cut off, keyed by id.
    *
-   * `foldxService` records this when the remote-submission collection got a terminal 401: the
-   * FoldX value and any engine the server had already answered are unaffected, but every engine
-   * still waiting on a job id had its route to a result severed and previously resolved as a
-   * bare "No result" — a state with no cause, while the cause was precisely known. RaSP and
+   * Records when a run's session expired while waiting on pending sidecar/cache engines. RaSP and
    * FoldX are absent by construction (neither reports through the app's session).
    */
-  energeticsAuthLapsed?: { dynamut2?: boolean; ddmut?: boolean; thermompnn?: boolean; stabilityoracle?: boolean } | null;
+  energeticsAuthLapsed?: { thermompnn?: boolean; stabilityoracle?: boolean } | null;
   /** ProtVar's precomputed FoldX (reference only). */
   protvar?: number | null;
   protvarStatus?: RemoteStatus;
@@ -850,10 +808,10 @@ function isBusyOrTimeoutDetail(detail?: string | null): boolean {
 /**
  * Maps a provider lifecycle status onto a cause, **respecting what absence means per engine**.
  *
- * This must not treat every `unavailable` as an upstream problem: the server reports
- * `unavailable` both for a remote queue that did not answer (DynaMut2/DDMut) and for an engine
- * this deployment simply cannot run (ThermoMPNN/StabilityOracle have no sidecar). Collapsing
- * those into one cause told the user to "retry later" for a service that will never be there.
+ * This must not treat every `unavailable` as an upstream problem: the server reports `unavailable`
+ * both for a transient upstream refusal and for an engine this deployment simply cannot run
+ * (ThermoMPNN/StabilityOracle have no sidecar). Collapsing those into one cause told the user to
+ * "retry later" for a service that will never be there.
  *
  * Likewise, a live sidecar that answered `busy` or ran out of its wait budget (`status: "busy"`,
  * or a persisted `error` carrying a busy/timeout detail) resolves to `upstream-busy` rather than
@@ -906,22 +864,17 @@ export function classifyRaspMissReason(reason: string | null | undefined): Engin
 }
 
 /**
- * True when a remote engine still has a route to a result.
+ * True when an asynchronous companion run (or background ThermoMPNN submission wait) is still active.
  *
- * `pending` is only reachable when one does: `settleUnreachableRemoteEngines` converts a pending
- * engine with no job id to `unavailable` at every terminal FoldX commit, and `resolveRestoredStatus`
- * does the same for a restored bundle — so a `pending` that survives has a live poller.
- *
- * Deriving activity from `isFolding` alone was wrong in the other direction: that flag clears when
- * the *FoldX* leg ends, while `useJobPoller` keeps polling the remote engine for up to ten minutes,
- * so a running engine was rendered "No result — the run ended".
+ * `settleUnreachableRemoteEngines` clears any lingering `pending` state at every terminal FoldX commit,
+ * and `resolveRestoredStatus` converts a restored `pending` without a value to `unavailable`.
  */
 function remoteRunActive(status: RemoteStatus, value: number | null | undefined): boolean {
   return (value ?? null) === null && status === "pending";
 }
 
 /**
- * Translates pipeline facts into canonical outcomes for all six engines.
+ * Translates pipeline facts into canonical outcomes for the four counted engines plus ProtVar.
  *
  * This is the single place that decides how a status combination becomes a user-facing state,
  * so adding an engine or a failure mode is a one-file change.
@@ -961,8 +914,6 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       }
     : null;
 
-  const dynamut2RunActive = isFolding || remoteRunActive(facts.dynamut2Status, facts.dynamut2);
-  const ddmutRunActive = isFolding || remoteRunActive(facts.ddmutStatus, facts.ddmut);
   const thermompnnRunActive = isFolding || remoteRunActive(facts.thermompnnStatus, facts.thermompnn);
   const stabilityoracleRunActive =
     facts.stabilityoracleStatus === "pending" ||
@@ -978,28 +929,6 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       // Mirrors the consensus, which excludes FoldX after a failed repair or a missing binary.
       excludeFromConsensus: Boolean(facts.foldxRepairFailed || facts.foldxBinaryMissing),
       templateProvenance,
-    },
-    {
-      id: "dynamut2",
-      value: facts.dynamut2 ?? null,
-      status: facts.dynamut2Status ?? null,
-      problem:
-        interruptedProblemFor(interruptedFor("dynamut2"), facts.dynamut2Status ?? null, facts.dynamut2 ?? null, dynamut2RunActive) ??
-        absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status, facts.dynamut2Error),
-      detail: facts.dynamut2Error ?? null,
-      runActive: dynamut2RunActive,
-      listening: Boolean(facts.dynamut2Listening),
-    },
-    {
-      id: "ddmut",
-      value: facts.ddmut ?? null,
-      status: facts.ddmutStatus ?? null,
-      problem:
-        interruptedProblemFor(interruptedFor("ddmut"), facts.ddmutStatus ?? null, facts.ddmut ?? null, ddmutRunActive) ??
-        absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus, facts.ddmutError),
-      detail: facts.ddmutError ?? null,
-      runActive: ddmutRunActive,
-      listening: Boolean(facts.ddmutListening),
     },
     {
       id: "rasp",
@@ -1080,7 +1009,7 @@ export interface CoverageSummary {
    * ensemble result. Surfaces must change their treatment (not merely their wording) when set.
    */
   insufficient: boolean;
-  /** e.g. "1 of 6 engines". */
+  /** e.g. "1 of 4 engines". */
   label: string;
 }
 

@@ -15,23 +15,17 @@ import { RESEARCH_GUIDES } from "../../shared/researchGuides";
  * DOI that resolves to a different paper. The agreement assertion at the bottom is the part
  * that matters — it fails the moment the copies drift on a citation again.
  *
- * WHY THESE TWO SPECIFICALLY
- * -------------------------
- * DynaMut2 and RaSP both carried a DOI belonging to a different paper, under a journal name
+ * WHY RA-SP IS PINNED SPECIFICALLY
+ * -------------------------------
+ * RaSP previously carried a DOI belonging to a different paper, under a journal name
  * that did not match it. Nothing in the app could catch that: a DOI is a string, and a string
  * that looks like a DOI is exactly what a reviewer skims past. The correct identities are
  * pinned literally below so a revert fails rather than silently reappearing.
  */
 const REPO_ROOT = process.cwd();
 
-/** The two bibliographic identities that were wrong, with what replaced them. */
+/** The bibliographic identities that were corrected, with what replaced them. */
 const CORRECTED: Record<string, { paperTitle: string; paperUrl: string }> = {
-  // Rodrigues et al., Protein Science 2021 — the DynaMut2 methods paper. The old entry
-  // named Bioinformatics 2020 and a DOI that resolves to an unrelated article.
-  dynamut2: {
-    paperTitle: "Rodrigues et al. Protein Science (2021)",
-    paperUrl: "https://doi.org/10.1002/pro.3942"
-  },
   // Blaabjerg et al., eLife 2023 — "Rapid protein stability prediction using deep learning
   // representations" (RaSP). The old entry named Cell Systems and a DOI for a different
   // article.
@@ -93,7 +87,7 @@ function readDeclaredCitations(relativePath: string): Map<string, DeclaredCitati
 }
 
 describe("method citations", () => {
-  it("cites DynaMut2 and RaSP to the papers those methods actually came from", () => {
+  it("cites RaSP to the paper it actually came from", () => {
     for (const [id, expected] of Object.entries(CORRECTED)) {
       const entry = (METRIC_EXPLANATIONS as Record<string, typeof expected | undefined>)[id];
       expect(entry, `${id} has no explanation entry`).toBeDefined();
@@ -153,7 +147,6 @@ describe("method citations", () => {
 
   it("cites the stability engines to their methods papers", () => {
     const expected: Record<string, string> = {
-      ddmut: "https://doi.org/10.1093/nar/gkad472",
       thermompnn: "https://doi.org/10.1073/pnas.2314853121",
       stabilityoracle: "https://doi.org/10.1038/s41467-024-49780-2",
     };

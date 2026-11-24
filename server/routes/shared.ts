@@ -1,14 +1,12 @@
 /**
  * shared.ts — Shared helpers for route modules.
- * Contains: gemini response cache, job registry, narrative response handler,
+ * Contains: gemini response cache, narrative response handler,
  * alt-variant generator. These utilities are consumed by multiple route files.
  */
 import express from "express";
 import type { CuratedInheritance } from "../../src/shared/inheritanceBasis.ts";
 import type { CuratedLofMechanism } from "../../src/shared/lofMechanismBasis.ts";
 import crypto from "crypto";
-import path from "path";
-import fs from "fs";
 
 import { type AnalysisResult } from "../../src/shared/contracts.ts";
 import { computeRuleBasedACMG } from "../services/acmg.ts";
@@ -72,122 +70,6 @@ export function generateAltVariants(sequence: string): string[] {
   }
 
   return alts;
-}
-
-// ---------------------------------------------------------------------------
-// Job registry
-// ---------------------------------------------------------------------------
-export interface RegistryJob {
-  jobId: string;
-  type: "dynamut2" | "ddmut" | "thermompnn";
-  mutation: string;
-  timestamp: string;
-  foldxCacheKey?: string;
-}
-
-/**
- * Live background-job registry path.
- *
- * Resolved per call rather than frozen at import so tests can redirect it; a module-scope
- * constant meant `biophysics.test.ts` deleted the developer's real registry on every run.
- */
-export const REGISTRY_PATH_ENV = "JOB_REGISTRY_PATH";
-export function getRegistryPath(): string {
-  return process.env[REGISTRY_PATH_ENV] ?? path.join(process.cwd(), "temp_jobs", "job_registry.json");
-}
-/** @deprecated Prefer {@link getRegistryPath}; a frozen path cannot be redirected under test. */
-export const REGISTRY_PATH = path.join(process.cwd(), "temp_jobs", "job_registry.json");
-
-/**
- * The registry used to lose entries when engines recorded concurrently: the read that an entry's
- * write is based on straddled `await`s, so three registrations landing in the same second (the
- * generation route starts them together) each serialized a snapshot that was missing the others'
- * entries — and a lost entry means the engine's prediction is never backfilled to the mutant
- * cache and its job can never be found for staleness checks. One process, one writer: every
- * write waits for the previous one to finish.
- */
-let registryWriteChain: Promise<void> = Promise.resolve();
-let registryReadCache: { path: string; mtimeMs: number; size: number; entries: RegistryJob[] } | null = null;
-
-/**
- * Finds a job record by id and engine type without re-reading and parsing `job_registry.json`
- * on every polling tick when the file is unchanged.
- */
-export async function findJobInRegistry(
-  jobId: string,
-  type: "dynamut2" | "ddmut" | "thermompnn"
-): Promise<RegistryJob | null> {
-  const registryPath = getRegistryPath();
-  if (!fs.existsSync(registryPath)) {
-    registryReadCache = null;
-    return null;
-  }
-  const stat = await fs.promises.stat(registryPath);
-  if (
-    !registryReadCache ||
-    registryReadCache.path !== registryPath ||
-    registryReadCache.mtimeMs !== stat.mtimeMs ||
-    registryReadCache.size !== stat.size
-  ) {
-    const content = await fs.promises.readFile(registryPath, "utf-8");
-    const entries = JSON.parse(content) as RegistryJob[];
-    registryReadCache = { path: registryPath, mtimeMs: stat.mtimeMs, size: stat.size, entries };
-  }
-  return registryReadCache.entries.find((j) => j.jobId === jobId && j.type === type) ?? null;
-}
-
-async function writeJobToRegistry(
-  jobId: string,
-  type: "dynamut2" | "ddmut" | "thermompnn",
-  mutation: string,
-  foldxCacheKey?: string
-): Promise<void> {
-  try {
-    const registryPath = getRegistryPath();
-    let registry: RegistryJob[] = [];
-    if (fs.existsSync(registryPath)) {
-      try {
-        const content = await fs.promises.readFile(registryPath, "utf-8");
-        registry = JSON.parse(content) as RegistryJob[];
-      } catch {}
-    }
-    registry.push({
-      jobId,
-      type,
-      mutation,
-      foldxCacheKey,
-      timestamp: new Date().toISOString()
-    });
-    if (registry.length > 1000) {
-      registry = registry.slice(-1000);
-    }
-    await fs.promises.mkdir(path.dirname(registryPath), { recursive: true });
-    const tmpPath = `${registryPath}.${crypto.randomUUID()}.tmp`;
-    await fs.promises.writeFile(tmpPath, JSON.stringify(registry, null, 2), "utf-8");
-    try {
-      await fs.promises.rename(tmpPath, registryPath);
-    } catch (renameErr) {
-      await fs.promises.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
-      if (fs.existsSync(tmpPath)) {
-        await fs.promises.unlink(tmpPath).catch(() => {});
-      }
-    }
-    registryReadCache = null;
-  } catch (err: any) {
-    console.warn("[Job Registry Warning] Failed to write job to registry:", err.message);
-  }
-}
-
-export async function recordJobInRegistry(
-  jobId: string,
-  type: "dynamut2" | "ddmut" | "thermompnn",
-  mutation: string,
-  foldxCacheKey?: string
-): Promise<void> {
-  const write = registryWriteChain.then(() => writeJobToRegistry(jobId, type, mutation, foldxCacheKey));
-  // The chain itself must survive a write failure: each write's own try/catch resolves it.
-  registryWriteChain = write;
-  await write;
 }
 
 // ---------------------------------------------------------------------------
