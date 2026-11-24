@@ -119,7 +119,7 @@ server/services/external-api/pdbe-interfaces.ts,server,server/services/external-
 server/services/external-api/ppi.ts,server,server/services/external-api/ppi.test.ts
 server/services/external-api/protvar-conservation.ts,server,server/services/external-api/protvar-conservation.test.ts
 server/services/external-api/protvar-protein.ts,server,server/services/external-api/protvar-protein.test.ts
-server/services/external-api/protvar.ts,server,server/routes/biophysics.test.ts;server/services/external-api/protvar-mapping.test.ts;server/services/external-api/protvar.test.ts
+server/services/external-api/protvar.ts,server,server/routes/biophysics.test.ts;server/routes/biophysics/generate-mutant-numbering.test.ts;server/services/external-api/protvar-mapping.test.ts;server/services/external-api/protvar.test.ts
 server/services/external-api/remoteFailure.ts,server,
 server/services/external-api/spliceai_broad.ts,server,server/routes/variant/spliceai.test.ts;server/services/external-api/spliceai_broad.live.test.ts;server/services/external-api/spliceai_broad.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/prediction/predictors.test.ts
 server/services/external-api/string.ts,server,server/services/external-api/core-data-fetcher.test.ts;server/services/infra/cache-hygiene.test.ts

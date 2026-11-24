@@ -879,16 +879,20 @@ END`;
         energetics: { foldx: 1.25, foldxMean: 1.25, rasp: null, raspReason: undefined, thermompnn: 0.8, stabilityoracle: 0.4, dynamut2: -0.5, ddmut: -0.4 }
       } as any);
       const raspSpy = vi.spyOn(biophysicsModule, "runRaspLocal").mockResolvedValue({ score: 1.7 });
+      // A structure the server resolved is in UniProt numbering, so the lookups by position apply to it.
+      const resolver = await import("../services/structure-resolver.ts");
+      const resolveSpy = vi.spyOn(resolver, "resolveStructure").mockResolvedValue({ pdbText: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", provenance: { source: "alphafold", chainId: "A" } } as any);
 
       let body: any = null;
       await handler({
-        body: { wtPdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", mutation: "SA489C", uniprotId: "Q9H116" },
+        body: { mutation: "SA489C", uniprotId: "Q9H116" },
         headers: {}
       } as any, { status() { return this; }, json(b: any) { body = b; return this; } } as any, () => {});
 
       expect(raspSpy).toHaveBeenCalledWith("", "", "A", 489, "S", "C", "Q9H116");
       expect(body.energetics.rasp).toBe(1.7);
 
+      resolveSpy.mockRestore();
       raspSpy.mockRestore();
       d2Spy.mockRestore();
       ddmutSpy.mockRestore();
@@ -935,11 +939,15 @@ END`;
         model: "AF-Q9H116-F1",
       } as any);
 
+      const resolver = await import("../services/structure-resolver.ts");
+      const resolveSpy = vi.spyOn(resolver, "resolveStructure").mockResolvedValue({ pdbText: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", provenance: { source: "alphafold", chainId: "A" } } as any);
+
       let body: any = null;
       await handler({
-        body: { wtPdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", mutation: "SA489C", uniprotId: "Q9H116" },
+        body: { mutation: "SA489C", uniprotId: "Q9H116" },
         headers: {}
       } as any, { status() { return this; }, json(b: any) { body = b; return this; } } as any, () => {});
+      resolveSpy.mockRestore();
 
       expect(body.energetics.raspError).toBe(biophysicsModule.RASP_STORE_UNAVAILABLE_REASON);
       expect(body.energetics.protvar).toBe(0.9);

@@ -215,6 +215,22 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     expect(publishedRemote.some(r => r.raspStatus === "unavailable")).toBe(true);
     expect(publishedRemote.some(r => r.protvarStatus === "unavailable")).toBe(true);
   });
+
+  it("does not look RaSP or ProtVar up for a structure the caller numbered: its position may be another UniProt residue", async () => {
+    const publishedRemote: Record<string, unknown>[] = [];
+    mutateJobData.mockImplementation(async (_jobId: string, fn: (cur: any) => any) => {
+      const next = fn({ remoteJobs: {} });
+      if (next?.remoteJobs) publishedRemote.push(next.remoteJobs);
+    });
+    generateMutantPdb.mockResolvedValue(result({}));
+    runRaspLocal.mockClear();
+
+    await runFoldxQueueJobOnServer({ ...data, structureNumbering: "caller" }, undefined, "job-caller-file");
+
+    expect(runRaspLocal).not.toHaveBeenCalled();
+    expect(publishedRemote.some(r => r.raspStatus === "unavailable" && String(r.raspError).includes("numbered by the file"))).toBe(true);
+    expect(publishedRemote.some(r => r.protvarStatus === "unavailable" && String(r.protvarError).includes("numbered by the file"))).toBe(true);
+  });
 });
 
 describe("finishFoldxQueueJob and the cached FoldX entry", () => {

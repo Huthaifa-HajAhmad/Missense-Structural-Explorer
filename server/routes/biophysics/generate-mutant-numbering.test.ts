@@ -66,6 +66,25 @@ describe("/generate-mutant numbering proof in the audit entry", () => {
     expect(entries()).toEqual([expect.objectContaining({ numberingProof: "unverified", numberingProofCheck: "other-residue" })]);
   });
 
+  it("does not look RaSP or ProtVar up by UniProt position for the caller's own structure, and says why", async () => {
+    const biophysics = await import("../../services/biophysics.ts");
+    const protvar = await import("../../services/external-api/protvar.ts");
+    const protvarSpy = vi.spyOn(protvar, "fetchProtVarFoldx");
+    vi.mocked(biophysics.getMutantFromCache).mockResolvedValue({
+      pdb: PDB, ddG: 1.25, status: "success", energetics: { foldx: 1.25, foldxMean: 1.25, rasp: null, protvarStatus: "pending" }
+    } as any);
+    let body: any = null;
+    const route: any = apiRouter.stack.find((layer: any) => layer.route?.path === "/generate-mutant");
+    const res: any = { status() { return this; }, json(payload: any) { body = payload; return this; } };
+
+    await route.route.stack[route.route.stack.length - 1].handle({ body: { mutation: "SA489C", uniprotId: "Q9H116", wtPdb: PDB }, headers: {} }, res, () => {});
+
+    expect(biophysics.runRaspLocal).not.toHaveBeenCalled();
+    expect(protvarSpy).not.toHaveBeenCalled();
+    expect(body.energetics).toMatchObject({ raspStatus: "unavailable", protvarStatus: "unavailable" });
+    expect(body.energetics.raspError).toContain("numbered by the file");
+  });
+
   it("checks no UniProt proof when the caller's own structure is used", async () => {
     await generate({ mutation: "SA489C", uniprotId: "Q9H116", wtPdb: PDB });
 

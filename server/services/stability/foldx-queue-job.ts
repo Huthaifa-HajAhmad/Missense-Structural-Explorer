@@ -67,6 +67,15 @@ const companionsInFlight = new Map<string, Promise<void>>();
  * RaSP and StabilityOracle for one job, started once per job in this process. Both run beside FoldX so
  * neither inherits its multi-minute wait, and each publishes its value into the job record as it lands.
  */
+/**
+ * RaSP and ProtVar FoldX are tables keyed by UniProt accession and position. A structure the caller sent
+ * (`structureNumbering: "caller"` on the job) is numbered by its own file, so its position may name
+ * another UniProt residue; those two lookups are not made for it. FoldX, StabilityOracle and the remote
+ * engines read the file itself, so they still run.
+ */
+export const CALLER_NUMBERING_REASON =
+  "Not looked up: the structure was sent with the request and is numbered by the file, not by UniProt, so its position may be another UniProt residue.";
+
 export function startFoldxCompanions(jobId: string | undefined, data: any): Promise<void> {
   if (jobId) {
     const running = companionsInFlight.get(jobId);
@@ -93,6 +102,10 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
   /** RaSP is a bundled-table lookup. Run it beside RepairPDB so it can never inherit FoldX's multi-minute wait. */
   const rasp = (async () => {
     if (previousRemoteJobs.raspStatus === "done" || previousRemoteJobs.raspStatus === "unavailable") return;
+    if (data.structureNumbering === "caller") {
+      await publishRemoteJobs(jobId, { raspStatus: "unavailable", raspError: CALLER_NUMBERING_REASON });
+      return;
+    }
     if (!data.uniprotId || !position || !wtAa || !mutAa) {
       // The lookup was never given what it needs. `done` asserted that the index had been
       // consulted and let the client call it "not covered" against an engine that never ran;
@@ -143,6 +156,10 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
    */
   const protvar = (async () => {
     if (previousRemoteJobs.protvarStatus === "done" || previousRemoteJobs.protvarStatus === "unavailable") return;
+    if (data.structureNumbering === "caller") {
+      await publishRemoteJobs(jobId, { protvarStatus: "unavailable", protvarError: CALLER_NUMBERING_REASON });
+      return;
+    }
     if (!data.uniprotId || !position || !wtAa || !mutAa) {
       // Same honesty rule as RaSP above: nothing was looked up, so this is not done.
       await publishRemoteJobs(jobId, { protvarStatus: "unavailable", protvarError: "No UniProt accession or variant fields for the ProtVar lookup" });

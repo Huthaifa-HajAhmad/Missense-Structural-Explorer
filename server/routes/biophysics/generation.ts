@@ -59,6 +59,7 @@ import { countResidues, foldxQueueCostEstimateMs } from "../../services/stabilit
 import { agentJoinGuard } from "../../services/infra/agent-jobs.ts";
 import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../../services/external-api/protvar.ts";
 import { residueOfRequest } from "../variant/residue-of-request.ts";
+import { CALLER_NUMBERING_REASON } from "../../services/stability/foldx-queue-job.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -592,6 +593,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 wtPdb: effectiveWtPdb,
                 mutation: actualMutation,
                 uniprotId,
+                // The caller's own file: its positions are not UniProt positions (CALLER_NUMBERING_REASON).
+                ...(clientPdbValid ? { structureNumbering: "caller" } : {}),
                 jobDir,
                 options: foldxOptions,
                 structureProvenance,
@@ -987,7 +990,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
            * reason — reported "Not covered", a statement about the protein that nothing had checked.
            * It is one indexed SQLite read, so it is done here on every hit that lacks a score.
            */
-          if (responseRecord.energetics && typeof responseRecord.energetics.rasp !== "number" && uniprotId) {
+          if (responseRecord.energetics && clientPdbValid) {
+            // Only in this response: the same lookups run normally for a UniProt-numbered structure.
+            if (typeof responseRecord.energetics.rasp !== "number") {
+              Object.assign(responseRecord.energetics, { raspStatus: "unavailable", raspError: CALLER_NUMBERING_REASON });
+            }
+            if (responseRecord.energetics.protvarStatus !== "done") {
+              Object.assign(responseRecord.energetics, { protvarStatus: "unavailable", protvarError: CALLER_NUMBERING_REASON });
+            }
+          }
+          if (responseRecord.energetics && typeof responseRecord.energetics.rasp !== "number" && uniprotId && !clientPdbValid) {
             try {
               const raspRes = await runRaspLocal("", "", resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
               if (raspRes && typeof raspRes.score === "number") {
@@ -1028,7 +1040,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
            * ProtVar on a cache hit, for the same reason as RaSP above: the companion lookup lands after
            * FoldX wrote its cache entry, so a revisit would otherwise never show it. One cached read.
            */
-          if (responseRecord.energetics && responseRecord.energetics.protvarStatus !== "done" && uniprotId) {
+          if (responseRecord.energetics && responseRecord.energetics.protvarStatus !== "done" && uniprotId && !clientPdbValid) {
             try {
               // `protvarVal` is the job-record name; on the energetics payload the value is `protvar`.
               const { protvarVal, ...protvarRest } = protvarJobFields(
