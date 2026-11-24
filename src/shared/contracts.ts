@@ -680,6 +680,18 @@ export const verifiedLiteratureAliasSchema = z.object({
 });
 export type VerifiedLiteratureAlias = z.infer<typeof verifiedLiteratureAliasSchema>;
 
+/** POST /numbering-proof: the analysis route's numbering check for a typed protein notation, run at intake. */
+export const numberingProofResponseSchema = z.object({
+  gene: z.string(),
+  variant: z.string(),
+  uniprotId: z.string(),
+  /** How the residue's numbering was proven (`ResidueProof` in `verifiedResidue.ts`). */
+  residueProof: z.enum(["genomic", "declared-protein", "canonical-vs-mane", "user-confirmed", "unverified"]),
+  /** Signed proof, sent back unchanged with every request of the run; absent when unverified. */
+  numberingProof: z.string().max(1024).optional()
+});
+export type NumberingProofResponse = z.infer<typeof numberingProofResponseSchema>;
+
 export const translateVariantResponseSchema = z.object({
   literatureAliases: z.array(verifiedLiteratureAliasSchema).optional(),
   gene: z.string(),

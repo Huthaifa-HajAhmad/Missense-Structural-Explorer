@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueNumberingProof, verifyNumberingProof, NUMBERING_PROOF_LIFETIME_MS } from "./numbering-proof.ts";
 import { CACHE_SCHEMA_VERSION } from "../infra/cache-keys.ts";
@@ -74,5 +75,34 @@ describe("numbering proof", () => {
     const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8"));
     expect(payload.schema).toBe(CACHE_SCHEMA_VERSION);
     expect(verifyNumberingProof(token, residue, NOW, "v-next")).toEqual({ status: "stale-schema" });
+  });
+
+  /** Signs any body with the proof key, as an older or newer server version might have. */
+  const signedWith = (payload: unknown) => {
+    const key = Buffer.from(crypto.hkdfSync("sha256", process.env.APP_SESSION_SECRET!, "mse-numbering-proof", "np1", 32));
+    const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    return `np1.${body}.${crypto.createHmac("sha256", key).update(`np1.${body}`).digest("base64url")}`;
+  };
+  const goodPayload = { ...residue, proof: "genomic", schema: CACHE_SCHEMA_VERSION, issuedAt: NOW };
+
+  it("treats a correctly signed payload of the wrong shape as invalid, never as a crash", () => {
+    for (const broken of [
+      { ...goodPayload, accession: 7 },
+      { ...goodPayload, issuedAt: "yesterday" },
+      { ...goodPayload, position: "55" },
+      { ...goodPayload, proof: "unverified" },
+      { ...goodPayload, proof: "made-up" },
+      null,
+      [],
+    ]) {
+      expect(verifyNumberingProof(signedWith(broken), residue, NOW)).toEqual({ status: "invalid" });
+    }
+    expect(verifyNumberingProof(signedWith(goodPayload), residue, NOW)).toEqual({ status: "valid", proof: "genomic" });
+  });
+
+  it("rejects a proof dated in the future, but allows a few minutes of clock difference", () => {
+    const hour = 60 * 60 * 1000;
+    expect(verifyNumberingProof(signedWith({ ...goodPayload, issuedAt: NOW + hour }), residue, NOW)).toEqual({ status: "invalid" });
+    expect(verifyNumberingProof(signedWith({ ...goodPayload, issuedAt: NOW + 60_000 }), residue, NOW).status).toBe("valid");
   });
 });

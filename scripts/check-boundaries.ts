@@ -298,7 +298,7 @@ export function checkBoundaries(rootDir: string = REPO_ROOT, customFiles?: Map<s
   violations.push(...verifiedResidueViolations(
     [...serverFiles, ...srcFiles],
     rootDir,
-    (file) => stripCommentsPreservingLineNumbers(customFiles?.get(file) ?? fs.readFileSync(file, "utf-8")),
+    (file) => customFiles?.get(file) ?? fs.readFileSync(file, "utf-8"),
     isTestFile,
   ));
 

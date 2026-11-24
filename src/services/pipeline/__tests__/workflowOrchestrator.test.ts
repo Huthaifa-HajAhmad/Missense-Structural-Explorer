@@ -117,6 +117,53 @@ describe("workflowOrchestrator", () => {
     expect(sinks.analysis.setAnalysisState).not.toHaveBeenCalled();
   });
 
+  describe("numbering proof for a typed protein notation", () => {
+    const run = (apiClient: Record<string, unknown>) => {
+      const sinks = createMockSinks();
+      return executeFullAnalysisWorkflow({
+        targetGeneArg: "PAH",
+        targetVariantArg: "p.Arg408Trp",
+        targetUniprotArg: "",
+        options: { fetchWithAuth: vi.fn(), apiClient, settings: { biophysicsConditions: {} }, userDirections: "", sinks: sinks as any },
+        activeSignal: new AbortController().signal,
+        requestId: 1,
+        getActiveRequestId: () => 1,
+        getTraceContext: () => ({ activeTraceId: "t1", traceStart: 0, addTraceSpan: vi.fn() }),
+        fetchHomologs: vi.fn(),
+        fetchPocketData: vi.fn(),
+        mutantFoldAbortRef: { current: null }
+      });
+    };
+
+    it("asks for the proof before the parallel requests start, and sends it with the analysis", async () => {
+      const { fetchPdbCoordinates } = await import("../structureService");
+      const apiClient = {
+        getNumberingProof: vi.fn().mockResolvedValue({ gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", residueProof: "canonical-vs-mane", numberingProof: "np1.b.s" }),
+        resolveGene: vi.fn()
+      };
+      await run(apiClient);
+
+      expect(apiClient.getNumberingProof).toHaveBeenCalledWith({ gene: "PAH", variant: "p.Arg408Trp" }, expect.anything());
+      // The intake answer names the accession, so no separate gene lookup is made.
+      expect(apiClient.resolveGene).not.toHaveBeenCalled();
+      expect(apiClient.getNumberingProof.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(fetchPdbCoordinates).mock.invocationCallOrder[0]);
+      expect(vi.mocked(fetchBiophysicalAnalysis).mock.calls[0][0]).toMatchObject({ uniprotId: "P00439", numberingProof: "np1.b.s" });
+    });
+
+    it("runs as before when the intake check fails: the gene lookup, and no proof", async () => {
+      const apiClient = {
+        getNumberingProof: vi.fn().mockRejectedValue(new Error("UniProt unavailable")),
+        resolveGene: vi.fn().mockResolvedValue({ gene: "PAH", uniprotId: "P00439" })
+      };
+      await run(apiClient);
+
+      expect(apiClient.resolveGene).toHaveBeenCalledWith("PAH", expect.anything());
+      const params = vi.mocked(fetchBiophysicalAnalysis).mock.calls[0][0];
+      expect(params).toMatchObject({ uniprotId: "P00439" });
+      expect(params).not.toHaveProperty("numberingProof");
+    });
+  });
+
   describe("accession after notation translation", () => {
     const run = (translated: { gene: string; variant: string; uniprotId: string }) => {
       const sinks = createMockSinks();

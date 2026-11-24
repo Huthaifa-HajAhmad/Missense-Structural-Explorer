@@ -7,3 +7,8 @@ export const CLIENT_HOMOLOG_LOOKUP_BUDGET_MS = SEQUENCE_LOOKUP_BUDGET_MS + HOMOL
 // Mapping a gene symbol to its UniProt accession is one search. The server stops waiting after this long.
 export const GENE_RESOLVE_BUDGET_MS = 10_000;
 export const CLIENT_GENE_RESOLVE_BUDGET_MS = GENE_RESOLVE_BUDGET_MS + 5_000;
+/**
+ * POST /numbering-proof resolves the gene, reads the UniProt sequence and runs the numbering check, which
+ * the server caps at 2.5 s (`NUMBERING_VERIFICATION_BUDGET_MS`). The browser waits for all three.
+ */
+export const CLIENT_NUMBERING_PROOF_BUDGET_MS = GENE_RESOLVE_BUDGET_MS + SEQUENCE_LOOKUP_BUDGET_MS + 2_500 + 5_000;

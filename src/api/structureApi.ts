@@ -3,6 +3,8 @@ import { announceJobsChanged } from "./jobsApi";
 import { z } from "zod";
 import {
   translateVariantResponseSchema,
+  numberingProofResponseSchema,
+  NumberingProofResponse,
   nearestResiduesResponseSchema,
   pocketFinderResponseSchema,
   structuralAlignResponseSchema,
@@ -15,7 +17,7 @@ import {
   StructureProvenance
 } from "../shared/contracts";
 import type { PdbHomolog } from "../types";
-import { CLIENT_SEQUENCE_LOOKUP_BUDGET_MS, CLIENT_HOMOLOG_LOOKUP_BUDGET_MS, CLIENT_GENE_RESOLVE_BUDGET_MS } from "../shared/structureLookupBudgets";
+import { CLIENT_SEQUENCE_LOOKUP_BUDGET_MS, CLIENT_HOMOLOG_LOOKUP_BUDGET_MS, CLIENT_GENE_RESOLVE_BUDGET_MS, CLIENT_NUMBERING_PROOF_BUDGET_MS } from "../shared/structureLookupBudgets";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 import { STRUCTURE_REF_HEADER, isStructureRef } from "../shared/structureRefs";
 import { ALPHAFOLD_ABSENCE_HEADER, isAlphaFoldAbsenceReason, type AlphaFoldAbsenceReason } from "../shared/alphafoldAvailability";
@@ -189,6 +191,22 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
   };
 
   return {
+    /** The numbering check for a typed protein notation, with a signed proof when it passes. */
+    async getNumberingProof(
+      params: { gene: string; variant: string; uniprotId?: string; numberingBasis?: string },
+      signal?: AbortSignal
+    ): Promise<NumberingProofResponse> {
+      const res = await fetchWithAuth("/api/v1/numbering-proof", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+        timeout: CLIENT_NUMBERING_PROOF_BUDGET_MS,
+        signal
+      });
+      if (!res.ok) throw new Error(await extractErrorMessage(res, "Failed to check the residue numbering"));
+      return numberingProofResponseSchema.parse(await res.json());
+    },
+
     async resolveGene(gene: string, signal?: AbortSignal): Promise<{ gene: string; uniprotId: string }> {
       const res = await fetchWithAuth("/api/v1/resolve-gene", {
         method: "POST",

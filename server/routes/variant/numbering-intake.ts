@@ -22,7 +22,8 @@ export function registerNumberingIntakeRoute(apiRouter: Router, jsonParserRegula
     const context = await validateAndParseVariantRequest(req, res);
     if (!context) return;
 
-    const residueProof = context.numberingAudit.numberingProof;
+    // The type leaves the audit optional for test fixtures; a context without one has proven nothing.
+    const residueProof = context.numberingAudit?.numberingProof ?? "unverified";
     const numberingProof = issueNumberingProof({
       accession: context.uniprotId,
       position: context.pos,
