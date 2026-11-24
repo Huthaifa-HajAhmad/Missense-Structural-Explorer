@@ -24,7 +24,7 @@ server/deployment-role.ts,server,server/deployment-role.test.ts
 server/express-config.ts,server,server/async-route-errors.test.ts;server/routes/credentials.http.test.ts;server/services/infra/review-fixes.test.ts
 server/graceful-shutdown.ts,server,server/graceful-shutdown.test.ts
 server/middleware.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/credentials.http.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/shared-cache.test.ts;server/routes/variant/spliceai.http.test.ts;server/tests/integration.test.ts;server/utils.test.ts
-server/routes.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/credentials.http.test.ts;server/routes/evidence-context.http.test.ts;server/routes/foldx-sharing.test.ts;server/routes/health-fallback.test.ts;server/routes/health.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/session.test.ts;server/routes/shared-cache.test.ts;server/routes/structure.multimer-import.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/literature.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/spliceai.http.test.ts;server/routes/variant/spliceai.test.ts;server/routes/variant/translation.test.ts;server/tests/integration.test.ts
+server/routes.ts,server,server/agent/agent.test.ts;server/routes/agent.test.ts;server/routes/auth.test.ts;server/routes/biophysics-prewarm-join.test.ts;server/routes/biophysics.test.ts;server/routes/biophysics/pocket-structure-ref.test.ts;server/routes/credentials.http.test.ts;server/routes/evidence-context.http.test.ts;server/routes/foldx-sharing.test.ts;server/routes/health-fallback.test.ts;server/routes/health.test.ts;server/routes/live-routing.test.ts;server/routes/public-endpoints.test.ts;server/routes/queue-jobs.test.ts;server/routes/session.test.ts;server/routes/shared-cache.test.ts;server/routes/structure.multimer-import.test.ts;server/routes/structure.test.ts;server/routes/variant/analysis-prewarm.test.ts;server/routes/variant/analysis.test.ts;server/routes/variant/literature.test.ts;server/routes/variant/narrative.cache.test.ts;server/routes/variant/narrative.test.ts;server/routes/variant/narrativeEvidenceHash.test.ts;server/routes/variant/numbering-intake.test.ts;server/routes/variant/spliceai.http.test.ts;server/routes/variant/spliceai.test.ts;server/routes/variant/translation.test.ts;server/tests/integration.test.ts
 server/routes/admin.ts,server,
 server/routes/agent.ts,server,server/routes/agent.test.ts;server/routes/live-routing.test.ts
 server/routes/auth.ts,server,
@@ -48,10 +48,11 @@ server/routes/variant/analysis.ts,server,
 server/routes/variant/gene.ts,server,server/routes/variant/gene.test.ts
 server/routes/variant/literature.ts,server,
 server/routes/variant/narrative.ts,server,
+server/routes/variant/numbering-intake.ts,server,
 server/routes/variant/residue-of-request.ts,server,
 server/routes/variant/spliceai.ts,server,
 server/routes/variant/translation.ts,server,
-server/routes/variant/variant-parser.ts,server,server/routes/variant/analysis.test.ts;server/routes/variant/sanitize-url.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
+server/routes/variant/variant-parser.ts,server,server/routes/variant/analysis.test.ts;server/routes/variant/numbering-intake.test.ts;server/routes/variant/sanitize-url.test.ts;server/routes/variant/variant-parser.dedupe.test.ts;server/routes/variant/variant-parser.test.ts
 server/services/acmg.ts,barrel,server/invariants.test.ts;server/tests/canary.test.ts
 server/services/adapters/index.ts,barrel,
 server/services/adapters/registry.ts,barrel,
@@ -293,7 +294,7 @@ server/services/translation/isoform-numbering.ts,server,server/services/translat
 server/services/translation/isoform-remap.ts,server,server/services/translation/isoform-remap.test.ts
 server/services/translation/liftover.ts,server,server/services/translation/liftover.test.ts
 server/services/translation/numbering-profile.ts,server,
-server/services/translation/numbering-proof.ts,server,server/routes/variant/translation.test.ts;server/routes/variant/variant-parser.test.ts;server/services/translation/numbering-proof.test.ts
+server/services/translation/numbering-proof.ts,server,server/routes/variant/numbering-intake.test.ts;server/routes/variant/translation.test.ts;server/routes/variant/variant-parser.test.ts;server/services/translation/numbering-proof.test.ts
 server/services/translation/protein-numbering.ts,server,server/services/translation/protein-numbering.test.ts
 server/services/translation/shadow-tiers.ts,server,server/services/translation/shadow-tiers.test.ts
 server/services/translation/types.ts,server,server/services/translation/coordinate-resolver.test.ts;server/services/translation/protein-numbering.test.ts;server/services/translation/variant-validator.test.ts
