@@ -178,7 +178,7 @@ export function LiteratureControls({
                   return <button key={tier} type="button" className="lit-group" aria-label={tier === "all" ? "All loaded: show all tiers" : undefined} aria-pressed={tierFilter === tier} disabled={tier !== "all" && count === 0} onClick={() => onTierFilterChange(tier)}>{label}<span className="lit-group__n">{count}</span></button>;
                 })}
               </div>
-              <button type="button" className="lit-group lit-filter-toggle" aria-expanded={filtersOpen} aria-controls="lit-filters" onClick={onToggleFiltersOpen}>
+              <button type="button" className="lit-group lit-filter-toggle" aria-expanded={filtersOpen} aria-controls={filtersOpen ? "lit-filters" : undefined} onClick={onToggleFiltersOpen}>
                 Filters
                 {activeFilterCount > 0 && <span className="lit-group__n">{activeFilterCount} active</span>}
                 <ChevronDown aria-hidden="true" />

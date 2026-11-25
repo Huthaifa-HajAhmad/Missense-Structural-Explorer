@@ -371,7 +371,7 @@ numbering answers remain part of the saved context.
 
 Evidence written by both core and structural (`ruleBasedInsights`, `disruptionPredictor`): once structural has
 written, core may not replace it, so the order of the two responses does not matter. The narrative flag is
-lowered by a run only when no Re-synthesize request is in flight (`narrativeActivityOutstanding`).
+lowered by a run only when no request to rewrite the summary is in flight (`narrativeActivityOutstanding`).
 
 FoldX cooldown (`recordBiophysicsAttempt`): written when a run **finishes** (success or failure), keyed by
 variant and conditions. An abandoned or reloaded run records nothing, because sending it again joins the

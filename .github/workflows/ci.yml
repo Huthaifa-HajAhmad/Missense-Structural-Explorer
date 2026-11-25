@@ -291,13 +291,14 @@ jobs:
         if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
         run: npm ci --prefix tools/review-preview
 
-      - name: Variant header, Functional Domains, Landscape and Synthesis geometry
+      - name: Variant header, Functional Domains, Landscape, Report and Synthesis geometry
         id: geometry
         if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
         env:
           # Makes the harness save the render it measured, for the artifact step below.
           TRACK_SHOT: "1"
           LAND_SHOT: "1"
+          REPORT_SHOT: "1"
         run: npm run verify:geometry
 
       # A geometry failure is only actionable next to the render that produced it, and each
@@ -315,6 +316,8 @@ jobs:
             tools/function-track-geometry/dist/
             tools/landscape-geometry/dist/
             tools/landscape-geometry/landscape-geometry.png
+            tools/report-geometry/dist/
+            tools/report-geometry/report-geometry.png
             tools/function-track-geometry/function-track.png
           retention-days: 7
 

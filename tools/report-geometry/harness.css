@@ -1,0 +1,11 @@
+/**
+ * Harness stylesheet.
+ *
+ * The app's own entry (`src/index.css`) plus an explicit `@source` for `src/`: Tailwind v4
+ * derives its automatic content detection from the Vite root, and this harness's root is its
+ * own directory — without `@source`, zero utilities are generated and the "styled" render is
+ * a lie (no fills, no font sizes, no transition values). Measurements taken against that
+ * render are artifacts.
+ */
+@import "../../src/index.css";
+@source "../../src";

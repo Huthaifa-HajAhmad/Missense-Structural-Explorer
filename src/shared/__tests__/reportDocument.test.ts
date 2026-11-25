@@ -241,7 +241,7 @@ describe("exclusions", () => {
   });
 
   it("presets only choose ticks", () => {
-    const one = sectionsForPreset("one-page");
+    const one = sectionsForPreset("brief");
     expect(one.identity && one.classification && one.method).toBe(true);
     expect(one.computational).toBe(false);
     expect(Object.values(sectionsForPreset("full")).every(Boolean)).toBe(true);

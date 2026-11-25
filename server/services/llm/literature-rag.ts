@@ -674,7 +674,7 @@ export async function fetchLiteraturePage(gene: string, query: string | undefine
     const params = new URLSearchParams({ query: formatQueryForEuropePmc(query, gene), format: "json", resultType: "core", pageSize: String(EUROPE_PMC_PAGE_SIZE), cursorMark: cursor });
     const res = await governedFetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`, {
       signal: combined,
-      headers: { Accept: "application/json", "User-Agent": UPSTREAM_USER_AGENT },
+      headers: { Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`Europe PMC API request failed: ${res.status}`);
     const data = await res.json();
@@ -706,7 +706,7 @@ export async function fetchCitationsByPmids(pmids: readonly string[], signal?: A
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const response = await governedFetch(url, {
-          headers: { Accept: "application/json", "User-Agent": UPSTREAM_USER_AGENT },
+          headers: { Accept: "application/json" },
           signal: combinedSignal,
           deadlineAt,
         });
@@ -1224,7 +1224,7 @@ export async function searchGeneLiterature(
         if (upstreamController.signal.aborted) break;
         try {
           const res = await governedFetch(url, {
-            headers: { Accept: "application/json", "User-Agent": UPSTREAM_USER_AGENT },
+            headers: { Accept: "application/json" },
             signal: upstreamController.signal,
             deadlineAt,
           });
@@ -1387,9 +1387,9 @@ export async function searchGeneLiterature(
   };
 
   const entry: InFlightSearchEntry = { promise: searchPromise, attachSignal };
-  if (!force || !inFlightSearches.has(cacheKey)) {
-    inFlightSearches.set(cacheKey, entry);
-  }
+  // The newest search is the one a later caller should join, forced or not. An older search that
+  // finishes after this one does not remove it: `releaseSearch` only deletes its own entry.
+  inFlightSearches.set(cacheKey, entry);
   searchPromise.then(releaseSearch, releaseSearch);
 
   return attachSignal(signal);

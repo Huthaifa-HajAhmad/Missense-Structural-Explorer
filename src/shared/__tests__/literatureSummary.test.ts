@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildLiteratureSummary, canonicalLiteratureSummary, literatureSummaryPrompt, summaryScopeRows, type LiteratureSummarySelection } from "../literatureSummary";
+import { buildLiteratureSummary, canonicalLiteratureSummary, literatureSummaryPrompt, SUMMARY_SELECTION_VERSION, summaryScopeRows, type LiteratureSummarySelection } from "../literatureSummary";
 const paper = (id: string, abstract: string, year: number | null = 2026, similarity: number | null = null) => ({ id, title: "PAH study", abstract, authors: "Author A", journal: "Journal", year, similarity });
 describe("screening-selected narrative literature", () => {
   it("prioritizes exact-variant assays without embeddings over highly similar gene papers and deduplicates", () => {
@@ -86,6 +86,21 @@ describe("narrative cache identity", () => {
     expect(canonicalLiteratureSummary(selection(25, true))).toBe(canonicalLiteratureSummary(selection(75, true)));
     expect(canonicalLiteratureSummary(selection(25, true))).toBe(canonicalLiteratureSummary(selection(300, false)));
   });
+  it("shows the model the same coverage the cache key is made from, so a cached summary cannot describe other coverage", () => {
+    const sameKey = (a: LiteratureSummarySelection, b: LiteratureSummarySelection) => canonicalLiteratureSummary(a) === canonicalLiteratureSummary(b);
+    const slow = selection(25, true);
+    const fast = selection(75, false);
+    expect(sameKey(slow, fast)).toBe(true);
+    // Same key, therefore the same prompt: nothing that differs between them may reach the model.
+    expect(literatureSummaryPrompt(slow)).toBe(literatureSummaryPrompt(fast));
+    // What does separate keys still reaches the model.
+    expect(literatureSummaryPrompt(selection(25, true, "error"))).not.toBe(literatureSummaryPrompt(slow));
+  });
+
+  it("uses a new selection version, so summaries written from the old prompt are not served", () => {
+    expect(SUMMARY_SELECTION_VERSION).toBeGreaterThanOrEqual(3);
+  });
+
   it("still changes when a search stopped early, because that is a different quality of input", () => {
     expect(canonicalLiteratureSummary(selection(25, true, "error"))).not.toBe(canonicalLiteratureSummary(selection(25, true)));
   });

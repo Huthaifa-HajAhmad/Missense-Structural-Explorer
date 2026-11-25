@@ -1,0 +1,133 @@
+/* ============================================================
+   REPORT RAIL — the builder beside the report (`ReportInspector` and `components/report/rail/`)
+   ------------------------------------------------------------
+   Landscape's inspector voice: each section has a 14px title with a clay icon, one help line, then
+   its controls, split by hairlines. The export control sticks to the top of the rail's scroll area.
+   Every value is a token; one rule per selector. Prefix `rpt-`.
+   ============================================================ */
+
+.rpt-rail {
+  /* The inspector body's padding (`workspace.css`); the sticky export bar covers it while scrolling. */
+  --rpt-rail-inset: var(--cs-inspector-pad, 20px);
+  display: flex; flex-direction: column; min-width: 0;
+}
+.rpt-rail-title {
+  display: flex; align-items: center; gap: 7px; margin: 0;
+  font-size: var(--cs-font-size-body); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary);
+}
+.rpt-rail-title svg { flex: none; color: var(--cs-accent-clay); }
+.rpt-rail-help { margin: -4px 0 0; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-secondary); }
+.rpt-rail-section { display: flex; flex-direction: column; gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--cs-border-subtle); }
+.rpt-rail-section:last-child { border-bottom: 0; }
+details.rpt-rail-section { padding-block: 14px; }
+.rpt-rail-section > summary {
+  display: flex; align-items: center; min-height: 32px; cursor: pointer;
+  font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-secondary);
+}
+.rpt-rail-section > summary:focus-visible, .rpt-contents-group > summary:focus-visible {
+  outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; border-radius: 4px;
+}
+
+/* ── Export: sticky over the rail's own padding, so nothing scrolls visibly above it ── */
+.rpt-export-primary {
+  position: sticky; top: calc(-1 * var(--rpt-rail-inset)); z-index: 2;
+  margin-top: calc(-1 * var(--rpt-rail-inset)); padding: var(--rpt-rail-inset) 0 14px;
+  background: var(--cs-surface); border-bottom: 1px solid var(--cs-border);
+}
+.rpt-export-primary > label { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.rpt-export-primary > label > span { font-weight: var(--cs-font-weight-regular, 400); color: var(--cs-text-muted); }
+.rpt-export-primary > div { display: flex; gap: 8px; }
+.rpt-export-primary select {
+  flex: 1; min-width: 0; width: 100%; min-height: 36px; padding: 6px 8px;
+  font: inherit; color: var(--cs-text-primary); background: var(--cs-surface);
+  border: 1px solid var(--cs-border); border-radius: 8px;
+}
+.rpt-export-primary select:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.rpt-export-primary .rpt-btn { min-height: 36px; }
+.rpt-export-primary p { min-height: 1.5em; margin: 6px 0 0; font-size: var(--cs-font-size-caption); }
+/* Stacked layout: the rail is no longer its own scroll area, so it does not stick. */
+@media (max-width: 1000px) {
+  .rpt-export-primary { position: static; margin-top: 0; padding-top: 0; }
+}
+
+/* ── Review status ─────────────────────────────────────────── */
+.rpt-status {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  font-size: var(--cs-font-size-prose); color: var(--cs-text-primary);
+  background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 8%, var(--cs-surface));
+  border: 1px solid color-mix(in srgb, var(--cs-text-indigo-on-soft) 22%, transparent);
+  border-radius: 10px;
+}
+.rpt-status[data-state="review"] {
+  background: color-mix(in srgb, var(--cs-warn) 10%, var(--cs-surface));
+  border-color: color-mix(in srgb, var(--cs-warn) 35%, transparent);
+}
+.rpt-status p { margin: 0; }
+.rpt-review-link {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px;
+  font: inherit; text-align: left; color: var(--cs-text-primary); cursor: pointer;
+  background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: 8px;
+}
+.rpt-review-link > span { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rpt-review-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+/* ── Contents ──────────────────────────────────────────────── */
+.rpt-custom { margin-left: auto; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-regular, 400); color: var(--cs-text-muted); }
+.rpt-seg { display: grid; grid-template-columns: repeat(2, 1fr); border: 1px solid var(--cs-border); border-radius: 8px; overflow: hidden; }
+.rpt-seg button {
+  appearance: none; cursor: pointer; min-height: 32px; border: 0; border-left: 1px solid var(--cs-border);
+  font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-text-secondary); background: var(--cs-surface);
+}
+.rpt-seg button:first-child { border-left: 0; }
+.rpt-seg button[aria-pressed="true"] { background: var(--cs-surface-2); color: var(--cs-text-primary); }
+.rpt-seg button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+.rpt-contents-group > summary { min-height: 28px; padding: 4px 0; cursor: pointer; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rpt-list { list-style: none; margin: 0; padding: 0; }
+.rpt-list__row {
+  display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 4px;
+  color: var(--cs-text-primary); border-top: 1px solid var(--cs-border-subtle);
+}
+.rpt-list__row:first-child { border-top: 0; }
+.rpt-list__row[data-off] { color: var(--cs-text-muted); }
+.rpt-list__row[data-active] { background: var(--cs-accent-wash); border-radius: 6px; }
+.rpt-contents-label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.rpt-contents-label > span:last-child { overflow-wrap: anywhere; line-height: 1.3; }
+.rpt-contents-label input { flex: none; width: 18px; height: 18px; margin: 3px; accent-color: var(--cs-accent-clay); cursor: pointer; }
+.rpt-contents-label input:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+/* Stands where a tick would be, for a section with nothing to export. */
+.rpt-contents-none { flex: none; width: 10px; height: 2px; margin: 3px 7px; background: var(--cs-border); border-radius: 1px; }
+span.rpt-contents-label { cursor: default; }
+.rpt-list__meta { margin-left: auto; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); white-space: nowrap; }
+.rpt-list__meta[data-code] { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); }
+.rpt-jump {
+  flex: none; display: grid; place-items: center; width: 28px; min-height: 28px;
+  color: var(--cs-text-accent); background: transparent; border: 0; border-radius: 5px; cursor: pointer;
+}
+.rpt-jump:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.rpt-jump:disabled { opacity: .4; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .rpt-jump:hover:not(:disabled) { background: var(--cs-surface-2); }
+}
+
+/* ── Document fields and drafts ────────────────────────────── */
+.rpt-field { display: flex; flex-direction: column; gap: 3px; }
+.rpt-field label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rpt-field input {
+  min-height: 32px; padding: 4px 8px; font: inherit; color: var(--cs-text-primary);
+  background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: 6px;
+}
+.rpt-field input:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.rpt-save-status { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.rpt-draft-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.rpt-draft-recovery { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-workbench-header-surface); }
+.rpt-draft-recovery p { margin: 0; }
+.rpt-summary-chip { align-self: flex-start; }
+
+/* ── Evidence bundle row ───────────────────────────────────── */
+.rpt-export { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; }
+.rpt-export__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.rpt-export__note { grid-column: 1; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rpt-export .rpt-btn { grid-row: 1 / 3; grid-column: 2; }
+
+@media print { .rpt-export-primary { display: none; } }

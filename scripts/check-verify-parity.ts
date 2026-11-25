@@ -93,6 +93,7 @@ export const IMAGE_UNSAFE_GATES = new Map<string, string>([
   ["test:geometry", "it renders in headless Chromium, which no build stage installs"],
   ["test:geometry:function-track", "it renders in headless Chromium, which no build stage installs"],
   ["test:geometry:landscape", "it renders in headless Chromium, which no build stage installs"],
+  ["test:geometry:report", "it renders in headless Chromium, which no build stage installs"],
   ["test:geometry:review", "it renders in headless Chromium, which no build stage installs"],
   ["test:geometry:focus", "it renders in headless Chromium, which no build stage installs"],
 ]);

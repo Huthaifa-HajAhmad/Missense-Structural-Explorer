@@ -2,7 +2,7 @@
 import { buildLiteratureEvidence, type Citation } from "./literatureEvidence";
 import { LEXICON_VERSION, type PaperScreening } from "./literatureScreening";
 
-export const SUMMARY_SELECTION_VERSION = 2;
+export const SUMMARY_SELECTION_VERSION = 3;
 export const SUMMARY_CITATION_LIMIT = 5;
 export type LiteratureScopeState = "complete" | "unavailable" | "error";
 export interface SummaryCandidate extends Citation { similarity?: number | null }
@@ -92,13 +92,22 @@ function stableValue(value: unknown): unknown {
   return value;
 }
 
+/**
+ * The coverage the cache key and the prompt are both made from.
+ *
+ * How many pages fit in the time budget depends on how fast the upstream answered, not on the inputs,
+ * so `loaded` and `truncated` stay out: with them, the same gene and variant hashed differently from
+ * one run to the next. They stay out of the prompt too. A summary is cached under this key, so
+ * anything the model was shown must be part of the key, or a cached summary could describe coverage
+ * the receipt beside it no longer shows. A search that stopped early still changes the key through `state`.
+ */
+function stableCoverage(selection: LiteratureSummarySelection) {
+  return (selection.coverage ?? []).map(({ loaded: _loaded, truncated: _truncated, ...stable }) => stable);
+}
+
 /** Server-owned cache identity, separate from the client-owned biological evidence revision. */
 export function canonicalLiteratureSummary(selection: LiteratureSummarySelection): string {
-  // How many pages fit in the time budget depends on how fast the upstream answered, not on the
-  // inputs. Leaving `loaded` and `truncated` in made the same gene and variant hash differently from
-  // one run to the next. A search that stopped early still changes the identity through `state`.
-  const coverage = (selection.coverage ?? []).map(({ loaded: _loaded, truncated: _truncated, ...stable }) => stable);
-  return JSON.stringify(stableValue({ selectionVersion: SUMMARY_SELECTION_VERSION, lexiconVersion: LEXICON_VERSION, ...selection, coverage }));
+  return JSON.stringify(stableValue({ selectionVersion: SUMMARY_SELECTION_VERSION, lexiconVersion: LEXICON_VERSION, ...selection, coverage: stableCoverage(selection) }));
 }
 
 function abstractExcerpt(citation: SummaryCitation): string {
@@ -111,7 +120,7 @@ function abstractExcerpt(citation: SummaryCitation): string {
 export function literatureSummaryPrompt(selection: LiteratureSummarySelection): string {
   return `[CITED SCIENTIFIC LITERATURE & CLINICAL ABSTRACTS]:
 Selection: at most ${SUMMARY_CITATION_LIMIT} abstracts, ordered by screening tier, then available embedding similarity and publication year.
-Retrieval scopes: ${JSON.stringify(selection.scopes)}. Bounded search coverage (truncated does not mean exhaustive): ${JSON.stringify(selection.coverage ?? [])}. Candidates without embedding similarity: ${selection.withoutEmbeddings}.
+Retrieval scopes: ${JSON.stringify(selection.scopes)}. Search coverage (a search can match more papers than were read, so matched is not the number read): ${JSON.stringify(stableCoverage(selection))}. Candidates without embedding similarity: ${selection.withoutEmbeddings}.
 ${selection.citations.length ? selection.citations.map((citation, index) => `Citation #${index + 1}:
 - Identifier: ${citation.id}
 - Title: ${citation.title}

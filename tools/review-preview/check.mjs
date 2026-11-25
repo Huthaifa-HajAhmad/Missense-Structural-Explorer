@@ -195,8 +195,8 @@ try {
  await page.getByLabel('Workspace', { exact: true }).selectOption('report');
  await page.getByRole('tab', { name: 'Citations & methods' }).click();
  check('Report methods have a dedicated view', await page.locator('#report-method').isVisible() && !await page.locator('#report-classification').isVisible());
- await page.getByRole('tab', { name: 'Narrative & notes' }).click();
- check('Narrative view excludes methods', !await page.locator('#report-method').isVisible());
+ await page.getByRole('tab', { name: 'Summary & notes' }).click();
+ check('Summary view excludes methods', !await page.locator('#report-method').isVisible());
  for (const width of [1500, 800, 390]) {
   await page.setViewportSize({ width, height: 1100 });
   check('Report fits width ' + width, await page.locator('.rpt-screen').evaluate(e => e.scrollWidth <= e.clientWidth + 1));

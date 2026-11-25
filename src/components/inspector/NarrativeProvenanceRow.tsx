@@ -61,8 +61,6 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         fallbackReason: analysisResult?.fallbackReason,
         fallbackMessage: analysisResult?.fallbackMessage,
         fallbackRetryable: analysisResult?.fallbackRetryable,
-        providerDetail: analysisResult?.providerDetail,
-        attemptedModels: analysisResult?.attemptedModels,
         isKeyActive,
         hasNarrative: Boolean(narrative && hasStampedNarrative(analysisResult)),
         isNarrativeLoading,
@@ -74,8 +72,6 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
       analysisResult?.fallbackReason,
       analysisResult?.fallbackMessage,
       analysisResult?.fallbackRetryable,
-      analysisResult?.providerDetail,
-      analysisResult?.attemptedModels,
       isKeyActive,
       narrative,
       isNarrativeLoading,
@@ -162,9 +158,8 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
 
       {/*
         * The status detail and the attempted-model list are the two things a reader needs when the
-        * prose is not AI-authored. `deriveAiStatus` already composes the first; the second is on the
-        * payload and used to be shown only in the Report rail, so a failure diagnosed in one pane
-        * was invisible in the other.
+        * prose is not AI-authored. `deriveAiStatus` composes the first; the second is read straight
+        * from the payload below, so a failed synthesis names the models that were tried.
         */}
       <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">{status.detail}</p>
       {deepEvidence.present.length > 0 && !narrativeOutdated && <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">Synthesis supports the current deep-model observations. They do not create additional counted ACMG criteria.</p>}

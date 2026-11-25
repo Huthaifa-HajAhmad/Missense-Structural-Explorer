@@ -8,6 +8,7 @@
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 
 const hoisted = vi.hoisted(() => {
   const getLiterature = vi.fn();
@@ -61,6 +62,28 @@ describe("useLiteratureSearch", () => {
     expect(hoisted.getLiterature).toHaveBeenCalledTimes(2);
   });
 
+  it("still runs an unrelated change that lands before the shared query echoes back, and still skips the echo", async () => {
+    hoisted.getLiterature.mockResolvedValue(reply(["1"]));
+    const onSearchQueryChange = vi.fn();
+    const { result, rerender } = renderHook((props: UseLiteratureSearchOptions) => useLiteratureSearch(props), {
+      initialProps: { ...base, onSearchQueryChange },
+    });
+    await waitFor(() => expect(result.current.citations).toHaveLength(1));
+
+    act(() => result.current.runSearch(false, "NAE1 AND neddylation"));
+    await waitFor(() => expect(hoisted.getLiterature).toHaveBeenCalledTimes(2));
+
+    // A different protein arrives before the parent has stored the new query. It is not the echo.
+    rerender({ ...base, uniprotId: "Q13564", onSearchQueryChange });
+    await waitFor(() => expect(hoisted.getLiterature).toHaveBeenCalledTimes(3));
+    expect(hoisted.getLiterature.mock.calls[2][4]).toMatchObject({ uniprot: "Q13564" });
+
+    // The echo that follows is still the hook's own query and must not start a fourth request.
+    rerender({ ...base, uniprotId: "Q13564", searchQuery: "NAE1 AND neddylation", onSearchQueryChange });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(hoisted.getLiterature).toHaveBeenCalledTimes(3);
+  });
+
   it("searches again when the inspector re-applies the same query", async () => {
     hoisted.getLiterature.mockResolvedValue(reply(["1"]));
     const { result, rerender } = renderHook((props: UseLiteratureSearchOptions) => useLiteratureSearch(props), {
@@ -101,5 +124,64 @@ describe("useLiteratureSearch", () => {
     await waitFor(() => expect(result.current.error).toBeTruthy());
     expect(result.current.citations.map(c => c.id)).toEqual(["1"]);
     spy.mockRestore();
+  });
+
+  describe("paging", () => {
+    const firstPage = { ...reply(["1", "2"]), nextCursor: "c2" };
+
+    it("adds the next page after the loaded papers, skips repeats, and moves the cursor on", async () => {
+      hoisted.getLiterature.mockResolvedValueOnce(firstPage).mockResolvedValueOnce({ ...reply(["2", "3"]), nextCursor: null });
+      const { result } = renderHook(() => useLiteratureSearch(base));
+      await waitFor(() => expect(result.current.citations).toHaveLength(2));
+
+      await act(() => result.current.loadMore());
+      expect(result.current.citations.map(c => c.id)).toEqual(["1", "2", "3"]);
+      expect(result.current.response?.nextCursor).toBeNull();
+      expect(hoisted.getLiterature.mock.calls[1][4]).toEqual({ cursor: "c2" });
+    });
+
+    it("keeps the loaded papers and the same cursor when the next page does not load", async () => {
+      hoisted.getLiterature.mockResolvedValueOnce(firstPage).mockResolvedValueOnce({ ...reply([]), degraded: true });
+      const { result } = renderHook(() => useLiteratureSearch(base));
+      await waitFor(() => expect(result.current.citations).toHaveLength(2));
+
+      await act(() => result.current.loadMore());
+      expect(result.current.moreError).toMatch(/next page did not load/);
+      expect(result.current.citations.map(c => c.id)).toEqual(["1", "2"]);
+      expect(result.current.response?.nextCursor).toBe("c2");
+      expect(result.current.moreLoading).toBe(false);
+    });
+  });
+
+  describe("variant probe", () => {
+    const variantQuery = "NAE1 AND (\"D116G\")";
+    const answer = (probe: unknown) => (_gene: string, _force: boolean, _signal: unknown, query?: string) => Promise.resolve(query === variantQuery ? probe : reply(["1"]));
+
+    it("counts the records that name the variant, with its own search", async () => {
+      hoisted.getLiterature.mockImplementation(answer({ ...reply([]), hitCount: 7 }));
+      const { result } = renderHook(() => useLiteratureSearch({ ...base, variantQuery }));
+      await waitFor(() => expect(result.current.probe).toEqual({ state: "done", hitCount: 7 }));
+    });
+
+    it("reports a probe that did not answer as an error, never as a count of zero", async () => {
+      hoisted.getLiterature.mockImplementation(answer({ ...reply([]), degraded: true, hitCount: 0 }));
+      const { result } = renderHook(() => useLiteratureSearch({ ...base, variantQuery }));
+      await waitFor(() => expect(result.current.probe).toEqual({ state: "error", hitCount: null }));
+    });
+  });
+
+  it("marks a search still running when the tab closes as skipped, not as running forever", async () => {
+    const store = useVariantAnalysisStore.getState();
+    const before = store.analysisState;
+    store.setAnalysisState(prev => ({ ...prev, result: { metadata: { gene: "NAE1", variant: "", uniprotId: "", pipelineRunId: "run-1", pipelineStages: {} } } as any }));
+    hoisted.getLiterature.mockReturnValue(new Promise(() => {}));
+    try {
+      const { unmount } = renderHook(() => useLiteratureSearch(base));
+      await waitFor(() => expect(useVariantAnalysisStore.getState().analysisState.result?.metadata?.pipelineStages?.literature).toBe("running"));
+      unmount();
+      expect(useVariantAnalysisStore.getState().analysisState.result?.metadata?.pipelineStages?.literature).toBe("skipped");
+    } finally {
+      useVariantAnalysisStore.getState().setAnalysisState(() => before);
+    }
   });
 });

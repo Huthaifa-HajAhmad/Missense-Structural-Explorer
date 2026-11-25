@@ -5,8 +5,8 @@
  * classification, a count or a sentence. The only thing the reader can change is prose, and the
  * only state kept here is whether a textarea is open.
  */
-import React, { useEffect, useRef, useState } from "react";
-import { Bold, List } from "lucide-react";
+import React, { useState } from "react";
+import { ProseEditor } from "./ReportProseEditor";
 import {
   parseProse,
   type ProseRun,
@@ -54,10 +54,12 @@ export function ProseView({ text }: { text: string }) {
   );
 }
 
+/** The block's export switch, at the end of its header so the title lines up with the body. */
 function IncludeTick({ block, onToggle }: { block: ReportBlock; onToggle: () => void }) {
   return (
-    <label className="rpt-tick" title={`${block.included ? "Leave out" : "Include"} ${block.title}`}>
-      <input type="checkbox" checked={block.included} aria-label={`${block.included ? "Leave out" : "Include"} ${block.title}`} onChange={onToggle} />
+    <label className="rpt-tick">
+      <input type="checkbox" checked={block.included} aria-label={`${block.title} in export`} onChange={onToggle} />
+      <span aria-hidden="true">In export</span>
     </label>
   );
 }
@@ -90,68 +92,6 @@ function ClassificationHero({ block }: { block: ReportBlock }) {
   );
 }
 
-// ── Editor ───────────────────────────────────────────────────────────────────────────────────────
-
-function ProseEditor({ block, onChange, onDone, onCancel }: { block: ReportBlock; onChange: (text: string, base?: string, evidenceId?: string) => void; onDone: () => void; onCancel: () => void }) {
-  const [value, setValue] = useState(block.text);
-  const editBase = useRef({ drafted: block.drafted, evidenceId: block.evidenceId });
-  const area = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { area.current?.focus(); }, []);
-
-  const commit = (next: string, selStart?: number, selEnd?: number) => {
-    setValue(next);
-
-    if (selStart !== undefined) {
-      requestAnimationFrame(() => {
-        area.current?.focus();
-        area.current?.setSelectionRange(selStart, selEnd ?? selStart);
-      });
-    }
-  };
-
-  const wrapBold = () => {
-    const el = area.current;
-    if (!el) return;
-    const { selectionStart: a, selectionEnd: b } = el;
-    const chosen = value.slice(a, b) || "text";
-    commit(`${value.slice(0, a)}**${chosen}**${value.slice(b)}`, a + 2, a + 2 + chosen.length);
-  };
-
-  const bullet = () => {
-    const el = area.current;
-    if (!el) return;
-    const a = value.lastIndexOf("\n", el.selectionStart - 1) + 1;
-    const nl = value.indexOf("\n", el.selectionEnd);
-    const b = nl === -1 ? value.length : nl;
-    const lines = value.slice(a, b).split("\n").map(l => (/^\s*[-*•]\s/.test(l) ? l : `- ${l}`));
-    const joined = lines.join("\n");
-    commit(value.slice(0, a) + joined + value.slice(b), a, a + joined.length);
-  };
-
-  return (
-    <div className="rpt-edit">
-      <div className="rpt-edit__tools">
-        <button type="button" className="rpt-btn" onClick={wrapBold} aria-label="Bold"><Bold className="w-3.5 h-3.5" aria-hidden="true" /></button>
-        <button type="button" className="rpt-btn" onClick={bullet} aria-label="Bulleted list"><List className="w-3.5 h-3.5" aria-hidden="true" /> List</button>
-        <span className="rpt-dim">Only this text is editable. Tables, figures and the classification are not.</span>
-      </div>
-      <textarea
-        ref={area}
-        className="rpt-edit__area"
-        aria-label={`Edit ${block.title}`}
-        value={value}
-        rows={Math.min(14, Math.max(4, value.split("\n").length + 1))}
-        onChange={e => commit(e.target.value)}
-      />
-      <div className="rpt-edit__tools" style={{ borderTop: "1px solid var(--cs-border-subtle)", borderBottom: 0 }}>
-        <button type="button" className="rpt-btn" data-variant="primary" onClick={() => { onChange(value, editBase.current.drafted, editBase.current.evidenceId); onDone(); }}>Save text</button>
-        <button type="button" className="rpt-btn" onClick={onCancel}>Cancel</button>
-        <span className="rpt-dim">Changes apply when you save.</span>
-      </div>
-    </div>
-  );
-}
-
 // ── Body pieces ──────────────────────────────────────────────────────────────────────────────────
 
 function BlockTable({ block }: { block: ReportBlock }) {
@@ -167,7 +107,11 @@ function BlockTable({ block }: { block: ReportBlock }) {
         <tbody>
           {t.rows.map((r, i) => (
             <tr key={i}>
-              {r.map((c, j) => <td key={j} className={numeric.has(j) ? "rpt-num" : j === 0 ? "rpt-strong" : undefined}>{(j === 4 && t.headers.length === 5 || block.key === "classification" && j === 3) ? <details><summary>{block.key === "classification" ? "Recorded basis" : "Method"}</summary><p>{c}</p></details> : c}</td>)}
+              {r.map((c, j) => (
+                <td key={j} className={numeric.has(j) ? "rpt-num" : j === 0 ? "rpt-strong" : undefined}>
+                  {t.detail?.column === j ? <details><summary>{t.detail.label}</summary><p>{c}</p></details> : c}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -214,13 +158,13 @@ export interface ReportBlockCardProps {
 export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopEdit, onEdit, onRevert, onKeepMine, onOpenTab }: ReportBlockCardProps) {
   const isClassification = block.key === "classification";
   const hasProse = block.text.trim().length > 0;
-  const [showAllCriteria, setShowAllCriteria] = useState(false);
+  const [showAllRows, setShowAllRows] = useState(false);
+  const shortList = block.table?.shortList;
   const emptyStatement = block.empty && !hasProse ? EMPTY_STATEMENT[block.key] ?? "Nothing to report." : null;
 
   return (
     <section tabIndex={-1} id={`report-${block.key}`} className="rpt-card report-section" data-block={block.key} data-edited={block.edited ? "" : undefined}>
       <header className="rpt-card__head">
-        <IncludeTick block={block} onToggle={onToggle} />
         <h2 className="rpt-card__title">{block.title}</h2>
         <span className="rpt-card__chips">
           {block.chips.map(c => <ReportChipView key={c.label} chip={c} />)}
@@ -229,7 +173,9 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
         {block.edited && !editing ? <button type="button" className="rpt-btn" data-variant="quiet" onClick={onRevert}>Revert to draft</button> : null}
         {editing
           ? null
-          : <button type="button" className="rpt-btn" data-variant="quiet" onClick={onStartEdit}>{hasProse ? "Edit" : block.key === "notes" ? "Add notes" : "Write"}</button>}
+          : <button type="button" className="rpt-btn" data-variant="quiet" onClick={onStartEdit}>{hasProse ? "Edit" : "Write"}</button>}
+        {/* A block with nothing in it is skipped by every export, so it offers no export switch. */}
+        {block.empty && !block.edited ? null : <IncludeTick block={block} onToggle={onToggle} />}
       </header>
 
       {isClassification ? <ClassificationHero block={block} /> : null}
@@ -251,8 +197,8 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
       {emptyStatement && !editing ? <div className="rpt-empty"><p>{emptyStatement}</p></div> : null}
 
       {!isClassification || block.facts.length > 0 ? <BlockFacts block={block} /> : null}
-      <BlockTable block={isClassification && !showAllCriteria && block.table ? { ...block, table: { ...block.table, rows: block.table.rows.filter(r => r[2] === "Met" || r[2] === "Withheld") } } : block} />
-      {isClassification && block.table && block.table.rows.some(r => r[2] !== "Met" && r[2] !== "Withheld") ? <button type="button" className="rpt-btn rpt-table-toggle" aria-expanded={showAllCriteria} onClick={() => setShowAllCriteria(v => !v)}>{showAllCriteria ? "Show counted criteria" : "Show all checked criteria"}</button> : null}
+      <BlockTable block={shortList && !showAllRows ? { ...block, table: { ...block.table!, rows: block.table!.rows.slice(0, shortList.rows) } } : block} />
+      {shortList ? <button type="button" className="rpt-btn rpt-table-toggle" aria-expanded={showAllRows} onClick={() => setShowAllRows(v => !v)}>{showAllRows ? shortList.less : shortList.more}</button> : null}
 
       {block.references.length ? <details className="rpt-references"><summary>Sources <span>{block.references.length}</span></summary>{block.references.map(r => <a key={r.url} href={r.url} target="_blank" rel="noreferrer">{r.label}</a>)}</details> : null}
       {(block.caption || block.reads.length > 0) ? (
