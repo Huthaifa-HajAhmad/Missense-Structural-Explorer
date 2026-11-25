@@ -27,7 +27,7 @@ describe("variant breakdown, before anything has resolved", () => {
     expect(cells.map(c => c.id)).toEqual(["gene", "change", "residue", "uniprot", "transcript", "build", "coordinate", "numbering"]);
     expect(cell(cells, "gene")).toMatchObject({ value: "PAH", state: "known" });
     expect(cell(cells, "change")).toMatchObject({ value: "p.Arg408Trp", state: "known" });
-    expect(cell(cells, "residue")).toMatchObject({ value: "408", sub: "Arg → Trp", state: "known" });
+    expect(cell(cells, "residue")).toMatchObject({ value: "408", sub: null, state: "known" });
     for (const id of ["uniprot", "transcript", "build", "coordinate", "numbering"] as const) {
       expect(cell(cells, id)).toMatchObject({ value: null, state: "pending" });
     }
@@ -46,15 +46,16 @@ describe("variant breakdown, before anything has resolved", () => {
 describe("variant breakdown, once the run has resolved", () => {
   const { cells, notes } = buildVariantBreakdown({ typed, result: resolved, settled: true });
 
-  it("names the protein, its residue position and length, and its accession", () => {
+  it("names the protein, its residue position and length, and its accession, each change written once", () => {
     expect(cell(cells, "change")).toMatchObject({ value: "p.Arg408Trp", sub: "R408W" });
-    expect(cell(cells, "residue")).toMatchObject({ value: "408 of 452", sub: "Arg → Trp" });
+    expect(cell(cells, "residue")).toMatchObject({ value: "408 of 452", sub: null });
     expect(cell(cells, "uniprot")).toMatchObject({ value: "P00439", sub: null });
   });
 
   it("leads with the RefSeq transcript and its tier, and keeps the Ensembl id beside it", () => {
+    // The tier names a transcript; it is not a check that passed, so it is not green.
     expect(cell(cells, "transcript")).toMatchObject({
-      value: "NM_000277.3", sub: "Ensembl ENST00000553106", tag: { label: "MANE Select", tone: "good" },
+      value: "NM_000277.3", sub: "Ensembl ENST00000553106", tag: { label: "MANE Select", tone: "muted" },
     });
   });
 
@@ -63,6 +64,27 @@ describe("variant breakdown, once the run has resolved", () => {
     expect(cell(cells, "coordinate")).toMatchObject({ value: "12-102840401-C-T" });
     expect(cell(cells, "numbering")).toMatchObject({ value: "Canonical", tag: { label: "verified", tone: "good" } });
     expect(notes).toEqual([]);
+  });
+});
+
+describe("variant breakdown, a coordinate the run could not establish", () => {
+  it("says why under the empty coordinate when a protein change has several candidate alleles", () => {
+    const candidates = {
+      ...resolved,
+      predictorData: {
+        locusResolution: {
+          route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [],
+          candidates: [],
+        },
+      },
+    } as unknown as AnalysisResult;
+    const { cells } = buildVariantBreakdown({ typed, result: candidates, settled: true });
+    expect(cell(cells, "coordinate")).toMatchObject({ value: null, state: "absent", sub: "Several candidate alleles" });
+  });
+
+  it("gives no reason while the run is still going", () => {
+    const { cells } = buildVariantBreakdown({ typed, result: null, settled: false });
+    expect(cell(cells, "coordinate")).toMatchObject({ state: "pending", sub: null });
   });
 });
 
