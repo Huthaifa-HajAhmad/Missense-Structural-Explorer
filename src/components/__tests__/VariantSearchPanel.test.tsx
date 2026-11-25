@@ -8,14 +8,14 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { SettingsProvider } from "../../context/SettingsContext";
 import { ACCEPTED_NOTATION_EXAMPLES, classifyNotation } from "../../shared/variantNotation";
 
-function renderPanel() {
+function renderPanel({ openRefinements = true } = {}) {
   const view = render(
     <SettingsProvider>
       <VariantSearchPanel
       />
     </SettingsProvider>
   );
-  fireEvent.click(screen.getByText("Optional refinements"));
+  if (openRefinements) fireEvent.click(screen.getByText("Optional refinements"));
   return view;
 }
 
@@ -697,7 +697,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A" });
       });
-      renderPanel();
+      renderPanel({ openRefinements: false });
 
       const preset = ONBOARDING_BENCHMARK_PRESETS[0];
       // A coordinate is already in the form, so the list starts folded; the reader opens it first.
@@ -717,7 +717,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
-      renderPanel();
+      renderPanel({ openRefinements: false });
       expect(screen.getByRole("heading", { name: /Recent analyses/ })).toBeInTheDocument();
       const toggle = screen.getByRole("button", { name: "Benchmark controls" });
       expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -729,7 +729,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     });
 
     it("opens the benchmarks while there is no history, and lets the reader fold them", () => {
-      renderPanel();
+      renderPanel({ openRefinements: false });
       const toggle = screen.getByRole("button", { name: "Benchmark controls" });
       expect(toggle).toHaveAttribute("aria-expanded", "true");
       fireEvent.click(toggle);
@@ -738,7 +738,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     });
 
     it("folds the benchmarks once something is typed, even with no history, and opens them again when the form is cleared", async () => {
-      renderPanel();
+      renderPanel({ openRefinements: false });
       const toggle = () => screen.getByRole("button", { name: "Benchmark controls" });
       expect(toggle()).toHaveAttribute("aria-expanded", "true");
 
@@ -753,11 +753,48 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(toggle()).toHaveAttribute("aria-expanded", "true");
     });
 
+    it("shares the deck height with the refinements: opening one folds the other", async () => {
+      renderPanel({ openRefinements: false });
+      const toggle = screen.getByRole("button", { name: "Benchmark controls" });
+      const strip = document.querySelector("details.qe-refine") as HTMLDetailsElement;
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Optional refinements"));
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(strip.open).toBe(true);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      await act(async () => {
+        fireEvent.click(toggle);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(strip.open).toBe(false);
+    });
+
+    it("remembers a hand-folded list after the refinements open and close again", async () => {
+      renderPanel({ openRefinements: false });
+      const toggle = screen.getByRole("button", { name: "Benchmark controls" });
+      fireEvent.click(toggle); // fold by hand
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      for (let i = 0; i < 2; i++) {
+        await act(async () => {
+          fireEvent.click(screen.getByText("Optional refinements"));
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+      }
+      expect((document.querySelector("details.qe-refine") as HTMLDetailsElement).open).toBe(false);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    });
+
     it("points aria-controls at the list only while the list exists", async () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
-      renderPanel();
+      renderPanel({ openRefinements: false });
       const toggle = screen.getByRole("button", { name: "Benchmark controls" });
       expect(toggle).not.toHaveAttribute("aria-controls");
       fireEvent.click(toggle);
@@ -768,7 +805,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
-      renderPanel();
+      renderPanel({ openRefinements: false });
       const toggle = screen.getByRole("button", { name: "Benchmark controls" });
       fireEvent.click(toggle); // open
       fireEvent.click(toggle); // fold again, by hand

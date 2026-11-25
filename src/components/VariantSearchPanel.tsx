@@ -1192,6 +1192,8 @@ function VariantSearchPanel({
   }, [serviceSummary]);
   const [quickDraft, setQuickDraft] = useState("");
   const [benchmarksChoice, setBenchmarksChoice] = useState<{ open: boolean; defaultOpen: boolean } | null>(null);
+  /** Mirrors the "Optional refinements" strip, which shares the deck height with the benchmark list. */
+  const [refineOpen, setRefineOpen] = useState(false);
   useEffect(() => {
     setQuickDraft(draft =>
       quickEntryMatches(draft, { gene: customGene, variant: customVariant, genomic: customGenomic })
@@ -1282,10 +1284,13 @@ function VariantSearchPanel({
   /* The benchmark list is a first-run shortcut: open while there is no history and nothing is typed. A history, or
      a variant in the form (its breakdown makes the query card tall), folds it to its heading, so the recents card
      keeps a short floor and the deck does not grow past the monitor. Opening or closing it by hand is remembered
-     until that default changes (history first filled or cleared, form first typed in or emptied). */
+     until that default changes (history first filled or cleared, form first typed in or emptied).
+     The list and the "Optional refinements" strip take turns: while the strip is open the list is folded, so the left
+     column stays within the monitor's height instead of pushing the deck down the page. The strip only hides the list;
+     the reader's own choice is kept and applies again once the strip closes. */
   const formUntouched = [quickDraft, customGene, customVariant, customUniprot, customGenomic].every(field => field.trim() === "");
   const defaultOpen = history.length === 0 && formUntouched;
-  const benchmarksOpen = benchmarksChoice?.defaultOpen === defaultOpen ? benchmarksChoice.open : defaultOpen;
+  const benchmarksOpen = !refineOpen && (benchmarksChoice?.defaultOpen === defaultOpen ? benchmarksChoice.open : defaultOpen);
   /* One line per benchmark, set like a Recent analyses row: who, which change, what it teaches, then the run.
      The row is a control of its own so it can carry a second, form-only action without nesting buttons. */
   const benchmarkSection = (
@@ -1297,7 +1302,10 @@ function VariantSearchPanel({
             className="workbench-benchmarks-toggle"
             aria-expanded={benchmarksOpen}
             aria-controls={benchmarksOpen ? "workbench-benchmark-list" : undefined}
-            onClick={() => setBenchmarksChoice({ open: !benchmarksOpen, defaultOpen })}
+            onClick={() => {
+              setBenchmarksChoice({ open: !benchmarksOpen, defaultOpen });
+              if (!benchmarksOpen && refineRef.current) refineRef.current.open = false;
+            }}
           >
             <ChevronRight className="workbench-benchmarks-chevron" aria-hidden="true" />
             Benchmark controls
@@ -1716,7 +1724,11 @@ function VariantSearchPanel({
             {/* Optional refinements: one quiet foot strip. The composer line above fills these fields,
                 so they stay closed until someone wants to override one. A required field that is empty
                 opens the strip on submit (onInvalidCapture), so the browser can focus it. */}
-            <details className="qe-refine" ref={refineRef}>
+            <details
+              className="qe-refine"
+              ref={refineRef}
+              onToggle={event => setRefineOpen(event.currentTarget.open)}
+            >
               <summary className="qe-refine__summary">
                 <ChevronRight className="qe-refine__chevron" aria-hidden="true" />
                 <span className="qe-refine__title">Optional refinements</span>
@@ -2007,11 +2019,11 @@ function VariantSearchPanel({
                       <span className="workbench-recent-identity">
                         <span className="workbench-recent-gene">{item.gene}</span>
                         <span className="workbench-recent-variant">{formatVariantForDisplay(item.variant)}</span>
+                        {isActive && <span className="workbench-recent-current">Current</span>}
                         {item.query && item.query !== item.variant && item.query !== `${item.gene} ${item.variant}` && <span className="workbench-recent-query">{item.query}</span>}
                       </span>
                       <span className="workbench-recent-action">
-                        {isActive && <span className="workbench-recent-current">Current</span>}
-                        <span>Run again <ArrowRight aria-hidden="true" /></span>
+                        Run again <ArrowRight aria-hidden="true" />
                       </span>
                     </button>
                     </li>
