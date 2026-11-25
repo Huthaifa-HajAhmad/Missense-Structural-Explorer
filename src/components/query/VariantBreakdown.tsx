@@ -12,7 +12,7 @@ interface VariantBreakdownProps extends BreakdownInput {
  * position in the protein, UniProt accession, transcript and tier, build, genomic coordinate and numbering.
  *
  * Every cell has a fixed place from the first frame. A value that has not arrived says "Resolving…", and one
- * the finished run did not report says "Not reported", so the grid is as tall when the run starts as when it
+ * the finished run did not report shows a dash (read aloud as "Not reported"), so the grid is as tall when the run starts as when it
  * ends. (The card itself may still gain the workspace-loaded line above it and any caveat notes below it.) A
  * value that carries a caveat (a lifted build, an unverified numbering, a retired gene symbol, how an rsID was
  * read) says so under the grid, in the same words the Population rail uses.
@@ -39,7 +39,10 @@ export function VariantBreakdown({ typed, result, settled }: VariantBreakdownPro
             </dt>
             <dd>
               <span className="qe-breakdown__value" data-state={cell.state}>
-                {cell.value ?? (cell.state === "pending" ? "Resolving…" : "Not reported")}
+                {cell.value ?? (cell.state === "pending" ? "Resolving…" : (
+                  // The header already counts the empty cells, so each one shows a quiet dash, not the words again.
+                  <><span aria-hidden="true">—</span><span className="sr-only">Not reported</span></>
+                ))}
               </span>
               {cell.sub && <span className="qe-breakdown__sub">{cell.sub}</span>}
             </dd>

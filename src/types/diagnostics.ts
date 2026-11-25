@@ -36,9 +36,10 @@ export interface ServiceHealthItem {
   timestamp: string;
   /**
    * Up-but-not-yet-serving. Present only for a producer that draws the distinction; absent means
-   * "unknown", which a consumer must never render as an outage — or as readiness.
+   * "unknown", which a consumer must never render as an outage — or as readiness. `slow` means the
+   * check ran out of time without an answer, which is not the same as a refused connection.
    */
-  state?: "ready" | "warming_up";
+  state?: "ready" | "warming_up" | "slow";
   fallback?: FallbackHealthItem;
   /** AlphaGenome only: where its key comes from. `none` + a browser key still counts as ready. */
   keySource?: "server" | "none";

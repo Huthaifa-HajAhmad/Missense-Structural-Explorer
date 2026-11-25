@@ -3,6 +3,7 @@
  */
 
 import type { ExternalServiceAdapter, HealthStatus } from "./types.ts";
+import { EUROPE_PMC_PROBE_TIMEOUT_MS, secondsLabel } from "../../../../src/shared/europePmcBudgets.ts";
 import { adapterRegistry } from "./registry.ts";
 import { fetchWithRetry } from "../../infra/http-client.ts";
 import { CONFIG } from "../../../config.ts";
@@ -295,7 +296,7 @@ export class EnsemblAdapter implements ExternalServiceAdapter<any, any> {
 
 export class EuropePmcAdapter implements ExternalServiceAdapter<any, any> {
   readonly id = "europepmc";
-  readonly name = "Europe PMC & PubMed";
+  readonly name = "Europe PMC";
   readonly version = "1.0";
   readonly rateLimitPerSecond = 10;
 
@@ -312,7 +313,7 @@ export class EuropePmcAdapter implements ExternalServiceAdapter<any, any> {
     const start = performance.now();
     try {
       const res = await fetchWithRetry("https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=human&format=json&pageSize=1", {
-        timeout: 3000,
+        timeout: EUROPE_PMC_PROBE_TIMEOUT_MS,
         probe: true,
         signal
       }, 1);
@@ -324,11 +325,16 @@ export class EuropePmcAdapter implements ExternalServiceAdapter<any, any> {
         timestamp: new Date().toISOString()
       };
     } catch (err: any) {
+      // Running out of time is not the same as being refused: Europe PMC is sometimes slow for minutes at a
+      // time, and literature searches wait far longer than this check, so they can still succeed. A socket-level
+      // timeout arrives as a plain Error, so its message is read too (the same test the Ensembl check uses).
+      const slow = err?.name === "TimeoutError" || /timed out|attempt timeout/i.test(String(err?.message ?? ""));
       return {
         healthy: false,
         latencyMs: Math.round(performance.now() - start),
-        message: err.message || "Europe PMC ping failed",
-        timestamp: new Date().toISOString()
+        message: slow ? `No answer within ${secondsLabel(EUROPE_PMC_PROBE_TIMEOUT_MS)}` : err.message || "Europe PMC ping failed",
+        timestamp: new Date().toISOString(),
+        ...(slow ? { state: "slow" as const } : {})
       };
     }
   }

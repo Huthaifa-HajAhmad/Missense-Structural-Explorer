@@ -196,6 +196,32 @@ describe("SidecarAdapter health probe — cold start vs readiness", () => {
     expect(status.state).toBeUndefined();
   });
 
+  it.each([
+    ["its own deadline", new DOMException("attempt timeout", "TimeoutError")],
+    ["a socket timeout", Object.assign(new Error("connect ETIMEDOUT: request timed out"), { code: "ETIMEDOUT" })],
+  ])("reports a Europe PMC check that ran out of time (%s) as slow, not as down", async (_label, error) => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw error;
+    }));
+
+    const status = await new EuropePmcAdapter().healthCheck();
+
+    expect(status.healthy).toBe(false);
+    expect(status.state).toBe("slow");
+    expect(status.message).toBe("No answer within 3 seconds");
+  });
+
+  it("reports a Europe PMC check that was refused as down, with no state claimed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("Connection refused");
+    }));
+
+    const status = await new EuropePmcAdapter().healthCheck();
+
+    expect(status.healthy).toBe(false);
+    expect(status.state).toBeUndefined();
+  });
+
   it("reports dbnsfp unhealthy when local SQLite is unavailable and remote probe fails", async () => {
     vi.doMock("../../prediction/dbnsfp_local.ts", () => ({
       isLocalDbnsfpAvailable: () => false

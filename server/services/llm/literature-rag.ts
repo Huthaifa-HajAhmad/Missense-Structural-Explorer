@@ -4,6 +4,7 @@ import fs from "fs";
 import { getGeminiClient } from "./gemini.ts";
 import { governedFetch, UPSTREAM_USER_AGENT } from "../infra/http-client.ts";
 import { isEgressRefusal } from "../infra/egress-governor.ts";
+import { EUROPE_PMC_SEARCH_TIMEOUT_MS } from "../../../src/shared/europePmcBudgets.ts";
 
 /**
  * Bring a pre-existing table up to the current schema.
@@ -661,7 +662,7 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
  *  true hit count so a shorter list is explained rather than looking like a bug. */
 export const EUROPE_PMC_PAGE_SIZE = 25;
 export const EUROPE_PMC_PAGE_TIMEOUT_MS = 15_000;
-export const EUROPE_PMC_SEARCH_TIMEOUT_MS = 25_000;
+export { EUROPE_PMC_SEARCH_TIMEOUT_MS };
 export const EUROPE_PMC_HYDRATE_TIMEOUT_MS = 15_000;
 
 /** One explicit page; never replaces the cached first-page membership or its provenance. */

@@ -49,10 +49,13 @@ export interface HealthStatus {
    * an outage, and the two must never render alike — a status rail that shows a green dot over an
    * engine that would refuse the next request is worse than one that shows nothing.
    *
+   * `healthy: false` with `state: "slow"` means the check ran out of time without an answer: the
+   * service may still serve requests that are allowed to wait longer, so it is not shown as down.
+   *
    * Absent means the producer draws no such distinction, which callers must read as "unknown",
    * never as "warming".
    */
-  state?: "ready" | "warming_up";
+  state?: "ready" | "warming_up" | "slow";
 }
 
 export interface ExternalServiceAdapter<TInput = any, TOutput = any> {

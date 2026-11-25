@@ -100,6 +100,34 @@ describe('deck height cap', { tags: ['search'] }, () => {
     await app.screenshot('query-pushes-recents');
   });
 
+  test('with no history, opening the refinements folds the benchmarks and the deck keeps its height', async ({ app, browser, screen }) => {
+    await skipTour(browser);
+    await browser.setViewport({ width: 1753, height: 981 });
+    await app.open('/');
+    await expect(screen.getByRole('heading', 'No recent analyses')).toBeVisible();
+    await monitorSettled(browser);
+
+    const measure = () => browser.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      return {
+        deck: Math.round(box('.workbench-deck').height),
+        monitorBottom: Math.round(box('.workbench-rail').bottom),
+        recentsBottom: Math.round(box('.workbench-recents').bottom),
+        benchmarks: document.querySelectorAll('.workbench-benchmark').length,
+      };
+    });
+    const before = await measure();
+    expect(before.benchmarks > 0, 'the benchmarks start open on a first visit').toBe(true);
+
+    await screen.getByText('Optional refinements', { exact: true }).tap();
+    await browser.evaluate(() => new Promise<string>(r => setTimeout(() => r('ok'), 500)));
+    const after = await measure();
+    expect(after.benchmarks, 'the benchmarks fold while the refinements are open').toBe(0);
+    expect(after.deck, `opening the refinements keeps the deck height (${before.deck} → ${after.deck})`).toBe(before.deck);
+    expect(Math.abs(after.monitorBottom - after.recentsBottom) <= 1, 'recents and monitor still share a bottom edge').toBe(true);
+    await app.screenshot('refinements-fold-benchmarks');
+  });
+
   test('the stacked layout keeps the monitor at its content height', async ({ app, browser }) => {
     await skipTour(browser);
     await browser.setViewport({ width: 1753, height: 981 });

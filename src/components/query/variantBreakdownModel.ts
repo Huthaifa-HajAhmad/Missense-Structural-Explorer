@@ -18,6 +18,7 @@ import { variantNumberingView } from "../../shared/numbering";
 import { parseVariantCoordinate, type VariantCoordinate } from "../../shared/variantCoordinate";
 import { buildVariantHeaderModel } from "../header/variantHeaderModel";
 import { buildAssemblyLiftNote } from "../inspector/assemblyLiftNote";
+import { fallbackLocusShortLabel, locusFailureKind } from "../../shared/locusResolution";
 
 export type BreakdownTone = "good" | "clay" | "warn" | "muted";
 
@@ -103,8 +104,16 @@ export function buildVariantBreakdown({ typed, result, settled }: BreakdownInput
   const accession = meta?.uniprotId || typed.uniprot.trim().toUpperCase();
 
   const transcript = header?.transcript ?? null;
+  // The tier names the transcript; green is kept for checks that passed, so only a warning keeps its colour here.
+  const tierTag = transcript?.tier.label
+    ? { label: transcript.tier.label, tone: transcript.tier.tone === "warn" ? "warn" as const : "muted" as const }
+    : null;
   const ensembl = result?.transcriptId ?? null;
   const transcriptSub = transcript && ensembl && transcript.id !== ensembl ? `Ensembl ${ensembl}` : null;
+
+  /** Why a finished run has no coordinate, in the header's short words (e.g. "Several candidate alleles"). */
+  const gapKind = settled && !header?.coordinate ? locusFailureKind(result) : null;
+  const coordinateGap = gapKind ? fallbackLocusShortLabel(result?.predictorData?.gnomadVariantAssembly ?? null, gapKind) : null;
 
   const submitted = result?.assembly ?? null;
   const build = result?.resolvedAssembly ?? submitted ?? header?.coordinate?.assemblyKey ?? null;
@@ -148,15 +157,16 @@ export function buildVariantBreakdown({ typed, result, settled }: BreakdownInput
       sub: result?.geneSymbolUpdated ? `was ${result.geneSymbolUpdated.from}` : null,
     }),
     make("change", "Protein change", change, { sub: changeSub || null }),
-    make("residue", "Residue", residue, { sub: modelled ? `${modelled.wt3} → ${modelled.mut3}` : null }),
+    // The change itself is already written in the Protein change cell; this cell adds only where it sits.
+    make("residue", "Residue", residue),
     make("uniprot", "UniProt", accession, { sub: isoform && isoform !== accession ? `isoform ${isoform}` : null }),
     make("transcript", "Transcript", transcript?.id, {
       sub: transcriptSub,
-      tag: transcript?.tier.label ? { label: transcript.tier.label, tone: transcript.tier.tone } : null,
+      tag: tierTag,
       title: transcript?.title,
     }),
     make("build", "Build", build ? ASSEMBLY_LABELS[build] : null, { sub: buildSub }),
-    make("coordinate", "Genomic coordinate", header?.coordinate?.id, { title: header?.coordinate?.title }),
+    make("coordinate", "Genomic coordinate", header?.coordinate?.id, { title: header?.coordinate?.title, sub: coordinateGap }),
     numberingCell,
   ];
 

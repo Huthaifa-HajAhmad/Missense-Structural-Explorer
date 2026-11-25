@@ -61,14 +61,15 @@
 .workbench-recents-empty-note { margin: .125rem 0 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
 /* The list rules are the only row lines: a boxed current row would sit against its neighbour's rule as a double line. */
 .workbench-recent[aria-pressed="true"] { background: color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface)); box-shadow: inset 3px 0 0 var(--cs-accent-clay); }
-.workbench-recent-identity { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr); align-items: baseline; gap: .125rem 1rem; flex: 1; min-inline-size: 0; }
+.workbench-recent-identity { display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, auto) minmax(0, 1fr); align-items: baseline; gap: .125rem 1rem; flex: 1; min-inline-size: 0; }
 .workbench-recent-gene { font-size: 13px; font-weight: 600; }
 .workbench-recent-variant { font-family: var(--cs-font-mono); font-size: 12px; overflow-wrap: anywhere; }
 .workbench-recent-query { grid-column: 1 / -1; font-family: var(--cs-font-mono); font-size: 10px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
-.workbench-recent-action { display: flex; flex-direction: column; align-items: end; gap: .375rem; flex: none; font-size: 11px; color: var(--cs-text-accent); }
-.workbench-recent-action > span { display: inline-flex; align-items: center; gap: .375rem; }
+/* One line, centred on the row: the action never stacks above or below a label. */
+.workbench-recent-action { display: inline-flex; align-items: center; gap: .375rem; flex: none; font-size: 11px; color: var(--cs-text-accent); }
 .workbench-recent-action svg { inline-size: 13px; block-size: 13px; }
-.workbench-recent-current { color: var(--cs-text-muted); font-size: 10px; }
+/* The loaded variant's tag sits beside its name, set like the Variant breakdown's tags (clay tone). */
+.workbench-recent-current { justify-self: start; padding: 0 .3125rem; border: 1px solid color-mix(in oklch, var(--cs-accent-clay) 30%, var(--cs-surface)); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-accent); font-size: 10px; font-weight: 500; line-height: 1.5; white-space: nowrap; }
 .workbench-recent:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .workbench-recent:active { background: var(--cs-bg-subtle); }
 /* The benchmark list is a labelled group of its own inside the tray, set like the monitor's group labels: a small

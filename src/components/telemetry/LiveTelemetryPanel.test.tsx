@@ -278,6 +278,30 @@ describe("LiveTelemetryPanel — service descriptions", () => {
   });
 });
 
+describe("LiveTelemetryPanel — a slow literature service", () => {
+  beforeEach(() => {
+    h.state.current = null;
+  });
+
+  it("shows Europe PMC as Degraded, not Unreachable, when its check only ran out of time", () => {
+    h.state.current = allReady({}, { europepmc: svc({ healthy: false, state: "slow", latencyMs: 3001 }) });
+    renderPanel();
+
+    expect(within(rowOf("europepmc")).getByText("Degraded")).toBeInTheDocument();
+    expect(within(rowOf("europepmc")).queryByText("Unreachable")).toBeNull();
+    fireEvent.click(rowOf("europepmc"));
+    expect(within(drawerOf("europepmc")!).getByText("Slow to answer")).toBeInTheDocument();
+  });
+
+  it("names the service it calls: Europe PMC, which also serves PubMed records", () => {
+    h.state.current = allReady();
+    renderPanel();
+
+    expect(within(rowOf("europepmc")).getByText("Europe PMC")).toBeInTheDocument();
+    expect(within(rowOf("europepmc")).getByText(/includes PubMed/)).toBeInTheDocument();
+  });
+});
+
 describe("LiveTelemetryPanel — what a state may claim", () => {
   beforeEach(() => {
     h.state.current = null;

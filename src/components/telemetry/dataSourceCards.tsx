@@ -2,6 +2,7 @@ import React from "react";
 import { RefreshCw } from "lucide-react";
 import type { ProviderState } from "../../shared/providerStatus";
 import type { ServiceHealthItem, FallbackVerdictKind } from "../../types/diagnostics";
+import { EUROPE_PMC_PROBE_TIMEOUT_MS, EUROPE_PMC_SEARCH_TIMEOUT_MS, secondsLabel } from "../../shared/europePmcBudgets";
 import {
   CHECKING_EXPLAIN,
   NOT_REPORTED_EXPLAIN,
@@ -134,6 +135,8 @@ interface ProbeCardSpec {
   purpose: string;
   working: string;
   down: string;
+  /** What a check that ran out of time means for this source; only sources whose server check can report `slow`. */
+  slow?: string;
 }
 
 const PROBE_CARDS: Record<ProbeCardSpec["id"], ProbeCardSpec> = {
@@ -153,16 +156,21 @@ const PROBE_CARDS: Record<ProbeCardSpec["id"], ProbeCardSpec> = {
   },
   europepmc: {
     id: "europepmc",
-    name: "PubMed & Europe PMC",
+    name: "Europe PMC",
     category: "literature",
     transport: "REST",
-    purpose: "Literature search & citations",
+    purpose: "Literature search & citations, includes PubMed",
     working:
       "Finds published papers about this gene or change, with their citations. Results are " +
       "screened for relevance before they are shown.",
     down:
       "Literature search is unavailable, so the Literature view will be empty. The evidence " +
-      "from every other source is unaffected."
+      "from every other source is unaffected.",
+    slow:
+      `Europe PMC did not answer the last check within ${secondsLabel(EUROPE_PMC_PROBE_TIMEOUT_MS)}. ` +
+      `Literature searches wait up to ${secondsLabel(EUROPE_PMC_SEARCH_TIMEOUT_MS)}, so they often still ` +
+      "work, only slowly. If a search gets no answer, the Literature " +
+      "view shows the papers saved earlier for this gene and says so. Every other source is unaffected."
   },
   uniprot: {
     id: "uniprot",
@@ -185,7 +193,9 @@ export function probeCard(ctx: ServiceCardContext, id: ProbeCardSpec["id"]): Ser
   const spec = PROBE_CARDS[id];
   const health: ServiceHealthItem | undefined = ctx.diagnostics?.serviceHealth?.[id];
   const ready = Boolean(health?.healthy);
-  const state = probeState(ctx, ready, Boolean(health));
+  // A check that only ran out of time is shown as Degraded: the source may still answer slower requests.
+  const slowText = !ready && !ctx.isChecking && health?.state === "slow" ? spec.slow : undefined;
+  const state = slowText ? "degraded" : probeState(ctx, ready, Boolean(health));
   return {
     id,
     name: spec.name,
@@ -193,6 +203,6 @@ export function probeCard(ctx: ServiceCardContext, id: ProbeCardSpec["id"]): Ser
     description: ready ? `${spec.transport} · ${spec.purpose}` : spec.purpose,
     state,
     latency: formatLatency(health?.latencyMs),
-    explain: explainProbe(state, ready, spec)
+    explain: slowText ? { heading: "Slow to answer", body: slowText } : explainProbe(state, ready, spec)
   };
 }
