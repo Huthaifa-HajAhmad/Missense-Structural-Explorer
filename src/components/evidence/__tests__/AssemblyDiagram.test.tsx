@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AssemblyDiagram } from "../interfaces/AssemblyDiagram";
 import { buildInterfacesEvidence, type InterfacesEvidence } from "../../../shared/interfacesEvidence";
 import { SOD1_INTERFACES as F } from "../../../shared/__tests__/fixtures/sod1Interfaces";
+import { ABCG1_INTERFACES as ABCG1 } from "../../../shared/__tests__/fixtures/abcg1Interfaces";
 
 /**
  * The composition draws a connector only where PDBe-KB measured a native interface for the pair
@@ -22,7 +23,8 @@ describe("AssemblyDiagram — connectors come from measured pairs only", () => {
     const edges = within(edgeList()!).getAllByRole("listitem");
     expect(edges).toHaveLength(1);
     expect(edges[0]).not.toHaveAttribute("data-lit");
-    expect(edges[0]).toHaveTextContent("Ala5 not at it, in 142 solved structures");
+    // 137 of the 142 native entries model Ala5 (PDBe unipdb); the rest say nothing about it.
+    expect(edges[0]).toHaveTextContent("Ala5 not at it, in 137 solved structures that model it");
     expect(screen.queryByText(/No solved structure of this pair/)).toBeNull();
   });
 
@@ -38,7 +40,7 @@ describe("AssemblyDiagram — connectors come from measured pairs only", () => {
     render(<AssemblyDiagram ev={atInterface} />);
     const edge = within(edgeList()!).getByRole("listitem");
     expect(edge).toHaveAttribute("data-lit");
-    expect(edge).toHaveTextContent("Ala5 at it: 3 of 142 solved structures");
+    expect(edge).toHaveTextContent("Ala5 at it: 3 of 137 solved structures");
   });
 
   it("matches a heteromer partner by accession, and says which chain has no measured pair", () => {
@@ -54,8 +56,15 @@ describe("AssemblyDiagram — connectors come from measured pairs only", () => {
     render(<AssemblyDiagram ev={withPartners} />);
     const edges = within(edgeList()!).getAllByRole("listitem");
     expect(edges).toHaveLength(2);
-    expect(edges[1]).toHaveTextContent("Ala5 not at it, in 3 solved structures");
+    expect(edges[1]).toHaveTextContent("Ala5 not at it, in 3 solved structures that model it");
     const composition = screen.getByRole("group");
     expect(composition.textContent).toContain("1 of the 3 partner chain has no solved structure with this one: composition from UniProt SUBUNIT text.");
+  });
+
+  it("says a pair whose structures never model the residue cannot place it (ABCG1 Gly358)", () => {
+    render(<AssemblyDiagram ev={buildInterfacesEvidence({ result: ABCG1.result, assembly: ABCG1.assembly, assemblyStatus: "ready", ppi: ABCG1.ppi, ppiStatus: "ready", shift: null, shiftLoading: false })} />);
+    const edge = within(edgeList()!).getByRole("listitem");
+    expect(edge).toHaveTextContent("Gly358 not modelled in any of 5 solved structures");
+    expect(edge).not.toHaveTextContent(/not at it/);
   });
 });

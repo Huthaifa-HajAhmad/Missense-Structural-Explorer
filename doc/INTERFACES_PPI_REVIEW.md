@@ -139,3 +139,9 @@ The interface atlas, bounded support comparison, Partners view and shared readin
 documented in [MECHANISM_WORKSPACES_REVIEW.md](MECHANISM_WORKSPACES_REVIEW.md). The UI now
 shows recorded numbering remaps or an explicit unverified-mapping disclosure. Full isoform
 sequence-identity checking (S15) and interface-to-3D linkage remain open.
+
+## 26 November 2026 audit
+
+ABCG1 p.Gly358Arg: a residue that no solved structure models read "not at the interface in 0 of 5". Every
+denominator is now the structures that model the residue (PDBe residue coverage); the model and the tab are
+split by section. Findings, fixes and verification: [INTERFACES_PPI_AUDIT_2026-11-26.md](INTERFACES_PPI_AUDIT_2026-11-26.md).

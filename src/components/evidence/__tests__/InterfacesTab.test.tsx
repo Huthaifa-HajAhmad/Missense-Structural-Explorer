@@ -3,7 +3,8 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InterfacesTab } from "../InterfacesTab";
-import { trackTicks } from "../interfaces/InterfaceTrack";
+import { planRangeNames, trackTicks } from "../interfaces/InterfaceTrack";
+import { packRows } from "../interfaces/trackLayout";
 import { InterfacesRail } from "../../inspector/InterfacesRail";
 import { resetInterfacesLive } from "../interfaces/interfacesLive";
 import { CLIENT_PPI_LOOKUP_BUDGET_MS } from "../../../shared/timeouts";
@@ -63,14 +64,17 @@ function renderTab(result: any) {
 }
 
 describe("InterfacesTab — the finding", () => {
-  it("states the support, 1 of 8 solved structures, and never 'in 8 solved structures'", () => {
+  // 4 of SLC12A4's 8 entries model Gln867 (PDBe unipdb), so the denominator is 4 (audit 2026-11-26, C1).
+  it("states the support, 1 of the 4 structures that model Gln867, and never 'in 8 solved structures'", () => {
     const { container } = renderTab(RESULT);
     const finding = screen.getByTestId("interfaces-finding");
     expect(screen.getByTestId("interface-verdict")).toHaveTextContent("At an interface");
     expect(screen.getByTestId("interfaces-finding-sentence")).toHaveTextContent(
-      "Gln867 is at the interface with the other SLC12A4 chain in 1 of 8 solved structures (7AIQ)."
+      "Gln867 is at the interface with the other SLC12A4 chain in 1 of 4 solved structures (7AIQ)."
     );
-    expect(within(finding).getByText("1 of 8", { selector: ".ifc-figure" })).toBeInTheDocument();
+    expect(within(finding).getByText("1 of 4", { selector: ".ifc-figure" })).toBeInTheDocument();
+    // The chip qualifies the count beside it; the caption names the denominator.
+    expect(finding).toHaveTextContent("solved structures that model Gln867 place it at the interface");
     expect(container).not.toHaveTextContent(/in 8 solved structures/);
     expect(fetchWithAuthMock).not.toHaveBeenCalled();
   });
@@ -99,7 +103,7 @@ describe("InterfacesTab — sequence track", () => {
     expect(within(track).getByRole("img", { name: "Scissor helix 665–681" })).toBeInTheDocument();
     expect(track.querySelector(".ifc-track__callouts")).toBeNull();
     expect(track).not.toHaveTextContent("No domains annotated");
-    expect(within(track).getByRole("img", { name: /Gln867 at the interface in 1 of 8 solved structures/ })).toBeInTheDocument();
+    expect(within(track).getByRole("img", { name: /Gln867 at the interface in 1 of 4 solved structures/ })).toBeInTheDocument();
     const legend = screen.getByLabelText("Legend");
     expect(legend).toHaveTextContent("bar height = share of the pair's structures");
     expect(legend).not.toHaveTextContent("Predicted interface");
@@ -112,8 +116,42 @@ describe("InterfacesTab — sequence track", () => {
     const rgs9 = trackTicks(674, 182);
     expect(rgs9).not.toContain(200);
     expect(rgs9.length).toBeGreaterThanOrEqual(2);
-    // No variant, no label, no re-read: the base step stands.
-    expect(trackTicks(674, null)).toEqual([200, 400]);
+    // No variant, no label, no re-read: the base step stands, and 600 (11% from the end) is kept —
+    // ABCG1's axis read "1, 200, …, 678" with no tick in its last third.
+    expect(trackTicks(674, null)).toEqual([200, 400, 600]);
+    // ABCG1 (678), Gly358 with its chip measured at 9% of the axis: 400 sits under the chip and goes.
+    expect(trackTicks(678, 358, 9)).toEqual([200, 600]);
+    // A window (298–418 around Gly358) ticks at round residues, not at offsets from its start (347, 397).
+    expect(trackTicks(418, 358, 9, 298)).toEqual([350, 400]);
+  });
+
+  it("never prints an inline name inside a range another range overlaps", () => {
+    const plans = planRangeNames(
+      [
+        { start: 101, end: 245, name: "ABC transporter-like", calloutText: "101–245 · ABC transporter-like" },
+        { start: 110, end: 300, name: "AAA+ ATPase", calloutText: "110–300 · AAA+ ATPase" },
+        { start: 403, end: 612, name: "ABC-2 type", calloutText: "403–612 · ABC-2 type" },
+      ],
+      { pct: v => (v / 678) * 100, width: 1000, measure: t => t.length * 6 }
+    );
+    expect(plans.map(p => p.inline)).toEqual([false, false, true]);
+  });
+
+  it("stacks overlapping domain boxes on their own rows, so no two blocks share space, and names them inside", () => {
+    const ranges = [
+      { start: 101, end: 245, name: "ABC transporter-like", calloutText: "101–245 · ABC transporter-like" },
+      { start: 110, end: 300, name: "AAA+ ATPase", calloutText: "110–300 · AAA+ ATPase" },
+      { start: 274, end: 332, name: "ABCG domain", calloutText: "274–332 · ABCG domain" },
+      { start: 403, end: 612, name: "ABC-2 type", calloutText: "403–612 · ABC-2 type" },
+    ];
+    const rows = packRows(ranges);
+    expect(rows).toEqual([0, 1, 0, 0]);
+    // Ranges on one row never overlap.
+    for (let i = 0; i < ranges.length; i++) for (let j = i + 1; j < ranges.length; j++) {
+      if (rows[i] === rows[j]) expect(ranges[i].end < ranges[j].start || ranges[j].end < ranges[i].start).toBe(true);
+    }
+    const plans = planRangeNames(ranges, { pct: v => (v / 678) * 100, width: 1000, measure: t => t.length * 6, rows });
+    expect(plans.every(p => p.inline)).toBe(true);
   });
 
   it("says why there is no interface chart when no solved or predicted lane exists, and offers to model one", async () => {
@@ -163,7 +201,7 @@ describe("InterfacesTab — assembly", () => {
     const self = SLC12A4.assembly.experimental.partners[0];
     const native = { ...self, variantAtInterface: false, variantEntries: [] };
     const crystal = { ...self, context: "crystal", variantAtInterface: true, variantEntries: ["7aiq"] };
-    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true } } });
+    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true, coverageChecked: true } } });
     const table = screen.getByTestId("assembly-readings");
     expect(table).toHaveTextContent("Outside assembly");
     expect(table).toHaveTextContent("deposited biological assembly is a monomer");
@@ -175,7 +213,7 @@ describe("InterfacesTab — assembly", () => {
   it("folds a long set-aside list behind one line and lists names on request", () => {
     const base = { accession: "P0AEX9", name: "MBP", residues: [1], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native", variantAtInterface: false, variantEntries: [] };
     const partners = Array.from({ length: 6 }, (_, i) => ({ ...base, accession: `P0AEY${i}`, name: `Tag ${i}` }));
-    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true } } });
+    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true, coverageChecked: true } } });
     const table = screen.getByTestId("assembly-readings");
     expect(table).toHaveTextContent("2 more chains set aside");
     expect(within(table).queryByText("Tag 4")).toBeNull();
@@ -308,7 +346,7 @@ describe("InterfacesRail", () => {
   it("renders the same model as a trace that ends with the engine record, with STRING's release", () => {
     render(<InterfacesRail analysisResult={RESULT} />);
     const steps = within(screen.getByTestId("interfaces-trace")).getAllByRole("listitem");
-    expect(steps[2]).toHaveTextContent("At the interface in 1 of 8 solved structures");
+    expect(steps[2]).toHaveTextContent("At the interface in 1 of 4 solved structures");
     expect(steps[steps.length - 1]).toHaveTextContent("Engine record");
     expect(steps[steps.length - 1]).toHaveTextContent("None");
     expect(screen.getByTestId("interfaces-rail")).toHaveTextContent("STRING 12.5");
@@ -355,17 +393,39 @@ describe("InterfacesTab & rail — one readiness source", () => {
   });
 });
 
-describe("InterfacesTab — the LocalFold hand-off", () => {
-  it("offers the free browser fold beside the provider job, and says what leaves the machine", () => {
+/** SLC12A4's dimer is 2 × 1085 residues; a 2 × 300 construct stands for a complex a browser can fold. */
+const SMALL: any = { ...RESULT, multimerData: { ...SLC12A4.assembly, chains: SLC12A4.assembly.chains.map((c: any) => ({ ...c, length: 300 })) } };
+
+describe("InterfacesTab — the LocalFold hand-off (audit 2026-11-26, H3)", () => {
+  it("says before anyone clicks that a 2,170-residue complex is too large for a browser fold", () => {
     renderTab(RESULT);
     const fold = screen.getByTestId("local-fold");
-    expect(within(fold).getByRole("button", { name: /Fold in LocalFold/ })).toBeInTheDocument();
-    expect(within(fold).getByRole("button", { name: /Load a model from LocalFold/ })).toBeInTheDocument();
-    // The one line that keeps a browser fold honest: the alignment search is the part that goes out.
-    expect(fold).toHaveTextContent("api.colabfold.com");
+    expect(fold).toHaveTextContent("Not offered for this complex: 2,170 residues, more than the roughly 800 past which a browser fold is not expected to finish.");
+    // The limit is an extrapolation, and the card says so (review: no unsourced quadratic claim).
+    expect(fold).toHaveTextContent(/extrapolation from the device memory LocalFold's published benchmarks report/);
+    expect(fold).not.toHaveTextContent(/square of the residue count/);
+    expect(within(fold).queryByRole("button", { name: /Save the job file/ })).toBeNull();
+    expect(within(fold).queryByRole("link", { name: /Open LocalFold/ })).toBeNull();
+    // A model of these chains folded elsewhere can still be read.
+    expect(within(fold).getByRole("button", { name: /Load a model \(PDB\)/ })).toBeInTheDocument();
+    expect(screen.getByTestId("assembly-readings")).not.toHaveTextContent(/free in your own browser/);
   });
 
-  it("saves the job file, opens localfold.org, and states a complex past the browser budget", async () => {
+  it("offers three numbered steps, says where LocalFold loads a job, and what leaves the machine", () => {
+    renderTab(SMALL);
+    const fold = screen.getByTestId("local-fold");
+    const steps = within(fold).getAllByRole("listitem");
+    expect(steps).toHaveLength(3);
+    expect(within(steps[0]).getByRole("button", { name: /Save the job file/ })).toBeInTheDocument();
+    expect(within(steps[1]).getByRole("link", { name: /Open LocalFold/ })).toHaveAttribute("href", "https://localfold.org/?model=boltz2");
+    expect(within(steps[2]).getByRole("button", { name: /Load a model from LocalFold/ })).toBeInTheDocument();
+    // The step nobody could find, and the one part of a browser fold that goes out.
+    expect(steps[1]).toHaveTextContent("MSA menu");
+    expect(steps[1]).toHaveTextContent("Load job JSON");
+    expect(steps[1]).toHaveTextContent("api.colabfold.com");
+  });
+
+  it("saves the job file on its own click, without opening a tab", async () => {
     const createObjectURL = vi.fn((_blob: Blob) => "blob:job");
     Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true, writable: true });
     Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true, writable: true });
@@ -373,23 +433,15 @@ describe("InterfacesTab — the LocalFold hand-off", () => {
     // whether the download was triggered at all.
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
-    const handoff = {
-      url: "https://localfold.org/?model=boltz2",
-      filename: "SLC12A4_localFold_job.json",
-      jobJson: "[]\n",
-      residues: 2170,
-      tooLarge: true,
-    };
-    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => ({ ...RESULT.multimerData, handoff }) });
-    renderTab(RESULT);
+    const handoff = { url: "https://localfold.org/?model=boltz2", filename: "SLC12A4_localFold_job.json", jobJson: "[]\n", residues: 600, tooLarge: false };
+    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => ({ ...SMALL.multimerData, handoff }) });
+    renderTab(SMALL);
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("local-fold")).getByRole("button", { name: /Fold in LocalFold/ }));
+      fireEvent.click(within(screen.getByTestId("local-fold")).getByRole("button", { name: /Save the job file/ }));
     });
 
-    // The tab is opened synchronously, before the request: after an await a popup blocker eats it.
-    expect(openSpy.mock.invocationCallOrder[0]).toBeLessThan(fetchWithAuthMock.mock.invocationCallOrder[0]);
-    expect(openSpy).toHaveBeenCalledWith("https://localfold.org/?model=boltz2", "_blank", "noopener,noreferrer");
+    expect(openSpy).not.toHaveBeenCalled();
     expect(fetchWithAuthMock).toHaveBeenCalledWith(
       "/api/v1/structure/multimer",
       expect.objectContaining({ method: "POST", body: expect.stringContaining('"handoff":true') })
@@ -398,8 +450,7 @@ describe("InterfacesTab — the LocalFold hand-off", () => {
     expect((createObjectURL.mock.calls[0][0] as Blob).type).toBe("application/json");
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect((clickSpy.mock.instances[0] as unknown as HTMLAnchorElement).download).toBe("SLC12A4_localFold_job.json");
-    // Not a silent gate: the reader is told the size before waiting hours on it.
-    expect(localFoldText()).toContain("past what a browser fold is expected to finish");
+    expect(localFoldText()).toContain("Saved SLC12A4_localFold_job.json (600 residues across 2 chains)");
     clickSpy.mockRestore();
     openSpy.mockRestore();
   });
@@ -496,8 +547,8 @@ describe("InterfacesTab — a LocalFold import never costs the model it replaces
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     let release: (value: unknown) => void = () => {};
     fetchWithAuthMock.mockImplementation(() => new Promise(resolve => { release = resolve; }));
-    renderTab({ ...RESULT, multimerData: built });
-    const button = within(screen.getByTestId("local-fold")).getByRole("button", { name: /Fold in LocalFold/ });
+    renderTab({ ...RESULT, multimerData: { ...built, chains: built.chains.map((c: any) => ({ ...c, length: 300 })) } });
+    const button = within(screen.getByTestId("local-fold")).getByRole("button", { name: /Save the job file/ });
 
     await act(async () => { fireEvent.click(button); });
     // Two distinct user clicks are two events, so the busy flag has painted between them.

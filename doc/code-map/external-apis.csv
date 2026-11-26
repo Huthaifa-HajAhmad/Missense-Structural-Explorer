@@ -74,6 +74,7 @@ www.ebi.ac.uk,server/services/evidence-context/g2p.ts
 www.ebi.ac.uk,server/services/evidence-context/modelOrganisms.ts
 www.ebi.ac.uk,server/services/external-api/adapters/service-adapters.ts
 www.ebi.ac.uk,server/services/external-api/intact.ts
+www.ebi.ac.uk,server/services/external-api/pdbe-coverage.ts
 www.ebi.ac.uk,server/services/external-api/pdbe-entries.ts
 www.ebi.ac.uk,server/services/external-api/pdbe-interfaces.ts
 www.ebi.ac.uk,server/services/external-api/protvar-conservation.ts

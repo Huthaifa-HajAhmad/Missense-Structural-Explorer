@@ -64,13 +64,11 @@
 .ifc-section > h2.eyebrow { margin: 0; }
 
 /* ── Finding ────────────────────────────────────────────────── */
-.ifc-hero__body {
-  display: grid; grid-template-columns: minmax(0, 1fr) 232px; gap: 20px; align-items: stretch;
-  padding: 18px 20px;
-}
-.ifc-hero__text { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.ifc-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.ifc-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+/* The text runs the card's width from the top: it used to be centred beside a tall assembly schematic,
+   which left empty bands above and below it (doc/INTERFACES_PPI_AUDIT_2026-11-26.md, U1). */
+.ifc-screen { --ifc-gap-hatch: repeating-linear-gradient(135deg, color-mix(in srgb, var(--cs-text-muted) 38%, transparent) 0 1px, transparent 1px 5px); }
+.ifc-hero__text { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 18px 20px 16px; }
+.ifc-hero__figure { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .ifc-figure {
   font-size: var(--cs-font-size-display);
   font-weight: var(--cs-font-weight-semibold);
@@ -78,19 +76,25 @@
   letter-spacing: -0.01em; line-height: 1.2;
   color: var(--cs-text-primary);
 }
-.ifc-figure[data-empty] { color: var(--cs-text-muted); }
+/* The verdict in words ("Not modelled") is a state, not a measurement: same size, secondary ink. */
+.ifc-figure[data-words] { color: var(--cs-text-secondary); }
 .ifc-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.ifc-hero__figure > .ifc-hero__figure-label { flex-basis: 100%; }
 .ifc-hero__finding { margin: 0; max-width: none; }
 .ifc-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .ifc-hero__context { margin: 0; max-width: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+/* Beside the count it qualifies, never at the far end of another row. */
 .ifc-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
-
-/* The Assembly card: a white body, its head and foot in the header wash (mechanism-workspace.css), like every card here. */
-.ifc-hero__diagram {
-  margin: 0; min-width: 0; overflow: hidden; border-radius: 10px;
-  display: flex; flex-direction: column;
-  background: var(--cs-surface); border: 1px solid var(--cs-border-subtle);
+/* The map around the residue: the card's figure. */
+.ifc-hero__zoom { margin: 0; border-top: 1px solid var(--cs-border-subtle); }
+.ifc-hero__zoom-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 12px 20px 0;
+  font-size: var(--cs-font-size-badge); color: var(--cs-text-muted);
 }
+.ifc-hero__zoom .ifc-track { padding: 6px 20px 12px; }
+/* The assembly schematic heads the assembly records. */
+.ifc-composition { margin: 0; }
+.ifc-composition .mx-composition-caption { margin-left: auto; padding: 0; border: 0; background: none; }
 
 .ifc-callout {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0;
@@ -114,8 +118,6 @@
 .ifc-fact dd.ifc-fact__sub { display: block; min-height: 0; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); line-height: 1.4; overflow-wrap: anywhere; }
 
 @container (max-width: 720px) {
-  .ifc-hero__body { grid-template-columns: 1fr; }
-  .ifc-hero__diagram { justify-self: stretch; }
   .ifc-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ifc-fact:nth-child(3) { padding-left: 20px; border-left: 0; }
   .ifc-fact:nth-child(n + 3) { border-top: 1px solid var(--cs-border-subtle); }
@@ -159,10 +161,20 @@
   position: relative; height: 14px; border-radius: 3px; font-size: 10.5px;
   background: color-mix(in srgb, var(--cs-text-secondary) 7%, transparent);
 }
-.ifc-track__lane[data-kind="topology"] { height: 10px; background: transparent; border-bottom: 1px solid var(--cs-border); border-radius: 0; }
-.ifc-track__lane[data-kind="domains"] { height: 18px; background: transparent; border-bottom: 1px solid var(--cs-border); border-radius: 0; }
+/* Topology is drawn as a membrane: a centre line is the bilayer, membrane segments cross it at full height,
+   the cytoplasmic side sits below it and the outside above, as the legend says. The line used to be the
+   lane's bottom edge with both sides above it, so "cytoplasmic below the line" was not what was drawn. */
+.ifc-track__lane[data-kind="topology"] {
+  height: 16px; border-radius: 0;
+  background: linear-gradient(var(--cs-border), var(--cs-border)) 0 50% / 100% 1px no-repeat;
+}
+/* No baseline rule: domains stack onto rows (packRows), so a line under the last row marks nothing. Solved
+   lanes keep theirs: it is the floor the support bars rise from. */
+.ifc-track__lane[data-kind="domains"] { height: 20px; background: transparent; border-radius: 0; font-weight: var(--cs-font-weight-medium); }
 .ifc-track__lane--empty { background: transparent; height: auto; }
 .ifc-track__mark { position: absolute; top: 0; bottom: 0; border-radius: 1px; background: var(--cs-text-primary); }
+/* No coordinates in any of the pair's structures: hatched, so it never reads as "modelled, no contact". */
+.ifc-track__gap { position: absolute; top: 0; bottom: 0; background: var(--ifc-gap-hatch); }
 /* A solved interface is a support profile: bars rise from the lane floor; full height = every structure. */
 .ifc-track__row[data-kind="solved"] .ifc-track__lane { height: 24px; border-radius: 2px; background: color-mix(in srgb, var(--cs-text-secondary) 5%, transparent); border-bottom: 1px solid var(--cs-border); }
 .ifc-track__row[data-kind="solved"] .ifc-track__mark { top: auto; bottom: 0; border-radius: 1px 1px 0 0; }
@@ -171,19 +183,34 @@
 .ifc-track__row[data-fibril] .ifc-track__name { font-style: italic; }
 .ifc-track__row[data-kind="predicted"] .ifc-track__mark { background: var(--cs-accent-clay); }
 .ifc-track__range { position: absolute; top: 1px; bottom: 1px; overflow: hidden; border-radius: 3px; }
-.ifc-track__range[data-kind="membrane"] { top: 0; bottom: 0; border-radius: 1px; background: color-mix(in srgb, var(--cs-text-secondary) 45%, transparent); }
-.ifc-track__range[data-kind="cytoplasmic"] { top: 6px; bottom: 0; border-radius: 0; background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
+.ifc-track__range[data-kind="membrane"] { top: 0; bottom: 0; min-width: 3px; border-radius: 1px; background: color-mix(in srgb, var(--cs-text-secondary) 70%, transparent); }
+.ifc-track__range[data-kind="cytoplasmic"] { top: 9px; bottom: 2px; border-radius: 0; background: color-mix(in srgb, var(--cs-text-secondary) 26%, transparent); }
 .ifc-track__range[data-kind="outside"],
-.ifc-track__range[data-kind="other"] { top: 0; bottom: 6px; border-radius: 0; background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
+.ifc-track__range[data-kind="other"] { top: 2px; bottom: 9px; border-radius: 0; background: color-mix(in srgb, var(--cs-text-secondary) 26%, transparent); }
+/* The stretch of topology that holds the variant takes the clay tint, so the bare band in a narrow window still says where the residue is. */
+.ifc-track__lane[data-kind="topology"] .ifc-track__range[data-hit] { background: color-mix(in srgb, var(--cs-accent-clay) 40%, transparent); }
 .ifc-track__range[data-kind="domain"] {
-  background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 26%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cs-text-secondary) 14%, var(--cs-surface));
+  border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 34%, transparent);
 }
-.ifc-track__range[data-kind="region"] { border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 40%, transparent); background: transparent; }
+.ifc-track__range[data-kind="region"] { border-radius: 4px; border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 45%, transparent); background: transparent; }
+/* A block that holds the variant is the one clay-tinted block in the lane. */
+.ifc-track__range:is([data-kind="domain"], [data-kind="region"])[data-hit] {
+  border-color: var(--cs-accent-clay); background: color-mix(in srgb, var(--cs-accent-clay) 16%, var(--cs-surface));
+}
+/* Inside a block: the name, clipped with an ellipsis when the block is wide enough for a few words but not all of them. */
 .ifc-track__range-name {
-  display: block; padding: 0 5px; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; padding: 0 5px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 10.5px; color: var(--cs-text-primary);
+}
+.ifc-track__range[data-hit] .ifc-track__range-name { color: var(--cs-text-accent); font-weight: var(--cs-font-weight-semibold); }
+/* A name beside its block, on the block's own row (planRangeNames, `fitNames`). Measured in the lane's font, as the inline names are. */
+.ifc-track__beside {
+  position: absolute; height: 16px; line-height: 16px; white-space: nowrap; pointer-events: none;
   font-size: 10.5px; color: var(--cs-text-secondary);
 }
+.ifc-track__beside[data-hit] { color: var(--cs-text-accent); font-weight: var(--cs-font-weight-semibold); }
 /* A name that does not fit its range is a callout under the lane, one row per greedy lane (InterfaceTrack's
    planRangeNames). Its 5px padding and 1.5px rule are the CALLOUT_PAD_PX the plan reserves. */
 .ifc-track__plot { min-width: 0; }
@@ -307,13 +334,15 @@
 }
 .ifc-card > .ifc-foot:first-child { border-top: 0; }
 
-/* The LocalFold hand-off: the same fold done on the reader's own GPU, offered beside the provider job
-   rather than instead of it. The note is the disclosure — the three limits (WebGPU, a one-off weights
-   download, the MSA egress) — in the flow of the foot, not a tooltip nobody opens. */
-.ifc-foot.ifc-local-fold > span { flex: 1 1 320px; min-width: 0; }
-/* `.ifc-link` pushes itself right, which is right for one link at a row's edge and wrong for two that
-   wrap onto their own lines at 360 px: each would sit under the right edge of the note. */
-.ifc-foot.ifc-local-fold > .ifc-link { margin-left: 0; }
+/* LocalFold: three numbered steps, each its own control, so the job file is saved before LocalFold is
+   opened and the step nobody could find ("Load job JSON…" sits in LocalFold's MSA menu) is said. */
+.ifc-local-fold { border-top: 1px solid var(--cs-border-subtle); }
+.ifc-local-fold__title { margin: 0; padding: 12px 16px 4px; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.ifc-steps { margin: 0; padding: 4px 16px 12px 36px; display: flex; flex-direction: column; gap: 8px; }
+.ifc-steps > li { padding-left: 4px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); line-height: 1.55; }
+.ifc-steps > li::marker { font-family: var(--cs-font-mono); color: var(--cs-text-muted); }
+.ifc-steps > li > .ifc-link { margin-left: 0; margin-right: 8px; font-weight: var(--cs-font-weight-medium); }
+.ifc-local-fold__note .ifc-link { margin-left: 4px; }
 .ifc-link[aria-disabled="true"] { opacity: 0.6; cursor: default; }
 .ifc-local-fold__note {
   margin: 0; padding: 8px 16px;
@@ -335,9 +364,18 @@
     linear-gradient(var(--cs-text-primary), var(--cs-text-primary)) 10px 100% / 3px 100% no-repeat;
 }
 .ifc-key[data-kind="fibril"] { background: var(--cs-text-muted); }
+.ifc-key[data-kind="gap"] { background: var(--ifc-gap-hatch); box-shadow: inset 0 0 0 1px var(--cs-border); }
 .ifc-key[data-kind="predicted"] { background: var(--cs-accent-clay); }
 .ifc-key[data-kind="site"] { border: 1.5px solid var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-primary) 10%, transparent); }
-.ifc-key[data-kind="membrane"] { background: color-mix(in srgb, var(--cs-text-secondary) 45%, transparent); }
+.ifc-key[data-kind="membrane"] {
+  width: 22px; height: 12px; border-radius: 0;
+  background:
+    linear-gradient(color-mix(in srgb, var(--cs-text-secondary) 70%, transparent), color-mix(in srgb, var(--cs-text-secondary) 70%, transparent)) 8px 0 / 4px 100% no-repeat,
+    linear-gradient(color-mix(in srgb, var(--cs-text-secondary) 26%, transparent), color-mix(in srgb, var(--cs-text-secondary) 26%, transparent)) 0 1px / 8px 3px no-repeat,
+    linear-gradient(color-mix(in srgb, var(--cs-text-secondary) 26%, transparent), color-mix(in srgb, var(--cs-text-secondary) 26%, transparent)) 12px 8px / 10px 3px no-repeat,
+    linear-gradient(var(--cs-border), var(--cs-border)) 0 50% / 100% 1px no-repeat;
+}
+.ifc-key[data-kind="domain"] { height: 12px; border-radius: 4px; background: color-mix(in srgb, var(--cs-text-secondary) 14%, var(--cs-surface)); border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 34%, transparent); }
 .ifc-key[data-kind="variant"] { width: 0; height: 14px; border-radius: 0; border-left: 1.5px solid var(--cs-accent-clay); }
 
 .ifc-link {
@@ -480,59 +518,36 @@
   .ifc-table-wrap { overflow: visible; }
 }
 
-/* ── Partners: tier chart, search, folds ────────────────────── */
+/* ── Partners: shape, tier chips, search, folds ─────────────── */
+/* One sentence states the shape; the tiers are filter chips with their counts. A linear bar chart drew
+   3 and 5 as dots beside 487 and left a column of space under the search (audit 2026-11-26, U4). */
 .ifc-partners__head {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 20px; align-items: start;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: center;
   padding: 12px 16px; border-bottom: 1px solid var(--cs-border-subtle);
 }
-/* The chart spans the card like the table below it: the tier grid's 1fr bar track ends at the count
-   column, so the longest bar reaches the card's edge and no run of empty pixels is left to its right.
-   The bands separate by a heading and a rule, like the table's tier groups — no second surface, which
-   read as an inset panel floating in the card rather than as hierarchy. */
-.ifc-tiers { display: flex; flex-direction: column; min-width: 0; }
-.ifc-tiers__band { display: flex; flex-direction: column; gap: 2px; }
-.ifc-tiers__band + .ifc-tiers__band { margin-top: 10px; border-top: 1px solid var(--cs-border); padding-top: 9px; }
-.ifc-tiers__band-head {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 4px;
-}
+.ifc-partners__shape { margin: 0; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); }
+.ifc-partners__tiers { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.ifc-tiers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.ifc-tiers__band { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ifc-tiers__band-title {
-  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  margin-right: 2px; font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
   letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted);
 }
-.ifc-tiers__band[data-band="binding"] .ifc-tiers__band-title { color: var(--cs-text-secondary); }
-.ifc-tiers__band-count {
-  font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
-  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-secondary);
-}
-/* The qualifier reads as a caption under its heading, never as a third voice on the heading line. */
-.ifc-tiers__band-meta { flex: 1 1 100%; margin: 0; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ifc-tier {
-  display: grid; grid-template-columns: 176px minmax(60px, 1fr) 52px; align-items: center; gap: 10px;
-  min-height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none;
-  font: inherit; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); text-align: left; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px;
+  border: 1px solid var(--cs-border); border-radius: var(--cs-radius-badge, 6px); background: var(--cs-surface);
+  font: inherit; font-size: var(--cs-font-size-caption); color: var(--cs-text-primary); cursor: pointer; white-space: nowrap;
 }
+.ifc-tiers__band[data-band="association"] .ifc-tier { color: var(--cs-text-secondary); }
 @media (hover: hover) and (pointer: fine) {
-  .ifc-tier:hover { background: color-mix(in srgb, var(--cs-text-secondary) 6%, transparent); }
+  .ifc-tier:hover { background: color-mix(in srgb, var(--cs-text-secondary) 6%, var(--cs-surface)); }
 }
 .ifc-tier:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
-.ifc-tier[aria-pressed="true"] { background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent); color: var(--cs-text-primary); }
-.ifc-tier[data-dim] { opacity: 0.55; }
-.ifc-tier__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ifc-tiers__band[data-band="binding"] .ifc-tier__label { color: var(--cs-text-primary); }
-.ifc-tiers__band[data-band="association"] .ifc-tier__label { color: var(--cs-text-muted); }
-.ifc-tier__bar { position: relative; height: 8px; border-radius: 2px; background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); }
-.ifc-tier__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
-/* Binding evidence carries the stronger ink, association the muted ink: the band a reader must not
-   confuse is legible before the label is read. */
-.ifc-tiers__band[data-band="binding"] .ifc-tier__fill { background: var(--cs-text-primary); }
-.ifc-tiers__band[data-band="association"] .ifc-tier__fill { background: var(--cs-text-muted); }
-.ifc-tier[aria-pressed="true"] .ifc-tier__fill { background: var(--cs-accent-clay); }
-.ifc-tier__count {
-  justify-self: end; font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
-  font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary);
-}
-/* The search is a visible field with the clear button inside it; "Show all" sits beneath. */
-.ifc-partners__tools { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.ifc-tier[aria-pressed="true"] { border-color: var(--cs-accent-clay); background: color-mix(in srgb, var(--cs-accent-clay) 10%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ifc-tier__count { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; font-weight: var(--cs-font-weight-medium); color: var(--cs-text-muted); }
+.ifc-tier[aria-pressed="true"] .ifc-tier__count { color: var(--cs-text-accent); }
+.ifc-tiers__note { flex-basis: 100%; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); text-wrap: pretty; }
+.ifc-partners__tiers > .ifc-link { margin-left: 0; }
 .ifc-search {
   display: inline-flex; align-items: center; gap: 6px; width: 200px; min-height: 32px; padding: 0 10px;
   border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input, 8px); background: var(--cs-surface); color: var(--cs-text-muted);
@@ -570,12 +585,8 @@
 
 @container (max-width: 720px) {
   .ifc-partners__head { grid-template-columns: 1fr; }
-  .ifc-partners__tools { align-items: stretch; }
   .ifc-search { width: auto; }
-  .ifc-tier { grid-template-columns: 128px minmax(56px, 1fr) 44px; gap: 8px; }
-  .ifc-tiers__band-meta { display: none; }
 }
 @media print {
-  .ifc-partners__tools, .ifc-fold__toggle { display: none; }
-  .ifc-tier__fill { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .ifc-search, .ifc-fold__toggle { display: none; }
 }

@@ -75,9 +75,20 @@ const GUARDED_SURFACES = [
   // Interfaces & PPI (merged Multimer assembly + Protein interactions): the multimer tab once showed
   // "Complex Modeling Unavailable" in red for a heteromer it chose not to model, and the interactions
   // tab "N/A" / "Pending" for a ΔΔG_bind that was never measured.
-  "src/components/evidence/InterfacesTab.tsx",
+  // The tab and its model are split by section (2026-11-26): each file that states an engine state is guarded.
+  "src/components/evidence/interfaces/ui.tsx",
+  "src/components/evidence/interfaces/AssemblyRecords.tsx",
+  "src/components/evidence/interfaces/ComplexModelRows.tsx",
+  "src/components/evidence/interfaces/BindingCard.tsx",
   "src/components/inspector/InterfacesRail.tsx",
-  "src/shared/interfacesEvidence.ts",
+  "src/shared/interfaces/format.ts",
+  "src/shared/interfaces/observed.ts",
+  "src/shared/interfaces/complexModel.ts",
+  "src/shared/interfaces/verdict.ts",
+  "src/shared/interfaces/partnerGroups.ts",
+  "src/shared/interfaces/binding.ts",
+  "src/shared/interfaces/finding.ts",
+  "src/shared/interfaces/trace.ts",
   // The Score thresholds redesign: the old rail printed "N/A" for a missing REVEL / FoldX value and
   // the old table "awaiting data" beside absences with known reasons.
   "src/components/evidence/predictors/StrengthLadder.tsx",

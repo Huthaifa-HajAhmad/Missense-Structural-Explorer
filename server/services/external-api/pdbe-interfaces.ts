@@ -33,6 +33,7 @@
  */
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
+import { entriesModelling, fetchResidueCoverage, unmodelledStretches, type ResidueCoverage } from "./pdbe-coverage.ts";
 
 export interface PdbeInterfacePartner {
   /** Partner UniProt accession; the query's own accession for a homomeric interface. */
@@ -64,8 +65,9 @@ export type PdbeInterfaceLookup =
    * `entryKinds`: whether fibril entries could be told apart (RCSB answered).
    * `crystalChecked`: whether the biological-assembly check answered, so crystal-packing entries
    * could be told apart from native ones (same RCSB call).
+   * `coverage`: which residues each entry models (PDBe unipdb); null when PDBe did not answer.
    */
-  | { status: "ok"; partners: PdbeInterfacePartner[]; entryKinds: "ok" | "failed"; crystalChecked: boolean }
+  | { status: "ok"; partners: PdbeInterfacePartner[]; entryKinds: "ok" | "failed"; crystalChecked: boolean; coverage: ResidueCoverage | null }
   | { status: "none"; partners: [] }
   | { status: "error"; partners: []; reason: string };
 
@@ -295,11 +297,16 @@ async function readSpecies(accessions: string[], signal?: AbortSignal): Promise<
   }
 }
 
-/** One partner's interface as a variant sees it: per-residue support counts and the variant's own entries. */
+/**
+ * One partner's interface as a variant sees it: per-residue support counts, the variant's own entries,
+ * and, when coverage was read, the entries that model the variant residue at all and the stretches no
+ * entry of this pair models.
+ */
 export function observedFor(
   p: PdbeInterfacePartner,
   ownAccession: string,
-  position: number | null
+  position: number | null,
+  coverage: ResidueCoverage | null = null
 ): {
   accession: string;
   name: string;
@@ -313,11 +320,21 @@ export function observedFor(
   organism: string | null;
   variantAtInterface: boolean;
   variantEntries: string[];
+  modelledEntries?: string[];
+  unmodelled?: Array<{ start: number; end: number }>;
 } {
   const own = ownAccession.toUpperCase().replace(/-\d+$/, "");
   const idx = position === null ? -1 : p.residues.indexOf(position);
   // A residue PDBe lists with no interacting entry named still counts once: it is at the interface somewhere.
   const support = p.residueEntries.map(e => Math.max(1, e.length));
+  const variantEntries = idx >= 0 ? p.residueEntries[idx] : [];
+  // An entry with the residue at its interface models it, whatever the coverage list says.
+  const modelled = coverage && position !== null
+    ? {
+        modelledEntries: [...new Set([...entriesModelling(coverage, p.pdbEntries, position), ...variantEntries])].sort(),
+        unmodelled: unmodelledStretches(coverage, p.pdbEntries),
+      }
+    : {};
   return {
     accession: p.accession,
     name: p.name,
@@ -330,7 +347,8 @@ export function observedFor(
     gene: p.gene,
     organism: p.organism,
     variantAtInterface: idx >= 0,
-    variantEntries: idx >= 0 ? p.residueEntries[idx] : [],
+    variantEntries,
+    ...modelled,
   };
 }
 
@@ -362,9 +380,10 @@ export async function fetchPdbeInterfaces(uniprotId: string, signal?: AbortSigna
       return none;
     }
     const bareOf = (a: string) => a.toUpperCase().replace(/-\d+$/, "");
-    const [kinds] = await Promise.all([
+    const [kinds, , coverage] = await Promise.all([
       readEntryKinds([...new Set(parsed.flatMap(p => p.pdbEntries))], signal),
       readSpecies([...new Set(parsed.filter(p => !p.artefact).map(p => bareOf(p.accession)))], signal),
+      fetchResidueCoverage(accession, signal),
     ]);
     const named = parsed.map(p => {
       const sp = speciesCache.get(bareOf(p.accession));
@@ -375,10 +394,11 @@ export async function fetchPdbeInterfaces(uniprotId: string, signal?: AbortSigna
       partners: splitEntryContexts(named, kinds ?? { fibrils: new Set(), crystals: new Set() }),
       entryKinds: kinds ? "ok" : "failed",
       crystalChecked: Boolean(kinds),
+      coverage,
     };
-    // Cached only when the entry-kind check answered: an unchecked list would hide fibrils and
-    // crystal contacts for a week.
-    if (kinds) cache.set(accession, result);
+    // Cached only when the entry-kind and coverage checks answered: an unchecked list would hide
+    // fibrils, crystal contacts or unmodelled residues for a week.
+    if (kinds && coverage) cache.set(accession, result);
     return result;
   } catch (err: any) {
     if (err?.name === "AbortError") throw err;

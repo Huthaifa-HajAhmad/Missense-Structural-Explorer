@@ -5,6 +5,7 @@
  * homodimer entries, 15 amyloid fibril entries, an antibody and an unmapped chain, mouse SOD1 and
  * yeast CCS1, 80 UniProt partners (66 from one two-hybrid screen), STRING 213 physical and 500
  * functional (its cap). UniProt features kept to the types the track draws.
+ * `modelledEntries`, `unmodelled` and `coverageChecked` added 2026-11-26 from PDBe unipdb/P00441.
  */
 /* eslint-disable */
 export const SOD1_INTERFACES: any = {
@@ -332,7 +333,147 @@ export const SOD1_INTERFACES: any = {
      "gene": "SOD1",
      "organism": null,
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "1azv",
+      "1ba9",
+      "1dsw",
+      "1fun",
+      "1hl4",
+      "1hl5",
+      "1kmg",
+      "1l3n",
+      "1mfm",
+      "1n18",
+      "1n19",
+      "1oez",
+      "1ozt",
+      "1ozu",
+      "1p1v",
+      "1ptz",
+      "1pu0",
+      "1rk7",
+      "1sos",
+      "1spd",
+      "1uxl",
+      "1uxm",
+      "23wu",
+      "2af2",
+      "2c9s",
+      "2c9u",
+      "2c9v",
+      "2gbt",
+      "2gbu",
+      "2gbv",
+      "2lu5",
+      "2mp3",
+      "2nam",
+      "2nnx",
+      "2r27",
+      "2v0a",
+      "2vr6",
+      "2vr7",
+      "2vr8",
+      "2wko",
+      "2wyt",
+      "2wyz",
+      "2wz0",
+      "2wz5",
+      "2wz6",
+      "2xjk",
+      "2xjl",
+      "2zkw",
+      "2zkx",
+      "2zky",
+      "3cqp",
+      "3cqq",
+      "3ecu",
+      "3ecv",
+      "3ecw",
+      "3gqf",
+      "3gtv",
+      "3gzo",
+      "3gzp",
+      "3gzq",
+      "3h2p",
+      "3h2q",
+      "3hff",
+      "3k91",
+      "3kh3",
+      "3kh4",
+      "3qqd",
+      "3re0",
+      "3t5w",
+      "4a7g",
+      "4a7q",
+      "4a7s",
+      "4a7t",
+      "4a7u",
+      "4a7v",
+      "4b3e",
+      "4bcy",
+      "4bcz",
+      "4bd4",
+      "4ff9",
+      "4mcm",
+      "4mcn",
+      "4oh2",
+      "4xcr",
+      "5j0f",
+      "5j0g",
+      "5k02",
+      "5o3y",
+      "5o40",
+      "5u9m",
+      "5yto",
+      "5ytu",
+      "5yul",
+      "6a9o",
+      "6dtk",
+      "6ffk",
+      "6flh",
+      "6foi",
+      "6fol",
+      "6fon",
+      "6fp6",
+      "6spa",
+      "6sph",
+      "6spi",
+      "6spj",
+      "6spk",
+      "6z3v",
+      "6z4g",
+      "6z4h",
+      "6z4i",
+      "6z4j",
+      "6z4k",
+      "6z4l",
+      "6z4m",
+      "6z4o",
+      "7cjv",
+      "7cjw",
+      "7fb6",
+      "7fb9",
+      "7nxx",
+      "7t8e",
+      "7t8f",
+      "7t8g",
+      "7t8h",
+      "7xx3",
+      "8ccx",
+      "8gsq",
+      "8k33",
+      "8k3a",
+      "8k3l",
+      "8q6m",
+      "8yaf",
+      "8yat",
+      "8yd3",
+      "9iyk",
+      "9xj0",
+      "9xji"
+     ],
+     "unmodelled": []
     },
     {
      "accession": "P00441",
@@ -625,6 +766,22 @@ export const SOD1_INTERFACES: any = {
       "9jbo",
       "9jbp",
       "9li1"
+     ],
+     "modelledEntries": [
+      "7vzf",
+      "9jbo",
+      "9jbp",
+      "9li1"
+     ],
+     "unmodelled": [
+      {
+       "start": 1,
+       "end": 1
+      },
+      {
+       "start": 57,
+       "end": 81
+      }
      ]
     },
     {
@@ -687,7 +844,18 @@ export const SOD1_INTERFACES: any = {
      "gene": "CCS",
      "organism": null,
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "6fol",
+      "6fon",
+      "6fp6"
+     ],
+     "unmodelled": [
+      {
+       "start": 1,
+       "end": 1
+      }
+     ]
     },
     {
      "accession": "P08228",
@@ -736,7 +904,16 @@ export const SOD1_INTERFACES: any = {
      "gene": "Sod1",
      "organism": "Mouse",
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "3gtv"
+     ],
+     "unmodelled": [
+      {
+       "start": 1,
+       "end": 1
+      }
+     ]
     },
     {
      "accession": "P40202",
@@ -790,7 +967,16 @@ export const SOD1_INTERFACES: any = {
      "gene": "CCS1",
      "organism": "Baker's yeast",
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "5u9m"
+     ],
+     "unmodelled": [
+      {
+       "start": 1,
+       "end": 1
+      }
+     ]
     },
     {
      "accession": "IG-heavy chain",
@@ -907,7 +1093,21 @@ export const SOD1_INTERFACES: any = {
      "gene": null,
      "organism": null,
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "7nxx",
+      "8k33",
+      "8k3a",
+      "8k3l",
+      "8yaf",
+      "8yat"
+     ],
+     "unmodelled": [
+      {
+       "start": 1,
+       "end": 1
+      }
+     ]
     },
     {
      "accession": "Other",
@@ -957,7 +1157,24 @@ export const SOD1_INTERFACES: any = {
      "gene": null,
      "organism": null,
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "23wu"
+     ],
+     "unmodelled": [
+      {
+       "start": 12,
+       "end": 12
+      },
+      {
+       "start": 51,
+       "end": 81
+      },
+      {
+       "start": 132,
+       "end": 142
+      }
+     ]
     },
     {
      "accession": "Other",
@@ -977,11 +1194,25 @@ export const SOD1_INTERFACES: any = {
      "gene": null,
      "organism": null,
      "variantAtInterface": false,
-     "variantEntries": []
+     "variantEntries": [],
+     "modelledEntries": [
+      "9jbp"
+     ],
+     "unmodelled": [
+      {
+       "start": 1,
+       "end": 1
+      },
+      {
+       "start": 43,
+       "end": 154
+      }
+     ]
     }
    ],
    "entryKinds": "ok",
-   "crystalChecked": true
+   "crystalChecked": true,
+   "coverageChecked": true
   },
   "oligomericState": "Homodimer",
   "chainCount": 2,

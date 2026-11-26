@@ -35,22 +35,45 @@ export function interfaceMapView(ev: InterfacesEvidence, near: boolean, hidden: 
   const layer = (l: InterfacesEvidence['track'][number]) => l.kind !== 'solved' ? l.kind
     : ev.observed.fibrils.some(p => p.key === l.rowKey) ? 'fibril'
     : ev.observed.crystals.some(p => p.key === l.rowKey) ? 'crystal' : 'native';
-  const layers = INTERFACE_LAYERS.map(([id, label]) => ({ id, label, count: ev.track.filter(l => layer(l) === id).length })).filter(l => l.count > 0);
-  const track = ev.track.filter(l => !hidden.includes(layer(l))).map(l => ({ ...l,
-    ranges: l.ranges.filter(r => r.end >= bounds.start && r.start <= bounds.end),
-    marks: l.marks.filter(m => m.residue >= bounds.start && m.residue <= bounds.end),
-  }));
+  // A layer's count is its records (domains, membrane segments, sites, partner interfaces, model
+  // contacts), not its lanes: "Domains & regions 1" said nothing about a lane holding six domains.
+  const records = (l: InterfacesEvidence['track'][number]) => l.kind === 'solved' ? 1
+    : l.kind === 'predicted' ? l.marks.length
+    : l.kind === 'topology' ? l.ranges.filter(r => r.kind === 'membrane').length || l.ranges.length : l.ranges.length;
+  const layers = INTERFACE_LAYERS.map(([id, label]) => ({ id, label, count: ev.track.filter(l => layer(l) === id).reduce((n, l) => n + records(l), 0) })).filter(l => l.count > 0);
+  const inWindow = (r: { start: number; end: number }) => r.end >= bounds.start && r.start <= bounds.end;
+  const whole = bounds.start <= 1 && bounds.end >= length;
+  const track = ev.track.filter(l => !hidden.includes(layer(l))).map(l => {
+    const ranges = l.ranges.filter(inWindow);
+    // A window says what it shows: "6 membrane segments" under ABCG1's 298–418 window, which holds none of
+    // them, read as six drawn segments that were not there.
+    const membranes = (rs: typeof ranges) => rs.filter(r => r.kind === 'membrane').length;
+    const sub = l.kind === 'topology' && !whole && membranes(l.ranges) > 0
+      ? `${membranes(ranges)} of ${membranes(l.ranges)} segments in view`
+      : l.sub;
+    return { ...l, sub, ranges,
+      marks: l.marks.filter(m => m.residue >= bounds.start && m.residue <= bounds.end),
+      gaps: l.gaps.filter(inWindow),
+    };
+  });
   return { bounds, layers, evidence: { ...ev, track }, visibleKeys: track.map(l => l.rowKey ?? `track:${l.key}`) };
+}
+
+/** "1 of 8", or "Not modelled in 5" when no structure of the pair has coordinates for the residue. */
+export function interfaceReadoutText(r: { k: number; n: number; total?: number }): string {
+  return r.n === 0 && (r.total ?? 0) > 0 ? `Not modelled in ${r.total}` : `${r.k} of ${r.n}`;
 }
 
 export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChartRow[] {
   const rows: EvidenceChartRow[] = ev.track.map(l => ({
     key: l.rowKey ?? `track:${l.key}`, name: l.label, value: null,
-    valueText: l.readout ? `${l.readout.k} of ${l.readout.n}` : l.sub,
+    valueText: l.readout ? interfaceReadoutText(l.readout) : l.sub,
     description: l.summary, group: 'map', tone: 'neutral',
     facts: [{ label: 'Evidence', value: l.sub }, { label: 'Reference', value: `${ev.uniprotId ?? 'Unresolved accession'} · UniProt numbering` },
       { label: 'Variant residue', value: ev.residueLabel },
-      ...(l.readout ? [{ label: 'Structures with this residue at the interface', value: `${l.readout.k} of ${l.readout.n}` }] : []),
+      ...(l.readout ? [{ label: 'Structures with this residue at the interface', value: `${l.readout.k} of ${l.readout.n}` },
+        { label: 'Structures that model this residue', value: `${l.readout.n} of ${l.readout.total}` }] : []),
+      ...l.gaps.map(g => ({ label: 'No coordinates in any structure', value: `${g.start}–${g.end}` })),
       ...l.ranges.map(r => ({ label: r.name, value: `${r.start}–${r.end}` }))],
     notes: [l.kind === 'solved' ? 'Support is the share of returned structures for this partner pair. Structures are not independent experiments.'
       : l.kind === 'predicted' ? 'A contact in the variant model is not a measured contact lost.' : 'An annotated region provides positional context, not a measured binding effect.',
@@ -59,8 +82,8 @@ export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChar
   // Retain solved partners omitted from the bounded figure, using the same keys as source records.
   for (const p of [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals]) {
     if (rows.some(r => r.key === p.key)) continue;
-    rows.push({ key: p.key, name: p.label, value: null, valueText: `${p.k} of ${p.n}`, group: 'map', tone: 'neutral',
-      description: `${ev.residueLabel}: ${p.k} of ${p.n} structures in this context.`,
+    rows.push({ key: p.key, name: p.label, value: null, valueText: interfaceReadoutText(p), group: 'map', tone: 'neutral',
+      description: p.n === 0 ? `${ev.residueLabel} is not modelled in any of the ${p.total} structures in this context.` : `${ev.residueLabel}: ${p.k} of ${p.n} structures that model it, in this context.`,
       facts: [{ label: 'Accession', value: p.accession }, { label: 'Context', value: p.context ?? 'Not reported' },
         { label: 'Entries containing the interface residue', value: p.variantEntries.join(', ') || 'None returned' }],
       notes: ['Fibril and outside-assembly contacts are read separately from native interfaces.'] });

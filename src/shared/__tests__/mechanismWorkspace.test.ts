@@ -20,8 +20,9 @@ describe('Mechanism workspace contracts', () => {
     const rows = interfaceWorkspaceReadings(interfaces());
     const native = rows.find(r => r.key === 'solved:P00441:native')!;
     const fibril = rows.find(r => r.key === 'solved:P00441:fibril')!;
-    expect(native.valueText).toBe('0 of 142');
-    expect(fibril.valueText).toBe('4 of 15');
+    // Denominators are the structures that model Ala5 (137 of 142 native, 4 of 15 fibril; PDBe unipdb).
+    expect(native.valueText).toBe('0 of 137');
+    expect(fibril.valueText).toBe('4 of 4');
     expect(new Set(rows.map(r => r.key)).size).toBe(rows.length);
   });
   it('retains inspectable records from the folded partner tail', () => {
@@ -43,12 +44,24 @@ describe('Mechanism workspace contracts', () => {
   });
   it('retains original bounds for an annotation clipped by the display window', () => {
     const ev = interfaces();
-    ev.track.push({ key: 'test', kind: 'domains', label: 'Full span', sub: '', summary: '', marks: [], ranges: [{ start: 1, end: 154, name: 'Full span', hit: true, kind: 'domain' }], hit: true, rowKey: null, readout: null });
+    ev.track.push({ key: 'test', kind: 'domains', label: 'Full span', sub: '', summary: '', marks: [], gaps: [], ranges: [{ start: 1, end: 154, name: 'Full span', hit: true, kind: 'domain' }], hit: true, rowKey: null, readout: null });
     const v = interfaceMapView(ev, true);
     expect(v.evidence.track.at(-1)?.ranges[0]).toMatchObject({ start: 1, end: 154 });
   });
   it('shows a recorded numbering remap, and never claims identity from its absence', () => {
     expect(interfaceNumberingNote({ metadata: { variant: 'p.Lys272Asn', uniprotId: 'Q9Y305' }, numberingRemap: { from: { hgvsp: 'p.Lys281Asn', isoform: 'Q9Y305-4' } } })).toMatch(/Reported as p.Lys281Asn.*modelled as p.Lys272Asn/);
     expect(interfaceNumberingNote(F.result)).toContain('do not verify isoform identity');
+  });
+});
+
+describe('interfaceMapView — the topology lane says what its window shows', () => {
+  it('counts the membrane segments in view, never the whole protein\'s six under a window that holds none', async () => {
+    const { ABCG1_INTERFACES: A } = await import('./fixtures/abcg1Interfaces');
+    const ev = buildInterfacesEvidence({ result: A.result, assembly: A.assembly, assemblyStatus: 'ready', ppi: A.ppi, ppiStatus: 'ready', shift: null, shiftLoading: false });
+    const lane = (near: boolean) => interfaceMapView(ev, near).evidence.track.find(l => l.kind === 'topology')!;
+    expect(lane(false).sub).toBe('6 membrane segments');
+    // Gly358 ± 60 is 298–418; the first membrane segment starts at 427.
+    expect(lane(true).sub).toBe('0 of 6 segments in view');
+    expect(lane(true).ranges.filter(r => r.kind === 'membrane')).toHaveLength(0);
   });
 });

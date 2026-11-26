@@ -1,12 +1,13 @@
 import type { AnalysisResult } from '../types';
 import { SOD1_INTERFACES } from '../shared/__tests__/fixtures/sod1Interfaces';
 import { SLC12A4 } from '../shared/__tests__/fixtures/slc12a4';
+import { ABCG1_INTERFACES } from '../shared/__tests__/fixtures/abcg1Interfaces';
 import { nae1Reference } from '../shared/__tests__/fixtures/splicingReference';
 
 /** Recorded cases plus explicitly illustrative splice scores for interaction/geometry checks. */
 export function mechanismWorkspaceFixture(name = 'SOD1'): AnalysisResult {
-  if (name === 'SOD1' || name === 'SLC12A4') {
-    const f = structuredClone(name === 'SOD1' ? SOD1_INTERFACES : SLC12A4);
+  if (name === 'SOD1' || name === 'SLC12A4' || name === 'ABCG1') {
+    const f = structuredClone(name === 'SOD1' ? SOD1_INTERFACES : name === 'ABCG1' ? ABCG1_INTERFACES : SLC12A4);
     return { ...f.result, isDemoData: true, multimerData: f.assembly, ppiBindingData: f.ppi };
   }
   return nae1Reference({ isDemoData: true,

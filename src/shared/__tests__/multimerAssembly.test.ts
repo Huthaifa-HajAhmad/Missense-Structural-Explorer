@@ -93,3 +93,22 @@ describe("variantContacts", () => {
     expect(interfaceFootprint(contacts, true)).toEqual([40, 42, 50, 114, 116]);
   });
 });
+
+describe("subunitStatements — a family named by its symbol (ABCG1, doc/INTERFACES_PPI_AUDIT_2026-11-26.md H1)", () => {
+  // UniProt P45844 SUBUNIT, read 2026-11-26.
+  const ABCG1 =
+    "Homodimer; disulfide-linked (PubMed:16702602). Homooligomer (PubMed:16702602). May form heterodimers with several heterologous partners of the ABCG subfamily. Forms heterodimers with ABCG4 (PubMed:27228027). Interacts with CAV1; this interaction regulates ABCG1-mediated cholesterol efflux (PubMed:24576892)";
+
+  it("reads 'partners of the ABCG subfamily' as a family, never as a gene called ABCG", () => {
+    const heteromers = subunitStatements(ABCG1, "ABCG1").filter(s => s.kind === "heteromer");
+    expect(heteromers.map(s => [s.family, s.partnerGenes])).toEqual([
+      ["ABCG subfamily", []],
+      [null, ["ABCG4"]],
+    ]);
+  });
+
+  it("still reads a gene beside the word 'family' elsewhere in the sentence as a gene", () => {
+    const [s] = subunitStatements("Heterodimer with SLC3A2, a member of the solute carrier family.", "SLC7A5");
+    expect(s).toMatchObject({ partnerGenes: ["SLC3A2"], family: null });
+  });
+});

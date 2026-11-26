@@ -6,6 +6,7 @@ import type { AnalysisResult } from "../../types";
 import type { MultimerData, PpiBindingData, PpiBindingShift } from "../../shared/contracts";
 import { THRESHOLDS, STRING_CONFIDENCE_BANDS } from "../../shared/thresholds";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+import { LOCALFOLD_MAX_RESIDUES } from "../../shared/multimerHandoff";
 import {
   DDMUT_PPI_PERFORMANCE,
   DDMUT_PPI_RMSE,
@@ -82,6 +83,7 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
   if (ev.uniprotId) sources.push(["Curation", `UniProtKB ${ev.uniprotId} · SUBUNIT, INTERACTION, features`]);
   if (ev.observed.availability.state === "ok" || ev.observed.availability.state === "empty") {
     sources.push(["Solved interfaces", "PDBe-KB"]);
+    sources.push(["Residue coverage", ev.observed.coverageChecked ? "PDBe-KB, observed residues per entry" : "PDBe-KB coverage not read"]);
     sources.push(["Entry kinds", ev.observed.fibrilsChecked ? "RCSB PDB keywords, titles and assemblies" : "RCSB PDB not read"]);
   }
   if (ev.sections.intact.state === "ok") sources.push(["Methods and studies", "IntAct (PSICQUIC)"]);
@@ -178,6 +180,11 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
               structures is a conformation- or construct-dependent contact; the support is shown, not hidden behind &ldquo;at an interface&rdquo;.
             </li>
             <li>
+              The denominator is the structures that model the residue (PDBe residue coverage). A structure with no coordinates for it says
+              nothing about it, and a residue no structure models is &ldquo;not modelled&rdquo;, never &ldquo;not at the interface&rdquo;. Each
+              interface residue&apos;s own support still counts every structure of the pair.
+            </li>
+            <li>
               Amyloid fibril structures (RCSB keyword &ldquo;protein fibril&rdquo;, or &ldquo;amyloid&rdquo; or &ldquo;fibril&rdquo; in the title) are read apart:
               in a fibril every chain stacks on the next, so most of the core touches another copy. That contact is not the native interface,
               is never the verdict, and is never a wild type for the binding change.
@@ -200,15 +207,16 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
               STRING&apos;s physical sub-network scores evidence that two proteins bind or share a complex; its functional network adds
               co-expression, pathways and text mining. Neither score is a binding strength.
             </li>
-            <li>A partner UniProt names as a family (&ldquo;other K-Cl cotransporters&rdquo;) is shown unresolved, never matched to genes by guessing.</li>
+            <li>A partner UniProt names as a family (&ldquo;other K-Cl cotransporters&rdquo;, &ldquo;the ABCG subfamily&rdquo;) is shown unresolved, never matched to genes by guessing.</li>
           </ul>
         </details>
         <details className="ifc-notes">
           <summary>The complex model and the binding change</summary>
           <ul>
             <li>
-              Boltz-2 runs only when you ask for one: as a provider job, or free in your own browser with LocalFold
-              (its contacts are then measured here at 4.5 Å, and a saved PDB carries no ipTM). Chain A carries the
+              Boltz-2 runs only when you ask for one: as a provider job, or free in your own browser with LocalFold when the
+              complex is small enough for a browser (about {LOCALFOLD_MAX_RESIDUES} residues); its contacts are then measured here at
+              4.5 Å, and a saved PDB carries no ipTM. Chain A carries the
               variant and every other chain is wild type: for a homomer that is one mutant copy, closer to a
               heterozygous carrier than a homozygous one. ipTM scores all interfaces together.
             </li>

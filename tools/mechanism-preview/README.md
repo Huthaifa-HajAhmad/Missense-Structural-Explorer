@@ -10,8 +10,8 @@ Open <http://127.0.0.1:5186/tools/mechanism-preview/index.html>. This renders th
 Evidence workspace and inspectors with current application styles. Application API calls are
 blocked. No provider keys, server or new analysis are required.
 
-Select Interfaces & PPI or RNA splicing, change the fixture and switch themes. SOD1 and SLC12A4
-are recorded interface cases; splice signals, missing positions, unresolved strand and the
+Select Interfaces & PPI or RNA splicing, change the fixture and switch themes. SOD1, SLC12A4 and
+ABCG1 (a residue no solved structure models) are recorded interface cases; splice signals, missing positions, unresolved strand and the
 new-variant scenario are illustrative interaction fixtures, not clinical results.
 
 Review at wide, 800 px and 390 px viewport widths:
