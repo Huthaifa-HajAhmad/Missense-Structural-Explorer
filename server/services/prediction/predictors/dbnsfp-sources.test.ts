@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NO_DBNSFP_SCORES } from "./dbnsfp-scores.ts";
+import { NO_DBNSFP_SCORES, scoresFromLocalRecord } from "./dbnsfp-scores.ts";
 
 const mocks = vi.hoisted(() => ({
   localAvailable: vi.fn(),
@@ -73,5 +73,15 @@ describe("firstDbnsfpAnswer", () => {
 
   it("is null when no source has the variant", async () => {
     expect(await firstDbnsfpAnswer(req)).toBeNull();
+  });
+});
+
+describe("popEVE from the local store", () => {
+  const record = (popeve: number | null) => ({ popeve, transcript: "ENST00000646891" }) as any;
+
+  it("names the transcript the stored score was read on, and no source without a score", () => {
+    expect(scoresFromLocalRecord(record(-4.382)).popeveSource)
+      .toEqual({ protein: null, substitution: null, match: "dbnsfp", transcript: "ENST00000646891" });
+    expect(scoresFromLocalRecord(record(null)).popeveSource).toBeNull();
   });
 });

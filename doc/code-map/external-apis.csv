@@ -8,7 +8,7 @@ api.japanfold.aiand.com,server/config.ts
 biosig.lab.uq.edu.au,server/services/stability/ddmut-ppi.ts
 cdn.jsdelivr.net,server/express-config.ts
 cdn.jsdelivr.net,server/routes/docs.ts
-data.evemodel.org,server/services/prediction/predictors/popeve-resolver.ts
+data.evemodel.org,server/services/prediction/predictors/popeve-files.ts
 data.rcsb.org,server/services/external-api/pdbe-interfaces.ts
 data.rcsb.org,server/services/structure/structure-fetcher.ts
 deepmind.google.com,server/services/external-api/alphagenome-bridge.ts
@@ -56,6 +56,7 @@ rest.uniprot.org,server/services/external-api/adapters/service-adapters.ts
 rest.uniprot.org,server/services/external-api/pdbe-interfaces.ts
 rest.uniprot.org,server/services/external-api/uniprot.ts
 rest.uniprot.org,server/services/llm/curated-literature.ts
+rest.uniprot.org,server/services/prediction/predictors/popeve-files.ts
 rest.uniprot.org,server/services/prediction/predictors/popeve-resolver.ts
 rest.uniprot.org,server/services/prediction/predictors/transcript-resolver.ts
 rest.variantvalidator.org,server/services/translation/coordinate-resolver.ts

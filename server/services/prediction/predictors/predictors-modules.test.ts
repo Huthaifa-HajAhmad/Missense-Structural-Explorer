@@ -199,6 +199,25 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
       }
     });
 
+    it("reads the MANE Select row when a Plus Clinical transcript is listed first, and names popEVE's transcript", async () => {
+      const origFetch = global.fetch;
+      // BRAF V600E as the service answered it: the Plus Clinical transcript (residue 640) comes first.
+      global.fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+        tabs: { function_prediction: { rows: [
+          { Ensembl_transcriptid: "ENST00000644969", MANE: "Plus_Clinical", aapos: "640", ESM1b_score: "-15.466928", popEVE_score: null },
+          { Ensembl_transcriptid: "ENST00000646891", MANE: "Select", aapos: "600", ESM1b_score: "-15.954097", popEVE_score: "-4.382" },
+        ] } },
+      }), { status: 200 }));
+      try {
+        const res = await queryDbnsfpOrg("BRAF", "V600E");
+        expect(res?.esm1b).toBe(-15.954097);
+        expect(res?.popeve).toBe(-4.382);
+        expect(res?.popeveSource).toEqual({ protein: null, substitution: null, match: "dbnsfp", transcript: "ENST00000646891" });
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
     it("never reads BayesDel_addAF as BayesDel: the calibrated bands are for the noAF score", async () => {
       const origFetch = global.fetch;
       global.fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
