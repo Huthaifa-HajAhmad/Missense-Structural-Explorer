@@ -62,7 +62,8 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Protein alignments' }));
     expect(screen.getByRole('heading', { name: 'Residue in orthologs' })).toBeInTheDocument();
     const speciesScreen = screen.getByTestId('species-models-screen');
-    expect(within(speciesScreen).getByText('Review context')).toBeVisible();
+    // No review choice changes the alignment view, so it carries no review context.
+    expect(within(speciesScreen).queryByText('Review context')).not.toBeInTheDocument();
     expect(within(speciesScreen).queryByText('How to read this evidence')).not.toBeInTheDocument();
     expect(within(speciesScreen).queryByText(/species with returned records/)).not.toBeInTheDocument();
     expect(within(screen.getByRole('tabpanel')).getByTestId('residue-alignment-card')).toBeInTheDocument();
@@ -247,7 +248,7 @@ describe('production context tabs and linked inspectors', () => {
   it('keeps animal source provenance in Species, shows partial annotations, and pins the mapped residue', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
-    expect(screen.getByText(/returned phenotype summar(?:y|ies) could not be resolved/)).toBeInTheDocument();
+    expect(screen.getByText(/no resolved term, so this count is partial/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Variant site' }));
     const records = within(screen.getByTestId('context-records'));
     fireEvent.click(records.getByRole('button', { name: /Mouse.*ENSG0/ }));

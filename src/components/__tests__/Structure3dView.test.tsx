@@ -144,6 +144,55 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     expect(entries.textContent).not.toMatch(/5% ID|In Range/);
   });
 
+  // Audit F3: an entry whose range spans the site but has no atoms there must not read "covers the site".
+  it("says an entry has no coordinates at the site instead of 'covers the site'", () => {
+    seed({
+      analysisState: {
+        isLoading: false,
+        error: null,
+        result: {
+          metadata: { gene: "ABCG1", variant: "p.Gly358Arg", uniprotId: "P45844", residueIndex: 358, wildType: "Gly", mutant: "Arg" },
+          disruptionPredictor: null,
+        },
+      },
+      uniprotId: "P45844",
+      gene: "ABCG1",
+      foldingEnergetics: null,
+      homologs: [
+        { pdbId: "7FDV", score: 1, identity: null, coverage: 100, title: "", organism: "Homo sapiens", method: "Electron Microscopy", resolution: 3.26, isHuman: true, querySeqFrom: 1, querySeqTo: 678, coversPosition: true, modelsPosition: false, source: "pdbe", directMapping: true },
+      ],
+    });
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
+    const entries = container.querySelector("[data-testid='structure-entries']") as HTMLElement;
+    expect(entries.textContent).toContain("no coordinates at the site");
+    expect(entries.textContent).not.toContain("covers the site");
+    expect(entries.textContent).not.toContain("closest covering entry");
+  });
+
+  it("calls a range it could not check a range, and does not claim it covers the site", () => {
+    seed({
+      analysisState: {
+        isLoading: false,
+        error: null,
+        result: {
+          metadata: { gene: "ABCG1", variant: "p.Gly358Arg", uniprotId: "P45844", residueIndex: 358, wildType: "Gly", mutant: "Arg" },
+          disruptionPredictor: null,
+        },
+      },
+      uniprotId: "P45844",
+      gene: "ABCG1",
+      foldingEnergetics: null,
+      homologs: [
+        { pdbId: "7FDV", score: 1, identity: null, coverage: 100, title: "", organism: "Homo sapiens", method: "Electron Microscopy", resolution: 3.26, isHuman: true, querySeqFrom: 1, querySeqTo: 678, coversPosition: true, source: "pdbe", directMapping: true },
+      ],
+    });
+    const { container } = render(<StructureInspector setCustomPdbUrl={() => {}} />);
+    const entries = container.querySelector("[data-testid='structure-entries']") as HTMLElement;
+    expect(entries.textContent).toContain("range spans the site, coordinates not checked");
+    expect(entries.textContent).toContain("closest entry by range");
+    expect(entries.textContent).not.toContain("covers the site");
+  });
+
   it("renders PDBe direct mappings with the FoldX template tag and never prints 'identity not reported' for them", () => {
     seed({
       analysisState: {

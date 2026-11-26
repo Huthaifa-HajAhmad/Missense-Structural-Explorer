@@ -70,7 +70,7 @@ export const hotspotContextSchema = z.object({
     })),
   }),
   perRerun: z.object({
-    status: z.enum(["ok", "too-few", "unavailable"]),
+    status: z.enum(["ok", "too-few", "numbering-mismatch", "unavailable"]),
     reason: z.string().nullable(),
     length: z.number(), windows: z.number(), patientResidues: z.number(), populationResidues: z.number(),
     regions: z.array(z.object({ start: z.number(), end: z.number(), minAdjP: z.number() })),
@@ -190,7 +190,20 @@ export interface HotspotResidueRow {
   sites: Array<{ name: string; evidence: string }>;
   /** Native PDBe-KB interfaces at this residue: the partner and the structures that place it there. */
   interfaceSupport: Array<{ label: string; k: number; n: number }>;
+  /**
+   * Native solved structures with coordinates for this residue; 0 means none models it, so an empty
+   * `interfaceSupport` is "not modelled", not "no interface". Null when PDBe coverage was not read.
+   */
+  interfaceModelled: number | null;
   inRegions: RungKey[];
+}
+
+/** Why a residue's interface cell reads "Not modelled": no coordinates is not "no interface". */
+export const HOTSPOT_NOT_MODELLED_NOTE = "PDBe's best chain of each native solved structure has no coordinates for this residue, so these structures cannot say whether it is at an interface.";
+
+/** A residue with no native interface support that no native solved structure models (PDBe best chains). */
+export function isInterfaceUnmodelled(r: Pick<HotspotResidueRow, "interfaceSupport" | "interfaceModelled">): boolean {
+  return r.interfaceSupport.length === 0 && r.interfaceModelled === 0;
 }
 
 /** One UniProt site or modification, as the Functional domains model read it (a plain copy; nothing is re-derived). */
@@ -216,6 +229,8 @@ export interface HotspotEvidence {
   model: HotspotContext["spatial"]["model"];
   /** Why the model is named but its 3D frame cannot be used (a numbering mismatch); null otherwise. */
   modelNote: string | null;
+  /** The variant rows are numbered unlike the model, so none is placed on this protein. */
+  variantsWithheld: boolean;
   /** What the engine recorded for the codes this view informs. */
   engine: { pm1: string | null; pp2: string | null };
   /** Whether each added column was filled, with the reason it was not. */
@@ -278,9 +293,10 @@ function cspecRung(c: CspecPm1, residueLabel: string): HotspotRung {
   return { ...base, state: withPm1.length ? "read" : failedRead.length ? "failed" : "none", headline, details, source: { label: base.source.label, url: c.specs[0]?.url ?? base.source.url } };
 }
 
-function regionalRung(ctx: HotspotContext, residue: number, engine: string | null): HotspotRung {
+function regionalRung(ctx: HotspotContext, residue: number, engine: string | null, misnumbered: string | null): HotspotRung {
   const base = { key: "regional" as const, name: "Regional missense O/E", grade: "calibrated" as const, source: { label: REGIONAL_MISSENSE_SOURCE.short, url: `https://doi.org/${REGIONAL_MISSENSE_SOURCE.doi}` }, explain: "hotspot_regional" };
   const r = ctx.regional;
+  if (misnumbered) return { ...base, state: "not-shown", atVariant: null, bands: [], headline: misnumbered, details: [] };
   if (r.status !== "available") {
     // "withheld-mapping" is not the same absence as "no interval exists": the source has data, we could not
     // place it. Reporting it as "No region" would turn an unasked question into a negative answer.
@@ -378,8 +394,9 @@ function perRerunRung(ctx: HotspotContext, residue: number): HotspotRung {
   const p = ctx.perRerun;
   const method = `Pérez-Palma's test as published: ${2 * PER_METHOD.halfWindow + 1}-residue windows every ${PER_METHOD.step}, one-sided Fisher, Bonferroni over ${p.windows} windows, adjusted p < ${PER_METHOD.alpha}.`;
   if (p.status === "unavailable") return { ...base, state: "failed", atVariant: null, bands: [], headline: p.reason ?? "ClinVar or gnomAD could not be read.", details: [] };
-  // "Too few" is not a checked negative: the test never ran, so it is withheld, not "No region".
-  if (p.status === "too-few") return { ...base, state: "not-shown", atVariant: null, bands: [], headline: p.reason ?? "Too few ClinVar P/LP residues to test.", details: [method] };
+  // "Too few" and a numbering mismatch are not checked negatives: the test never ran, so it is withheld,
+  // not "No region". A mismatch is also not a provider failure: reading again returns the same rows.
+  if (p.status === "too-few" || p.status === "numbering-mismatch") return { ...base, state: "not-shown", atVariant: null, bands: [], headline: p.reason ?? "Too few ClinVar P/LP residues to test.", details: [method] };
   const bands = p.regions.map((g) => ({ start: g.start, end: g.end, label: `Enriched (adj. p ${pText(g.minAdjP)})`, hit: g.start <= residue && residue <= g.end }));
   const hit = bands.some((b) => b.hit);
   return {
@@ -438,23 +455,30 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
   const { context: ctx, residue, residueLabel } = input;
   const codes = (input.engineCriteria ?? []).map((c) => c.code ?? "");
   const engine = { pm1: codes.find((c) => /^PM1(_|$)/.test(c)) ?? null, pp2: codes.find((c) => /^PP2(_|$)/.test(c)) ?? null };
-  const pm1Note = `PM1 is still assessed as a critical functional site only${engine.pm1 ? ` (engine record: ${engine.pm1})` : ""}. Nothing on this view changes a criterion; hot-spot PM1 is an open decision.`;
+  const pm1Note = `PM1 is still assessed as a critical functional site only${engine.pm1 ? ` (engine record: ${engine.pm1})` : ""}. The hot-spot definitions below are shown for reading only and do not change PM1 or any other criterion.`;
   const noColumns: HotspotEvidence["columns"] = {
     rsa: { state: "unavailable", reason: "Not read yet." }, sites: { state: "unavailable", reason: "Not read yet." }, interface: { state: "unavailable", reason: "Not read yet." },
   };
-  const empty = { residue, residueLabel, length: 0, rungs: [], rows: [], nearest3d: null, distribution: null, model: null, modelNote: null, engine, pm1Note, finding: { lead: "", rest: "" }, columns: noColumns };
+  const empty = { residue, residueLabel, length: 0, rungs: [], rows: [], nearest3d: null, distribution: null, model: null, modelNote: null, variantsWithheld: false, engine, pm1Note, finding: { lead: "", rest: "" }, columns: noColumns };
   if (!ctx) {
     return input.loadState === "error"
       ? { ...empty, state: "failed", failure: input.loadError ?? "The hot-spot sources could not be read." }
       : { ...empty, state: "loading", failure: null };
   }
 
-  const rungs = [cspecRung(ctx.cspec, residueLabel), regionalRung(ctx, residue, engine.pp2), perPublishedRung(ctx, residue), perRerunRung(ctx, residue), spatialRung(ctx, residue)];
+  // The variant rows' residue numbers disagree with the model's sequence (another isoform): their positions
+  // are not this protein's, so the counts are not drawn on its axis, no residue is listed, and the regional
+  // intervals, which are placed on the rows' transcript, are not read at this residue.
+  const misnumbered = ctx.numbering.status === "mismatch";
+  const misnumberedText = `${ctx.numbering.mismatches} of ${ctx.numbering.checked} ClinVar/gnomAD residues differ from the model's sequence at the same number, so the variants are not placed on this protein.`;
+  const rungs = [cspecRung(ctx.cspec, residueLabel), regionalRung(ctx, residue, engine.pp2, misnumbered ? misnumberedText : null), perPublishedRung(ctx, residue), perRerunRung(ctx, residue), spatialRung(ctx, residue)];
   const d = ctx.distribution;
   rungs.push({
     key: "distribution", name: "Germline variants along the protein", grade: "measurement", explain: "hotspots",
-    state: d.status === "ok" ? "read" : "failed", atVariant: null, bands: [], source: { label: ctx.clinvarSource, url: "https://gnomad.broadinstitute.org/" },
-    headline: d.status === "ok"
+    state: misnumbered ? "not-shown" : d.status === "ok" ? "read" : "failed", atVariant: null, bands: [], source: { label: ctx.clinvarSource, url: "https://gnomad.broadinstitute.org/" },
+    headline: misnumbered
+      ? misnumberedText
+      : d.status === "ok"
       ? `${d.plp.reduce((n, x) => n + x.n, 0)} ClinVar P/LP missense at ${d.plp.length} residues; ${d.gnomad.reduce((n, x) => n + x.variants, 0)} gnomAD missense at ${d.gnomad.length} residues.`
       : d.reason ?? "ClinVar or gnomAD could not be read.",
     details: [
@@ -485,7 +509,7 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
       : { state: "unavailable", reason: input.interfaces?.reason ?? "The assembly was not read." },
   };
   const bandsByRung = rungs.map((r) => [r.key, r.bands] as const);
-  const rows: HotspotResidueRow[] = d.plp.map((p) => {
+  const rows: HotspotResidueRow[] = (misnumbered ? [] : d.plp).map((p) => {
     const there = ca(p.pos);
     const distanceA = here && there ? Math.hypot(here[0] - there[0], here[1] - there[1], here[2] - there[2]) : null;
     const i = tIndex.get(p.pos);
@@ -500,6 +524,7 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
       // A pair (a disulfide) is two residues, not the span between them.
       sites: (input.annotations ?? []).filter((a) => (a.isPair ? p.pos === a.start || p.pos === a.end : a.start <= p.pos && p.pos <= a.end)).map((a) => ({ name: a.name, evidence: a.evidence })),
       interfaceSupport: [...(input.interfaces?.byResidue.get(p.pos) ?? [])],
+      interfaceModelled: input.interfaces?.modelledAt?.(p.pos) ?? null,
       inRegions: bandsByRung.filter(([, b]) => inside(b, p.pos)).map(([k]) => k),
     };
   }).sort((a, b) => (a.distanceA ?? Infinity) - (b.distanceA ?? Infinity) || Math.abs(a.sequenceDistance) - Math.abs(b.sequenceDistance));
@@ -526,12 +551,13 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
     residue, residueLabel, length: d.length ?? Math.max(residue, ...d.plp.map((p) => p.pos), ...d.gnomad.map((g) => g.pos)),
     state: "ready", failure: null, rungs, finding: { lead, rest }, pm1Note, rows,
     nearest3d: nearestRow ? { residue: nearestRow.residue, distanceA: nearestRow.distanceA! } : null,
-    distribution: d,
+    distribution: misnumbered ? null : d,
     // The model object names what distances were read on. On a numbering mismatch the model exists but
     // its frame cannot be used, so everything 3D must turn off together — the trace, the sort, the
     // 3D column and the show-in-3D buttons — while the note says the model is present but unusable.
-    model: ctx.spatial.status === "numbering-mismatch" ? null : ctx.spatial.model,
-    modelNote: ctx.spatial.status === "numbering-mismatch" ? "The model is present, but its residue numbering disagrees with the ClinVar/gnomAD transcript, so 3D positions cannot be trusted." : null,
+    model: misnumbered || ctx.spatial.status === "numbering-mismatch" ? null : ctx.spatial.model,
+    modelNote: misnumbered || ctx.spatial.status === "numbering-mismatch" ? "The model is present, but its residue numbering disagrees with the ClinVar/gnomAD transcript, so variant positions and 3D distances cannot be trusted." : null,
+    variantsWithheld: misnumbered,
     engine, columns,
   };
 }

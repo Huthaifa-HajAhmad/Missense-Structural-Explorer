@@ -3,7 +3,7 @@ import type { AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
 import type { GnomadConstraintData } from "../../../src/shared/contracts.ts";
 import { CONSTRAINT_URL, REGIONAL_CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_URL } from "../../../src/shared/constraintSource.ts";
 import { regionalPp2Code } from "../../../src/shared/thresholds.ts";
-import { normalizeGeneSymbol } from "../infra/http-client.ts";
+import { geneSymbolAliases } from "../infra/gene-symbols.ts";
 import { getConstraintIndex, type ConstraintIndex, type ConstraintRow } from "./constraint-snapshot.ts";
 
 export type GnomadGeneConstraint = GnomadConstraintData;
@@ -20,8 +20,8 @@ export interface FetchGnomadConstraintOptions {
 /** Preserve raw precision. Never transplant a protein residue onto another transcript's regional track. */
 export async function fetchGnomadGeneConstraint(geneSymbol: string, _aaPos?: number | null, options: FetchGnomadConstraintOptions = {}): Promise<GnomadGeneConstraint | null> {
   const index = options.index ?? getConstraintIndex();
-  const gene = normalizeGeneSymbol(geneSymbol).toUpperCase();
-  const candidates = index.genes.get(gene);
+  // The pinned release may hold a renamed gene under its retired symbol.
+  const candidates = geneSymbolAliases(geneSymbol).map(symbol => index.genes.get(symbol)).find(rows => rows !== undefined);
   if (!candidates?.length) return null;
   const requested = options.transcriptId?.split(".")[0];
   const requestedVersion = options.transcriptId?.split(".")[1];

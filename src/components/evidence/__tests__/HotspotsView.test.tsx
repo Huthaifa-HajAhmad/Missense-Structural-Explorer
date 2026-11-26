@@ -33,6 +33,37 @@ describe("HotspotsView — SOD1 p.Ala5Val", () => {
     expect(document.querySelector('[data-explanation-topic="hotspot_spatial"]')).not.toBeNull();
   });
 
+  it("says in the ClinVar lane that ClinVar lists none, instead of leaving it blank", () => {
+    const none = { ...sod1, distribution: { ...sod1.distribution, plp: [] } };
+    render(<HotspotsView ev={buildHotspotEvidence({ context: none, loadState: "ready", residue: 5, residueLabel: "Ala5" })} onShow3d={null} />);
+    expect(screen.getByTestId("hotspot-lane-plp")).toHaveTextContent("None in ClinVar");
+  });
+
+  it("lets a screen reader hear why the gnomAD lane is empty, while the bars stay hidden from it", () => {
+    const none = { ...sod1, distribution: { ...sod1.distribution, gnomad: [] } };
+    render(<HotspotsView ev={buildHotspotEvidence({ context: none, loadState: "ready", residue: 5, residueLabel: "Ala5" })} onShow3d={null} />);
+    expect(screen.getByText("None in gnomAD").closest('[aria-hidden="true"]')).toBeNull();
+    cleanup();
+    render(<HotspotsView ev={ev} onShow3d={null} />);
+    expect(document.querySelectorAll(".hsp-map__row--down i").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('.hsp-map__row--down i:not([aria-hidden="true"])')).toHaveLength(0);
+  });
+
+  it("does not call intact variant rows withheld when only the 3D reading reports a mismatch", () => {
+    const spatialOnly = { ...sod1, distribution: { ...sod1.distribution, plp: [] }, spatial: { ...sod1.spatial, status: "numbering-mismatch" as const, scores: [] } };
+    render(<HotspotsView ev={buildHotspotEvidence({ context: spatialOnly, loadState: "ready", residue: 5, residueLabel: "Ala5" })} onShow3d={null} />);
+    expect(screen.getByTestId("hotspot-lane-plp")).toHaveTextContent("None in ClinVar");
+    expect(screen.queryByText(/positions are withheld/)).toBeNull();
+  });
+
+  it("says why the lanes and residue table are empty when the numbering disagrees with the model", () => {
+    const mismatch = { ...sod1, numbering: { status: "mismatch" as const, checked: 486, mismatches: 185 } };
+    render(<HotspotsView ev={buildHotspotEvidence({ context: mismatch, loadState: "ready", residue: 5, residueLabel: "Ala5" })} onShow3d={null} />);
+    expect(screen.getByTestId("hotspot-lane-plp")).toHaveTextContent(/Withheld/);
+    expect(screen.queryAllByTestId("hotspot-row")).toHaveLength(0);
+    expect(screen.getByText("No residue is listed, because the variant positions are withheld.")).toBeInTheDocument();
+  });
+
   it("keeps the PM1 boundary on screen", () => {
     render(<HotspotsView ev={ev} onShow3d={null} />);
     expect(screen.getByTestId("hotspots-pm1")).toHaveTextContent(/critical functional site only/);
@@ -102,6 +133,19 @@ describe("HotspotsView — the added columns", () => {
     const cells = within(rowFor("Ala5")).getAllByText("—");
     expect(cells.length).toBeGreaterThanOrEqual(3); // RSA, site, interface
     expect(within(rowFor("Ala5")).getAllByText("—").some((c) => c.closest("td")?.getAttribute("title") === "The accessibility run failed: no venv.")).toBe(true);
+  });
+
+  // Audit F2: ABCG1's linker 348-396 has no coordinates in any of its five structures; "None" there would
+  // read as "not at an interface".
+  it("says 'Not modelled' where no native solved structure has coordinates for the residue", () => {
+    const gap = buildHotspotEvidence({
+      context: sod1, loadState: "ready", residue: 5, residueLabel: "Ala5", annotations: [],
+      interfaces: { status: "ok", reason: null, byResidue: new Map(), modelledAt: (r: number) => (r === 5 ? 0 : 137) },
+    });
+    render(<HotspotsView ev={gap} onShow3d={null} />);
+    const cell = within(rowFor("Ala5")).getByText("Not modelled");
+    expect(cell.closest("td")?.getAttribute("title")).toMatch(/PDBe's best chain of each native solved structure has no coordinates/);
+    expect(within(rowFor("Cys7")).getAllByText("None").length).toBe(2);
   });
 });
 

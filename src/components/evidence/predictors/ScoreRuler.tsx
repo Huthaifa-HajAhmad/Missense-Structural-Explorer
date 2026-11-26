@@ -31,50 +31,67 @@ function fmtAxis(n: number) {
   return Number.isInteger(n) ? String(n) : fmtTick(n);
 }
 
-const STRENGTH_PRIORITY: Record<string, number> = { Supporting: 0, Moderate: 1, Strong: 2, VeryStrong: 3 };
 /** Width of one mono digit as a share of the track; generous so labels never touch on a narrow column. */
 const CHAR_PCT = 1.3;
-const MAX_LANES = 3;
+/** Space kept between two labels, as a share of the track. */
+const GAP_PCT = 0.8;
+
+type Band = { threshold: number; strength: string; direction: string; code: string };
+type Edge = Band & { at: number };
 
 /**
- * The band edges as numbers, placed under the track. `entry` labels only where PP3 and BP4 begin;
- * `all` labels every strength edge. Labels that would overlap drop to a second or third lane rather
- * than disappearing, and the axis ends take a lane-0 slot so "0" never collides with "0.016".
- * Priority is Supporting first, so the edges a reader needs are the ones that always survive.
+ * One tool's edges keep one number of decimals, as its calibration publishes them: REVEL reads
+ * "0.290" beside "0.644", not "0.29". Values of 10 or more keep one decimal (CADD "25.3").
  */
-function thresholdLabels(
-  bands: Array<{ threshold: number; strength: string; direction: string; code: string }>,
-  min: number,
-  max: number,
-  mode: "entry" | "all",
-) {
-  const wanted = bands
-    .filter(b => mode === "all" || b.strength === "Supporting")
-    .sort((a, b) => (STRENGTH_PRIORITY[a.strength] ?? 9) - (STRENGTH_PRIORITY[b.strength] ?? 9));
-  const spans: Array<Array<[number, number]>> = Array.from({ length: MAX_LANES }, () => []);
-  const claim = (lane: number, from: number, to: number) => {
-    if (spans[lane].some(([a, b]) => from < b && to > a)) return false;
-    spans[lane].push([from, to]);
-    return true;
-  };
-  // The axis ends hold lane 0.
-  claim(0, 0, fmtAxis(min).length * CHAR_PCT + 0.6);
-  claim(0, 100 - fmtAxis(max).length * CHAR_PCT - 0.6, 100);
-  const placed: Array<{ key: string; text: string; left: number; lane: number; side: "path" | "benign" }> = [];
-  for (const b of wanted) {
-    const left = pct(b.threshold, min, max);
-    const text = fmtTick(b.threshold);
-    const w = text.length * CHAR_PCT;
-    const from = Math.max(0, left - w / 2);
-    const to = Math.min(100, left + w / 2);
-    for (let lane = 0; lane < MAX_LANES; lane++) {
-      if (claim(lane, from - 0.4, to + 0.4)) {
-        placed.push({ key: b.code, text, left, lane, side: b.direction === "PP3" ? "path" : "benign" });
-        break;
-      }
-    }
+function edgeFormatter(values: number[]) {
+  const decimals = Math.max(0, ...values.filter(v => Math.abs(v) < 10).map(v => (fmtTick(v).split(".")[1] ?? "").length));
+  return (n: number) => (Math.abs(n) >= 10 ? n.toFixed(1) : n.toFixed(decimals));
+}
+
+/** Edges closer together than one label's width share one label, in value order ("0.003 · 0.016"). */
+function groupEdges(edges: Edge[], format: (n: number) => string) {
+  const groups: Edge[][] = [];
+  for (const e of edges) {
+    const last = groups.at(-1);
+    if (last && e.at - last[last.length - 1].at < format(e.threshold).length * CHAR_PCT) last.push(e);
+    else groups.push([e]);
   }
-  return { placed, lanes: Math.max(1, ...placed.map(p => p.lane + 1)) };
+  return groups;
+}
+
+/**
+ * Lays the labels out in one row: each centred under its edge(s), then pushed right just enough to
+ * clear the label before it, then pulled back left from the far end if the row ran past it. The axis
+ * end numbers keep their places, so "0" and "1" are never covered. Each edge keeps its own tick at
+ * its true place, so a label moved a little still points at the right edge.
+ */
+function placeLabels(groups: Edge[][], format: (n: number) => string, lo: number, hi: number) {
+  const placed = groups.map(g => {
+    const text = g.map(e => format(e.threshold)).join(" · ");
+    const width = text.length * CHAR_PCT;
+    const centre = (g[0].at + g[g.length - 1].at) / 2;
+    return { key: g[0].code, text, width, from: centre - width / 2, side: g[0].direction === "PP3" ? "path" as const : "benign" as const };
+  });
+  placed.forEach((p, i) => { p.from = Math.max(p.from, lo, i > 0 ? placed[i - 1].from + placed[i - 1].width + GAP_PCT : lo); });
+  for (let i = placed.length - 1; i >= 0; i--) {
+    const limit = i < placed.length - 1 ? placed[i + 1].from - GAP_PCT : hi;
+    placed[i].from = Math.min(placed[i].from, limit - placed[i].width);
+  }
+  return placed;
+}
+
+/**
+ * The band edges as numbers under the track. `entry` labels only where PP3 and BP4 begin; `all`
+ * labels every strength edge.
+ */
+function thresholdLabels(bands: Band[], min: number, max: number, mode: "entry" | "all", format: (n: number) => string) {
+  const edges = bands
+    .filter(b => mode === "all" || b.strength === "Supporting")
+    .map(b => ({ ...b, at: pct(b.threshold, min, max) }))
+    .sort((a, b) => a.at - b.at);
+  const lo = fmtAxis(min).length * CHAR_PCT + GAP_PCT;
+  const hi = 100 - fmtAxis(max).length * CHAR_PCT - GAP_PCT;
+  return { edges, placed: placeLabels(groupEdges(edges, format), format, lo, hi) };
 }
 
 export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading; thresholds?: "entry" | "all" }) {
@@ -96,9 +113,10 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
     return { ...b, left: pct(lo, min, max), width: pct(hi, min, max) - pct(lo, min, max), active };
   });
 
+  const fmtEdge = edgeFormatter(cutpoints.bands.map(b => b.threshold));
   const labels =
     thresholds && cutpoints.kind === "calibrated" && cutpoints.bands.length > 0
-      ? thresholdLabels(cutpoints.bands, min, max, thresholds)
+      ? thresholdLabels(cutpoints.bands, min, max, thresholds, fmtEdge)
       : null;
   const markerValues =
     score !== null ? [score]
@@ -115,7 +133,7 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
         : "between the PP3 and BP4 bands"
       : null,
     labels
-      ? `band edges ${cutpoints.bands.map(b => `${formatEvidenceCode(b.code)} ${b.direction === "PP3" ? (high ? "≥" : "≤") : high ? "≤" : "≥"} ${fmtTick(b.threshold)}`).join(", ")}`
+      ? `band edges ${cutpoints.bands.map(b => `${formatEvidenceCode(b.code)} ${b.direction === "PP3" ? (high ? "≥" : "≤") : high ? "≤" : "≥"} ${fmtEdge(b.threshold)}`).join(", ")}`
       : null,
     cutpoints.kind === "authors" ? `authors' cut-point ${cutpoints.marks.map(m => m.label).join(", ")}` : null,
     cutpoints.kind === "local" ? "local reference lines only" : null,
@@ -134,7 +152,7 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
             data-strength={b.strength}
             data-active={b.active || undefined}
             style={{ left: `${b.left}%`, width: `${b.width}%` }}
-            title={`${formatEvidenceCode(b.code)}: ${b.direction === "PP3" ? (high ? "≥" : "≤") : high ? "≤" : "≥"} ${fmtTick(b.threshold)}`}
+            title={`${formatEvidenceCode(b.code)}: ${b.direction === "PP3" ? (high ? "≥" : "≤") : high ? "≤" : "≥"} ${fmtEdge(b.threshold)}`}
           />
         ))}
         </span>
@@ -162,16 +180,14 @@ export function ScoreRuler({ reading, thresholds }: { reading: PredictorReading;
           />
         ))}
       </div>
-      <div className="prd-ruler__axis" aria-hidden="true" data-lanes={labels?.lanes}>
+      <div className="prd-ruler__axis" aria-hidden="true">
         <span>{fmtAxis(min)}</span>
         <span>{fmtAxis(max)}</span>
+        {labels?.edges.map(e => (
+          <span key={e.code} className="prd-ruler__edge" data-side={e.direction === "PP3" ? "path" : "benign"} style={{ left: `${e.at}%` }} />
+        ))}
         {labels?.placed.map(l => (
-          <span
-            key={l.key}
-            className="prd-ruler__cut"
-            data-side={l.side}
-            style={{ left: `${l.left}%`, top: `${l.lane * 12}px` }}
-          >
+          <span key={l.key} className="prd-ruler__cut" data-side={l.side} style={{ left: `${l.from}%` }}>
             {l.text}
           </span>
         ))}

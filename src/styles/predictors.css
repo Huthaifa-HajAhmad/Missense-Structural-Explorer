@@ -328,20 +328,19 @@
   font-family: var(--cs-font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--cs-text-muted);
 }
 
-/* Band-edge numbers under the track: lanes are 12px apart, set inline; the axis grows to hold them. */
+/* Band-edge numbers under the track, in one row. Each label starts at its inline left; each edge has its
+   own tick at its true place, so close edges sharing one label still point at their positions. */
 .prd-ruler__axis { position: relative; }
-.prd-ruler__axis[data-lanes="2"] { padding-bottom: 12px; }
-.prd-ruler__axis[data-lanes="3"] { padding-bottom: 24px; }
 .prd-ruler__cut {
-  position: absolute; transform: translateX(-50%); white-space: nowrap; line-height: 12px;
+  position: absolute; top: 0; white-space: nowrap; line-height: 12px;
   color: var(--cs-text-secondary);
 }
-.prd-ruler__cut::before {
-  content: ""; position: absolute; left: 50%; bottom: 100%; width: 1px; height: 3px;
+.prd-ruler__edge {
+  position: absolute; top: -4px; width: 1px; height: 4px; transform: translateX(-50%);
   background: currentColor; opacity: 0.5;
 }
-.prd-ruler__cut[data-side="path"] { color: var(--cs-text-danger); }
-.prd-ruler__cut[data-side="benign"] { color: var(--cs-text-success); }
+.prd-ruler__cut[data-side="path"], .prd-ruler__edge[data-side="path"] { color: var(--cs-text-danger); }
+.prd-ruler__cut[data-side="benign"], .prd-ruler__edge[data-side="benign"] { color: var(--cs-text-success); }
 
 /* ── Informational models card ──────────────────────────────── */
 .prd-info-lede { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--cs-border-subtle); }

@@ -167,7 +167,11 @@ describe("buildFunctionEvidence — SLC12A4 p.Gln867His (membrane transporter au
   it("calls a two-residue gap a link, but never a long unassigned stretch", () => {
     expect(ev.finding.rest).toContain("2-residue link between helices");
     const far = buildFunctionEvidence({ ...NAE1_INPUT, residue: 900, uniprot, engineCriteria: [] });
-    expect(far.structureContext?.value).toBe("Terminal, no regular structure");
+    // Audit F5: past the last assigned element the chain may simply be unresolved (ABCG1 1-71 in 7R8D),
+    // so the tile never claims "no regular structure".
+    expect(far.structureContext?.value).toBe("Outside the assigned helices and strands");
+    expect(far.structureContext?.sentence).toMatch(/may be flexible or simply unresolved/);
+    expect(JSON.stringify(far.structureContext)).not.toMatch(/no regular structure/i);
     const gap = buildFunctionEvidence({
       ...NAE1_INPUT,
       residue: 500,
@@ -176,6 +180,24 @@ describe("buildFunctionEvidence — SLC12A4 p.Gln867His (membrane transporter au
     });
     expect(gap.structureContext?.value).toBe("No helix or strand assigned");
     expect(gap.finding.rest).not.toContain("link between");
+  });
+
+  // Audit F6: PTEN 300 cited PDB 7JUL, the entry of the protein's first helix, though the elements around
+  // 300 come from 5BZZ and 5BZX and 7JUL has no coordinates there.
+  it("cites the entries of the elements next to the residue, not the protein's first element", () => {
+    const pten = [
+      { kind: "helix" as const, start: 8, end: 10, pdb: "7JUL" },
+      { kind: "strand" as const, start: 280, end: 284, pdb: "5BZZ" },
+      { kind: "strand" as const, start: 290, end: 295, pdb: "5BZZ" },
+      { kind: "strand" as const, start: 298, end: 299, pdb: "5BZX" },
+      { kind: "strand" as const, start: 310, end: 312, pdb: "5BZX" },
+    ];
+    const at = (residue: number) => buildFunctionEvidence({ ...NAE1_INPUT, residue, uniprot: { ...uniprot, secondaryStructure: pten }, engineCriteria: [] }).structureContext!;
+    expect(at(282).sub).toBe("strand 280–284, PDB 5BZZ");
+    expect(at(297).sub).toBe("296–297 unassigned, PDB 5BZZ and 5BZX");
+    expect(at(305).sub).toBe("300–309 unassigned, PDB 5BZX");
+    expect(at(5).sub).toBe("before 8, PDB 7JUL");
+    expect(at(400).sub).toBe("after 312, PDB 5BZX");
   });
 
   it("does not read an absent disease-variant list as a negative finding", () => {
@@ -238,6 +260,7 @@ describe("buildFunctionEvidence — context for PM1 and mutagenesis at the resid
       entryKinds: "ok" as const,
       crystalChecked: true,
       coverageChecked: true,
+      coverage: { "1hl5": [[1, 153]] as Array<[number, number]>, "2c9v": [[1, 153]] as Array<[number, number]> },
       partners: [
         {
           accession: "P00441",
@@ -263,6 +286,9 @@ describe("buildFunctionEvidence — context for PM1 and mutagenesis at the resid
     expect(functionEvidenceInputFrom(baseResult).interfaceAtResidue).toEqual([
       { label: "SOD1, other chain", k: 1, n: 2 },
     ]);
+    // Audit F1: an entry with no coordinates for residue 5 is not in its denominator.
+    const gapped = { ...baseResult, multimerData: { assembly: baseAssembly, experimental: { ...baseExp, coverage: { ...baseExp.coverage, "2c9v": [[10, 153]] as Array<[number, number]> } } } };
+    expect(functionEvidenceInputFrom(gapped).interfaceAtResidue).toEqual([{ label: "SOD1, other chain", k: 1, n: 1 }]);
     // RCSB entryKinds failed -> fibrils could be mislabeled native -> withheld.
     const failedKinds = {
       ...baseResult,

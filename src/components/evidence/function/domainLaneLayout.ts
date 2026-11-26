@@ -82,6 +82,51 @@ interface LaneContext {
   selectedKey: string | null;
 }
 
+/**
+ * The name and end numbers for one box. The name comes first: end numbers are dropped when they leave it no
+ * room, and a name that still does not fit is shortened with an ellipsis (the box's title keeps it whole).
+ */
+function boxLabels(
+  u: DomainUnit,
+  g: { a: number; b: number; centreY: number; queryX: number | null; showEnds: boolean; blocks: Array<[number, number]> },
+): { label: ArchLabel | null; ends: ArchLabel[] } {
+  const roomFor = (withEnds: boolean) => {
+    const lo = g.a + (withEnds ? 14 + textWidth(String(u.start), 10.5) : 4);
+    const hi = g.b - (withEnds ? 14 + textWidth(String(u.end), 10.5) : 4);
+    return hi > lo ? widestFree(lo, hi, g.blocks) : null;
+  };
+  const width = (room: [number, number] | null) => (room ? room[1] - room[0] : 0);
+  const fits = (text: string, size: number, room: [number, number] | null) => textWidth(text, size) + 10 < width(room);
+  let withEnds = g.showEnds;
+  let room = roomFor(withEnds);
+  if (withEnds && !fits(u.name, 12, room) && fits(u.name, 12, roomFor(false))) {
+    withEnds = false;
+    room = roomFor(false);
+  }
+  const number = u.ofEntry > 1 ? String(u.index) : null;
+  const chars = Math.floor((width(room) - 10) / (12 * CHAR)) - 1;
+  const text = fits(u.name, 12, room) ? u.name
+    : number && textWidth(number, 11) + 6 < width(room) ? number
+      : chars >= 4 ? `${u.name.slice(0, chars).trimEnd()}…` : null;
+  const crossed = (l: ArchLabel) => {
+    if (g.queryX === null) return false;
+    const lw = textWidth(l.text, l.size);
+    const [lo, hi] = l.anchor === "start" ? [l.x, l.x + lw] : [l.x - lw, l.x];
+    return g.queryX > lo - 4 && g.queryX < hi + 4;
+  };
+  const ends = withEnds
+    ? ([
+        { x: g.a + 7, y: g.centreY + 4, text: String(u.start), anchor: "start", size: 10.5, mono: true, tone: "secondary" },
+        { x: g.b - 7, y: g.centreY + 4, text: String(u.end), anchor: "end", size: 10.5, mono: true, tone: "secondary" },
+      ] as ArchLabel[]).filter((l) => !crossed(l))
+    : [];
+  const isNumber = text === number;
+  const label: ArchLabel | null = text && room
+    ? { x: (room[0] + room[1]) / 2, y: g.centreY + 4, text, anchor: "middle", size: isNumber ? 11 : 12, weight: 600, tone: "ink", mono: isNumber }
+    : null;
+  return { label, ends };
+}
+
 export function layoutDomainBoxes(ctx: LaneContext): { boxes: ArchBox[]; laneCount: number; entryLabels: ArchLabel[] } {
   const { units, win, x, bb, queryX, selectedKey } = ctx;
   const { lanes, count } = domainLanes(units);
@@ -93,30 +138,12 @@ export function layoutDomainBoxes(ctx: LaneContext): { boxes: ArchBox[]; laneCou
     const a = x(u.start);
     const b = x(u.end);
     const w = Math.max(3, b - a);
-    const showEnds = w > 80 && inWin(u.start) && inWin(u.end);
-    const crossed = (l: ArchLabel) => {
-      if (queryX === null) return false;
-      const lw = textWidth(l.text, l.size);
-      const [lo, hi] = l.anchor === "start" ? [l.x, l.x + lw] : [l.x - lw, l.x];
-      return queryX > lo - 4 && queryX < hi + 4;
-    };
-    const ends = showEnds
-      ? ([
-          { x: a + 7, y: centreY + 4, text: String(u.start), anchor: "start", size: 10.5, mono: true, tone: "secondary" },
-          { x: b - 7, y: centreY + 4, text: String(u.end), anchor: "end", size: 10.5, mono: true, tone: "secondary" },
-        ] as ArchLabel[]).filter((l) => !crossed(l))
-      : [];
-    const lo = a + (showEnds ? 14 + textWidth(String(u.start), 10.5) : 4);
-    const hi = b - (showEnds ? 14 + textWidth(String(u.end), 10.5) : 4);
-    const blocks = [...(lane === 0 ? ctx.regionSpans : []), ...(queryX !== null ? [[queryX - 5, queryX + 5] as [number, number]] : [])];
-    const room = widestFree(lo, hi, blocks);
-    const roomW = room ? room[1] - room[0] : 0;
-    const number = u.ofEntry > 1 ? String(u.index) : null;
-    const text = textWidth(u.name, 12) + 10 < roomW ? u.name : number && textWidth(number, 11) + 6 < roomW ? number : null;
-    const label: ArchLabel | null =
-      text && room
-        ? { x: (room[0] + room[1]) / 2, y: centreY + 4, text, anchor: "middle", size: text === u.name ? 12 : 11, weight: 600, tone: "ink", mono: text !== u.name }
-        : null;
+    // Labels go in the part of the box the window draws; a box cut by the window is drawn past its edge.
+    const { label, ends } = boxLabels(u, {
+      a: Math.max(a, x(win.start)), b: Math.min(b, x(win.end)), centreY, queryX,
+      showEnds: w > 80 && inWin(u.start) && inWin(u.end),
+      blocks: [...(lane === 0 ? ctx.regionSpans : []), ...(queryX !== null ? [[queryX - 5, queryX + 5] as [number, number]] : [])],
+    });
     const coreA = x(u.core.start);
     const coreB = x(u.core.end);
     const core = u.core.start === u.start && u.core.end === u.end ? null : { x: coreA, width: Math.max(2, coreB - coreA) };

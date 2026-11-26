@@ -59,7 +59,8 @@ describe("buildHotspotEvidence — SOD1 p.Ala5Val", () => {
 
   it("keeps PM1 as the engine records it and says nothing here changes a criterion", () => {
     expect(ev.pm1Note).toMatch(/critical functional site only/);
-    expect(ev.pm1Note).toMatch(/hot-spot PM1 is an open decision/);
+    expect(ev.pm1Note).toMatch(/The hot-spot definitions below are shown for reading only and do not change PM1 or any other criterion\./);
+    expect(ev.pm1Note).not.toMatch(/open decision/);
   });
 });
 
@@ -124,6 +125,32 @@ describe("buildHotspotEvidence — states", () => {
     expect(rung(build(noModel, 5, "Ala5"), "spatial").state).toBe("not-shown");
     const tooFew = { ...sod1, perRerun: { ...sod1.perRerun, status: "too-few" as const, reason: "1 residue with a ClinVar P/LP missense: too few to test enrichment." } };
     expect(rung(build(tooFew, 5, "Ala5"), "per-rerun").state).toBe("not-shown");
+  });
+  it("withholds the re-run on a numbering mismatch instead of calling it a provider error a retry could fix", () => {
+    const reason = "185 of 486 ClinVar/gnomAD residues differ from the model's sequence at the same number, so the enrichment test was not run.";
+    const mismatch = { ...sod1, perRerun: { ...sod1.perRerun, status: "numbering-mismatch" as const, reason, regions: [], best: null } };
+    const ev = build(mismatch, 5, "Ala5");
+    expect(rung(ev, "per-rerun")).toMatchObject({ state: "not-shown", headline: reason });
+    expect(ev.finding.rest).not.toMatch(/did not answer/);
+  });
+  it("marks nothing as withheld when only the 3D reading reports a mismatch and the rows are intact", () => {
+    const spatialOnly: HotspotContext = { ...sod1, spatial: { ...sod1.spatial, status: "numbering-mismatch", scores: [] } };
+    const ev = build(spatialOnly, 5, "Ala5");
+    expect(ev.variantsWithheld).toBe(false);
+    expect(ev.distribution).not.toBeNull();
+  });
+  it("withholds the variant chart and the residue table when the rows' numbering disagrees with the model", () => {
+    const mismatch: HotspotContext = { ...sod1, numbering: { status: "mismatch", checked: 486, mismatches: 185 } };
+    const ev = build(mismatch, 5, "Ala5");
+    expect(rung(ev, "distribution")).toMatchObject({ state: "not-shown" });
+    expect(rung(ev, "distribution").headline).toMatch(/185 of 486/);
+    expect(ev.distribution).toBeNull();
+    expect(ev.variantsWithheld).toBe(true);
+    // The regional intervals are placed on the same rows' transcript, so they are not on this protein either.
+    expect(rung(ev, "regional")).toMatchObject({ state: "not-shown", atVariant: null, bands: [] });
+    expect(rung(ev, "regional").headline).toMatch(/185 of 486/);
+    expect(ev.rows).toEqual([]);
+    expect(ev.modelNote).toMatch(/numbering disagrees/);
   });
   it("never prints 'within undefined Å', and never claims pLDDT < 70 when the cut-point is what is missing", () => {
     const noCut = { ...sod1, spatial: { ...sod1.spatial, thresholdA: null, scores: [] } };
@@ -267,5 +294,14 @@ describe("buildHotspotEvidence — the residue columns (accessibility, UniProt s
     expect(build(sod1, 5, "Ala5", { interfaces: { status: "none", reason: null, byResidue: new Map() } }).columns.interface.reason).toMatch(/No native solved interface/);
     expect(build(sod1, 5, "Ala5", { interfaces: { status: "unavailable", reason: "The assembly was not read.", byResidue: new Map() } }).columns.interface).toEqual({ state: "unavailable", reason: "The assembly was not read." });
     expect(build(sod1, 5, "Ala5").columns.interface.state).toBe("unavailable");
+  });
+
+  // Audit F2: a residue no native structure has coordinates for is "not modelled", not "no interface".
+  it("counts the native structures that model each residue, and says nothing when coverage was not read", () => {
+    const modelledAt = (residue: number) => (residue === 4 ? 0 : 137);
+    const e = build(sod1, 5, "Ala5", { interfaces: { ...support, modelledAt } });
+    expect(rowOf(e, 4).interfaceModelled).toBe(0);
+    expect(rowOf(e, 7).interfaceModelled).toBe(137);
+    expect(rowOf(build(sod1, 5, "Ala5", { interfaces: support }), 4).interfaceModelled).toBeNull();
   });
 });

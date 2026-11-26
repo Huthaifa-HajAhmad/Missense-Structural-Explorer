@@ -3,7 +3,7 @@
  * Domain overlap is retained as source annotation, never merged into a biological consensus. */
 import type { EvidenceChartRow } from './evidenceComparison';
 import type { FunctionEvidence } from './functionEvidence';
-import { HOTSPOT_GRADE_LABEL, HOTSPOT_LANE_LABEL, HOTSPOT_STATE_WORD, RSA_UNIT_NOTE, hotspotRungKey, type HotspotEvidence } from './hotspotEvidence';
+import { HOTSPOT_GRADE_LABEL, HOTSPOT_LANE_LABEL, HOTSPOT_NOT_MODELLED_NOTE, HOTSPOT_STATE_WORD, RSA_UNIT_NOTE, hotspotRungKey, isInterfaceUnmodelled, type HotspotEvidence } from './hotspotEvidence';
 import type { ResidueContextEvidence } from './residueContextEvidence';
 import { RESIDUE_SCALE_SOURCES } from './residueScales';
 
@@ -73,7 +73,7 @@ export function hotspotReadings(ev: HotspotEvidence): (EvidenceChartRow & { repo
         { label: 'pLDDT', value: r.plddt === null ? 'Not available' : `${r.plddt.toFixed(0)} / 100` },
         { label: 'RSA', value: r.rsa === null ? (cols.rsa.reason ?? 'Not measured') : `${Math.round(r.rsa * 100)}%` },
         { label: 'Sites', value: cols.sites.state !== 'ok' ? (cols.sites.reason ?? 'Not read') : r.sites.length ? r.sites.map(s => `${s.name} (${s.evidence})`).join('; ') : 'None' },
-        { label: 'Native interfaces', value: cols.interface.state !== 'ok' ? (cols.interface.reason ?? 'Not read') : r.interfaceSupport.length ? r.interfaceSupport.map(x => `${x.label} (${x.k} of ${x.n} structures)`).join('; ') : 'None' },
+        { label: 'Native interfaces', value: cols.interface.state !== 'ok' ? (cols.interface.reason ?? 'Not read') : r.interfaceSupport.length ? r.interfaceSupport.map(x => `${x.label} (${x.k} of ${x.n} structures)`).join('; ') : isInterfaceUnmodelled(r) ? `Not modelled. ${HOTSPOT_NOT_MODELLED_NOTE}` : 'None' },
         ...(r.pathprox !== null ? [{ label: 'PathProx', value: `${r.pathprox >= 0 ? '+' : ''}${r.pathprox.toFixed(2)} (> 0 favours pathogenic neighbours)` }] : []),
         { label: 'In regions', value: r.inRegions.length ? r.inRegions.map(k => HOTSPOT_LANE_LABEL[k] ?? k).join(', ') : 'None' },
         { label: 'Source', value: distRung?.source.label ?? 'ClinVar germline (via gnomAD v4)' },

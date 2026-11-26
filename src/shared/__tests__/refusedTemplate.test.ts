@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { otherRefusedChainsText } from "../refusedTemplate";
+import { otherRefusedChainsText, unmodelledSiteText } from "../refusedTemplate";
+
+describe("unmodelledSiteText", () => {
+  it("counts the structures that span the residue without coordinates for it", () => {
+    expect(unmodelledSiteText({ unmodelledResidue: 358, entries: 5 })).toBe("none of the 5 solved structures spanning residue 358 has coordinates for it");
+    expect(unmodelledSiteText({ unmodelledResidue: 358, entries: 1 })).toBe("the only solved structure spanning residue 358 has no coordinates for it");
+  });
+});
 
 describe("otherRefusedChainsText", () => {
   it("says how many other examined chains were not usable, so one named chain does not read as the only one", () => {

@@ -3,7 +3,7 @@ import { ExternalLink, GitBranch } from "lucide-react";
 import type { EnergyUnit } from "../../shared/engineStatus";
 import { AGREEMENT_CHIP, absenceText, listNames, signedDdg, type EnergeticsEvidence } from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
-import { otherRefusedChainsText } from "../../shared/refusedTemplate";
+import { otherRefusedChainsText, unmodelledSiteText } from "../../shared/refusedTemplate";
 
 type StepState = "done" | "warn" | "idle";
 
@@ -17,6 +17,19 @@ function Step({ n, label, state = "done", children }: { n: number; label: string
       </div>
     </li>
   );
+}
+
+type Refusal = NonNullable<NonNullable<EnergeticsEvidence["structure"]>["excludedExperimental"]>;
+
+/** The clause before "this run used …": why no experimental structure was used. */
+function RefusalLead({ refused }: { refused: Refusal }) {
+  if ("unmodelledResidue" in refused) {
+    const text = unmodelledSiteText(refused);
+    return <>{text.charAt(0).toUpperCase() + text.slice(1)}, so</>;
+  }
+  const chain = `${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""}`;
+  if (refused.unverified) return <>{chain} could not be checked against UniProt, so</>;
+  return <>{chain} is not the wild type — {refused.differences.join(", ")} — so</>;
 }
 
 /** How the overall reading was reached: structure → engines → marks → summary → engine record. */
@@ -55,11 +68,7 @@ export function EnergeticsRuleTrace({ evidence, unit }: { evidence: EnergeticsEv
             */}
             {structure?.excludedExperimental && (
               <span className="nrg-step__warn" data-testid="energetics-excluded-template">
-                {structure.excludedExperimental.pdbId}
-                {structure.excludedExperimental.chainId ? `:${structure.excludedExperimental.chainId}` : ""}{" "}
-                {structure.excludedExperimental.unverified
-                  ? "could not be checked against UniProt, so"
-                  : <>is not the wild type — {structure.excludedExperimental.differences.join(", ")} — so</>}{" "}
+                <RefusalLead refused={structure.excludedExperimental} />{" "}
                 this run used{" "}
                 {structure.href ? (
                   <a href={structure.href} target="_blank" rel="noopener noreferrer">
@@ -73,7 +82,7 @@ export function EnergeticsRuleTrace({ evidence, unit }: { evidence: EnergeticsEv
                   `the ${structure.label.toLowerCase()}`
                 )}
                 .
-                {structure.excludedExperimental.otherChainsRefused ? ` ${otherRefusedChainsText(structure.excludedExperimental)}` : ""}
+                {"otherChainsRefused" in structure.excludedExperimental && structure.excludedExperimental.otherChainsRefused ? ` ${otherRefusedChainsText(structure.excludedExperimental)}` : ""}
               </span>
             )}
             {structure && structure.sequenceDifferences.length > 0 && (

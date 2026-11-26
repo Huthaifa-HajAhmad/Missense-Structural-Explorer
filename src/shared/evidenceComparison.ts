@@ -163,8 +163,7 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
         { label: 'Cut-point source', value: r.cutpoints.source ?? 'No published cut-point' }, { label: 'Score source', value: r.source }],
       notes: [r.note, r.availability.reason, ...r.caveats.map(c => CAVEAT_TEXT[c].detail),
         ...(calibrated?.cutLines ?? []),
-        r.cutpoints.kind === 'authors' ? 'The authors’ cut-point gives a direction, not a calibrated evidence strength.' : null,
-        'Predictors may share inputs and training data. Their strengths must not be added as independent evidence.'].filter((s): s is string => Boolean(s)),
+        r.cutpoints.kind === 'authors' ? 'The authors’ cut-point gives a direction, not a calibrated evidence strength.' : null].filter((s): s is string => Boolean(s)),
     };
   });
   return { rows, domain: [-.5, ladder.columns.length - .5], ticks: ladder.columns.map((_, i) => i),

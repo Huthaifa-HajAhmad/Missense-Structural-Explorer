@@ -55,7 +55,7 @@ test('protein alignment explains a reference mismatch without inventing mapped r
   await screen.getByRole('combobox', 'Example').selectOption('Mismatch');
   await screen.getByRole('combobox', 'Evidence').selectOption('Species & models');
   await screen.getByRole('tab', 'Protein alignments').tap();
-  await expect(screen.getByTestId('residue-alignment-card')).toContainText('No residue is mapped');
+  await expect(screen.getByTestId('residue-alignment-card')).toContainText('Site not placed');
   await expect(screen.getByRole('region', 'Residue aligned in each ortholog')).toHaveCount(0);
   expect(await browser.evaluate(() => document.querySelector('.sm-review') === null)).toBe(true);
   await app.screenshot('species-reference-mismatch');

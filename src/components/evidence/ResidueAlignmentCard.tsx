@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { buildAlignmentEvidence, RESIDUE_STATE_LABEL, type AlignmentResponse } from '../../shared/residueAlignment';
+import { alignedProteinName, buildAlignmentEvidence, mismatchReason, RESIDUE_STATE_LABEL, speciesNames, type AlignmentResponse } from '../../shared/residueAlignment';
 import { speciesLabel, speciesOrder } from '../../shared/modelOrganisms';
 import { AMINO_ACID_1_TO_3_TITLE } from '../../shared/aminoAcids';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
@@ -16,23 +16,22 @@ export function ResidueAlignmentCard({ load, residue, onRetry }: { load?: Contex
   const rows = [...evidence.rows].sort((a, b) => speciesOrder(a.h.taxonId) - speciesOrder(b.h.taxonId) || a.h.geneId.localeCompare(b.h.geneId));
   const carriers = rows.filter(r => r.m.carriesVariantResidue);
   const label = `${AMINO_ACID_1_TO_3_TITLE[residue.wildType] ?? residue.wildType}${residue.position ?? ''}${AMINO_ACID_1_TO_3_TITLE[residue.mutant] ?? residue.mutant}`;
-  return <section className="ctx-card sm-alignment-card" aria-labelledby={id} data-testid="residue-alignment-card">
+  return <section className="ctx-card" aria-labelledby={id} data-testid="residue-alignment-card">
     <div className="ctx-card__head"><h2 id={id}>Residue in orthologs</h2><span className="ctx-caption">Ensembl Compara · protein alignment</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading protein alignments.</div>
       : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'alignments could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status === 'not-found' ? <p className="ctx-card__body">{data.message}</p>
       : !residue.position ? <p className="ctx-card__body">This variant has no protein position, so there is no residue to map.</p>
-      : evidence.mismatched ? <p className="ctx-card__body ctx-notice" role="status">{evidence.mismatchCause === 'no-sequence'
-          ? `This analysis recorded no protein sequence, so there is nothing to align the residue against. No residue is mapped, because no comparison was possible.`
-          : evidence.mismatchCause === 'wildtype-differs'
-            ? `The reference residue recorded for this variant does not match the sequence this analysis used, so the input disagrees with itself and no residue is mapped.`
-            : <>Ensembl aligns protein {data?.sourceProteinId}, which is not the sequence this analysis used. No residue is mapped, because positions can shift between isoforms.</>}</p>
+      : evidence.mismatchCause ? <div className="ctx-card__body sm-statement" role="status"><p className="sm-statement__title">Site not placed</p><p className="ctx-prose">{mismatchReason(evidence.mismatchCause, data?.sourceProteinId)}</p></div>
       : !rows.length ? <p className="ctx-card__body">Ensembl returned no ortholog alignment for the covered organisms.</p>
       : evidence.ready && <>
         <div className="ctx-card__body sm-alignment-summary">
           {data?.message && <p className="ctx-caption" role="note">{data.message}</p>}
-          <p className="ctx-prose">Residue <span className="ctx-mono">{label}</span> is the same amino acid in <strong>{evidence.identical} of {rows.length}</strong> aligned orthologs.
-            {carriers.length > 0 && <> The substituted residue <span className="ctx-mono">{AMINO_ACID_1_TO_3_TITLE[residue.mutant] ?? residue.mutant}</span> is the normal residue in {carriers.map(c => speciesLabel(c.h.taxonId, c.h.species)).join(', ')}; that shows it exists at this site in another species, not that it is tolerated in human.</>}</p>
+          {evidence.bridge && <p className="ctx-caption" role="note">Ensembl aligns <span className="ctx-mono">{alignedProteinName(data?.sourceProteinId)}</span> ({evidence.bridge.sourceLength} residues), another isoform than the {evidence.bridge.appLength}-residue sequence this analysis used. The site was placed as its residue {evidence.bridge.sourcePosition}, because the 21 residues around it occur exactly once there.</p>}
+          <p className="ctx-prose">Residue <span className="ctx-mono">{label}</span> is the same amino acid in {evidence.oneToOne.length > 0 && evidence.oneToOne.length < rows.length
+            ? <><strong>{evidence.identicalOneToOne} of {evidence.oneToOne.length}</strong> one-to-one orthologs and in {evidence.identical - evidence.identicalOneToOne} of {rows.length - evidence.oneToOne.length} records from many-to-many gene families.</>
+            : <><strong>{evidence.identical} of {rows.length}</strong> aligned orthologs.</>}
+            {carriers.length > 0 && <> The substituted residue <span className="ctx-mono">{AMINO_ACID_1_TO_3_TITLE[residue.mutant] ?? residue.mutant}</span> is the normal residue in {speciesNames(carriers).join(', ')}; that shows it exists at this site in another species, not that it is tolerated in human.</>}</p>
         </div>
         <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Residue aligned in each ortholog"><table className="ctx-table">
           <caption className="ctx-sr-only">Gapped alignment around the variant. The variant column is outlined; differing neighbours are underlined.</caption>

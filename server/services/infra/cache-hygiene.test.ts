@@ -227,7 +227,9 @@ describe("review 5 fixes", () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => respond("forbidden for other reasons", 403));
     await fetchPopEVEScoreOnline("P04637", "R273H");
     expect(popEveOnlineCache.has("P04637_R273H")).toBe(false);
-    fetchSpy.mockImplementation(async () => respond(s3Missing, 403));
+    // The missing file sends the lookup to the gene's other isoforms; UniProt then has no entry.
+    fetchSpy.mockImplementation(async (input: any) =>
+      String(input).includes("rest.uniprot.org") ? respond("gone", 404) : respond(s3Missing, 403));
     await fetchPopEVEScoreOnline("P04637", "R273H");
     expect(popEveOnlineCache.has("P04637_R273H")).toBe(true);
   });
@@ -265,7 +267,8 @@ describe("popEVE RefSeq: the displayed isoform, not the first cross-reference", 
   it("scores GATA4 p.Ser159Cys on the displayed isoform", async () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(respond(gata4Entry()))
       .mockResolvedValueOnce(respond("mutant,gap frequency,popEVE\nS159C,0.052,-3.376\n"));
-    expect(await fetchPopEVEScoreOnline("P43694", "p.Ser159Cys")).toBe(-3.376);
+    expect(await fetchPopEVEScoreOnline("P43694", "p.Ser159Cys"))
+      .toEqual({ score: -3.376, protein: "NP_002043.2", substitution: "S159C", match: "displayed" });
     expect(String(fetchSpy.mock.calls[1][0])).toContain("NP_002043.2.csv");
   });
 

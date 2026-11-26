@@ -4,7 +4,7 @@
  * `analyzePpiBinding`. STRING functional list (379 rows) trimmed to its top 40 plus every curated
  * partner it contains, so each partner the tests read keeps its real score. `context`, `gene` and
  * `organism` added 2026-10-04 for the fibril split: none of the eight entries is a fibril (RCSB).
- * `modelledEntries`, `unmodelled` and `coverageChecked` added 2026-11-26 from PDBe unipdb/Q9UP95.
+ * `modelledEntries`, `unmodelled`, `coverage` and `coverageChecked` added 2026-11-26 from PDBe unipdb/Q9UP95.
  */
 /* eslint-disable */
 export const SLC12A4: any = {
@@ -433,6 +433,7 @@ export const SLC12A4: any = {
    ],
    "entryKinds": "ok",
    "crystalChecked": true,
+   "coverage": {"6kkr":[[116,652]],"6kkt":[[116,652]],"6kku":[[116,652]],"7aip":[[116,236],[244,881],[887,926],[1014,1081]],"7aiq":[[116,233],[244,932],[1011,1081]],"7air":[[116,236],[244,881],[887,941],[1011,1081]],"7tth":[[116,922],[1018,1085]],"7tti":[[115,656]]},
    "coverageChecked": true
   },
   "oligomericState": "Homodimer",

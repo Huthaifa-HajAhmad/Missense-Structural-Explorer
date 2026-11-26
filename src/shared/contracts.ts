@@ -134,27 +134,35 @@ export const structureProvenanceSchema = z.object({
    */
   sequenceDifferences: z.array(z.string()).optional(),
   /**
-   * The experimental entry the resolver REFUSED for a mutating engine because its chain is not the
-   * wild type, and the residues that disqualified it. Present on the template used instead (normally
-   * the AlphaFold model), so the screen can say why the crystal structure was not used.
+   * Why no experimental structure was used, set on the structure used instead (normally the AlphaFold
+   * model), so the screen can say so. Either the entry the resolver refused for a mutating engine
+   * because its chain is not the wild type, or no solved structure having coordinates for the residue.
    */
   excludedExperimental: z
-    .object({
-      pdbId: z.string(),
-      chainId: z.string().optional(),
-      differences: z.array(z.string()),
-      /**
-       * True when the chain was refused WITHOUT a sequence check (the UniProt sequence could not be
-       * fetched): the entry is then not known to be a mutant — only unverified. The screen must say
-       * "could not be checked", never "is not the wild type".
-       */
-      unverified: z.boolean().optional(),
-      /**
-       * Set when the local-quality rule examined several chains and none qualified: this entry is the
-       * first refused, and this many other examined chains were not usable either.
-       */
-      otherChainsRefused: z.number().int().nonnegative().optional()
-    })
+    .union([
+      z.object({
+        pdbId: z.string(),
+        chainId: z.string().optional(),
+        /** The residues that disqualified the chain. */
+        differences: z.array(z.string()),
+        /**
+         * True when the chain was refused WITHOUT a sequence check (the UniProt sequence could not be
+         * fetched): the entry is then not known to be a mutant — only unverified. The screen must say
+         * "could not be checked", never "is not the wild type".
+         */
+        unverified: z.boolean().optional(),
+        /**
+         * Set when the local-quality rule examined several chains and none qualified: this entry is the
+         * first refused, and this many other examined chains were not usable either.
+         */
+        otherChainsRefused: z.number().int().nonnegative().optional()
+      }),
+      z.object({
+        /** The variant residue, which `entries` solved structures span without coordinates for it. */
+        unmodelledResidue: z.number().int().positive(),
+        entries: z.number().int().positive()
+      })
+    ])
     .optional()
 });
 
@@ -1390,6 +1398,22 @@ export type ConservationModelState = z.infer<typeof conservationModelStateSchema
 export const CONSERVATION_MODEL_KEYS = ["base", "scorecons", "spliceai", "spliceProximity", "alphagenome", "popeve"] as const;
 export type ConservationModelKey = (typeof CONSERVATION_MODEL_KEYS)[number];
 
+/**
+ * Which protein and substitution popEVE scored. popEVE scores one protein per gene, not always
+ * UniProt's main isoform, so the residue number can differ from the query (ABCG1 Gly358 is G369 on
+ * NP_997057.1). `displayed`: the main isoform's own file. `dna`: popEVE's GRCh38 file, matched on the
+ * exact DNA change. `other-isoform`: another isoform's file, the residue renumbered by its neighbourhood.
+ * `dbnsfp`: dbNSFP's popEVE column, used only when popEVE's own lookup gave nothing. It names no
+ * protein, so `transcript` records the Ensembl transcript of the dbNSFP row it was read from.
+ */
+export const popEveSourceSchema = z.object({
+  protein: z.string().nullable(),
+  substitution: z.string().nullable(),
+  match: z.enum(["displayed", "dna", "other-isoform", "dbnsfp"]),
+  transcript: z.string().nullable().optional(),
+});
+export type PopEveSource = z.infer<typeof popEveSourceSchema>;
+
 export const conservationDataSchema = z.object({
   available: z.boolean().optional(),
   revel: z.number().nullable(),
@@ -1409,6 +1433,8 @@ export const conservationDataSchema = z.object({
   esm1b: z.number().nullable().optional(),
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
+  /** Where `popeve` came from; null when there is no score, or on a result saved before this was recorded. */
+  popeveSource: popEveSourceSchema.nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),
@@ -2002,7 +2028,14 @@ export interface PdbHomolog {
   structStart?: number;
   querySeqFrom?: number;
   querySeqTo?: number;
+  /** The mapped or aligned range (`querySeqFrom`–`querySeqTo`) includes the variant position. */
   coversPosition?: boolean;
+  /**
+   * Whether this entry has coordinates at the variant residue (PDBe unipdb, best chain). A range that
+   * covers the position can still leave it unresolved (ABCG1 Gly358 in all five entries). Absent when
+   * not known: PDBe did not list the entry (a homolog of another protein) or did not answer.
+   */
+  modelsPosition?: boolean;
   /** How this entry was discovered: direct UniProt→PDB mapping (PDBe) or sequence search (RCSB). */
   source?: "pdbe" | "rcsb";
   /** True when PDBe directly maps this PDB entry to the queried UniProt accession. */
@@ -2605,6 +2638,13 @@ export interface MultimerExperimentalInterfaces {
   crystalChecked?: boolean;
   /** True when PDBe said which residues each entry models; false when it did not answer. */
   coverageChecked?: boolean;
+  /**
+   * Residue ranges (UniProt numbering) each entry of `partners` has coordinates for, keyed by
+   * lower-case PDB id (PDBe unipdb, best chain). Views that count structures at residues other than
+   * the variant divide by the entries that model that residue (`entriesModelling`). Absent when
+   * `coverageChecked` is false; an entry PDBe did not list is absent too.
+   */
+  coverage?: Record<string, Array<[number, number]>>;
 }
 
 /**

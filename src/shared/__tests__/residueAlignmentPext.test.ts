@@ -26,7 +26,9 @@ describe('gap-aware residue mapping', () => {
     expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ABCDE', null, 'C', 'Q')).toMatchObject({ mismatchCause: 'no-position' });
     expect(mapResidue(hom('ABCDE', 'ABCDE'), null, 3, 'C', 'Q')).toMatchObject({ mismatchCause: 'no-sequence' });
     expect(mapResidue(hom('ABCDE', 'ABCDE'), null, null, 'C', 'Q')).toMatchObject({ mismatchCause: 'no-sequence' });
-    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ZZZZZ', 3, 'C', 'Q')).toMatchObject({ mismatchCause: 'sequence-differs' });
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ZZCZZ', 3, 'C', 'Q')).toMatchObject({ mismatchCause: 'sequence-differs' });
+    // A reference residue that is not on the run's own sequence is an input fault, whatever Ensembl aligned.
+    expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ZZZZZ', 3, 'C', 'Q')).toMatchObject({ mismatchCause: 'wildtype-differs' });
     expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ABCDE', 3, 'D', 'Q')).toMatchObject({ mismatchCause: 'wildtype-differs' });
     expect(mapResidue(hom('ABCDE', 'ABCDE'), 'ABCDE', 3, 'C', 'Q')).toMatchObject({ mismatchCause: null });
     const noSequence = buildAlignmentEvidence({ gene: 'X', status: 'ready', sourceProteinId: 'P', homologies: [hom('ABCDE', 'ABCDE')], provenance: null, message: null }, null, 3, 'C', 'Q');
@@ -81,5 +83,42 @@ describe('review-driven regressions', () => {
   });
   it('treats gnomAD chrom M and the variant id MT as the same chromosome', () => {
     expect(locatePext({ ...pext, chrom: 'M', regions: [{ start: 1, stop: 9, mean: 0, tissues: [] }] }, { chrom: 'MT', pos: 5 }).state).toBe('region');
+  });
+});
+
+describe('alignment on another human isoform', () => {
+  // ABCG1 is the case: the run used P45844 (678 aa), Ensembl Compara aligned ENSP00000381467 (666 aa).
+  // The shared 21-residue neighbourhood places the variant on the aligned isoform without guessing.
+  const core = 'QWERTYIPLKHGFDSNMVCAELMNPRSTVWY';
+  const app = `MSTT${core}`;
+  const aligned = `M${core}`;
+  const pos = 4 + 12 + 1; const wt = app[pos - 1];
+  const response = (source: string) => ({ gene: 'X', status: 'ready' as const, sourceProteinId: 'ENSP9', homologies: [hom(source, source)], provenance: null, message: null });
+
+  it('maps the variant through the unique neighbourhood and reports the aligned isoform position', () => {
+    const evidence = buildAlignmentEvidence(response(aligned), app, pos, wt, 'R');
+    expect(evidence.mismatched).toBe(false);
+    expect(evidence.bridge).toEqual({ sourcePosition: pos - 3, sourceLength: aligned.length, appLength: app.length });
+    expect(evidence.rows[0].m).toMatchObject({ state: 'identical', targetResidue: wt, targetPosition: pos - 3 });
+  });
+
+  it('refuses the mapping when the neighbourhood is not in the aligned isoform', () => {
+    const evidence = buildAlignmentEvidence(response(`M${core.slice(0, 8)}${core.slice(16)}`), app, pos, wt, 'R');
+    expect(evidence).toMatchObject({ mismatched: true, mismatchCause: 'sequence-differs', bridge: null });
+  });
+
+  it('blames the recorded residue, not the isoform, when the run disagrees with itself', () => {
+    expect(buildAlignmentEvidence(response(aligned), app, pos, 'A', 'R')).toMatchObject({ mismatched: true, mismatchCause: 'wildtype-differs', bridge: null });
+  });
+
+  it('maps nothing when the rows are built on different human sequences', () => {
+    const mixed = { ...response(app), homologies: [hom(app, app), hom(aligned, aligned)] };
+    const evidence = buildAlignmentEvidence(mixed, app, pos, wt, 'R');
+    expect(evidence).toMatchObject({ mismatched: true, mismatchCause: 'mixed-sources', bridge: null });
+    expect(evidence.rows.map(r => r.m.state)).toEqual(['reference-mismatch', 'reference-mismatch']);
+  });
+
+  it('needs no bridge when the sequences are the same', () => {
+    expect(buildAlignmentEvidence(response(app), app, pos, wt, 'R').bridge).toBeNull();
   });
 });

@@ -78,18 +78,18 @@ export async function fetchStringInteractionsWithStatus(
           const data = await res.json() as any;
           if (Array.isArray(data)) {
             const partnersMap = new Map<string, number>();
-            const targetUpper = normGene.toUpperCase();
             for (const item of data) {
-              const nameA = (item.preferredName_A || "").toUpperCase();
-              const nameB = (item.preferredName_B || "").toUpperCase();
+              // STRING may name a gene by a retired symbol; names are compared and listed by the current one.
+              const nameA = normalizeGeneSymbol(item.preferredName_A || "");
+              const nameB = normalizeGeneSymbol(item.preferredName_B || "");
               // A row without a score is skipped, not given one: this used to default to 0.4, the floor of
               // STRING's "medium" band, so a missing value was reported as medium-confidence evidence.
               const score = item.score !== undefined ? parseFloat(item.score) : NaN;
               if (!Number.isFinite(score)) continue;
 
-              if (nameA === targetUpper && nameB !== targetUpper) {
+              if (nameA === normGene && nameB !== normGene) {
                 partnersMap.set(nameB, Math.max(partnersMap.get(nameB) || 0, score));
-              } else if (nameB === targetUpper && nameA !== targetUpper) {
+              } else if (nameB === normGene && nameA !== normGene) {
                 partnersMap.set(nameA, Math.max(partnersMap.get(nameA) || 0, score));
               }
             }
@@ -175,11 +175,11 @@ async function partnersOf(
     if (!res.ok) return null;
     const data = (await res.json()) as any;
     if (!Array.isArray(data)) return null;
-    const target = gene.toUpperCase();
+    const target = normalizeGeneSymbol(gene);
     const best = new Map<string, number>();
     for (const row of data) {
-      const a = String(row.preferredName_A ?? "").toUpperCase();
-      const b = String(row.preferredName_B ?? "").toUpperCase();
+      const a = normalizeGeneSymbol(String(row.preferredName_A ?? ""));
+      const b = normalizeGeneSymbol(String(row.preferredName_B ?? ""));
       const score = Number(row.score);
       if (!Number.isFinite(score)) continue;
       const partner = a === target ? b : b === target ? a : b;

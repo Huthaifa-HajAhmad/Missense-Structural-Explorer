@@ -324,6 +324,40 @@ describe("predictor locus outcome reconciliation", () => {
     expect(result.locusResolution).toMatchObject({ route: "vep-coordinate", canonicalBy: "vep", retryable: false });
   });
 
+  describe("a gene its sources know by two names (GBA1, formerly GBA)", () => {
+    const coordinate = { chrom: "1", pos: 200, ref: "C", alt: "A", assembly: "GRCh38" as const };
+
+    it("accepts a VEP answer that still names it GBA, as the GRCh37 build does", async () => {
+      mocks.lift.mockResolvedValue(coordinate);
+      const data = healthy();
+      data[0].transcript_consequences[0].gene_symbol = "GBA";
+      mocks.fetch.mockImplementation(async () => json(data));
+      const result = await fetchPredictorData("GBA1", "D116G", "P1", coordinate);
+      expect(result.gnomadVariantId).toBe("1-200-C-A");
+      expect(result.locusResolution).toMatchObject({ route: "vep-coordinate", canonicalBy: "vep" });
+    });
+
+    it("binds a myvariant.info record that names it GBA, by coordinate", async () => {
+      mocks.lift.mockResolvedValue(coordinate);
+      mocks.fetch.mockImplementation(async (url: string) => url.includes("myvariant.info/v1/variant/")
+        ? json({ _id: "chr1:g.200C>A", dbnsfp: { genename: ["GBA", "GBA"], aa: { ref: "D", alt: "G", pos: [116] }, cadd: { phred: 22 } } })
+        : json({}, 503));
+      const result = await fetchPredictorData("GBA1", "D116G", "P1", coordinate);
+      expect(result.source).toBe("MyVariant.info & dbNSFP (coordinate fallback)");
+      expect(result.gnomadVariantId).toBe("1-200-C-A");
+    });
+
+    it("asks VEP for GBA1 and myvariant.info for both names", async () => {
+      await fetchPredictorData("GBA", "D116G", "P1");
+      const urls = mocks.fetch.mock.calls.map(([url]) => decodeURIComponent(String(url)));
+      expect(urls.some((u) => u.includes("/hgvs/GBA1:p."))).toBe(true);
+      expect(urls.some((u) => u.includes("/hgvs/GBA:p."))).toBe(false);
+      const myvariant = urls.filter((u) => u.includes("myvariant.info/v1/query"));
+      expect(myvariant.length).toBeGreaterThan(0);
+      for (const u of myvariant) expect(u).toContain("dbnsfp.genename:(GBA1 OR GBA)");
+    });
+  });
+
   describe("coordinate-first fallback ladder", () => {
     it("falls back to MyVariant by coordinate when Ensembl VEP is unavailable, extracting scores and verified GRCh38 locus", async () => {
       const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };

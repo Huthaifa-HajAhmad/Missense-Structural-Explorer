@@ -122,9 +122,7 @@ function Legend({
           ? hasHelix && !hasStrand
             ? "helix"
             : "strand"
-          : mode.lanes
-            ? `lane-${layer}`
-            : "site";
+          : `lane-${layer}`;
   const off = (layer: LayerKey) => hidden.has(layer);
   return (
     <ul className="fnd-legend" aria-label="Legend and layers">

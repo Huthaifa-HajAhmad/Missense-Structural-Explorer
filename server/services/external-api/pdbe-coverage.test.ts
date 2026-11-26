@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { entriesModelling, parseUnipdbCoverage, unmodelledStretches } from "./pdbe-coverage.ts";
+import { parseUnipdbCoverage, unmodelledStretches } from "./pdbe-coverage.ts";
+import { entriesModelling } from "../../../src/shared/residueCoverage.ts";
 
 // PDBe unipdb/P45844, read 2026-11-26: the observed ranges of two of ABCG1's five entries (best chain).
 const ABCG1_UNIPDB = {
@@ -44,12 +45,12 @@ describe("PDBe residue coverage (doc/INTERFACES_PPI_AUDIT_2026-11-26.md, C1)", (
   });
 
   it("finds no entry that models Gly358, and both model Leu300", () => {
-    expect(entriesModelling(coverage, ["7oz1", "7fdv"], 358)).toEqual([]);
-    expect(entriesModelling(coverage, ["7oz1", "7fdv"], 300)).toEqual(["7oz1", "7fdv"]);
+    expect(entriesModelling(coverage.entries, ["7oz1", "7fdv"], 358)).toEqual([]);
+    expect(entriesModelling(coverage.entries, ["7oz1", "7fdv"], 300)).toEqual(["7oz1", "7fdv"]);
   });
 
   it("keeps an entry PDBe did not list: no data is not 'not modelled'", () => {
-    expect(entriesModelling(coverage, ["7oz1", "9xyz"], 358)).toEqual(["9xyz"]);
+    expect(entriesModelling(coverage.entries, ["7oz1", "9xyz"], 358)).toEqual(["9xyz"]);
   });
 
   it("returns the stretches no entry of the pair models, the union of their gaps", () => {
@@ -80,7 +81,7 @@ describe("PDBe residue coverage on the captured ABCG1 payload", () => {
   const entries = ["7r8d", "7r8c", "7fdv", "7r8e", "7oz1"];
 
   it("finds that none of the five entries models Gly358, and that the stretch no entry resolves is 348–396", () => {
-    expect(entriesModelling(coverage, entries, 358)).toEqual([]);
+    expect(entriesModelling(coverage.entries, entries, 358)).toEqual([]);
     expect(unmodelledStretches(coverage, entries).find(g => g.start <= 358 && 358 <= g.end)).toEqual({ start: 348, end: 396 });
   });
 });

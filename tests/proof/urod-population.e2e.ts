@@ -25,7 +25,7 @@ describe('UROD population proof', { tags: ['live', 'proof'], timeout: 300_000 },
     await app.screenshot('population');
     await screen.getByRole('button', 'Species & models').tap();
     await expect(screen.getByRole('heading', 'Species & models')).toBeVisible();
-    await expect(screen.getByText(/species with returned records/)).toBeVisible({ timeout: 90_000 });
+    await expect(screen.getByText(/is the same amino acid in|could not be placed|has no ortholog alignment/)).toBeVisible({ timeout: 90_000 });
     await app.screenshot('species');
   });
 });
