@@ -190,7 +190,20 @@ export interface HotspotResidueRow {
   sites: Array<{ name: string; evidence: string }>;
   /** Native PDBe-KB interfaces at this residue: the partner and the structures that place it there. */
   interfaceSupport: Array<{ label: string; k: number; n: number }>;
+  /**
+   * Native solved structures with coordinates for this residue; 0 means none models it, so an empty
+   * `interfaceSupport` is "not modelled", not "no interface". Null when PDBe coverage was not read.
+   */
+  interfaceModelled: number | null;
   inRegions: RungKey[];
+}
+
+/** Why a residue's interface cell reads "Not modelled": no coordinates is not "no interface". */
+export const HOTSPOT_NOT_MODELLED_NOTE = "PDBe's best chain of each native solved structure has no coordinates for this residue, so these structures cannot say whether it is at an interface.";
+
+/** A residue with no native interface support that no native solved structure models (PDBe best chains). */
+export function isInterfaceUnmodelled(r: Pick<HotspotResidueRow, "interfaceSupport" | "interfaceModelled">): boolean {
+  return r.interfaceSupport.length === 0 && r.interfaceModelled === 0;
 }
 
 /** One UniProt site or modification, as the Functional domains model read it (a plain copy; nothing is re-derived). */
@@ -500,6 +513,7 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
       // A pair (a disulfide) is two residues, not the span between them.
       sites: (input.annotations ?? []).filter((a) => (a.isPair ? p.pos === a.start || p.pos === a.end : a.start <= p.pos && p.pos <= a.end)).map((a) => ({ name: a.name, evidence: a.evidence })),
       interfaceSupport: [...(input.interfaces?.byResidue.get(p.pos) ?? [])],
+      interfaceModelled: input.interfaces?.modelledAt?.(p.pos) ?? null,
       inRegions: bandsByRung.filter(([, b]) => inside(b, p.pos)).map(([k]) => k),
     };
   }).sort((a, b) => (a.distanceA ?? Infinity) - (b.distanceA ?? Infinity) || Math.abs(a.sequenceDistance) - Math.abs(b.sequenceDistance));

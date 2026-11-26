@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { analyzeMultimerStructure, importMultimerModel } from "./multimer.ts";
 import { clearBoltzJobs, clearJapanFoldCache } from "../external-api/japanfold-client.ts";
 import { clearPdbeInterfaceCache } from "../external-api/pdbe-interfaces.ts";
+import { clearResidueCoverageCache } from "../external-api/pdbe-coverage.ts";
 import { clearAllCaches } from "../infra/cache.ts";
 
 /**
@@ -18,6 +19,8 @@ type Routes = {
   subunit?: string | null;
   interactions?: Array<{ accession: string; gene: string }>;
   pdbe?: unknown | 404;
+  /** PDBe `unipdb` body (observed residue ranges per entry); absent answers 404. */
+  unipdb?: unknown;
   boltz?: unknown | null;
   /** HTTP status for the Boltz-2 submit when it is not a model (202 with a job, 413, 503 …). */
   boltzStatus?: number;
@@ -60,6 +63,7 @@ function mockNet(routes: Routes) {
     }
     if (url.includes("Q13564.fasta")) return res(`>Q13564\n${SELF_SEQ}`);
     if (url.includes("Q8TBC4.fasta")) return res(`>Q8TBC4\n${PARTNER_SEQ}`);
+    if (url.includes("uniprot/unipdb")) return routes.unipdb ? res(routes.unipdb) : res({}, 404);
     if (url.includes("interface_residues")) {
       return routes.pdbe === 404 || routes.pdbe === undefined ? res({}, 404) : res(routes.pdbe);
     }
@@ -83,6 +87,7 @@ describe("analyzeMultimerStructure", () => {
     clearAllCaches(true);
     clearJapanFoldCache();
     clearPdbeInterfaceCache();
+    clearResidueCoverageCache();
     clearBoltzJobs();
   });
 
@@ -231,6 +236,23 @@ describe("analyzeMultimerStructure", () => {
     const mbp = res.experimental!.partners.find(p => p.accession === "P0AEX9")!;
     expect(mbp.artefact).toBe("maltose-binding protein fusion tag");
     expect(res.experimental!.partners.find(p => p.accession === "P12345")!.variantAtInterface).toBe(false);
+  });
+
+  // Audit F2: other views count structures at residues other than the variant, so the payload keeps the
+  // ranges each entry models; only the entries the partners list, to keep the stored payload small.
+  it("stores the residues each partner entry models, and no other entry's", async () => {
+    const observed = (id: string, ranges: Array<[number, number, "Y" | "N"]>) => ({
+      accession: id, dataType: "bestChain",
+      residues: ranges.map(([startIndex, endIndex, flag]) => ({ startIndex, endIndex, observed: flag })),
+    });
+    mockNet({
+      subunit: "Monomer.",
+      pdbe: { Q13564: { data: [{ accession: "Q8TBC4", name: "UBA3", allPDBEntries: ["1r4m", "1yov"], residues: [{ startIndex: 116, endIndex: 116, interactingPDBEntries: [{ pdbId: "1yov" }] }] }] } },
+      unipdb: { Q13564: { length: 120, data: [observed("1yov", [[1, 120, "Y"]]), observed("1r4m", [[1, 60, "Y"], [61, 120, "N"]]), observed("9abc", [[1, 120, "Y"]])] } },
+    });
+    const res = await analyzeMultimerStructure("NAE1", "p.Asp116Gly", "Q13564");
+    expect(res.experimental?.coverageChecked).toBe(true);
+    expect(res.experimental?.coverage).toEqual({ "1r4m": [[1, 60]], "1yov": [[1, 120]] });
   });
 
   it("types a PDBe 404 as no interface, and anything else as an error", async () => {

@@ -13,11 +13,17 @@ import {
   structuralAlignResponseSchema,
   clinVarDataSchema,
   energeticsDataSchema,
+  structureProvenanceSchema,
   generateMutantResponseSchema,
   analyzeVariantResponseSchema
 } from "../contracts";
 
 describe("Shared Zod API Contracts", () => {
+  it("keeps the reason when no solved structure has coordinates for the residue", () => {
+    const parsed = structureProvenanceSchema.parse({ source: "alphafold", excludedExperimental: { unmodelledResidue: 358, entries: 5 } });
+    expect(parsed.excludedExperimental).toEqual({ unmodelledResidue: 358, entries: 5 });
+  });
+
   it("should validate translateVariantResponseSchema successfully", () => {
     const validPayload = {
       gene: "BRCA1",

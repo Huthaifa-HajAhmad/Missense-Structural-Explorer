@@ -134,27 +134,35 @@ export const structureProvenanceSchema = z.object({
    */
   sequenceDifferences: z.array(z.string()).optional(),
   /**
-   * The experimental entry the resolver REFUSED for a mutating engine because its chain is not the
-   * wild type, and the residues that disqualified it. Present on the template used instead (normally
-   * the AlphaFold model), so the screen can say why the crystal structure was not used.
+   * Why no experimental structure was used, set on the structure used instead (normally the AlphaFold
+   * model), so the screen can say so. Either the entry the resolver refused for a mutating engine
+   * because its chain is not the wild type, or no solved structure having coordinates for the residue.
    */
   excludedExperimental: z
-    .object({
-      pdbId: z.string(),
-      chainId: z.string().optional(),
-      differences: z.array(z.string()),
-      /**
-       * True when the chain was refused WITHOUT a sequence check (the UniProt sequence could not be
-       * fetched): the entry is then not known to be a mutant — only unverified. The screen must say
-       * "could not be checked", never "is not the wild type".
-       */
-      unverified: z.boolean().optional(),
-      /**
-       * Set when the local-quality rule examined several chains and none qualified: this entry is the
-       * first refused, and this many other examined chains were not usable either.
-       */
-      otherChainsRefused: z.number().int().nonnegative().optional()
-    })
+    .union([
+      z.object({
+        pdbId: z.string(),
+        chainId: z.string().optional(),
+        /** The residues that disqualified the chain. */
+        differences: z.array(z.string()),
+        /**
+         * True when the chain was refused WITHOUT a sequence check (the UniProt sequence could not be
+         * fetched): the entry is then not known to be a mutant — only unverified. The screen must say
+         * "could not be checked", never "is not the wild type".
+         */
+        unverified: z.boolean().optional(),
+        /**
+         * Set when the local-quality rule examined several chains and none qualified: this entry is the
+         * first refused, and this many other examined chains were not usable either.
+         */
+        otherChainsRefused: z.number().int().nonnegative().optional()
+      }),
+      z.object({
+        /** The variant residue, which `entries` solved structures span without coordinates for it. */
+        unmodelledResidue: z.number().int().positive(),
+        entries: z.number().int().positive()
+      })
+    ])
     .optional()
 });
 
@@ -2002,7 +2010,14 @@ export interface PdbHomolog {
   structStart?: number;
   querySeqFrom?: number;
   querySeqTo?: number;
+  /** The mapped or aligned range (`querySeqFrom`–`querySeqTo`) includes the variant position. */
   coversPosition?: boolean;
+  /**
+   * Whether this entry has coordinates at the variant residue (PDBe unipdb, best chain). A range that
+   * covers the position can still leave it unresolved (ABCG1 Gly358 in all five entries). Absent when
+   * not known: PDBe did not list the entry (a homolog of another protein) or did not answer.
+   */
+  modelsPosition?: boolean;
   /** How this entry was discovered: direct UniProt→PDB mapping (PDBe) or sequence search (RCSB). */
   source?: "pdbe" | "rcsb";
   /** True when PDBe directly maps this PDB entry to the queried UniProt accession. */
@@ -2605,6 +2620,13 @@ export interface MultimerExperimentalInterfaces {
   crystalChecked?: boolean;
   /** True when PDBe said which residues each entry models; false when it did not answer. */
   coverageChecked?: boolean;
+  /**
+   * Residue ranges (UniProt numbering) each entry of `partners` has coordinates for, keyed by
+   * lower-case PDB id (PDBe unipdb, best chain). Views that count structures at residues other than
+   * the variant divide by the entries that model that residue (`entriesModelling`). Absent when
+   * `coverageChecked` is false; an entry PDBe did not list is absent too.
+   */
+  coverage?: Record<string, Array<[number, number]>>;
 }
 
 /**

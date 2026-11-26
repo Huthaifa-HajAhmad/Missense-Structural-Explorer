@@ -236,8 +236,10 @@ async function probeStructure(uniprotId: string, pos?: number, options: ResolveS
     // The tier's own contract: ≥30% identity AND covering the mutation position. Coverage was not
     // checked, and "identity" used to be the search's relevance score.
     // `chainId` is the matched polymer entity's author chain, not the entry's default chain.
+    // An aligned range can span the site while the model has no atoms there; PDBe says so for entries
+    // it maps to this protein (`modelsPosition: false`), and those cannot show the variant residue.
     const ranked = homologs
-      .filter(h => h.source !== "pdbe" && h.identity !== null && h.identity >= 30 && (pos === undefined || h.coversPosition === true))
+      .filter(h => h.source !== "pdbe" && h.identity !== null && h.identity >= 30 && (pos === undefined || (h.coversPosition === true && h.modelsPosition !== false)))
       .sort((a, b) => {
         const resA = a.resolution ?? 99;
         const resB = b.resolution ?? 99;
@@ -380,7 +382,7 @@ export async function resolveStructure(
   options: ResolveStructureOptions = {}
 ): Promise<ResolvedStructure | null> {
   // The wild-type requirement changes the answer, so it is part of the memo's key.
-  // `select-v4`: the experimental chain is chosen by local quality (STRUCTURE_SELECTION_RULE.md); choices
+  // `select-v5`: the experimental chain is chosen by local quality (STRUCTURE_SELECTION_RULE.md); choices
   // remembered under the earlier rule must not be served for six hours after the change.
   const memoKey = `structure-resolution:${STRUCTURE_SELECTION_VERSION}:${uniprotId}:${pos ?? "na"}${options.requireWildType ? ":wild-type" : ""}`;
 

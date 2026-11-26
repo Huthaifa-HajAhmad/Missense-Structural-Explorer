@@ -3,6 +3,8 @@ import { HOMOLOG_DISCOVERY_BUDGET_MS } from "../../../src/shared/structureLookup
 import { fetchWithRetry } from "../infra/http-client.ts";
 import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "../infra/cache.ts";
 import { fetchUniprotSequence } from "../external-api/uniprot.ts";
+import { fetchResidueCoverage } from "../external-api/pdbe-coverage.ts";
+import { chainCounts, entryModelsSite, rowsModellingSite } from "./site-coverage.ts";
 import { chooseBestChain, type BestStructureRow } from "./best-chain.ts";
 import { formatTemplateDifference, templateSequenceDifferences } from "./template-identity.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
@@ -12,7 +14,7 @@ import type { PdbHomolog } from "../../../src/shared/contracts.ts";
  * The version of the experimental-chain rule (doc/energetics-release/STRUCTURE_SELECTION_RULE.md). It is
  * stamped on every chain choice, so a choice saved under an earlier rule is recognised and made again.
  */
-export const STRUCTURE_SELECTION_VERSION = "select-v4";
+export const STRUCTURE_SELECTION_VERSION = "select-v5";
 
 export interface PdbBestStructureMapping {
   pdbId: string;
@@ -165,16 +167,20 @@ export function getResolvedAlphafoldVersion(uniprotId: string): string | undefin
 /** UniProt:position pairs whose last chain examination could not complete; their fallback must not be remembered. */
 const incompleteSelections = new Set<string>();
 
-/** The chain refused as not the wild type when no examined chain qualified, kept so the model used instead can say why. */
-export interface SelectionRefusal {
-  pdbId: string;
-  chainId: string;
-  differences: string[];
-  /** The other examined chains, none of which qualified either. */
-  otherChainsRefused: number;
-}
+/** Why no experimental chain was offered, kept so the model used instead can say so. */
+export type SelectionRefusal =
+  /** The first chain refused as not the wild type when no examined chain qualified. */
+  | {
+      pdbId: string;
+      chainId: string;
+      differences: string[];
+      /** The other examined chains, none of which qualified either. */
+      otherChainsRefused: number;
+    }
+  /** No entry whose range spans the residue has coordinates for it; `entries` counts those entries. */
+  | { unmodelledResidue: number; entries: number };
 
-/** UniProt:position pairs whose last examination found no chain that qualifies, with the first one refused. */
+/** UniProt:position pairs whose last examination found no chain that qualifies, with the reason. */
 const refusedSelections = new Map<string, SelectionRefusal>();
 
 /** Why no experimental chain was offered for this variant, when the last examination refused them all. */
@@ -272,6 +278,25 @@ async function fetchPdbeBestStructuresRows(
   });
 }
 
+/**
+ * Of the rows whose range spans `pos`, those worth examining: `unp_start..unp_end` is the construct's
+ * range, not the residues with coordinates (ABCG1's five cryo-EM entries span 1-678 and none models
+ * Gly358). Leaving those out keeps them from using up the download cap or turning a finished answer into
+ * "incomplete". When none is left, the reason is recorded. Without PDBe's coverage every row is kept, and
+ * the local-quality rule (which needs atoms at the site) decides.
+ */
+async function examinableRows(uniprotId: string, pos: number, rows: BestStructureRow[]): Promise<BestStructureRow[]> {
+  const coverage = await fetchResidueCoverage(uniprotId);
+  if (!coverage) return rows;
+  const kept = rowsModellingSite(rows, coverage, pos);
+  if (!kept.length) {
+    const entries = chainCounts(rows).size;
+    refusedSelections.set(`${uniprotId.toUpperCase()}:${pos}`, { unmodelledResidue: pos, entries });
+    console.log(`[PDB Prioritizer] ${uniprotId} ${pos}: none of the ${entries} entries whose range spans the residue has coordinates for it; AlphaFold model used.`);
+  }
+  return kept;
+}
+
 export async function fetchBestPdbStructure(
   uniprotId: string,
   pos?: number
@@ -298,12 +323,13 @@ export async function fetchBestPdbStructure(
       }
       return null;
     }
-    const covering = structures.filter((item: any) =>
+    const spanning = structures.filter((item: any) =>
       item.pdb_id && item.chain_id && (pos === undefined || (pos >= item.unp_start && pos <= item.unp_end)));
+    const covering = pos !== undefined && spanning.length ? await examinableRows(validatedUniprot, pos, spanning) : spanning;
     // With a variant position, only a chain that passes the local-quality rule is offered. When none of the
     // examined chains does (TP53: the best-resolved chains are all engineered constructs), no experimental
     // chain is returned and every caller uses the predicted model instead of PDBe's first row.
-    const ranked = pos !== undefined && covering.length ? await rankByLocalQuality(validatedUniprot, pos, covering) : null;
+    const ranked = pos === undefined || !spanning.length ? null : covering.length ? await rankByLocalQuality(validatedUniprot, pos, covering) : "none";
     if (pos !== undefined) {
       const selectionKey = `${validatedUniprot.toUpperCase()}:${pos}`;
       if (ranked === "incomplete") incompleteSelections.add(selectionKey);
@@ -920,7 +946,8 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
   const validatedUniprot = validateUniProt(uniprotId);
   // v4: merges PDBe direct UniProt→PDB mappings (`best_structures`) ahead of RCSB sequence hits so
   // short-domain entries (e.g. FGFR3 TM domain) are not buried past RCSB's top 30 hits or collapsed.
-  const posCacheKey = `homologs_v4_${validatedUniprot}_pos_${pos ?? "none"}`;
+  // v5: adds `modelsPosition` (PDBe coordinates at the site), so lists cached without it are read again.
+  const posCacheKey = `homologs_v5_${validatedUniprot}_pos_${pos ?? "none"}`;
   const cachedData = pdbCache.get(posCacheKey);
   if (cachedData) {
     try {
@@ -938,12 +965,18 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
     }
   } catch (_) {}
 
-  const [rawCandidates, pdbeResult] = await Promise.all([
+  const [rawCandidates, pdbeResult, coverage] = await Promise.all([
     fetchRawHomologCandidates(validatedUniprot),
     fetchPdbeBestStructuresRows(validatedUniprot, uniprotId),
+    pos !== undefined ? fetchResidueCoverage(validatedUniprot) : Promise.resolve(null),
   ]);
   const pdbeRows = pdbeResult.rows ?? [];
-  const pdbeDegraded = pdbeResult.status !== 200 && pdbeResult.status !== 404;
+  // Without PDBe's coverage the list cannot say which entries have coordinates at the site: not cached.
+  const pdbeDegraded = (pdbeResult.status !== 200 && pdbeResult.status !== 404) || (pos !== undefined && pdbeRows.length > 0 && !coverage);
+  const chainsPerEntry = chainCounts(pdbeRows.filter(r => r.pdb_id && r.chain_id) as BestStructureRow[]);
+  /** Whether this entry has atoms at the site; undefined when PDBe's coverage is missing or cannot say. */
+  const modelsPos = (pdbId: string): boolean | undefined =>
+    pos === undefined || !coverage ? undefined : entryModelsSite(coverage, pdbId, pos, chainsPerEntry.get(pdbId.toLowerCase()) ?? 1);
   if (rawCandidates.length === 0 && pdbeRows.length === 0) {
     return [];
   }
@@ -984,6 +1017,9 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       const isBestA = cachedBestPdbId !== null && a.pdb_id.toUpperCase() === cachedBestPdbId;
       const isBestB = cachedBestPdbId !== null && b.pdb_id.toUpperCase() === cachedBestPdbId;
       if (isBestA !== isBestB) return Number(isBestB) - Number(isBestA);
+      // Entries with coordinates at the site before those whose range only spans it.
+      const modelsDiff = Number(modelsPos(b.pdb_id) !== false) - Number(modelsPos(a.pdb_id) !== false);
+      if (modelsDiff !== 0) return modelsDiff;
       const resA = typeof a.resolution === "number" && Number.isFinite(a.resolution) ? a.resolution : Number.POSITIVE_INFINITY;
       const resB = typeof b.resolution === "number" && Number.isFinite(b.resolution) ? b.resolution : Number.POSITIVE_INFINITY;
       if (resA !== resB) return resA - resB;
@@ -1010,6 +1046,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
         querySeqFrom,
         querySeqTo,
         coversPosition: coversPos,
+        ...(modelsPos(c.pdbId) !== undefined ? { modelsPosition: modelsPos(c.pdbId) } : {}),
         source: "rcsb" as const,
         ...(pdbeRow ? { directMapping: true } : {}),
       };
@@ -1017,9 +1054,10 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
     const rcsbById = new Map<string, PdbHomolog>(rcsbCandidates.map(c => [c.pdbId.toUpperCase(), c]));
 
     // Sort priority: 1. Covers variant position, 2. Identity descending (unreported last), 3. Better resolution
-    const coverRank = (v: boolean | undefined) => (v === true ? 0 : v === undefined ? 1 : 2);
+    // A range that spans the site but has no coordinates there ranks with one that does not span it.
+    const coverRank = (h: PdbHomolog) => (h.modelsPosition === false || h.coversPosition === false ? 2 : h.coversPosition === true ? 0 : 1);
     rcsbCandidates.sort((a, b) => {
-      if (coverRank(a.coversPosition) !== coverRank(b.coversPosition)) return coverRank(a.coversPosition) - coverRank(b.coversPosition);
+      if (coverRank(a) !== coverRank(b)) return coverRank(a) - coverRank(b);
       const idA = a.identity ?? -1;
       const idB = b.identity ?? -1;
       if (idB !== idA) return idB - idA;
@@ -1079,6 +1117,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
           querySeqFrom: row.unp_start,
           querySeqTo: row.unp_end,
           coversPosition: pos !== undefined ? rowCoversPos(row) : undefined,
+          ...(modelsPos(upperPdb) !== undefined ? { modelsPosition: modelsPos(upperPdb) } : {}),
           source: "pdbe",
           directMapping: true,
         });

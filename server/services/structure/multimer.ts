@@ -102,12 +102,21 @@ async function readExperimental(
       ? { status: "error", reason: lookup.reason, partners: [] }
       : { status: "none", partners: [] };
   }
+  const coverage = lookup.coverage;
+  // Only the partners' entries: views count structures at other residues from these ranges.
+  const entries = [...new Set(lookup.partners.flatMap(p => p.pdbEntries))].sort();
   return {
     status: "ok",
-    partners: lookup.partners.map(p => observedFor(p, uniprotId, position, lookup.coverage)),
+    partners: lookup.partners.map(p => observedFor(p, uniprotId, position, coverage)),
     entryKinds: lookup.entryKinds,
     crystalChecked: lookup.crystalChecked,
-    coverageChecked: Boolean(lookup.coverage),
+    coverageChecked: Boolean(coverage),
+    ...(coverage
+      ? { coverage: Object.fromEntries(entries.flatMap(e => {
+          const ranges = coverage.entries.get(e);
+          return ranges ? [[e, ranges.map(([start, end]): [number, number] => [start, end])]] : [];
+        })) }
+      : {}),
   };
 }
 

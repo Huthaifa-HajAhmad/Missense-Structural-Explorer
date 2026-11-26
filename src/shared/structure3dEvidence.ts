@@ -34,7 +34,8 @@
  */
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
-import { otherRefusedChainsText } from "./refusedTemplate";
+import { otherRefusedChainsText, unmodelledSiteText } from "./refusedTemplate";
+import type { StructureProvenance } from "./contracts";
 import {
   STRUCTURE_COLOUR_BANDS,
   THRESHOLDS,
@@ -65,8 +66,8 @@ export interface CoordinateProvenance {
   afdbVersion?: string | null;
   /** Where a kept experimental chain departs from UniProt ("D86G (engineered mutation)"). */
   sequenceDifferences?: string[] | null;
-  /** The experimental entry a mutating engine refused because it is not the wild type (or could not be verified as one). */
-  excludedExperimental?: { pdbId: string; chainId?: string | null; differences: string[]; unverified?: boolean; otherChainsRefused?: number } | null;
+  /** Why no experimental structure was used (refused chain, or none with coordinates at the residue). */
+  excludedExperimental?: StructureProvenance["excludedExperimental"] | null;
 }
 
 export type CoordinateOrigin =
@@ -151,6 +152,8 @@ export interface HomologLike {
   querySeqFrom?: number | null;
   querySeqTo?: number | null;
   coversPosition?: boolean | null;
+  /** PDBe: the entry has coordinates at the variant residue; false when its range spans the site without them. */
+  modelsPosition?: boolean | null;
   source?: "pdbe" | "rcsb" | null;
   directMapping?: boolean | null;
 }
@@ -328,6 +331,25 @@ export interface Notice {
   body: string;
 }
 
+/** How an entry stands to the variant residue, from its aligned or mapped range and PDBe's coordinates. */
+function siteCover(position: number | null, range: [number, number] | null, modelsPosition: boolean | null | undefined): ExperimentalRow["coversSite"] {
+  if (position === null) return "unknown";
+  if (modelsPosition === true) return "yes";
+  const spans = range ? position >= range[0] && position <= range[1] : null;
+  if (spans === false) return "no";
+  if (modelsPosition === false) return "unmodelled";
+  return spans ? "spans" : "unknown";
+}
+
+/**
+ * The same for a template the server loaded. An "experimental" template is a chain verified to carry the
+ * wild-type residue at the site; any other is read from its residue range alone.
+ */
+function templateCover(position: number | null, source: string | null | undefined, extent: [number, number] | null): ExperimentalRow["coversSite"] {
+  const fromRange = siteCover(position, extent, undefined);
+  return position !== null && source === "experimental" && fromRange !== "no" ? "yes" : fromRange;
+}
+
 export interface ExperimentalRow {
   pdbId: string;
   title: string | null;
@@ -336,7 +358,11 @@ export interface ExperimentalRow {
   resolution: string | null;
   identity: string;
   range: string | null;
-  coversSite: "yes" | "no" | "unknown";
+  /**
+   * "yes": the model has coordinates at the site. "spans": the entry's range includes it, coordinates
+   * not checked. "unmodelled": no coordinates there, per PDBe. "no": the range excludes the site.
+   */
+  coversSite: "yes" | "spans" | "unmodelled" | "no" | "unknown";
   loaded: boolean;
   url: string;
   source: "pdbe" | "rcsb" | "template";
@@ -508,6 +534,35 @@ function methodLine(prov: CoordinateProvenance | null | undefined): string | nul
   return parts.length ? parts.join(" · ") : null;
 }
 
+type Refusal = NonNullable<StructureProvenance["excludedExperimental"]>;
+
+/** The AlphaFold identity line's "used because …" clause. */
+function refusedUsedBecause(refused: Refusal): string {
+  if ("unmodelledResidue" in refused) return `used because ${unmodelledSiteText(refused)}`;
+  const chain = `${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""}`;
+  return refused.unverified
+    ? `used because ${chain} could not be checked against UniProt`
+    : `used because ${chain} is not the wild type: ${refused.differences.join(", ")}`;
+}
+
+/** The notice that a mutating engine's template is not an experimental structure, and why. */
+function excludedTemplateNotice(refused: Refusal, templateName: string): Notice {
+  const used = `FoldX and the ΔΔG engines used ${templateName} instead.`;
+  const base = { key: "excluded-template", tone: "info" as const };
+  if ("unmodelledResidue" in refused) {
+    return { ...base, title: "No solved structure shows this residue", body: `No experimental structure was used: ${unmodelledSiteText(refused)}. ${used}` };
+  }
+  const chain = `${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""}`;
+  if (refused.unverified) {
+    return { ...base, title: "The experimental entry could not be verified as the wild type", body: `${chain} could not be checked against UniProt (the sequence was unavailable), so a mutating engine will not build on it. ${used}` };
+  }
+  return {
+    ...base,
+    title: "The experimental entry is not the wild type",
+    body: `${chain} differs from UniProt at ${refused.differences.join(", ")}, so a mutating engine cannot build on it. ${otherRefusedChainsText(refused)}${refused.otherChainsRefused ? " " : ""}${used}`,
+  };
+}
+
 /** The structure a provenance record names, as the wild type or as a FoldX template. */
 export function identifyFromProvenance(
   prov: CoordinateProvenance | null | undefined,
@@ -527,12 +582,8 @@ export function identifyFromProvenance(
       kind: "AlphaFold DB predicted model, full length",
       detail: [
         version ? `AlphaFold DB ${version}` : "AlphaFold DB version not reported",
-        refused
-          ? refused.unverified
-            ? `used because ${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""} could not be checked against UniProt`
-            : `used because ${refused.pdbId}${refused.chainId ? `:${refused.chainId}` : ""} is not the wild type: ${refused.differences.join(", ")}`
-          : null,
-        refused ? otherRefusedChainsText(refused) : null,
+        refused ? refusedUsedBecause(refused) : null,
+        refused && "pdbId" in refused ? otherRefusedChainsText(refused) : null,
       ].filter(Boolean).join(" · "),
       href: acc ? `https://alphafold.ebi.ac.uk/entry/${acc}` : null,
       channel: plddtChannel(100, "AlphaFold"),
@@ -1076,16 +1127,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
    * Said on its own line: the choice of template is an input to every ΔΔG on the Energetics tab.
    */
   const refusedTemplate = foldx.template?.excludedExperimental ?? null;
-  if (refusedTemplate) {
-    notices.push({
-      key: "excluded-template",
-      tone: "info",
-      title: refusedTemplate.unverified ? "The experimental entry could not be verified as the wild type" : "The experimental entry is not the wild type",
-      body: refusedTemplate.unverified
-        ? `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} could not be checked against UniProt (the sequence was unavailable), so a mutating engine will not build on it. FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`
-        : `${refusedTemplate.pdbId}${refusedTemplate.chainId ? `:${refusedTemplate.chainId}` : ""} differs from UniProt at ${refusedTemplate.differences.join(", ")}, so a mutating engine cannot build on it. ${otherRefusedChainsText(refusedTemplate)}${refusedTemplate.otherChainsRefused ? " " : ""}FoldX and the ΔΔG engines used ${foldxTemplate?.name ?? "the AlphaFold model"} instead.`,
-    });
-  }
+  if (refusedTemplate) notices.push(excludedTemplateNotice(refusedTemplate, foldxTemplate?.name ?? "the AlphaFold model"));
   if (foldxTemplate && comparison.canvasWildTypeIsNotTemplate && effectiveMode !== "wildtype") {
     notices.push({
       key: "template",
@@ -1224,8 +1266,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     if (!pdbId || seenRowIds.has(pdbId)) continue;
     seenRowIds.add(pdbId);
     const hasRange = typeof h.querySeqFrom === "number" && typeof h.querySeqTo === "number";
-    const covers: ExperimentalRow["coversSite"] =
-      position !== null && hasRange ? (position >= h.querySeqFrom! && position <= h.querySeqTo! ? "yes" : "no") : "unknown";
+    const covers = siteCover(position, hasRange ? [h.querySeqFrom!, h.querySeqTo!] : null, h.modelsPosition);
     const numericId = typeof h.identity === "number" && Number.isFinite(h.identity) ? h.identity : null;
     const numericRes = typeof h.resolution === "number" && Number.isFinite(h.resolution) ? h.resolution : null;
     metaById.set(pdbId, { identity: numericId, resolution: numericRes });
@@ -1262,12 +1303,9 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       Number.isFinite(extent.firstResidue) &&
       typeof extent.lastResidue === "number" &&
       Number.isFinite(extent.lastResidue);
-    const covers: ExperimentalRow["coversSite"] =
-      position !== null && hasExtent
-        ? position >= extent!.firstResidue && position <= extent!.lastResidue
-          ? "yes"
-          : "no"
-        : "unknown";
+    const range: [number, number] | null = hasExtent ? [extent!.firstResidue, extent!.lastResidue] : null;
+    // Only the FoldX template is known to be verified; another loaded entry is read from its range.
+    const covers = isFoldxTpl ? templateCover(position, prov.source, range) : siteCover(position, range, undefined);
     return {
       meta: { identity: numericId, resolution: numericRes },
       row: {
@@ -1300,14 +1338,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         typeof foldx.templateExtent.lastResidue === "number" &&
         Number.isFinite(foldx.templateExtent.lastResidue);
       const updatedRange = existing.range ?? (hasExtent ? `${foldx.templateExtent!.firstResidue}–${foldx.templateExtent!.lastResidue}` : null);
-      const updatedCovers: ExperimentalRow["coversSite"] =
-        existing.coversSite !== "unknown"
-          ? existing.coversSite
-          : position !== null && hasExtent
-            ? position >= foldx.templateExtent!.firstResidue && position <= foldx.templateExtent!.lastResidue
-              ? "yes"
-              : "no"
-            : "unknown";
+      const templateExtentRange: [number, number] | null = hasExtent ? [foldx.templateExtent!.firstResidue, foldx.templateExtent!.lastResidue] : null;
+      const fromTemplate = templateCover(position, foldx.template.source, templateExtentRange);
+      // The verified template's own coordinates settle it; otherwise the entry's reading stands.
+      const updatedCovers = fromTemplate === "yes" || existing.coversSite === "unknown" ? fromTemplate : existing.coversSite;
       const updated: ExperimentalRow = {
         ...existing,
         isFoldxTemplate: true,
@@ -1341,9 +1375,12 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
 
   const bestCandidates = rows
     .map(row => ({ row, m: metaById.get(row.pdbId) ?? { identity: null, resolution: null } }))
-    .filter(({ row, m }) => row.coversSite === "yes" && (row.directMapping || typeof m.identity === "number"));
+    .filter(({ row, m }) => (row.coversSite === "yes" || row.coversSite === "spans") && (row.directMapping || typeof m.identity === "number"));
   const isDirectTier = (r: ExperimentalRow, m: { identity: number | null }) => r.directMapping || m.identity === 100;
   bestCandidates.sort((a, b) => {
+    // An entry known to have coordinates at the site before one whose range only spans it.
+    const confirmedDiff = Number(b.row.coversSite === "yes") - Number(a.row.coversSite === "yes");
+    if (confirmedDiff !== 0) return confirmedDiff;
     const dirDiff = Number(isDirectTier(b.row, b.m)) - Number(isDirectTier(a.row, a.m));
     if (dirDiff !== 0) return dirDiff;
     const tplDiff = Number(b.row.isFoldxTemplate) - Number(a.row.isFoldxTemplate);

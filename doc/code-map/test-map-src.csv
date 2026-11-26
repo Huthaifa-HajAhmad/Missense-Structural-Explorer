@@ -499,6 +499,7 @@ src/shared/reportRender.ts,client,src/shared/__tests__/reportDocument.test.ts;sr
 src/shared/researchGuides.ts,client,src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/methodCitations.test.ts;src/components/evidence/__tests__/burialBandsSingleSource.test.ts;src/components/inspector/__tests__/EvidenceRailRouting.test.tsx;src/components/knowledge/__tests__/ContextualCoverage.test.tsx;src/components/knowledge/__tests__/researchGuides.test.ts
 src/shared/residueAlignment.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/residueContextEvidence.ts,client,src/components/evidence/__tests__/describeStructureSource.test.ts;src/shared/__tests__/molecularWorkspace.test.ts;src/shared/__tests__/residueContextEvidence.test.ts
+src/shared/residueCoverage.ts,client,server/services/external-api/pdbe-coverage.test.ts
 src/shared/residueFocus.ts,client,src/shared/__tests__/residueFocus.test.ts
 src/shared/residueRegions.ts,client,src/shared/__tests__/residueRegions.test.ts
 src/shared/residueScales.ts,client,src/shared/__tests__/molecularWorkspace.test.ts;src/shared/__tests__/residueContextEvidence.test.ts

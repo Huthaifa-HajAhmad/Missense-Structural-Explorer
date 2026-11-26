@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry, extractChainFromPdb, fetchVerifiedExperimentalChain } from "./structure-fetcher.ts";
+import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry, extractChainFromPdb, fetchVerifiedExperimentalChain, fetchBestPdbStructure, selectionWasIncomplete, selectionRefusal } from "./structure-fetcher.ts";
+import { clearResidueCoverageCache } from "../external-api/pdbe-coverage.ts";
 import { pdbCache, afUrlCache, bestPdbCache } from "../infra/cache.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { uniprotSeqCache } from "../external-api/uniprot.ts";
@@ -558,6 +559,64 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
     const homologs = await fetchPdbHomologs("P99902", 50);
     expect(homologs.map(h => h.pdbId)).toEqual(["8JQI"]);
     expect(pdbCache.has("homologs_v4_P99902_pos_50")).toBe(false);
+  });
+});
+
+// Audit F3/F4 (doc/PDB_RESIDUE_COVERAGE_AUDIT.md): PDBe's `unp_start..unp_end` is the construct's span, not
+// the residues with coordinates. ABCG1's five cryo-EM entries all span 1-678 and none models Gly358.
+describe("an entry whose range covers the site but has no coordinates there", () => {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  const row = (pdb_id: string, resolution: number) => ({ pdb_id, chain_id: "A", experimental_method: "Electron Microscopy", resolution, tax_id: 9606, unp_start: 1, unp_end: 678, start: 1, end: 678, coverage: 1 });
+  const unipdb = (entries: Array<[string, Array<[number, number, "Y" | "N"]>]>) => ({
+    P45844: { length: 678, data: entries.map(([id, ranges]) => ({ accession: id, dataType: "bestChain", residues: ranges.map(([startIndex, endIndex, observed]) => ({ startIndex, endIndex, observed })) })) },
+  });
+  let calls: string[] = [];
+  const stub = (coverage: unknown) => {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes("uniprotkb")) return new Response(`>sp|P45844|ABCG1_HUMAN
+${"G".repeat(678)}`, { status: 200 });
+      if (u.includes("mappings/best_structures/P45844")) return json({ P45844: [row("7fdv", 3.26), row("7oz1", 4.0)] });
+      if (u.includes("uniprot/unipdb/P45844")) return coverage === null ? new Response("busy", { status: 503 }) : json(coverage);
+      return new Response("not found", { status: 404 });
+    }));
+  };
+  beforeEach(() => {
+    AnalysisDatabase.resetInstance(":memory:");
+    pdbCache.clear();
+    bestPdbCache.clear();
+    uniprotSeqCache.clear();
+    clearResidueCoverageCache();
+    vi.restoreAllMocks();
+  });
+
+  it("chooses no experimental chain, downloads none, and remembers the answer", async () => {
+    stub(unipdb([["7fdv", [[1, 347, "Y"], [348, 396, "N"], [397, 678, "Y"]]], ["7oz1", [[96, 345, "Y"], [398, 676, "Y"]]]]));
+    expect(await fetchBestPdbStructure("P45844", 358)).toBeNull();
+    expect(calls.some(u => u.includes("files.rcsb.org"))).toBe(false);
+    // A finished examination, not an outage: the answer is cached, so the next request asks nothing.
+    expect(selectionWasIncomplete("P45844", 358)).toBe(false);
+    // The model used instead says why, with the number of entries whose range spans the residue.
+    expect(selectionRefusal("P45844", 358)).toEqual({ unmodelledResidue: 358, entries: 2 });
+    calls = [];
+    expect(await fetchBestPdbStructure("P45844", 358)).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("marks each listed entry by whether it has coordinates at the site, those that do first", async () => {
+    stub(unipdb([["7fdv", [[1, 347, "Y"], [397, 678, "Y"]]], ["7oz1", [[96, 678, "Y"]]]]));
+    const homologs = await fetchPdbHomologs("P45844", 358);
+    expect(homologs.map(h => [h.pdbId, h.coversPosition, h.modelsPosition])).toEqual([["7OZ1", true, true], ["7FDV", true, false]]);
+  });
+
+  it("says nothing about coordinates when PDBe's coverage did not answer, and does not cache that list", async () => {
+    stub(null);
+    const homologs = await fetchPdbHomologs("P45844", 358);
+    expect(homologs[0]).toMatchObject({ pdbId: "7FDV", coversPosition: true });
+    expect(homologs[0].modelsPosition).toBeUndefined();
+    expect(pdbCache.get("homologs_v5_P45844_pos_358")).toBeUndefined();
   });
 });
 

@@ -268,4 +268,13 @@ describe("buildHotspotEvidence — the residue columns (accessibility, UniProt s
     expect(build(sod1, 5, "Ala5", { interfaces: { status: "unavailable", reason: "The assembly was not read.", byResidue: new Map() } }).columns.interface).toEqual({ state: "unavailable", reason: "The assembly was not read." });
     expect(build(sod1, 5, "Ala5").columns.interface.state).toBe("unavailable");
   });
+
+  // Audit F2: a residue no native structure has coordinates for is "not modelled", not "no interface".
+  it("counts the native structures that model each residue, and says nothing when coverage was not read", () => {
+    const modelledAt = (residue: number) => (residue === 4 ? 0 : 137);
+    const e = build(sod1, 5, "Ala5", { interfaces: { ...support, modelledAt } });
+    expect(rowOf(e, 4).interfaceModelled).toBe(0);
+    expect(rowOf(e, 7).interfaceModelled).toBe(137);
+    expect(rowOf(build(sod1, 5, "Ala5", { interfaces: support }), 4).interfaceModelled).toBeNull();
+  });
 });

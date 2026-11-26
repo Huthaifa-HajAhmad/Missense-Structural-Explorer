@@ -132,4 +132,4 @@ unlikely to settle the question.
 ### Not done
 - The LocalFold run itself still cannot be tested here (WebGPU).
 - PDBe gives one chain per entry; a heteromer whose two chains differ in what they model is read by that chain.
-- `nativeInterfaceSupport` (other residues, for other tabs) still divides by every structure of the pair; coverage is read for the queried residue only.
+- ~~`nativeInterfaceSupport` (other residues, for other tabs) still divides by every structure of the pair.~~ Fixed later: the payload now stores each entry's observed ranges (`experimental.coverage`); see doc/PDB_RESIDUE_COVERAGE_AUDIT.md.

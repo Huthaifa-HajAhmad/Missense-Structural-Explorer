@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { signedDdg, type EnergeticsEvidence, type EnergeticsReading } from "../../shared/energeticsEvidence";
 import type { EnergyUnit } from "../../shared/engineStatus";
 import { returnedEnergyEstimates } from "../../shared/energeticsComparison";
-import { otherRefusedChainsText } from "../../shared/refusedTemplate";
+import { otherRefusedChainsText, unmodelledSiteText } from "../../shared/refusedTemplate";
 
 /** Engines as a tally: one segment per engine, grouped by call, each name once. */
 const TALLY_GROUPS = [
@@ -114,7 +114,12 @@ export function StructureFact({ evidence }: { evidence: EnergeticsEvidence }) {
         reason, the screen says which entry and why, and links the model it used instead — the
         AlphaFold DB entry — rather than presenting the predicted template as if it were a crystal.
       */}
-      {s.excludedExperimental && (
+      {s.excludedExperimental && "unmodelledResidue" in s.excludedExperimental && (
+        <span className="nrg-fact__sub" data-testid="energetics-excluded-template">
+          No experimental structure was used: {unmodelledSiteText(s.excludedExperimental)}.
+        </span>
+      )}
+      {s.excludedExperimental && "pdbId" in s.excludedExperimental && (
         <span className="nrg-fact__sub" data-testid="energetics-excluded-template">
           {s.excludedExperimental.pdbId}
           {s.excludedExperimental.chainId ? `:${s.excludedExperimental.chainId}` : ""} was not used:{" "}

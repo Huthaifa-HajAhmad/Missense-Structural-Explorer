@@ -109,3 +109,25 @@ fallback then returned PDBe's first row, 9R2Q:K, the incomplete chain this rule 
   had named, so an engineered chain the rule refused could return as a "homolog" when AlphaFold was down.
 - Every chain choice carries the rule version (`STRUCTURE_SELECTION_VERSION`, now `select-v4`), which is
   also the resolver's memo key, so a choice remembered under an earlier rule is never reused.
+
+## Third amendment (2026-11-26; no FoldX value was used)
+
+A row's `unp_start`–`unp_end` is the construct's range, not the residues with coordinates. ABCG1's five
+cryo-EM entries range over 1–678 and none has coordinates for Gly358. Such rows never qualified, but they
+used up the 12-download cap, and when all of them failed the examination counted as incomplete and was
+repeated on every request. Change to the candidates (item 1 above):
+
+- A row is also left out when PDBe's observed ranges (`graph-api/uniprot/unipdb`, one best chain per
+  entry) show no coordinates at the position. In an entry with more than one chain of the protein, a row is
+  kept when the position is within 5 residues of one the best chain resolves, because another copy can
+  resolve it (`site-coverage.ts`; in 193 multi-chain entries of six proteins, no residue that only another
+  copy resolved lay further than 3 residues away).
+- When no row is left, the examination is complete: no experimental chain, remembered, and the model used
+  instead records `excludedExperimental` with the residue and the number of entries.
+- When PDBe's coverage does not answer, every row is a candidate, as before.
+- The memo key moves to `select-v5`.
+
+Eligibility, examination order, download cap and ranking are unchanged. Checked live against the previous
+code: TP53 p.Arg175His and p.Arg273His, FHIT p.Val95Ala, HBB p.Glu7Val, CNNM2 p.Glu357Gln and SCN1A
+p.Arg1648His give the same chosen chain (or the same AlphaFold fallback).
+

@@ -368,6 +368,59 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.experimental.best?.pdbId).toBe("1YOV");
   });
 
+  // Audit F3: ABCG1's five cryo-EM entries span 1-678, and none has coordinates for Gly358.
+  it("never says an entry covers the site when PDBe says it has no coordinates there", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      foldx: { ...baseInput().foldx, template: null },
+      homologs: [
+        { pdbId: "7FDV", directMapping: true, source: "pdbe", resolution: 3.26, identity: null, querySeqFrom: 1, querySeqTo: 678, modelsPosition: false },
+        { pdbId: "7OZ1", directMapping: true, source: "pdbe", resolution: 4.0, identity: null, querySeqFrom: 1, querySeqTo: 678, modelsPosition: true },
+      ],
+    }));
+    expect(m.experimental.rows.find(r => r.pdbId === "7FDV")?.coversSite).toBe("unmodelled");
+    expect(m.experimental.rows.find(r => r.pdbId === "7OZ1")?.coversSite).toBe("yes");
+    expect(m.experimental.best?.pdbId).toBe("7OZ1");
+  });
+
+  // Without PDBe's coverage (an outage, or a homolog it does not list) a spanning range is not "covers".
+  it("claims no coverage for a range it could not check against coordinates", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      foldx: { ...baseInput().foldx, template: null },
+      homologs: [{ pdbId: "7FDV", directMapping: true, source: "pdbe", resolution: 3.26, identity: null, querySeqFrom: 1, querySeqTo: 678 }],
+    }));
+    expect(m.experimental.rows[0].coversSite).toBe("spans");
+    expect(m.experimental.best?.pdbId).toBe("7FDV");
+  });
+
+  it("says the range does not cover the site before it says anything about coordinates", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      foldx: { ...baseInput().foldx, template: null },
+      homologs: [{ pdbId: "7FDV", directMapping: true, source: "pdbe", resolution: 3.26, identity: null, querySeqFrom: 400, querySeqTo: 678, modelsPosition: false }],
+    }));
+    expect(m.experimental.rows[0].coversSite).toBe("no");
+  });
+
+  // FoldX builds only on a chain verified to carry the wild-type residue at the site.
+  it("trusts the verified experimental template over PDBe's best chain", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      homologs: [{ pdbId: "1YOV", directMapping: true, source: "pdbe", resolution: 2.6, identity: null, querySeqFrom: 1, querySeqTo: 534, modelsPosition: false }],
+    }));
+    expect(m.experimental.rows.find(r => r.pdbId === "1YOV")?.coversSite).toBe("yes");
+  });
+
+  it("says why the AlphaFold model replaced experimental structures that do not show the residue", () => {
+    const refused = { unmodelledResidue: 358, entries: 5 };
+    const m = buildStructure3dEvidence(baseInput({
+      wildType: { ...baseInput().wildType, provenance: { source: "alphafold", afdbVersion: "v6", excludedExperimental: refused } },
+      foldx: { ...baseInput().foldx, template: { source: "alphafold", excludedExperimental: refused } },
+    }));
+    expect(m.canvas.primary?.detail).toContain("used because none of the 5 solved structures spanning residue 358 has coordinates for it");
+    const notice = m.notices.find(n => n.key === "excluded-template");
+    expect(notice?.title).toBe("No solved structure shows this residue");
+    expect(notice?.body).toContain("none of the 5 solved structures spanning residue 358 has coordinates for it");
+    expect(notice?.body).not.toMatch(/undefined|wild type/);
+  });
+
   it("does not compare an author-numbered entry position with the UniProt variant site", () => {
     const shifted = CRYSTAL_TEXT.replace(/ASP A 116/, "LEU A 116");
     const m = buildStructure3dEvidence(

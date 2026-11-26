@@ -3,11 +3,13 @@ import { Box, ExternalLink, Flame } from "lucide-react";
 import {
   HOTSPOT_GRADE_LABEL,
   HOTSPOT_LANE_LABEL,
+  HOTSPOT_NOT_MODELLED_NOTE,
   HOTSPOT_STATE_WORD,
   RSA_UNIT_NOTE,
   hotspotRowKey,
   hotspotRungKey,
   isHotspotSelectionKey,
+  isInterfaceUnmodelled,
   type HotspotEvidence,
   type HotspotRung,
   type RungKey,
@@ -216,13 +218,13 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
                     <td className="hsp-in hsp-col-text" title={cols.sites.state === "ok" ? undefined : none(cols.sites)}>
                       {cols.sites.state !== "ok" ? "—" : r.sites.length ? r.sites.map((x) => <span key={x.name} className="hsp-site">{x.name}<small> · {x.evidence}</small></span>) : "None"}
                     </td>
-                    <td className="hsp-in hsp-col-text" title={cols.interface.state === "ok" ? undefined : none(cols.interface)}>
+                    <td className="hsp-in hsp-col-text" title={cols.interface.state !== "ok" ? none(cols.interface) : isInterfaceUnmodelled(r) ? HOTSPOT_NOT_MODELLED_NOTE : undefined}>
                       {cols.interface.state !== "ok" ? "—" : r.interfaceSupport.length
                         ? <>
                             {r.interfaceSupport.slice(0, INTERFACES_SHOWN).map((x) => <span key={x.label} className="hsp-site">{x.label}<small> · {x.k}/{x.n}</small></span>)}
                             {r.interfaceSupport.length > INTERFACES_SHOWN && <span className="hsp-site"><small>+{r.interfaceSupport.length - INTERFACES_SHOWN} more</small></span>}
                           </>
-                        : "None"}
+                        : isInterfaceUnmodelled(r) ? "Not modelled" : "None"}
                     </td>
                     <td className="fnd-num">{r.pathprox === null ? "—" : `${r.pathprox >= 0 ? "+" : ""}${r.pathprox.toFixed(2)}`}</td>
                     <td className="hsp-in">{r.inRegions.length ? r.inRegions.map((k) => HOTSPOT_LANE_LABEL[k] ?? k).join(", ") : "—"}</td>
