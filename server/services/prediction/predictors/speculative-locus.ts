@@ -43,6 +43,7 @@ import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { normalizeGeneSymbol } from "../../infra/http-client.ts";
 import { toSingleAa } from "./normalizer.ts";
+import { sameGene } from "../../infra/gene-symbols.ts";
 import { verifiedPopulationCoordinate } from "./allele-identity.ts";
 
 export type SpeculativeLocusMode = "off" | "shadow" | "on";
@@ -73,7 +74,7 @@ export async function speculativeCoordinateLocus(
   if (speculativeLocusMode() === "off" || !coord || coord.assembly !== "GRCh38") return null;
   const aa = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
   if (!aa) return null;
-  const want = { gene: normalizeGeneSymbol(gene).trim().toUpperCase(), wt: toSingleAa(aa[1]), mut: toSingleAa(aa[3]), pos: parseInt(aa[2], 10) };
+  const want = { gene: normalizeGeneSymbol(gene), wt: toSingleAa(aa[1]), mut: toSingleAa(aa[3]), pos: parseInt(aa[2], 10) };
   if (!want.wt || !want.mut) return null;
 
   const lifted = await liftCoordinateToCanonical(coord).catch(() => null);
@@ -81,7 +82,7 @@ export async function speculativeCoordinateLocus(
   const reading = await queryLocalDbnsfpCoordinateReading(lifted.chrom, lifted.pos, lifted.ref, lifted.alt, want.gene).catch(() => null);
   if (!reading || reading.basis !== "mane") return null;
   const row = reading.record as typeof reading.record & { aaref?: string | null; aaalt?: string | null; transcript?: string | null };
-  if (!row.transcript || String(row.gene).trim().toUpperCase() !== want.gene) return null;
+  if (!row.transcript || !sameGene(String(row.gene), want.gene)) return null;
   if (row.aaref?.toUpperCase() !== want.wt.toUpperCase() || row.aaalt?.toUpperCase() !== want.mut.toUpperCase() || row.pos !== want.pos) return null;
 
   // The same lookup, and the same field, fetchPredictorData uses for canonicalEnsemblId.
