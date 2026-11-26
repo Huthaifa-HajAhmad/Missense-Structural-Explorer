@@ -1,6 +1,7 @@
 import type { BuildHint, CoordinateLiftRecord, NumberingChoice, NumberingRemapRecord, NonMissenseRefusal } from "../../shared/contracts";
 import { PDB_SOURCE_ALPHAFOLD } from "../../shared/contracts";
 import type { GenomeAssembly } from "../../shared/variantNotation";
+import { transcriptIdentity } from "../../shared/transcriptIdentity";
 
 /**
  * The structure step's result before it has run, or when a result carries none.
@@ -251,11 +252,8 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       disruptionPredictor: resResult.disruptionPredictor || { ...DISRUPTION_NOT_ASSESSED },
       uniprotFeatures: resResult.uniprotFeatures,
       gnomadConstraint: resResult.gnomadConstraint,
-      transcriptId: transcriptMeta?.transcriptId ?? resResult.predictorData?.transcriptId,
-      isManeSelect: transcriptMeta?.isManeSelect ?? resResult.predictorData?.isManeSelect,
-      isManePlusClinical: transcriptMeta?.isManePlusClinical ?? resResult.predictorData?.isManePlusClinical,
-      isCanonical: transcriptMeta?.isCanonical ?? resResult.predictorData?.isCanonical,
-      maneRefSeqId: transcriptMeta?.maneRefSeqId ?? resResult.predictorData?.maneRefSeqId,
+      // The modelled transcript, every field from that one transcript (never VEP's MANE RefSeq beside another id).
+      ...transcriptIdentity(transcriptMeta, resResult.predictorData),
       transcriptWarning: transcriptMeta?.transcriptWarning ?? resResult.transcriptWarning,
       // The server's numbering verification travels with the result, so an unverified numbering is
       // disclosed on screen and cited in the export instead of looking like a clean match.

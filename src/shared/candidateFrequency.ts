@@ -14,7 +14,7 @@
  * explain it (`frequencyEvidence.ts`), so the two cannot reach different verdicts. Pure.
  */
 import type { GnomadCandidateReading } from "./contracts.ts";
-import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, type FrequencyDecision, type FrequencyRuleInputs } from "./frequencyRule.ts";
+import { aouAlleleFrequency, decideFrequencyCriterion, gnomadRuleInputs, pm2Hold, singleRuleInput, type FrequencyDecision, type FrequencyRuleInputs, type Pm2Hold } from "./frequencyRule.ts";
 
 export interface CandidateDecision {
   candidate: GnomadCandidateReading;
@@ -52,6 +52,23 @@ export function decideCandidateFrequency(
   // allele the person carries. Anything else (PM2, or no criterion, beside a benign decision) does not.
   const allBenign = [...decisions].every(d => d === "BA1" || d === "BS1");
   return allBenign ? { kind: "agree", decision: "BS1", readings } : { kind: "mixed", readings };
+}
+
+/**
+ * PM2's holds (`pm2Hold`) across the candidates, each with its own homozygotes and All of Us reading.
+ * PM2 must hold for every candidate, so a hold on any one of them withholds it.
+ */
+export function candidatePm2Hold(readings: ReadonlyArray<CandidateDecision>, context: { ceiling: number; homozygotesInform: boolean }): Pm2Hold | null {
+  for (const reading of readings) {
+    if (!reading.inputs) continue;
+    const hold = pm2Hold(reading.inputs, {
+      ...context,
+      nHomozygous: reading.candidate.frequency?.nHomozygous,
+      aouAf: aouAlleleFrequency(reading.candidate.allOfUs?.frequency),
+    });
+    if (hold) return hold;
+  }
+  return null;
 }
 
 /** Whether gnomAD gave an answer for every candidate (a hit or a confirmed absence), not a failed or skipped query. */

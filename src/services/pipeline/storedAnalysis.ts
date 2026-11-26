@@ -1,4 +1,5 @@
 import { isBuildDegradedResult } from "../../shared/contracts";
+import { recordsHeldPm2 } from "../../shared/frequencyEvidence";
 import { hasReusableCoreEvidence } from "./resultMerge";
 import { shouldRunBiophysics } from "./biophysicsRetryPolicy";
 import { isFallbackNarrative, type CachedVariantBundle } from "./variantCache";
@@ -13,11 +14,13 @@ import type { PipelineBiophysicalSink, PipelineStructureSink } from "./types";
 
 /**
  * True when a saved result may be shown as the answer: its core finished, it is not an unanswered
- * refusal, and its evidence was built against a canonical reference. A result built against another
- * reference would keep an older coordinate and withheld population evidence on screen.
+ * refusal, its evidence was built against a canonical reference, and it counts no PM2 that today's rule
+ * withholds. A result built against another reference would keep an older coordinate and withheld
+ * population evidence on screen.
  */
 export function isServableStoredResult(result: unknown): boolean {
-  return hasReusableCoreEvidence(result) && !isBuildDegradedResult(result as Parameters<typeof isBuildDegradedResult>[0]);
+  return hasReusableCoreEvidence(result) && !isBuildDegradedResult(result as Parameters<typeof isBuildDegradedResult>[0])
+    && !recordsHeldPm2(result as Parameters<typeof recordsHeldPm2>[0]);
 }
 
 export type ResumableStage = "multimer" | "ppi" | "landscape" | "structural";

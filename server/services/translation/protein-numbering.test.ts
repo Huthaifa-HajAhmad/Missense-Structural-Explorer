@@ -305,6 +305,26 @@ describe("resolveAccessionedProteinNotation", () => {
   });
 });
 
+describe("buildProteinNumberingRemapWarning", () => {
+  const outcome = {
+    status: "remapped" as const, canonicalAccession: "P45844", canonicalVariant: "p.Gly358Arg",
+    basisId: "P45844-4", basisAccession: "NP_058198.2",
+  };
+
+  it("does not call a switch that kept the residue number a renumbering", () => {
+    const warning = buildProteinNumberingRemapWarning(outcome, "p.Gly358Arg");
+    expect(warning).not.toContain("numbering remapped");
+    expect(warning).toContain("residue number unchanged");
+    expect(warning).toContain("NP_058198.2 (isoform P45844-4)");
+  });
+
+  it("states a real renumbering", () => {
+    const warning = buildProteinNumberingRemapWarning({ ...outcome, canonicalVariant: "p.Gly370Arg" }, "p.Gly358Arg");
+    expect(warning).toContain("Protein numbering remapped");
+    expect(warning).toContain("p.Gly370Arg");
+  });
+});
+
 describe("resolveGeneProteinNumbering (bare protein notation + gene)", () => {
   let fetchSpy: any;
 
@@ -374,7 +394,8 @@ describe("resolveGeneProteinNumbering (bare protein notation + gene)", () => {
       canonicalAccession: "P00001",
       basisScope: "mane",
     });
-    expect(contested?.status).toBe("unverified");
+    // Accepted (the MANE pair agrees, which is the bare-notation scope), with the other reading kept as a note.
+    expect(contested?.status).toBe("canonical");
     expect(contested?.reason).toContain("P00001-3");
     expect(contested?.reason).toContain("different residue");
 
@@ -394,6 +415,39 @@ describe("resolveGeneProteinNumbering (bare protein notation + gene)", () => {
       basisScope: "mane",
     });
     expect(verified?.status).toBe("canonical");
+  });
+
+  it("does not refuse a position only a non-MANE isoform cannot locate", async () => {
+    /**
+     * ABCG1 (2026-11-25): positions where a non-MANE isoform carries the same residue but cannot be
+     * located on canonical were marked unverifiable, so typed input was refused with "lies where the
+     * MANE protein and canonical differ" although MANE and canonical agreed there. Here MANE differs
+     * from canonical only by an insertion after 300; isoform 3 replaces 101-110 with 12 other residues
+     * but keeps canonical Leu105, and its divergent block also leaves 76-100 without enough flank.
+     */
+    const canonical = ACOT9_CANONICAL;
+    const mane = withInsertion(canonical, 300, "G");
+    const block = canonical.slice(100, 110).split("").map((residue, i) => (i === 4 ? residue : "W")).join("") + "WW";
+    const other = canonical.slice(0, 100) + block + canonical.slice(110);
+    fetchSpy = installFetch({
+      fasta:
+        `>sp|P00001|TESTGENE_HUMAN
+${canonical}
+` +
+        `>sp|P00001-2|TESTGENE_HUMAN Isoform 2
+${mane}
+` +
+        `>sp|P00001-3|TESTGENE_HUMAN Isoform 3
+${other}
+`,
+      mane: { proteinId: "NP_000001.1", isoformId: "P00001-2" },
+    });
+
+    expect([canonical[104], canonical[89]]).toEqual(["L", "V"]);
+    for (const notation of ["p.Leu105Ala", "p.Val90Ala"]) {
+      const outcome = await resolveGeneProteinNumbering({ gene: "TESTGENE", notation, canonicalAccession: "P00001", basisScope: "mane" });
+      expect(outcome?.status, notation).toBe("canonical");
+    }
   });
 
   it("returns null (not an error) when UniProt cannot be reached, so callers keep working", async () => {

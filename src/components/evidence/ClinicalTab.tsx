@@ -439,8 +439,8 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span>
                 {disagreement.label} reports {formatAlleleFrequency(disagreement.af)},{" "}
-                {disagreement.ratio.toFixed(1)}× the frequency the rule read. The rule reads gnomAD only; a higher
-                figure elsewhere can mean the allele is enriched in a group this input dilutes. Context, not a criterion.
+                {disagreement.ratio.toFixed(1)}× the frequency the rule read. That frequency comes from gnomAD (All of Us can
+                only withhold PM2); a higher figure elsewhere can mean the allele is enriched in a group this input dilutes.
               </span>
             </p>
           )}

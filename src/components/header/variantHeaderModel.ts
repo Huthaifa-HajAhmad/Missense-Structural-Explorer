@@ -12,6 +12,7 @@ import { useMemo } from "react";
 import type { AnalysisResult } from "../../types";
 import { parseVariantCoordinate } from "../../shared/variantCoordinate";
 import { variantNumberingView } from "../../shared/numbering";
+import { transcriptIdentity } from "../../shared/transcriptIdentity";
 import { isFallbackLocus, locusFailureKind, locusRecoveryAction, fallbackCause, fallbackLocusShortLabel } from "../../shared/locusResolution";
 import { describeSplicePlacement } from "../../shared/splicingEvidence";
 import { buildConstraintMetrics, type VhMetric } from "./constraintMetrics";
@@ -89,14 +90,14 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
       : null;
 
   // ── Transcript and its tier ──
-  const transcriptId = result?.transcriptId ?? pred?.transcriptId ?? null;
-  const maneRefSeqId = result?.maneRefSeqId ?? pred?.maneRefSeqId ?? null;
-  const displayTranscript = maneRefSeqId?.trim() || transcriptId || null;
-  const tier = (result?.isManeSelect ?? pred?.isManeSelect)
+  const identity = transcriptIdentity(result, pred);
+  const transcriptId = identity.transcriptId ?? null;
+  const displayTranscript = identity.maneRefSeqId || transcriptId || null;
+  const tier = identity.isManeSelect
     ? { tone: "good" as const, label: "MANE Select", suffix: "MANE Select — clinical gold standard" }
-    : (result?.isManePlusClinical ?? pred?.isManePlusClinical)
+    : identity.isManePlusClinical
       ? { tone: "clay" as const, label: "MANE+Clin", suffix: "MANE Plus Clinical" }
-      : (result?.isCanonical ?? pred?.isCanonical)
+      : identity.isCanonical
         ? { tone: "warn" as const, label: "Ensembl Canonical", suffix: "Ensembl canonical transcript" }
         : { tone: "muted" as const, label: null, suffix: "alternative / fallback transcript" };
 

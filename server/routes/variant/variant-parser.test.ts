@@ -179,6 +179,22 @@ describe("analysis path — protein notation handling", () => {
     expect(String(maneCall![0])).not.toContain("xref_mane_select");
   });
 
+  it("accepts a position only a non-MANE isoform reads differently, and logs that reading", async () => {
+    // Q9Y305-2 (not MANE) also carries Lys at 31, which is canonical 30 there. The MANE pair agrees, so
+    // the residue is proven canonical-vs-MANE; refusing it would block a notation no lab numbers on -2.
+    fetchSpy = installFetch();
+
+    const { context, statusCode } = await parse({ gene: "ACOT9", variant: "p.Lys31Ala", uniprotId: "Q9Y305" });
+
+    expect(statusCode).toBe(200);
+    expect(context?.numberingAudit).toMatchObject({
+      numberingBasis: "canonical",
+      numberingVerified: true,
+      numberingProof: "canonical-vs-mane",
+    });
+    expect(context?.numberingAudit?.numberingReason).toContain("Q9Y305-2");
+  });
+
   it("accepts a forwarded coordinate ONLY with a declared, parseable build (unmapping reviews H-2/L-3/L-10)", async () => {
     fetchSpy = installFetch();
 

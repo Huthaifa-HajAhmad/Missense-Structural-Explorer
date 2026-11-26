@@ -878,6 +878,24 @@ describe("Analysis Orchestrator Unit Tests", () => {
   });
 });
 
+describe("isStaleCachedPayload — PM2 holds", () => {
+  const payload = (codes: string[]) => ({
+    gnomadFrequency: { maxAF: 0.0004, groupMaxAF: 0.0004, genomeAF: 0.0004, exomeAF: null, nHomozygous: 6, dataset: "gnomad_r4" },
+    serviceStatus: { gnomadFrequency: "ok" },
+    predictorData: { gnomadVariantId: "21-42287987-G-A", gnomadVariantAssembly: "GRCh38" },
+    gnomadConstraint: { pli: 0 },
+    ruleBasedInsights: { acmgCriteria: codes.map(code => ({ code })) },
+  });
+
+  it("recomputes a row that still counts a PM2 today's rule withholds", () => {
+    expect(isStaleCachedPayload(payload(["PM2"]))).toBe(true);
+  });
+
+  it("keeps the recomputed row", () => {
+    expect(isStaleCachedPayload(payload([]))).toBe(false);
+  });
+});
+
 describe("isStaleCachedPayload — SpliceAI window", () => {
   const payload = (source: string | null, distanceBp: number | null) => ({
     conservationData: {

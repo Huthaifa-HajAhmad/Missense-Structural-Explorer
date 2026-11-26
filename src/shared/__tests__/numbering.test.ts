@@ -81,6 +81,47 @@ describe("variantNumberingView", () => {
   });
 });
 
+describe("variantNumberingView: isoform switch with the same residue number", () => {
+  // ABCG1: the MANE protein (P45844-4) and canonical P45844-1 both put Gly at 358, so VEP's remap to
+  // the canonical counterpart keeps the number. It is an isoform switch, not a renumbering.
+  const abcg1 = {
+    variant: "p.Gly358Arg",
+    uniprotId: "P45844",
+    numberingRemap: {
+      reason: "the reported protein's numbering follows a non-canonical UniProt isoform",
+      from: { hgvsp: "ENSP00000381467.3:p.Gly358Arg", transcriptId: "ENST00000398449", isoform: "P45844-4", maneRefSeqId: "NM_016818.3" },
+      to: { hgvsp: "ENSP00000354995.2:p.Gly358Arg", transcriptId: "ENST00000361802", isoform: "P45844-1" },
+    },
+  };
+
+  it("is not called a renumbering, but says the isoform changed", () => {
+    const view = variantNumberingView(abcg1);
+    expect(view.remapped).toBe(false);
+    expect(view.isoformSwitched).toBe(true);
+    expect(view.display).toBe("p.Gly358Arg");
+    expect(view.basisNote).toBe("Reported as p.Gly358Arg on P45844-4 (NM_016818.3) — same residue number on canonical P45844.");
+  });
+
+  it("is not an isoform switch when both sides name the same isoform", () => {
+    const view = variantNumberingView({
+      ...abcg1,
+      numberingRemap: { ...abcg1.numberingRemap, from: { ...abcg1.numberingRemap.from, isoform: "P45844-1" } },
+    });
+    expect(view.isoformSwitched).toBe(false);
+    expect(view.basisNote).toBeNull();
+  });
+
+  it("is a renumbering, not a switch, when the number changed", () => {
+    const view = variantNumberingView({
+      variant: "p.Lys272Asn",
+      uniprotId: "Q9Y305",
+      numberingRemap: { from: { hgvsp: "p.Lys281Asn", isoform: "Q9Y305-4" }, to: { hgvsp: "p.Lys272Asn", isoform: "Q9Y305-1" } },
+    });
+    expect(view.remapped).toBe(true);
+    expect(view.isoformSwitched).toBe(false);
+  });
+});
+
 describe("stripAccessionPrefix", () => {
   it("removes a protein prefix and leaves a bare notation alone", () => {
     expect(stripAccessionPrefix("ENSP00000368605.5:p.Lys281Asn")).toBe("p.Lys281Asn");

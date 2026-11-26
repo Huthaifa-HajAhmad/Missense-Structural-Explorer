@@ -6,9 +6,11 @@
 import React from "react";
 import type { CandidateAlleleRow } from "../../shared/candidateFrequencyEvidence";
 import { formatAlleleFrequency } from "../../shared/frequencyEvidence";
+import { pm2HoldReason } from "../../shared/frequencyRule";
 import { InspectReadingButton } from "./EvidenceWorkspace";
 
-function DecisionChip({ decision }: { decision: CandidateAlleleRow["decision"] }) {
+function DecisionChip({ decision, pm2Hold }: Pick<CandidateAlleleRow, "decision" | "pm2Hold">) {
+  if (pm2Hold) return <span className="pop-dim" title={pm2HoldReason(pm2Hold)}>PM2 withheld</span>;
   if (decision === null) return <span className="pop-dim">No reading</span>;
   if (decision === "none") return <span className="pop-dim">No criterion</span>;
   return (
@@ -27,7 +29,7 @@ function HeaderCell({ label, detail, className }: { label: string; detail: strin
   );
 }
 
-/** One allele's All of Us frequency, or which absence it is. Display only: it feeds no criterion. */
+/** One allele's All of Us frequency, or which absence it is. It counts only to withhold PM2. */
 function AllOfUsCell({ reading }: { reading: CandidateAlleleRow["allOfUs"] }) {
   if (!reading) return <span className="pop-dim">—</span>;
   if (reading.af !== null) return <span title={reading.counts ? `AC / AN ${reading.counts}` : undefined}>{formatAlleleFrequency(reading.af)}</span>;
@@ -50,7 +52,7 @@ export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
             <th scope="col">Candidate allele</th>
             <HeaderCell className="pop-num" label="gnomAD AC / AN" detail="allele count over allele number, across gnomAD exomes and genomes" />
             <HeaderCell className="pop-num" label="gnomAD AF" detail="the frequency PM2 reads for this allele: gnomAD's grouped maximum" />
-            {showAllOfUs && <HeaderCell className="pop-num" label="All of Us AF" detail="from the local store; it feeds no criterion" />}
+            {showAllOfUs && <HeaderCell className="pop-num" label="All of Us AF" detail="from the local store; above the PM2 ceiling it can withhold PM2" />}
             <HeaderCell label="Supports" detail="what this allele's own reading supports" />
           </tr>
         </thead>
@@ -72,7 +74,7 @@ export function CandidateAlleleTable({ rows }: { rows: CandidateAlleleRow[] }) {
               <td className="pop-num">{row.counts ?? <span className="pop-dim">—</span>}</td>
               <td className="pop-num pop-num--af">{row.af !== null ? formatAlleleFrequency(row.af) : <span className="pop-dim">—</span>}</td>
               {showAllOfUs && <td className="pop-num"><AllOfUsCell reading={row.allOfUs} /></td>}
-              <td><DecisionChip decision={row.decision} /></td>
+              <td><DecisionChip decision={row.decision} pm2Hold={row.pm2Hold} /></td>
             </tr>
           ))}
         </tbody>
@@ -94,7 +96,7 @@ export function CandidateAlleleList({ rows }: { rows: CandidateAlleleRow[] }) {
           <span className="pop-mono">{row.af === null ? "no reading" : row.af === 0 ? "no record" : formatAlleleFrequency(row.af)}</span>
           {row.allOfUs?.af != null && <> · All of Us <span className="pop-mono">{formatAlleleFrequency(row.allOfUs.af)}</span></>}
           {" "}
-          <DecisionChip decision={row.decision} />
+          <DecisionChip decision={row.decision} pm2Hold={row.pm2Hold} />
         </li>
       ))}
     </ul>

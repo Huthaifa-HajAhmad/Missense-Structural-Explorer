@@ -50,7 +50,12 @@ export interface VariantNumberingView {
   modelled: string;
   /** True when the reported numbering differs from the modelled one. */
   remapped: boolean;
-  /** One-line basis statement for the report/export, or null when nothing was remapped. */
+  /**
+   * True when the report used a different isoform but the residue kept its number on the canonical one
+   * (ABCG1 Gly358 on P45844-4 is Gly358 on P45844-1). This is not a renumbering, so no surface may call it one.
+   */
+  isoformSwitched: boolean;
+  /** One-line basis statement for the report/export, or null when the basis did not change. */
   basisNote: string | null;
 }
 
@@ -81,14 +86,19 @@ export function variantNumberingView(input: {
   const reportedBasisId = remapped ? (from?.isoform ?? from?.accession ?? null) : null;
   const reportedQualified = remapped && reported && reportedBasisId ? `${reportedBasisId}:${reported}` : null;
 
+  const toIsoform = input.numberingRemap?.to?.isoform;
+  const isoformSwitched = !remapped && Boolean(reported && from?.isoform && toIsoform && from.isoform !== toIsoform);
+  const canonical = input.uniprotId ?? toIsoform;
+  const mane = from?.maneRefSeqId ? ` (${from.maneRefSeqId})` : "";
+
   const basisNote =
     remapped && reported
-      ? `Reported as ${reported}${
-          reportedBasisId ? ` on ${reportedBasisId}` : ""
-        }${from?.maneRefSeqId ? ` (${from.maneRefSeqId})` : ""} — modelled as ${modelled}${
+      ? `Reported as ${reported}${reportedBasisId ? ` on ${reportedBasisId}` : ""}${mane} — modelled as ${modelled}${
           input.uniprotId ? ` on canonical ${input.uniprotId}` : ""
         }.`
-      : null;
+      : isoformSwitched
+        ? `Reported as ${reported} on ${from!.isoform}${mane} — same residue number on canonical ${canonical}.`
+        : null;
 
   return {
     display: remapped && reported ? reported : modelled,
@@ -99,6 +109,7 @@ export function variantNumberingView(input: {
     reportedRefSeqId: remapped ? (from?.maneRefSeqId ?? null) : null,
     modelled,
     remapped,
+    isoformSwitched,
     basisNote,
   };
 }

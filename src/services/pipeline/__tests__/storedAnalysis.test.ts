@@ -82,6 +82,20 @@ describe("showing a saved analysis without starting a run", () => {
   });
 });
 
+describe("a saved analysis scored under an older PM2 rule", () => {
+  it("is run again instead of shown", () => {
+    const stale = result({
+      gnomadFrequency: { maxAF: 0.0004, groupMaxAF: 0.0004, genomeAF: 0.0004, exomeAF: null, nHomozygous: 6, dataset: "gnomad_r4" },
+      serviceStatus: { gnomadFrequency: "ok" },
+      predictorData: { gnomadVariantId: "21-42287987-G-A", gnomadVariantAssembly: "GRCh38" },
+      gnomadConstraint: { pli: 0 },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PM2" }] },
+    });
+    expect(isServableStoredResult(stale)).toBe(false);
+    expect(isServableStoredResult({ ...stale, ruleBasedInsights: { acmgCriteria: [] } })).toBe(true);
+  });
+});
+
 describe("resuming only the enrichment a saved result did not finish", () => {
   it("resumes nothing when every stage arrived", () => {
     expect(stagesToResume(result())).toEqual([]);

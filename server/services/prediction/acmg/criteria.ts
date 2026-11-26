@@ -4,14 +4,14 @@ import {
   REGIONAL_MISSENSE_SOURCE,
 } from "../../../../src/shared/thresholds.ts";
 import type { ClinVarData } from "../../external-api/clinvar.ts";
-import type { PredictorData, ConservationData, GnomadCandidateReading } from "../../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, GnomadCandidateReading, AouFrequencyData } from "../../../../src/shared/contracts.ts";
 import type { GnomadVariantFrequency, GnomadGeneConstraint } from "../../external-api/gnomad.ts";
 import type { UniprotFeaturesResult } from "../../external-api/uniprot.ts";
 import { isNullVariant, isInFrameIndel, isIndelInRepeatRegion } from "./syntax.ts";
 import type { ACMGItem } from "./classifier.ts";
 import { assessPm1, featureCoversResidue } from "../../../../src/shared/functionalSites.ts";
 import { classifyClinvar } from "../../../../src/shared/clinvarClassification.ts";
-import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, BS1_NOT_APPLIED_REASON, BS2_NOT_APPLIED_REASON, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
+import { aouAlleleFrequency, decideFrequencyCriterion, gnomadRuleInputs, pm2Hold, pm2HoldReason, singleRuleInput, STATISTIC_LABEL, BS1_NOT_APPLIED_REASON, BS2_NOT_APPLIED_REASON, type FrequencyRuleInputs } from "../../../../src/shared/frequencyRule.ts";
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
 import type { CuratedLofMechanism } from "../../../../src/shared/lofMechanismBasis.ts";
 import { candidateFrequencyCriteria } from "./candidate-frequency.ts";
@@ -60,6 +60,11 @@ export interface ACMGEvidenceInput {
    * Required before awarding PVS1 so pLI >= 0.9 alone never assigns PVS1 to non-LOF/uncurated genes.
    */
   curatedLofMechanism?: CuratedLofMechanism | null;
+  /**
+   * The All of Us reading bound to this exact allele (the payload's top-level `aouFrequency`), or null.
+   * PM2 is withheld when it is above the ceiling (`pm2Hold`).
+   */
+  aouFrequency?: AouFrequencyData | null;
   acmgWeighting?: "standard" | "conservative" | "strict-structural";
   uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null;
   sequence?: string | null;
@@ -91,7 +96,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     sequence = null,
     serviceStatus = null,
     curatedInheritance = null,
-    curatedLofMechanism = null
+    curatedLofMechanism = null,
+    aouFrequency = null
   } = input;
   const criteria: ACMGItem[] = [];
 
@@ -235,6 +241,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     typeof value === "number" && Number.isFinite(value) ? value : null;
 
   const gnomadInputs = gnomadRuleInputs(gnomadFrequency);
+  // Whether homozygote counts are the right genotype here; read by PM2's hold and by BS2 below.
+  const bs2Genotype = homozygotesInformBs2({ variantId: predictorData?.gnomadVariantId ?? null, inheritance: curatedInheritance });
   const candidateReadings = gnomadFrequency?.candidates?.length ? gnomadFrequency.candidates : null;
 
   if (isGnomadWithheld) {
@@ -301,7 +309,14 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       // frequency: shown, not counted (see BS1_COUNTED_AUTOMATICALLY). The reading stays on the payload.
       unavailable.push(`BS1 (not applied: ${BS1_NOT_APPLIED_REASON}; ${benignName} ${pct(ruleInputs.benignAf, 3)} > ${pct(FREQ.tooCommonForDisorder, 1)})`);
     } else if (decision === "PM2" && !skipPathogenicComp) {
-      criteria.push({
+      const hold = pm2Hold(ruleInputs, {
+        ceiling: ceiling.ceiling,
+        nHomozygous: gnomadFrequency?.nHomozygous,
+        homozygotesInform: bs2Genotype.applies,
+        aouAf: aouAlleleFrequency(aouFrequency),
+      });
+      if (hold) unavailable.push(`PM2 (withheld: ${pm2HoldReason(hold)})`);
+      else criteria.push({
         code: "PM2",
         reason: `Variant is extremely rare in population databases (${pm2Name} ${(ruleInputs.pm2Af * 100).toFixed(4)}% ≤ ${(ceiling.ceiling * 100).toFixed(2)}% app-defined threshold: ${ceiling.text})${fallbackSuffix}${combinedSuffix}. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).`,
       });
@@ -317,7 +332,6 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
    * needs, and it used to be read anyway. BS2 also assumes full penetrance at an early age, which no
    * source here curates; the surfaces state that caveat.
    */
-  const bs2Genotype = homozygotesInformBs2({ variantId: predictorData?.gnomadVariantId ?? null, inheritance: curatedInheritance });
   if (
     gnomadFrequency &&
     gnomadFrequency.nHomozygous !== null &&

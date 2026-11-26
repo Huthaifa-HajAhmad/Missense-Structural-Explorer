@@ -340,6 +340,15 @@ function canonicalIsoformIdOf(
   return ids.find((id) => isCanonicalIsoformId(id, canonicalAccession)) ?? ids[0];
 }
 
+/** Disclosure for an isoform switch that kept the residue number: nothing was renumbered. */
+export function buildUnchangedNumberWarning(fromLabel: string, toLabel: string): string {
+  return (
+    `Reference protein mapped to the canonical sequence (residue number unchanged): ${fromLabel} → ${toLabel}. ` +
+    "The protein these numbers were reported on is not the UniProt canonical sequence; the residue has the " +
+    "same number on the canonical sequence, which is the one the analysis below models."
+  );
+}
+
 /**
  * User-facing disclosure for a remap. States both notations and why they differ, because the
  * analysed variant is no longer the one a MANE-based clinical report would name.
@@ -355,6 +364,9 @@ export function buildIsoformRemapWarning(
     maneRefSeqId ? `, ${maneRefSeqId}` : ""
   }`;
   const toLabel = `${toHgvsp}${toIsoform ? ` (isoform ${toIsoform})` : ""}`;
+  // The same residue number on both proteins is an isoform switch, not a renumbering.
+  const bare = (hgvsp: string) => hgvsp.slice(hgvsp.indexOf(":") + 1);
+  if (bare(fromHgvsp) === bare(toHgvsp)) return buildUnchangedNumberWarning(fromLabel, toLabel);
   return (
     `Protein numbering remapped for structural analysis: ${fromLabel} → ${toLabel}. ` +
     // NOT "the MANE Select protein": the numbering basis that needed remapping is the protein the

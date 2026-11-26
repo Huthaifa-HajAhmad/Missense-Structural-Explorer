@@ -62,7 +62,7 @@ src/components/energetics/useEnergeticsEvidence.ts,client,
 src/components/evidence/AlphaGenomeGuide.tsx,component,
 src/components/evidence/AlphaGenomeTab.tsx,component,src/components/evidence/__tests__/AlphaGenomeTab.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx
 src/components/evidence/CandidateAlleles.tsx,component,
-src/components/evidence/ClinicalTab.tsx,component,src/components/__tests__/ClinicalTab.test.tsx;src/components/__tests__/candidateAlleles.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx
+src/components/evidence/ClinicalTab.tsx,component,src/components/__tests__/ClinicalTab.test.tsx;src/components/__tests__/candidateAlleles.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx
 src/components/evidence/ContextCharts.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/ContextExplorer.tsx,component,
 src/components/evidence/ContextFigures.tsx,component,
@@ -174,7 +174,7 @@ src/components/inspector/LiteratureExportSection.tsx,component,
 src/components/inspector/LiteratureInspector.tsx,component,src/components/__tests__/LiteratureView.test.tsx;src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts
 src/components/inspector/NarrativeProvenanceRow.tsx,component,src/components/inspector/__tests__/InsightsInspector.provenance.test.tsx
 src/components/inspector/PinHeader.tsx,component,
-src/components/inspector/PopulationRail.tsx,component,src/components/__tests__/candidateAlleles.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/__tests__/PopulationRail.buildProvenance.test.tsx
+src/components/inspector/PopulationRail.tsx,component,src/components/__tests__/candidateAlleles.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/__tests__/PopulationRail.buildProvenance.test.tsx
 src/components/inspector/PredictorsRail.tsx,component,src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/PredictorsRail.test.tsx
 src/components/inspector/RailParts.tsx,component,
 src/components/inspector/ReportInspector.tsx,component,src/components/inspector/__tests__/ReportInspector.test.tsx
@@ -392,9 +392,10 @@ src/shared/energeticsEvidence.ts,client,src/components/__tests__/EnergeticsView.
 src/shared/engineStatus.ts,client,server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/thresholds.test.ts
 src/shared/europePmcBudgets.ts,client,
 src/shared/evidenceAvailability.ts,client,src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts
-src/shared/evidenceComparison.ts,client,src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/candidateScores.test.ts;src/test/evidenceComparison.test.ts
+src/shared/evidenceComparison.ts,client,src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/candidateScores.test.ts;src/test/evidenceComparison.test.ts
 src/shared/evidenceContextIdentity.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/shared/__tests__/evidenceContextIdentity.test.ts
 src/shared/evidenceKeys.ts,client,src/components/evidence/__tests__/EvidenceContextPrefetch.test.tsx;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/hooks/useEvidenceContext.test.ts
+src/shared/evidenceStageStatus.ts,client,
 src/shared/evidenceTabProgress.ts,client,src/shared/__tests__/conservationProgress.test.ts
 src/shared/evidenceTabs.ts,client,src/components/inspector/__tests__/EvidenceRailRouting.test.tsx
 src/shared/explanationTeaching.ts,client,src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/explanationTeaching.test.ts
@@ -406,11 +407,11 @@ src/shared/fetch-retry.ts,client,src/shared/__tests__/fetch-retry.test.ts
 src/shared/foldxPhase.ts,client,src/shared/__tests__/foldxPhase.test.ts;src/shared/__tests__/jobPlacement.test.ts
 src/shared/foldxRepairBenchmark.generated.ts,client,src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts
 src/shared/foldxRepairMode.ts,client,server/services/stability/foldx/runner-repair-cache.test.ts;src/shared/__tests__/computeRouting.test.ts;src/shared/__tests__/foldxHowToRead.test.ts
-src/shared/frequencyEvidence.ts,client,src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/frequencyEvidence.ts,client,src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/frequencyEvidence.pm2Holds.test.ts;src/shared/__tests__/frequencyEvidence.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/frequencyFormat.ts,client,
-src/shared/frequencyRule.ts,client,src/shared/__tests__/frequencyRule.test.ts
+src/shared/frequencyRule.ts,client,src/shared/__tests__/frequencyEvidence.pm2Holds.test.ts;src/shared/__tests__/frequencyRule.test.ts
 src/shared/functionEvidence.ts,client,src/components/evidence/function/__tests__/architectureLayout.gzf1.test.ts;src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/functionEvidence.test.ts;src/shared/__tests__/functionEvidenceGzf1.test.ts;src/shared/__tests__/functionEvidenceSod1.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
-src/shared/functionEvidenceInput.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/functionEvidence.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
+src/shared/functionEvidenceInput.ts,client,src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts;src/shared/__tests__/functionEvidence.test.ts;src/shared/__tests__/functionEvidenceInput.numbering.test.ts;src/shared/__tests__/molecularWorkspace.test.ts
 src/shared/functionalSites.ts,client,src/shared/__tests__/functionEvidenceSod1.test.ts;src/shared/__tests__/functionalSites.test.ts
 src/shared/geminiCredentials.ts,client,src/shared/__tests__/workflowStatus.restingState.test.ts
 src/shared/geneDiseaseEvidence.ts,client,src/shared/__tests__/geneDiseaseEvidence.test.ts;src/test/contextWorkspace.test.ts
@@ -422,7 +423,7 @@ src/shared/hpa.ts,client,server/services/evidence-context/phenotypesHpa.test.ts
 src/shared/hpoAnnotation.ts,client,server/services/evidence-context/hpo.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/httpBody.ts,client,src/shared/__tests__/httpBody.test.ts
 src/shared/inheritanceBasis.ts,client,src/shared/__tests__/frequencyRule.test.ts
-src/shared/insightsEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/insights/__tests__/InsightsScreen.audit.test.tsx;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/insightsEvidence.test.ts;src/shared/__tests__/reportDocument.test.ts;src/shared/__tests__/reportDocumentStatements.test.ts
+src/shared/insightsEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/insights/__tests__/InsightsScreen.audit.test.tsx;src/components/report/__tests__/exportDocx.test.ts;src/components/report/__tests__/exportPptx.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/insightsEvidence.test.ts;src/shared/__tests__/reportDocument.test.ts;src/shared/__tests__/reportDocumentStatements.test.ts
 src/shared/insightsSnapshot.ts,client,src/components/__tests__/insightsSnapshot.parity.test.ts
 src/shared/insilico/primaryPredictor.ts,client,src/shared/__tests__/primaryPredictor.test.ts;src/shared/__tests__/vcepRules.test.ts
 src/shared/insilico/spliceGate.ts,client,
@@ -525,6 +526,7 @@ src/shared/thresholds/constants.ts,client,src/shared/__tests__/frequencyEvidence
 src/shared/thresholds/evaluators.ts,client,src/shared/__tests__/splicingEvidence.test.ts
 src/shared/thresholds/index.ts,barrel,src/shared/thresholds/stringConfidence.test.ts;src/shared/thresholds/thresholds-modules.test.ts
 src/shared/timeouts.ts,client,server/services/orchestration/analysis-orchestrator.test.ts;server/tests/foldx-timeout-budget.test.ts;server/tests/ppi-timeout-budget.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/api/__tests__/streamHeartbeat.test.ts;src/api/__tests__/structuralStream.test.ts;src/components/evidence/__tests__/InterfacesTab.test.tsx;src/services/pipeline/__tests__/biophysicsRetryPolicy.test.ts;src/services/pipeline/__tests__/interfacesPrefetch.test.ts;src/services/pipeline/__tests__/workflowOrchestrator.test.ts
+src/shared/transcriptIdentity.ts,client,src/shared/__tests__/transcriptIdentity.test.ts
 src/shared/uniprotAccession.ts,client,
 src/shared/variantCoordinate.ts,client,src/shared/__tests__/variantCoordinate.test.ts
 src/shared/variantLocus.ts,client,src/shared/__tests__/variantLocus.test.ts
@@ -533,7 +535,7 @@ src/shared/variantQuery.ts,client,src/shared/__tests__/variantQuery.test.ts
 src/shared/variantStyles.ts,client,src/shared/__tests__/variantStyles.test.ts
 src/shared/verifiedResidue.ts,client,src/shared/__tests__/verifiedResidue.test.ts
 src/shared/viewMarks.ts,client,src/shared/__tests__/viewMarks.test.ts
-src/shared/workflowStatus.ts,client,src/shared/__tests__/conservationProgress.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/shared/__tests__/pipelineReadiness.test.ts;src/shared/__tests__/workflowStatus.hardening.test.ts;src/shared/__tests__/workflowStatus.restingState.test.ts;src/shared/__tests__/workflowStatus.sidecars.test.ts;src/shared/__tests__/workflowStatus.test.ts
+src/shared/workflowStatus.ts,client,src/shared/__tests__/conservationProgress.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts;src/shared/__tests__/pipelineReadiness.test.ts;src/shared/__tests__/workflowStatus.hardening.test.ts;src/shared/__tests__/workflowStatus.partialOutcomes.test.ts;src/shared/__tests__/workflowStatus.restingState.test.ts;src/shared/__tests__/workflowStatus.sidecars.test.ts;src/shared/__tests__/workflowStatus.test.ts
 src/stores/diagnosticsStore.ts,client,src/stores/__tests__/diagnosticsStore.firstReading.test.ts
 src/stores/models.ts,client,
 src/stores/reportDraftStorage.ts,client,src/components/__tests__/reportDraftPersistence.test.ts;src/components/inspector/__tests__/ReportInspector.test.tsx

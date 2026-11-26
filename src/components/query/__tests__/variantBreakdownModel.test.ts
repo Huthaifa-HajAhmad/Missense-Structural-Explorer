@@ -137,6 +137,43 @@ describe("variant breakdown, provenance", () => {
     expect(cell(cells, "numbering")).toMatchObject({ value: "Renumbered", sub: "reported p.Lys281Asn, modelled p.Lys272Asn" });
   });
 
+  it("does not call an isoform switch that kept the residue number a renumbering", () => {
+    // ABCG1 p.Gly358Arg: reported on the MANE protein P45844-4, modelled on canonical P45844-1, both at 358.
+    const switched = {
+      ...resolved, numberingBasis: "remapped",
+      metadata: { ...resolved.metadata, gene: "ABCG1", variant: "p.Gly358Arg", uniprotId: "P45844", residueIndex: 358 },
+      numberingRemap: {
+        from: { hgvsp: "ENSP00000381467.3:p.Gly358Arg", isoform: "P45844-4", maneRefSeqId: "NM_016818.3" },
+        to: { hgvsp: "ENSP00000354995.2:p.Gly358Arg", isoform: "P45844-1" },
+      },
+    } as unknown as AnalysisResult;
+    const { cells } = buildVariantBreakdown({ typed: { gene: "ABCG1", change: "p.Gly358Arg", uniprot: "" }, result: switched, settled: true });
+    expect(cell(cells, "numbering")).toMatchObject({
+      value: "Canonical",
+      sub: "same number as on P45844-4",
+      tag: { label: "verified", tone: "good" },
+    });
+  });
+
+  it("never pairs the MANE RefSeq id with the canonical transcript that was modelled", () => {
+    // ABCG1: modelled on canonical ENST00000361802; VEP's record is the MANE transcript ENST00000398449 / NM_016818.3.
+    const abcg1 = {
+      ...resolved,
+      metadata: { ...resolved.metadata, gene: "ABCG1", variant: "p.Gly358Arg", uniprotId: "P45844", residueIndex: 358 },
+      transcriptId: "ENST00000361802", maneRefSeqId: undefined, isManeSelect: false, isCanonical: true,
+      predictorData: { ...resolved.predictorData, transcriptId: "ENST00000398449", maneRefSeqId: "NM_016818.3", isManeSelect: true },
+      numberingBasis: "remapped",
+      numberingRemap: {
+        from: { hgvsp: "ENSP00000381467.3:p.Gly358Arg", transcriptId: "ENST00000398449", isoform: "P45844-4", maneRefSeqId: "NM_016818.3" },
+        to: { hgvsp: "ENSP00000354995.2:p.Gly358Arg", transcriptId: "ENST00000361802", isoform: "P45844-1" },
+      },
+    } as unknown as AnalysisResult;
+    const { cells } = buildVariantBreakdown({ typed: { gene: "ABCG1", change: "p.Gly358Arg", uniprot: "" }, result: abcg1, settled: true });
+    expect(cell(cells, "transcript")).toMatchObject({
+      value: "ENST00000361802", sub: "reported on NM_016818.3", tag: { label: "Ensembl Canonical", tone: "warn" },
+    });
+  });
+
   it("flags unverified numbering with the server's reason", () => {
     const unverified = { ...resolved, numberingBasis: "unverified", numberingVerified: false, numberingUnverifiedReason: "provider stated no protein accession" } as unknown as AnalysisResult;
     const { cells } = buildVariantBreakdown({ typed, result: unverified, settled: true });

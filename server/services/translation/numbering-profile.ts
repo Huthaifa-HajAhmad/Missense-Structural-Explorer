@@ -79,8 +79,9 @@ export interface NumberingProfile {
    */
   contested: NumberingAmbiguity[];
   /**
-   * Positions where the two proteins carry the SAME residue but the second reading could not be
-   * located (it lies inside the region where the proteins differ).
+   * Positions where canonical and the MANE protein carry the SAME residue but the MANE reading could
+   * not be located (it lies inside the region where the proteins differ). Other isoforms are not
+   * counted: a bare notation is resolved canonical-vs-MANE.
    *
    * Without this list the position would fall out of `ambiguous` and be answered "verified canonical"
    * — i.e. an unchecked position reported as a checked one, which is how a bare notation came to be
@@ -105,7 +106,7 @@ export interface NumberingProfile {
  * wrong while the shape is identical (it was — the affix fix changes findings, not fields), and such a
  * row would otherwise be served for its full TTL.
  */
-export const NUMBERING_PROFILE_BUILD_VERSION = 3;
+export const NUMBERING_PROFILE_BUILD_VERSION = 4;
 
 /** UniProt releases move isoform sets; a month is the same horizon as the other UniProt caches. */
 export const NUMBERING_PROFILE_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -196,9 +197,11 @@ export function buildNumberingProfile(params: {
         position,
       });
       if (mapped.status !== "mapped") {
-        // The same residue, and this reading could not be located: NOT proof that only the canonical
-        // reading fits. Recorded so the caller answers "unverified" instead of "verified".
-        unverifiable.add(position);
+        // The same residue, and the MANE reading could not be located: NOT proof that only the
+        // canonical reading fits. Recorded so the caller answers "unverified" instead of "verified".
+        // Only the MANE basis counts: a bare notation is resolved canonical-vs-MANE, and counting other
+        // isoforms here refused about a third of ABCG1 with a reason that blamed the MANE protein.
+        if (isManeBasis) unverifiable.add(position);
         continue;
       }
       if (isManeBasis) coincidencesChecked++;

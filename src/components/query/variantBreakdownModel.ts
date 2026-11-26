@@ -17,6 +17,7 @@ import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { variantNumberingView } from "../../shared/numbering";
 import { parseVariantCoordinate, type VariantCoordinate } from "../../shared/variantCoordinate";
 import { buildVariantHeaderModel } from "../header/variantHeaderModel";
+import { sameTranscript, transcriptIdentity } from "../../shared/transcriptIdentity";
 import { buildAssemblyLiftNote } from "../inspector/assemblyLiftNote";
 import { fallbackLocusShortLabel, locusFailureKind } from "../../shared/locusResolution";
 
@@ -108,8 +109,13 @@ export function buildVariantBreakdown({ typed, result, settled }: BreakdownInput
   const tierTag = transcript?.tier.label
     ? { label: transcript.tier.label, tone: transcript.tier.tone === "warn" ? "warn" as const : "muted" as const }
     : null;
-  const ensembl = result?.transcriptId ?? null;
-  const transcriptSub = transcript && ensembl && transcript.id !== ensembl ? `Ensembl ${ensembl}` : null;
+  const ensembl = transcript ? transcriptIdentity(result, result?.predictorData).transcriptId ?? null : null;
+  // After an isoform switch the lab's MANE RefSeq belongs to the reported transcript, not the modelled one.
+  const reportedFrom = result?.numberingRemap?.from;
+  const reportedRefSeq = reportedFrom?.maneRefSeqId && !sameTranscript(reportedFrom.transcriptId, ensembl) ? reportedFrom.maneRefSeqId : null;
+  const transcriptSub = transcript && ensembl && transcript.id !== ensembl
+    ? `Ensembl ${ensembl}`
+    : reportedRefSeq && reportedRefSeq !== transcript?.id ? `reported on ${reportedRefSeq}` : null;
 
   /** Why a finished run has no coordinate, in the header's short words (e.g. "Several candidate alleles"). */
   const gapKind = settled && !header?.coordinate ? locusFailureKind(result) : null;
@@ -137,7 +143,15 @@ export function buildVariantBreakdown({ typed, result, settled }: BreakdownInput
     ? variantNumberingView({ variant: meta.variant, uniprotId: meta.uniprotId, numberingRemap: result?.numberingRemap ?? null })
     : null;
   const basis = result?.numberingBasis;
-  const numberingCell = basis === "remapped" || numbering?.remapped
+  // A `remapped` basis with no remap record left to compare is shown as it was stored.
+  const renumbered = numbering?.remapped || (basis === "remapped" && !numbering?.isoformSwitched);
+  const numberingCell = numbering?.isoformSwitched
+    ? make("numbering", "Numbering", "Canonical", {
+        sub: `same number as on ${result?.numberingRemap?.from?.isoform}`,
+        title: numbering.basisNote,
+        tag: { label: "verified", tone: "good" },
+      })
+    : renumbered
     ? make("numbering", "Numbering", "Renumbered", {
         sub: numbering?.reported ? `reported ${numbering.reported}, modelled ${numbering.modelled}` : null,
         title: numbering?.basisNote ?? null,

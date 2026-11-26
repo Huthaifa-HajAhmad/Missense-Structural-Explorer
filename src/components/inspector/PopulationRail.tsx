@@ -4,6 +4,7 @@ import { buildPopulationComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, Dna, ExternalLink, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds";
+import { pm2HoldReason } from "../../shared/frequencyRule";
 import {
   aouSourceLabel,
   formatAlleleFrequency,
@@ -11,6 +12,7 @@ import {
   populationReading, frequencyEvidenceForResult } from "../../shared/frequencyEvidence";
 import { gnomadGroupLabel, GRPMAX_GROUPS } from "../../shared/gnomadGroups";
 import { variantNumberingView } from "../../shared/numbering";
+import { transcriptIdentity } from "../../shared/transcriptIdentity";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import { clinvarAccessionNote, formatClinicalDate } from "../evidence/population/populationFormat";
@@ -95,11 +97,12 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   const supportsCode = criterion.code === "PM2" || criterion.code === "BS1" || criterion.code === "BA1";
 
   // ── Lineage ──
-  const transcriptId = analysisResult.transcriptId ?? analysisResult.predictorData?.transcriptId ?? null;
-  const isManeSelect = analysisResult.isManeSelect ?? analysisResult.predictorData?.isManeSelect ?? false;
-  const isManePlusClinical = analysisResult.isManePlusClinical ?? analysisResult.predictorData?.isManePlusClinical ?? false;
-  const isCanonical = analysisResult.isCanonical ?? analysisResult.predictorData?.isCanonical ?? false;
-  const maneRefSeqId = analysisResult.maneRefSeqId ?? analysisResult.predictorData?.maneRefSeqId ?? null;
+  const transcript = transcriptIdentity(analysisResult, analysisResult.predictorData);
+  const transcriptId = transcript.transcriptId ?? null;
+  const isManeSelect = transcript.isManeSelect ?? false;
+  const isManePlusClinical = transcript.isManePlusClinical ?? false;
+  const isCanonical = transcript.isCanonical ?? false;
+  const maneRefSeqId = transcript.maneRefSeqId ?? null;
   const transcriptWarning = analysisResult.transcriptWarning ?? analysisResult.predictorData?.transcriptWarning ?? null;
   // The build the coordinate is expressed in — never assumed (the GRCh37 fallback exists).
   const genomicAssembly = analysisResult.predictorData?.gnomadVariantAssembly ?? null;
@@ -218,11 +221,14 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               ) : criterion.code === "withheld" ? (
                 "Withheld"
               ) : criterion.code === "none" ? (
-                "No criterion — between cut-points"
+                criterion.pm2Hold ? "No criterion" : "No criterion — between cut-points"
               ) : (
                 "Not classified"
               )}
             </span>
+            {criterion.pm2Hold && applied.code !== "PM2" && (
+              <span className="rail-step__sub" data-testid="pm2-withheld">PM2 withheld: {pm2HoldReason(criterion.pm2Hold)}.</span>
+            )}
             {/* BS2 is the other population criterion. "None recorded" alone hid a recorded BS2. */}
             {bs2Info.recorded && (
               <span className="rail-step__sub" data-testid="bs2-recorded">
