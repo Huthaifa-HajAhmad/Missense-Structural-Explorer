@@ -242,7 +242,7 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
           </table>
           </div>
         ) : (
-          <p className="hsp-state">{ev.distribution?.status === "ok" ? "ClinVar lists no germline P/LP missense variant in this protein." : "ClinVar could not be read, so the absence of P/LP residues is not established."}</p>
+          <p className="hsp-state">{ev.variantsWithheld ? "No residue is listed, because the variant positions are withheld." : ev.distribution?.status === "ok" ? "ClinVar lists no germline P/LP missense variant in this protein." : "ClinVar could not be read, so the absence of P/LP residues is not established."}</p>
         )}
         {ev.rows.length > ROWS_DEFAULT && (
           <button type="button" className="fnd-more__btn hsp-more" aria-expanded={allRows} onClick={() => setAllRows(!allRows)}>
@@ -299,6 +299,7 @@ function HotspotMap({
       d?.gnomad.map((g) => (
         <i
           key={g.pos}
+          aria-hidden="true"
           style={{ left: `${Math.min(100 - w, Math.max(0, ((g.pos - 1) / Math.max(1, L - 1)) * 100))}%`, width: `${w}%`, height: `${(g.variants / maxGn) * 100}%` }}
           title={`${g.pos}: ${g.variants} gnomAD missense`}
         />
@@ -309,6 +310,9 @@ function HotspotMap({
   const spatial = rungs.find((r) => r.key === "spatial" && r.state === "read");
   const scores = spatial ? ev.rows : [];
   const variantPct = pct(ev.residue);
+  // An empty lane says why it is empty: read and empty, not read, or withheld for numbering.
+  const laneEmpty = (count: number | undefined, none: string) =>
+    count ? null : <span className="hsp-map__empty">{ev.variantsWithheld ? "Withheld: numbering differs from the model" : d?.status === "ok" ? none : "Not read"}</span>;
   return (
     <figure className="hsp-map" aria-label={`Germline variants along ${L} residues with hot-spot definitions; the variant at ${ev.residue}`}>
       <div className="hsp-map__plot">
@@ -321,7 +325,8 @@ function HotspotMap({
         </div>
         <div className="hsp-map__row hsp-map__row--up">
           <span className="hsp-map__label" title="ClinVar P/LP missense per residue (germline)">ClinVar P/LP</span>
-          <div className="hsp-map__lane" role="group" aria-label="ClinVar P/LP missense counts per residue">
+          <div className="hsp-map__lane" role="group" aria-label="ClinVar P/LP missense counts per residue" data-testid="hotspot-lane-plp">
+            {laneEmpty(d?.plp.length, "None in ClinVar")}
             {d?.plp.map((p) => {
               const rowKey = hotspotRowKey(p.pos);
               return (
@@ -352,9 +357,9 @@ function HotspotMap({
             })}
           </div>
         </div>
-        <div className="hsp-map__row hsp-map__row--down" aria-hidden="true">
+        <div className="hsp-map__row hsp-map__row--down">
           <span className="hsp-map__label" title="gnomAD v4 missense variants per residue">gnomAD</span>
-          <div className="hsp-map__lane">{gnomadBars}</div>
+          <div className="hsp-map__lane">{laneEmpty(d?.gnomad.length, "None in gnomAD")}{gnomadBars}</div>
         </div>
         {lanes.map((r) => {
           const rungKey = hotspotRungKey(r.key);

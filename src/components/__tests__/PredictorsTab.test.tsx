@@ -123,8 +123,18 @@ describe("PredictorsTab", () => {
     renderTab(gzf1());
     fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const ref = screen.getByTestId("predictor-primary-row");
-    const edges = Array.from(ref.querySelectorAll(".prd-ruler__cut")).map(n => n.textContent);
-    expect(edges).toEqual(expect.arrayContaining(["0.644", "0.29"]));
+    const labels = Array.from(ref.querySelectorAll<HTMLElement>(".prd-ruler__cut"));
+    // REVEL's edges in value order, all to the published three decimals; the two BP4 edges near
+    // zero share one label instead of stacking under the axis.
+    expect(labels.map(n => n.textContent)).toEqual(["0.003 · 0.016", "0.183", "0.290", "0.644", "0.773", "0.932"]);
+    // One row of labels, left to right, each starting after the one before.
+    const lefts = labels.map(n => parseFloat(n.style.left));
+    expect(labels.every(n => n.style.top === "")).toBe(true);
+    expect(lefts).toEqual([...lefts].sort((a, b) => a - b));
+    expect(new Set(lefts).size).toBe(lefts.length);
+    // Every edge keeps its own tick at its true place on the axis.
+    const ticks = Array.from(ref.querySelectorAll<HTMLElement>(".prd-ruler__edge")).map(n => parseFloat(n.style.left));
+    expect(ticks).toEqual([0.3, 1.6, 18.3, 29, 64.4, 77.3, 93.2].map(v => expect.closeTo(v, 5)));
   });
 
   it("states the finding once, and marks an unconfirmed code as unconfirmed", () => {

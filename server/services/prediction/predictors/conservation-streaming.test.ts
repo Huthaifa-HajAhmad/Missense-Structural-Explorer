@@ -101,7 +101,7 @@ describe("conservation models stream independently", () => {
 
   it("publishes GATA4 popEVE before the genomic and base lookups finish", async () => {
     const predictor = deferred<any>();
-    mocks.popeveOnline.mockResolvedValue(-3.376);
+    mocks.popeveOnline.mockResolvedValue({ score: -3.376, protein: "NP_002043.2", substitution: "S159C", match: "displayed" });
     mocks.local.mockResolvedValue({ revel: 0.786, metarnn: 0.73214996, esm1b: -5.5976105, eigenPhred: 4.822350978851318, popeve: null });
     const snapshots: ConservationData[] = [];
     const final = fetchConservationDataProgressive({
@@ -116,9 +116,41 @@ describe("conservation models stream independently", () => {
     predictor.resolve({ gnomadVariantId: "8-11708788-C-G", gnomadVariantAssembly: "GRCh38" });
     const result = await final;
     expect(result.popeve).toBe(-3.376);
+    // The source travels with the score, so the tab can say which protein popEVE scored.
+    expect(result.popeveSource).toEqual({ protein: "NP_002043.2", substitution: "S159C", match: "displayed" });
     expect(result).not.toHaveProperty("metarnn");
     expect(result.esm1b).toBe(-5.5976105);
     expect(mocks.popeveOnline).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers popEVE's own answer to dbNSFP's column, and never shows the column first", async () => {
+    const online = deferred<any>();
+    mocks.popeveOnline.mockReturnValue(online.promise);
+    mocks.local.mockResolvedValue({ revel: 0.5, popeve: -4.4, transcript: "ENST00000646891" });
+    const snapshots: ConservationData[] = [];
+    const final = fetchConservationDataProgressive({
+      gene: "BRAF", variant: "p.Val600Glu", pos: 600, uniprotId: "P15056",
+      predictorPromise: Promise.resolve({ gnomadVariantId: "7-140753336-A-T", gnomadVariantAssembly: "GRCh38" }),
+      onPartial: s => snapshots.push(s),
+    });
+    await vi.waitFor(() => expect(snapshots.at(-1)?.revel).toBe(0.5));
+    expect(snapshots.at(-1)?.popeve).toBeNull();
+    expect(snapshots.at(-1)?.modelStatus?.popeve).toBe("pending");
+    online.resolve({ score: -4.382, protein: "NP_004324.2", substitution: "V600E", match: "displayed" });
+    const result = await final;
+    expect(result.popeve).toBe(-4.382);
+    expect(result.popeveSource).toEqual({ protein: "NP_004324.2", substitution: "V600E", match: "displayed" });
+  });
+
+  it("falls back to dbNSFP's column, labelled with its transcript, when popEVE has no answer", async () => {
+    mocks.popeveOnline.mockResolvedValue(null);
+    mocks.local.mockResolvedValue({ revel: 0.5, popeve: -4.4, transcript: "ENST00000646891" });
+    const result = await fetchConservationDataProgressive({
+      gene: "BRAF", variant: "p.Val600Glu", pos: 600, uniprotId: "P15056",
+      predictorPromise: Promise.resolve({ gnomadVariantId: "7-140753336-A-T", gnomadVariantAssembly: "GRCh38" }),
+    });
+    expect(result.popeve).toBe(-4.4);
+    expect(result.popeveSource).toMatchObject({ match: "dbnsfp", transcript: "ENST00000646891" });
   });
 
   it("withholds the frozen dbNSFP SpliceAI score until the live lookup has answered", async () => {

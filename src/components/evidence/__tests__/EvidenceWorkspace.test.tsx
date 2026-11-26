@@ -103,7 +103,11 @@ describe('Evidence workspace interactions', () => {
   it('keeps missing features inspectable and distinguishes them from a returned zero', () => {
     render(<Fixture />);
     fireEvent.click(screen.getByRole('button', { name: /ATAC-seq Not attributed/ }));
-    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Missing does not mean zero');
+    const card = screen.getByRole('region', { name: 'Selected evidence reading' });
+    expect(card).toHaveTextContent('Missing does not mean zero');
+    // The notes are the reading's own facts, not a generic "how to interpret" guide behind a fold.
+    expect(card).not.toHaveTextContent('How to interpret this reading');
+    expect(card.querySelector('details')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Clear pin' }));
     expect(screen.getByLabelText('View state')).toHaveTextContent('None');
   });

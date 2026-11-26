@@ -1398,6 +1398,22 @@ export type ConservationModelState = z.infer<typeof conservationModelStateSchema
 export const CONSERVATION_MODEL_KEYS = ["base", "scorecons", "spliceai", "spliceProximity", "alphagenome", "popeve"] as const;
 export type ConservationModelKey = (typeof CONSERVATION_MODEL_KEYS)[number];
 
+/**
+ * Which protein and substitution popEVE scored. popEVE scores one protein per gene, not always
+ * UniProt's main isoform, so the residue number can differ from the query (ABCG1 Gly358 is G369 on
+ * NP_997057.1). `displayed`: the main isoform's own file. `dna`: popEVE's GRCh38 file, matched on the
+ * exact DNA change. `other-isoform`: another isoform's file, the residue renumbered by its neighbourhood.
+ * `dbnsfp`: dbNSFP's popEVE column, used only when popEVE's own lookup gave nothing. It names no
+ * protein, so `transcript` records the Ensembl transcript of the dbNSFP row it was read from.
+ */
+export const popEveSourceSchema = z.object({
+  protein: z.string().nullable(),
+  substitution: z.string().nullable(),
+  match: z.enum(["displayed", "dna", "other-isoform", "dbnsfp"]),
+  transcript: z.string().nullable().optional(),
+});
+export type PopEveSource = z.infer<typeof popEveSourceSchema>;
+
 export const conservationDataSchema = z.object({
   available: z.boolean().optional(),
   revel: z.number().nullable(),
@@ -1417,6 +1433,8 @@ export const conservationDataSchema = z.object({
   esm1b: z.number().nullable().optional(),
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
+  /** Where `popeve` came from; null when there is no score, or on a result saved before this was recorded. */
+  popeveSource: popEveSourceSchema.nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),

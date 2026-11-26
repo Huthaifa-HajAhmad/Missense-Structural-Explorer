@@ -7,7 +7,8 @@ vi.mock("./splice_resolver.ts", () => ({ fetchTranscriptExons: vi.fn() }));
 
 import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
 import { fetchTranscriptExons } from "./splice_resolver.ts";
-import { classifyClinvar, fetchLandscapeContext, missenseResidue, parseClinvar, parseGnomad } from "./landscape-context.ts";
+import { fetchRegionalConstraint } from "./regional-constraint.ts";
+import { classifyClinvar, fetchGeneMissenseRows, fetchLandscapeContext, missenseResidue, parseClinvar, parseGnomad } from "./landscape-context.ts";
 
 describe("landscape context parsing", () => {
   it("reads only missense HGVS", () => {
@@ -157,6 +158,89 @@ describe("landscape context parsing", () => {
     expect(ctx.regionsStatus).toBe("unavailable");
     expect(ctx.regionsBasis).toContain("v4.1.1");
     expect(ctx.errors.length).toBe(3);
+    spy.mockRestore();
+  });
+});
+
+/**
+ * ABCG1 is the case that broke: gnomAD's gene-level rows are on ENST00000398449 (666 residues), while the run
+ * models ENST00000361802 (678 residues, UniProt P45844). From residue 375 the two number the same amino acid
+ * 12 apart, so rows must be read on the run's own transcript.
+ */
+describe("fetchGeneMissenseRows — which transcript the rows are numbered on", () => {
+  const reply = (data: unknown) => ({ ok: true, json: async () => ({ data }) }) as any;
+  const bodyOf = (call: unknown[]) => JSON.parse(String((call[1] as { body: string }).body));
+  const TX_ROWS = { transcript_id: "ENST00000361802", clinvar_variants: [{ hgvsp: "p.Gly358Arg" }], variants: [] };
+
+  it("reads on the requested transcript, without its version, and names that transcript", async () => {
+    const spy = vi.spyOn(global, "fetch").mockImplementation(async (_url, init) =>
+      reply(String((init as { body: string }).body).includes("transcript(") ? { transcript: TX_ROWS } : { gene: { canonical_transcript_id: "ENST00000398449" } }));
+    const [clinvar, gnomad] = await fetchGeneMissenseRows("TXGENE", "ENST00000361802.9");
+    expect(clinvar).toMatchObject({ status: "fulfilled", value: { transcript_id: "ENST00000361802", clinvar_variants: TX_ROWS.clinvar_variants } });
+    expect(gnomad).toMatchObject({ status: "fulfilled", value: { transcript_id: "ENST00000361802" } });
+    expect(spy.mock.calls.map((c) => bodyOf(c).variables)).toEqual([{ transcript: "ENST00000361802" }, { transcript: "ENST00000361802" }]);
+    spy.mockRestore();
+  });
+
+  /** gnomAD's real answer for a transcript it does not hold: HTTP 200 with an error and a null transcript. */
+  const NOT_FOUND = { errors: [{ message: "Transcript not found" }], data: { transcript: null } };
+  const GENE_ROWS = { data: { gene: { canonical_transcript_id: "ENST00000398449", clinvar_variants: [], variants: [] } } };
+  const answerFor = (onTranscript: unknown) => async (_url: unknown, init: unknown) =>
+    ({ ok: true, json: async () => (String((init as { body: string }).body).includes("transcript(") ? onTranscript : GENE_ROWS) }) as any;
+
+  it("falls back to the gene's canonical rows, named as such, when gnomAD does not know the transcript", async () => {
+    const spy = vi.spyOn(global, "fetch").mockImplementation(answerFor(NOT_FOUND));
+    const [clinvar, gnomad] = await fetchGeneMissenseRows("UNKNOWNTXGENE", "ENST00000000001");
+    expect(clinvar).toMatchObject({ status: "fulfilled", value: { transcript_id: "ENST00000398449" } });
+    expect(gnomad).toMatchObject({ status: "fulfilled", value: { transcript_id: "ENST00000398449" } });
+    spy.mockRestore();
+  });
+
+  it("reports any other transcript-query error as a failed read, never as the gene's rows", async () => {
+    const spy = vi.spyOn(global, "fetch").mockImplementation(answerFor({ errors: [{ message: "Query rate limit exceeded" }], data: { transcript: null } }));
+    const [clinvar] = await fetchGeneMissenseRows("ERRORTXGENE", "ENST00000000002");
+    expect(clinvar).toMatchObject({ status: "rejected" });
+    expect(spy.mock.calls.length).toBe(2);
+    spy.mockRestore();
+  });
+
+  it("reads the gene's rows for a RefSeq id, which gnomAD cannot look up, and names their transcript", async () => {
+    const spy = vi.spyOn(global, "fetch").mockImplementation(answerFor(NOT_FOUND));
+    const [clinvar] = await fetchGeneMissenseRows("REFSEQGENE", "NM_016818.3");
+    expect(clinvar).toMatchObject({ value: { transcript_id: "ENST00000398449" } });
+    expect(spy.mock.calls.map((c) => bodyOf(c).variables)).toEqual([{ gene: "REFSEQGENE" }, { gene: "REFSEQGENE" }]);
+    spy.mockRestore();
+  });
+
+  it("keeps one cache entry per transcript, so two runs of one gene never share rows", async () => {
+    const spy = vi.spyOn(global, "fetch").mockImplementation(async (_url, init) =>
+      reply(String((init as { body: string }).body).includes("transcript(") ? { transcript: TX_ROWS } : { gene: { canonical_transcript_id: "ENST00000398449", clinvar_variants: [], variants: [] } }));
+    const [onTx] = await fetchGeneMissenseRows("TWOTXGENE", "ENST00000361802");
+    const [onGene] = await fetchGeneMissenseRows("TWOTXGENE", null);
+    expect(onTx).toMatchObject({ value: { transcript_id: "ENST00000361802" } });
+    expect(onGene).toMatchObject({ value: { transcript_id: "ENST00000398449" } });
+    spy.mockRestore();
+  });
+
+  it("numbers the Landscape lanes on the axis transcript", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: false } as any);
+    const spy = vi.spyOn(global, "fetch").mockImplementation(async () => reply({ transcript: { ...TX_ROWS, clinvar_variants: [{ hgvsp: "p.Gly358Arg", clinical_significance: "Benign", transcript_id: "ENST00000361802" }] } }));
+    const ctx = await fetchLandscapeContext("AXISGENE", "ENST00000361802");
+    expect(ctx.transcript).toBe("ENST00000361802");
+    expect(ctx.clinvar?.map((c) => c.pos)).toEqual([358]);
+    spy.mockRestore();
+  });
+});
+
+describe("fetchRegionalConstraint — regional intervals on one protein axis", () => {
+  it("reads no variant rows, and takes a padded, versioned axis transcript as the same transcript", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233", transcriptVersion: "10" } } as any);
+    vi.mocked(fetchTranscriptExons).mockResolvedValueOnce(null);
+    const spy = vi.spyOn(global, "fetch");
+    const regional = await fetchRegionalConstraint("PADDEDGENE", "  ENST00000000233.10 ");
+    expect(regional).toMatchObject({ status: "withheld-mapping", sourceFailed: true });
+    expect(regional.reason).toMatch(/no verified CDS model for ENST00000000233/);
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });

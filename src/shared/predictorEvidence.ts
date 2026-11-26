@@ -71,7 +71,8 @@ export const PREDICTOR_GROUP_NOTE: Record<PredictorGroup, string> = {
 export type Caveat =
   | "includes-alphamissense"
   | "rank-not-probability"
-  | "no-benign-cut";
+  | "no-benign-cut"
+  | "other-isoform";
 
 export const CAVEAT_TEXT: Record<Caveat, { label: string; detail: string }> = {
   "includes-alphamissense": {
@@ -85,6 +86,10 @@ export const CAVEAT_TEXT: Record<Caveat, { label: string; detail: string }> = {
   "no-benign-cut": {
     label: "No benign cut-point",
     detail: "The authors publish deleterious cut-points only, so a score above them is not a benign call.",
+  },
+  "other-isoform": {
+    label: "Another isoform",
+    detail: "popEVE scores one protein isoform per gene, and it is not this gene's main UniProt isoform. The score is for the same residue on that isoform, so its residue number differs.",
   },
 };
 
@@ -439,6 +444,12 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
 
   {
     const signal = evaluatePopEve(popeve);
+    const popSource = popeve === null ? null : cd?.popeveSource ?? null;
+    const scoredOn = popSource?.protein && popSource.substitution ? `${popSource.protein} ${popSource.substitution}` : null;
+    const fromColumn = popSource?.match === "dbnsfp";
+    const popOrigin = fromColumn
+      ? ["popEVE column of dbNSFP", popSource.transcript].filter(Boolean).join(" · ")
+      : scoredOn ? `popEVE v1.1 (evemodel.org) · ${scoredOn}` : "popEVE precomputed tracks (evemodel.org)";
     const popAvail = resolveSourceAvailability({ source: "popEVE", refusals, value: popeve, status: null });
     readings.push({
       key: "popeve",
@@ -464,10 +475,16 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       calibrated: null,
       callLabel: signal === "pathogenic" ? (popeve !== null && popeve <= THRESHOLDS.popEve.severePathogenic ? "Highly deleterious" : "Deleterious") : signal === "vus" ? "Above cut-point" : NO_RESULT,
       callTone: signal === "pathogenic" ? "danger" : signal === "vus" ? "neutral" : "muted",
-      caveats: ["no-benign-cut"],
-      note: null,
+      caveats: popSource?.match === "other-isoform" ? ["no-benign-cut", "other-isoform"] : ["no-benign-cut"],
+      note: popSource?.match === "other-isoform" && scoredOn
+        ? `popEVE has no file for this gene's main isoform. Read from ${popSource.protein}, another isoform of the same gene, where this residue is ${popSource.substitution}; the two isoforms share the 21 amino acids around it.`
+        : popSource?.match === "dna" && scoredOn
+        ? `popEVE's GRCh38 file matches this DNA change to ${scoredOn}.`
+        : fromColumn
+        ? "No score came from popEVE's own files, so this is the popEVE column of dbNSFP. It does not say which protein popEVE scored."
+        : null,
       availability: statusAware(popeve, "popeve", () => fromAvailability(popAvail, null)),
-      source: "popEVE precomputed tracks (evemodel.org)",
+      source: popOrigin,
       knowledgeKey: "popeve",
       link: null,
     });
@@ -562,7 +579,12 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     callLabel: scorecons === null ? NO_RESULT : "Informational",
     callTone: "muted",
     caveats: [],
-    note: null,
+    // Where the score sits on its own scale is all it can say: ScoreCons has no published cut-point.
+    // The halfway mark below is the scale's middle, not a threshold.
+    note: scorecons === null ? null
+      : `${fmt(scorecons, 2)} on a 0–1 scale, nearer the ${scorecons >= 0.5 ? "fully conserved" : "variable"} end. ` +
+        "ScoreCons has no published cut-point. " +
+        "UniRef90 homologues include distant relatives, so a residue can look variable here while its DNA base is conserved across vertebrates (phyloP, GERP++).",
     availability: statusAware(scorecons, "scorecons", () =>
       absent("ProtVar has no conservation score for this residue. It scores canonical UniProt positions only.", "No score")),
     source: "ProtVar (VarSite ScoreCons)",
