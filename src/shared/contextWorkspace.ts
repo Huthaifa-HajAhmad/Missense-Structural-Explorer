@@ -8,7 +8,7 @@ import type { AdultExpressionResponse } from './expressionModels';
 import { tissueMatchesSystem } from './expressionModels';
 import { developmentalTissueMatchesSystem, type DevelopmentalExpressionResponse } from './developmentalExpression';
 import { speciesLabel, speciesOrder, type ModelOrganismResponse } from './modelOrganisms';
-import { buildAlignmentEvidence, RESIDUE_STATE_LABEL, type AlignmentResponse, type ResidueMapping } from './residueAlignment';
+import { alignedProteinName, buildAlignmentEvidence, mismatchReason, RESIDUE_STATE_LABEL, type AlignmentResponse, type ResidueMapping } from './residueAlignment';
 import type { ModelPhenotypesResponse } from './modelPhenotypes';
 import type { ContextProvenance } from './diseaseFrame';
 import type { ReviewSystemId } from './phenotypeFrame';
@@ -92,16 +92,14 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
     })) : []),
     ...alignmentEvidence.rows.map(({ h, m }) => row({ key: `alignment:${h.taxonId}:${h.geneId}:${h.proteinId}`, name: `${speciesLabel(h.taxonId, h.species)} · ${h.geneId}`, taxon: h.taxonId,
       value: null, valueText: RESIDUE_STATE_LABEL[m.state], group: 'alignment', source: 'Ensembl Compara', mapping: m,
-      description: `Gapped alignment at human residue ${input.position ?? 'not supplied'}.`,
+      description: `Gapped alignment at human residue ${input.position ?? 'not supplied'}${alignmentEvidence.bridge ? ` (residue ${alignmentEvidence.bridge.sourcePosition} of the aligned isoform)` : ''}.`,
       facts: [{ label: 'Target residue', value: m.targetResidue && m.targetPosition ? `${m.targetResidue}${m.targetPosition}` : RESIDUE_STATE_LABEL[m.state] },
         { label: 'Source protein', value: reported(alignment?.sourceProteinId) }, { label: 'Target protein', value: h.proteinId }, { label: 'Orthology type', value: h.type },
         { label: 'Whole-protein human identity', value: h.humanIdentity === null ? 'Not reported' : `${h.humanIdentity}%` }, ...provenanceFacts(alignment?.provenance)],
-      notes: [m.state === 'reference-mismatch'
-        ? m.mismatchCause === 'no-sequence' ? 'This analysis recorded no protein sequence, so no residue could be compared; no residue mapping is asserted.'
-          : m.mismatchCause === 'no-position' ? 'This variant carries no protein position, so there is no residue to map.'
-          : m.mismatchCause === 'wildtype-differs' ? 'The recorded reference residue does not match the sequence the analysis used; no residue mapping is asserted.'
-          : 'The aligned human protein is not the sequence this analysis used; no residue mapping is asserted.'
-        : 'Positions are mapped by walking gapped columns, not by copying the human residue number.',
+      notes: [m.mismatchCause ? mismatchReason(m.mismatchCause, alignment?.sourceProteinId)
+        : alignmentEvidence.bridge
+          ? `Ensembl aligns ${alignedProteinName(alignment?.sourceProteinId)}, not the analysed sequence. The site was placed there by the 21 residues around it, then mapped by walking gapped columns.`
+          : 'Positions are mapped by walking gapped columns, not by copying the human residue number.',
         m.carriesVariantResidue ? 'The substituted residue occurs here in this ortholog. This does not establish tolerance in human.' : 'Conservation is context, not a pathogenicity verdict.'],
     })),
     ...(phenotypes?.status === 'ready' ? phenotypes.species.flatMap(s => s.status === 'ready' ? s.phenotypes.map((p, i) => row({

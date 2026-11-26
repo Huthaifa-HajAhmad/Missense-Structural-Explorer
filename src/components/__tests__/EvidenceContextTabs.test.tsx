@@ -202,7 +202,7 @@ describe('context tab claims and interactions', () => {
     const base = { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', provenance: [], message: null, orthologs: [{ id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: null, methodCount: 1 }] };
     context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping not planned', phenotypingDataAvailable: false, embryoDataAvailable: false, significant: [], notSignificant: [] }] } } };
     const { unmount } = render(<SpeciesModelsTab {...props} />);
-    expect(screen.getByText(/Absence of data is not a normal result/)).toBeInTheDocument(); unmount();
+    expect(within(screen.getByTestId('model-organisms-card')).getByText(/Absence of data is not a normal result/)).toBeInTheDocument(); unmount();
     context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'error', screens: [] } } };
     render(<SpeciesModelsTab {...props} />);
     fireEvent.click(within(screen.getByTestId('model-organisms-card')).getByRole('button', { name: 'Try again' }));
@@ -228,9 +228,9 @@ describe('context tab claims and interactions', () => {
     context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
     const result = { metadata: { gene: 'TEST', sequence: 'ABCDE', residueIndex: 3, wildType: 'C', mutant: 'Q' } };
     const { unmount } = render(<SpeciesModelsTab {...props} analysisState={{ result, isLoading: false, error: null } as any} />);
-    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in Mouse/)).toBeInTheDocument(); unmount();
+    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in mouse/)).toBeInTheDocument(); unmount();
     render(<SpeciesModelsTab {...props} analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
-    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/No residue is mapped/)).toBeInTheDocument();
+    expect(within(screen.getByTestId('residue-alignment-card')).getByText('Site not placed')).toBeInTheDocument();
   });
   it('maps the residue when the pipeline records three-letter codes (real payload shape)', () => {
     const homology = { type: '1:1', species: 'mus_musculus', taxonId: 'NCBITaxon:10090', geneId: 'ENSMUSG1', proteinId: 'P', sourceAligned: 'ABCDE', targetAligned: 'ABQDE', humanIdentity: 90, orthologIdentity: 90, humanSimilarity: 95 };
@@ -240,7 +240,7 @@ describe('context tab claims and interactions', () => {
     render(<SpeciesModelsTab {...props} analysisState={{ result: { metadata: { gene: 'TEST', sequence: 'ACCDE', residueIndex: 3, wildType: 'Cys', mutant: 'Gln' } }, isLoading: false, error: null } as any} />);
     const card = within(screen.getByTestId('residue-alignment-card'));
     expect(card.queryByText(/No residue is mapped/)).toBeNull();
-    expect(card.getByText(/normal residue in Mouse/)).toBeInTheDocument();
+    expect(card.getByText(/normal residue in mouse/)).toBeInTheDocument();
   });
   it('uses the GTEx tissue name in the pext table and states a uniform region instead of ranking ties', () => {
     context.value.expressionLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', gencodeId: 'G', provenance: null, message: null,
