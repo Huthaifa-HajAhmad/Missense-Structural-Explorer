@@ -448,7 +448,7 @@ src/shared/interfaces/track.ts,client,
 src/shared/interfaces/types.ts,types,
 src/shared/interfaces/verdict.ts,client,
 src/shared/interfacesEvidence.ts,barrel,src/components/evidence/__tests__/AssemblyDiagram.test.tsx;src/components/evidence/__tests__/InterfaceTrackControls.test.tsx;src/components/evidence/__tests__/InterfaceTrackNames.test.tsx;src/shared/__tests__/interfacesEvidence.test.ts;src/shared/__tests__/interfacesEvidenceAbcg1.test.ts;src/shared/__tests__/interfacesEvidenceSod1.test.ts;src/shared/__tests__/mechanismWorkspace.test.ts;src/shared/__tests__/nativeInterfaceSupport.test.ts
-src/shared/isoformResidue.ts,client,
+src/shared/isoformResidue.ts,client,src/shared/__tests__/isoformResidue.test.ts
 src/shared/jobPlacement.ts,client,src/shared/__tests__/jobPlacement.test.ts
 src/shared/jobsCopy.ts,client,src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/jobsCopy.test.ts
 src/shared/ladderEvidence.ts,client,src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
@@ -511,6 +511,7 @@ src/shared/shareLink.ts,client,src/components/__tests__/HeaderBar.test.tsx
 src/shared/sideChainTopology.ts,client,src/components/evidence/residue/__tests__/residueComponents.test.tsx;src/shared/__tests__/sideChainTopology.test.ts
 src/shared/snapshotAge.ts,client,src/shared/__tests__/geneDiseaseEvidence.test.ts
 src/shared/spatialClustering.ts,client,src/shared/__tests__/spatialClustering.test.ts
+src/shared/speciesFinding.ts,client,src/shared/__tests__/speciesFinding.test.ts
 src/shared/splicingEvidence.ts,client,src/components/__tests__/SpliceWindowControl.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx;src/shared/__tests__/conservationProgress.test.ts;src/shared/__tests__/splicingEvidence.test.ts;src/shared/__tests__/splicingEvidence.transcript.test.ts;src/test/splicingWorkspace.test.ts
 src/shared/splicingWorkspace.ts,client,src/test/splicingWorkspace.test.ts
 src/shared/stabilityConsensus.ts,client,src/shared/__tests__/energeticsEvidence.test.ts

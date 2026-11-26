@@ -11,6 +11,7 @@ import { extraContextKey } from '../shared/evidenceKeys';
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import { buildGeneDiseaseEvidence } from '../shared/diseaseFrame';
 import { hpoQueryIds } from '../shared/hpoAnnotation';
+import { speciesFinding } from '../shared/speciesFinding';
 
 type LoadedContext = ReturnType<typeof useEvidenceContext>;
 type ContextData = Pick<LoadedContext, 'gene' | 'diseaseLoad' | 'dosageLoad' | 'selection' | 'expressionLoad' | 'developmentalLoad' | 'modelLoad' | 'alignmentLoad' | 'phenotypesLoad' | 'hpoLoad' | 'hpaLoad' | 'pextLoad' | 'hpoIds'>;
@@ -59,5 +60,11 @@ function useContextModels<T extends ContextData>(result: AnalysisResult, tab: Co
       // read "No returned overlap" for a comparison that never had terms to compare against.
       diseaseTerms: tab !== 'species-models' || hpoLoad?.status !== 'ready' ? null : hpoLoad.data?.terms.map(t => t.id) ?? null }),
   [tab, model, expressionLoad, developmentalLoad, selection.systems, selection.diseaseKey, modelLoad, alignmentLoad, phenotypesLoad, hpoLoad, result, pair]);
-  return { context, model, rows, pair };
+  // The Species & models answer, read by both the tab and its rail so the two never disagree.
+  const speciesAnswer = useMemo(() => tab !== 'species-models' ? null : speciesFinding({
+    models: modelLoad, alignment: alignmentLoad, phenotypes: phenotypesLoad,
+    residue: { sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: pair.wildTypeCode, mutant: pair.mutantCode },
+    diseaseMatches: model.selected && hpoLoad?.status === 'ready' && hpoLoad.data?.terms.length ? rows.filter(r => r.group === 'phenotypes' && r.relevant).length : null,
+  }), [tab, modelLoad, alignmentLoad, phenotypesLoad, hpoLoad, result, pair, model.selected, rows]);
+  return { context, model, rows, pair, speciesAnswer };
 }

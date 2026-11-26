@@ -105,6 +105,9 @@
 .ctx-onset { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--cs-text-muted); font-size: 12px; }
 .ctx-onset select { width: auto; min-width: 180px; }
 .ctx-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-top: 1px solid var(--cs-border-subtle); color: var(--cs-text-primary); }
+/* A notice that is also a card body keeps the body's padding and reads left to right; the body's column
+   direction otherwise centred the message with no side padding. */
+.ctx-card__body.ctx-notice { flex-direction: row; padding: 16px; border-top: 0; }
 .ctx-definition { margin: 0; padding: 0 16px; }
 .ctx-definition > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
 .ctx-definition > div + div { border-top: 1px solid var(--cs-border-subtle); }

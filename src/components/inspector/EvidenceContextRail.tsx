@@ -20,7 +20,7 @@ export function EvidenceContextRail({ analysisResult, expression, species = fals
 }
 function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResult; species: boolean }) {
   const tab = species ? 'species-models' : 'expression-models';
-  const { context: c, model, rows } = useContextWorkspaceRead(analysisResult, tab);
+  const { context: c, model, rows, speciesAnswer } = useContextWorkspaceRead(analysisResult, tab);
   const systems = c.selection.systems;
   const workspace = useEvidenceWorkspace(tab);
   const finding = expressionWorkspaceFinding({ section: workspace.section, adult: c.expressionLoad, developmental: c.developmentalLoad, systems, cohort: workspace.cohort });
@@ -54,10 +54,11 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
   const trace = <section className="rail-section" aria-labelledby="ctx-rail-trace"><h3 className="eyebrow" id="ctx-rail-trace">Review trace</h3>
       <ol className="rail-steps" data-testid="context-trace">
         <Step n={1} label="Disease choice">{model.selected ? <>{model.selected.label}<span className="rail-step__sub">{model.selected.inheritance.label}</span></> : 'No disease selected.'}</Step>
-        <Step n={2} label="Review systems">{systems.length ? systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') : 'None selected'}<span className="rail-step__sub">Local display grouping, not an ontology equivalence.</span></Step>
-        <Step n={3} label="Disease onset">{ONSET_LABELS[c.selection.onset]}<span className="rail-step__sub">Kept separate from sampled age.</span></Step>
-        <Step n={4} label="Reading">{species ? 'Orthology, residue mapping and phenotype annotations remain separate.' : <>{finding.headline}<span className="rail-step__sub">{finding.detail}</span></>}</Step>
-        <Step n={5} label="Interpretation boundary">Context only<span className="rail-step__sub">No ACMG criterion is added or changed.</span></Step>
+        <Step n={2} label="Review systems">{systems.length ? systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') : 'All systems'}<span className="rail-step__sub">{systems.length ? 'Local display grouping, not an ontology equivalence.' : 'None chosen. Local display grouping, not an ontology equivalence.'}</span></Step>
+        {/* Onset changes no species reading (animal records carry no age here), so the step is Expression's only. */}
+        {!species && <Step n={3} label="Disease onset">{ONSET_LABELS[c.selection.onset]}<span className="rail-step__sub">Kept separate from sampled age.</span></Step>}
+        <Step n={species ? 3 : 4} label="Reading">{species ? speciesAnswer?.headline : <>{finding.headline}<span className="rail-step__sub">{finding.detail}</span></>}</Step>
+        <Step n={species ? 4 : 5} label="Interpretation boundary">Context only<span className="rail-step__sub">No ACMG criterion is added or changed.</span></Step>
       </ol>
       {model.assertions.some(a => a.adverse) && <p className="rail-step__warn" role="note">This disease relationship has disputed, refuted or no-known-relationship assertions. Context cannot resolve that dispute.</p>}
     </section>;
@@ -73,7 +74,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
     <section className="rail-section" aria-labelledby="ctx-rail-method"><h3 className="eyebrow" id="ctx-rail-method">Method</h3>
       <details className="rail-notes"><summary>How the reading is made</summary>{species ? <ul>
         <li>All returned orthologs remain separate. Sharing a species does not prove that two providers refer to the same ortholog.</li>
-        <li>Residue mapping requires the analysed human sequence and reference residue to match the alignment. Gaps never become substitutions.</li>
+        <li>Residue mapping requires the analysed human sequence and reference residue to match the alignment. When Ensembl aligns another isoform, the site is placed only if the 21 residues around it occur exactly once in that isoform. Gaps never become substitutions.</li>
         <li>uPheno term overlap is disease-annotation context, not patient phenotype similarity. Missing model annotations do not establish normality.</li>
         <li>IMPC summaries do not provide assay, allele, sex, age or sample count here. No functional ACMG criterion follows from these summaries.</li>
       </ul> : <ul>
