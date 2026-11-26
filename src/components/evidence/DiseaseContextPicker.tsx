@@ -22,6 +22,7 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
   const loading = !load || load.status === 'loading';
   const empty = (message: React.ReactNode, retry?: string) => inline
     ? <div className="ctx-field" role="status">
+        <span className="ctx-label">Disease</span>
         <p className="ctx-caption">{message}</p>
         {retry && <button type="button" className="ctx-button" onClick={onRetry}>{retry}</button>}
       </div>

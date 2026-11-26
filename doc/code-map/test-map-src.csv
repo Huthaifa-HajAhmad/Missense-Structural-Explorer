@@ -77,7 +77,7 @@ src/components/evidence/ExpressionModelsTab.tsx,component,src/components/__tests
 src/components/evidence/FunctionInteractionsTabs.tsx,barrel,src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/FunctionTab.sod1.test.tsx;src/components/evidence/__tests__/FunctionTab.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx
 src/components/evidence/GeneDiseaseReadings.tsx,component,
 src/components/evidence/GeneDiseaseTab.tsx,component,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx
-src/components/evidence/HpaCard.tsx,component,
+src/components/evidence/HpaCard.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/HpoAnnotationCard.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/InterfacesTab.tsx,component,src/components/evidence/__tests__/InterfacesTab.abcg1.test.tsx;src/components/evidence/__tests__/InterfacesTab.sod1.test.tsx;src/components/evidence/__tests__/InterfacesTab.test.tsx;src/components/evidence/__tests__/MechanismWorkspace.test.tsx
 src/components/evidence/MechanismContextCard.tsx,component,
@@ -95,8 +95,9 @@ src/components/evidence/SpeciesModelsTab.tsx,component,src/components/__tests__/
 src/components/evidence/SplicingTab.tsx,component,src/components/__tests__/SplicingTab.test.tsx;src/components/evidence/__tests__/MechanismWorkspace.test.tsx;src/components/evidence/__tests__/SplicingWorkspace.test.tsx
 src/components/evidence/StructureTab.tsx,component,src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx;src/components/evidence/__tests__/StructureTab.test.tsx
 src/components/evidence/VariantLocusCard.tsx,component,
-src/components/evidence/expression/ExpressionHero.tsx,component,
+src/components/evidence/expression/ExpressionAnswer.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/expression/ExpressionRecords.tsx,component,
+src/components/evidence/expression/ReviewContextBar.tsx,component,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx
 src/components/evidence/expression/ReviewFrame.tsx,component,
 src/components/evidence/function/DomainArchitecture.tsx,component,
 src/components/evidence/function/FunctionTab.tsx,component,src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx
@@ -400,7 +401,7 @@ src/shared/evidenceTabProgress.ts,client,src/shared/__tests__/conservationProgre
 src/shared/evidenceTabs.ts,client,src/components/inspector/__tests__/EvidenceRailRouting.test.tsx
 src/shared/explanationTeaching.ts,client,src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/explanationTeaching.test.ts
 src/shared/expressionModels.ts,client,src/shared/__tests__/evidenceContext.test.ts
-src/shared/expressionTabEvidence.ts,client,src/shared/__tests__/expressionTabEvidence.test.ts;src/test/contextWorkspace.test.ts
+src/shared/expressionTabEvidence.ts,client,src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/expressionTabEvidence.test.ts;src/test/contextWorkspace.test.ts
 src/shared/expressionWorkspaceFinding.ts,client,src/test/expressionWorkspaceFinding.test.ts
 src/shared/externalLink.ts,client,src/shared/__tests__/externalLink.test.ts
 src/shared/fetch-retry.ts,client,src/shared/__tests__/fetch-retry.test.ts
@@ -475,7 +476,7 @@ src/shared/numbering.ts,client,src/shared/__tests__/numbering.test.ts
 src/shared/packingEvidence.ts,client,src/shared/__tests__/packingEvidence.test.ts
 src/shared/perBurden.ts,client,src/shared/__tests__/perBurden.test.ts;src/shared/__tests__/perBurdenParity.test.ts
 src/shared/perRegions.ts,client,server/services/evidence-context/perRegions.test.ts
-src/shared/pext.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
+src/shared/pext.ts,client,src/shared/__tests__/expressionTabEvidence.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/evidenceContext.test.ts;src/stores/slices/evidenceContextSlice.test.ts
 src/shared/platform.ts,client,
 src/shared/predictorEvidence.ts,client,server/services/prediction/acmg/pp3-bp4-language-models.test.ts;src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts

@@ -38,6 +38,8 @@ test('expression expansion, exact pins and source availability', { tags: ['expre
   await screen.getByRole('combobox', 'Example').selectOption('Pediatric unavailable');
   // A changed analysed allele resets the app's active Evidence tab.
   await screen.getByRole('combobox', 'Evidence').selectOption('Expression');
+  // The tab's answer opens the Tissue explorer (Show pinned record above left the Sampling view open).
+  await screen.getByRole('tab', 'Tissue explorer').tap();
   await screen.getByRole('tab', 'Pediatric RNA').tap();
   await expect(screen.getByTestId('expression-finding')).toContainText('Pediatric measurements are not available here');
   await expect(screen.getByRole('searchbox')).toHaveCount(0);
@@ -58,9 +60,9 @@ test('expression expansion, exact pins and source availability', { tags: ['expre
   await screen.getByRole('combobox', 'Evidence').selectOption('Expression');
   await screen.getByRole('tab', 'Tissue explorer').tap();
   await screen.getByRole('combobox', 'Sampled age cohort').selectOption('Pre-pubertal (8 to approximately 13)');
-  // The chart carries the value; the tissue explorer no longer repeats it in a summary or a scale caption.
+  // The answer above the chart follows the open source (pediatric here); the chart carries every value.
   await expect(screen.getByRole('img', /Pediatric tissue and age cohorts/)).toContainText('29 TPM');
-  await expect(screen.getByTestId('expression-finding')).toHaveCount(0);
+  await expect(screen.getByTestId('expression-finding')).toContainText('Pediatric RNA');
   await expect(screen.getByText(/Linear TPM scale/)).toHaveCount(0);
   await screen.getByRole('tab', 'Sampling & coverage').tap();
   await screen.getByRole('button', 'Brain').press('Enter');
@@ -112,8 +114,8 @@ test('pext map explains region shading without an unrelated RNA headline', { tag
       for (const [view, card] of [['Tissue explorer', 'context-records'], ['Sampling & coverage', 'context-records'], ['Protein measurements', 'hpa-card'], ['Expression at variant', 'pext-card']]) {
         await screen.getByRole('tab', view).tap();
         await expect(screen.getByTestId(card)).toBeVisible();
-        // Only the sampling view opens with the source summary; the other three open with their own figure.
-        await expect(screen.getByTestId('expression-finding')).toHaveCount(view === 'Sampling & coverage' ? 1 : 0);
+        // The tab's answer opens the Tissue explorer only; the other three views open with their own figure.
+        await expect(screen.getByTestId('expression-finding')).toHaveCount(view === 'Tissue explorer' ? 1 : 0);
         expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         tops.push(await browser.evaluate(() => {
           const top = (selector: string) => { const node = document.querySelector(selector); return node ? Math.round(node.getBoundingClientRect().top + window.scrollY) : null; };
@@ -121,8 +123,14 @@ test('pext map explains region shading without an unrelated RNA headline', { tag
         }));
         await app.screenshot(`${view}-${width}-${theme}`);
       }
-      // The shared chrome must not move when the reader switches view.
-      for (const key of ['navigation', 'review', 'panel']) expect(new Set(tops.map(t => t[key])).size).toBe(1);
+      // Navigation stays stable; the review action can wrap as text grows.
+      expect(new Set(tops.map(t => t.navigation)).size).toBe(1);
+      await screen.getByRole('tab', 'Expression at variant').tap();
+      expect(await browser.evaluate(() => {
+        const summary = document.querySelector('.xp-review-settings')!.getBoundingClientRect();
+        const action = document.querySelector('.xp-review__action')!.getBoundingClientRect();
+        return action.left >= summary.right || action.top >= summary.bottom;
+      })).toBe(true);
     }
   }
 });

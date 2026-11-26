@@ -26,7 +26,9 @@ export function HpaCard({ load, onRetry }: { load?: ContextLoad<HpaResponse>; on
         <dl className="ctx-definition">
           <div><dt>RNA, tissue</dt><dd>{data.rna.specificity ?? 'Not reported'}<span className="ctx-caption ctx-block">{data.rna.distribution ?? 'Distribution not reported'}</span></dd></div>
           <div><dt>RNA, cell type</dt><dd>{data.cells.specificity ?? 'Not reported'}<span className="ctx-caption ctx-block">{data.cells.distribution ?? 'Distribution not reported'}</span></dd></div>
-          <div><dt>Protein</dt><dd>{data.protein.evidence ?? 'Evidence level not reported'}<span className="ctx-caption ctx-block">Tissue pattern: {data.protein.tissueSpecificity ?? 'not reported'}</span></dd></div>
+          {/* HPA's "Evidence" is protein existence (does the protein exist at all); "Protein tissue specificity" is the antibody-staining (IHC) result. Shown as one "Protein" row they read as a contradiction. */}
+          <div><dt>Protein existence</dt><dd>{data.protein.evidence ?? 'Not reported'}<span className="ctx-caption ctx-block">Whether the protein is known to exist, not where it is found</span></dd></div>
+          <div><dt>Protein in tissues</dt><dd>{data.protein.tissueSpecificity ?? 'Not reported'}<span className="ctx-caption ctx-block">Antibody staining (immunohistochemistry) across normal tissues</span></dd></div>
           <div><dt>Antibodies</dt><dd>{data.protein.antibodies.length ? <><span className="ctx-mono">{data.protein.antibodies.join(', ')}</span><span className="ctx-caption ctx-block">Immunohistochemistry reliability: {data.protein.reliabilityIhc ?? 'not reported'} · immunofluorescence: {data.protein.reliabilityIf ?? 'not reported'}</span></> : 'None listed'}</dd></div>
         </dl>
         {data.cells.enrichedCells.length > 0 && <><p className="ctx-card__body ctx-caption">Cell types with enriched expression (single-cell RNA, nCPM). This covers cell types GTEx bulk tissue cannot resolve, such as retinal photoreceptors.</p><Measures rows={data.cells.enrichedCells} unit="nCPM" caption="Enriched cell types" /></>}

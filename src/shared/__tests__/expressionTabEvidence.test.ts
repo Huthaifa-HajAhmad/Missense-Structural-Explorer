@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildExpressionFinding, buildSourceFacts } from '../expressionTabEvidence';
 import type { AdultExpressionResponse } from '../expressionModels';
+import { pextTissueKey } from '../pext';
 
 const t = (id: string, label: string, value: number | null) => ({ id, label, ontologyId: null, value, unit: 'TPM' as const, sampleCount: 10, samplingSite: null });
 const adult = (tissues: AdultExpressionResponse['tissues'], status: AdultExpressionResponse['status'] = 'ready'): AdultExpressionResponse =>
@@ -39,17 +40,39 @@ describe('expression finding', () => {
 
 describe('source facts', () => {
   const finding = buildExpressionFinding(SOD1, 'ready', []);
+  const region = { start: 100, stop: 200, mean: 0.8473, tissues: [{ tissue: 'liver', value: 0.8 }, { tissue: 'adrenal_gland', value: 0.9 }] };
   it('states each source state in engine vocabulary rather than leaving blanks', () => {
     const facts = buildSourceFacts({ adult: finding, developmental: { status: 'ready', data: { status: 'not-installed', counts: null } },
-      hpa: { status: 'error', data: null }, pext: { load: 'ready', status: 'ready', region: null, locationNote: 'Outside the coding regions' } });
+      hpa: { status: 'error', data: null }, pext: { load: 'ready', status: 'ready', location: { state: 'no-region', region: null, index: -1 }, regionCount: 23 } });
     expect(facts.map(f => f.value)).toEqual(['4 sampled', 'Not available here', 'Provider error', 'Not placed']);
     expect(facts[3].sub).toBe('Outside the coding regions');
   });
-  it('quotes pext only when the variant sits on a region, as a base-level figure', () => {
+  it.each(['loading', 'ready'] as const)('does not claim coding placement without a gene locus while %s', load => {
+    const facts = buildSourceFacts({ adult: finding, developmental: undefined, hpa: undefined,
+      pext: { load, status: load === 'ready' ? 'ready' : null, location: { state: 'no-gene-locus', region: null, index: -1 }, regionCount: 0 } });
+    expect(facts[3].sub).toBe('No gene locus in this source');
+    expect(facts[3].value).toBe(load === 'ready' ? 'Not placed' : 'Running');
+  });
+  it('quotes pext only when the variant sits on a region, and names the region among all of them', () => {
     const facts = buildSourceFacts({ adult: finding, developmental: { status: 'ready', data: { status: 'ready', counts: { includedSamples: 300, includedDonors: 40 } } },
       hpa: { status: 'ready', data: { status: 'ready', rna: { specificity: 'Low tissue specificity' }, protein: { evidence: 'Evidence at protein level' } } },
-      pext: { load: 'ready', status: 'ready', region: { mean: 0.9876, tissues: 49 }, locationNote: null } });
-    expect(facts.map(f => f.value)).toEqual(['4 sampled', '300 samples', 'Low tissue specificity', 'pext 0.99']);
-    expect(facts[3].sub).toMatch(/Base-level/);
+      pext: { load: 'ready', status: 'ready', location: { state: 'region', region, index: 15 }, regionCount: 23 } });
+    expect(facts.map(f => f.value)).toEqual(['4 sampled', '300 samples', 'Low tissue specificity', 'pext 0.85']);
+    expect(facts[3].sub).toBe('Coding region 16 of 23, mean of 2 tissues');
+  });
+  it('labels the HPA protein field as an existence summary, not a tissue detection', () => {
+    // HPA's "Evidence" field summarises whether the protein exists at all (UniProt-style evidence level);
+    // shown bare beside RNA specificity it read as "protein measured in tissues".
+    const facts = buildSourceFacts({ adult: finding, developmental: undefined,
+      hpa: { status: 'ready', data: { status: 'ready', rna: { specificity: 'Low tissue specificity' }, protein: { evidence: 'Evidence at protein level' } } },
+      pext: { load: null, status: null, location: { state: 'no-locus', region: null, index: -1 }, regionCount: 0 } });
+    expect(facts[2].sub).toBe('RNA tissue class; protein existence: evidence at protein level');
+  });
+});
+
+describe('pext tissue names', () => {
+  it('matches gnomAD snake_case ids to GTEx ids whatever their punctuation', () => {
+    expect(pextTissueKey('Cells_EBV-transformed_lymphocytes')).toBe(pextTissueKey('cells_ebv_transformed_lymphocytes'));
+    expect(pextTissueKey('Brain_Anterior_cingulate_cortex_BA24')).toBe('brain_anterior_cingulate_cortex_ba24');
   });
 });

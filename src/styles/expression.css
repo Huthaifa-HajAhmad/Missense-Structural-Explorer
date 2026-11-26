@@ -1,13 +1,6 @@
-/* Expression & models: the review frame, the finding, and the coverage strip. Tokens only. */
+/* Expression & models: the review row, the answer, the coverage strip and the pext map. Tokens only. */
 .xp-workspace.cx-screen { gap: 16px; }
 .xp-workspace .cx-empty { padding-block: 12px; }
-.xp-summary { padding-block: 4px 8px; display: grid; gap: 6px; }
-.xp-summary h2 { font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
-.xp-summary p { margin: 0; line-height: 1.5; }
-.xp-boundary { font-size: 12px; color: var(--cs-text-secondary); line-height: 1.5; }
-.xp-summary summary { cursor: pointer; min-block-size: 32px; padding-block: 6px; font-size: 12px; }
-.xp-summary summary:active { color: var(--cs-text-primary); }
-.xp-summary ul { padding-inline-start: 20px; }
 .xp-workspace .cx-record-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 4px 16px; }
 .xp-workspace .cx-controls { margin-block: 0; }
 .xp-workspace .cx-caption { margin-block: 6px; }
@@ -20,76 +13,91 @@
 .xp-record-table .evw-reading-button { min-block-size: 32px; }
 .xp-record-table .evw-reading-button:active { background: var(--cs-surface-2); }
 .xp-rail .evw-inspection h3 { text-transform: none; letter-spacing: normal; font-size: 16px; line-height: 1.5; }
-.xp-rail .ctx-details > summary { min-block-size: 44px; cursor: pointer; padding-block: 12px; }
-.xp-rail .ctx-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.xp-rail .ctx-details > summary:active { color: var(--cs-text-primary); }
 
-.xp-hero__body { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 16px; }
-.xp-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.xp-eyebrow { display: inline-flex; align-items: center; gap: 6px; }
-.xp-eyebrow > svg { color: var(--cs-accent-clay); }
-.xp-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin-top: 2px; }
-.xp-figure { font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold); letter-spacing: -0.01em; color: var(--cs-text-primary); line-height: 1.2; font-variant-numeric: proportional-nums; }
-.xp-figure__unit { font-size: 13px; font-weight: 500; color: var(--cs-text-muted); letter-spacing: 0; }
-.xp-hero__figure-label { font-size: 12px; color: var(--cs-text-muted); }
-.xp-hero__finding { color: var(--cs-text-secondary); }
-.xp-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-
-.xp-review-settings { border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface); }
-.xp-review-settings > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-height: 44px; padding: 10px 14px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }
-/* Drawn with borders, not a text character, so screen readers do not read out an arrowhead. */
-.xp-review-settings > summary::after { content: ''; inline-size: 7px; block-size: 7px; margin-inline-start: auto; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); }
-.xp-review-settings[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
-.xp-review-settings > summary > span { font-size: 12px; color: var(--cs-text-secondary); }
-.xp-review-settings > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.xp-workspace[data-comparison] { container-type: inline-size; gap: 16px; }
-.xp-workspace[data-comparison] .xp-hero__body { display: grid; grid-template-columns: minmax(200px, .7fr) minmax(0, 1.3fr); gap: 10px 24px; align-items: center; }
-.xp-workspace[data-comparison] :is(.xp-hero__top, .cx-finding-details, .xp-callout) { grid-column: 1 / -1; }
-.xp-workspace[data-comparison] .xp-hero__figure { flex-direction: column; align-items: start; }
-.xp-workspace[data-comparison] .xp-figure { font-size: 28px; }
-.xp-workspace[data-comparison] .cx-finding-details { margin-top: 0; }
-.xp-workspace[data-comparison] .cx-finding-details > summary { padding-block: 6px; }
-.xp-workspace[data-comparison] .cx-explorer { gap: 8px; }
-.xp-workspace[data-comparison] .cx-records { margin-block: 10px; border: 0; }
-@container (max-width: 650px) {
-  .xp-workspace[data-comparison] .xp-hero__body { grid-template-columns: minmax(0, 1fr); }
+/* The answer: the open RNA source's headline, then one flat row per source (the Species finding's shape). */
+.xp-answer { display: grid; gap: 10px; margin: 0; padding: 16px 20px; background: var(--cs-accent-wash); }
+.xp-answer__source { margin: 0 0 -6px; font-size: 12px; color: var(--cs-text-secondary); }
+.xp-answer__headline { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+.xp-answer__detail { margin: 0; font-size: 13px; line-height: 1.6; color: var(--cs-text-secondary); }
+/* Four sources side by side: label, value, then what the value is. Two columns, then one, as the panel narrows. */
+.xp-answer__facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 4px 0 0; border-block-start: 1px solid var(--cs-border-subtle); }
+.xp-answer__facts > div { display: grid; align-content: start; gap: 2px; padding: 10px 12px 0 0; min-inline-size: 0; }
+.xp-answer__facts > div + div { padding-inline-start: 12px; border-inline-start: 1px solid var(--cs-border-subtle); }
+.xp-answer__facts dt { font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
+.xp-answer__facts dd { margin: 0; display: grid; font-size: 13px; line-height: 1.5; }
+.xp-answer__value { color: var(--cs-text-primary); font-weight: 500; overflow-wrap: anywhere; }
+.xp-answer__facts [data-tone="muted"] .xp-answer__value { color: var(--cs-text-secondary); font-weight: 400; }
+.xp-answer__sub { font-size: 12px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
+.xp-answer .xp-coverage { margin: 0; }
+.xp-answer .xp-coverage__cell { background: var(--cs-surface); }
+.xp-callout { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
+.xp-workspace { container-type: inline-size; }
+@container (max-width: 760px) {
+  .xp-answer__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .xp-answer__facts > div:nth-child(3) { padding-inline-start: 0; border-inline-start: 0; }
+}
+@container (max-width: 420px) {
+  .xp-answer__facts { grid-template-columns: minmax(0, 1fr); }
+  .xp-answer__facts > div + div { padding-inline-start: 0; border-inline-start: 0; }
 }
 
 /* One cell per review system: measured (top tissue and median) or not sampled by GTEx. */
 .xp-coverage { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .xp-coverage__cell { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-surface); min-width: 0; }
-.xp-coverage__cell[data-state="measured"] { border-color: color-mix(in oklch, var(--cs-accent-clay) 45%, var(--cs-border)); background: color-mix(in oklch, var(--cs-accent-clay) 6%, var(--cs-surface)); }
+.xp-coverage__cell[data-state="measured"] { border-color: color-mix(in oklch, var(--cs-accent-clay) 45%, var(--cs-border)); }
 .xp-coverage__name { font-size: 12px; color: var(--cs-text-muted); }
 .xp-coverage__value { color: var(--cs-text-primary); font-weight: 500; }
 .xp-coverage__cell[data-state="not-sampled"] .xp-coverage__value { color: var(--cs-text-secondary); font-weight: 400; }
 .xp-coverage__sub { font-size: 12px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
-.xp-callout { margin: 4px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
+@media print { .xp-answer, .xp-coverage__cell { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 
-.xp-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
-.xp-fact { padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.xp-fact + .xp-fact { border-left: 1px solid var(--cs-border-subtle); }
-.xp-fact dt { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }
-.xp-fact dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }
-.xp-fact__value { color: var(--cs-text-primary); font-weight: 500; overflow-wrap: anywhere; }
-.xp-fact[data-tone="muted"] .xp-fact__value { color: var(--cs-text-secondary); font-weight: 400; }
-.xp-fact__sub { font-size: 12px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
-@container (max-width: 760px) { .xp-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .xp-fact:nth-child(3) { border-left: 0; } .xp-fact:nth-child(n+3) { border-top: 1px solid var(--cs-border-subtle); } }
-@container (max-width: 420px) { .xp-facts { grid-template-columns: minmax(0, 1fr); } .xp-fact + .xp-fact { border-left: 0; border-top: 1px solid var(--cs-border-subtle); } }
-@media print { .xp-hero, .xp-coverage__cell, .xp-facts { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+/* Review context: one folded row. The view's shortcut (if any) sits in that row, left of the chevron. */
+.xp-review { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; container-type: inline-size; }
+.xp-review-settings { flex: 1 1 24rem; min-inline-size: 0; }
+.xp-review-settings { border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface); }
+.xp-review-settings > summary { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-block-size: 44px; padding: 10px 40px 10px 14px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }
+.xp-review-settings > summary::-webkit-details-marker { display: none; }
+/* Drawn with borders, not a text character, so screen readers do not read out an arrowhead. */
+.xp-review-settings > summary::after { content: ''; position: absolute; inset-inline-end: 16px; inset-block-start: calc(50% - 6px); inline-size: 7px; block-size: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.xp-review-settings[open] > summary::after { inset-block-start: calc(50% - 2px); transform: rotate(-135deg); }
+.xp-review-settings > summary > span { font-size: 12px; color: var(--cs-text-secondary); }
+.xp-review-settings > summary .xp-review-disease { flex: 0 1 auto; overflow-wrap: anywhere; }
+.xp-review-note { margin-inline-start: auto; }
+.xp-review-settings > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.xp-review-settings > summary:active { background: var(--cs-surface-2); }
+.xp-review__action { flex: 0 1 auto; padding-block: 3px; }
+.xp-review__action .viz-action { min-block-size: 38px; }
+.xp-review-settings > .xp-frame--embedded { display: grid; gap: 0; margin: 0; padding: 0 16px; border: 0; border-block-start: 1px solid var(--cs-border-subtle); border-radius: 0 0 10px 10px; }
+.xp-review-settings > .xp-frame--embedded .ctx-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.xp-review-settings > .xp-frame--embedded .ctx-select { max-inline-size: 22rem; }
+
+/* The Adult / Pediatric switch opens the search row and shares its 38px control height. */
+.xp-workspace .cx-record-toolbar > .workspace-tabs[data-variant="secondary"] { align-self: end; box-sizing: border-box; min-block-size: 38px; align-items: center; }
+
+/* A plain closing note, not a fold. */
+.xp-guide { display: grid; gap: 8px; padding-block: 14px 0; border-block-start: 1px solid var(--cs-border); line-height: 1.6; }
+.xp-guide h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
+.xp-guide p { margin: 0; color: var(--cs-text-secondary); }
 
 .xp-pext-figure { display: grid; gap: 16px; }
 .xp-pext-overview { display: flex; flex-wrap: wrap; align-items: start; gap: 16px 32px; }
 .xp-pext-overview > div:first-child { flex: 1 1 30ch; }
 .xp-pext-overview h3 { margin-block: 0; font-size: 16px; font-weight: 600; }
-.xp-pext-location { display: grid; gap: 4px; margin-block: 12px 0; font-size: 13px; }
-.xp-pext-location strong { color: var(--cs-text-primary); }
-.xp-pext-location span { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.xp-pext-location { display: grid; margin-block: 12px 0; font-size: 13px; }
+.xp-pext-location > div { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 2px 12px; padding-block: 6px; border-block-start: 1px solid var(--cs-border-subtle); }
+.xp-pext-location dt { color: var(--cs-text-secondary); font-size: 12px; }
+.xp-pext-location dd { margin: 0; color: var(--cs-text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .xp-pext-key { display: grid; gap: 5px; flex: 0 1 180px; font-size: 12px; }
 .xp-pext-key > div { block-size: 10px; border-radius: 3px; background: linear-gradient(to right, color-mix(in oklch, var(--cs-accent-clay) 12%, var(--cs-surface)), var(--cs-accent-clay)); }
 .xp-pext-key > span > span { float: inline-end; }
 .xp-pext-scroll { overflow: auto; max-inline-size: 100%; }
 .xp-pext-scroll:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .xp-pext-scroll .xp-pext-map { inline-size: 900px; min-inline-size: 900px; block-size: 104px; margin-block: 0; margin-inline: auto; }
+.xp-pext-reference { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-size: 12px; line-height: 1.6; }
+.xp-pext-reference p { margin-block: 0; }
+.xp-pext-reference p + p { margin-block-start: 4px; }
+.xp-workspace [data-testid="pext-card"] tr[data-selected] { background: var(--cs-workbench-header-surface); }
+.xp-workspace [data-testid="pext-card"] > p.ctx-card__body { margin-block: 0; line-height: 1.6; }
 
 /* Keep all four views on the same spacing rhythm. */
 .xp-workspace .evw-panel { gap: 16px; }
@@ -99,16 +107,12 @@
 .xp-workspace.cx-screen .cx-controls label:first-child { flex: 1 1 14rem; }
 .xp-workspace.cx-screen .cx-controls input[type="search"] { inline-size: 100%; }
 .xp-workspace.cx-screen .cx-record-toolbar > .viz-action { min-block-size: 38px; }
-.xp-workspace .cx-guide { border-block-end: 0; }
-.xp-workspace .cx-guide > div { max-inline-size: none; }
-.xp-review-settings > .xp-frame { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
-.xp-review-settings > summary .xp-review-disease { flex: 0 1 auto; overflow-wrap: anywhere; }
-.xp-review-settings > summary:active { background: var(--cs-surface-2); }
-.xp-pext-reference { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-size: 12px; }
-.xp-workspace [data-testid="pext-card"] tr[data-selected] { background: var(--cs-workbench-header-surface); }
-.xp-rail > .xp-boundary { margin-block: 0 16px; }
+
+/* The rail: trace and method are shown flat, no folds. */
 .xp-rail .rail-section { border-block-start: 0; }
-.xp-rail > .ctx-details { border-block: 0; }
+.xp-rail-notes ul { margin-block-start: 0; }
+.xp-rail-notes__title { margin: 0 0 6px; font-weight: 600; color: var(--cs-text-primary); }
+.xp-rail-notes + .xp-rail-notes { margin-block-start: 12px; }
 
 /* Expression provenance only (the Species rail still lists its sources as a stack). One row per source: name, then a collapsed release line. */
 .xp-provenance-table { inline-size: 100%; border-collapse: collapse; font-size: 12px; }
@@ -124,15 +128,12 @@
 .xp-provenance-table .xp-prov__name { display: none; }
 .xp-provenance-table .xp-prov__meta { margin: 0; }
 
-.xp-pext-reference p { margin-block: 0; }
-.xp-pext-reference p + p { margin-block-start: 4px; }
-
+/* The standalone (non-workspace) render keeps the full review card. */
 .xp-workspace .xp-frame .ctx-card__head { background: color-mix(in oklch, var(--cs-accent-clay) 8%, var(--cs-surface)); color: var(--cs-text-primary); }
 .xp-workspace .xp-frame .ctx-card__head h2 { color: var(--cs-text-primary); }
 .xp-workspace .cx-frame-focus[open] { border-block-start: 1px solid var(--cs-border-subtle); padding-block-start: 12px; }
 .xp-workspace .xp-frame-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 16px 24px; padding-block-start: 12px; }
 .xp-workspace .xp-frame-fields > .ctx-field { padding-block-start: 0; margin: 0; max-inline-size: none; }
 .xp-workspace .cx-frame-focus .ctx-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.xp-workspace .xp-system-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-block: 0; font-size: 12px; color: var(--cs-text-secondary); }
-.xp-workspace .xp-system-note .viz-action { min-block-size: 38px; }
-.xp-workspace [data-testid="pext-card"] > p.ctx-card__body { margin-block: 0; line-height: 1.6; }
+
+.xp-workspace .ctx-card__body.cx-source-state { flex-direction: column; }

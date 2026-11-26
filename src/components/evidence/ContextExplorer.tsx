@@ -18,6 +18,8 @@ const TAB_CONFIG: Record<ContextTab, {
   searchPlaceholder: string;
   /** The count caption sits beside a leading toolbar control instead of after the filters. */
   captionBeforeControls?: boolean;
+  /** The source switch opens the search row instead of taking a row of its own above it. */
+  sourcesInToolbar?: boolean;
 }> = {
   'gene-disease': {
     hideControlsWhenEmpty: true,
@@ -29,6 +31,7 @@ const TAB_CONFIG: Record<ContextTab, {
     hideControlsWhenEmpty: true,
     canRevealPin: true,
     searchPlaceholder: 'Tissue or cohort',
+    sourcesInToolbar: true,
   },
   'species-models': {
     hideControlsWhenEmpty: true,
@@ -86,10 +89,10 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       emptyCopy: 'No returned tissue values can plot on this axis. Select a tissue to inspect its sampling context.' };
   }, [page]);
   const caption = (!config.hideControlsWhenEmpty || page.sourceCount > 0) && <p className="cx-caption" role="status">{page.rows.length} of {page.sourceCount} records shown{page.total !== page.sourceCount ? `; ${page.total} match the filters` : ''}.</p>;
-  return <section ref={explorerRef} className="cx-explorer" aria-label="Explore source readings">
-    {groups.length > 1 && <WorkspaceTabs variant="secondary" id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
-    <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
-      <div className="cx-record-toolbar">
+  const sources = groups.length > 1 && <WorkspaceTabs variant="secondary" id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />;
+  const inToolbar = !!config.sourcesInToolbar;
+  const toolbar = <div className="cx-record-toolbar">
+      {inToolbar && sources}
       {toolbarStart}
       {config.captionBeforeControls && caption}
       {(!config.hideControlsWhenEmpty || page.sourceCount > 0) && <div className="cx-controls">
@@ -100,7 +103,12 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       </div>}
       {page.total > CX_PAGE_LIMIT && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? `Show first ${CX_PAGE_LIMIT}` : `Show all ${page.total} records`}</button>}
       {!config.captionBeforeControls && caption}
-      </div>
+      </div>;
+  return <section ref={explorerRef} className="cx-explorer" aria-label="Explore source readings">
+    {!inToolbar && sources}
+    {inToolbar && toolbar}
+    <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
+      {!inToolbar && toolbar}
       {group === 'developmental' && page.sourceCount > 0 && <p className="cx-caption">Sampled age is independent of disease onset. Cohorts are descriptive, not a developmental trajectory.</p>}
       {selected && !page.rows.some(r => r.key === selected.key) && <p className="cx-notice">The pinned record is outside this view. Its details remain in the inspector. {config.canRevealPin && <button type="button" className="viz-action" onClick={() => {
         setRevealRequested(true);
