@@ -2418,6 +2418,14 @@ export interface ObservedInterface {
   variantAtInterface: boolean;
   /** Entries in which the variant residue itself is at this interface. */
   variantEntries: string[];
+  /**
+   * Of `pdbEntries`, those whose model has coordinates for the variant residue (PDBe unipdb). This is
+   * the denominator of "not at the interface": an entry that never modelled the residue says nothing
+   * about it. Absent when coverage was not read.
+   */
+  modelledEntries?: string[];
+  /** Stretches of this protein (UniProt numbering) that no entry of this pair models. */
+  unmodelled?: Array<{ start: number; end: number }>;
 }
 
 export type PpiLookupStatus = "ok" | "failed" | "skipped";
@@ -2595,6 +2603,8 @@ export interface MultimerExperimentalInterfaces {
   entryKinds?: "ok" | "failed";
   /** True when the biological-assembly check answered, so crystal-packing entries were told apart. */
   crystalChecked?: boolean;
+  /** True when PDBe said which residues each entry models; false when it did not answer. */
+  coverageChecked?: boolean;
 }
 
 /**

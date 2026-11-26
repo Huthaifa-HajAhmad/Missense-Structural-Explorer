@@ -8,15 +8,17 @@ const sod1 = () =>
   buildInterfacesEvidence({ result: F.result, assembly: F.assembly, assemblyStatus: "ready", ppi: F.ppi, ppiStatus: "ready", shift: null, shiftLoading: false });
 
 describe("SOD1 p.Ala5Val — fibrils are not the native interface", () => {
-  it("tests Ala5 against the 142 native structures and finds it at the dimer interface in none", () => {
+  // PDBe unipdb/P00441 (2026-11-26): 137 of the 142 native entries and 4 of the 15 fibril entries model
+  // Ala5; an entry with no coordinates for it is not in its denominator (audit 2026-11-26, C1).
+  it("tests Ala5 against the 137 native structures that model it and finds it at the dimer interface in none", () => {
     // Before: "Ala5 is at the interface with the other SOD1 chain in 4 of 157 solved structures (7VZF, 9JBO, 9JBP, 9LI1)",
     // all four amyloid fibrils, drawn on the homodimer seam.
     const ev = sod1();
     expect(ev.interface.verdict).toBe("not-at-interface");
     expect(ev.interface.label).toBe("Not at an interface");
-    expect(ev.interface.reference).toEqual({ n: 142, partner: "SOD1, other chain" });
-    expect(ev.finding.headline).toBe("Ala5 is not at the interface with the other SOD1 chain in any of 142 native solved structures.");
-    expect(ev.facts.find(f => f.label === "Interface support")).toMatchObject({ value: "0 of 142", sub: "native solved structures · 4 of 15 fibrils" });
+    expect(ev.interface.reference).toEqual({ n: 137, partner: "SOD1, other chain" });
+    expect(ev.finding.headline).toBe("Ala5 is not at the interface with the other SOD1 chain in any of 137 native solved structures that model it.");
+    expect(ev.facts.find(f => f.label === "Interface support")).toMatchObject({ value: "0 of 137", sub: "native solved structures that model it · 4 of 4 fibrils" });
     expect(JSON.stringify(ev)).not.toMatch(/of 157/);
   });
 
@@ -28,19 +30,19 @@ describe("SOD1 p.Ala5Val — fibrils are not the native interface", () => {
 
   it("states the fibril contact apart, with its own denominator and entries", () => {
     const ev = sod1();
-    expect(ev.interface.fibril).toMatchObject({ k: 4, n: 15, entries: ["7vzf", "9jbo", "9jbp", "9li1"] });
-    expect(ev.interface.fibril?.sentence).toMatch(/^In 4 of 15 amyloid fibril structures \(7VZF, 9JBO, 9JBP, 9LI1\) Ala5 touches a neighbouring chain of the fibril\./);
+    expect(ev.interface.fibril).toMatchObject({ k: 4, n: 4, entries: ["7vzf", "9jbo", "9jbp", "9li1"] });
+    expect(ev.interface.fibril?.sentence).toMatch(/^In all 4 amyloid fibril structures that model Ala5 \(of 15\) \(7VZF, 9JBO, 9JBP, 9LI1\) Ala5 touches a neighbouring chain of the fibril\./);
     expect(ev.observed.fibrils.map(f => f.label)).toEqual(["SOD1 fibril"]);
     const lanes = ev.track.filter(l => l.kind === "solved");
-    expect(lanes.at(-1)).toMatchObject({ label: "SOD1 fibril", readout: { k: 4, n: 15 } });
-    expect(lanes[0]).toMatchObject({ label: "SOD1, other chain", readout: { k: 0, n: 142 } });
+    expect(lanes.at(-1)).toMatchObject({ label: "SOD1 fibril", readout: { k: 4, n: 4, total: 15 } });
+    expect(lanes[0]).toMatchObject({ label: "SOD1, other chain", readout: { k: 0, n: 137, total: 142 } });
   });
 
   it("plans no binding change: no native complex has Ala5 at its interface, and a fibril is never a wild type", () => {
     const ev = sod1();
     expect(ev.binding.state).toBe("not-applicable");
     expect(ev.binding.plan).toBeNull();
-    expect(ev.binding.reason).toBe("Ala5 is not at the interface in any solved complex of SOD1, so no binding change is estimated.");
+    expect(ev.binding.reason).toBe("Ala5 is not at the interface in any solved complex of SOD1 that models it, so no binding change is estimated.");
   });
 
   it("re-reads a stored payload from before the fibril split", () => {

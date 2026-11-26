@@ -3,13 +3,9 @@
 .ifc-workspace { --mx-pad: clamp(1rem, 2.4cqi, 1.75rem); }
 .ifc-workspace .evw-panel { display: flex; flex-direction: column; }
 .ifc-workspace .screen-tab-description { text-wrap: pretty; line-height: 1.6; }
-.ifc-workspace .ifc-hero__body { display: flex; flex-wrap: wrap; gap: var(--mx-pad); padding: var(--mx-pad); }
-.ifc-workspace .ifc-hero__text { flex: 999 1 24rem; min-inline-size: min(100%, 18rem); justify-content: center; }
-/* The Assembly card's workspace width. Its body is white (interfaces.css), never the accent wash, which read as a pink placeholder. */
-.ifc-workspace .ifc-hero__diagram { flex: 1 1 15rem; min-inline-size: 0; }
+.ifc-workspace .ifc-hero__text { padding: var(--mx-pad); }
 .mx-composition-caption { margin: 0; padding: .5rem .75rem; text-align: start; border-block-start: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ifc-workspace .ifc-figure { font-size: clamp(2rem, 1.4rem + 2cqi, 3.25rem); letter-spacing: -.045em; line-height: 1.05; }
-.ifc-workspace .ifc-hero__figure { flex-direction: column; align-items: start; gap: .5rem; }
 .ifc-workspace .ifc-facts { border-block-start: 1px solid var(--cs-border-subtle); background: var(--cs-surface); }
 .ifc-workspace .ifc-foot { line-height: 1.65; }
 .mx-composition-head { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; padding: .5rem .75rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
@@ -63,16 +59,11 @@
 .ifc-workspace .ifc-track__sub { font-size: .7rem; line-height: 1.5; }
 .ifc-workspace .ifc-track__readout { font-size: .8rem; }
 .ifc-workspace .ifc-track__row[data-lit] { background: color-mix(in oklch, var(--cs-accent-clay) 7%, transparent); }
+/* The hero's map around the residue is a summary: compact rows, the card's own padding. */
+.ifc-workspace .ifc-hero__zoom .ifc-track { padding: .25rem var(--mx-pad) 1rem; }
+.ifc-workspace .ifc-hero__zoom .ifc-track__row { min-block-size: 2.5rem; }
+.ifc-workspace .ifc-hero__zoom-head { padding: .9rem var(--mx-pad) 0; }
 .ifc-workspace .ifc-partners__head { padding: var(--mx-pad); }
-.ifc-workspace .ifc-tiers { gap: 1.25rem; }
-.ifc-workspace .ifc-tiers__band { border: 0; border-radius: 0; background: transparent; }
-.ifc-workspace .ifc-tiers__band + .ifc-tiers__band { border-block-start: 1px solid var(--cs-border-subtle); padding-block-start: 1rem; }
-.ifc-workspace .ifc-tiers__band-title { font-size: 1rem; font-weight: 600; letter-spacing: -.01em; text-transform: none; }
-.ifc-workspace .ifc-tier { min-block-size: 2.8rem; }
-.ifc-workspace .ifc-tier__bar { block-size: .25rem; border-radius: 0; }
-.ifc-workspace .ifc-tier__fill { border-radius: 0; }
-.ifc-workspace .ifc-tier__count { font-size: 1rem; }
-.ifc-partner-source { font-size: .68rem; color: var(--cs-text-muted); }
 .spl-map .mx-map-target { fill: transparent; stroke: none; pointer-events: all; }
 .mx-guide { border-block-start: 1px solid var(--cs-border-subtle); padding-block-start: 1rem; font-size: .8rem; color: var(--cs-text-secondary); }
 .mx-guide summary { cursor: pointer; min-block-size: 2rem; color: var(--cs-text-primary); font-weight: 500; }

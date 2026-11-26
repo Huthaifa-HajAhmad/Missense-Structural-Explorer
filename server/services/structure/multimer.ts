@@ -102,7 +102,13 @@ async function readExperimental(
       ? { status: "error", reason: lookup.reason, partners: [] }
       : { status: "none", partners: [] };
   }
-  return { status: "ok", partners: lookup.partners.map(p => observedFor(p, uniprotId, position)), entryKinds: lookup.entryKinds, crystalChecked: lookup.crystalChecked };
+  return {
+    status: "ok",
+    partners: lookup.partners.map(p => observedFor(p, uniprotId, position, lookup.coverage)),
+    entryKinds: lookup.entryKinds,
+    crystalChecked: lookup.crystalChecked,
+    coverageChecked: Boolean(lookup.coverage),
+  };
 }
 
 function toRecord(assembly: SubunitAssembly, partners: MultimerAssemblyPartner[], subunitComment: string | null, gene: string): MultimerAssemblyRecord {

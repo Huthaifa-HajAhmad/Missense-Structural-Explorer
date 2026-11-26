@@ -106,12 +106,19 @@ function splitSentences(text: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * A symbol that names a family, not a gene: "partners of the ABCG subfamily". ABCG1's SUBUNIT made
+ * "ABCG" a partner gene with a STRING link to nothing (doc/INTERFACES_PPI_AUDIT_2026-11-26.md, H1).
+ */
+const FAMILY_SYMBOL_RE = /\b([A-Z][A-Z0-9]{1,9})\s+(sub)?famil(?:y|ies)\b/;
+
 function partnerTokens(sentence: string, ownGene: string | null | undefined): string[] {
   const own = (ownGene ?? "").toUpperCase();
   const out: string[] = [];
   for (const m of sentence.matchAll(/\b[A-Z][A-Z0-9]{1,9}(?:-[A-Z0-9]{1,4})?\b/g)) {
     const t = m[0];
     if (!/[A-Z]/.test(t.slice(1)) && !/\d/.test(t)) continue;
+    if (/^\s+(?:sub)?famil(?:y|ies)\b/.test(sentence.slice((m.index ?? 0) + t.length))) continue;
     if (t === own || NOT_GENES.has(t) || out.includes(t)) continue;
     out.push(t);
   }
@@ -222,8 +229,9 @@ export function subunitStatements(text: string | null | undefined, ownGene?: str
       const partnerGenes = hetero ? partnerTokens(sentence, ownGene) : [];
       let family: string | null = null;
       if (hetero && partnerGenes.length === 0) {
+        const symbol = FAMILY_SYMBOL_RE.exec(sentence);
         const m = /\bwith\s+(.+?)(?:\s*\(|[.;]|$)/i.exec(sentence.slice(olig.index));
-        family = m ? m[1].trim() : null;
+        family = symbol ? `${symbol[1]} ${symbol[2] ? "sub" : ""}family` : m ? m[1].trim() : null;
       }
       out.push({ kind: hetero ? "heteromer" : "homomer", label, qualifier, sentence, partnerGenes, family });
     } else if (monoIdx >= 0) {

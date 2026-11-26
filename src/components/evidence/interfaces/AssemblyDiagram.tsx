@@ -40,7 +40,10 @@ export function AssemblyDiagram({ ev }: { ev: InterfacesEvidence }) {
         <span className="mx-edge__ends"><span>{variant.id}</span><span className="mx-edge__line" aria-hidden="true" /><span>{chain.id}</span></span>
         <span className="mx-edge__label">{pair.k > 0
           ? `${ev.residueLabel} at it: ${supportText(pair.k, pair.n)}`
-          : `${ev.residueLabel} not at it, in ${pair.n === 1 ? 'the one solved structure' : `${pair.n} solved structures`}`}</span>
+          : pair.n === 0
+            // No structure of the pair has coordinates for the residue: they cannot place it (ABCG1 Gly358).
+            ? `${ev.residueLabel} not modelled in ${pair.total === 1 ? 'the one solved structure' : `any of ${pair.total} solved structures`}`
+            : `${ev.residueLabel} not at it, in ${pair.n === 1 ? 'the one solved structure' : `${pair.n} solved structures`}${ev.observed.coverageChecked ? ' that model it' : ''}`}</span>
       </li>)}
     </ul>}
     {edges.length < others.length && <p>{others.length - edges.length} of the {others.length} partner {others.length - edges.length === 1 ? 'chain has' : 'chains have'} no solved structure with this one: composition from UniProt SUBUNIT text.</p>}

@@ -53,9 +53,15 @@ export const LOCALFOLD_MAX_UPLOAD_BYTES = 8_000_000;
  * alignment. Switch that dial to Single Sequence and nothing leaves the machine.
  */
 export const LOCALFOLD_EGRESS_NOTE =
-  "LocalFold needs a WebGPU browser (Chrome or Edge 113+, Safari 18+) and downloads its model weights " +
-  "once, cached by the browser. It folds on your own GPU; its default MSA search sends the sequence to " +
-  "api.colabfold.com, so choose Single Sequence there to keep everything local.";
+  "LocalFold folds on your own GPU in a WebGPU browser (Chrome or Edge 113+, Safari 18+) and downloads its model weights once.";
+
+/**
+ * The step a reader cannot find unaided: LocalFold loads a job from an item in its MSA menu, and that
+ * menu's default search is the one thing that leaves the machine. Setting Single Sequence first keeps
+ * it local, and LocalFold restores that setting after reading the job (`applyJob` in its web/app.js).
+ */
+export const LOCALFOLD_MSA_NOTE =
+  "In LocalFold's MSA menu, choose Single Sequence first (its default search sends the sequence to api.colabfold.com), then choose “Load job JSON…” in the same menu and pick the file.";
 
 /**
  * The AlphaFold 3 job LocalFold folds, from the chains the server already planned.

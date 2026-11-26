@@ -327,3 +327,12 @@ describe("Insights audit 2026-11-24", () => {
     expect(buildInsightsEvidence({ result: nae1(), functionInput, stability: null }).candidateAlleles).toBeNull();
   });
 });
+
+describe("buildInsightsEvidence — the Assembly lane says when no structure models the residue", () => {
+  it("reads ABCG1 Gly358 as not modelled in the 5 solved structures, never 'not at any native interface'", async () => {
+    const { ABCG1_INTERFACES: F } = await import("./fixtures/abcg1Interfaces");
+    const result: any = { ...F.result, multimerData: F.assembly };
+    const lane = buildInsightsEvidence({ result, functionInput, stability: null }).lanes.find(l => l.key === "assembly")!;
+    expect(lane.rest).toBe("Gly358 is not modelled in any of the 5 solved structures, so they cannot place it. The engine does not read assembly.");
+  });
+});

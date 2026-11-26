@@ -1,72 +1,59 @@
-import React from "react";
-import { PARTNER_BANDS, PARTNER_BAND_LABEL, type PartnerGroup, type PartnerGroupView } from "../../../shared/interfacesEvidence";
+import { PARTNER_BANDS, PARTNER_BAND_LABEL, type InterfacesEvidence, type PartnerGroup, type PartnerGroupView } from "../../../shared/interfacesEvidence";
 
 /**
- * PartnerTiers — the partner list as one bar per evidence tier, strongest first, and the filter for the grid.
+ * PartnerTiers — the partner tiers as filter chips with their counts, in two bands, under one sentence
+ * that states the shape.
  *
- * Why a chart: SOD1 has 3 assembly partners, 15 reported binders, 66 partners from one two-hybrid screen
- * and about 700 STRING associations. As rows that was 120 lines in which the few attested binders sat
- * above a wall of one repeated sentence. As bars the shape is the finding: few well-attested partners,
- * many weak associations. Lengths are linear in count, so a tier of 3 beside one of 500 looks as
- * small as it is; the number is printed on every bar.
- *
- * Two bands, with a heading and a running total each: "Binding evidence" (a curated, structural or
- * screened claim that the two proteins bind) above "Association only" (STRING), because an association
- * score is not evidence of binding. Binding bars carry the stronger ink, association bars the muted
- * ink; each band is its own surface, so a reader instantly sees which is which. Neutral either way: no
- * tier is benign or pathogenic. Each bar is a toggle (aria-pressed) that narrows the grid to its tier;
- * the legend IS the filter.
+ * It replaced a bar chart. Bars on a linear scale drew ABCG1's 3 assembly and 5 reported-binding rows as
+ * dots beside 487 functional associations, so the chart showed only that STRING is large, and its
+ * column of empty space sat under the search box (doc/INTERFACES_PPI_AUDIT_2026-11-26.md, U4). The shape
+ * is said in words instead ("6 partner proteins with binding evidence; 500+ with association only"), from
+ * the same partner count the facts and the rail use, and each chip narrows the grid (aria-pressed).
  */
-
 const BAND_ORDER = ["binding", "association"] as const;
 
-export function PartnerTiers({
-  groups,
-  active,
-  onToggle,
-}: {
-  groups: PartnerGroupView[];
-  active: PartnerGroup | null;
-  onToggle: (id: PartnerGroup) => void;
-}) {
-  const max = Math.max(1, ...groups.map(g => g.total));
-  const bands = BAND_ORDER
-    .map(band => ({ band, items: groups.filter(g => PARTNER_BANDS[g.id] === band) }))
-    .filter(b => b.items.length);
+export function partnerShape(s: InterfacesEvidence["partnerSummary"]): string {
+  const binding = `${s.binding} partner protein${s.binding === 1 ? "" : "s"} with binding evidence`;
+  const other = s.otherSpecies ? ` (and ${s.otherSpecies} from other species)` : "";
+  const association = s.association ? `; ${s.association}${s.capped ? "+" : ""} with STRING association only` : "";
+  return `${binding}${other}${association}.`;
+}
 
+/** The chips count rows, since each narrows the grid. Where rows and partner proteins differ, say how, in view. */
+export function bandNote(rows: number, s: InterfacesEvidence["partnerSummary"]): string | null {
+  const rest = rows - s.binding - s.otherSpecies;
+  if (rest <= 0) return null;
+  const species = s.otherSpecies ? ` and ${s.otherSpecies} from other species` : "";
+  return `${rows} rows: ${s.binding} partner protein${s.binding === 1 ? "" : "s"}${species}, and ${rest} that ${rest === 1 ? "is" : "are"} this protein's other chain or a family named without genes.`;
+}
+
+export function PartnerTiers({ groups, summary, active, onToggle }: { groups: PartnerGroupView[]; summary: InterfacesEvidence["partnerSummary"]; active: PartnerGroup | null; onToggle: (id: PartnerGroup) => void }) {
+  const bands = BAND_ORDER.map(band => ({ band, items: groups.filter(g => PARTNER_BANDS[g.id] === band) })).filter(b => b.items.length);
   return (
     <div className="ifc-tiers" data-testid="partner-tiers">
       {bands.map(b => {
-        const total = b.items.reduce((n, g) => n + g.total, 0);
-        const capped = b.items.some(g => g.capped);
-        const label = PARTNER_BAND_LABEL[b.band];
+        const note = b.band === "binding" ? bandNote(b.items.reduce((n, g) => n + g.total, 0), summary) : null;
         return (
-          <div key={b.band} className="ifc-tiers__band" data-band={b.band} role="group" aria-label={label.title}>
-            <p className="ifc-tiers__band-head">
-              <span className="ifc-tiers__band-title">{label.title}</span>
-              <span className="ifc-tiers__band-count">{total}{capped ? "+" : ""} entries</span>
-              <span className="ifc-tiers__band-meta">{label.meta}</span>
-            </p>            {b.items.map(g => {
-              const count = `${g.total}${g.capped ? "+" : ""}`;
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  className="ifc-tier"
-                  aria-pressed={active === g.id}
-                  data-dim={(active && active !== g.id) || undefined}
-                  onClick={() => onToggle(g.id)}
-                  title={`${g.title}: ${count} partner${g.total === 1 ? "" : "s"}. ${active === g.id ? "Show every tier." : "Show this tier only."}`}
-                >
-                  <span className="ifc-tier__label">{g.title}</span>
-                  <span className="ifc-tier__bar" aria-hidden="true">
-                    <span className="ifc-tier__fill" style={{ width: `max(2px, ${(g.total / max) * 100}%)` }} />
-                  </span>
-                  <span className="ifc-tier__count">{count}</span>
-                </button>
-              );
-            })}
-          </div>
+        <div key={b.band} className="ifc-tiers__band" data-band={b.band} role="group" aria-label={PARTNER_BAND_LABEL[b.band].title}>
+          <span className="ifc-tiers__band-title" title={PARTNER_BAND_LABEL[b.band].meta}>{PARTNER_BAND_LABEL[b.band].title}</span>
+          {b.items.map(g => {
+            const count = `${g.total}${g.capped ? "+" : ""}`;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                className="ifc-tier"
+                aria-pressed={active === g.id}
+                onClick={() => onToggle(g.id)}
+                title={`${g.title}: ${count} row${g.total === 1 ? "" : "s"}. ${active === g.id ? "Show every tier." : "Show this tier only."}`}
+              >
+                {g.title}
+                <span className="ifc-tier__count">{count}</span>
+              </button>
+            );
+          })}
+          {note && <span className="ifc-tiers__note">{note}</span>}
+        </div>
         );
       })}
     </div>

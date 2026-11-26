@@ -272,11 +272,22 @@ async function experimentalWildType(uniprotId: string, position: number, wtLette
     return { kind: "none", reason: lookup.status === "none" ? "No solved complex of this protein is in the PDB." : "Solved complexes could not be read from PDBe." };
   }
   // A fibril or a crystal-packing contact is not a binding complex: neither is a DDMut-PPI wild type.
-  const biological = lookup.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal").map(p => ({ p, view: observedFor(p, uniprotId, position) }));
+  const biological = lookup.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal").map(p => ({ p, view: observedFor(p, uniprotId, position, lookup.coverage) }));
   const hits = biological.filter(x => x.view.variantAtInterface);
   if (!hits.length) {
+    const complexes = new Set(biological.flatMap(x => x.p.pdbEntries)).size;
+    // Entries without coordinates for the residue say nothing about it (ABCG1 Gly358: in none of 5).
+    const modelling = new Set(biological.flatMap(x => x.view.modelledEntries ?? x.p.pdbEntries)).size;
+    const any = (n: number) => (n === 1 ? "the one solved complex" : `any of the ${n} solved complexes`);
+    // "That model it" is a measured denominator only when PDBe's coverage answered; without it `modelling` is every entry of the pair.
+    const covered = lookup.coverage !== null;
     return biological.length
-      ? { kind: "not-interfacial", reason: `The residue is not at the interface in ${((n: number) => (n === 1 ? "the one solved complex" : `any of the ${n} solved complexes`))(new Set(biological.flatMap(x => x.p.pdbEntries)).size)}, so no binding change is estimated.` }
+      ? {
+          kind: "not-interfacial",
+          reason: covered && modelling === 0
+            ? `The residue is not modelled in ${any(complexes)}, so there is no solved wild type to score on.`
+            : `The residue is not at the interface in ${any(modelling)}${covered ? " that model it" : " (PDBe could not say which of them model it)"}, so no binding change is estimated.`,
+        }
       : {
           kind: "none",
           reason: lookup.partners.some(p => (p.context === "fibril" || p.context === "crystal") && !p.artefact)

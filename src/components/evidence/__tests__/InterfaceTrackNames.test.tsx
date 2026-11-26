@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InterfaceTrack, planRangeNames, type NamedRange, type RangeNamePlan } from "../interfaces/InterfaceTrack";
 import { buildInterfacesEvidence, type InterfacesEvidence } from "../../../shared/interfacesEvidence";
 import { NAE1_UNIPROT } from "../../../shared/__tests__/fixtures/nae1FunctionalDomains";
+import { ABCG1_INTERFACES } from "../../../shared/__tests__/fixtures/abcg1Interfaces";
 
 /**
  * Names on the sequence track, on NAE1 p.Asp116Gly (doc/INTERFACES_PPI_REVIEW.md). Its mapped Site at 211 and
@@ -102,6 +103,52 @@ describe("planRangeNames", () => {
   it("draws nothing when nothing can be measured, rather than stacking every name on row 0", () => {
     const plans = planRangeNames([named(1, 300, "UBA-like"), named(331, 344, "Interaction with UBA3", "331–344 · Interaction with UBA3")], { pct, width: 0, measure });
     expect(plans).toEqual([]);
+  });
+
+  describe("fitNames (the stacked domains lane)", () => {
+    const stacked = { pct, width: 600, measure, fitNames: true };
+
+    it("draws a name that does not fit beside its own block, on its row, instead of a callout", () => {
+      // 14 residues is 16px: too narrow for the name, with free room to its right.
+      const plans = planRangeNames([named(331, 344, "Interaction with UBA3", "331–344 · Interaction with UBA3")], { ...stacked, rows: [0] });
+      expect(plans[0]).toEqual({ inline: "beside", side: "right" });
+    });
+
+    it("falls to the left at the lane's end, and never into a neighbouring block on the same row", () => {
+      const left = planRangeNames([named(500, 534, "C-terminal tail")], { ...stacked, rows: [0] });
+      expect(left[0]).toEqual({ inline: "beside", side: "left" });
+      // A block follows on the same row, so the right side is taken; the left side is free.
+      const crowded = planRangeNames([named(100, 110, "Alpha helix"), named(125, 300, "Wide neighbouring domain")], { ...stacked, rows: [0, 0] });
+      expect(crowded[0]).toEqual({ inline: "beside", side: "left" });
+    });
+
+    it("clips the name inside a block wide enough for a few words when neither side is free; a narrow block gets a callout", () => {
+      const wide = planRangeNames([named(1, 80, "A very long domain name that cannot fit here"), named(90, 534, "Everything else in the protein")], { ...stacked, rows: [0, 0] });
+      expect(wide[0]).toEqual({ inline: true });
+      const narrow = planRangeNames([named(100, 104, "Tiny site name that is long"), named(106, 534, "Everything else in the protein")], { ...stacked, rows: [0, 0] });
+      expect(narrow[0].inline).toBe(false);
+    });
+
+    it("is off by default: the callout rules above are unchanged", () => {
+      const plans = planRangeNames([named(331, 344, "Interaction with UBA3", "331–344 · Interaction with UBA3")], { pct, width: 600, measure, rows: [0] });
+      expect(plans[0]).toEqual({ inline: false, left: expect.any(Number), row: 0 });
+    });
+  });
+});
+
+describe("InterfaceTrack — membrane topology", () => {
+  function abcg1() {
+    return buildInterfacesEvidence({ result: ABCG1_INTERFACES.result, assembly: ABCG1_INTERFACES.assembly, assemblyStatus: "ready", ppi: ABCG1_INTERFACES.ppi, ppiStatus: "ready", shift: null, shiftLoading: false });
+  }
+
+  it("reads the side of the membrane the variant is on at the lane's end: Gly358 is on the cytoplasmic loop", () => {
+    render(<InterfaceTrack ev={abcg1()} />);
+    expect(laneRow("topology").querySelector(".ifc-track__readout")?.textContent).toBe("Cytoplasm");
+  });
+
+  it("says nothing without a variant position", () => {
+    render(<InterfaceTrack ev={{ ...abcg1(), position: null }} />);
+    expect(laneRow("topology").querySelector(".ifc-track__readout")?.textContent).toBe("");
   });
 });
 

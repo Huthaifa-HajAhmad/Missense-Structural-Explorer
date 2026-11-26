@@ -33,15 +33,16 @@ beforeEach(() => window.history.replaceState(null, "", "/evidence/interfaces"));
 afterEach(() => fetchWithAuthMock.mockReset());
 
 describe("InterfacesTab — SOD1 p.Ala5Val finding", () => {
-  it("leads with 0 of 142 native structures, never the fibril count as the dimer interface", () => {
+  // Denominators are the structures that model Ala5: 137 of 142 native, 4 of 15 fibrils (PDBe unipdb).
+  it("leads with 0 of 137 native structures that model Ala5, never the fibril count as the dimer interface", () => {
     renderTab();
     const finding = screen.getByTestId("interfaces-finding");
     expect(screen.getByTestId("interface-verdict")).toHaveTextContent("Not at an interface");
-    expect(finding).toHaveTextContent("0 of 142");
-    expect(finding).toHaveTextContent("native solved structures place Ala5 at the interface with the other SOD1 chain");
+    expect(finding).toHaveTextContent("0 of 137");
+    expect(finding).toHaveTextContent("native solved structures that model Ala5 place it at the interface with the other SOD1 chain");
     expect(finding).not.toHaveTextContent(/of 157|heterozygous carrier makes mixed complexes/);
-    expect(screen.getByTestId("interfaces-callout")).toHaveTextContent("In 4 of 15 amyloid fibril structures (7VZF, 9JBO, 9JBP, 9LI1)");
-    expect(screen.getByTestId("binding-card")).toHaveTextContent("Ala5 is not at the interface in any solved complex of SOD1");
+    expect(screen.getByTestId("interfaces-callout")).toHaveTextContent("In all 4 amyloid fibril structures that model Ala5 (of 15) (7VZF, 9JBO, 9JBP, 9LI1)");
+    expect(screen.getByTestId("binding-card")).toHaveTextContent("Ala5 is not at the interface in any solved complex of SOD1 that models it");
     expect(within(screen.getByTestId("binding-card")).queryByRole("button", { name: /Estimate binding change/ })).toBeNull();
   });
 
@@ -49,8 +50,8 @@ describe("InterfacesTab — SOD1 p.Ala5Val finding", () => {
     renderTab();
     const track = screen.getByTestId("interface-track");
     expect(within(track).getByRole("img", { name: /^SOD1, other chain: .*Ala5 not at this interface$/ })).toBeInTheDocument();
-    expect(within(track).getByRole("img", { name: /^SOD1 fibril: .*Ala5 at the interface in 4 of 15 amyloid fibril structures$/ })).toBeInTheDocument();
-    expect(track).toHaveTextContent("4/15");
+    expect(within(track).getByRole("img", { name: /^SOD1 fibril: .*Ala5 at the interface in 4 of 4 amyloid fibril structures$/ })).toBeInTheDocument();
+    expect(track).toHaveTextContent("4/4");
     expect(screen.getByLabelText("Legend")).toHaveTextContent("Amyloid fibril stacking, read apart");
   });
 
@@ -113,31 +114,25 @@ describe("InterfacesTab — Show interface in 3D", () => {
 });
 
 describe("InterfacesTab — SOD1 partners", () => {
-  it("draws the tiers as a chart with counts, STRING's cap marked", () => {
+  // The tiers are filter chips with counts under one sentence; a linear bar chart drew small tiers as
+  // dots beside STRING's hundreds (doc/INTERFACES_PPI_AUDIT_2026-11-26.md, U4).
+  it("shows the tiers as filter chips with counts, STRING's cap marked", () => {
     renderTab();
     const tiers = screen.getByTestId("partner-tiers");
     expect(within(tiers).getByRole("group", { name: "Binding evidence" })).toBeInTheDocument();
     expect(within(tiers).getByRole("button", { name: /Binary screen only\s*66/ })).toHaveAttribute("aria-pressed", "false");
     expect(within(tiers).getByRole("button", { name: /Functional association only\s*369\+/ })).toBeInTheDocument();
-    // Every bar carries a fill whose length is the tier's share of the largest — a bare rail would
-    // read as a loading skeleton (the regression where the fill's positioning rule was dropped).
-    const widths = [...tiers.querySelectorAll<HTMLElement>(".ifc-tier__fill")].map(f => {
-      expect(f.style.width).toMatch(/^max\(2px, [\d.]+%\)$/);
-      return parseFloat(f.style.width.replace(/^max\(2px, /, ""));
-    });
-    expect(Math.max(...widths)).toBeGreaterThan(90);
+    expect(tiers.querySelector(".ifc-tier__fill")).toBeNull();
   });
 
-  it("heads each band with its running total and marks binding apart from association", () => {
+  it("states the shape once, in partner proteins, from the same count as the facts", () => {
     renderTab();
-    const tiers = screen.getByTestId("partner-tiers");
-    const binding = within(tiers).getByRole("group", { name: "Binding evidence" });
-    const assoc = within(tiers).getByRole("group", { name: "Association only" });
-    expect(binding.querySelector(".ifc-tiers__band-count")?.textContent).toMatch(/^\d+\+? entries$/);
-    // STRING's functional list is capped, so the association band's total carries the plus.
-    expect(assoc.querySelector(".ifc-tiers__band-count")?.textContent).toMatch(/\+\s*entries$/);
-    expect(tiers.querySelector('.ifc-tiers__band[data-band="binding"]')).toBeTruthy();
-    expect(tiers.querySelector('.ifc-tiers__band[data-band="association"]')).toBeTruthy();
+    const shape = document.querySelector(".ifc-partners__shape")!;
+    const facts = screen.getByTestId("interfaces-finding");
+    const count = /^(\d+) partner proteins with binding evidence/.exec(shape.textContent ?? "")?.[1];
+    expect(count).toBeDefined();
+    expect(facts).toHaveTextContent(`Reported partners${count}`);
+    expect(shape.textContent).toMatch(/\(and \d+ from other species\); \d+\+ with STRING association only\.$/);
   });
 
   it("folds the 63-row screen tail behind one line and lists names on request", () => {
@@ -191,7 +186,7 @@ describe("InterfacesRail — SOD1", () => {
     const trace = screen.getByTestId("interfaces-trace");
     expect(trace).toHaveTextContent("Amyloid fibrils read apart: SOD1 fibril, 15 entries.");
     expect(trace).toHaveTextContent("Set aside, not biological: NB1 (antibody or nanobody, a tool binder); Other (chain with no UniProt record).");
-    expect(trace).toHaveTextContent("Not at the interface in any of 142 native structures");
+    expect(trace).toHaveTextContent("Not at the interface in any of 137 native structures that model it");
     expect(screen.getByTestId("interfaces-rail")).toHaveTextContent("RCSB PDB keywords, titles and assemblies");
   });
 });
@@ -202,7 +197,9 @@ describe("InterfacesTab — the assembly card", () => {
     const props = { analysisState: { result: RESULT, isLoading: false }, energyUnit: "kcal/mol", formatDdGValue: (v: number) => `${v}`, onTabChange: vi.fn() } as any;
     const { container } = render(<EvidenceWorkspaceProvider result={RESULT}><InterfacesTab {...props} /></EvidenceWorkspaceProvider>);
     expect(container.querySelector("details.mx-composition-disclosure")).toBeNull();
-    const card = container.querySelector<HTMLElement>(".ifc-hero__diagram")!;
+    // The schematic heads the assembly records, not the finding (audit 2026-11-26, U12).
+    fireEvent.click(screen.getByRole("tab", { name: /Assemblies & models/ }));
+    const card = container.querySelector<HTMLElement>(".ifc-composition")!;
     expect(within(card).getByText("Assembly")).toBeVisible();
     expect(within(card).getByText("Homodimer")).toBeVisible();
     expect(within(card).getByText("By similarity")).toHaveClass("ev-tier");

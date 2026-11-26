@@ -237,6 +237,7 @@ describe("buildFunctionEvidence — context for PM1 and mutagenesis at the resid
       status: "ok" as const,
       entryKinds: "ok" as const,
       crystalChecked: true,
+      coverageChecked: true,
       partners: [
         {
           accession: "P00441",
