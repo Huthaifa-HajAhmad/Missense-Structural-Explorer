@@ -8,7 +8,7 @@ import type { CuratedInheritance } from "../../src/shared/inheritanceBasis.ts";
 import type { CuratedLofMechanism } from "../../src/shared/lofMechanismBasis.ts";
 import crypto from "crypto";
 
-import { type AnalysisResult } from "../../src/shared/contracts.ts";
+import { type AnalysisResult, type AouFrequencyData } from "../../src/shared/contracts.ts";
 import { computeRuleBasedACMG } from "../services/acmg.ts";
 import {
   type ClinVarData,
@@ -89,7 +89,8 @@ export function handleNarrativeResponse(
   uniprotFeatures?: UniprotFeaturesResult | null,
   sequence?: string | null,
   curatedInheritance?: CuratedInheritance | null,
-  curatedLofMechanism?: CuratedLofMechanism | null
+  curatedLofMechanism?: CuratedLofMechanism | null,
+  aouFrequency?: AouFrequencyData | null
 ) {
   if (analysisResult.insights) {
     /**
@@ -122,6 +123,7 @@ export function handleNarrativeResponse(
     gnomadFrequency,
     curatedInheritance: curatedInheritance ?? null,
     curatedLofMechanism: curatedLofMechanism ?? null,
+    aouFrequency: aouFrequency ?? null,
     acmgWeighting,
     uniprotFeatures,
     sequence

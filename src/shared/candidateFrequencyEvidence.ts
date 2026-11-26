@@ -11,10 +11,10 @@
  */
 import type { CandidateAllOfUs, GnomadCandidateReading } from "./contracts.ts";
 import type { FrequencyCriterion } from "./frequencyEvidence.ts";
-import { BS1_COUNTED_AUTOMATICALLY, BS1_NOT_APPLIED_REASON, type FrequencyDecision, type FrequencyStatistic } from "./frequencyRule.ts";
-import { candidateAlleleLabel, candidateNucleotideChange, decideCandidateFrequency, type CandidateDecision } from "./candidateFrequency.ts";
+import { BS1_COUNTED_AUTOMATICALLY, BS1_NOT_APPLIED_REASON, pm2HoldReason, type Pm2Hold, type FrequencyDecision, type FrequencyStatistic } from "./frequencyRule.ts";
+import { candidateAlleleLabel, candidateNucleotideChange, candidatePm2Hold, decideCandidateFrequency, type CandidateDecision } from "./candidateFrequency.ts";
 import { formatAlleleFrequency, formatCount, formatCutPoint } from "./frequencyFormat.ts";
-import { pm2CeilingFor, type CuratedInheritance } from "./inheritanceBasis.ts";
+import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "./inheritanceBasis.ts";
 import { THRESHOLDS } from "./thresholds/constants.ts";
 
 /** One candidate allele, as the Population tab lists it. */
@@ -41,9 +41,11 @@ export interface CandidateAlleleRow {
   homozygotes: number | null;
   /** This allele's own verdict; null when it has no reading. */
   decision: FrequencyDecision | null;
+  /** Set when this allele's frequency is in the PM2 range but PM2 is not applied; `decision` is then `none`. */
+  pm2Hold: Pm2Hold | null;
   /** Why the allele has no figure, or that gnomAD holds no record of it. */
   note: string | null;
-  /** This allele's All of Us reading (display only); null when the allele was not read there. */
+  /** This allele's All of Us reading (it can withhold PM2); null when the allele was not read there. */
   allOfUs: { af: number | null; counts: string | null; note: string | null } | null;
 }
 
@@ -66,12 +68,12 @@ function allOfUsFor(reading: CandidateAllOfUs | null | undefined): CandidateAlle
 
 type CandidateCriterion = Pick<FrequencyCriterion,
   "code" | "statement" | "headline" | "predicate" | "af" | "sourceId" | "absent" | "inputs" |
-  "pm2Ceiling" | "inheritance" | "ceilingBasis" | "ceilingText"> & { candidateAlleles: number; candidatesDisagree: boolean };
+  "pm2Ceiling" | "inheritance" | "ceilingBasis" | "ceilingText" | "pm2Hold"> & { candidateAlleles: number; candidatesDisagree: boolean };
 
 const sum = (a: number | null | undefined, b: number | null | undefined) =>
   a == null && b == null ? null : (a ?? 0) + (b ?? 0);
 
-function rowFor({ candidate, inputs, decision }: CandidateDecision): CandidateAlleleRow {
+function rowFor({ candidate, inputs, decision }: CandidateDecision, pm2Hold: Pm2Hold | null): CandidateAlleleRow {
   const f = candidate.frequency;
   const ac = sum(f?.exomeAC, f?.genomeAC);
   const an = sum(f?.exomeAN, f?.genomeAN);
@@ -91,7 +93,9 @@ function rowFor({ candidate, inputs, decision }: CandidateDecision): CandidateAl
     benignStatistic: inputs?.benignStatistic ?? null,
     counts: ac !== null && an !== null ? `${formatCount(ac)} / ${formatCount(an)}` : null,
     homozygotes: f?.nHomozygous ?? null,
-    decision,
+    // A held PM2 is not this allele's verdict.
+    decision: pm2Hold ? "none" : decision,
+    pm2Hold,
     note,
     allOfUs: allOfUsFor(candidate.allOfUs),
   };
@@ -107,7 +111,9 @@ export function candidateFrequencyReading(
   basis: { curatedInheritance: CuratedInheritance | null; pli: number | null },
 ): { criterion: CandidateCriterion; rows: CandidateAlleleRow[] } {
   const verdict = decideCandidates(candidates, basis);
-  return { criterion: criterionFor(verdict, candidates.length), rows: verdict.readings.map(rowFor) };
+  const holdContext = { ceiling: verdict.ceiling.ceiling, homozygotesInform: verdict.homozygotesInform };
+  const rows = verdict.readings.map(r => rowFor(r, r.decision === "PM2" ? candidatePm2Hold([r], holdContext) : null));
+  return { criterion: criterionFor(verdict, candidates.length), rows };
 }
 
 function decideCandidates(
@@ -122,7 +128,11 @@ function decideCandidates(
   const verdict = decideCandidateFrequency(candidates, {
     standAloneBenign: FREQ.standAloneBenign, tooCommonForDisorder: FREQ.tooCommonForDisorder, pm2Ceiling: ceiling.ceiling,
   });
-  return { ...verdict, ceiling };
+  const homozygotesInform = homozygotesInformBs2({ variantId: candidates.find(c => c.id)?.id ?? null, inheritance: basis.curatedInheritance }).applies;
+  const pm2Held = verdict.kind === "agree" && verdict.decision === "PM2"
+    ? candidatePm2Hold(verdict.readings, { ceiling: ceiling.ceiling, homozygotesInform })
+    : null;
+  return { ...verdict, ceiling, homozygotesInform, pm2Held };
 }
 
 function criterionFor(verdict: ReturnType<typeof decideCandidates>, count: number): CandidateCriterion {
@@ -161,13 +171,14 @@ function criterionFor(verdict: ReturnType<typeof decideCandidates>, count: numbe
   const af = benign ? inputs.benignAf : inputs.pm2Af;
   const absent = verdict.readings.every(r => r.candidate.outcome === "not-found");
   const [headline, clause] =
-    verdict.decision === "BA1" ? ["Stand-alone benign", `above the ${formatCutPoint(FREQ.standAloneBenign)} BA1 cut-point`]
+    verdict.pm2Held ? ["PM2 withheld", `at or below the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling, but PM2 is not applied: ${pm2HoldReason(verdict.pm2Held)}`]
+    : verdict.decision === "BA1" ? ["Stand-alone benign", `above the ${formatCutPoint(FREQ.standAloneBenign)} BA1 cut-point`]
     : verdict.decision === "BS1" ? ["Above the app's BS1 reference", `above the ${formatCutPoint(FREQ.tooCommonForDisorder)} app-defined BS1 reference, but BS1 is not applied: ${BS1_NOT_APPLIED_REASON}`]
     : verdict.decision === "PM2" ? ["Extremely rare", `at or below the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling under the app-defined policy (${ceiling.text})`]
     : ["Between the cut-points", `between the ${formatCutPoint(ceiling.ceiling)} PM2 ceiling and the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point, so no frequency criterion applies`];
   const predicate = `${all} is ${clause}; frequencies were not added together`;
   return {
-    ...shared, code: verdict.decision === "BS1" && !BS1_COUNTED_AUTOMATICALLY ? "none" : verdict.decision, af, absent, inputs, headline, predicate,
+    ...shared, code: (verdict.decision === "BS1" && !BS1_COUNTED_AUTOMATICALLY) || verdict.pm2Held ? "none" : verdict.decision, pm2Hold: verdict.pm2Held, af, absent, inputs, headline, predicate,
     statement: `${headline}: ${predicate} (closest to the cut-point: ${candidateAlleleLabel(binding.candidate)} at ${formatAlleleFrequency(af)}).`,
   };
 }

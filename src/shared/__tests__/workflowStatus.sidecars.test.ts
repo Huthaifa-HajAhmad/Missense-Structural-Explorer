@@ -42,7 +42,7 @@ describe("structure stage waits for multimer and PPI (PIPE-1)", () => {
     expect(status.desc).toMatch(/^Loading protein 3D coordinates/);
   });
 
-  it("settles once both sidecars have settled, including when one was skipped or failed", () => {
+  it("settles once both sidecars have settled; a skipped one is complete, failed ones are partial", () => {
     expect(
       getWorkflowStageStatus({
         view: "structure",
@@ -57,7 +57,7 @@ describe("structure stage waits for multimer and PPI (PIPE-1)", () => {
         result: withStages({ core: "complete", multimer: "error", ppi: "error" }),
         hasStructureCoordinates: true,
       }).status
-    ).toBe("complete");
+    ).toBe("degraded");
   });
 
   it("does not hold the stage on a sidecar when the core query itself failed", () => {

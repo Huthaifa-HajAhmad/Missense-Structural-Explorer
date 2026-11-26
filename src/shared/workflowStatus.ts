@@ -2,9 +2,7 @@ import type { AnalysisResult } from "./contracts.ts";
 import { formatDdg, type RemoteStatus } from "./engineStatus.ts";
 import { buildEnergeticsEvidence } from "./energeticsEvidence.ts";
 import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
-import { serviceStatusOf } from "./serviceStatus.ts";
-import { everyCandidateRead } from "./candidateFrequency.ts";
-import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "./locusResolution.ts";
+import { evidenceStageStatus } from "./evidenceStageStatus.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error" | "unavailable" | "on-demand";
 
@@ -76,7 +74,8 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
     foldingError: params.foldingError ?? energetics?.foldxError,
     thermompnnStatus: remoteStatus(params.thermompnnStatus),
     thermompnnError: params.thermompnnError,
-    isFolding: params.isFolding
+    isFolding: params.isFolding,
+    plddt: result?.disruptionPredictor?.plddt ?? null
   });
   // The run's ΔΔG comes from an engine that can count — never from a reference row (ProtVar), which
   // would otherwise be presented as this run's estimate whenever every counted engine failed.
@@ -136,6 +135,9 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
           : foldxMissing
           ? `FoldX: ${foldxReading!.outcome.label.toLowerCase()}`
           : "Available"
+      }${
+        // Low confidence is context on the estimate, not a failed engine, so the status is unchanged.
+        evidence.lowPlddt !== null ? ` · Low model confidence (pLDDT ${Math.round(evidence.lowPlddt)})` : ""
       }`
     };
   }
@@ -287,59 +289,7 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
 
     if (view === "evidence") {
       if (result.metadata?.pipelineStages?.core === "error") return { status: "error", desc: "Core evidence query failed · Re-run to retry" };
-      if (isClinicalLoading || isBiophysicalLoading) {
-        return {
-          status: "progress",
-          // Evidence that ARRIVED: a source that failed or timed out has delivered nothing to be "available".
-          desc: Object.values(serviceStatusOf(result) ?? {}).some(status => status === "ok")
-            ? "Partial evidence available · Remaining sources loading"
-            : "Querying ClinVar, gnomAD, and predictors..."
-        };
-      }
-      /**
-       * A run whose population evidence could not be read is not "complete", and the rail must not
-       * show it in the same green as a clean one: a fallback locus (the GRCh38 lookup failed, so
-       * gnomAD was never queried) or a gnomAD query that timed out or failed.
-       */
-      const gnomadStatus = serviceStatusOf(result)?.gnomadFrequency;
-      // A protein change with several candidate alleles has no single locus, but gnomAD is still read
-      // once per candidate. Only when every candidate was answered (found, or confirmed absent) was
-      // the population evidence assessed; a failed or skipped query leaves no frequency criterion.
-      const candidatesRead = locusFailureKind(result) === "multiple-candidates"
-        && everyCandidateRead(result.gnomadFrequency?.candidates ?? []);
-      if (isFallbackLocus(result) && !candidatesRead) {
-        return {
-          status: "degraded",
-          desc: `Population evidence not assessed: ${fallbackCause(
-             result.predictorData?.gnomadVariantAssembly ?? null,
-             locusRecoveryAction(result) === "retry",
-             locusFailureKind(result) ?? undefined
-           )}`
-        };
-      }
-      if (gnomadStatus === "timeout" || gnomadStatus === "error") {
-        return {
-          status: "degraded",
-          desc: "gnomAD did not answer on this run · population evidence incomplete — re-run to retry"
-        };
-      }
-      /**
-       * Usable is not settled. Core evidence and the ACMG rules are in, so every tab can be opened,
-       * but a tab still loading its own source (AlphaGenome, Expression, Interfaces…) is named here
-       * rather than hidden behind a "complete" the reader would take as final.
-       */
-      const loadingTabs = p.evidenceTabsLoading ?? [];
-      if (loadingTabs.length > 0) {
-        const named = loadingTabs.length <= 3
-          ? loadingTabs.join(", ")
-          : `${loadingTabs.slice(0, 2).join(", ")} and ${loadingTabs.length - 2} more`;
-        return { status: "progress", desc: `Usable now · Still loading: ${named}` };
-      }
-      const clinvarText = result.clinvar?.classification || "Annotated";
-      return {
-        status: "complete",
-        desc: `ClinVar: ${clinvarText} · ACMG rules evaluated`
-      };
+      return evidenceStageStatus(result, isClinicalLoading || isBiophysicalLoading, p.evidenceTabsLoading ?? []);
     }
 
     if (view === "structure" || view === "structure_alphafold") {
@@ -372,6 +322,14 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
         };
       }
       if (hasStructureEvidence) {
+        // The coordinates stay usable; a failed assembly or partner lookup is named, not hidden.
+        const stages = result.metadata?.pipelineStages;
+        const assemblyFailed = stages?.multimer === "error";
+        const partnersFailed = stages?.ppi === "error";
+        if (assemblyFailed || partnersFailed) {
+          const named = assemblyFailed && partnersFailed ? "Assembly and partner lookups" : assemblyFailed ? "Assembly lookup" : "Partner lookup";
+          return { status: "degraded", desc: `Protein 3D coordinates ready · ${named} failed — open Interfaces & PPI to retry` };
+        }
         return {
           status: "complete",
           desc: "Protein 3D coordinates ready"
@@ -420,10 +378,11 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
           desc: `${count} residue${count === 1 ? "" : "s"} ready · Loading whole protein...`
         };
       }
-      return {
-        status: "complete",
-        desc: `${count} residue${count === 1 ? "" : "s"} loaded`
-      };
+      const loaded = `${count} residue${count === 1 ? "" : "s"} loaded`;
+      if (landscapeOverviewStatus === "error") {
+        return { status: "degraded", desc: `${loaded} · Whole-protein overview failed — retry in Landscape` };
+      }
+      return { status: "complete", desc: loaded };
     }
 
     if (view === "insights") {

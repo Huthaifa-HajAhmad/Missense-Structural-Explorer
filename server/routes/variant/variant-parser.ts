@@ -572,7 +572,8 @@ export async function validateAndParseVariantRequest(
     inputKind,
     numberingBasis: canonicalConfirmed ? "user-confirmed" : (numbering?.status ?? "unavailable"),
     numberingVerified: ownCheckVerified,
-    ...(!ownCheckVerified && numbering?.reason ? { numberingReason: numbering.reason } : {}),
+    // Also kept on a canonical answer: there it names another isoform's reading of the same number.
+    ...(numbering?.reason ? { numberingReason: numbering.reason } : {}),
     numberingProof: residue.proof,
     ...(rejectedProof ? { numberingProofCheck: rejectedProof } : {}),
   };

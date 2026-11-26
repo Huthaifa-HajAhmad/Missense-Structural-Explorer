@@ -6,7 +6,7 @@
  * candidate (`locusResolution.candidates`) instead of choosing one. This module reads each candidate's
  * GRCh38 allele on its own and returns one reading per candidate. Nothing is summed or merged here:
  * the rule that reads these (`src/shared/candidateFrequency.ts`) applies a criterion only when every
- * candidate supports it. All of Us is shown per allele and feeds no criterion.
+ * candidate supports it. All of Us is shown per allele and can only withhold PM2.
  */
 import type { CandidateAllOfUs, GnomadCandidateReading, PredictorData } from "../../../src/shared/contracts.ts";
 import { LOCUS_POLICY_VERSION, type AlleleCandidate } from "../../../src/shared/locusResolution.ts";

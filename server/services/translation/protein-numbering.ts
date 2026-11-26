@@ -32,7 +32,7 @@ import {
   type RefSeqLookupResult,
   type UniprotIsoform,
 } from "../external-api/uniprot.ts";
-import { isCanonicalIsoformId } from "./isoform-numbering.ts";
+import { buildUnchangedNumberWarning, isCanonicalIsoformId } from "./isoform-numbering.ts";
 import { getNumberingProfile, notationAtCanonicalPosition } from "./numbering-profile.ts";
 import {
   mapPositionAcrossSequences,
@@ -536,19 +536,16 @@ export async function resolveGeneProteinNumbering(params: {
         /**
          * A position the MANE pair agrees on, but ANOTHER isoform also reads.
          *
-         * The scope for resolving a bare notation is canonical-vs-MANE (that is what a lab reports), so
-         * this is not a refusal — but it is not a clean bill either: a report numbered on that isoform
-         * would mean a different canonical residue. `numberingVerified: true` would assert a check of
-         * something that was never checked, so the reading is accepted and DISCLOSED, naming the isoform
-         * and the other residue it implies.
+         * The scope for resolving a bare notation is canonical-vs-MANE (that is what a lab reports), and
+         * that pair agrees here, so the canonical reading is accepted: it is what `canonical-vs-mane`
+         * proves. It is not a clean bill either — a report numbered on that isoform would mean a different
+         * canonical residue — so `reason` names the isoform and the other residue it implies. This used
+         * to answer `unverified`, which the analysis refuses, so a disclosure had become a refusal.
          */
         const contested = profile.contested.find((entry) => entry.position === substitution.position);
         if (contested) {
           return {
-            status: "unverified",
-            canonicalAccession,
-            basisAccession: gene,
-            geneSymbol: gene,
+            ...canonicalOutcome(),
             reason:
               `isoform ${contested.basisIsoformId} also carries this residue at position ` +
               `${substitution.position}, which is canonical ${contested.canonicalPosition} — a report ` +
@@ -606,6 +603,12 @@ export function buildProteinNumberingRemapWarning(
     ? `${outcome.basisAccession} (isoform ${outcome.basisId})`
     : outcome.basisId ?? "a non-canonical isoform";
   const transcript = outcome.transcriptId ? `, ${outcome.transcriptId}` : "";
+  if (parseSubstitution(inputNotation)?.position === parseSubstitution(outcome.canonicalVariant)?.position) {
+    return buildUnchangedNumberWarning(
+      `${inputNotation} on ${basis}${transcript}`,
+      `${outcome.canonicalVariant} on canonical ${outcome.canonicalAccession}`
+    );
+  }
   return (
     `Protein numbering remapped for structural analysis: ${inputNotation} on ${basis}${transcript} → ` +
     `${outcome.canonicalVariant} on canonical ${outcome.canonicalAccession}. The reported protein is not ` +

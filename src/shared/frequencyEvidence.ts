@@ -43,7 +43,7 @@
  * scripts/check-boundaries.ts).
  */
 import { THRESHOLDS } from "./thresholds/constants.ts";
-import { decideFrequencyCriterion, gnomadRuleInputs, singleRuleInput, STATISTIC_LABEL, BS1_COUNTED_AUTOMATICALLY, BS1_NOT_APPLIED_REASON, BS2_COUNTED_AUTOMATICALLY, BS2_NOT_APPLIED_REASON, type FrequencyRuleInputs, type FrequencyStatistic } from "./frequencyRule.ts";
+import { aouAlleleFrequency, decideFrequencyCriterion, gnomadRuleInputs, pm2Hold, pm2HoldReason, singleRuleInput, STATISTIC_LABEL, type Pm2Hold, BS1_COUNTED_AUTOMATICALLY, BS1_NOT_APPLIED_REASON, BS2_COUNTED_AUTOMATICALLY, BS2_NOT_APPLIED_REASON, type FrequencyRuleInputs, type FrequencyStatistic } from "./frequencyRule.ts";
 import { pm2CeilingFor, homozygotesInformBs2, type CuratedInheritance, type Pm2CeilingBasis } from "./inheritanceBasis.ts";
 import { gnomadGroupLabel } from "./gnomadGroups.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
@@ -184,6 +184,11 @@ export interface FrequencyCriterion {
   candidateAlleles?: number;
   /** True when the candidate alleles reached different verdicts, so no criterion applies. */
   candidatesDisagree?: boolean;
+  /**
+   * Why PM2 is not applied although the frequency is at or below its ceiling (`pm2Hold`). `code` is
+   * then `none`, so a surface that words `none` as "between the cut-points" must read this first.
+   */
+  pm2Hold?: Pm2Hold | null;
 }
 
 /**
@@ -770,6 +775,18 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
     return { ...shared, code: BS1_COUNTED_AUTOMATICALLY ? "BS1" : "none", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)}${benignNote} is ${predicate}.` };
   }
   if (decision === "PM2") {
+    // The engine's holds, from the same function, so the tab cannot show a PM2 the engine withheld.
+    const hold = pm2Hold(inputs, {
+      ceiling: pm2Ceiling,
+      nHomozygous: gnomadFrequency?.nHomozygous,
+      homozygotesInform: homozygotesInformBs2({ variantId: input.locus?.predictorData?.gnomadVariantId ?? null, inheritance: input.curatedInheritance ?? null }).applies,
+      aouAf: aouAlleleFrequency(input.aouFrequency),
+    });
+    if (hold) {
+      const headline = "PM2 withheld";
+      const predicate = `at or below the ${formatCutPoint(pm2Ceiling)} PM2 ceiling, but PM2 is not applied: ${pm2HoldReason(hold)}`;
+      return { ...shared, code: "none", pm2Hold: hold, headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.` };
+    }
     const headline = "Extremely rare";
     const predicate = `at or below the ${formatCutPoint(pm2Ceiling)} PM2 ceiling under the app-defined policy (${ceiling.text})`;
     return { ...shared, code: "PM2", headline, predicate, statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.` };
@@ -779,6 +796,15 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   const benignClause = inputs.benignStatistic === "faf95" ? `, and FAF95 ${formatAlleleFrequency(inputs.benignAf)} is` : " but";
   const predicate = `above the ${formatCutPoint(pm2Ceiling)} PM2 ceiling${benignClause} below the ${formatCutPoint(FREQ.tooCommonForDisorder)} BS1 cut-point, so no frequency criterion applies`;
   return { ...shared, code: "none", headline, predicate, statement: `${formatAlleleFrequency(af)} sits ${predicate}.` };
+}
+
+/**
+ * True for a saved result that still counts a PM2 today's rule withholds. The server cache and the
+ * browser's saved runs recompute it once, rather than show a counted PM2 beside "PM2 withheld".
+ */
+export function recordsHeldPm2(result: FrequencyResultLike): boolean {
+  const input = frequencyEvidenceInputFromResult(result);
+  return readAppliedCriterion(input).code === "PM2" && Boolean(classifyAcmgFrequency(input).pm2Hold);
 }
 
 /**
@@ -1019,8 +1045,8 @@ export function aouSourceLabel(lookup: AouLookup | null | undefined, locus?: Loc
 /**
  * A cohort that reports the allele markedly MORE often than the frequency the rule read.
  *
- * The rule reads gnomAD only. When another cohort (All of Us, or one gnomAD dataset against a
- * combined figure) is several-fold higher, the allele may be enriched in a group the rule's input
+ * BA1, BS1 and PM2 are tested on gnomAD; All of Us only withholds PM2 when it is above the ceiling.
+ * When another cohort (All of Us, or one gnomAD dataset against a combined figure) is several-fold higher, the allele may be enriched in a group the rule's input
  * dilutes — UROD p.Gly318Arg read 0.104% from a combined local figure while All of Us held 0.42% and
  * gnomAD's African-ancestry group 1.70%. Context only: it never changes a criterion, and the surface
  * words it as a reason to look, not as a finding.
@@ -1196,7 +1222,7 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   const aouAN = finite(aouFrequency?.aouAN);
   const aouHet = finite(aouFrequency?.aouHet);
   const aouHom = finite(aouFrequency?.aouHom);
-  const aouAF = aouAC !== null && aouAN !== null && aouAN > 0 ? aouAC / aouAN : null;
+  const aouAF = aouAlleleFrequency(aouFrequency);
   const aouHasEntry = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;
 
   const aouLookup = input.aouLookup ?? null;

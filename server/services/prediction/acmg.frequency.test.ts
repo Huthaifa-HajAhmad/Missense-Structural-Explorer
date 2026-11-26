@@ -105,6 +105,12 @@ describe("ACMG frequency rules — protein change with several candidate alleles
     expect(res.acmgCriteria.find(c => c.code === "PM2")?.reason).toMatch(/every candidate allele \(2: 4-1804392-G-A, 4-1804392-G-C\)/);
   });
 
+  it("withholds PM2 when any candidate has two or more homozygotes, since PM2 must hold for every candidate", () => {
+    const res = run([absent("A"), found("C", 0.0004, { nHomozygous: 3 })]);
+    expect(frequencyCodes(res)).toEqual([]);
+    expect(res.partialEvidence.unavailable.some(u => /^PM2 \(withheld: 3 homozygotes/.test(u))).toBe(true);
+  });
+
   it("withholds BS1 even when every candidate is above the 1% reference cut-point on its own FAF95", () => {
     const res = run([found("A", 0.03, { faf95: 0.02 }), found("C", 0.04, { faf95: 0.015 })]);
     expect(frequencyCodes(res)).toEqual([]);
@@ -154,5 +160,66 @@ describe("ACMG frequency rules — protein change with several candidate alleles
     expect(hbs.acmgVerdict).not.toBe("Benign");
     expect(hbs.acmgVerdict).not.toBe("Likely Benign");
     expect(hbs.acmgVerdict).toBe("Variant of Uncertain Significance (VUS)");
+  });
+});
+
+/**
+ * ABCG1 p.Gly358Arg (production, 2026-11-25): gnomAD read from the local combined copy, AC 651 /
+ * AN 1,613,518 (0.0403%), 6 homozygotes, no ancestry groups or FAF95; All of Us 0.078%; no curated
+ * inheritance and pLI < 0.9, so the recessive 0.10% ceiling. The engine awarded PM2_Supporting.
+ * PM2 is now withheld (never turned into BS2) when two or more autosomal homozygotes are observed,
+ * when All of Us is above the ceiling, or when a combined-only figure is within 10x of the ceiling.
+ */
+describe("PM2 holds — ABCG1 p.Gly358Arg", () => {
+  const abcg1 = {
+    ...base,
+    gene: "ABCG1",
+    variant: "p.Gly358Arg",
+    predictorData: { available: true, gnomadVariantId: "21-42287987-G-A" },
+    gnomadConstraint: { missense_z: 0.5, oe_mis: 0.9, pli: 0, isPP2Constrained: false },
+    serviceStatus: { gnomadFrequency: "stand-in" },
+  };
+  const local = (extra: Record<string, unknown> = {}) => ({
+    maxAF: 651 / 1613518, groupMaxAF: 651 / 1613518, genomeAF: null, exomeAF: null, nHomozygous: 6, dataset: "gnomad_r4_local", standIn: "grace", ...extra,
+  });
+  const remote = (af: number, extra: Record<string, unknown> = {}) => ({
+    maxAF: af, groupMaxAF: af, genomeAF: af, exomeAF: af, nHomozygous: 0, dataset: "gnomad_r4", groupMaxPopulation: "nfe", ...extra,
+  });
+  const run = (gnomadFrequency: unknown, extra: Record<string, unknown> = {}) =>
+    computeRuleBasedACMG({ ...abcg1, serviceStatus: { gnomadFrequency: "ok" }, gnomadFrequency, ...extra } as any);
+  const withheld = (res: ReturnType<typeof computeRuleBasedACMG>) => res.partialEvidence.unavailable.find(u => u.startsWith("PM2 (withheld"));
+
+  it("withholds PM2 when six homozygotes were observed, and does not add BS2", () => {
+    const res = run(local());
+    expect(res.acmgCriteria.map(c => c.code)).not.toContain("PM2");
+    expect(res.acmgCriteria.map(c => c.code)).not.toContain("BS2");
+    expect(withheld(res)).toContain("6 homozygotes");
+  });
+
+  it("withholds PM2 on a combined-only figure within 10x of the ceiling, even without homozygotes", () => {
+    const res = run(local({ nHomozygous: 0 }));
+    expect(res.acmgCriteria.map(c => c.code)).not.toContain("PM2");
+    expect(withheld(res)).toContain("no ancestry groups");
+  });
+
+  it("still awards PM2 on a combined-only figure far below the ceiling", () => {
+    const res = run(local({ nHomozygous: 0, maxAF: 0.00005, groupMaxAF: 0.00005 }));
+    expect(res.acmgCriteria.map(c => c.code)).toContain("PM2");
+  });
+
+  it("withholds PM2 when All of Us is above the ceiling although gnomAD is below it", () => {
+    const res = run(remote(0.0004), { aouFrequency: { aouAC: 300, aouAN: 200000, aouHet: 300, aouHom: 0 } });
+    expect(res.acmgCriteria.map(c => c.code)).not.toContain("PM2");
+    expect(withheld(res)).toContain("All of Us");
+  });
+
+  it("awards PM2 when gnomAD (with ancestry groups) and All of Us are both below the ceiling", () => {
+    const res = run(remote(0.0004), { aouFrequency: { aouAC: 156, aouAN: 200000, aouHet: 156, aouHom: 0 } });
+    expect(res.acmgCriteria.map(c => c.code)).toContain("PM2");
+  });
+
+  it("does not count homozygotes on chromosome X against PM2", () => {
+    const res = run(remote(0.0004, { nHomozygous: 6 }), { predictorData: { available: true, gnomadVariantId: "X-1000-G-A" } });
+    expect(res.acmgCriteria.map(c => c.code)).toContain("PM2");
   });
 });

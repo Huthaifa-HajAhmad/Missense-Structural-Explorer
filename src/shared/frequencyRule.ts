@@ -19,6 +19,8 @@
  * Pure.
  */
 
+import type { AouFrequencyData } from './contracts.ts';
+
 export type FrequencyStatistic = 'faf95' | 'group-max' | 'combined' | 'global' | 'absent' | 'clinvar';
 
 export interface FrequencyRuleInputs {
@@ -85,6 +87,64 @@ export function decideFrequencyCriterion(
   if (inputs.benignAf > cut.tooCommonForDisorder) return 'BS1';
   if (inputs.pm2Af <= cut.pm2Ceiling) return 'PM2';
   return 'none';
+}
+
+/**
+ * PM2 holds: a frequency at or below the ceiling is still not "extremely rare" in the sense PM2 needs
+ * (owner decision, 2026-11-26, after ABCG1 p.Gly358Arg was awarded PM2 with 6 homozygotes).
+ *
+ * • Two or more homozygotes on an autosome. At a combined frequency of 0.04% gnomAD would expect about
+ *   0.1 homozygotes, so six say the allele is common somewhere the figure does not show. This only
+ *   withholds pathogenic support; it never becomes BS2 (see BS2_COUNTED_AUTOMATICALLY).
+ * • All of Us above the ceiling. PM2 asks about population databases, and All of Us is one; testing
+ *   both against the ceiling is the same as testing the higher of the two.
+ * • A combined-only figure (the local copy: no ancestry groups) within 10x of the ceiling. An
+ *   ancestry group's frequency is often several times the combined one, so without the groups the
+ *   figure cannot show the allele is below the ceiling in every group.
+ */
+export const PM2_HOMOZYGOTE_LIMIT = 2;
+export const COMBINED_ONLY_PM2_MARGIN = 10;
+
+export type Pm2Hold =
+  | { kind: 'homozygotes'; count: number }
+  | { kind: 'all-of-us'; af: number }
+  | { kind: 'ancestry-unmeasured'; af: number; floor: number };
+
+/** The All of Us allele frequency, AC / AN (the record carries counts only). Null without both. */
+export function aouAlleleFrequency(aou: Pick<AouFrequencyData, 'aouAC' | 'aouAN'> | null | undefined): number | null {
+  const ac = finite(aou?.aouAC);
+  const an = finite(aou?.aouAN);
+  return ac !== null && an !== null && an > 0 ? ac / an : null;
+}
+
+/** Why a PM2 decision must not be counted, or null when it stands. Read only after `decideFrequencyCriterion` says PM2. */
+export function pm2Hold(
+  inputs: FrequencyRuleInputs,
+  context: { ceiling: number; nHomozygous?: number | null; homozygotesInform: boolean; aouAf?: number | null },
+): Pm2Hold | null {
+  const homozygotes = finite(context.nHomozygous);
+  if (context.homozygotesInform && homozygotes !== null && homozygotes >= PM2_HOMOZYGOTE_LIMIT) {
+    return { kind: 'homozygotes', count: homozygotes };
+  }
+  const aouAf = finite(context.aouAf);
+  if (aouAf !== null && aouAf > context.ceiling) return { kind: 'all-of-us', af: aouAf };
+  const floor = context.ceiling / COMBINED_ONLY_PM2_MARGIN;
+  if (inputs.pm2Statistic === 'combined' && inputs.pm2Af > floor) return { kind: 'ancestry-unmeasured', af: inputs.pm2Af, floor };
+  return null;
+}
+
+const percent = (value: number) => `${Number((value * 100).toPrecision(2))}%`;
+
+/** The hold in one clause, shared by the engine's `unavailable` entry and the Population tab. */
+export function pm2HoldReason(hold: Pm2Hold): string {
+  switch (hold.kind) {
+    case 'homozygotes':
+      return `${hold.count} homozygotes observed in gnomAD, so the allele is not extremely rare; the count is not used as BS2`;
+    case 'all-of-us':
+      return `the All of Us frequency (${percent(hold.af)}) is above the PM2 ceiling`;
+    case 'ancestry-unmeasured':
+      return `the combined frequency ${percent(hold.af)} has no ancestry groups and is above ${percent(hold.floor)} (a tenth of the PM2 ceiling), so it cannot show the allele is rare in every group`;
+  }
 }
 
 /** How each statistic is named in sentences and traces. */

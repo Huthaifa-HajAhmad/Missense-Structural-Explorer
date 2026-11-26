@@ -33,6 +33,7 @@ import { predictorCoordinateFromContext, isBuildDegradedResult, type PredictorDa
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
+import { recordsHeldPm2 } from "../../../src/shared/frequencyEvidence.ts";
 import { CONFIG } from "../../config.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData };
@@ -136,6 +137,8 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
     ...payload,
     metadata: { ...payload.metadata, gene: context?.gene ?? payload.metadata?.gene, variant: context?.variant ?? payload.metadata?.variant }
   })) return true;
+  // Rows scored before PM2's holds still count a PM2 today's rule withholds: recomputed once.
+  if (recordsHeldPm2(payload)) return true;
   const cons = payload.conservationData;
   // Only payloads written while the plurality vote set PP3/BP4 carry ClinPred (even as null). Their
   // in-silico criterion came from the retired rule, so they are recomputed once; the new payload has no
@@ -615,6 +618,7 @@ export async function runStructuralAnalysis(
     gnomadFrequency: coreData.gnomadFrequency,
     curatedInheritance: coreData.curatedInheritance ?? null,
     curatedLofMechanism: coreData.curatedLofMechanism ?? null,
+    aouFrequency: coreData.aouFrequency ?? null,
     acmgWeighting,
     uniprotFeatures: coreData.uniprotFeatures,
     sequence,

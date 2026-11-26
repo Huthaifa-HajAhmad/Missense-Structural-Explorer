@@ -815,7 +815,8 @@ async function runCoreFetch(
         sequence,
         serviceStatus: runningStatus,
         curatedInheritance,
-        curatedLofMechanism
+        curatedLofMechanism,
+        aouFrequency: (partialData.aouFrequency as ConservationData["aouFrequency"] | undefined) ?? null
       });
     } catch (err: any) {
       // A preview is advisory: a failure here must not abort a run whose evidence is still arriving.
@@ -1091,6 +1092,7 @@ async function runCoreFetch(
     conservationData: conservationRes,
     gnomadConstraint: gnomadConstraintRes,
     gnomadFrequency: gnomadFreqRes,
+    aouFrequency,
     acmgWeighting,
     uniprotFeatures: uniprotFeaturesRes,
     sequence,

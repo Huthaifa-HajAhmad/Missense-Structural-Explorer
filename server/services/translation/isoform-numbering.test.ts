@@ -281,6 +281,21 @@ describe("reconcileIsoformNumbering", () => {
 });
 
 describe("disclosure text", () => {
+  it("says the residue number is unchanged when only the isoform changed", () => {
+    // ABCG1: Gly358 on the MANE protein P45844-4 is Gly358 on canonical P45844-1.
+    const warning = buildIsoformRemapWarning(
+      "ENSP00000381467.3:p.Gly358Arg",
+      "ENSP00000354995.2:p.Gly358Arg",
+      "P45844-4",
+      "P45844-1",
+      "NM_016818.3"
+    );
+    expect(warning).not.toContain("numbering remapped");
+    expect(warning).toContain("residue number unchanged");
+    expect(warning).toContain("P45844-4");
+    expect(warning).toContain("NM_016818.3");
+  });
+
   it("names both notations and both isoforms for a remap", () => {
     const warning = buildIsoformRemapWarning(
       MANE_CONSEQUENCE.hgvsp,

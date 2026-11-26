@@ -361,7 +361,19 @@ nothing. Once core has landed, nothing can turn the run into a core failure: a f
 logged and the evidence stays. A stage with no outcome after core finished shows as `unavailable`, never
 `pending`, so a finished run always reaches its full count.
 
-Restoring a saved result (`storedAnalysis.ts`): every route asks `isServableStoredResult`. `restoreStoredArtifacts`
+Run monitor rows (`src/shared/workflowStatus.ts`, Evidence row in `evidenceStageStatus.ts`): a stage that
+finished with part of its work missing is `degraded` ("partial"), never `complete`, and the row names every
+missing part. Evidence is `degraded` when ClinVar's lookup failed or timed out, when gnomAD failed or timed out,
+or when gnomAD was read from the local stand-in (combined frequency only: no ancestry groups, no FAF95); an
+answered ClinVar query with no record reads "No record". Structure is `degraded` when coordinates loaded but
+the `multimer` or `ppi` stage ended in `error` (a `skipped` one is still `complete`). Landscape is `degraded`
+when the residue window loaded but the whole-protein overview failed. Energetics adds the AlphaFold pLDDT to
+its row below 70 without changing the status, because low confidence is context, not a failed engine.
+Tested in `workflowStatus.partialOutcomes.test.ts`.
+
+Restoring a saved result (`storedAnalysis.ts`): every route asks `isServableStoredResult`. A saved result that still
+counts a `PM2` today's rule withholds (`recordsHeldPm2`) is not servable, and the server cache treats such a row as
+stale, so both recompute it once. `restoreStoredArtifacts`
 replaces all viewer data as one step, writing empty for anything not saved, so one variant's structure or ΔΔG
 cannot stay beside another. A page reload paints without a run only when `reloadMayPaint` says a run would have
 nothing to do and the cached allele matches any exact allele carried by the URL. Address-bar synchronization

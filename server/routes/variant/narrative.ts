@@ -278,7 +278,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           uniprotFeatures,
           sequence,
           await curatedInheritanceRead,
-          await curatedLofMechanismRead
+          await curatedLofMechanismRead,
+          aouFrequency ?? null
         );
       }
 
@@ -369,6 +370,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           gnomadFrequency,
           curatedInheritance,
           curatedLofMechanism,
+          aouFrequency: aouFrequency ?? null,
           acmgWeighting,
           uniprotFeatures,
           sequence
@@ -520,7 +522,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         uniprotFeatures,
         sequence,
         await curatedInheritanceRead,
-        await curatedLofMechanismRead
+        await curatedLofMechanismRead,
+        aouFrequency ?? null
       );
     } catch (error: any) {
       console.error("Narrative endpoint failure:", error);

@@ -16,6 +16,14 @@ refused by the analysis only; the requests that run beside it (FoldX, structure)
 run can write up to three refusal entries (stream, landscape, structural), so count refused runs per `route` or
 per request, not by summing rows. A valid translation proof also settles a position that two numberings could
 explain: only an `unverified` residue gets the `AMBIGUOUS_PROTEIN_NUMBERING` prompt.
+Correction after B1 (2026-11-26): B1 also refused residues it was never meant to. The numbering profile marked a
+position `unverifiable` when any isoform, not only MANE, could not be located there, and a `contested` position
+(MANE agrees with canonical, another isoform reads it differently) answered `unverified`. For ABCG1 (P45844) that
+refused 234 of 678 positions for typed input, with a reason that blamed the MANE protein; the MANE pair alone makes
+23 of them ambiguous, which still get the prompt. Now only the MANE basis can make a position `unverifiable`, and a
+`contested` position is `canonical` (proof `canonical-vs-mane`) with the other isoform's reading kept in the
+audit entry's `numberingReason`. `NUMBERING_PROFILE_BUILD_VERSION` 4 retires the cached profiles. Count B2's
+1-in-50 rule from refusals after this change.
 Part of "Residue numbering" in `IN_SILICO_PRUNING_PLAN.md`.
 This is the second version, revised after a three-part code review (correctness, tests, architecture).
 

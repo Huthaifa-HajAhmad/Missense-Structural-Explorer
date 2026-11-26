@@ -7,9 +7,9 @@
  */
 import { THRESHOLDS } from "../../../../src/shared/thresholds.ts";
 import type { GnomadCandidateReading } from "../../../../src/shared/contracts.ts";
-import { candidateAlleleLabel, candidatesMeetBs2, decideCandidateFrequency } from "../../../../src/shared/candidateFrequency.ts";
+import { candidateAlleleLabel, candidatePm2Hold, candidatesMeetBs2, decideCandidateFrequency } from "../../../../src/shared/candidateFrequency.ts";
 import { homozygotesInformBs2, pm2CeilingFor, type CuratedInheritance } from "../../../../src/shared/inheritanceBasis.ts";
-import { BS1_NOT_APPLIED_REASON, BS2_NOT_APPLIED_REASON } from "../../../../src/shared/frequencyRule.ts";
+import { BS1_NOT_APPLIED_REASON, BS2_NOT_APPLIED_REASON, pm2HoldReason } from "../../../../src/shared/frequencyRule.ts";
 import type { ACMGItem } from "./classifier.ts";
 
 export interface CandidateFrequencyContext {
@@ -34,6 +34,7 @@ export function candidateFrequencyCriteria(
   const all = `every candidate allele (${candidates.length}: ${candidates.map(candidateAlleleLabel).join(", ")})`;
   const criteria: ACMGItem[] = [];
   const unavailable: string[] = [];
+  const bs2Genotype = homozygotesInformBs2({ variantId: candidates.find(c => c.id)?.id ?? null, inheritance: context.curatedInheritance });
 
   if (verdict.kind === "failed") {
     unavailable.push(`GNOMAD_FREQUENCY (no reading for candidate allele ${verdict.failed.map(candidateAlleleLabel).join(", ")} — PM2, BS1 and BA1 withheld because they must hold for every candidate)`);
@@ -44,10 +45,11 @@ export function candidateFrequencyCriteria(
   } else if (verdict.decision === "BS1") {
     unavailable.push(`BS1 (not applied: ${BS1_NOT_APPLIED_REASON}; every candidate allele is above the ${(FREQ.tooCommonForDisorder * 100).toFixed(1)}% reference cut-point)`);
   } else if (verdict.decision === "PM2" && !context.skipPathogenicComp) {
-    criteria.push({ code: "PM2", reason: `Variant is extremely rare in population databases for ${all}: each is at or below the ${(ceiling.ceiling * 100).toFixed(2)}% app-defined threshold (${ceiling.text}); absence from gnomAD counts as zero. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).` });
+    const hold = candidatePm2Hold(verdict.readings, { ceiling: ceiling.ceiling, homozygotesInform: bs2Genotype.applies });
+    if (hold) unavailable.push(`PM2 (withheld: ${pm2HoldReason(hold)})`);
+    else criteria.push({ code: "PM2", reason: `Variant is extremely rare in population databases for ${all}: each is at or below the ${(ceiling.ceiling * 100).toFixed(2)}% app-defined threshold (${ceiling.text}); absence from gnomAD counts as zero. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).` });
   }
 
-  const bs2Genotype = homozygotesInformBs2({ variantId: candidates.find(c => c.id)?.id ?? null, inheritance: context.curatedInheritance });
   if (candidatesMeetBs2(candidates) && !context.skipBenignComp) {
     if (bs2Genotype.applies) {
       unavailable.push(`BS2 (not applied: ${BS2_NOT_APPLIED_REASON}; each candidate has two or more homozygotes)`);

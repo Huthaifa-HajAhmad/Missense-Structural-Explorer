@@ -9,6 +9,9 @@
  *
  * BOUNDARY CONTRACT: pure — no imports outside `src/shared/`.
  */
+
+import { transcriptIdentity } from "./transcriptIdentity.ts";
+
 export interface ShareableQuery {
   gene?: string | null;
   variant?: string | null;
@@ -87,12 +90,8 @@ export function shareableQueryFromResult(
     assembly = result.coordinateLift?.submittedAssembly || result.assembly;
   }
 
-  const transcript =
-    (typeof result.maneRefSeqId === "string" && result.maneRefSeqId.trim()) ||
-    (typeof result.transcriptId === "string" && result.transcriptId.trim()) ||
-    (typeof result.predictorData?.maneRefSeqId === "string" && result.predictorData.maneRefSeqId.trim()) ||
-    (typeof result.predictorData?.transcriptId === "string" && result.predictorData.transcriptId.trim()) ||
-    null;
+  const identity = transcriptIdentity(result, result.predictorData);
+  const transcript = identity.maneRefSeqId || identity.transcriptId || null;
 
   return { gene, variant, uniprotId, allele, assembly, transcript };
 }

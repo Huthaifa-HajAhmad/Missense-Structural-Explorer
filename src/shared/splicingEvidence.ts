@@ -40,6 +40,7 @@ import type { AnalysisResult } from "./contracts.ts";
 import { THRESHOLDS, evaluateSplicePredictor, formatEvidenceCode } from "./thresholds/index.ts";
 import { refusalReasonFor, resolveEvidenceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { refSeqFor, transcriptIdentity } from "./transcriptIdentity.ts";
 import { conservationModelState } from "./conservationProgress.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildAlphaGenomeEvidence, fmtShare, fmtSigned } from "./alphagenomeEvidence.ts";
@@ -776,10 +777,10 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const totalExons = finite(sp?.totalExons);
   const intronNumber = finite(sp?.intronNumber ?? sp?.adjacentIntronNumber);
   const strand = sp?.strand ?? null;
-  const rawRefSeq = result.maneRefSeqId ?? result.predictorData?.maneRefSeqId ?? result.numberingRemap?.from?.maneRefSeqId ?? null;
-  const refseqTranscriptId = rawRefSeq?.trim() || null;
-  const rawEnsembl = sp?.transcriptId ?? result.transcriptId ?? null;
-  const ensemblTranscriptId = rawEnsembl?.trim() || null;
+  const modelledTranscript = transcriptIdentity(result, result.predictorData);
+  const ensemblTranscriptId = sp?.transcriptId?.trim() || modelledTranscript.transcriptId || null;
+  // The RefSeq id is shown only beside the transcript it belongs to.
+  const refseqTranscriptId = refSeqFor(ensemblTranscriptId, [modelledTranscript, result.predictorData, result.numberingRemap?.from]) ?? null;
   // RefSeq first for clinical reading; Ensembl when that is all there is.
   const transcriptId = refseqTranscriptId || ensemblTranscriptId || null;
   const exonLabel = exonNumber !== null ? `Exon ${exonNumber}${totalExons ? ` of ${totalExons}` : ""}` : "Exon not resolved";

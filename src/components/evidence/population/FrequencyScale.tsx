@@ -1,5 +1,6 @@
 import React from "react";
 import { THRESHOLDS } from "../../../shared/thresholds";
+import { pm2HoldReason } from "../../../shared/frequencyRule";
 import { formatAlleleFrequency, formatCutPoint, type FrequencyCriterion } from "../../../shared/frequencyEvidence";
 
 /**
@@ -70,8 +71,10 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
   ];
 
   const af = criterion.af;
+  const held = criterion.pm2Hold ?? null;
+  // A held PM2 sits in the PM2 zone without meeting it, so no zone is marked as the verdict.
   const activeZone: ZoneId | null =
-    af === null ? null
+    af === null || held ? null
     : criterion.code === "PM2" ? "PM2"
     : criterion.code === "BS1" ? "BS1"
     : criterion.code === "BA1" ? "BA1"
@@ -83,6 +86,8 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
   const ariaLabel =
     af === null
       ? "Frequency scale: no frequency was read, so the reading is not placed against the ACMG cut-points."
+      : held
+        ? `Frequency scale: ${criterion.absent ? "not observed in gnomAD" : `the rule read ${formatAlleleFrequency(af)}`}, at or below the ${formatCutPoint(ceiling)} PM2 ceiling, but PM2 is withheld: ${pm2HoldReason(held)}.`
       : criterion.absent
         ? `Frequency scale: not observed in gnomAD, which falls in the PM2 zone at or below ${formatCutPoint(ceiling)}.`
         : `Frequency scale: the rule read ${formatAlleleFrequency(af)}, in the ${activeZone === "none" ? "no-criterion" : activeZone} zone.`;

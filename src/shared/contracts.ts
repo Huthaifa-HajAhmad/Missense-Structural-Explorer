@@ -2833,7 +2833,7 @@ export interface GnomadCandidateReading {
   frequency: Omit<GnomadFrequencyData, "candidates" | "standIn"> | null;
   /** Why the candidate has no reading, for `not-lifted` and `failed`. */
   detail?: string | null;
-  /** All of Us counts for this allele from the local dbNSFP store; display only, feeds no criterion. */
+  /** All of Us counts for this allele from the local dbNSFP store; they can only withhold PM2 (`pm2Hold`). */
   allOfUs?: CandidateAllOfUs | null;
   /** The nucleotide change on its transcript, "ENST…:c.1138G>C", when it is known. */
   cdna?: string | null;
