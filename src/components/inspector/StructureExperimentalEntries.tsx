@@ -1,5 +1,13 @@
 import type { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 
+const COVER_TEXT = {
+  yes: "covers the site",
+  spans: "range spans the site, coordinates not checked",
+  unmodelled: "no coordinates at the site",
+  no: "does not cover the site",
+  unknown: null,
+};
+
 /** The experimental entries a reader can load on the wild-type canvas instead of the AlphaFold model. Always listed. */
 export function StructureExperimentalEntries({ experimental, setCustomPdbUrl }: {
   experimental: ReturnType<typeof useStructure3dEvidence>["experimental"];
@@ -14,7 +22,7 @@ export function StructureExperimentalEntries({ experimental, setCustomPdbUrl }: 
               {row.pdbId}
               {row.isFoldxTemplate && <span className="s3d-entry__tag s3d-entry__tag--template">FoldX template</span>}
               {!row.isFoldxTemplate && experimental.best?.pdbId === row.pdbId && (
-                <span className="s3d-entry__tag">closest covering entry</span>
+                <span className="s3d-entry__tag">{row.coversSite === "yes" ? "closest covering entry" : "closest entry by range"}</span>
               )}
             </span>
             <button
@@ -42,7 +50,7 @@ export function StructureExperimentalEntries({ experimental, setCustomPdbUrl }: 
                         row.identity === "Not reported" ? "identity not reported" : `identity ${row.identity}`,
                         row.range ? `aligned ${row.range}` : "range not reported",
                       ]),
-                row.coversSite === "yes" ? "covers the site" : row.coversSite === "no" ? "does not cover the site" : null,
+                COVER_TEXT[row.coversSite],
                 row.method ? row.method.toLowerCase() : null, row.resolution, row.organism,
               ].filter(Boolean).join(" · ")}
             </span>

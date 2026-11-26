@@ -201,7 +201,7 @@ describe("InterfacesTab — assembly", () => {
     const self = SLC12A4.assembly.experimental.partners[0];
     const native = { ...self, variantAtInterface: false, variantEntries: [] };
     const crystal = { ...self, context: "crystal", variantAtInterface: true, variantEntries: ["7aiq"] };
-    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true, coverageChecked: true } } });
+    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
     const table = screen.getByTestId("assembly-readings");
     expect(table).toHaveTextContent("Outside assembly");
     expect(table).toHaveTextContent("deposited biological assembly is a monomer");
@@ -213,7 +213,7 @@ describe("InterfacesTab — assembly", () => {
   it("folds a long set-aside list behind one line and lists names on request", () => {
     const base = { accession: "P0AEX9", name: "MBP", residues: [1], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native", variantAtInterface: false, variantEntries: [] };
     const partners = Array.from({ length: 6 }, (_, i) => ({ ...base, accession: `P0AEY${i}`, name: `Tag ${i}` }));
-    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true, coverageChecked: true } } });
+    renderTab({ ...RESULT, multimerData: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
     const table = screen.getByTestId("assembly-readings");
     expect(table).toHaveTextContent("2 more chains set aside");
     expect(within(table).queryByText("Tag 4")).toBeNull();

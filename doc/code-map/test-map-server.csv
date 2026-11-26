@@ -113,7 +113,7 @@ server/services/external-api/gnomad.ts,server,server/services/external-api/core-
 server/services/external-api/index.ts,barrel,
 server/services/external-api/intact.ts,server,server/services/external-api/ppi.test.ts
 server/services/external-api/japanfold-client.ts,server,server/services/external-api/japanfold-client.test.ts;server/services/external-api/ppi.test.ts;server/services/infra/cache-hygiene.test.ts;server/services/structure/multimer.test.ts
-server/services/external-api/pdbe-coverage.ts,server,server/services/external-api/pdbe-coverage.test.ts
+server/services/external-api/pdbe-coverage.ts,server,server/services/external-api/pdbe-coverage.test.ts;server/services/structure/multimer.test.ts;server/services/structure/structure-fetcher.test.ts
 server/services/external-api/pdbe-entries.ts,server,
 server/services/external-api/pdbe-interfaces.ts,server,server/services/external-api/pdbe-interfaces.test.ts;server/services/external-api/ppi.test.ts;server/services/structure/multimer.test.ts
 server/services/external-api/ppi.ts,server,server/services/external-api/ppi.test.ts
@@ -276,6 +276,7 @@ server/services/structure/pocket/tool-process.ts,server,
 server/services/structure/pocket/types.ts,types,
 server/services/structure/sasa-runner.ts,server,server/services/structure/pocket/disruption.test.ts;server/services/structure/sasa-runner.test.ts
 server/services/structure/sequence-aligner.ts,server,server/services/structure/sequence-aligner.test.ts
+server/services/structure/site-coverage.ts,server,server/services/structure/site-coverage.test.ts
 server/services/structure/structural-diff.ts,barrel,server/services/structure/structural-diff.test.ts
 server/services/structure/structural-diff/aligner.ts,server,
 server/services/structure/structural-diff/alignment-metrics.ts,server,

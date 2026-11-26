@@ -238,6 +238,20 @@ describe("EnergeticsInspector — engines without a value", () => {
     );
   });
 
+  it("says why when no solved structure has coordinates for the residue", () => {
+    renderInspector({
+      foldingEnergetics: {
+        foldx: -1.75,
+        foldxMean: -1.75,
+        structureProvenance: { source: "alphafold", excludedExperimental: { unmodelledResidue: 358, entries: 5 } },
+      },
+      foldingStatus: "success",
+    });
+    const note = screen.getByTestId("energetics-excluded-template");
+    expect(note).toHaveTextContent("None of the 5 solved structures spanning residue 358 has coordinates for it, so this run used the AlphaFold model");
+    expect(note).not.toHaveTextContent("wild type");
+  });
+
   it("says a refused template could not be checked, never that it is a mutant", () => {
     renderInspector({
       foldingEnergetics: {

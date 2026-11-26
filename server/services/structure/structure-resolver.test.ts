@@ -27,7 +27,7 @@ vi.mock("./structure-fetcher.ts", () => ({
   fetchPdbHomologs: vi.fn(),
   fetchVerifiedExperimentalChain: vi.fn(),
   getResolvedAlphafoldVersion: vi.fn(() => "v4"),
-  STRUCTURE_SELECTION_VERSION: "select-v4",
+  STRUCTURE_SELECTION_VERSION: "select-v5",
   selectionRefusal: vi.fn(() => null),
   selectionWasIncomplete: vi.fn(() => false)
 }));
@@ -351,7 +351,7 @@ describe("resolveStructure wild-type requirement", () => {
     expect(resolved?.provenance.pdbId).toBe("5xyz");
     expect(resolved?.pdbText).toBe("HOMOLOG_PDB");
     // The refusal is still disclosed on the template that was used.
-    expect(resolved?.provenance.excludedExperimental?.differences).toEqual(["D86G"]);
+    expect(resolved?.provenance.excludedExperimental).toMatchObject({ differences: ["D86G"] });
     expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalledWith("1r3s", "A");
   });
 
@@ -361,6 +361,6 @@ describe("resolveStructure wild-type requirement", () => {
 
     expect(view?.provenance.source).toBe("experimental");
     expect(mutating?.provenance.source).toBe("alphafold");
-    expect(mutating?.provenance.excludedExperimental?.differences).toEqual(["D86G"]);
+    expect(mutating?.provenance.excludedExperimental).toMatchObject({ differences: ["D86G"] });
   });
 });

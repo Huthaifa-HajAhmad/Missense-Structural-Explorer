@@ -15,7 +15,7 @@ vi.mock("./structure-fetcher.ts", () => ({
   fetchPdbHomologs: vi.fn(),
   fetchVerifiedExperimentalChain: vi.fn(),
   getResolvedAlphafoldVersion: vi.fn(() => "v6"),
-  STRUCTURE_SELECTION_VERSION: "select-v4",
+  STRUCTURE_SELECTION_VERSION: "select-v5",
   selectionWasIncomplete: vi.fn(() => false),
   selectionRefusal: vi.fn(() => null),
 }));
@@ -64,6 +64,21 @@ describe("no examined chain is the wild type", () => {
     expect(resolved?.provenance.source).toBe("homolog");
     expect(resolved?.provenance.pdbId).toBe("2xyz");
     expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalledWith("8abc", "A");
+  });
+
+  // Audit F7: PDBe says the entry has no coordinates at the site, so it cannot show the variant residue.
+  it("skips a homolog that PDBe says has no coordinates at the site", async () => {
+    vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([
+      { pdbId: "7fdv", chainId: "A", identity: 100, resolution: 3.2, method: "ELECTRON MICROSCOPY", organism: "Homo sapiens", coversPosition: true, modelsPosition: false } as any,
+      { pdbId: "2xyz", chainId: "B", identity: 60, resolution: 3.5, method: "X-RAY DIFFRACTION", organism: "Mus musculus", coversPosition: true } as any,
+    ]);
+    vi.mocked(fetchers.fetchPdbFromRcsb).mockImplementation(async (pdbId: string) => `${pdbId.toUpperCase()}_PDB`);
+
+    const resolved = await resolveStructure("P45844", 358);
+
+    expect(resolved?.provenance.pdbId).toBe("2xyz");
+    expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalledWith("7fdv", "A");
   });
 
   it("still lets a view use a same-protein entry from the homolog search", async () => {

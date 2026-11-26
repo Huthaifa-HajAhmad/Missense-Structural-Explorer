@@ -5,6 +5,7 @@
  * `fetchUniprotFeatures`: five native homodimer entries (7FDV, 7OZ1, 7R8C, 7R8D, 7R8E), none with
  * coordinates for residues 348-396; SUBUNIT names "partners of the ABCG subfamily" and ABCG4; STRING
  * returns its top 500 functional partners. UniProt features kept to the types the track draws.
+ * `experimental.coverage` (observed residues per entry) from PDBe unipdb/P45844 on the same day.
  */
 /* eslint-disable */
 export const ABCG1_INTERFACES: any = {
@@ -675,6 +676,7 @@ export const ABCG1_INTERFACES: any = {
    ],
    "entryKinds": "ok",
    "crystalChecked": true,
+   "coverage": {"7fdv":[[72,87],[96,333],[401,675]],"7oz1":[[74,88],[96,345],[398,676]],"7r8c":[[72,86],[100,347],[397,678]],"7r8d":[[72,86],[100,347],[397,678]],"7r8e":[[72,88],[98,347],[398,678]]},
    "coverageChecked": true
   },
   "chains": [

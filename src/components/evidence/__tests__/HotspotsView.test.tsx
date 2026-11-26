@@ -103,6 +103,19 @@ describe("HotspotsView — the added columns", () => {
     expect(cells.length).toBeGreaterThanOrEqual(3); // RSA, site, interface
     expect(within(rowFor("Ala5")).getAllByText("—").some((c) => c.closest("td")?.getAttribute("title") === "The accessibility run failed: no venv.")).toBe(true);
   });
+
+  // Audit F2: ABCG1's linker 348-396 has no coordinates in any of its five structures; "None" there would
+  // read as "not at an interface".
+  it("says 'Not modelled' where no native solved structure has coordinates for the residue", () => {
+    const gap = buildHotspotEvidence({
+      context: sod1, loadState: "ready", residue: 5, residueLabel: "Ala5", annotations: [],
+      interfaces: { status: "ok", reason: null, byResidue: new Map(), modelledAt: (r: number) => (r === 5 ? 0 : 137) },
+    });
+    render(<HotspotsView ev={gap} onShow3d={null} />);
+    const cell = within(rowFor("Ala5")).getByText("Not modelled");
+    expect(cell.closest("td")?.getAttribute("title")).toMatch(/PDBe's best chain of each native solved structure has no coordinates/);
+    expect(within(rowFor("Cys7")).getAllByText("None").length).toBe(2);
+  });
 });
 
 describe("HotspotsView — repairing a read", () => {

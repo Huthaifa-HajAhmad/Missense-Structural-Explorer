@@ -159,7 +159,8 @@ export interface FunctionEvidence {
   groups: Array<{ group: AnnotationGroup; label: string; rows: AnnotationRow[]; summary: string | null }>;
   atResidue: AnnotationRow[];
   secondaryStructure: SecondaryStructureElement[];
-  structureContext: { value: string; sub: string; sentence: string } | null;
+  /** The residue among UniProt's helices and strands; `pdbs` are the entries the cited elements come from. */
+  structureContext: { value: string; sub: string; sentence: string; pdbs: string[] } | null;
   nearestDiseaseVariant: AnnotationRow | null;
   /** The UniProt natural variant that is this exact change, when there is one. */
   exactVariant: AnnotationRow | null;
@@ -531,26 +532,49 @@ export function drawnDomains(uniprot: UniprotFeaturesData | null | undefined, re
 
 const segText = (b: DomainBox) => b.segments.map((s) => `${s.start}–${s.end}`).join(", ");
 
-function structureContext(ss: SecondaryStructureElement[], residue: number): { value: string; sub: string; sentence: string } | null {
+type StructureContext = { value: string; sub: string; sentence: string; pdbs: string[] };
+
+/** The entries the cited elements come from, e.g. "PDB 5BZZ and 5BZX"; UniProtKB when none is named. */
+function sourceOf(near: SecondaryStructureElement[]): { text: string; pdbs: string[] } {
+  const pdbs = [...new Set(near.map((e) => e.pdb).filter((p): p is string => Boolean(p)))];
+  return { text: pdbs.length ? `PDB ${pdbs.join(" and ")}` : "UniProtKB", pdbs };
+}
+
+/**
+ * Where the residue sits among UniProt's helices and strands. Each element names the entry it was
+ * assigned from, so the tile cites the elements next to the residue. A stretch with no element may be
+ * flexible or simply unresolved: UniProt leaves out residues no structure has coordinates for, so
+ * "no element" is never read as "no regular structure".
+ */
+function structureContext(ss: SecondaryStructureElement[], residue: number): StructureContext | null {
   const els = ss.filter((e) => e.kind !== "turn").sort((a, b) => a.start - b.start);
   if (!els.length) return null;
-  const pdb = els.find((e) => e.pdb)?.pdb;
-  const pdbText = pdb ? `PDB ${pdb}` : "UniProtKB";
   const word = (k: SecondaryStructureElement["kind"]) => (k === "helix" ? "helix" : "strand");
   const plural = (k: SecondaryStructureElement["kind"]) => (k === "helix" ? "helices" : "strands");
   const inside = els.find((e) => residue >= e.start && residue <= e.end);
   if (inside) {
+    const src = sourceOf([inside]);
     return {
       value: inside.kind === "helix" ? "In a helix" : "In a β-strand",
-      sub: `${word(inside.kind)} ${inside.start}–${inside.end}, ${pdbText}`,
-      sentence: `It sits in the ${word(inside.kind)} ${inside.start}–${inside.end} of the solved structure (${pdbText}).`,
+      sub: `${word(inside.kind)} ${inside.start}–${inside.end}, ${src.text}`,
+      sentence: `It sits in the ${word(inside.kind)} ${inside.start}–${inside.end} of the solved structure (${src.text}).`,
+      pdbs: src.pdbs,
     };
   }
   const before = [...els].reverse().find((e) => e.end < residue);
   const after = els.find((e) => e.start > residue);
   if (!before || !after) {
-    return { value: "Terminal, no regular structure", sub: pdbText, sentence: `It lies beyond the first or last helix or strand assigned in ${pdbText}.` };
+    const edge = (before ?? after)!;
+    const src = sourceOf([edge]);
+    const where = before ? `after ${edge.end}` : `before ${edge.start}`;
+    return {
+      value: "Outside the assigned helices and strands",
+      sub: `${where}, ${src.text}`,
+      sentence: `It lies ${before ? "after the last" : "before the first"} helix or strand assigned in ${src.text}, which ${before ? `ends at ${edge.end}` : `starts at ${edge.start}`}; that stretch may be flexible or simply unresolved.`,
+      pdbs: src.pdbs,
+    };
   }
+  const src = sourceOf([before, after]);
   const gapStart = before.end + 1;
   const gapEnd = after.start - 1;
   const n = gapEnd - gapStart + 1;
@@ -560,14 +584,16 @@ function structureContext(ss: SecondaryStructureElement[], residue: number): { v
   if (n > MAX_LINK) {
     return {
       value: "No helix or strand assigned",
-      sub: `${gapStart}–${gapEnd} unassigned, ${pdbText}`,
-      sentence: `It is in a ${n}-residue stretch with no helix or strand assigned in ${pdbText}; that may be flexible or simply unresolved.`,
+      sub: `${gapStart}–${gapEnd} unassigned, ${src.text}`,
+      sentence: `It is in a ${n}-residue stretch with no helix or strand assigned in ${src.text}; that may be flexible or simply unresolved.`,
+      pdbs: src.pdbs,
     };
   }
   return {
     value: `Between ${pair}`,
-    sub: `${gapStart === gapEnd ? gapStart : `${gapStart}–${gapEnd}`} unassigned, ${pdbText}`,
+    sub: `${gapStart === gapEnd ? gapStart : `${gapStart}–${gapEnd}`} unassigned, ${src.text}`,
     sentence: `It sits in the ${n === 1 ? "one-residue" : `${n}-residue`} link between ${pair} ${before.start}–${before.end} and ${after.start}–${after.end} of the solved structure.`,
+    pdbs: src.pdbs,
   };
 }
 
@@ -1088,8 +1114,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     });
   }
   if (uniprot?.uniparcId) sources.push({ label: "InterPro via UniParc", value: uniprot.uniparcId, url: `https://www.uniprot.org/uniparc/${encodeURIComponent(uniprot.uniparcId)}` });
-  const pdb = secondaryStructure.find((e) => e.pdb)?.pdb;
-  if (pdb) sources.push({ label: `PDB ${pdb}`, value: "secondary structure", url: `https://www.rcsb.org/structure/${encodeURIComponent(pdb)}` });
+  for (const pdb of ssContext?.pdbs ?? []) {
+    sources.push({ label: `PDB ${pdb}`, value: "secondary structure", url: `https://www.rcsb.org/structure/${encodeURIComponent(pdb)}` });
+  }
   sources.push({ label: "Richards 2015", value: "10.1038/gim.2015.30", url: "https://doi.org/10.1038/gim.2015.30" });
   sources.push({ label: "Pejaver 2022", value: "10.1016/j.ajhg.2022.10.013", url: "https://doi.org/10.1016/j.ajhg.2022.10.013" });
 

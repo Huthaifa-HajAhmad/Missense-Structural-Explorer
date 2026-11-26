@@ -233,6 +233,18 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(link).toHaveAttribute("href", "https://alphafold.ebi.ac.uk/entry/Q13564");
   });
 
+  it("says no experimental structure shows the residue when none has coordinates for it", () => {
+    renderView({
+      foldingEnergetics: {
+        ...FULL,
+        structureProvenance: { source: "alphafold", afdbVersion: "v6", excludedExperimental: { unmodelledResidue: 358, entries: 5 } },
+      },
+    });
+    const note = screen.getByTestId("energetics-excluded-template");
+    expect(note).toHaveTextContent("No experimental structure was used: none of the 5 solved structures spanning residue 358 has coordinates for it.");
+    expect(note).not.toHaveTextContent("wild type");
+  });
+
   it("reports a three-of-four majority as 'Mostly no destabilization' and names the exception", () => {
     renderView({
       foldingEnergetics: {

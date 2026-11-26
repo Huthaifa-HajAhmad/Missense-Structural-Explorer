@@ -13,16 +13,18 @@
  * an entry counts towards a residue's denominator only when it models that residue
  * (doc/INTERFACES_PPI_AUDIT_2026-11-26.md, C1).
  *
- * Limit: PDBe reports the best chain of each entry. In a homodimer both chains are usually built
- * from the same construct, so one chain stands for the entry.
+ * Limit: PDBe reports only the best chain of each entry. Another copy of the chain can resolve a few
+ * residues more at the edge of a gap, so a count can miss an entry there. Chain choice and the 3D list
+ * allow for it (`services/structure/site-coverage.ts`).
  */
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
+import type { ObservedRanges } from "../../../src/shared/residueCoverage.ts";
 
 /** Observed residue ranges per entry (lower-case PDB id), and the protein's length. */
 export interface ResidueCoverage {
   length: number | null;
-  entries: ReadonlyMap<string, ReadonlyArray<readonly [number, number]>>;
+  entries: ReadonlyMap<string, ObservedRanges>;
 }
 
 const cache = new LRUCache<string, ResidueCoverage>({ max: 500, ttl: 7 * 24 * 60 * 60 * 1000 });
@@ -46,20 +48,9 @@ export function parseUnipdbCoverage(json: unknown, accession: string): ResidueCo
   return { length: Number.isInteger(length) && length > 0 ? length : null, entries };
 }
 
-/**
- * Of `entries`, those that model `position`. An entry PDBe did not list is kept: nothing says it
- * lacks the residue, and dropping it would invent a "not modelled".
- */
-export function entriesModelling(coverage: ResidueCoverage, entries: readonly string[], position: number): string[] {
-  return entries.filter(e => {
-    const ranges = coverage.entries.get(e);
-    return !ranges || ranges.some(([start, end]) => start <= position && position <= end);
-  });
-}
-
 /** Stretches of the protein that none of `entries` models (only entries PDBe listed are read). */
 export function unmodelledStretches(coverage: ResidueCoverage, entries: readonly string[]): Array<{ start: number; end: number }> {
-  const known = entries.map(e => coverage.entries.get(e)).filter((r): r is ReadonlyArray<readonly [number, number]> => Boolean(r));
+  const known = entries.map(e => coverage.entries.get(e)).filter((r): r is ObservedRanges => Boolean(r));
   if (!known.length || coverage.length === null) return [];
   const modelled = new Uint8Array(coverage.length + 2);
   for (const ranges of known) {

@@ -33,7 +33,8 @@
  */
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
-import { entriesModelling, fetchResidueCoverage, unmodelledStretches, type ResidueCoverage } from "./pdbe-coverage.ts";
+import { fetchResidueCoverage, unmodelledStretches, type ResidueCoverage } from "./pdbe-coverage.ts";
+import { entriesModelling } from "../../../src/shared/residueCoverage.ts";
 
 export interface PdbeInterfacePartner {
   /** Partner UniProt accession; the query's own accession for a homomeric interface. */
@@ -331,7 +332,7 @@ export function observedFor(
   // An entry with the residue at its interface models it, whatever the coverage list says.
   const modelled = coverage && position !== null
     ? {
-        modelledEntries: [...new Set([...entriesModelling(coverage, p.pdbEntries, position), ...variantEntries])].sort(),
+        modelledEntries: [...new Set([...entriesModelling(coverage.entries, p.pdbEntries, position), ...variantEntries])].sort(),
         unmodelled: unmodelledStretches(coverage, p.pdbEntries),
       }
     : {};
