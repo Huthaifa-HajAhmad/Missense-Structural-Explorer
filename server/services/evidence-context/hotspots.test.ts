@@ -9,14 +9,14 @@ import { hotspotContextSchema } from "../../../src/shared/hotspotEvidence.ts";
  * throughout; its AlphaFold DB model (tools/structure-focus/sod1-afdb.pdb) gives real coordinates and a real sequence,
  * and the ClinVar and gnomAD rows are built from that sequence so each rule is exercised on a known answer.
  */
-const { rows, cspec, perRegions, alphafold, worker, sasa, http } = vi.hoisted(() => ({
-  rows: vi.fn(), cspec: vi.fn(), perRegions: vi.fn(), alphafold: vi.fn(), worker: vi.fn(), sasa: vi.fn(), http: vi.fn(),
+const { rows, regional, cspec, perRegions, alphafold, worker, sasa, http } = vi.hoisted(() => ({
+  rows: vi.fn(), regional: vi.fn(), cspec: vi.fn(), perRegions: vi.fn(), alphafold: vi.fn(), worker: vi.fn(), sasa: vi.fn(), http: vi.fn(),
 }));
 vi.mock("../prediction/landscape-context.ts", async (original) => ({
   ...(await original<typeof import("../prediction/landscape-context.ts")>()),
   fetchGeneMissenseRows: rows,
-  fetchLandscapeContext: vi.fn(async () => ({ regionsStatus: "none", regions: [], errors: [] })),
 }));
+vi.mock("../prediction/regional-constraint.ts", () => ({ fetchRegionalConstraint: regional }));
 vi.mock("./cspec.ts", () => ({ loadCspecPm1: cspec }));
 vi.mock("./perRegions.ts", () => ({ loadPerRegions: perRegions }));
 vi.mock("../structure/structure-fetcher.ts", () => ({ fetchAlphafoldPdb: alphafold, getResolvedAlphafoldVersion: () => "v6" }));
@@ -58,7 +58,7 @@ const GNOMAD = [
   ...[60, 70, 80, 90, 100, 110, 120, 130].map((p) => gnomad(`g-${p}`, p, "A", { ac: 6 })),
 ];
 const settled = (value: unknown) => ({ status: "fulfilled" as const, value });
-const answered = () => [settled({ canonical_transcript_id: CANONICAL, clinvar_variants: CLINVAR }), settled({ canonical_transcript_id: CANONICAL, variants: GNOMAD })];
+const answered = () => [settled({ transcript_id: CANONICAL, clinvar_variants: CLINVAR }), settled({ transcript_id: CANONICAL, variants: GNOMAD })];
 
 describe("referenceSets — which residues each rung reads", () => {
   const sets = referenceSets(CLINVAR, GNOMAD, CANONICAL);
@@ -136,6 +136,7 @@ describe("loadHotspotContext — the assembled answer", () => {
     ({ loadHotspotContext } = await import("./hotspots.ts"));
     vi.clearAllMocks();
     rows.mockResolvedValue(answered());
+    regional.mockResolvedValue({ status: "none", regions: [], basis: "gnomAD genomic intervals", reason: null, sourceFailed: false });
     cspec.mockResolvedValue({ status: "none", reason: "No specification lists SOD1.", sourceUrl: "https://cspec.genome.network/", retrievedAt: "2026-10-29T00:00:00Z", specs: [] });
     perRegions.mockReturnValue({ source: {}, regions: [] });
     alphafold.mockResolvedValue(PDB);
@@ -162,12 +163,21 @@ describe("loadHotspotContext — the assembled answer", () => {
     expect(input.neutral).not.toContain(94);
   });
 
+  it("reads the variant rows on the run's transcript and names that transcript as the axis", async () => {
+    rows.mockResolvedValue(answered());
+    const ctx = hotspotContextSchema.parse(await loadHotspotContext(gene(), { uniprot: "P00441", transcript: "ENST00000270142.11" }));
+    expect(rows).toHaveBeenLastCalledWith(expect.any(String), "ENST00000270142.11");
+    expect(ctx.transcript).toBe(CANONICAL);
+    expect(ctx.numbering.status).toBe("verified");
+  });
+
   it("withholds every position-dependent rung on a numbering mismatch and spends no compute on them", async () => {
-    rows.mockResolvedValue([settled({ canonical_transcript_id: CANONICAL, clinvar_variants: [...CLINVAR, { ...clinvar("c-bad", 50, "A", "Pathogenic", 1), hgvsp: hgvsp(50, "A", "W") }] }), settled({ canonical_transcript_id: CANONICAL, variants: GNOMAD })]);
+    rows.mockResolvedValue([settled({ transcript_id: CANONICAL, clinvar_variants: [...CLINVAR, { ...clinvar("c-bad", 50, "A", "Pathogenic", 1), hgvsp: hgvsp(50, "A", "W") }] }), settled({ transcript_id: CANONICAL, variants: GNOMAD })]);
     const ctx = hotspotContextSchema.parse(await loadHotspotContext(gene(), { uniprot: "P00441" }));
     expect(ctx.numbering.status).toBe("mismatch");
     expect(ctx.spatial.status).toBe("numbering-mismatch");
-    expect(ctx.perRerun.status).toBe("unavailable");
+    expect(ctx.perRerun.status).toBe("numbering-mismatch");
+    expect(ctx.perRerun.reason).toMatch(/^1 of \d+ ClinVar\/gnomAD residues differs from the model's sequence/);
     expect(ctx.accessibility.status).toBe("numbering-mismatch");
     expect(worker).not.toHaveBeenCalled();
     expect(sasa).not.toHaveBeenCalled();
@@ -224,6 +234,24 @@ describe("loadHotspotContext — the assembled answer", () => {
     expect(ctx.perPublished.status).toBe("unavailable");
     expect(ctx.distribution.status).toBe("ok");
     expect(ctx.errors.join(" ")).toMatch(/Published regions/);
+  });
+
+  it("reads the variant rows once and projects the regional intervals onto their transcript", async () => {
+    const name = gene();
+    await loadHotspotContext(name, { uniprot: "P00441" });
+    expect(rows).toHaveBeenCalledTimes(1);
+    expect(regional).toHaveBeenCalledWith(name, CANONICAL);
+  });
+
+  it("does not keep an answer whose regional source failed, and says why on the regional rung", async () => {
+    regional.mockResolvedValueOnce({ status: "unavailable", regions: null, basis: "gnomAD genomic intervals", reason: "Regional constraint not loaded", sourceFailed: true });
+    const name = gene();
+    const first = hotspotContextSchema.parse(await loadHotspotContext(name, { uniprot: "P00441" }));
+    expect(first.regional).toMatchObject({ status: "unavailable", reason: "Regional constraint not loaded" });
+    expect(first.errors).toContain("Regional constraint not loaded");
+    await new Promise((r) => setTimeout(r, 0)); // a degraded answer is evicted when it settles
+    await loadHotspotContext(name, { uniprot: "P00441" });
+    expect(rows).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a complete answer for the next request, but not a degraded one", async () => {

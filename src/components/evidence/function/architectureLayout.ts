@@ -253,6 +253,16 @@ const CHAR = 0.58; // approximate advance per character, as a fraction of the fo
 
 const textWidth = (text: string, size: number) => text.length * size * CHAR;
 
+/** The layers drawn as point marks; a new layer joins them, and needs a shape, unless it is excluded here. */
+type PointKind = Exclude<LayerKey, "variants" | "motifs" | "structure">;
+/** The mark for each kind of point annotation under the backbone, in both drawing modes and in the legend. */
+const KIND_SHAPE: Record<PointKind, ArchPin["shape"]> = { sites: "diamond", modifications: "circle", mutagenesis: "tick" };
+const isPointKind = (layer: LayerKey | null): layer is PointKind => layer !== null && layer in KIND_SHAPE;
+function shapeOf(r: AnnotationRow): ArchPin["shape"] {
+  const layer = layerOf(r);
+  return isPointKind(layer) ? KIND_SHAPE[layer] : "diamond";
+}
+
 function niceStep(span: number, maxTicks: number): number {
   const steps = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
   return steps.find((s) => span / s <= maxTicks) ?? 10000;
@@ -440,6 +450,18 @@ export function layoutArchitecture(
   const lower: number[][] = [];
   const qx = queryX;
   const qText = ev.variantShort;
+  // With a topology lane the variant's line runs down through everything under the backbone, so no label
+  // there may sit on it: a label tries the other side of its mark, else it is left off.
+  const lowerStemX = membraneRows(ev, win).length ? qx : null;
+  const onStem = (lo: number, hi: number) => lowerStemX !== null && lo - 4 < lowerStemX && hi + 4 > lowerStemX;
+  /** Where a label beside a mark goes under the backbone, or null when neither side has room. */
+  const besideMark = (px: number, lw: number): { flip: boolean; lo: number; hi: number } | null => {
+    const right = { flip: false, lo: px + 10, hi: px + 10 + lw };
+    const left = { flip: true, lo: px - 10 - lw, hi: px - 10 };
+    // Near the right edge of the drawing (a zoomed window ends just after the mark) the label goes left.
+    if (right.hi <= W - 4 && !onStem(right.lo, right.hi)) return right;
+    return left.lo >= 0 && !onStem(left.lo, left.hi) ? left : null;
+  };
   // The query stem crosses every upper tier; reserve its column so no label is drawn over it.
   if (qx !== null) for (let t = 0; t < aboveTiers; t++) upper[t] = [qx - 2, qx + 2];
 
@@ -486,13 +508,12 @@ export function layoutArchitecture(
     const size = 11;
     const text = p.labelled ? p.r.shortLabel : "";
     const lw = textWidth(text, size);
-    let labelled = p.labelled;
-    // Below the backbone labels run to the right of their mark; near the right edge of the drawing (a zoomed
-    // window ends just after the mark) the label goes to the left instead, rather than off the drawing.
-    const flip = !above && labelled && px + 10 + lw > W - 4;
+    const side = !above && p.labelled ? besideMark(px, lw) : null;
+    let labelled = above ? p.labelled : side !== null;
+    const flip = side?.flip ?? false;
     const t = above
       ? place(upper, [[px - Math.max(6, lw / 2), px + Math.max(6, lw / 2)]], px, aboveTiers)
-      : place(lower, labelled ? [[px - 6, px + 6], flip ? [px - 10 - lw, px - 10] : [px + 10, px + 10 + lw]] : [[px - 6, px + 6]], px, belowTiers);
+      : place(lower, side ? [[px - 6, px + 6], [side.lo, side.hi]] : [[px - 6, px + 6]], px, belowTiers);
     const tier = t < 0 ? (above ? 0 : belowTiers - 1) : t;
     if (t < 0) labelled = false;
     if (p.labelled && !labelled) hiddenLabels++;
@@ -536,7 +557,8 @@ export function layoutArchitecture(
           : hasStructural ? g3Y + 4
             : boxBottomAt(p.px) ?? bb + bh / 2,
       y: headY,
-      shape: p.above ? "dot" : "diamond",
+      // One shape per kind at every zoom, the same as the lanes use, so the legend never changes with the window.
+      shape: p.above ? "dot" : shapeOf(p.r),
       tone: evidenceTone(p.r),
       selected: isSelected(p.r),
       label,
@@ -601,10 +623,10 @@ export function layoutArchitecture(
   const bonds: ArchBond[] = [];
   let lanesBottom = belowTop - 4;
   if (laneMode) {
-    const LANES: Array<{ layer: "sites" | "modifications" | "mutagenesis"; shape: ArchPin["shape"]; labelled: boolean }> = [
-      { layer: "sites", shape: "diamond", labelled: true },
-      { layer: "modifications", shape: "circle", labelled: false },
-      { layer: "mutagenesis", shape: "tick", labelled: false },
+    const LANES: Array<{ layer: PointKind; shape: ArchPin["shape"]; labelled: boolean }> = [
+      { layer: "sites", shape: KIND_SHAPE.sites, labelled: true },
+      { layer: "modifications", shape: KIND_SHAPE.modifications, labelled: false },
+      { layer: "mutagenesis", shape: KIND_SHAPE.mutagenesis, labelled: false },
     ];
     let laneY = belowTop + 12;
     for (const lane of LANES) {
@@ -628,14 +650,13 @@ export function layoutArchitecture(
         // A cysteine is named by its own number ("C58"); the bracket joining the pair is not labelled.
         const text = l.m.r.isPair ? `C${l.m.residue}` : l.m.r.shortLabel;
         if (lane.labelled && l.m.labelled) {
-          const lw = textWidth(text, 11);
-          const flip = l.px + 10 + lw > W - 4;
-          const [lo, hi] = flip ? [l.px - 10 - lw, l.px - 10] : [l.px + 10, l.px + 10 + lw];
-          const labelFree = taken.every((_, i) => i % 2 === 1 || hi + 4 <= taken[i] || lo - 4 >= taken[i + 1]);
-          const markFree = laid.every((o) => o === l || o.px < lo - 5 || o.px > hi + 5 || Math.abs(o.y - l.y) > SUB - 1);
-          if (labelFree && markFree) {
-            taken.push(lo, hi);
-            label = { x: flip ? l.px - 10 : l.px + 10, y: l.y + 4, text, anchor: flip ? "end" : "start", size: 11, mono: true, tone: "secondary" };
+          const side = besideMark(l.px, textWidth(text, 11));
+          const free = side !== null
+            && taken.every((_, i) => i % 2 === 1 || side.hi + 4 <= taken[i] || side.lo - 4 >= taken[i + 1])
+            && laid.every((o) => o === l || o.px < side.lo - 5 || o.px > side.hi + 5 || Math.abs(o.y - l.y) > SUB - 1);
+          if (side && free) {
+            taken.push(side.lo, side.hi);
+            label = { x: side.flip ? l.px - 10 : l.px + 10, y: l.y + 4, text, anchor: side.flip ? "end" : "start", size: 11, mono: true, tone: "secondary" };
           } else hiddenLabels++;
         }
         pins.push({
@@ -735,22 +756,23 @@ export function layoutArchitecture(
     };
   });
 
-  const query =
-    qx !== null
-      ? {
-          x: qx,
-          headY: queryHeadY,
-          stemTo: hasSS ? ssY + 8 : lowerBackbone + 19,
-          label: { x: qx, y: queryLabelY, text: qText, anchor: "middle" as const, size: 12.5, mono: true, weight: 600, tone: "accent" as const },
-        }
-      : null;
-
   // Vertical extent below the backbone follows what was drawn: only the label tiers used, then the topology
   // lane, then the axis.
   const lowerUsed = placed.filter((p) => !p.above).reduce((n, p) => Math.max(n, p.tier + 1), 0);
   const sitesBottom = laneMode ? lanesBottom : lowerUsed ? belowRowY(lowerUsed - 1) + 10 : belowTop - 4;
 
   const membrane = layoutMembrane(ev, x, win, selectedKey, sitesBottom + 14, qx);
+  // With a topology lane the stem runs on to the variant's tick there, so the line is not broken by the
+  // site lanes between them.
+  const query =
+    qx !== null
+      ? {
+          x: qx,
+          headY: queryHeadY,
+          stemTo: membrane ? membrane.outsideY - 6 : hasSS ? ssY + 8 : lowerBackbone + 19,
+          label: { x: qx, y: queryLabelY, text: qText, anchor: "middle" as const, size: 12.5, mono: true, weight: 600, tone: "accent" as const },
+        }
+      : null;
   const axisY = (membrane ? membrane.bottom : sitesBottom) + 18;
   // One row under the axis tick labels for the drag-to-zoom hint, which sits where the gesture is made.
   const height = axisY + 40;
@@ -804,6 +826,10 @@ const MEM = { railLabel: 10.5, tm: 9.5 };
 /** Inside rail: UniProt names the cytoplasmic side; every other topological domain is the far side. */
 const isInside = (name: string) => /cytoplasm|matrix|stroma/i.test(name);
 
+/** The topology rows the window shows; the topology lane is drawn when there are any. */
+const membraneRows = (ev: Pick<FunctionEvidence, "rows">, win: ArchWindow) =>
+  ev.rows.filter((r) => r.lane === "membrane" && r.end >= win.start && r.start <= win.end);
+
 function layoutMembrane(
   ev: Pick<FunctionEvidence, "rows">,
   x: (r: number) => number,
@@ -812,7 +838,7 @@ function layoutMembrane(
   top: number,
   qx: number | null
 ): ArchMembrane | null {
-  const rows = ev.rows.filter((r) => r.lane === "membrane" && r.end >= win.start && r.start <= win.end);
+  const rows = membraneRows(ev, win);
   if (!rows.length) return null;
   // A window that shows only the inside rail (a cytoplasmic domain, no helix) needs one line, not the full lane.
   const topoRows = rows.filter((q) => q.type.toLowerCase() === "topological domain");
@@ -835,15 +861,18 @@ function layoutMembrane(
 
   const labels: ArchLabel[] = [];
   for (const [name, w] of widest) {
-    if (w.hi - w.lo < textWidth(name, MEM.railLabel) + 14) continue;
-    labels.push({
-      x: (w.lo + w.hi) / 2,
-      y: w.side === "inside" ? insideY + 17 : outsideY - 7,
-      text: name,
-      anchor: "middle",
-      size: MEM.railLabel,
-      tone: "secondary",
-    });
+    const tw = textWidth(name, MEM.railLabel);
+    if (w.hi - w.lo < tw + 14) continue;
+    const mid = (w.lo + w.hi) / 2;
+    // A window centred on the variant puts the rail's middle on the variant's tick: move the label to the
+    // side of the tick with more room, or drop it when neither side fits.
+    let at: Pick<ArchLabel, "x" | "anchor"> = { x: mid, anchor: "middle" };
+    if (qx !== null && Math.abs(qx - mid) < tw / 2 + 6) {
+      at = w.hi - qx >= qx - w.lo ? { x: qx + 8, anchor: "start" } : { x: qx - 8, anchor: "end" };
+      const room = at.anchor === "start" ? w.hi - at.x : at.x - w.lo;
+      if (room < tw + 4) continue;
+    }
+    labels.push({ ...at, y: w.side === "inside" ? insideY + 17 : outsideY - 7, text: name, size: MEM.railLabel, tone: "secondary" });
   }
 
   // One label style per lane: "TM4" only when every helix is wide enough for it, else bare numbers, so a

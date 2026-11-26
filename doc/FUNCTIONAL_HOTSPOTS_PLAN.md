@@ -70,8 +70,9 @@ or an expert specification. If a published method is re-run here, it must be lab
 - The tab already carries the same kind of constants: `DENSEST_WINDOW = 15`, `NEAR_WINDOW = 10` and the ≥10 / ≥12 triggers in
   `functionEvidence.ts:723-744`, and ±5 gnomAD in `landscapeEvidence.ts:635`. Under this rule they go.
 - No new fetch is needed for 1D work. `server/services/prediction/landscape-context.ts` already returns gene-wide ClinVar
-  (classification, stars, HGVSp) and gnomAD v4 missense per residue on the canonical transcript. `clinvarClassification.ts`
-  already excludes conflicting records.
+  (classification, stars, HGVSp) and gnomAD v4 missense per residue. It reads them on the run's Ensembl transcript,
+  and falls back to gnomAD's gene-level canonical transcript only when none is named or gnomAD does not hold it (for
+  ABCG1 that is another isoform). `clinvarClassification.ts` already excludes conflicting records.
 - Hot-spot PM1 remains the owner's decision (memory: PM1 hot-spot decision open). Nothing below feeds the engine.
 
 ### 3D structure

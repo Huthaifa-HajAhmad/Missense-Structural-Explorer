@@ -25,7 +25,8 @@ export interface TranscriptIdentity {
 }
 
 const clean = (id: string | null | undefined) => id?.trim() || undefined;
-const unversioned = (id: string) => id.trim().replace(/\.\d+$/, "");
+/** The transcript id without padding or version (`ENST…449.8` → `ENST…449`). */
+export const unversioned = (id: string) => id.trim().replace(/\.\d+$/, "");
 
 /** True when both ids name the same transcript, ignoring the version (`ENST…449.8` is `ENST…449`). */
 export function sameTranscript(a: string | null | undefined, b: string | null | undefined): boolean {

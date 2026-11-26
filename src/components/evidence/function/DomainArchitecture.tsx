@@ -7,7 +7,8 @@ import { layoutArchitecture, layoutOverview, type ArchLabel, type ArchWindow, ty
  *
  *   above the backbone   disease variants (UniProt natural variants "in <disease>") as lollipops, or as a
  *                        per-residue bar track once there are too many to name (see `architectureLayout.ts`);
- *                        this variant in clay, highest, its stem running down to the secondary-structure strip
+ *                        this variant in clay, highest, its stem running down to the topology tick (or the
+ *                        secondary-structure strip when the protein has no topology)
  *   on the backbone      domain boxes (InterPro member-database matches, else UniProt Domain features),
  *                        functional regions as insets
  *   under the backbone   conserved-site ticks, Gene3D structural segments, the PDB helix / strand strip

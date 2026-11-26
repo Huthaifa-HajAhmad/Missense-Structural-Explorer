@@ -5,6 +5,7 @@ import { functionEvidenceInputFrom } from "../../../../shared/functionEvidenceIn
 import { molecularWorkspaceFixture } from "../../../../test/molecularWorkspaceFixture";
 import { NAE1_INPUT } from "../../../../shared/__tests__/fixtures/nae1FunctionalDomains";
 import { layoutArchitecture, layoutOverview } from "../architectureLayout";
+import { layoutDomainBoxes } from "../domainLaneLayout";
 
 const ev = buildFunctionEvidence(NAE1_INPUT);
 const whole = { start: 1, end: ev.length };
@@ -75,6 +76,40 @@ describe("layoutArchitecture — membrane topology lane and window-dependent str
     expect(L.membrane?.rails.map((r) => r.side).sort()).toEqual(["inside", "outside"]);
     expect(L.membrane!.top).toBeGreaterThan(Math.max(...L.pins.map((p) => p.y)));
     expect(L.axisY).toBeGreaterThan(L.membrane!.bottom);
+  });
+
+  it("draws a modification with the same shape when zoomed in as in the whole-protein lanes", () => {
+    const near = layoutArchitecture(big, 994, { start: 900, end: 1000 }, null);
+    expect(near.pins.find((p) => p.residue === 995)).toMatchObject({ stem: true, shape: "circle" });
+  });
+
+  it("runs the variant's line unbroken down to its tick on the topology lane", () => {
+    for (const win of [all, { start: 435, end: 535 }]) {
+      const L = layoutArchitecture(big, 994, win, null);
+      expect(L.query!.stemTo).toBeGreaterThanOrEqual(L.membrane!.outsideY - 6);
+    }
+  });
+
+  it("moves a topology label off the variant's tick when the window is centred on the variant", () => {
+    const L = layoutArchitecture(big, 994, { start: 435, end: 535 }, null);
+    const label = L.membrane!.labels.find((l) => l.text === "Cytoplasmic")!;
+    const w = label.text.length * label.size * 0.58;
+    const [l, r] = label.anchor === "start" ? [label.x, label.x + w] : label.anchor === "end" ? [label.x - w, label.x] : [label.x - w / 2, label.x + w / 2];
+    expect(L.query!.x < l - 2 || L.query!.x > r + 2).toBe(true);
+  });
+
+  it("keeps every label under the backbone clear of the variant's line, in tiers and in lanes", () => {
+    const sites = (at: number[]) => at.map((r) => ({ type: "Binding site", description: "", start: r, end: r, evidence: E, ligand: "ATP" }));
+    for (const at of [[470, 478], Array.from({ length: 30 }, (_, i) => 380 + i * 7)]) {
+      const dense = buildFunctionEvidence({ ...NAE1_INPUT, residue: 485, uniprot: { ...uniprot, features: [...uniprot.features, ...sites(at)] }, engineCriteria: [] });
+      const L = layoutArchitecture(dense, 994, all, null);
+      const crossed = L.pins.filter((p) => p.y > L.backbone.y && p.label).filter((p) => {
+        const w = p.label!.text.length * p.label!.size * 0.58;
+        const lo = p.label!.anchor === "end" ? p.label!.x - w : p.label!.x;
+        return L.query!.x > lo - 2 && L.query!.x < lo + w + 2;
+      });
+      expect(crossed.map((p) => p.label!.text)).toEqual([]);
+    }
   });
 
   it("puts the outside rail above the inside rail and the bar across both", () => {
@@ -287,5 +322,35 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
       const m = lanesOf(win);
       expect(m, `window ${win.start}–${win.end}`).toEqual(whole);
     }
+  });
+});
+
+describe("layoutDomainBoxes — every box drawn carries a name when it can", () => {
+  const unit = (start: number, end: number, name: string) => ({
+    key: `u${start}`, entryKey: "IPR1", entryName: name, name, rowKey: `r${start}`, memberKeys: [`r${start}`], sources: [],
+    start, end, core: { start, end }, covers: false, index: 1, ofEntry: 1, url: null,
+  });
+  const scale = (win: { start: number; end: number }) => (r: number) => 10 + ((r - win.start) / (win.end - win.start)) * 980;
+  const lay = (start: number, end: number, name: string, win: { start: number; end: number }) =>
+    layoutDomainBoxes({ units: [unit(start, end, name)], win, x: scale(win), bb: 100, queryX: null, regionSpans: [], selectedKey: null }).boxes[0];
+
+  it("names a box cut by the window inside the part that is drawn", () => {
+    const win = { start: 308, end: 408 };
+    const box = lay(110, 330, "ABC transporter family G domain", win);
+    expect(box.label).not.toBeNull();
+    expect(box.label!.x).toBeGreaterThan(scale(win)(308));
+    expect(box.label!.x).toBeLessThan(scale(win)(330));
+  });
+
+  it("gives a narrow box its name before its end numbers", () => {
+    const box = lay(274, 332, "Walker B", { start: 1, end: 678 });
+    expect(box.label?.text).toBe("Walker B");
+    expect(box.ends).toEqual([]);
+  });
+
+  it("shortens a name with an ellipsis when only part of it fits, keeping the full name in the title", () => {
+    const box = lay(300, 345, "ATP-binding cassette transporter", { start: 1, end: 678 });
+    expect(box.label?.text).toMatch(/…$/);
+    expect(box.title).toContain("ATP-binding cassette transporter");
   });
 });
