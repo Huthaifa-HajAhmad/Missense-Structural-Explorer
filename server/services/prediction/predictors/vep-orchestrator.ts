@@ -3,6 +3,7 @@ import { predictorCache, getCachedOrFetch } from "../../infra/cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { buildPredictorsKey } from "../../infra/cache-keys.ts";
 import { queryLocalDbnsfpByGenomic, queryLocalDbnsfpCoordinateReading, queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
+import { dbnsfpGeneTerm, sameGene } from "../../infra/gene-symbols.ts";
 import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
@@ -104,8 +105,7 @@ function buildPredictorFromVep(
   let consequences = first?.transcript_consequences;
   if (!consequences || consequences.length === 0) return null;
   if (expectedGene) {
-    const want = expectedGene.trim().toUpperCase();
-    consequences = consequences.filter((c: any) => typeof c.gene_symbol === "string" && c.gene_symbol.trim().toUpperCase() === want);
+    consequences = consequences.filter((c: any) => typeof c.gene_symbol === "string" && sameGene(c.gene_symbol, expectedGene));
     if (consequences.length === 0) return null;
   }
   const tc = pickPredictorConsequence(consequences);
@@ -186,10 +186,9 @@ async function fetchPredictorsViaCoordinateMyVariant(
     if (rawId.toLowerCase() !== wantId.toLowerCase()) return null;
 
     // 2. Gene binding check
-    const wantGene = expect.gene.trim().toUpperCase();
     const rawGenes = [hit.dbnsfp?.genename, hit.dbnsfp?.gene_name].flat().filter((x: any) => x !== undefined && x !== null);
     if (rawGenes.length > 0) {
-      const geneMatches = rawGenes.some((g: any) => typeof g === "string" && g.trim().toUpperCase() === wantGene);
+      const geneMatches = rawGenes.some((g: any) => typeof g === "string" && sameGene(g, expect.gene));
       if (!geneMatches) return null;
     }
 
@@ -305,7 +304,7 @@ async function fetchPredictorsViaCoordinateLocal(
   const reading = await queryLocalDbnsfpCoordinateReading(lifted.chrom, lifted.pos, lifted.ref, lifted.alt, expect.gene).catch(() => null);
   const row = (reading?.record ?? null) as LocalRow | null;
   if (!row) return null;
-  if (row.gene?.trim().toUpperCase() !== expect.gene.trim().toUpperCase()) return null;
+  if (!row.gene || !sameGene(row.gene, expect.gene)) return null;
   if (expect.wt && expect.mut) {
     const bound =
       row.aaref?.toUpperCase() === expect.wt.toUpperCase() &&
@@ -448,8 +447,7 @@ async function fetchPredictorsViaCoordinate(
       const echoAlt = (isNegative ? reverseComplementDna(rawAlt) : rawAlt).toUpperCase();
       if (alleles.length === 2 && echoAlt === lifted.alt.toUpperCase() && echoChrom === lifted.chrom.toUpperCase() && first.start === lifted.pos && echoRef === lifted.ref.toUpperCase()) {
         const consequences = (first.transcript_consequences ?? []) as any[];
-        const wantGene = expect.gene.trim().toUpperCase();
-        const geneRows = consequences.filter(c => typeof c.gene_symbol === "string" && c.gene_symbol.trim().toUpperCase() === wantGene);
+        const geneRows = consequences.filter(c => typeof c.gene_symbol === "string" && sameGene(c.gene_symbol, expect.gene));
         if (geneRows.length > 0) {
           let changeMatches = true;
           if (expect.wt && expect.mut) {
@@ -458,7 +456,7 @@ async function fetchPredictorsViaCoordinate(
               && (expect.pos === null || c.protein_start === expect.pos));
           }
           if (changeMatches) {
-            return buildPredictorFromVep(parsed, "GRCh38", "Ensembl VEP API (coordinate)", canonicalEnsemblId, wantGene);
+            return buildPredictorFromVep(parsed, "GRCh38", "Ensembl VEP API (coordinate)", canonicalEnsemblId, expect.gene);
           }
         }
       }
@@ -577,8 +575,8 @@ export async function fetchPredictorsFallback(
       const term1 = mutMatch ? `p.${toSingleAa(mutMatch[1])}${mutMatch[2]}${toSingleAa(mutMatch[3])}`.toLowerCase() : "";
 
       const queryStr = pos !== null
-        ? `dbnsfp.genename:${normGene} AND (dbnsfp.hgvsp:"p.${cleanVar}" OR dbnsfp.aa.pos:${pos})`
-        : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
+        ? `${dbnsfpGeneTerm(normGene)} AND (dbnsfp.hgvsp:"p.${cleanVar}" OR dbnsfp.aa.pos:${pos})`
+        : `${dbnsfpGeneTerm(normGene)} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
       const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd.phred,cadd_phred,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.hg38,dbnsfp.chrom,dbnsfp.ref,dbnsfp.alt&limit=50`;
       const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000 }, 1);
       if (res.ok) {

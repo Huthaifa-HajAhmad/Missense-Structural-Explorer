@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "path";
 import fs from "fs";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
+import { dbnsfpGeneTerm } from "../infra/gene-symbols.ts";
 import { isLocalDbnsfpAvailable, queryLocalDbnsfpLandscapeRows, readLocalDbnsfpVersion } from "./dbnsfp_local.ts";
 import { landscapeCache } from "../infra/cache.ts";
 import { resolveGeneToUniprot, fetchUniprotSequence } from "../external-api/uniprot.ts";
@@ -172,7 +173,7 @@ export async function fetchMyVariantWindowHits(gene: string, start: number, end:
     const to = Math.min(end, from + WINDOW_TERMS_PER_REQUEST - 1);
     const terms: string[] = [];
     for (let p = from; p <= to; p++) terms.push(`dbnsfp.aa.pos:${p}`);
-    const chunk = await fetchMyVariantHits(`dbnsfp.genename:${gene} AND (${terms.join(" OR ")})`, 2000);
+    const chunk = await fetchMyVariantHits(`${dbnsfpGeneTerm(gene)} AND (${terms.join(" OR ")})`, 2000);
     for (const h of chunk) byId.set(typeof h?._id === "string" ? h._id : `#${byId.size}`, h);
   }
   return [...byId.values()];
@@ -323,7 +324,7 @@ async function computeLandscape(
   try {
     hits = windowed
       ? await fetchMyVariantWindowHits(normGene, startPos!, endPos!)
-      : await fetchMyVariantHits(`dbnsfp.genename:${normGene}`, 10000);
+      : await fetchMyVariantHits(dbnsfpGeneTerm(normGene), 10000);
   } catch (err: any) {
     console.warn(`[Landscape] myvariant.info query failed: ${err.message}`);
   }

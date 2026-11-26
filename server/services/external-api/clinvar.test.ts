@@ -14,6 +14,16 @@ describe("fetchClinVarData", () => {
     clearAllCaches(true);
   });
 
+  it("searches ClinVar under the current symbol, GBA1, whichever name was given", async () => {
+    for (const symbol of ["GBA1", "GBA"]) {
+      clearAllCaches(true);
+      const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, json: async () => ({ esearchresult: { idlist: [] } }) } as any);
+      await fetchClinVarData(symbol, "p.Asn409Ser", { bypassSqlite: true });
+      expect(new URL(String(fetchSpy.mock.calls[0][0])).searchParams.get("term")).toMatch(/^GBA1\[gene\] AND /);
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("should return parsed results if variant title matches (exact or mapped AA codes)", async () => {
     const mockSearchResponse = {
       esearchresult: {

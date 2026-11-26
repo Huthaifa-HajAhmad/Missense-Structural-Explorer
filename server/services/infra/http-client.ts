@@ -7,7 +7,7 @@
  *   - The fair-share egress governor (`egress-governor.ts`, WP-I1), and `governedFetch` for callers
  *     that keep their own timeouts and retries
  *   - fetchWithRetry (retry + jitter + Retry-After header support)
- *   - normalizeGeneSymbol
+ *   - normalizeGeneSymbol (re-exported from `gene-symbols.ts`)
  *   - normalizeVariantTo3Letter
  *
  * This module has zero dependencies on other server/services modules,
@@ -105,11 +105,7 @@ function abortableSleep(rawMs: number, signal?: AbortSignal | null): Promise<voi
   });
 }
 
-export function normalizeGeneSymbol(gene: string): string {
-  const g = gene.trim().toUpperCase();
-  if (g === "GBA1") return "GBA";
-  return g;
-}
+export { normalizeGeneSymbol } from "./gene-symbols.ts";
 
 const hostBreakers = new Map<string, CircuitBreaker>();
 const hostSemaphores = new Map<string, Semaphore>();

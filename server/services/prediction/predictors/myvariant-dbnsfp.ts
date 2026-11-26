@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fetchWithRetry, normalizeGeneSymbol, normalizeVariantTo3Letter } from "../../infra/http-client.ts";
+import { dbnsfpGeneTerm } from "../../infra/gene-symbols.ts";
 import { safeParseFloat, toSingleAa, getFirstOrVal } from "./normalizer.ts";
 import { NO_DBNSFP_SCORES, type DbnsfpScores } from "./dbnsfp-scores.ts";
 
@@ -43,8 +44,8 @@ export async function queryMyVariantDbnsfp(
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   const queryStr = resolvedPos !== null
-    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
-    : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
+    ? `${dbnsfpGeneTerm(normGene)} AND dbnsfp.aa.pos:${resolvedPos}`
+    : `${dbnsfpGeneTerm(normGene)} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
   const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${TARGET_FIELDS}&limit=100`;
   try {
     const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 15000 });
