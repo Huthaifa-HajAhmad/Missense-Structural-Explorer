@@ -104,7 +104,7 @@ src/components/evidence/function/FunctionWindowControl.tsx,component,
 src/components/evidence/function/HotspotsRetry.tsx,component,
 src/components/evidence/function/HotspotsView.tsx,component,src/components/evidence/__tests__/HotspotsView.test.tsx
 src/components/evidence/function/architectureLayout.ts,client,src/components/evidence/function/__tests__/architectureLayout.gzf1.test.ts;src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts;src/components/evidence/function/__tests__/architectureLayout.test.ts;src/components/evidence/function/__tests__/domainOverlap.test.ts
-src/components/evidence/function/domainLaneLayout.ts,client,
+src/components/evidence/function/domainLaneLayout.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts
 src/components/evidence/function/functionInput.ts,barrel,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/insights/__tests__/InsightsScreen.audit.test.tsx
 src/components/evidence/function/viewUrlState.ts,client,
 src/components/evidence/interfaces/AssemblyDiagram.tsx,component,src/components/evidence/__tests__/AssemblyDiagram.test.tsx

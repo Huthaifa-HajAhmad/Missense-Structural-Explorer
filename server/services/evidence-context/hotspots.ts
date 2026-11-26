@@ -3,8 +3,10 @@
  * It reads every hot-spot definition for one gene once, so the screen only renders.
  *
  * INVARIANTS
- * - One gnomAD read. ClinVar and gnomAD rows are the Landscape context's cached rows
- *   (`fetchGeneMissenseRows`), so the two views cannot disagree after a ClinVar refresh.
+ * - One gnomAD read. ClinVar and gnomAD rows come from the cache the Landscape context uses
+ *   (`fetchGeneMissenseRows`), so two views on one transcript cannot disagree after a ClinVar refresh.
+ *   They are read on the run's transcript, the one the model's sequence is numbered on; gnomAD's
+ *   gene-level canonical transcript can be another isoform (ABCG1: 666 residues against P45844's 678).
  * - The reference sets follow the pre-registered benchmark (scripts/hotspot_benchmark/thresholds.json):
  *   P = residues with a ClinVar P/LP missense of ≥1 star; N = residues with a gnomAD missense counted in
  *   either callset (AC > 0, no filter flag), excluding ClinVar P/LP and conflicting variants. The PER re-run
@@ -21,7 +23,8 @@ import { createHash } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
 import { memo } from "../infra/memo.ts";
-import { fetchGeneMissenseRows, fetchLandscapeContext, missenseResidue } from "../prediction/landscape-context.ts";
+import { fetchGeneMissenseRows, missenseResidue } from "../prediction/landscape-context.ts";
+import { fetchRegionalConstraint } from "../prediction/regional-constraint.ts";
 import { classifyClinvar } from "../../../src/shared/clinvarClassification.ts";
 import { loadCspecPm1 } from "./cspec.ts";
 import { loadPerRegions } from "./perRegions.ts";
@@ -44,8 +47,8 @@ const memoized = memo;
 
 const AA3 = (three: string) => AMINO_ACID_3_TO_1[three.toUpperCase()] ?? null;
 const refOf = (hgvsp: unknown) => (typeof hgvsp === "string" ? AA3(hgvsp.slice(2, 5)) : null);
-const onTranscript = (row: any, canonical: string | null) =>
-  !canonical || !row?.transcript_id || String(row.transcript_id).split(".")[0] === canonical.split(".")[0];
+const onTranscript = (row: any, rowsTranscript: string | null) =>
+  !rowsTranscript || !row?.transcript_id || String(row.transcript_id).split(".")[0] === rowsTranscript.split(".")[0];
 const counted = (side: { ac?: number; filters?: string[] } | null | undefined) => !!side && (side.ac ?? 0) > 0 && (side.filters ?? []).length === 0;
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
@@ -66,18 +69,18 @@ export interface ReferenceSets {
 }
 
 /**
- * The residue sets every rung reads, from the raw ClinVar and gnomAD rows on gnomAD's canonical transcript.
+ * The residue sets every rung reads, from the raw ClinVar and gnomAD rows on the transcript they were read on.
  * Pure, so each rule (which transcript, which classification, what counts as observed) is tested directly.
  * `null` rows (a failed read) give empty sets; the caller reports the failure, never these empties.
  */
-export function referenceSets(clinvarRows: any[] | null, gnomadRows: any[] | null, canonical: string | null): ReferenceSets {
+export function referenceSets(clinvarRows: any[] | null, gnomadRows: any[] | null, rowsTranscript: string | null): ReferenceSets {
   const refAt = new Map<number, string>();
   const plp = new Map<number, { n: number; maxStars: number | null; changes: string[] }>();
   const blb = new Map<number, number>();
   const plpStarred = new Set<number>();
   const excludeIds = new Set<string>();
   for (const r of clinvarRows ?? []) {
-    if (!onTranscript(r, canonical)) continue;
+    if (!onTranscript(r, rowsTranscript)) continue;
     const pos = missenseResidue(r.hgvsp);
     if (pos === null) continue;
     const ref = refOf(r.hgvsp);
@@ -98,7 +101,7 @@ export function referenceSets(clinvarRows: any[] | null, gnomadRows: any[] | nul
   const populationAll = new Set<number>();
   const neutral = new Set<number>();
   for (const r of gnomadRows ?? []) {
-    if (!onTranscript(r, canonical) || r.consequence !== "missense_variant") continue;
+    if (!onTranscript(r, rowsTranscript) || r.consequence !== "missense_variant") continue;
     const pos = missenseResidue(r.hgvsp);
     if (pos === null) continue;
     const ref = refOf(r.hgvsp);
@@ -185,27 +188,28 @@ export function loadHotspotContext(gene: string, query: Record<string, unknown>)
 async function build(gene: string, uniprotId: string | null, transcript: string | null): Promise<HotspotContext> {
   const errors: string[] = [];
   const [[clinvarRes, gnomadRes], cspec, pdb] = await Promise.all([
-    fetchGeneMissenseRows(gene),
+    fetchGeneMissenseRows(gene, transcript),
     loadCspecPm1(gene),
     uniprotId ? fetchAlphafoldPdb(uniprotId).catch(() => null) : Promise.resolve(null),
   ]);
   if (cspec.status === "error") errors.push(`ClinGen CSpec: ${cspec.reason}`);
 
-  // ── Variant rows, on gnomAD's canonical transcript ──
-  const canonical = (clinvarRes.status === "fulfilled" ? clinvarRes.value?.canonical_transcript_id : null)
-    ?? (gnomadRes.status === "fulfilled" ? gnomadRes.value?.canonical_transcript_id : null) ?? null;
+  // ── Variant rows, on the transcript they were read on (the run's, unless gnomAD does not know it) ──
+  const rowsTranscript = (clinvarRes.status === "fulfilled" ? clinvarRes.value?.transcript_id : null)
+    ?? (gnomadRes.status === "fulfilled" ? gnomadRes.value?.transcript_id : null) ?? null;
   const clinvarRows = clinvarRes.status === "fulfilled" && clinvarRes.value ? clinvarRes.value.clinvar_variants ?? [] : null;
   const gnomadRows = gnomadRes.status === "fulfilled" && gnomadRes.value ? gnomadRes.value.variants ?? [] : null;
   if (!clinvarRows) errors.push("ClinVar (via gnomAD) could not be read.");
-  // Every rung reads residues on gnomAD's canonical transcript (checked against the model below), so the
-  // regional intervals must be projected onto that same transcript. The requested transcript is only a
-  // fallback for a response that names no canonical one: projecting on it while the rows are canonical
-  // would put two rungs on two different protein axes.
-  const axis = canonical ?? transcript;
-  const landscape = await fetchLandscapeContext(gene, axis).catch((e: Error) => { errors.push(`Regional constraint: ${e.message}`); return null; });
+  // Every rung reads residues on the rows' transcript (checked against the model below), so the regional
+  // intervals must be projected onto that same transcript. The requested transcript is only a fallback for
+  // a response that names none: projecting on it while the rows are on another would put two rungs on two
+  // different protein axes.
+  const axis = rowsTranscript ?? transcript;
+  const constraint = await fetchRegionalConstraint(gene, axis).catch((e: Error) => { errors.push(`Regional constraint: ${e.message}`); return null; });
+  if (constraint?.sourceFailed && constraint.reason) errors.push(constraint.reason);
   if (!gnomadRows) errors.push("gnomAD could not be read.");
 
-  const { refAt, plp, blb, plpStarred, gn, populationAll, neutral } = referenceSets(clinvarRows, gnomadRows, canonical);
+  const { refAt, plp, blb, plpStarred, gn, populationAll, neutral } = referenceSets(clinvarRows, gnomadRows, rowsTranscript);
 
   // ── Model and numbering ──
   const trace = pdb ? readCaTrace(pdb) : null;
@@ -249,10 +253,10 @@ async function build(gene: string, uniprotId: string | null, transcript: string 
   // every residue past the last observed variant — so the test is not run at all.
   const rerun = modelLength > 0 && numbering.status !== "mismatch" ? perBurden(patientAll, populationAll, modelLength) : null;
   const perRerun: HotspotContext["perRerun"] = numbering.status === "mismatch"
-    // The test's axis is the model's length while its residues are gnomAD canonical-transcript positions.
+    // The test's axis is the model's length while its residues are positions on the rows' transcript.
     // On a mismatch those two disagree, so the windows would be drawn on the wrong axis; the 3D reading is
     // withheld for the same reason.
-    ? { status: "unavailable", reason: "The ClinVar/gnomAD residue numbers do not match this protein's sequence, so the enrichment test was not run on this axis.", length: modelLength, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
+    ? { status: "numbering-mismatch", reason: `${mismatches} of ${refAt.size} ClinVar/gnomAD residue${refAt.size === 1 ? "" : "s"} ${mismatches === 1 ? "differs" : "differ"} from the model's sequence at the same number, so the enrichment test was not run on this axis.`, length: modelLength, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
     : !rowsRead
       ? { status: "unavailable", reason: "ClinVar or gnomAD could not be read.", length: modelLength, windows: 0, patientResidues: 0, populationResidues: 0, regions: [], best: null }
       : rerun === null
@@ -265,9 +269,9 @@ async function build(gene: string, uniprotId: string | null, transcript: string 
                 best: rerun.best ? { start: rerun.best.start, end: rerun.best.end, patient: rerun.best.patient, population: rerun.best.population, p: rerun.best.p, adjP: rerun.best.adjP } : null };
 
   // ── B: regional intervals on the protein axis ──
-  const regional: HotspotContext["regional"] = landscape
-    ? { status: landscape.regionsStatus, reason: landscape.regionsStatus === "available" ? null : landscape.errors.find((e) => /Regional/.test(e)) ?? null,
-        regions: (landscape.regions ?? []).map((g) => ({ start: g.start, end: g.end, oe: g.oe, pValue: g.pValue })) }
+  const regional: HotspotContext["regional"] = constraint
+    ? { status: constraint.status, reason: constraint.reason,
+        regions: (constraint.regions ?? []).map((g) => ({ start: g.start, end: g.end, oe: g.oe, pValue: g.pValue })) }
     : { status: "unavailable", reason: "The regional constraint context could not be read.", regions: [] };
 
   // ── Accessibility of the P/LP residues, in parallel with the 3D statistic ──
