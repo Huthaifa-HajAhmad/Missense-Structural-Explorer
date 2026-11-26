@@ -1,8 +1,11 @@
 /**
  * Base-level pext (gnomAD v4, GTEx v10): the proportion of a gene's expression, in each tissue,
- * from transcripts that touch a coding base. It is a MAXIMUM over transcripts at that base, so it
- * does not show that the transcript carrying the missense annotation is expressed. Regions are
- * CDS-only, 1-based inclusive; UTR and intronic positions have no region. No cut-point is applied.
+ * from transcripts that touch a coding base: the SUM over every such transcript, divided by gene
+ * expression (gnomAD pext help). Summing makes it an upper bound for any one transcript or
+ * consequence, so it does not show that the transcript carrying the missense annotation is expressed.
+ * Regions are runs of CDS bases (over all the gene's transcripts) that share one pext profile, so they
+ * are not exons: ABCG1 has 23 regions and 15 MANE coding exons. 1-based inclusive; UTR and intronic
+ * positions have no region. No cut-point is applied.
  */
 import { z } from 'zod';
 import { contextProvenanceSchema } from './diseaseFrame.ts';
@@ -36,6 +39,8 @@ export function locatePext(data: PextResponse | null, site: PextSite | null) {
   const index = data.regions.findIndex(r => r.start <= site.pos && site.pos <= r.stop); // inclusive
   return index < 0 ? { state: 'no-region' as PextLocation, region: null, index } : { state: 'region' as PextLocation, region: data.regions[index], index };
 }
+/** GTEx writes "Cells_EBV-transformed_lymphocytes", gnomAD "cells_ebv_transformed_lymphocytes": one key for both. */
+export const pextTissueKey = (id: string) => id.toLowerCase().replace(/[^a-z0-9]+/g, '_');
 export const pextTissueLabel = (id: string) => id.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase());
 // Local display grouping only, on gnomAD's snake_case tissue names.
 const PREFIX: Partial<Record<ReviewSystemId, string[]>> = {

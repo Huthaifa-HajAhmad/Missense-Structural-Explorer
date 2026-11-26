@@ -17,7 +17,7 @@
  *  - Misinterpreting missing dGTEx snapshot installation as "no expression" (biological absence).
  *  - Inconsistency between tab hero and rail trace when reviewing developmental cohorts.
  */
-import { buildExpressionFinding } from './expressionTabEvidence';
+import { buildExpressionFinding, type ExpressionFinding } from './expressionTabEvidence';
 import type { AdultExpressionResponse } from './expressionModels';
 import { buildDevelopmentalEvidence, type DevelopmentalExpressionResponse } from './developmentalExpression';
 import type { ReviewSystemId } from './phenotypeFrame';
@@ -29,10 +29,10 @@ export interface ExpressionWorkspaceFinding { source: string; headline: string; 
  * pediatric measurements or turn unavailable coverage into a biological zero. */
 export function expressionWorkspaceFinding(input: {
   section: string; adult: Load<AdultExpressionResponse>; developmental: Load<DevelopmentalExpressionResponse>;
-  systems: ReviewSystemId[]; cohort: string;
+  systems: ReviewSystemId[]; cohort: string; adultFinding?: ExpressionFinding;
 }): ExpressionWorkspaceFinding {
   if (input.section !== 'developmental') {
-    const finding = buildExpressionFinding(input.adult?.data ?? null, input.adult?.status ?? null, input.systems);
+    const finding = input.adultFinding ?? buildExpressionFinding(input.adult?.data ?? null, input.adult?.status ?? null, input.systems);
     return { source: 'Adult RNA · GTEx', headline: finding.figure === null ? finding.headline
       : `${finding.headline} · ${Number(finding.figure.toPrecision(4))} TPM`,
     detail: input.systems.length ? finding.predicate : finding.figureLabel ? `Highest measured median among ${finding.sampledTissues} returned adult tissue / cell categories.` : finding.predicate };

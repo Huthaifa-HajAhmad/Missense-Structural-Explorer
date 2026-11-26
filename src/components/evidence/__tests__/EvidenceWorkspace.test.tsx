@@ -105,9 +105,9 @@ describe('Evidence workspace interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: /ATAC-seq Not attributed/ }));
     const card = screen.getByRole('region', { name: 'Selected evidence reading' });
     expect(card).toHaveTextContent('Missing does not mean zero');
-    // The notes are the reading's own facts, not a generic "how to interpret" guide behind a fold.
-    expect(card).not.toHaveTextContent('How to interpret this reading');
-    expect(card.querySelector('details')).toBeNull();
+    // Other evidence tabs keep their interpretation notes in a disclosure.
+    expect(card).toHaveTextContent('How to interpret this reading');
+    expect(card.querySelector('details')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByRole('button', { name: 'Clear pin' }));
     expect(screen.getByLabelText('View state')).toHaveTextContent('None');
   });

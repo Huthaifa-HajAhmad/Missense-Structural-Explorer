@@ -33,9 +33,6 @@
 .cx-frame-focus > div { padding-top: 12px; }
 .cx-frame-focus .xp-frame__onset { max-width: 280px; }
 .cx-screen .xp-frame__row { display: block; }
-.cx-screen .xp-hero__body { padding: 16px 20px; }
-.cx-screen .xp-hero .cx-finding-details { margin-top: 12px; }
-.cx-screen .xp-hero .cx-finding-details > summary { padding-left: 0; }
 .cx-guide { border-block: 1px solid var(--cs-border); padding: 12px 0; line-height: 1.6; }
 .cx-guide summary { cursor: pointer; font-weight: 600; color: var(--cs-text-primary); min-height: 28px; }
 .cx-guide > div { padding-top: 10px; max-width: 78ch; }
@@ -155,3 +152,10 @@
 .cx-screen .cx-record-toolbar .viz-action { white-space: nowrap; }
 .cx-screen .cx-record-toolbar .cx-check { min-block-size: 38px; }
 
+
+.xp-frame--embedded > * { margin: 0; padding-block: 14px; }
+.xp-frame--embedded > * + * { border-block-start: 1px solid var(--cs-border-subtle); }
+.xp-frame--embedded .xp-frame__row, .xp-frame--embedded .ctx-field { display: grid; gap: 8px; margin: 0; padding-inline: 0; max-inline-size: none; }
+.xp-frame--embedded .xp-frame__row > .ctx-field { padding-block: 0; }
+.xp-frame--embedded .ctx-caption, .xp-frame--embedded p { margin: 0; line-height: 1.6; }
+.xp-frame--embedded .ctx-label { font-weight: 600; }

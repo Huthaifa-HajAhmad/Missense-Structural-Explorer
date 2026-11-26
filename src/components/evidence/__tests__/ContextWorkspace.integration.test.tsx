@@ -82,7 +82,10 @@ describe('production context tabs and linked inspectors', () => {
     render(<Harness result={result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
-    expect(screen.getByText('Your choices, not patient findings', { selector: '.xp-system-note span' })).toBeVisible();
+    // The shortcut lives in the review row itself, not in a second row under it.
+    const reviewRow = screen.getByText('Review context').closest('.xp-review')!;
+    expect(within(reviewRow as HTMLElement).getByText('Your choices, not patient findings')).toBeVisible();
+    expect(within(reviewRow as HTMLElement).getByRole('button', { name: 'Change review systems' })).toBeVisible();
     expect(screen.queryByText(/Related tissues are listed first/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change review systems' }));
     const systems = screen.getByRole('group', { name: 'Review systems' });
@@ -103,13 +106,12 @@ describe('production context tabs and linked inspectors', () => {
     expect(summary).not.toHaveTextContent('1 systems');
     act(() => { fireEvent.click(within(systems).getByRole('button', { name: 'Hepatic' })); });
     expect(summary).toHaveTextContent('2 systems');
-    // The tissue explorer opens with its own chart: no summary above it and no scale caption under the toolbar.
-    expect(screen.queryByTestId('expression-finding')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Linear TPM scale/)).not.toBeInTheDocument();
-    // The sampling view opens with the summary, as the first thing in the panel, so the shared controls above it do not move.
-    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
-    const panel = document.getElementById('evidence-expression-models-panel-records')!;
+    // The tab's answer opens the Tissue explorer, first in the panel, and is stated once: not again under Sampling & coverage.
+    const panel = document.getElementById('evidence-expression-models-panel-comparison')!;
     expect(panel.firstElementChild).toBe(within(panel).getByTestId('expression-finding'));
+    expect(screen.queryByText(/Linear TPM scale/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
+    expect(screen.queryByTestId('expression-finding')).not.toBeInTheDocument();
   });
   it('names the annotation transcript from the first non-blank source', () => {
     const f = contextWorkspaceFixture();
@@ -119,7 +121,7 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
     expect(screen.getByText('NM_000454.5')).toBeVisible();
-    expect(screen.getByText(/expression of this transcript/)).toBeVisible();
+    expect(screen.getByText(/does not show the exons or the expression of/)).toBeVisible();
   });
   it('expands every chart record and recovers a pin beyond the initial twenty', async () => {
     const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
@@ -168,11 +170,11 @@ describe('production context tabs and linked inspectors', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Sampled age cohort' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Linear TPM scale/)).not.toBeInTheDocument();
-    const trace = screen.getByText('Review context and reading', { selector: 'summary' }).closest('details')!;
-    act(() => {
-      trace.open = true;
-      fireEvent(trace, new Event('toggle'));
-    });
+    // The trace is shown flat in the rail, not behind a fold.
+    expect(screen.queryByText('Review context and reading')).not.toBeInTheDocument();
+    // The ACMG boundary is stated once, as the trace's last step; the method notes are flat too.
+    expect(screen.getAllByText('No ACMG criterion is added or changed.')).toHaveLength(1);
+    expect(screen.queryByText('How the reading is made')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('context-trace')).toHaveTextContent('Pediatric measurements are not available here'));
     expect(screen.getByTestId('context-trace')).not.toHaveTextContent('Highest in');
   });
@@ -232,12 +234,13 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Liver' } });
     expect(screen.getByText(/pinned record is outside this view/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Pediatric RNA' }));
-    const pediatricPanel = document.getElementById('expression-models-sources-panel-developmental')!;
-    const cohort = within(pediatricPanel).getByRole('combobox', { name: 'Sampled age cohort' });
+    // The source switch and its filters share one row above the records panel.
+    const explorer = () => within(screen.getByRole('region', { name: 'Explore source readings' }));
+    const cohort = explorer().getByRole('combobox', { name: 'Sampled age cohort' });
     fireEvent.change(cohort, { target: { value: '1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
-    expect(within(document.getElementById('expression-models-sources-panel-developmental')!).getByRole('combobox', { name: 'Sampled age cohort' })).toHaveValue('1');
+    expect(explorer().getByRole('combobox', { name: 'Sampled age cohort' })).toHaveValue('1');
     const next = contextWorkspaceFixture('New variant'); store.setState(next.state); rendered.rerender(<Harness result={next.result} />);
     expect(screen.getByRole('tab', { name: 'Adult RNA' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Select a point or source record');

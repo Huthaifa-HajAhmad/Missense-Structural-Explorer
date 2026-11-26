@@ -18,6 +18,7 @@
  */
 import { buildAdultExpressionEvidence, tissueMatchesSystem, type AdultExpressionResponse, type TissueExpression } from './expressionModels.ts';
 import { REVIEW_SYSTEMS, type ReviewSystemId } from './phenotypeFrame.ts';
+import type { PextLocation, PextRegion } from './pext.ts';
 
 /** What a reviewer should read into "not sampled": the anatomy GTEx has no tissue for. */
 export const UNSAMPLED_ANATOMY: Partial<Record<ReviewSystemId, string>> = {
@@ -84,12 +85,21 @@ export function buildExpressionFinding(data: AdultExpressionResponse | null, loa
 export type SourceFact = { key: string; label: string; value: string; sub: string; tone: 'ok' | 'muted' };
 type Slot<T> = { status: 'loading' | 'error' | 'ready'; data: T | null } | undefined;
 
+/** Why the variant has no pext value, in the words the fact strip shows. */
+const PEXT_LOCATION_NOTE: Partial<Record<PextLocation, string>> = {
+  'no-locus': 'No verified GRCh38 position',
+  'no-gene-locus': 'No gene locus in this source',
+  'no-region': 'Outside the coding regions',
+  'other-chromosome': 'Different chromosome from the gene record',
+};
+const sentenceStart = (text: string) => text.replace(/^./, c => c.toLowerCase());
+
 /** Four source readings beside the finding. Every state is stated; none is shown as a blank. */
 export function buildSourceFacts(input: {
   adult: ExpressionFinding;
   developmental: Slot<{ status: string; counts: { includedSamples: number; includedDonors: number } | null }>;
   hpa: Slot<{ status: string; rna: { specificity: string | null } | null; protein: { evidence: string | null } | null }>;
-  pext: { load: 'loading' | 'error' | 'ready' | null; status: string | null; region: { mean: number | null; tissues: number } | null; locationNote: string | null };
+  pext: { load: 'loading' | 'error' | 'ready' | null; status: string | null; location: { state: PextLocation; region: PextRegion | null; index: number }; regionCount: number };
 }): SourceFact[] {
   const state = (s: Slot<unknown>, noun: string, installNoun?: string) => {
     if (!s || s.status === 'loading') return { value: 'Running', sub: `Reading ${noun}.` };
@@ -104,6 +114,9 @@ export function buildSourceFacts(input: {
   const hpa = state(input.hpa, 'the Protein Atlas');
   const counts = input.developmental?.data?.counts;
   const pext = input.pext;
+  const region = pext.location.region;
+  // HPA's "Evidence" field is the protein-existence level (does the protein exist at all), not a tissue detection.
+  const existence = input.hpa?.data?.protein?.evidence;
   return [
     { key: 'adult', label: 'Adult tissues', tone: adult.state === 'ready' ? 'ok' : 'muted',
       value: adult.state === 'ready' ? `${adult.sampledTissues} sampled` : adult.state === 'loading' ? 'Running' : adult.state === 'error' ? 'Provider error' : 'No result',
@@ -111,10 +124,12 @@ export function buildSourceFacts(input: {
     { key: 'pediatric', label: 'Pediatric', tone: dev ? 'muted' : 'ok',
       value: dev ? dev.value : `${counts?.includedSamples ?? 0} samples`, sub: dev ? dev.sub : `${counts?.includedDonors ?? 0} donors, dGTEx public cohorts` },
     { key: 'hpa', label: 'Protein Atlas', tone: hpa ? 'muted' : 'ok',
-      value: hpa ? hpa.value : input.hpa?.data?.rna?.specificity ?? 'Not reported', sub: hpa ? hpa.sub : input.hpa?.data?.protein?.evidence ?? 'Protein evidence level not reported' },
-    { key: 'pext', label: 'At the variant', tone: pext.region ? 'ok' : 'muted',
-      value: pext.region ? (pext.region.mean === null ? 'No value' : `pext ${pext.region.mean.toFixed(2)}`)
+      value: hpa ? hpa.value : input.hpa?.data?.rna?.specificity ?? 'Not reported',
+      sub: hpa ? hpa.sub : `RNA tissue class; protein existence: ${existence ? sentenceStart(existence) : 'not reported'}` },
+    { key: 'pext', label: 'At the variant', tone: region ? 'ok' : 'muted',
+      value: region ? (region.mean === null ? 'No value' : `pext ${region.mean.toFixed(2)}`)
         : pext.load === 'ready' && pext.status === 'ready' ? 'Not placed' : pext.load === 'error' ? 'Provider error' : pext.load === 'ready' ? 'No result' : 'Running',
-      sub: pext.region ? `Base-level, mean of ${pext.region.tissues} tissues` : pext.locationNote ?? 'Base-level pext for the coding region' },
+      sub: region ? `Coding region ${pext.location.index + 1} of ${pext.regionCount}, mean of ${region.tissues.length} tissues`
+        : PEXT_LOCATION_NOTE[pext.location.state] ?? 'Base-level pext for the coding region' },
   ];
 }

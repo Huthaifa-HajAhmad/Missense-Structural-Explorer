@@ -8,7 +8,7 @@ import { EVIDENCE_GUIDES, resolveResearchGuide } from '../../shared/researchGuid
 import { PinHeader } from './PinHeader';
 
 /** Selected-record details with a workspace-owned empty state; provenance stays separate. */
-export function EvidenceReadingInspector({ tab, rows, empty, showGuide = true }: { tab: EvidenceWorkspaceTab; rows: (EvidenceChartRow & { reportUrl?: string | null })[]; empty?: ReactNode; showGuide?: boolean }) {
+export function EvidenceReadingInspector({ tab, rows, empty, showGuide = true, flatNotes = false }: { tab: EvidenceWorkspaceTab; rows: (EvidenceChartRow & { reportUrl?: string | null })[]; empty?: ReactNode; showGuide?: boolean; flatNotes?: boolean }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled && !empty) return null;
   const row = rows.find(r => r.key === w.selected);
@@ -19,7 +19,7 @@ export function EvidenceReadingInspector({ tab, rows, empty, showGuide = true }:
     <span className="sr-only" role="status">{row ? `${row.name} pinned in the inspector.` : 'No reading pinned.'}</span>
     <div className="evw-inspection__body">
       {row ? <><h3>{row.name}</h3><p>{row.description}</p><dl>{row.facts.map(f => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>
-        {row.notes.length > 0 && <div className="evw-inspection__notes">{row.notes.map((note, i) => <p key={i}>{note}</p>)}</div>}
+        {row.notes.length > 0 && (flatNotes ? <div className="evw-inspection__notes">{row.notes.map((note, i) => <p key={i}>{note}</p>)}</div> : <details><summary>How to interpret this reading</summary>{row.notes.map((note, i) => <p key={i}>{note}</p>)}</details>)}
         {showGuide && <ResearchGuideButton topic={topic} label="Background for this reading" />}
         {report && <a className="ctx-link" href={report} target="_blank" rel="noreferrer">Open source report (opens in a new tab)</a>}</>
         : w.selected ? <h3>The selected reading is no longer available</h3>

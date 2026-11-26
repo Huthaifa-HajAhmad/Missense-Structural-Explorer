@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { locatePext, orderPextTissues, pextTissueLabel, type PextResponse, type PextSite } from '../../shared/pext';
+import { locatePext, orderPextTissues, pextTissueKey, pextTissueLabel, type PextResponse, type PextSite } from '../../shared/pext';
 import type { ReviewSystemId } from '../../shared/phenotypeFrame';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
@@ -16,12 +16,12 @@ function TissueBars({ tissues, labels }: { tissues: Array<{ tissue: string; valu
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Base-level pext by tissue"><table className="ctx-table">
     <caption className="ctx-sr-only">Base-level pext in this coding region, values for the GTEx v10 tissues shown in this table.</caption>
     <thead><tr><th scope="col">Tissue</th><th scope="col" className="ctx-num">Base-level pext</th></tr></thead>
-    <tbody>{tissues.map(t => <tr key={t.tissue}><th scope="row">{labels.get(t.tissue) ?? pextTissueLabel(t.tissue)}</th>
+    <tbody>{tissues.map(t => <tr key={t.tissue}><th scope="row">{labels.get(pextTissueKey(t.tissue)) ?? pextTissueLabel(t.tissue)}</th>
       <td className="ctx-num"><span className="ctx-mono">{t.value === null ? 'No value' : String(t.value)}</span><MeasureBar value={t.value} max={1} label={`pext ${t.value ?? 'unreported'}`} /></td></tr>)}</tbody>
   </table></div>;
 }
 
-/** `tissueLabels` maps gnomAD's snake_case tissue ids to the GTEx names the adult table shows, so one tissue has one name. */
+/** `tissueLabels` maps `pextTissueKey` ids to the GTEx names the adult table shows, so one tissue has one name. */
 export function PextCard({ load, site, transcript = null, systems, tissueLabels = new Map(), onRetry }: { transcript?: string | null; load?: ContextLoad<PextResponse>; site: PextSite | null; systems: ReviewSystemId[]; tissueLabels?: Map<string, string>; onRetry: () => void }) {
   const id = useId();
   const data = load?.data ?? null;
@@ -39,12 +39,19 @@ export function PextCard({ load, site, transcript = null, systems, tissueLabels 
         {data.flags.includes('low_max_pext') && <p className="ctx-card__body ctx-notice cx-source-state" role="status">gnomAD flags this gene as <span className="ctx-mono">low_max_pext</span>: no region reaches a meaningful pext, so its values are weak evidence of coding expression.</p>}
         <div className="ctx-card__body xp-pext-figure">
           <div className="xp-pext-overview">
-            <div><h3>Coding expression map</h3><p className="ctx-caption">Proportion of gene expression associated with each coding region.</p>
-              {location.region && site && <p className="xp-pext-location"><strong>Variant in region {location.index + 1} of {data.regions.length}</strong><span>GRCh38 · chr{data.chrom}:{site.pos.toLocaleString()} · region mean pext {location.region.mean === null ? 'not reported' : location.region.mean.toFixed(2)}</span></p>}
+            <div><h3>Coding expression map</h3><p className="ctx-caption">Share of the gene’s expression, in each tissue, that comes from transcripts including each coding region.</p>
+              {location.region && site && <dl className="xp-pext-location">
+                <div><dt>Variant</dt><dd className="ctx-mono">chr{data.chrom}:{site.pos.toLocaleString()} (GRCh38)</dd></div>
+                <div><dt>Coding region</dt><dd><strong>{location.index + 1} of {data.regions.length}</strong></dd></div>
+                <div><dt>Mean pext</dt><dd className="ctx-mono">{location.region.mean === null ? 'Not reported' : location.region.mean.toFixed(2)}</dd></div>
+              </dl>}
             </div>
             <div className="xp-pext-key" role="img" aria-label="Mean pext shading scale from zero to one"><span>Mean pext across tissues</span><div aria-hidden="true" /><span>0 <span>1</span></span><small>Darker = higher proportion</small></div>
           </div>
-          <div className="xp-pext-reference">{transcript && <p>Annotation transcript <strong className="ctx-mono">{transcript}</strong></p>}<p>These regions summarize expression across transcripts. They do not show the exon structure or expression of {transcript ? 'this transcript' : 'the transcript carrying the variant'}.</p></div>
+          {/* gnomAD regions are runs of coding bases with one pext profile, over every transcript of the gene,
+              so they are neither one transcript's exons nor numbered like them (ABCG1: 23 regions, 15 MANE coding exons). */}
+          <div className="xp-pext-reference"><p>A region is not an exon. gnomAD splits the coding bases of all the gene’s transcripts wherever pext changes, so one exon can hold several regions, and exons that only other transcripts use appear too.</p>
+            <p>{transcript ? <>The map does not show the exons or the expression of <strong className="ctx-mono">{transcript}</strong>.</> : 'The map does not show the exons or the expression of the transcript carrying the variant.'}</p></div>
           <PextStrip regions={data.regions} activeIndex={location.index} position={site?.pos ?? null} />
           <p className="ctx-caption">{data.regions.length} coding {data.regions.length === 1 ? 'region' : 'regions'} in order, width by coding length, darker = higher mean pext across tissues. Introns are not drawn.</p>
           {location.state !== 'region' && <p className="ctx-prose">{LOCATION_NOTE[location.state]}</p>}
@@ -69,6 +76,6 @@ export function PextCard({ load, site, transcript = null, systems, tissueLabels 
           {!tissues.relevant.length && tissues.other.length > (uniform !== null ? 0 : 8) && <details className="ctx-details ctx-details--table"><summary>All {tissues.other.length} {tissues.other.length === 1 ? 'tissue' : 'tissues'}</summary><TissueBars tissues={tissues.other} labels={tissueLabels} /></details>}
         </>}
       </>}
-    <p className="ctx-card__foot">Base-level pext is a maximum over every transcript touching the base. It does not show that the transcript carrying this missense is expressed, and no cut-point is applied. Tissue count comes from the response; tissues with too few GTEx samples are excluded. Context only.</p>
+    <p className="ctx-card__foot">Base-level pext sums every transcript that touches the base, so it is an upper bound for any one transcript or consequence (gnomAD v4 pext help). It does not show that the transcript carrying this missense is expressed, and no cut-point is applied. Tissue count comes from the response; tissues with too few GTEx samples are excluded. Context only.</p>
   </section>;
 }
