@@ -13,7 +13,7 @@ import type { LocalDbnsfpRecord } from "../dbnsfp_local.ts";
 export type DbnsfpScores = Pick<
   ConservationData,
   | "revel" | "gerp" | "phylop" | "bayesdel"
-  | "esm1b" | "esm1bPred" | "popeve" | "aouFrequency" | "spliceai"
+  | "esm1b" | "esm1bPred" | "popeve" | "popeveSource" | "aouFrequency" | "spliceai"
 > & { revel: number | null; popeve: number | null };
 
 /** A record and where it came from: the payload's `source`, and the release behind its REVEL score. */
@@ -31,9 +31,15 @@ export const NO_DBNSFP_SCORES: DbnsfpScores = {
   esm1b: null,
   esm1bPred: null,
   popeve: null,
+  popeveSource: null,
   aouFrequency: null,
   spliceai: null,
 };
+
+/** dbNSFP's popEVE column names no protein, so the transcript of the row it came from is its source. */
+export function dbnsfpPopEveSource(score: number | null, transcript: string | null): DbnsfpScores["popeveSource"] {
+  return score === null ? null : { protein: null, substitution: null, match: "dbnsfp", transcript };
+}
 
 /** All of Us counts, or null when none was measured (all four missing). */
 export function aouFromCounts(
@@ -56,6 +62,7 @@ export function scoresFromLocalRecord(rec: LocalDbnsfpRecord): DbnsfpScores {
     bayesdel: rec.bayesdel ?? null,
     esm1b: rec.esm1b ?? null,
     popeve: rec.popeve ?? null,
+    popeveSource: dbnsfpPopEveSource(rec.popeve ?? null, rec.transcript ?? null),
     aouFrequency: aouFromCounts(rec.aou_ac, rec.aou_an, rec.aou_het, rec.aou_hom),
   };
 }

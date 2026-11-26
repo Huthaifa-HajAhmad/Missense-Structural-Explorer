@@ -4,8 +4,10 @@ import path from "path";
 import fs from "fs";
 import { popEVECache, popEveOnlineCache, refseqCache } from "../../infra/cache.ts";
 import { fetchWithRetry } from "../../infra/http-client.ts";
-import { toSingleAa } from "./normalizer.ts";
+import { fetchPopEveFile, otherIsoformHit, parseSubstitution, substitutionText, type PopEveHit } from "./popeve-files.ts";
 import { UNIPROT_ACCESSION_REGEX } from "./transcript-resolver.ts";
+
+export type { PopEveHit };
 
 let popEVETabix: TabixIndexedFile | null = null;
 
@@ -62,12 +64,24 @@ export function getPopEVETabix(): TabixIndexedFile | null {
   return popEVETabix;
 }
 
+/**
+ * One INFO field of popEVE's GRCh38 file, e.g. `protein=NP_997057.1;gene=ABCG1;mutant=G369R;popEVE=-3.032`.
+ * A file slimmed by an older setup script keeps only the score, so protein and substitution may be null.
+ */
+export function parsePopEveInfo(info: string): PopEveHit | null {
+  const field = (name: string) => info.match(new RegExp(`(?:^|;)${name}=([^;]+)`))?.[1] ?? null;
+  const score = parseFloat(field("popEVE") ?? "");
+  if (Number.isNaN(score)) return null;
+  return { score, protein: field("protein"), substitution: field("mutant"), match: "dna" };
+}
+
+/** popEVE's own score for this exact DNA change, from the local GRCh38 file when it is installed. */
 export async function fetchPopEVEScore(
   chrom: string,
   pos: number,
   ref: string,
   alt: string
-): Promise<number | null> {
+): Promise<PopEveHit | null> {
   const cacheKey = `${chrom}:${pos}:${ref}:${alt}`;
   const cached = popEVECache.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -81,7 +95,7 @@ export async function fetchPopEVEScore(
   const chromsToTry = [chromNorm, chromNorm.slice(3)];
 
   try {
-    let score: number | null = null;
+    let hit: PopEveHit | null = null;
     const cleanRef = ref.toUpperCase();
     const cleanAlt = alt.toUpperCase();
     for (const ch of chromsToTry) {
@@ -90,17 +104,15 @@ export async function fetchPopEVEScore(
           const cols = line.split("\t");
           if (cols[1] !== String(pos)) return;
           if (cols[3].toUpperCase() !== cleanRef || cols[4].toUpperCase() !== cleanAlt) return;
-          const info = cols[7] ?? "";
-          const match = info.match(/popEVE=([0-9.-]+)/);
-          if (match) score = parseFloat(match[1]);
+          hit = parsePopEveInfo(cols[7] ?? "") ?? hit;
         });
-        if (score !== null) break;
+        if (hit !== null) break;
       } catch (innerErr) {
         // Try next chromosome format
       }
     }
-    popEVECache.set(cacheKey, score);
-    return score;
+    popEVECache.set(cacheKey, hit);
+    return hit;
   } catch (err: any) {
     console.warn(`[popEVE] Tabix lookup failed for ${chromNorm}:${pos}:`, err.message);
     popEVECache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
@@ -154,66 +166,36 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
   }
 }
 
-export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: string): Promise<number | null> {
+/**
+ * popEVE's score for a protein change, with the protein and substitution it was read from. The main
+ * isoform's file is used whenever popEVE has one; only when it has none is another isoform tried.
+ */
+export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: string): Promise<PopEveHit | null> {
   const cacheKey = `${proteinOrGene}_${variant}`;
   const cached = popEveOnlineCache.get(cacheKey);
   if (cached !== undefined) return cached;
+  const remember = (hit: PopEveHit | null, ttl?: number) => {
+    popEveOnlineCache.set(cacheKey, hit, ttl === undefined ? undefined : { ttl });
+    return hit;
+  };
+  const sub = parseSubstitution(variant);
+  if (!sub) return remember(null);
 
   try {
     const refseqId = await getRefSeqForProtein(proteinOrGene);
-    if (!refseqId) {
-      // Remembered only when the RefSeq answer itself was definitive (it is then in `refseqCache`).
-      if (refseqCache.has(proteinOrGene.trim())) popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
-      return null;
+    // An unanswered RefSeq lookup is not an answer: asked again next time.
+    if (!refseqId && !refseqCache.has(proteinOrGene.trim())) return null;
+    const file = refseqId ? await fetchPopEveFile(refseqId) : { kind: "absent" as const };
+    if (file.kind === "error") return null;
+    if (file.kind === "found") {
+      const score = file.scores.get(substitutionText(sub));
+      return remember(score === undefined ? null : { score, protein: refseqId, substitution: substitutionText(sub), match: "displayed" }, 5 * 60 * 1000);
     }
-
-    const csvUrl = `https://data.evemodel.org/popeve/v1.1/mutations/${refseqId}.csv`;
-    const res = await fetchWithRetry(csvUrl, { timeout: 3000 }, 1);
-    if (!res.ok) {
-      // popEVE has no file for this RefSeq: definitive. Its files sit in an S3 bucket that answers a
-      // missing key with 403 `AccessDenied`, not 404 (checked live 2026-10-14), so that exact answer
-      // counts too. Anything else is asked again next time.
-      const absent =
-        res.status === 404 ||
-        (res.status === 403 && /<Code>AccessDenied<\/Code>/.test(await res.text().catch(() => "")));
-      if (absent) popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
-      return null;
-    }
-    const csvText = await res.text();
-
-    const cleanVariant = variant.replace(/^p\./i, "");
-    const match = cleanVariant.match(/([A-Z]{1,3})[=:/]?(\d+)[=:/]?([A-Z]{1,3})/i);
-    if (!match) {
-      popEveOnlineCache.set(cacheKey, null);
-      return null;
-    }
-
-    const targetMut = `${toSingleAa(match[1])}${match[2]}${toSingleAa(match[3])}`;
-    const lines = csvText.split("\n");
-    if (lines.length === 0) return null;
-
-    const header = lines[0].split(",");
-    const popEveIdx = header.indexOf("popEVE");
-    if (popEveIdx === -1) return null;
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.startsWith(targetMut + ",")) {
-        const parts = line.split(",");
-        const scoreVal = parseFloat(parts[popEveIdx]);
-        if (!isNaN(scoreVal)) {
-          popEveOnlineCache.set(cacheKey, scoreVal);
-          return scoreVal;
-        }
-      }
-    }
+    const other = await otherIsoformHit(proteinOrGene, sub, refseqId);
+    return other === "error" ? null : remember(other, 5 * 60 * 1000);
   } catch (err: any) {
     // A timeout or network error is not remembered: popEVE is asked again next time.
     console.warn(`[popEVE Online Error] ${err.message}`);
     return null;
   }
-
-  // The file was read and holds no score for this substitution.
-  popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
-  return null;
 }

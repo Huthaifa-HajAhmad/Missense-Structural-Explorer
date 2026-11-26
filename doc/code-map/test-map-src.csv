@@ -131,7 +131,7 @@ src/components/evidence/interfaces/viewUrlState.ts,client,
 src/components/evidence/population/FrequencyScale.tsx,component,
 src/components/evidence/population/populationFormat.ts,client,src/components/evidence/__tests__/populationFormat.test.ts
 src/components/evidence/predictors/PredictorFindingRows.tsx,component,
-src/components/evidence/predictors/ScoreRuler.tsx,component,
+src/components/evidence/predictors/ScoreRuler.tsx,component,src/components/evidence/predictors/ScoreRuler.test.tsx
 src/components/evidence/predictors/StrengthLadder.tsx,component,
 src/components/evidence/residue/GranthamDistance.tsx,component,
 src/components/evidence/residue/PocketDistanceStrip.tsx,component,src/components/evidence/residue/__tests__/residueComponents.test.tsx
@@ -392,7 +392,7 @@ src/shared/energeticsEvidence.ts,client,src/components/__tests__/EnergeticsView.
 src/shared/engineStatus.ts,client,server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/components/__tests__/energeticsLabels.guard.test.ts;src/components/__tests__/evidenceFormatter.test.ts;src/shared/__tests__/energeticsComparison.test.ts;src/shared/__tests__/energeticsEvidence.test.ts;src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/providerStatus.test.ts;src/shared/thresholds.test.ts
 src/shared/europePmcBudgets.ts,client,
 src/shared/evidenceAvailability.ts,client,src/shared/__tests__/evidenceAvailability.test.ts;src/shared/__tests__/locusFallback.test.ts;src/shared/__tests__/locusOutcomeEvidence.test.ts
-src/shared/evidenceComparison.ts,client,src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/candidateScores.test.ts;src/test/evidenceComparison.test.ts
+src/shared/evidenceComparison.ts,client,src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/__tests__/EvidenceWorkspace.test.tsx;src/shared/__tests__/candidateFrequencyEvidence.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/evidenceContextIdentity.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/inspector/EvidenceContextRail.test.tsx;src/shared/__tests__/evidenceContextIdentity.test.ts
 src/shared/evidenceKeys.ts,client,src/components/evidence/__tests__/EvidenceContextPrefetch.test.tsx;src/components/evidence/__tests__/FunctionTab.hotspots.test.tsx;src/components/evidence/__tests__/HotspotsView.test.tsx;src/components/inspector/__tests__/FunctionRailHotspots.test.tsx;src/hooks/__tests__/hotspotsRead.test.ts;src/hooks/useEvidenceContext.test.ts
 src/shared/evidenceStageStatus.ts,client,
@@ -448,9 +448,10 @@ src/shared/interfaces/track.ts,client,
 src/shared/interfaces/types.ts,types,
 src/shared/interfaces/verdict.ts,client,
 src/shared/interfacesEvidence.ts,barrel,src/components/evidence/__tests__/AssemblyDiagram.test.tsx;src/components/evidence/__tests__/InterfaceTrackControls.test.tsx;src/components/evidence/__tests__/InterfaceTrackNames.test.tsx;src/shared/__tests__/interfacesEvidence.test.ts;src/shared/__tests__/interfacesEvidenceAbcg1.test.ts;src/shared/__tests__/interfacesEvidenceSod1.test.ts;src/shared/__tests__/mechanismWorkspace.test.ts;src/shared/__tests__/nativeInterfaceSupport.test.ts
+src/shared/isoformResidue.ts,client,
 src/shared/jobPlacement.ts,client,src/shared/__tests__/jobPlacement.test.ts
 src/shared/jobsCopy.ts,client,src/shared/__tests__/engineStatus.test.ts;src/shared/__tests__/jobsCopy.test.ts
-src/shared/ladderEvidence.ts,client,src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/ladderEvidence.ts,client,src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/ladderEvidence.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/landscapeEvidence.ts,client,src/components/__tests__/ExplorationWorkspace.test.tsx;src/components/inspector/__tests__/LandscapeInspector.test.tsx;src/shared/__tests__/landscapeEvidence.test.ts
 src/shared/literatureAliases.ts,client,src/shared/__tests__/literatureAliases.test.ts
 src/shared/literatureEvidence.ts,client,src/components/__tests__/ReviewWorkspaces.test.tsx;src/components/inspector/__tests__/literatureExport.test.ts;src/components/literature/__tests__/PaperTable.security.test.tsx;src/shared/__tests__/curatedLiterature.test.ts;src/shared/__tests__/literatureEvidence.test.ts;src/shared/__tests__/literatureScreening.test.ts;src/shared/__tests__/reviewPresentation.test.ts
@@ -478,7 +479,7 @@ src/shared/perRegions.ts,client,server/services/evidence-context/perRegions.test
 src/shared/pext.ts,client,src/shared/__tests__/residueAlignmentPext.test.ts
 src/shared/phenotypeFrame.ts,client,src/components/__tests__/EvidenceContextTabs.test.tsx;src/components/evidence/__tests__/ExpressionReviewFixes.test.tsx;src/shared/__tests__/evidenceContext.test.ts;src/stores/slices/evidenceContextSlice.test.ts
 src/shared/platform.ts,client,
-src/shared/predictorEvidence.ts,client,server/services/prediction/acmg/pp3-bp4-language-models.test.ts;src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
+src/shared/predictorEvidence.ts,client,server/services/prediction/acmg/pp3-bp4-language-models.test.ts;src/components/evidence/predictors/ScoreRuler.test.tsx;src/components/knowledge/__tests__/researchGuides.test.ts;src/shared/__tests__/candidateScores.test.ts;src/shared/__tests__/predictorEvidence.test.ts;src/test/evidenceComparison.test.ts
 src/shared/predictorRecovery.ts,client,src/shared/__tests__/predictorRecovery.test.ts
 src/shared/predictorSummary.ts,client,
 src/shared/proteinAlleleIdentity.ts,client,src/shared/__tests__/proteinAlleleIdentity.test.ts

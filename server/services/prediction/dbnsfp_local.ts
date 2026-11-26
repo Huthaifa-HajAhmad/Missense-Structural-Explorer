@@ -340,6 +340,8 @@ export interface LocalDbnsfpRecord {
   ref: string | null;
   alt: string | null;
   aa_change: string | null;
+  /** Ensembl transcript the ingest read this row's scores on; absent from older builds. */
+  transcript?: string | null;
   revel: number | null;
   alphamissense: number | null;
   gerp: number | null;

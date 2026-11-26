@@ -20,6 +20,8 @@ import {
   evaluatePopEve,
 } from "../thresholds";
 import { buildPredictorEvidence, localPredictorAgreement, predictorFinding, predictorSummary } from "../predictorEvidence";
+import { buildPredictorComparison } from "../evidenceComparison";
+import { buildLadderEvidence } from "../ladderEvidence";
 
 /** The scores on the screenshots the redesign was reviewed against. */
 function gzf1(overrides: Record<string, any> = {}) {
@@ -149,11 +151,46 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(evidence.readings.find(r => r.key === "consurf")).toBeUndefined();
   });
 
+  it("says where a residue conservation score sits on its 0-1 scale, without inventing a cut-point", () => {
+    const high = evidence.readings.find(r => r.key === "scorecons")!;
+    expect(high.note).toMatch(/nearer the fully conserved end/);
+    expect(high.note).toMatch(/no published cut-point/);
+    // ABCG1 p.Gly358Arg: ProtVar 0.395 while phyloP and GERP++ call the base conserved.
+    const low = buildPredictorEvidence({ result: gzf1({ conservationData: { ...gzf1().conservationData, scorecons: 0.395 } }) })
+      .readings.find(r => r.key === "scorecons")!;
+    expect(low.note).toMatch(/nearer the variable end/);
+    expect(low.note).toMatch(/phyloP/);
+  });
+
+  it("keeps the generic double-counting warning out of each pinned reading", () => {
+    const rows = buildPredictorComparison(evidence, buildLadderEvidence({ result: gzf1(), predictor: evidence })).rows;
+    for (const row of rows) expect(row.notes.join(" ")).not.toMatch(/Predictors may share inputs/);
+  });
+
   it("shows popEVE as a cross-gene severity reading that never sets PP3/BP4", () => {
     const popeve = evidence.readings.find(r => r.key === "popeve")!;
     expect(popeve.chainKey).toBeNull();
     expect(popeve.group).toBe("severity");
     expect(popeve.caveats).toContain("no-benign-cut");
+  });
+
+  it("names the protein popEVE scored, and flags a score read on another isoform", () => {
+    const withSource = (popeveSource: unknown) => buildPredictorEvidence({
+      result: gzf1({ conservationData: { ...gzf1().conservationData, popeve: -3.032, popeveSource } }),
+    }).readings.find(r => r.key === "popeve")!;
+    // ABCG1 p.Gly358Arg: popEVE scores only isoform 2, where the residue is G369.
+    const other = withSource({ protein: "NP_997057.1", substitution: "G369R", match: "other-isoform" });
+    expect(other.caveats).toContain("other-isoform");
+    expect(other.note).toMatch(/NP_997057\.1/);
+    expect(other.note).toMatch(/G369R/);
+    expect(other.source).toMatch(/NP_997057\.1 G369R/);
+    const own = withSource({ protein: "NP_002043.2", substitution: "S159C", match: "displayed" });
+    expect(own.caveats).not.toContain("other-isoform");
+    expect(own.note).toBeNull();
+    expect(own.source).toMatch(/NP_002043\.2 S159C/);
+    const column = withSource({ protein: null, substitution: null, match: "dbnsfp", transcript: "ENST00000646891" });
+    expect(column.source).toBe("popEVE column of dbNSFP · ENST00000646891");
+    expect(column.note).toMatch(/No score came from popEVE's own files/);
   });
 
   it("keeps every informational tool out of the fixed order", () => {

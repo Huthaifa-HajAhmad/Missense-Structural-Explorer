@@ -4,7 +4,7 @@ import { buildConservationKey } from "../../infra/cache-keys.ts";
 import { firstDbnsfpAnswer } from "./dbnsfp-sources.ts";
 import { NO_DBNSFP_SCORES } from "./dbnsfp-scores.ts";
 import { fetchProtVarConservation } from "../../external-api/protvar-conservation.ts";
-import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
+import { fetchPopEVEScore, fetchPopEVEScoreOnline, type PopEveHit } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
 import { fetchSpliceAiBroadOutcome, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiOutcome } from "../../external-api/spliceai_broad.ts";
 import { sourceSupportsAssembly, describeAssemblyRefusal, ASSEMBLY_REFUSAL_SOURCES } from "../../../../src/shared/assembly.ts";
@@ -174,10 +174,10 @@ export async function fetchConservationData(
           }).catch(() => null) as AlphaGenomeAviData | null
         : null;
 
-      let popeve = answer?.scores.popeve ?? enrichment?.popEVEFromCoordinate ?? null;
-      if (popeve === null && enrich) {
+      let popeveHit = enrichment?.popEVEFromCoordinate ?? null;
+      if (popeveHit === null && enrich) {
         const online = fetchPopEVEScoreOnline(uniprotId || gene, variant);
-        popeve = await Promise.race([online, new Promise<null>(resolve => setTimeout(() => resolve(null), 2000))]);
+        popeveHit = await Promise.race([online, new Promise<null>(resolve => setTimeout(() => resolve(null), 2000))]);
       }
       const scores = answer?.scores ?? NO_DBNSFP_SCORES;
       return {
@@ -185,13 +185,26 @@ export async function fetchConservationData(
         ...scores,
         revelProvenance: answer && scores.revel !== null ? answer.revelProvenance : undefined,
         scorecons: enrichment?.scorecons ?? null,
-        popeve,
+        ...popEveFields(popeveHit, scores),
         spliceProximity,
         alphagenome,
         ...(answer ? { source: answer.source } : {}),
       };
     }
   });
+}
+
+/**
+ * The popEVE score and its source. popEVE's own lookup wins, since it names the protein it scored;
+ * dbNSFP's copy of the score (labelled with its transcript) is used only when that lookup gave nothing.
+ */
+function popEveFields(
+  hit: PopEveHit | null | undefined,
+  dbnsfp: Pick<ConservationData, "popeve" | "popeveSource">
+): Pick<ConservationData, "popeve" | "popeveSource"> {
+  if (!hit) return { popeve: dbnsfp.popeve ?? null, popeveSource: dbnsfp.popeveSource ?? null };
+  const { score, ...source } = hit;
+  return { popeve: score, popeveSource: source };
 }
 
 type UsableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) => boolean;
@@ -280,7 +293,7 @@ export interface ConservationParts {
   base?: ConservationData;
   scorecons?: number | null;
   locus?: ConservationLocus | null;
-  popeve?: number | null;
+  popeve?: PopEveHit | null;
   alphagenome?: AlphaGenomeAviData | null;
   liveSpliceAi?: SpliceAiOutcome | null;
   spliceProximity?: any;
@@ -328,9 +341,9 @@ function conservationModelStatus(parts: ConservationParts): ConservationModelSta
     scorecons: state(has("scorecons")),
     spliceProximity: state(has("spliceProximity")),
     alphagenome: state(has("alphagenome")),
-    // A returned protein-file score can be shown before the base lookup finishes.
-    // An absent score still waits for the base before it is called settled.
-    popeve: state(parts.popeve != null || (base && (parts.base!.popeve != null || has("popeve")))),
+    // popEVE's own score can be shown as soon as it arrives, because nothing replaces it. Without
+    // one, dbNSFP's copy waits until popEVE's lookup has answered too.
+    popeve: state(parts.popeve != null || (base && has("popeve"))),
     spliceai: state(has("liveSpliceAi") && (Boolean(parts.liveSpliceAi?.record) || base))
   };
 }
@@ -356,7 +369,7 @@ function mergeConservationParts(parts: ConservationParts): ConservationData {
   return applyLiveSpliceAi({
     ...sanitizedBase,
     scorecons: parts.scorecons ?? sanitizedBase.scorecons ?? null,
-    popeve: sanitizedBase.popeve ?? parts.popeve ?? null,
+    ...popEveFields(parts.popeve, sanitizedBase),
     spliceProximity: parts.spliceProximity ?? sanitizedBase.spliceProximity,
     assemblyRefusals: assemblyRefusals && assemblyRefusals.length > 0
       ? assemblyRefusals
@@ -374,7 +387,10 @@ export function conservationSnapshot(parts: ConservationParts): ConservationData
   const merged: ConservationData = { ...mergeConservationParts(parts) };
   const status = conservationModelStatus(parts);
   if (status.scorecons !== "settled") merged.scorecons = null;
-  if (status.popeve !== "settled") merged.popeve = null;
+  if (status.popeve !== "settled") {
+    merged.popeve = null;
+    merged.popeveSource = null;
+  }
   if (status.spliceProximity !== "settled") merged.spliceProximity = null;
   if (status.alphagenome !== "settled") merged.alphagenome = null;
   if (status.spliceai !== "settled") {
@@ -547,7 +563,7 @@ export async function fetchConservationDataProgressive(
   // The protein file needs no genomic lookup. Start it now so a slow predictor cannot
   // use the analysis time budget before popEVE is even requested (GATA4 S159C).
   const popeveTask = track("popeve", fetchPopEVEScoreOnline(uniprotId || gene, variant)
-    .then(score => score ?? coordinateModel(({ parsedCoord: c, usableBy }) =>
+    .then(hit => hit ?? coordinateModel(({ parsedCoord: c, usableBy }) =>
       usableBy("popEVE") ? fetchPopEVEScore(c.chrom, c.pos, c.ref, c.alt) : null))
     .catch(() => null));
   // AlphaGenome is GRCh38-only: the Atlas holds GRCh38 SNVs and the model is GRCh38.
