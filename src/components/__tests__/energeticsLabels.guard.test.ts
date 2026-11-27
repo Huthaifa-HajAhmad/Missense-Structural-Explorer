@@ -227,7 +227,8 @@ const DELEGATES: Record<
   { token: string; file: string; usage: string[]; chain?: readonly string[] }
 > = {
   'src/components/evidence/ExpressionModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
-  'src/components/evidence/SpeciesModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx', usage: ['<ContextSourceState'] },
+  // Each Species view's card states its own source's loading and failure; the tab renders the cards.
+  'src/components/evidence/SpeciesModelsTab.tsx': { token: './ModelOrganismsCard', file: 'src/components/evidence/ModelOrganismsCard.tsx', usage: ['<ModelOrganismsCard'] },
   'src/components/inspector/EvidenceContextRail.tsx': { token: './RailParts', file: 'src/components/inspector/RailParts.tsx', usage: ['<Step', '<Provenance', 'slotState(', 'sourceReadingState('] },
   // Rails that show a state word from a shared evidence model rather than writing one. Each model reads
   // ENGINE_STATE_LABELS directly, and the rail invokes the builder that produces the state it prints.

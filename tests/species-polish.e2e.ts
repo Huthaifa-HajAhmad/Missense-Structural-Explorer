@@ -8,8 +8,13 @@ test('species review and source layouts', { tags: ['species'], timeout: 120_000 
   await screen.getByRole('combobox', 'Evidence').selectOption('Species & models');
   await screen.getByRole('combobox', 'Example').selectOption('Mixed');
   await expect(screen.getByText('Review context', { exact: true })).toBeVisible();
-  await screen.getByRole('tab', 'Orthology & screens').tap();
-  await expect(screen.getByRole('columnheader', 'Reported phenotype categories')).toBeVisible();
+  // A coverage count opens the matching view, filtered to that species.
+  await screen.getByRole('button', 'Mouse: 1 Alliance ortholog').tap();
+  await expect(screen.getByRole('searchbox', 'Search records')).toHaveValue('NCBITaxon:10090');
+  await screen.getByRole('button', 'Clear filters').tap();
+  await expect(screen.getByRole('group', 'Mouse screen by body system')).toBeVisible();
+  await screen.getByRole('button', /^Hearing/).tap();
+  await expect(screen.getByRole('region', 'Hearing in the mouse screen')).toBeVisible();
   await app.screenshot('species-mouse-categories');
   await screen.getByRole('tab', 'Protein alignments').tap();
   await expect(screen.getByTestId('residue-alignment-card')).toBeVisible();
@@ -40,6 +45,11 @@ test('species review and source layouts', { tags: ['species'], timeout: 120_000 
       await screen.getByRole('tab', 'Phenotype annotations').tap();
       await expect(screen.getByTestId('model-phenotypes-card')).toBeVisible();
       await app.screenshot(`species-${width}-${theme}`);
+      await screen.getByRole('tab', 'Orthology & screens').tap();
+      await expect(screen.getByRole('group', 'Mouse screen by body system')).toBeVisible();
+      await app.screenshot(`species-screen-${width}-${theme}`);
+      await screen.getByRole('tab', 'Species explorer').tap();
+      await app.screenshot(`species-explorer-${width}-${theme}`);
     }
   }
 });

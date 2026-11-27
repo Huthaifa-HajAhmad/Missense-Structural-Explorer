@@ -139,6 +139,8 @@ src/components/evidence/residue/PocketDistanceStrip.tsx,component,src/components
 src/components/evidence/residue/PropertyDumbbell.tsx,component,src/components/evidence/residue/__tests__/residueComponents.test.tsx
 src/components/evidence/residue/ResidueGlyph.tsx,component,src/components/evidence/residue/__tests__/residueComponents.test.tsx
 src/components/evidence/residue/ValueTrack.tsx,component,
+src/components/evidence/species/MouseScreenPlot.tsx,component,
+src/components/evidence/species/SpeciesRecordFilter.tsx,component,
 src/components/evidence/splicing/SpliceMap.tsx,component,
 src/components/evidence/splicing/SpliceRuler.tsx,component,
 src/components/evidence/splicing/SpliceWindowControl.tsx,component,src/components/__tests__/SpliceWindowControl.test.tsx

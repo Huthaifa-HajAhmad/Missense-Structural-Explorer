@@ -43,3 +43,14 @@ scrolled; Expression's review box has the same repeated heading and could use th
 | Low | One cause covered different failures, so the reason shown could be wrong. | The run's own reference residue is checked before the isoform. Rows built on different human sequences have their own cause. The card, the answer and the pinned reading share one sentence per cause. |
 | Low | A missing protein identifier could print as "null" or as nothing. | It reads "a human protein". |
 | Low | The shared isoform rule had no direct test; an unused style class and an outdated end-to-end sentence remained. | Tests added; class removed; the end-to-end test updated. |
+
+## One home per record, and the mouse screen as a plot
+
+| Finding | Fix |
+| --- | --- |
+| The Species explorer view repeated every ortholog, alignment and phenotype record as a flat list. The three source views already held the same records with more detail (match direction, identity, per-ortholog status). | The explorer view keeps the coverage chart only. A count in the chart opens the matching view, filtered to that species. |
+| Search, the disease-overlap filter and pinning existed only in the repeated list. | Each source view has its own search (shared across the views), and the phenotype view has "Disease overlap only". Ortholog symbols, alignment organisms and phenotype statements pin the same reading keys as the inspector (`orthologKey`, `alignmentKey`, `phenotypeKey` in `contextWorkspace.ts`). Summary counts ignore the filters. |
+| The IMPC screen was two tables split by review system. | `MouseScreenPlot` draws one row per body system, one square per IMPC top-level category (filled = significant difference, outlined = no significant difference, faint = not reported). Choosing a row reads out its categories; the legend narrows the rows to one result. Built from `buildMouseScreenPlot` in `modelOrganisms.ts`; no score, and no system is dropped. |
+| The answer box had a side stripe and square corners, unlike the Expression answer and the boxes around it. | Both answer boxes, and both review-context boxes, use a hairline border and `--cs-radius-card`. |
+| With the repeated list gone, parts of the shared record explorer and their styles had no caller. | Removed. The explorer now draws the expression records or the Gene–disease matrix. |
+| The answer said "IMPC has not phenotyped" when IMPC had not reported whether the mouse was phenotyped. | The two states have separate sentences, as on the card. |

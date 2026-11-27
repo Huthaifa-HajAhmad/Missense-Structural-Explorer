@@ -2,8 +2,7 @@ import type { TabComponentProps } from './types';
 import { useContextWorkspace } from '../../hooks/useContextWorkspace';
 import { ReviewFrame } from './expression/ReviewFrame';
 import { EvidenceViewTabs, EvidencePanel, EvidenceTopic, useEvidenceWorkspace } from './EvidenceWorkspace';
-import { ContextExplorer, ContextGuide } from './ContextExplorer';
-import { ContextSourceState } from './ContextSourceState';
+import { ContextGuide } from './ContextExplorer';
 import { ModelOrganismsCard } from './ModelOrganismsCard';
 import { ModelPhenotypesCard } from './ModelPhenotypesCard';
 import { ResidueAlignmentCard } from './ResidueAlignmentCard';
@@ -31,9 +30,6 @@ export function SpeciesModelsTab({ analysisState }: TabComponentProps) {
 function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['analysisState']['result']> }) {
   const { context: c, model, rows, pair, speciesAnswer: answer } = useContextWorkspace(result, 'species-models');
   const w = useEvidenceWorkspace('species-models');
-  const source = w.section === 'alignment' ? { name: 'Ensembl alignment', load: c.alignmentLoad, onRetry: c.retryAlignment }
-    : w.section === 'phenotypes' ? { name: 'Model phenotypes', load: c.phenotypesLoad, onRetry: c.retryPhenotypes }
-    : { name: 'Alliance orthologs', load: c.modelLoad, onRetry: c.retryModels };
   const phenotypes = c.phenotypesLoad?.data;
   const incomplete = phenotypes?.species.filter(s => s.status === 'error') ?? [];
   const omitted = phenotypes?.species.reduce((n, s) => n + (s.status === 'ready' ? Math.max(0, s.total - s.phenotypes.length) : 0), 0) ?? 0;
@@ -54,16 +50,16 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
     {incomplete.length > 0 && <p className="cx-notice">Phenotypes could not be read completely for {[...new Set(incomplete.map(s => s.symbol))].join(', ')}. <button type="button" className="viz-action" onClick={() => void c.retryPhenotypes()}>Retry phenotypes</button></p>}
     {omitted > 0 && w.enabled && !w.comparison && w.view === 'phenotypes' && <p className="cx-notice">{omitted} returned phenotype {omitted === 1 ? 'summary' : 'summaries'} could not be resolved into the displayed term records. Coverage is partial; displayed counts are not the full annotation set.</p>}
     </>}
-    <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}{(!w.enabled || w.comparison) && <ContextExplorer tab="species-models" rows={rows}
-      groups={[{ id: 'orthologs', label: 'Orthologs' }, { id: 'alignment', label: 'Variant site' }, { id: 'phenotypes', label: 'Phenotypes' }]}
-      empty={<ContextSourceState {...source} />} relevantLabel="Selected disease term overlap only" />}
+    {/* The overview holds the coverage chart only. Each source's records live in its own view, which
+        has its own search, filter and pins, so no record list is repeated here. */}
+    <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}
 
     <EvidenceTopic tab="species-models" view="records"><ModelOrganismsCard load={c.modelLoad} systems={c.selection.systems} onRetry={c.retryModels} /></EvidenceTopic>
-    <EvidenceTopic tab="species-models" view="phenotypes"><ModelPhenotypesCard load={c.phenotypesLoad} diseaseTerms={new Map((c.hpoLoad?.data?.terms ?? []).map(t => [t.id, t.name]))} diseaseName={model.selected?.label ?? null} onRetry={c.retryPhenotypes} /></EvidenceTopic>
+    <EvidenceTopic tab="species-models" view="phenotypes"><ModelPhenotypesCard load={c.phenotypesLoad} diseaseTerms={new Map((c.hpoLoad?.data?.terms ?? []).map(t => [t.id, t.name]))} diseaseName={model.selected?.label ?? null} diseaseKey={c.selection.diseaseKey} onRetry={c.retryPhenotypes} /></EvidenceTopic>
     <EvidenceTopic tab="species-models" view="alignment"><ResidueAlignmentCard load={c.alignmentLoad} onRetry={c.retryAlignment} residue={{ sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: pair.wildTypeCode, mutant: pair.mutantCode }} /></EvidenceTopic>
     {(!w.enabled || w.comparison) && <>
     {!model.selected && !!c.diseaseLoad?.data?.frames.length && <p className="cx-caption">Choose a disease to explore overlap with its annotated HPO terms. These are disease annotations, not patient findings.</p>}
-    <ContextGuide><p>An ortholog is a gene related through speciation. A species may have several; the view retains every returned ortholog and distinguishes Alliance gene records from Ensembl alignments.</p><p>The variant-site view walks gapped protein alignments and verifies the human sequence first. A gap or reference mismatch stays explicit. Whole-protein identity is different from conservation at this site.</p><p>Animal phenotype summaries have limited experimental detail. No significant difference is not proof of a normal organism, and no annotation is not a negative experiment.</p></ContextGuide>
+    <ContextGuide><p>An ortholog is a gene related through speciation. A species may have several; the view retains every returned ortholog and distinguishes Alliance gene records from Ensembl alignments.</p><p>The Protein alignments view walks gapped protein alignments and verifies the human sequence first. A gap or reference mismatch stays explicit. Whole-protein identity is different from conservation at this site.</p><p>Animal phenotype summaries have limited experimental detail. No significant difference is not proof of a normal organism, and no annotation is not a negative experiment.</p></ContextGuide>
     </>}
     </EvidencePanel>
   </div>;

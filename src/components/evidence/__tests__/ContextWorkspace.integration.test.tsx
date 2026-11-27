@@ -178,17 +178,24 @@ describe('production context tabs and linked inspectors', () => {
     await waitFor(() => expect(screen.getByTestId('context-trace')).toHaveTextContent('Pediatric measurements are not available here'));
     expect(screen.getByTestId('context-trace')).not.toHaveTextContent('Highest in');
   });
-  it('drills from a species coverage count into that source without collapsing one-to-many records', () => {
+  it('opens the matching view from a species coverage count, filtered to that species, keeping one-to-many records', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
+    // The overview holds the coverage chart only; the records live in the source views, not twice.
+    expect(screen.queryByRole('region', { name: 'Explore source readings' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Zebrafish: 2 Alliance orthologs' }));
-    expect(screen.getByRole('searchbox')).toHaveValue('NCBITaxon:7955');
-    expect(within(screen.getByTestId('context-records')).getAllByRole('button')).toHaveLength(2);
-    fireEvent.click(within(screen.getByTestId('context-records')).getAllByRole('button')[0]);
+    expect(screen.getByRole('tab', { name: 'Orthology & screens' })).toHaveAttribute('aria-selected', 'true');
+    const card = within(screen.getByTestId('model-organisms-card'));
+    expect(card.getByRole('searchbox')).toHaveValue('NCBITaxon:7955');
+    const pins = within(card.getByRole('region', { name: 'Orthologs in model organisms' })).getAllByRole('button');
+    expect(pins.map(b => b.textContent)).toEqual(['sod1a', 'sod1b']);
+    fireEvent.click(pins[0]);
     const pinned = screen.getByRole('region', { name: 'Selected evidence reading' }).textContent;
+    expect(pinned).toContain('ZFIN:1');
+    fireEvent.click(screen.getByRole('tab', { name: 'Species explorer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Mouse: 1 Ensembl alignment' }));
-    expect(screen.getByRole('tab', { name: 'Variant site' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText(/pinned record is outside this view/)).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Protein alignments' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(screen.getByRole('region', { name: 'Residue aligned in each ortholog' })).getAllByRole('row')).toHaveLength(2);
     expect(screen.getByRole('region', { name: 'Selected evidence reading' }).textContent).toBe(pinned);
   });
   it('pins an adult tissue with the real chart keyboard interaction and preserves its exact zero in records', async () => {
@@ -249,13 +256,28 @@ describe('production context tabs and linked inspectors', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
     expect(screen.getByText(/no resolved term, so this count is partial/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Variant site' }));
-    const records = within(screen.getByTestId('context-records'));
-    fireEvent.click(records.getByRole('button', { name: /Mouse.*ENSG0/ }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Protein alignments' }));
+    const table = within(screen.getByRole('region', { name: 'Residue aligned in each ortholog' }));
+    fireEvent.click(table.getByRole('button', { name: 'Mouse' }));
     expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Q3');
     const sources = within(screen.getByTestId('context-sources'));
     expect(sources.getByText('Ensembl protein alignment')).toBeInTheDocument();
     expect(sources.queryByText('GTEx adult tissues')).not.toBeInTheDocument();
+  });
+  it('searches, narrows to disease overlap and pins a curated phenotype in its own view', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Phenotype annotations' }));
+    const card = within(screen.getByTestId('model-phenotypes-card'));
+    fireEvent.click(card.getByRole('checkbox', { name: 'Disease overlap only' }));
+    // Orthologs with no matching phenotype leave the narrowed list; the matching one stays.
+    expect(card.queryByText('sod1a')).toBeNull();
+    fireEvent.click(card.getByRole('button', { name: 'Illustrative abnormal motor response' }));
+    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('MP:0000001');
+    fireEvent.click(card.getByRole('checkbox', { name: 'Disease overlap only' }));
+    fireEvent.change(card.getByRole('searchbox'), { target: { value: 'zebrafish' } });
+    expect(card.queryByText('Illustrative abnormal motor response')).toBeNull();
+    expect(card.getByText('sod1a')).toBeInTheDocument();
   });
 });
 

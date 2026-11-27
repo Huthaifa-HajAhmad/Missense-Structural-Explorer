@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 import { contextProvenanceSchema } from './diseaseFrame.ts';
-import type { ReviewSystemId } from './phenotypeFrame.ts';
+import { REVIEW_SYSTEMS, type ReviewSystemId } from './phenotypeFrame.ts';
 
 export const orthologSchema = z.object({
   id: z.string(), symbol: z.string(), taxonId: z.string(), species: z.string(),
@@ -84,3 +84,19 @@ export function buildModelEvidence(data: ModelOrganismResponse | null, systems: 
     screened: screens.some(s => s.phenotypingDataAvailable === true),
     noOrtholog: data?.status === 'ready' && !groups.length };
 }
+
+export type ScreenTermState = 'significant' | 'not-significant' | 'not-reported';
+const CELL_ORDER: ScreenCell[] = ['significant', 'mixed', 'not-significant', 'not-reported'];
+/** One row per body system for the mouse screen plot. Every system and every IMPC top-level term
+ * stays listed, so an unreported system is shown as unreported instead of disappearing.
+ * Review systems come first, then systems with a detected difference. Order only; no score. */
+export function buildMouseScreenPlot(screen: ImpcScreen, review: ReviewSystemId[]) {
+  const rows = REVIEW_SYSTEMS.map(s => ({ id: s.id, label: s.label, anatomy: s.anatomy,
+    review: review.includes(s.id), cell: screenCellForSystem(screen, s.id),
+    terms: MP_TERMS[s.id].map(term => ({ term, state: (screen.significant.includes(term) ? 'significant'
+      : screen.notSignificant.includes(term) ? 'not-significant' : 'not-reported') as ScreenTermState })) }));
+  rows.sort((a, b) => Number(b.review) - Number(a.review) || CELL_ORDER.indexOf(a.cell) - CELL_ORDER.indexOf(b.cell));  // stable sort keeps the system order within a result
+  const counts = Object.fromEntries(CELL_ORDER.map(c => [c, rows.filter(r => r.cell === c).length])) as Record<ScreenCell, number>;
+  return { rows, counts, unmapped: unmappedScreenTerms(screen) };
+}
+export type MouseSystemRow = ReturnType<typeof buildMouseScreenPlot>['rows'][number];

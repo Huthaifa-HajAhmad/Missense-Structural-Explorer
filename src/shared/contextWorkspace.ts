@@ -26,6 +26,16 @@ const provenanceFacts = (p: ContextProvenance | null | undefined) => [
 ];
 const row = (r: Omit<ContextReading, 'tone'> & { tone?: ContextReading['tone'] }): ContextReading => ({ tone: 'neutral', ...r });
 export const assertionKey = (frame: string | null | undefined, id: string) => JSON.stringify(['assertion', frame, id]);
+/** Species reading keys, shared by the reading builder and the cards that pin them, so a pin from a
+ * card opens the same record in the inspector. */
+export const orthologKey = (taxonId: string, id: string) => `ortholog:${taxonId}:${id}`;
+export const alignmentKey = (taxonId: string, geneId: string, proteinId: string) => `alignment:${taxonId}:${geneId}:${proteinId}`;
+export const phenotypeKey = (diseaseKey: string | null, orthologId: string, termId: string, index: number) => JSON.stringify(['phenotype', diseaseKey, orthologId, termId, index]);
+/** Case-insensitive text search over a record's visible fields. An empty query matches everything. */
+export const matchesQuery = (query: string, fields: Array<string | null | undefined>) => {
+  const q = query.trim().toLocaleLowerCase();
+  return !q || fields.join(' ').toLocaleLowerCase().includes(q);
+};
 
 /** Source coverage only. Never equate Alliance and Ensembl genes, even within one taxon. */
 export function speciesCoverage(rows: ContextReading[]) {
@@ -86,12 +96,12 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
   const termSet: Set<string> | null = input.diseaseTerms && input.diseaseTerms.length ? new Set(input.diseaseTerms) : null;
   const alignmentEvidence = buildAlignmentEvidence(alignment?.status === 'ready' ? alignment : null, input.sequence, input.position, input.wildType, input.mutant);
   return [
-    ...(models?.status === 'ready' ? models.orthologs.map(o => row({ key: `ortholog:${o.taxonId}:${o.id}`, name: `${speciesLabel(o.taxonId, o.species)} · ${o.symbol}`, taxon: o.taxonId,
+    ...(models?.status === 'ready' ? models.orthologs.map(o => row({ key: orthologKey(o.taxonId, o.id), name: `${speciesLabel(o.taxonId, o.species)} · ${o.symbol}`, taxon: o.taxonId,
       value: null, valueText: o.confidence ?? 'Confidence not reported', group: 'orthologs', source: 'Alliance', description: 'Predicted orthology; multiple orthologs in a species remain separate.',
       facts: [{ label: 'Ortholog', value: o.id }, { label: 'Methods', value: String(o.methodCount) }, { label: 'Best forward match', value: reported(o.bestForward == null ? null : o.bestForward ? 'Yes' : 'No') }, { label: 'Best reverse match', value: reported(o.bestReverse == null ? null : o.bestReverse ? 'Yes' : 'No') }, ...provenanceFacts(models.provenance[0])],
       notes: ['Orthology and method counts do not prove equal function or model suitability. Alliance and Ensembl records are grouped by species, never equated by symbol.'],
     })) : []),
-    ...alignmentEvidence.rows.map(({ h, m }) => row({ key: `alignment:${h.taxonId}:${h.geneId}:${h.proteinId}`, name: `${speciesLabel(h.taxonId, h.species)} · ${h.geneId}`, taxon: h.taxonId,
+    ...alignmentEvidence.rows.map(({ h, m }) => row({ key: alignmentKey(h.taxonId, h.geneId, h.proteinId), name: `${speciesLabel(h.taxonId, h.species)} · ${h.geneId}`, taxon: h.taxonId,
       value: null, valueText: RESIDUE_STATE_LABEL[m.state], group: 'alignment', source: 'Ensembl Compara', mapping: m,
       description: `Gapped alignment at human residue ${input.position ?? 'not supplied'}${alignmentEvidence.bridge ? ` (residue ${alignmentEvidence.bridge.sourcePosition} of the aligned isoform)` : ''}.`,
       facts: [{ label: 'Target residue', value: m.targetResidue && m.targetPosition ? `${m.targetResidue}${m.targetPosition}` : RESIDUE_STATE_LABEL[m.state] },
@@ -104,7 +114,7 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
         m.carriesVariantResidue ? 'The substituted residue occurs here in this ortholog. This does not establish tolerance in human.' : 'Conservation is context, not a pathogenicity verdict.'],
     })),
     ...(phenotypes?.status === 'ready' ? phenotypes.species.flatMap(s => s.status === 'ready' ? s.phenotypes.map((p, i) => row({
-      key: JSON.stringify(['phenotype', input.diseaseKey, s.orthologId, p.termId, i]), name: p.statement, taxon: s.taxonId, group: 'phenotypes', source: 'Alliance / uPheno',
+      key: phenotypeKey(input.diseaseKey, s.orthologId, p.termId, i), name: p.statement, taxon: s.taxonId, group: 'phenotypes', source: 'Alliance / uPheno',
       value: null, valueText: `${p.annotations} annotations`, relevant: phenotypes.mapping === 'available' && termSet !== null && p.humanTerms.some(t => termSet.has(t)),
       description: `${speciesLabel(s.taxonId, s.species)} · ${s.symbol} · ${p.termId}`,
       facts: [{ label: 'Ortholog', value: s.orthologId }, { label: 'Phenotype term', value: p.termId }, { label: 'Annotations', value: String(p.annotations) },
@@ -122,8 +132,7 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
 /** Pure bounded presentation: quantitative domains use the full source group, not the filter. */
 export function contextPage(rows: ContextReading[], options: { group: string; query: string; cohort?: string; relevantOnly?: boolean; limit?: number }) {
   const group = rows.filter(r => r.group === options.group);
-  const query = options.query.trim().toLocaleLowerCase();
-  const filtered = group.filter(r => (!query || `${r.name} ${r.description} ${r.valueText} ${r.source} ${r.taxon ?? ''}`.toLocaleLowerCase().includes(query)) &&
+  const filtered = group.filter(r => matchesQuery(options.query, [r.name, r.description, r.valueText, r.source, r.taxon]) &&
     (!options.relevantOnly || r.relevant) && (!options.cohort || options.cohort === 'all' || r.cohort === options.cohort));
   filtered.sort((a, b) => Number(!!b.relevant) - Number(!!a.relevant) || (b.value ?? -1) - (a.value ?? -1) || a.name.localeCompare(b.name));
   return { rows: filtered.slice(0, options.limit ?? 20), total: filtered.length, max: group.reduce((m, r) => Math.max(m, r.value ?? 0), 0), sourceCount: group.length };

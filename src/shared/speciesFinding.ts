@@ -13,7 +13,7 @@
  * Replaced: a banner that counted species and "identifiers" and said nothing about the residue.
  */
 import { alignedProteinName, buildAlignmentEvidence, mismatchReason, speciesNames, type AlignmentResponse } from './residueAlignment';
-import type { ModelOrganismResponse } from './modelOrganisms';
+import type { ImpcScreen, ModelOrganismResponse } from './modelOrganisms';
 import type { ModelPhenotypesResponse } from './modelPhenotypes';
 import { AMINO_ACID_1_TO_3_TITLE } from './aminoAcids';
 
@@ -65,9 +65,14 @@ function mouseFact(load: Load<ModelOrganismResponse>): string {
   if (data.impc === null) return 'No mouse ortholog, so no IMPC screen.';
   if (data.impc.status === 'error') return 'Not read: IMPC did not respond.';
   if (data.impc.status === 'not-found' || !data.impc.screens.length) return 'IMPC has no record for the mouse ortholog.';
-  return data.impc.screens.map(s => s.phenotypingDataAvailable !== true
-    ? `IMPC has not phenotyped ${s.symbol}. Absence of data is not a normal result.`
-    : `IMPC phenotyped ${s.symbol}: ${s.significant.length ? `a significant difference in ${s.significant.length}` : 'no significant difference in any'} of ${s.significant.length + s.notSignificant.length} reported categories.`).join(' ');
+  return data.impc.screens.map(screenSentence).join(' ');
+}
+
+/** "Not phenotyped" is IMPC's own answer. A missing answer is a different statement. */
+function screenSentence(s: ImpcScreen): string {
+  if (s.phenotypingDataAvailable === false) return `IMPC has not phenotyped ${s.symbol}. Absence of data is not a normal result.`;
+  if (s.phenotypingDataAvailable === null) return `IMPC does not say whether ${s.symbol} was phenotyped. This is not a normal result.`;
+  return `IMPC phenotyped ${s.symbol}: ${s.significant.length ? `a significant difference in ${s.significant.length}` : 'no significant difference in any'} of ${s.significant.length + s.notSignificant.length} reported categories.`;
 }
 
 /** What the disease comparison supports. A table that was not read supports no claim either way. */

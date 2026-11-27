@@ -42,7 +42,7 @@ export async function fetchPopEveFile(refseqId: string): Promise<PopEveFile> {
       (res.status === 403 && /<Code>AccessDenied<\/Code>/.test(await res.text().catch(() => "")));
     return { kind: absent ? "absent" : "error" };
   }
-  const [head, ...lines] = (await res.text()).split("\n");
+  const [head, ...lines] = (await res.text()).split(/\r?\n/);
   const scoreIdx = head.split(",").indexOf("popEVE");
   if (scoreIdx === -1) return { kind: "error" };
   const scores = new Map<string, number>();

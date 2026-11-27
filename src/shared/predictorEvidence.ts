@@ -562,6 +562,8 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
   };
   conservation("phylop", "phyloP", "phylop", phylop, { min: -20, max: 10 }, "Base-wise conservation across the vertebrate alignment.");
   conservation("gerp", "GERP++", "gerp", gerp, { min: -12.3, max: 6.2 }, "Rejected substitutions at this base across mammals (RS).");
+  // The DNA-base scores this run has, named only when there is one to compare ScoreCons with.
+  const dnaScores = [phylop !== null ? "phyloP" : null, gerp !== null ? "GERP++" : null].filter(Boolean).join(", ");
   readings.push({
     key: "scorecons",
     name: "Residue conservation",
@@ -583,8 +585,8 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
     // The halfway mark below is the scale's middle, not a threshold.
     note: scorecons === null ? null
       : `${fmt(scorecons, 2)} on a 0–1 scale, nearer the ${scorecons >= 0.5 ? "fully conserved" : "variable"} end. ` +
-        "ScoreCons has no published cut-point. " +
-        "UniRef90 homologues include distant relatives, so a residue can look variable here while its DNA base is conserved across vertebrates (phyloP, GERP++).",
+        "ScoreCons has no published cut-point." +
+        (dnaScores ? ` UniRef90 homologues include distant relatives, so a residue can look variable here while its DNA base is conserved across vertebrates (${dnaScores}).` : ""),
     availability: statusAware(scorecons, "scorecons", () =>
       absent("ProtVar has no conservation score for this residue. It scores canonical UniProt positions only.", "No score")),
     source: "ProtVar (VarSite ScoreCons)",

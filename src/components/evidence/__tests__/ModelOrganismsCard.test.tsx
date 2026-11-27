@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ModelOrganismsCard } from '../ModelOrganismsCard';
 import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
@@ -58,20 +58,33 @@ describe('ModelOrganismsCard null-coverage safeguards', () => {
 });
 
 
-describe('Reported mouse phenotype categories', () => {
-  it('keeps significant and non-significant categories beside their system result', () => {
-    const data: ModelOrganismResponse = { ...response, impc: { status: 'ready', screens: [{
-      ...response.impc!.screens[0], significant: ['skeleton phenotype'],
-      notSignificant: ['craniofacial phenotype', 'nervous system phenotype'],
-    }] } };
+describe('Mouse screen body-system plot', () => {
+  const data: ModelOrganismResponse = { ...response, impc: { status: 'ready', screens: [{
+    ...response.impc!.screens[0], significant: ['skeleton phenotype'],
+    notSignificant: ['craniofacial phenotype', 'nervous system phenotype'],
+  }] } };
+  const plot = () => within(screen.getByRole('group', { name: 'Mouse screen by body system' }));
+  const rowNames = () => plot().getAllByRole('button').map(b => b.getAttribute('data-system'));
+
+  it('plots every body system, review systems first, and reads out each category of the chosen one', () => {
     render(<ModelOrganismsCard load={ready(data)} systems={['skeletal', 'nervous', 'muscle']} onRetry={() => {}} />);
-    const grid = within(screen.getByRole('region', { name: 'Mouse screen for your review systems' }));
-    const skeletal = within(grid.getByRole('row', { name: /Skeletal/ }));
-    expect(skeletal.getByText('Significant in some terms only')).toBeInTheDocument();
-    expect(skeletal.getByText('skeleton phenotype', { exact: false })).toHaveTextContent('skeleton phenotype \u00b7 Significant difference');
-    expect(skeletal.getByText('craniofacial phenotype', { exact: false })).toHaveTextContent('craniofacial phenotype \u00b7 No significant difference');
-    expect(grid.getByRole('row', { name: /Nervous system/ })).toHaveTextContent('nervous system phenotype \u00b7 No significant difference');
-    expect(grid.getByRole('row', { name: /Muscle/ })).toHaveTextContent('Not reported');
-    expect(grid.getByRole('table').textContent).not.toContain('?');
+    expect(rowNames()).toHaveLength(12);
+    expect(rowNames().slice(0, 3)).toEqual(['skeletal', 'nervous', 'muscle']);
+    // The first system with a detected difference is open, so the plot never opens on an empty readout.
+    const readout = within(screen.getByRole('region', { name: 'Skeletal in the mouse screen' }));
+    expect(readout.getByText('skeleton phenotype').closest('li')).toHaveTextContent('Significant difference');
+    expect(readout.getByText('craniofacial phenotype').closest('li')).toHaveTextContent('No significant difference');
+    expect(readout.getByText('limbs/digits/tail phenotype').closest('li')).toHaveTextContent('Not reported');
+    fireEvent.click(plot().getByRole('button', { name: /^Muscle/ }));
+    expect(screen.getByRole('region', { name: 'Muscle in the mouse screen' })).toHaveTextContent(/not a normal result/);
+  });
+
+  it('narrows the plot to one result from its legend and clears it again', () => {
+    render(<ModelOrganismsCard load={ready(data)} systems={[]} onRetry={() => {}} />);
+    const legend = within(screen.getByRole('group', { name: 'Show systems by result' }));
+    fireEvent.click(legend.getByRole('button', { name: /No significant difference/ }));
+    expect(rowNames()).toEqual(['nervous']);
+    fireEvent.click(legend.getByRole('button', { name: /No significant difference/ }));
+    expect(rowNames()).toHaveLength(12);
   });
 });

@@ -162,6 +162,15 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(low.note).toMatch(/phyloP/);
   });
 
+  it("mentions DNA-base conservation only for the scores this run actually has", () => {
+    const note = (patch: Record<string, number | null>) => buildPredictorEvidence({ result: gzf1({ conservationData: { ...gzf1().conservationData, ...patch } }) })
+      .readings.find(r => r.key === "scorecons")!.note!;
+    expect(note({})).toMatch(/\(phyloP, GERP\+\+\)/);
+    expect(note({ gerp: null })).toMatch(/\(phyloP\)/);
+    expect(note({ gerp: null, phylop: null })).not.toMatch(/DNA base|phyloP|GERP/);
+    expect(note({ gerp: null, phylop: null })).toMatch(/no published cut-point/);
+  });
+
   it("keeps the generic double-counting warning out of each pinned reading", () => {
     const rows = buildPredictorComparison(evidence, buildLadderEvidence({ result: gzf1(), predictor: evidence })).rows;
     for (const row of rows) expect(row.notes.join(" ")).not.toMatch(/Predictors may share inputs/);

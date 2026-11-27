@@ -15,7 +15,8 @@
 .xp-rail .evw-inspection h3 { text-transform: none; letter-spacing: normal; font-size: 16px; line-height: 1.5; }
 
 /* The answer: the open RNA source's headline, then one flat row per source (the Species finding's shape). */
-.xp-answer { display: grid; gap: 10px; margin: 0; padding: 16px 20px; background: var(--cs-accent-wash); }
+/* Same box as the Species answer (.sm-finding): hairline border, card radius, wash. */
+.xp-answer { display: grid; gap: 10px; margin: 0; padding: 16px 20px; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-card); background: var(--cs-accent-wash); }
 .xp-answer__source { margin: 0 0 -6px; font-size: 12px; color: var(--cs-text-secondary); }
 .xp-answer__headline { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--cs-text-primary); overflow-wrap: anywhere; }
 .xp-answer__detail { margin: 0; font-size: 13px; line-height: 1.6; color: var(--cs-text-secondary); }
@@ -54,7 +55,7 @@
 /* Review context: one folded row. The view's shortcut (if any) sits in that row, left of the chevron. */
 .xp-review { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; container-type: inline-size; }
 .xp-review-settings { flex: 1 1 24rem; min-inline-size: 0; }
-.xp-review-settings { border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface); }
+.xp-review-settings { border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-card); background: var(--cs-surface); }
 .xp-review-settings > summary { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-block-size: 44px; padding: 10px 40px 10px 14px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }
 .xp-review-settings > summary::-webkit-details-marker { display: none; }
 /* Drawn with borders, not a text character, so screen readers do not read out an arrowhead. */
@@ -67,7 +68,7 @@
 .xp-review-settings > summary:active { background: var(--cs-surface-2); }
 .xp-review__action { flex: 0 1 auto; padding-block: 3px; }
 .xp-review__action .viz-action { min-block-size: 38px; }
-.xp-review-settings > .xp-frame--embedded { display: grid; gap: 0; margin: 0; padding: 0 16px; border: 0; border-block-start: 1px solid var(--cs-border-subtle); border-radius: 0 0 10px 10px; }
+.xp-review-settings > .xp-frame--embedded { display: grid; gap: 0; margin: 0; padding: 0 16px; border: 0; border-block-start: 1px solid var(--cs-border-subtle); border-radius: 0 0 var(--cs-radius-card) var(--cs-radius-card); }
 .xp-review-settings > .xp-frame--embedded .ctx-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .xp-review-settings > .xp-frame--embedded .ctx-select { max-inline-size: 22rem; }
 
