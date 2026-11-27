@@ -49,7 +49,7 @@ test('gene-disease finding, hidden pins and empty states remain legible', { tags
   await expect(inspector.getByRole('heading', 'Panel B')).toBeVisible();
   await screen.getByRole('button', 'Comparison').tap();
   await screen.getByText('Reference & methods', { exact: true }).tap();
-  await expect(screen.getByRole('list', 'GenCC classification scale, strongest first')).toBeVisible();
+  await expect(screen.getByRole('group', 'GenCC validity classes')).toBeVisible();
   await screen.getByRole('tab', 'Mechanism').tap();
   await expect(screen.getByRole('heading', 'Disease mechanism')).toBeVisible();
   await expect(screen.getByRole('heading', 'Submitted validity levels differ')).toHaveCount(0);

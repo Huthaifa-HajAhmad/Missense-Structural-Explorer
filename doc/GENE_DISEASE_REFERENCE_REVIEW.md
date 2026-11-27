@@ -24,6 +24,8 @@ and a failed read is never shown as "not curated". No change was needed.
   Colours and chart layout were checked on screenshots, not by tests.
 - `npx vitest run`: 7295 passed, 8 skipped, 0 failed.
 - `npm run lint` (boundaries, focus, parity, code map, oxlint, tsc): clean.
+- `tests/gene-disease-workspace.e2e.ts` (browser test): passed. `tests/gene-disease-dosage-recovery.e2e.ts`
+  fails, and fails the same way on `main`: it expects "Running" and the preview shows "Provider error".
 - Preview harness (`tools/evidence-preview`, Differing assertions) in light, dark and 820 px: no page errors, no overflow.
 
 ## Sources
