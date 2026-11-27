@@ -1,48 +1,37 @@
 import React, { useId } from 'react';
-import { MP_TERMS, buildModelEvidence, screenCellForSystem, SCREEN_CELL_LABEL, unmappedScreenTerms, type ModelOrganismResponse, type Ortholog } from '../../shared/modelOrganisms';
-import { REVIEW_SYSTEMS, type ReviewSystemId } from '../../shared/phenotypeFrame';
+import { buildModelEvidence, type ModelOrganismResponse, type Ortholog } from '../../shared/modelOrganisms';
+import type { ReviewSystemId } from '../../shared/phenotypeFrame';
+import { matchesQuery, orthologKey } from '../../shared/contextWorkspace';
+import { InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { SpeciesRecordFilter } from './species/SpeciesRecordFilter';
+import { MouseScreenPlot } from './species/MouseScreenPlot';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
 
 const matchLabel = (o: Ortholog) => o.bestForward && o.bestReverse ? 'Best match both directions' : o.bestForward || o.bestReverse ? 'Best match one direction' : o.bestForward === null || o.bestReverse === null ? 'Match direction not fully reported' : 'Not a best match';
-const SCREEN_NOTE = 'IMPC top-level terms, mouse knockout screen. Procedures, allele, sex and age are not shown here.';
+const SCREEN_NOTE = 'IMPC top-level categories from the mouse knockout screen. Choose a system to read its categories. Procedures, allele, sex and age are not shown here.';
 
-function OrthologTable({ groups }: { groups: ReturnType<typeof buildModelEvidence>['groups'] }) {
+function OrthologTable({ groups }: { groups: Array<ReturnType<typeof buildModelEvidence>['groups'][number] & { total: number }> }) {
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Orthologs in model organisms"><table className="ctx-table">
     <caption className="ctx-sr-only">Stringent Alliance orthologs of the human gene. A species can have several.</caption>
     <thead><tr><th scope="col">Organism</th><th scope="col">Ortholog</th><th scope="col">Alliance match</th><th scope="col" className="ctx-num">Methods</th></tr></thead>
     <tbody>{groups.flatMap(g => g.rows.map((o, i) => <tr key={o.id}>
-      {i === 0 && <th scope="row" rowSpan={g.rows.length}>{g.species}{g.oneToMany && <span className="ctx-caption ctx-block">{g.rows.length} orthologs</span>}</th>}
-      <td><span className="ctx-mono">{o.symbol}</span><span className="ctx-caption ctx-block ctx-mono">{o.id}</span></td>
+      {i === 0 && <th scope="row" rowSpan={g.rows.length}>{g.species}{g.oneToMany && <span className="ctx-caption ctx-block">{g.total} orthologs</span>}</th>}
+      <td><InspectReadingButton tab="species-models" readingKey={orthologKey(o.taxonId, o.id)}><span className="ctx-mono">{o.symbol}</span></InspectReadingButton><span className="ctx-caption ctx-block ctx-mono">{o.id}</span></td>
       <td>{matchLabel(o)}{o.confidence && <span className="ctx-caption ctx-block">{o.confidence[0].toUpperCase() + o.confidence.slice(1)} confidence</span>}</td>
       <td className="ctx-num ctx-mono">{o.methodCount}</td>
     </tr>))}</tbody>
   </table></div>;
 }
 
-function ScreenGrid({ screen, systems }: { screen: ReturnType<typeof buildModelEvidence>['screens'][number]; systems: ReviewSystemId[] }) {
-  const rows = REVIEW_SYSTEMS.filter(s => systems.includes(s.id));
-  const rest = REVIEW_SYSTEMS.filter(s => !systems.includes(s.id));
-  const table = (list: readonly (typeof REVIEW_SYSTEMS)[number][], label: string) => <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label={label}><table className="ctx-table">
-    <caption className="ctx-sr-only">Mouse screen phenotype categories grouped by system.</caption>
-    <thead><tr><th scope="col">System</th><th scope="col">Mouse screen ({screen.symbol})</th><th scope="col">Reported phenotype categories</th></tr></thead>
-    <tbody>{list.map(s => { const cell = screenCellForSystem(screen, s.id);
-      return <tr key={s.id}><th scope="row">{s.label}</th><td><span className="ctx-cell" data-cell={cell}>{SCREEN_CELL_LABEL[cell]}</span></td><td>{MP_TERMS[s.id].filter(t => screen.significant.includes(t) || screen.notSignificant.includes(t)).map(t => <span className="ctx-block" key={t}>{t} &middot; {screen.significant.includes(t) ? 'Significant difference' : 'No significant difference'}</span>)}{cell === 'not-reported' && 'Not reported'}</td></tr>; })}</tbody>
-  </table></div>;
-  const stray = unmappedScreenTerms(screen);
-  return <>
-    {rows.length > 0 && table(rows, 'Mouse screen for your review systems')}
-    {rest.length > 0 && (rows.length
-      ? <details className="ctx-details ctx-details--table"><summary>Other systems ({rest.length})</summary>{table(rest, 'Mouse screen for other systems')}</details>
-      : table(rest, 'Mouse screen by system'))}
-    {!!stray.length && <p className="ctx-card__body ctx-caption">Also reported, outside the local grouping: {stray.join(', ')}.</p>}
-  </>;
-}
-
 export function ModelOrganismsCard({ load, systems, onRetry }: { load?: ContextLoad<ModelOrganismResponse>; systems: ReviewSystemId[]; onRetry: () => void }) {
   const id = useId();
   const data = load?.data ?? null;
   const evidence = buildModelEvidence(data, systems);
+  const { query } = useEvidenceWorkspace('species-models');
+  // Search narrows the rows; each species keeps its full ortholog count beside its name.
+  const shown = evidence.groups.map(g => ({ ...g, total: g.rows.length, rows: g.rows.filter(o => matchesQuery(query, [g.species, o.taxonId, o.symbol, o.id])) })).filter(g => g.rows.length);
+  const orthologCount = evidence.groups.reduce((n, g) => n + g.rows.length, 0);
   return <section className="ctx-card" aria-labelledby={id} data-testid="model-organisms-card">
     <div className="ctx-card__head"><h2 id={id}>Model organisms</h2><span className="ctx-caption">Alliance orthologs · IMPC mouse screen</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading orthologs and mouse screening.</div>
@@ -50,7 +39,8 @@ export function ModelOrganismsCard({ load, systems, onRetry }: { load?: ContextL
       : data?.status === 'not-found' ? <p className="ctx-card__body">{data.message}</p>
       : evidence.noOrtholog ? <p className="ctx-card__body">No stringent ortholog in a complete Alliance response. This does not mean the pathway is absent in model organisms.</p>
       : evidence.ready && <>
-        <OrthologTable groups={evidence.groups} />
+        <SpeciesRecordFilter shown={shown.reduce((n, g) => n + g.rows.length, 0)} total={orthologCount} noun="orthologs" placeholder="Species, taxon or symbol" />
+        {shown.length ? <OrthologTable groups={shown} /> : <p className="ctx-card__body">No ortholog matches this search.</p>}
         <div className="ctx-card__body sm-screen-heading">
           <h3 className="ctx-subhead">Mouse knockout screen</h3><p className="ctx-caption">{SCREEN_NOTE}</p>
           {data?.impc === null ? <p className="ctx-prose">No mouse ortholog, so no IMPC screen to read.</p>
@@ -64,7 +54,7 @@ export function ModelOrganismsCard({ load, systems, onRetry }: { load?: ContextL
             : screen.phenotypingDataAvailable === false ? <>IMPC has not phenotyped <span className="ctx-mono">{screen.symbol}</span> ({screen.phenotypeStatus ?? 'status not reported'}). Absence of data is not a normal result.</>
             : <>Phenotyping availability is not reported for <span className="ctx-mono">{screen.symbol}</span>. This is not a confirmed untested or normal result.</>}
             {screen.embryoDataAvailable === false && screen.phenotypingDataAvailable === true ? ' No embryo screening data.' : ''}</p>
-          {screen.phenotypingDataAvailable === true && <ScreenGrid screen={screen} systems={systems} />}
+          {screen.phenotypingDataAvailable === true && <MouseScreenPlot screen={screen} systems={systems} />}
         </div>)}
       </>}
     <p className="ctx-card__foot">Orthology is predicted, not proof of equal function. Mouse and other model phenotypes are context only: they are not automatically PS3/BS3 and cast no ACMG vote.</p>
