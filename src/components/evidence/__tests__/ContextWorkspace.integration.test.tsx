@@ -391,12 +391,12 @@ describe('gene-disease review states', () => {
   });
   it('keeps classification reference collapsed and persists explicitly expanded reference material', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
-    expect(screen.queryByRole('list', { name: /GenCC classification scale/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'GenCC validity classes' })).not.toBeInTheDocument();
     const trace = screen.getByText('Reference & methods', { selector: 'summary' }).closest('details')!;
     trace.open = true; fireEvent(trace, new Event('toggle'));
-    expect(screen.getByRole('list', { name: /GenCC classification scale/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'GenCC validity classes' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('button', { name: 'Go gene' }));
-    expect(screen.getByRole('list', { name: /GenCC classification scale/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'GenCC validity classes' })).toBeInTheDocument();
   });
 });

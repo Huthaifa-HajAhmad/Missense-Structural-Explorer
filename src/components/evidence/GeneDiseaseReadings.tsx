@@ -2,19 +2,23 @@ import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { GeneDiseaseModel, AssertionRow } from '../../shared/geneDiseaseEvidence';
 import { safeExternalHref } from '../../shared/externalLink';
-import { VALIDITY_SCALE, validityPosition, validityTone } from '../../shared/diseaseFrame';
-import type { DosageReading } from '../../shared/dosageSensitivity';
+import { validityTone } from '../../shared/diseaseFrame';
+import { GRADED_VALIDITY, validityClass, validityRung } from '../../shared/validityClasses';
+import { DOSAGE_SCOPE_NOTE, type DosageReading } from '../../shared/dosageSensitivity';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { OrdinalScale } from './ContextCharts';
 import { InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { assertionKey } from '../../shared/contextWorkspace';
 
 const DOSAGE_LEVELS = ['0', '1', '2', '3'] as const;
-const SCOPE_NOTE: Record<DosageReading['scope'], string> = {
-  'same-disease': 'Curated for the selected disease (exact MONDO ID).',
-  'other-disease': 'Curated for a different disease than the one selected.',
-  unscoped: 'Disease not matched to the selection: no MONDO ID on one side.',
-};
+const GRADED_LABELS = GRADED_VALIDITY.map(c => c.label);
+/** Only Limited to Definitive are graded; other classes say what they are instead of taking a rung. */
+function ValidityStrength({ level, submitter }: { level: string; submitter: string }) {
+  const rung = validityRung(level);
+  if (rung !== null) return <OrdinalScale levels={GRADED_LABELS} index={rung} label={`${submitter} evidence strength`} />;
+  const group = validityClass(level)?.group;
+  return <span className="gd-caption">{group === 'contested' ? 'Contests the relationship' : group === 'ungraded' ? 'Not a graded level' : 'Not a GenCC term'}</span>;
+}
 
 function Empty({ title, children, action }: { title: string; children?: React.ReactNode; action?: React.ReactNode }) {
   return <tr className="gd-empty"><td colSpan={5}><strong>{title}</strong>{children && <span className="gd-empty__reason">{children}</span>}{action}</td></tr>;
@@ -23,7 +27,7 @@ function AssertionLine({ a, frame, selected }: { a: AssertionRow; frame?: string
   return <tr data-adverse={a.adverse || undefined} data-selected={selected || undefined}>
     <th scope="row"><InspectReadingButton tab="gene-disease" readingKey={assertionKey(frame, a.id)}>{a.submitter}</InspectReadingButton>{a.expertPanel && <span className="gd-caption gd-block">Expert panel curation</span>}</th>
     <td><span className="ev-tier" data-tone={validityTone(a.level)}>{a.level}</span></td>
-    <td><OrdinalScale levels={VALIDITY_SCALE} index={validityPosition(a.level)} label={`${a.submitter} classification`} /></td>
+    <td><ValidityStrength level={a.level} submitter={a.submitter} /></td>
     <td>{(() => { const href = safeExternalHref(a.reportUrl); return href
       ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">Report<span className="ctx-sr-only"> from {a.submitter} (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a>
       : <span className="gd-caption">Not linked</span>; })()}</td>
@@ -38,7 +42,7 @@ function DosageLine({ r, evaluatedAt, selected }: { r: DosageReading; evaluatedA
       ? <OrdinalScale levels={DOSAGE_LEVELS} index={r.code} quiet={r.code === 0} label={`${r.name} evidence score`} />
       : <span className="gd-caption">{r.code === null ? 'Not scored' : 'Special category'}</span>}</td>
     <td>{r.disease
-      ? <>{r.disease}{r.diseaseId && <span className="gd-caption gd-block gd-mono">{r.diseaseId}</span>}<span className="gd-caption gd-block">{SCOPE_NOTE[r.scope]}</span>{r.history && <span className="gd-caption gd-block">{r.history}</span>}</>
+      ? <>{r.disease}{r.diseaseId && <span className="gd-caption gd-block gd-mono">{r.diseaseId}</span>}<span className="gd-caption gd-block">{DOSAGE_SCOPE_NOTE[r.scope]}</span>{r.history && <span className="gd-caption gd-block">{r.history}</span>}</>
       : <span className="gd-caption">{r.code === 0 ? 'Nothing curated; not a finding of tolerance.' : 'No disease curated for this score.'}</span>}</td>
     <td className="gd-mono">{evaluatedAt ?? <span className="gd-caption">Not reported</span>}</td>
   </tr>;
@@ -51,7 +55,7 @@ export function GeneDiseaseReadings({ model, onRetryDosage, section }: { model: 
   return <div className="gd-card gd-readings" data-testid="gene-disease-readings">
     <div className="gd-table-wrap" tabIndex={0} role="region" aria-label="Gene–disease evidence readings">
       <table className="gd-table">
-        <thead><tr><th scope="col">Source</th><th scope="col">Reading</th><th scope="col">Position</th><th scope="col">Detail</th><th scope="col">Date</th></tr></thead>
+        <thead><tr><th scope="col">Source</th><th scope="col">Reading</th><th scope="col">Strength</th><th scope="col">Detail</th><th scope="col">Date</th></tr></thead>
         {section !== 'dosage' && <tbody data-testid="validity-rows">
           <tr className="gd-group"><th colSpan={5} scope="rowgroup">Causality · GenCC, each submitter retained</th></tr>
           {model.assertions.map(a => <AssertionLine key={a.id} frame={model.selected?.key} a={a} selected={workspace.selected === assertionKey(model.selected?.key, a.id)} />)}

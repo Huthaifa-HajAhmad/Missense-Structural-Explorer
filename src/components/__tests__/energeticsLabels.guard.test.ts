@@ -32,6 +32,7 @@ const GUARDED_SURFACES = [
   'src/components/evidence/DevelopmentalExpressionCard.tsx',
   'src/components/evidence/MechanismContextCard.tsx',
   'src/components/evidence/GeneDiseaseReadings.tsx',
+  'src/components/evidence/GeneDiseaseTab.tsx',
   'src/shared/geneDiseaseEvidence.ts',
   'src/components/evidence/ExpressionModelsTab.tsx',
   'src/components/evidence/SpeciesModelsTab.tsx',

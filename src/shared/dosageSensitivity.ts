@@ -62,11 +62,32 @@ export const DOSAGE_CODE_LABELS: Record<DosageCode, string> = {
 export type DosageTone = 'accent' | 'neutral';
 const toneOf = (code: DosageCode | null): DosageTone => code === 3 || code === 2 ? 'accent' : 'neutral';
 
-/** ClinGen scores 0 as "no evidence available": nothing curated, not a finding that copy number is tolerated (that is 40). */
-export const DOSAGE_ZERO_NOTE = 'Score 0 means no evidence was found, not that copy-number change is tolerated.';
+/** How a dosage call's curated disease relates to the selected disease, in words for readers. */
+export const DOSAGE_SCOPE_NOTE: Record<DosageReading['scope'], string> = {
+  'same-disease': 'Curated for the selected disease (exact MONDO ID).',
+  'other-disease': 'Curated for a different disease than the one selected.',
+  unscoped: 'Disease not matched to the selection: no MONDO ID on one side.',
+};
+
+/** ClinGen's meaning of each code, in plain words. 0–3 grade evidence for dosage pathogenicity;
+ * 30 and 40 are special categories, not higher scores. */
+const DOSAGE_DEFINITIONS: Record<DosageCode, string> = {
+  0: 'ClinGen found no evidence either way. This is not a finding that copy-number change is tolerated.',
+  1: 'Little evidence that losing or gaining a copy causes disease.',
+  2: 'Some evidence that losing or gaining a copy causes disease.',
+  3: 'Sufficient evidence that losing or gaining a copy causes disease.',
+  30: 'The gene is linked to an autosomal recessive condition, so losing one copy is not expected to cause disease on its own.',
+  40: 'Evidence suggests that changing this gene’s copy number does not cause disease.',
+};
+export interface DosageCodeEntry { code: DosageCode; label: string; kind: 'evidence' | 'special'; definition: string; marks: DosageReading['name'][] }
+/** The six codes in display order, each with the readings of this gene that carry it. */
+export function dosageReference(readings: readonly DosageReading[]): DosageCodeEntry[] {
+  return DOSAGE_CODES.map(code => ({ code, label: DOSAGE_CODE_LABELS[code], kind: code <= 3 ? 'evidence' : 'special', definition: DOSAGE_DEFINITIONS[code],
+    marks: readings.filter(r => r.state === 'scored' && r.code === code).map(r => r.name) }));
+}
 
 export interface DosageReading {
-  key: 'haploinsufficiency' | 'triplosensitivity'; name: string; asks: string;
+  key: 'haploinsufficiency' | 'triplosensitivity'; name: 'Haploinsufficiency' | 'Triplosensitivity'; asks: string;
   state: DosageScore['state']; code: DosageCode | null; call: string; tone: DosageTone;
   disease: string | null; diseaseId: string | null; history: string | null;
   /** Exact-MONDO comparison with the selected disease (its own ID or a MONDO cross-reference);

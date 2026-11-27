@@ -178,6 +178,7 @@ src/components/inspector/PinHeader.tsx,component,
 src/components/inspector/PopulationRail.tsx,component,src/components/__tests__/candidateAlleles.test.tsx;src/components/__tests__/locusOutcomeRecovery.test.tsx;src/components/__tests__/pm2Withheld.surfaces.test.tsx;src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/__tests__/PopulationRail.buildProvenance.test.tsx
 src/components/inspector/PredictorsRail.tsx,component,src/components/evidence/__tests__/EvidenceTabs.integration.test.tsx;src/components/inspector/PredictorsRail.test.tsx
 src/components/inspector/RailParts.tsx,component,
+src/components/inspector/ReferenceScaleChart.tsx,component,
 src/components/inspector/ReportInspector.tsx,component,src/components/inspector/__tests__/ReportInspector.test.tsx
 src/components/inspector/ResidueShiftInspector.tsx,component,src/components/evidence/__tests__/MolecularWorkspace.integration.test.tsx;src/components/inspector/__tests__/ResidueShiftInspector.test.tsx
 src/components/inspector/SectionLabel.tsx,component,
@@ -385,7 +386,7 @@ src/shared/cspecPm1.ts,client,
 src/shared/curatedLiterature.ts,client,src/shared/__tests__/curatedLiterature.test.ts
 src/shared/deepModelEvidence.ts,client,server/routes/variant/narrativeEvidenceHash.test.ts;src/hooks/__tests__/useNarrativeResynthesis.test.tsx;src/services/pipeline/__tests__/narrativeService.test.ts;src/shared/__tests__/deepModelEvidence.test.ts;src/shared/__tests__/narrativeEvidence.test.ts
 src/shared/developmentalExpression.ts,client,
-src/shared/diseaseFrame.ts,client,src/shared/__tests__/evidenceContext.test.ts;src/shared/__tests__/residueAlignmentPext.test.ts
+src/shared/diseaseFrame.ts,client,src/shared/__tests__/evidenceContext.test.ts
 src/shared/domainUnits.ts,client,src/components/evidence/function/__tests__/architectureLayout.test.ts;src/shared/__tests__/functionEvidenceGzf1.test.ts
 src/shared/dosageSensitivity.ts,client,src/shared/__tests__/dosageSensitivity.test.ts;src/shared/__tests__/geneDiseaseEvidence.test.ts
 src/shared/energeticsComparison.ts,client,src/shared/__tests__/energeticsComparison.test.ts
@@ -532,6 +533,7 @@ src/shared/thresholds/index.ts,barrel,src/shared/thresholds/stringConfidence.tes
 src/shared/timeouts.ts,client,server/services/orchestration/analysis-orchestrator.test.ts;server/tests/foldx-timeout-budget.test.ts;server/tests/ppi-timeout-budget.test.ts;server/tests/sidecar-budget.test.ts;server/tests/stream-heartbeat-budget.test.ts;server/tests/structural-timeout-budget.test.ts;src/api/__tests__/streamHeartbeat.test.ts;src/api/__tests__/structuralStream.test.ts;src/components/evidence/__tests__/InterfacesTab.test.tsx;src/services/pipeline/__tests__/biophysicsRetryPolicy.test.ts;src/services/pipeline/__tests__/interfacesPrefetch.test.ts;src/services/pipeline/__tests__/workflowOrchestrator.test.ts
 src/shared/transcriptIdentity.ts,client,src/shared/__tests__/transcriptIdentity.test.ts
 src/shared/uniprotAccession.ts,client,
+src/shared/validityClasses.ts,client,src/shared/__tests__/validityClasses.test.ts
 src/shared/variantCoordinate.ts,client,src/shared/__tests__/variantCoordinate.test.ts
 src/shared/variantLocus.ts,client,src/shared/__tests__/variantLocus.test.ts
 src/shared/variantNotation.ts,client,src/components/__tests__/VariantSearchPanel.test.tsx;src/shared/__tests__/variantNotation.test.ts

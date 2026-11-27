@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiseaseContextPicker } from '../evidence/DiseaseContextPicker';
 import { GeneDiseaseTab } from '../evidence/GeneDiseaseTab';
@@ -296,6 +296,16 @@ describe('Gene–disease finding, cross-check and rail', () => {
     expect(screen.getAllByText('0: No evidence available').length).toBe(2);
     expect(container.querySelector('.ctx-scale__rung[data-quiet]')).not.toBeNull();
   });
+  it('draws only Limited to Definitive on the strength scale; Refuted and Supportive say what they are', () => {
+    // GenCC FAQ: Supportive is "a basic level of evidence ... such as that used by OMIM and Orphanet", not a grade.
+    context.value.selection.diseaseKey = frame.key; context.value.dosageLoad = dosage(3);
+    context.value.diseaseLoad.data.frames = [{ ...frame, validity: [...frame.validity, { id: '2', level: 'Supportive', submitter: 'Orphanet', submitterId: '2', reportUrl: null, evaluatedAt: null }] }];
+    render(<GeneDiseaseTab {...props} />);
+    const rows = within(screen.getByTestId('validity-rows'));
+    expect(rows.getByRole('img', { name: 'Submitter 0 evidence strength: Strong, rung 3 of 4' })).toBeInTheDocument();
+    expect(within(rows.getByText('Submitter 1').closest('tr')!).getByText('Contests the relationship')).toBeVisible();
+    expect(within(rows.getByText('Orphanet').closest('tr')!).getByText('Not a graded level')).toBeVisible();
+  });
   it('states in words when ClinGen dosage and Gene2Phenotype differ, with no ACMG vote', () => {
     context.value.selection.diseaseKey = frame.key; context.value.dosageLoad = dosage(3);
     context.value.diseaseLoad.data.frames = [{ ...frame, inheritance: { id: 'HP:0000006', label: 'Autosomal dominant' } }];
@@ -336,9 +346,45 @@ describe('Gene–disease inspector rail', () => {
     expect(rail.getByText(/Context only: no ACMG criterion is added or changed/)).toBeVisible();
     expect(rail.queryByText('Review trace')).not.toBeInTheDocument();
     expect(rail.getAllByText('Export of 2026-10-04').length).toBeGreaterThan(0);
-    expect(within(rail.getByRole('list', { name: /ClinGen dosage evidence scale/ })).getByText('this gene')).toBeVisible();
-    expect(rail.getAllByText('this disease').length).toBeGreaterThan(0);
+    // The dosage chart opens on this gene's own score: both calls are 0, drawn as "no evidence", not tolerance.
+    const dosageChart = within(rail.getByRole('group', { name: 'ClinGen dosage scores' }));
+    expect(dosageChart.getByText(/This gene: haploinsufficiency and triplosensitivity/)).toBeVisible();
+    expect(dosageChart.getByText(/not a finding that copy-number change is tolerated/)).toBeVisible();
+    // The validity chart marks this disease's classes; Refuted sits with the classes that contest, not on the strength steps.
+    const validityChart = within(rail.getByRole('group', { name: 'GenCC validity classes' }));
+    // A contesting class opens first, so a refutation is never hidden behind a stronger level.
+    expect(validityChart.getByRole('button', { name: 'Refuted. 1 submission for this disease' })).toHaveAttribute('aria-pressed', 'true');
+    expect(validityChart.getByText(/refutes the whole original body of evidence/)).toBeVisible();
+    fireEvent.click(validityChart.getByRole('button', { name: 'Strong. 1 submission for this disease' }));
+    expect(validityChart.getByText(/very strong support for a causal role/)).toBeVisible();
+    fireEvent.click(validityChart.getByRole('button', { name: 'Supportive' }));
+    expect(validityChart.getByText(/not a grade between Limited and Moderate/)).toBeVisible();
     expect(within(rail.getByTestId('context-sources')).getAllByText('ClinGen dosage')).toHaveLength(1);
+  });
+  it('reopens each chart on this selection’s reading when the disease changes or dosage arrives late', () => {
+    const result: any = { metadata: { gene: 'TEST' } };
+    const s: any = useVariantAnalysisStore;
+    s.setState({ gene: 'TEST', variant: 'p.A1B' });
+    const actions = s.getState();
+    const only = (key: string, level: string) => ({ ...frame, key, validity: [{ id: key, level, submitter: 'Panel', submitterId: '1', reportUrl: null, evaluatedAt: null }] });
+    actions.setDiseaseContext('TEST', { status: 'ready', data: { gene: 'TEST', status: 'ready', message: null, provenance: null, frames: [only('A', 'Definitive'), only('B', 'Refuted Evidence')] } });
+    actions.setDosageContext('TEST', { status: 'loading', data: null });
+    const choose = (diseaseKey: string) => actions.setPhenotypeSelection(evidenceContextIdentity(result, 'TEST', 'p.A1B'), { ...emptyPhenotypeSelection(), diseaseKey });
+    choose('A');
+    render(<EvidenceContextRail analysisResult={result} expression={false} />);
+    const chart = (name: string) => within(screen.getByRole('group', { name }));
+    expect(chart('GenCC validity classes').getByRole('button', { name: /^Definitive/ })).toHaveAttribute('aria-pressed', 'true');
+    act(() => { choose('B'); });
+    expect(chart('GenCC validity classes').getByRole('button', { name: /^Refuted/ })).toHaveAttribute('aria-pressed', 'true');
+    act(() => { actions.setDosageContext('TEST', { status: 'ready', data: { gene: 'TEST', status: 'ready', message: null, provenance: null, record: { symbol: 'TEST', geneId: 'HGNC:1', location: null,
+      haploinsufficiency: { state: 'scored', code: 3, disease: null, diseaseId: null, history: null }, triplosensitivity: { state: 'scored', code: 0, disease: null, diseaseId: null, history: null }, evaluatedAt: null, reportUrl: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1' } } }); });
+    const dosageChart = chart('ClinGen dosage scores');
+    expect(dosageChart.getByRole('button', { name: /^3 · Sufficient evidence/ })).toHaveAttribute('aria-pressed', 'true');
+    // Score 0 is "no evidence", never "none", which would read as tolerance beside "40 Unlikely".
+    expect(dosageChart.getByText('0 No evidence')).toBeVisible();
+    // With nothing chosen the prompt offers a summary; it does not present the text as the source’s own wording.
+    fireEvent.click(dosageChart.getByRole('button', { name: /^3 · Sufficient evidence/ }));
+    expect(dosageChart.getByText('Select a score for a plain-language summary.')).toBeVisible();
   });
   it('keeps a not-installed Gene2Phenotype snapshot distinct from an empty read in the sources list', () => {
     const result: any = { metadata: { gene: 'TEST' } };

@@ -34,7 +34,7 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
   if (!frames.length) {
     return load.data?.status === 'not-installed'
       ? empty(<>{ENGINE_STATE_LABELS['not-installed']} — the GenCC snapshot is not installed on this server and could not be fetched. Gene-level evidence below is unaffected.</>, 'Check again')
-      : empty('Not curated by the installed GenCC snapshot for this exact gene symbol. This does not establish absence of a disease relationship.');
+      : empty(`GenCC lists no disease for ${gene} in the installed snapshot. That does not show the gene has no disease relationship.`);
   }
   const selectionNote = <p className={inline ? 'ctx-caption' : 'gd-caption gd-picker__note'}>Disease choice is shared across Gene–disease, Expression and Species &amp; models. Your review systems stay selected when the disease changes.
       {frames.some(f => f.selectionSource === 'Gene2Phenotype') && ' Additional choices use verified G2P gene and MONDO IDs with the supported local allelic mapping; they do not imply GenCC validity coverage.'}</p>;

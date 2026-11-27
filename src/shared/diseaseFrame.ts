@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { mechanismRecordSchema, scopeMechanismRecords } from './mechanismContext';
+import { validityClass } from './validityClasses';
 
 export const contextProvenanceSchema = z.object({
   source: z.string(), url: z.string().url(), licence: z.string(),
@@ -63,16 +64,16 @@ export function addVerifiedMechanismChoices(data: GeneDiseaseResponse): GeneDise
   return { ...data, frames };
 }
 
-/** Tone for a GenCC classification. Only dispute/refutation is flagged; strength is never ranked into a verdict. */
-export const ADVERSE_LEVEL = /^(disputed|refuted)( evidence)?$|^no known disease relationship$/i;
+/** Dispute, refutation or no known relationship. Strength is never ranked into a verdict. */
+export const isCautionLevel = (level: string) => validityClass(level)?.caution ?? false;
 export function validityTone(level: string): 'warning' | 'neutral' {
-  return ADVERSE_LEVEL.test(level.trim()) ? 'warning' : 'neutral';
+  return isCautionLevel(level) ? 'warning' : 'neutral';
 }
 
 export function buildGeneDiseaseEvidence(data: GeneDiseaseResponse | null, selectedKey: string | null) {
   const selected = data?.frames.find(frame => frame.key === selectedKey) ?? null;
   const assertions = selected?.validity ?? [];
-  const adverse = assertions.filter(a => ADVERSE_LEVEL.test(a.level.trim()));
+  const adverse = assertions.filter(a => isCautionLevel(a.level));
   const levels = [...new Set(assertions.map(a => a.level))];
   const disagreement = levels.length > 1;
   const finding = !selected ? 'Choose a disease to review its assertions.'
@@ -86,15 +87,4 @@ export function buildGeneDiseaseEvidence(data: GeneDiseaseResponse | null, selec
     // Coverage counts say nothing about favourable evidence; no score is emitted.
     causalityAvailable: assertions.length > 0, mechanismAvailable: !!selected &&
       scopeMechanismRecords(data?.mechanismContext?.records ?? [], selected).matching.length > 0 };
-}
-
-/**
- * GenCC's ordinal classification, weakest to strongest. It positions one submitter's level on the
- * scale; it is never averaged, and classifications outside it (animal model only, no known disease
- * relationship) are not plotted rather than forced onto a rung.
- */
-export const VALIDITY_SCALE = ['No known relationship', 'Refuted', 'Disputed', 'Limited', 'Supportive', 'Moderate', 'Strong', 'Definitive'] as const;
-export function validityPosition(level: string): number | null {
-  const i = VALIDITY_SCALE.findIndex(x => x.toLowerCase() === level.replace(/\s+evidence$/i, '').replace(/^no known disease relationship$/i, 'No known relationship').trim().toLowerCase());
-  return i < 0 ? null : i;
 }

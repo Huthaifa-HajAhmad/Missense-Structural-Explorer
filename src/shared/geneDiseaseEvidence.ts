@@ -17,14 +17,15 @@
  * missing; ClinGen score 0 drawn as a filled accent rung; "No Known Disease Relationship" neither
  * flagged nor placed; dosage and mechanism never compared.
  */
-import { ADVERSE_LEVEL, buildGeneDiseaseEvidence, type DiseaseFrame, type GeneDiseaseResponse } from './diseaseFrame';
+import { isCautionLevel, buildGeneDiseaseEvidence, type DiseaseFrame, type GeneDiseaseResponse } from './diseaseFrame';
 import { buildDosageEvidence, type DosageEvidence, type DosageReading, type DosageResponse } from './dosageSensitivity';
 import { scopeMechanismRecords, type MechanismRecord } from './mechanismContext';
 import { snapshotAge, type SnapshotAge } from './snapshotAge';
 import { ENGINE_STATE_LABELS } from './engineStatus';
+import { validityClass } from './validityClasses';
 
 type Load<T> = { status: 'loading' | 'ready' | 'error'; data: T | null; error?: string } | undefined;
-export const isAdverseLevel = (level: string) => ADVERSE_LEVEL.test(level.trim());
+export const isAdverseLevel = isCautionLevel;
 /** ClinGen submits through its expert panels (GCEPs); the badge says so without re-ranking it. */
 export const isExpertPanel = (submitter: string) => /^ClinGen$/i.test(submitter.trim());
 
@@ -162,8 +163,10 @@ export function buildGeneDiseaseModel(input: {
     const bad = assertions.filter(a => a.adverse).map(a => `${a.submitter} (${short(a.level)})`);
     verdict = { kind: 'adverse', label: 'Disputed, refuted or no known relationship', tone: 'warning' };
     headline = `${bad.length} of ${assertions.length}`;
-    headlineLabel = `assertion${assertions.length === 1 ? '' : 's'} dispute or reject this relationship`;
-    sentence = `${bad.join('; ')}. Computational and structural context cannot establish pathogenicity for a disease whose gene relationship is contested; read every assertion below.`;
+    headlineLabel = `assertion${assertions.length === 1 ? '' : 's'} dispute, refute or report no known relationship`;
+    // "No known relationship" means nobody has claimed one, so there is nothing to contest.
+    const contested = assertions.some(a => validityClass(a.level)?.group === 'contested');
+    sentence = `${bad.join('; ')}. Computational and structural context cannot establish pathogenicity for a disease ${contested ? 'whose gene relationship is contested' : 'where a submitter reports no known gene relationship'}; read every assertion below.`;
   } else if (!assertions.length) {
     // No assertions is ambiguous: without the GenCC snapshot it is an unread source, not an
     // uncurated disease. Naming GenCC as the reader would claim a readout that never happened.
