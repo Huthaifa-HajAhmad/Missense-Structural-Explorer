@@ -89,6 +89,11 @@ describe("popEVE on another isoform", () => {
       .toEqual({ score: -4.8, protein: "NP_004906.3", substitution: "G20R", match: "displayed" });
   });
 
+  it("reads a popEVE file that uses Windows line endings", async () => {
+    serve({ "NP_004906.3": popEveCsv(MAIN, { G20R: -4.8 }).replaceAll("\n", "\r\n") });
+    expect(await fetchPopEVEScoreOnline("P45844", "G20R")).toMatchObject({ score: -4.8, substitution: "G20R" });
+  });
+
   /** A third isoform, listed before the one that maps; its file shares nothing with residue 20. */
   const unrelated = "MPPPPPPPPPPKKKKKKKKKKEEEEEEEEEE";
   const threeIsoforms = () => {

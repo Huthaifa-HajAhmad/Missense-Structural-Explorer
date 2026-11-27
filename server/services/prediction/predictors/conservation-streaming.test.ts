@@ -23,6 +23,7 @@ vi.mock("../../external-api/spliceai_broad.ts", async (importOriginal) => ({
 }));
 
 import {
+  fetchConservationData,
   fetchConservationDataProgressive,
   expireConservationSnapshot,
   conservationFullySettled,
@@ -228,5 +229,31 @@ describe("conservation models stream independently", () => {
       predictorPromise: Promise.resolve(null),
     });
     expect(noPred.spliceai).toBeNull();
+  });
+});
+
+/** The online popEVE lookup can need several requests (UniProt, then one file per isoform). */
+describe("a direct conservation call", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("waits for a popEVE answer slower than two seconds instead of caching a result without it", async () => {
+    const hit = { score: -3.032, protein: "NP_997057.1", substitution: "G369R", match: "other-isoform" };
+    mocks.popeveOnline.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(hit), 2500)));
+    mocks.local.mockResolvedValue({ revel: 0.5, popeve: null });
+    const call = fetchConservationData("ABCG1", "p.Gly358Arg");
+    // Long enough for the base lookup and the slow popEVE answer, in that order.
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await call;
+    expect(result.popeve).toBe(-3.032);
+    expect(result.popeveSource).toEqual({ protein: "NP_997057.1", substitution: "G369R", match: "other-isoform" });
   });
 });

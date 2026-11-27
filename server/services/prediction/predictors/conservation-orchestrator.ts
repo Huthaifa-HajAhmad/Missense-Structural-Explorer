@@ -176,8 +176,9 @@ export async function fetchConservationData(
 
       let popeveHit = enrichment?.popEVEFromCoordinate ?? null;
       if (popeveHit === null && enrich) {
-        const online = fetchPopEVEScoreOnline(uniprotId || gene, variant);
-        popeveHit = await Promise.race([online, new Promise<null>(resolve => setTimeout(() => resolve(null), 2000))]);
+        // Waited for in full. Each of its requests has its own time limit, and giving up early
+        // would cache this result without the score for 14 days.
+        popeveHit = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
       }
       const scores = answer?.scores ?? NO_DBNSFP_SCORES;
       return {

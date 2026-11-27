@@ -94,4 +94,10 @@ describe('Species & models answer', () => {
     const unscreened = { ...models, impc: { status: 'ready' as const, screens: [{ ...models.impc!.screens[0], phenotypingDataAvailable: false }] } };
     expect(speciesFinding(input({ models: ready(unscreened) })).facts[2].text).toBe('IMPC has not phenotyped Xm. Absence of data is not a normal result.');
   });
+
+  it('does not call a mouse unscreened when IMPC did not report whether it was screened', () => {
+    const unknown = { ...models, impc: { status: 'ready' as const, screens: [{ ...models.impc!.screens[0], phenotypingDataAvailable: null }] } };
+    const text = speciesFinding(input({ models: ready(unknown) })).facts[2].text;
+    expect(text).toBe('IMPC does not say whether Xm was phenotyped. This is not a normal result.');
+  });
 });
