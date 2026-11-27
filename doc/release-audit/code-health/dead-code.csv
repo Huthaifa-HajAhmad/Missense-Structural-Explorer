@@ -1,0 +1,291 @@
+symbol,file,line,kind,evidence,confidence
+clinvar-vcv.fixture.ts,server/services/external-api/clinvar-vcv.fixture.ts,1,file,"no non-test file names it; only tests: server/services/external-api/clinvar-conditions.test.ts; test support data, keep unless the test is removed",low
+remoteFailure.ts,server/services/external-api/remoteFailure.ts,1,file,"no non-test file names it; file names are not seen in any import, but the sidecar field name 'remoteFailure' is used in contracts.ts (schema field, not an import)",medium
+queue-invariants.fixture.ts,server/services/infra/queue-invariants.fixture.ts,1,file,"no non-test file names it; only tests: server/services/infra/biophysical-queue.handover.invariants.test.ts; test support data, keep unless the test is removed",low
+acot9.ts,server/services/translation/__fixtures__/acot9.ts,1,file,"no non-test file names it; only tests: server/routes/variant/translation.test.ts; test support data, keep unless the test is removed",low
+resetAllianceReleaseCache,server/services/evidence-context/allianceRelease.ts,31,function,no non-test references; used only by tests: server/services/evidence-context/modelOrganisms.test.ts,high
+resetInstallState,server/services/evidence-context/snapshotInstall.ts,51,function,no non-test references; used only by tests: server/services/evidence-context/snapshotInstall.test.ts,high
+clearAlphaGenomeCache,server/services/external-api/alphagenome-bridge.ts,50,function,no non-test references; used only by tests: server/services/external-api/alphagenome-bridge.test.ts,high
+setAlphaGenomeMockProvider,server/services/external-api/alphagenome-bridge.ts,58,function,no non-test references; used only by tests: server/services/external-api/alphagenome-bridge.test.ts,high
+setAlphaGenomeRegionMockProvider,server/services/external-api/alphagenome-bridge.ts,62,function,no non-test references; used only by tests: server/services/external-api/alphagenome-bridge.test.ts,high
+setAtlasGrpcClientFactory,server/services/external-api/alphagenome-client.ts,162,function,no non-test references; used only by tests: server/services/external-api/alphagenome-bridge.test.ts,high
+VCV_CNNM2_E357K,server/services/external-api/clinvar-vcv.fixture.ts,6,const,no non-test references; used only by tests: server/services/external-api/clinvar-conditions.test.ts,low
+clearJapanFoldCache,server/services/external-api/japanfold-client.ts,42,function,no non-test references; used only by tests: server/services/external-api/japanfold-client.test.ts,high
+clearBoltzJobs,server/services/external-api/japanfold-client.ts,88,function,no non-test references; used only by tests: server/services/external-api/japanfold-client.test.ts,high
+queryBoltz2Multimer,server/services/external-api/japanfold-client.ts,271,function,no non-test references; used only by tests: server/services/external-api/japanfold-client.test.ts,high
+clearResidueCoverageCache,server/services/external-api/pdbe-coverage.ts,32,function,no non-test references; used only by tests: server/services/structure/multimer.test.ts,high
+clearPdbeInterfaceCache,server/services/external-api/pdbe-interfaces.ts,103,function,no non-test references; used only by tests: server/services/external-api/pdbe-interfaces.test.ts,high
+splitFibrilEntries,server/services/external-api/pdbe-interfaces.ts,218,function,no non-test references; used only by tests: server/services/external-api/pdbe-interfaces.test.ts,high
+parseRemoteFailure,server/services/external-api/remoteFailure.ts,10,function,no references anywhere outside its definition,high
+fetchSpliceAiBroad,server/services/external-api/spliceai_broad.ts,263,function,no non-test references; used only by tests: server/services/external-api/spliceai_broad.live.test.ts,high
+clearSpliceAiCache,server/services/external-api/spliceai_broad.ts,431,function,no non-test references; used only by tests: server/services/external-api/spliceai_broad.test.ts,high
+setSpliceAiMockProvider,server/services/external-api/spliceai_broad.ts,455,function,no non-test references; used only by tests: server/services/prediction/predictors.test.ts,high
+runPurgeExpiredExternalCacheInWorker,server/services/infra/analysis-db-pool.ts,102,function,no references anywhere outside its definition,medium
+runPurgeOutdatedSchemaExternalCacheInWorker,server/services/infra/analysis-db-pool.ts,108,function,no references anywhere outside its definition,medium
+buildPdbKey,server/services/infra/cache-keys.ts,67,function,no references anywhere outside its definition,high
+buildGnomadConstraintKey,server/services/infra/cache-keys.ts,85,function,no references anywhere outside its definition,high
+getCacheMemoryReport,server/services/infra/cache.ts,72,function,no references anywhere outside its definition,high
+credentialAvailable,server/services/infra/credentials.ts,284,function,no non-test references; used only by tests: server/services/infra/credentials.test.ts,high
+resetCredentialsForTests,server/services/infra/credentials.ts,419,function,no non-test references; used only by tests: server/routes/credentials.http.test.ts,high
+resetEgressGovernorForTests,server/services/infra/egress-governor.ts,816,function,no non-test references; used only by tests: server/routes/capabilities-egress.test.ts,high
+getActiveFoldxJobId,server/services/infra/foldx-job-registry.ts,234,function,no non-test references; used only by tests: server/services/infra/foldx-job-registry.test.ts,high
+registerActiveFoldxJob,server/services/infra/foldx-job-registry.ts,238,function,no non-test references; used only by tests: server/routes/biophysics-prewarm-join.test.ts,high
+resetActiveFoldxJobs,server/services/infra/foldx-job-registry.ts,246,function,no non-test references; used only by tests: server/routes/biophysics-prewarm-join.test.ts,high
+_resetHostProbe,server/services/infra/host-probe.ts,357,function,no non-test references; used only by tests: server/routes/foldx-sharing.test.ts,high
+_lastHostProbeReport,server/services/infra/host-probe.ts,366,function,no non-test references; used only by tests: server/services/infra/host-probe.test.ts,high
+_setToolRunner,server/services/infra/host-probe.ts,371,function,no non-test references; used only by tests: server/services/infra/host-probe.test.ts,high
+resetHostStateForTests,server/services/infra/http-client.ts,158,function,no non-test references; used only by tests: server/routes/variant/translation.test.ts,high
+currentJobMeter,server/services/infra/job-meter.ts,28,function,no non-test references; used only by tests: server/services/stability/foldx/background-repair.test.ts,high
+clearMemoForTests,server/services/infra/memo.ts,42,function,no non-test references; used only by tests: server/services/infra/memo.test.ts,high
+PREWARM_CAPABILITY,server/services/infra/prewarm-manager.ts,181,const,no non-test references; used only by tests: server/services/infra/prewarm-manager.test.ts,high
+_resetProcessTableCache,server/services/infra/process-sampler.ts,151,function,no non-test references; used only by tests: server/services/infra/admission.test.ts,high
+resetProviderPausesForTests,server/services/infra/provider-pause.ts,283,function,no non-test references; used only by tests: server/routes/capabilities-egress.test.ts,high
+tableProblems,server/services/infra/queue-invariants.fixture.ts,52,function,no non-test references; used only by tests: server/services/infra/biophysical-queue.handover.invariants.test.ts,low
+getModelHealthSnapshot,server/services/llm/gemini.ts,292,function,no non-test references; used only by tests: server/services/llm/gemini-budget.test.ts,high
+resetModelHealth,server/services/llm/gemini.ts,302,function,no non-test references; used only by tests: server/routes/variant/narrative.test.ts,high
+resetDbForTesting,server/services/llm/literature-rag.ts,259,function,no non-test references; used only by tests: server/services/llm/literature-rag-abort.test.ts,high
+isCoreFetchInFlight,server/services/orchestration/core-singleflight.ts,243,function,no non-test references; used only by tests: server/services/orchestration/core-singleflight.test.ts,high
+coreSingleflightStats,server/services/orchestration/core-singleflight.ts,255,function,no non-test references; used only by tests: server/services/orchestration/analysis-orchestrator.test.ts,high
+resetCoreSingleflightForTests,server/services/orchestration/core-singleflight.ts,260,function,no non-test references; used only by tests: server/services/orchestration/analysis-orchestrator.test.ts,high
+settledOrNull,server/services/orchestration/timeout-scope.ts,120,function,no non-test references; used only by tests: server/services/orchestration/timeout-scope.test.ts,high
+normalizeProteinChangeTo1Letter,server/services/prediction/acmg/syntax.ts,6,function,no references anywhere outside its definition,high
+safeParseInt,server/services/prediction/predictors/normalizer.ts,11,function,no non-test references; used only by tests: server/services/prediction/predictors/predictors-modules.test.ts,high
+resetExonCacheForTests,server/services/prediction/splice_resolver.ts,32,function,no non-test references; used only by tests: server/services/prediction/splice_resolver.test.ts,high
+runProteinGymBenchmark,server/services/stability/benchmark-proteingym.ts,128,function,no non-test references; used only by tests: server/services/stability/benchmark-proteingym.test.ts,high
+clearDdmutPpiCache,server/services/stability/ddmut-ppi.ts,152,function,no non-test references; used only by tests: server/services/stability/ddmut-ppi.test.ts,high
+closeRaspResources,server/services/stability/energy-models.ts,478,function,no non-test references; used only by tests: server/services/stability/energy-models.test.ts,high
+THERMOMPNN_SIDECAR_BUDGET,server/services/stability/energy-models.ts,547,const,no non-test references; used only by tests: server/tests/sidecar-budget.test.ts,high
+clearEnergyModelCaches,server/services/stability/energy-models.ts,551,function,no non-test references; used only by tests: server/services/stability/energy-models.test.ts,high
+backgroundRepairStatus,server/services/stability/foldx/background-repair.ts,154,function,no non-test references; used only by tests: server/services/stability/foldx/background-repair.test.ts,high
+resetBackgroundRepairForTests,server/services/stability/foldx/background-repair.ts,158,function,no non-test references; used only by tests: server/services/stability/foldx/background-repair.test.ts,high
+settleCacheWritesForTests,server/services/stability/foldx/cache.ts,130,function,no non-test references; used only by tests: server/services/stability/foldx/runner-background-repair.test.ts,high
+repairFailureTotal,server/services/stability/foldx/cache.ts,359,function,no non-test references; used only by tests: server/services/stability/foldx/repair-cache.test.ts,high
+resetInflightRepairsForTests,server/services/stability/foldx/inflight-repairs.ts,61,function,no non-test references; used only by tests: server/services/stability/foldx/background-repair.test.ts,high
+backgroundFoldxRunning,server/services/stability/foldx/preemption.ts,40,function,no non-test references; used only by tests: server/services/stability/foldx/background-repair.test.ts,high
+resetPreemptionForTests,server/services/stability/foldx/preemption.ts,45,function,no non-test references; used only by tests: server/services/stability/foldx/background-repair.test.ts,high
+repairNoneCount,server/services/stability/foldx/runner.ts,575,function,no references anywhere outside its definition,high
+clearStructureReferences,server/services/structure/structure-reference-store.ts,226,function,no non-test references; used only by tests: server/routes/biophysics/pocket-structure-ref.test.ts,high
+getStructureReferenceStoreSize,server/services/structure/structure-reference-store.ts,230,function,no references anywhere outside its definition,high
+ACOT9_CANONICAL,server/services/translation/__fixtures__/acot9.ts,14,const,no non-test references; used only by tests: server/routes/variant/translation.test.ts,low
+ACOT9_ISOFORM_4,server/services/translation/__fixtures__/acot9.ts,17,const,no non-test references; used only by tests: server/routes/variant/translation.test.ts,low
+ACOT9_INSERTION,server/services/translation/__fixtures__/acot9.ts,21,const,no non-test references; used only by tests: server/services/translation/isoform-remap.test.ts,low
+withInsertion,server/services/translation/__fixtures__/acot9.ts,24,function,no non-test references; used only by tests: server/services/translation/isoform-remap.test.ts,low
+clearIdentifierIntakeCache,server/services/translation/identifier-intake.ts,387,function,no non-test references; used only by tests: server/services/translation/identifier-intake.test.ts,high
+parseSingleMapping,server/services/translation/liftover.ts,132,function,no non-test references; used only by tests: server/services/translation/liftover.test.ts,high
+ShadowRung,server/services/translation/shadow-tiers.ts,26,type,no references anywhere outside its definition,high
+resetShadowTierStats,server/services/translation/shadow-tiers.ts,79,function,no non-test references; used only by tests: server/services/translation/shadow-tiers.test.ts,high
+resetInterfacesLive,src/components/evidence/interfaces/interfacesLive.ts,70,function,no non-test references; used only by tests: src/components/evidence/__tests__/InterfacesTab.test.tsx,high
+WeightKey,src/shared/acmgClassifier.ts,39,type,no references anywhere outside its definition,high
+countBySource,src/shared/acmgCriteriaView.ts,186,function,no non-test references; used only by tests: src/shared/__tests__/acmgCriteriaView.test.ts,high
+AgentJobType,src/shared/agentProtocol.ts,20,type,no references anywhere outside its definition,high
+CLINVAR_REV_AA_MAP,src/shared/aminoAcids.ts,41,const,no references anywhere outside its definition,high
+isUnmeasuredEnvironment,src/shared/burialEvidence.ts,69,function,no references anywhere outside its definition,high
+clinvarClassificationIsQuotable,src/shared/clinvarPresence.ts,115,function,no non-test references; used only by tests: src/shared/__tests__/clinvarPresence.test.ts,high
+proteinLengthOf,src/shared/constraintRegionMapping.ts,41,function,no non-test references; used only by tests: src/shared/__tests__/constraintRegionMapping.test.ts,high
+DeepModelEvidencePayload,src/shared/contracts.ts,377,type,no references anywhere outside its definition,high
+ModelEvalError,src/shared/contracts.ts,379,type,no references anywhere outside its definition,high
+TranslateVariantRequest,src/shared/contracts.ts,834,type,no references anywhere outside its definition,high
+ResolveGeneRequest,src/shared/contracts.ts,836,type,no references anywhere outside its definition,high
+ResolveGeneResponse,src/shared/contracts.ts,837,type,no references anywhere outside its definition,high
+NearestResiduesRequest,src/shared/contracts.ts,886,type,no references anywhere outside its definition,high
+PocketFinderRequest,src/shared/contracts.ts,946,type,no references anywhere outside its definition,high
+BiophysicalAnalysisRequest,src/shared/contracts.ts,1074,type,no references anywhere outside its definition,high
+StructuralAlignRequest,src/shared/contracts.ts,1107,type,no references anywhere outside its definition,high
+LandscapeContextResponse,src/shared/contracts.ts,1714,type,no references anywhere outside its definition,high
+mergeCuratedCitations,src/shared/curatedLiterature.ts,125,function,no non-test references; used only by tests: src/shared/__tests__/curatedLiterature.test.ts,high
+DosageRecord,src/shared/dosageSensitivity.ts,35,type,no references anywhere outside its definition,high
+energeticsAgreementText,src/shared/energeticsEvidence.ts,1011,function,no non-test references; used only by tests: src/components/__tests__/EnergeticsView.test.tsx,high
+ENERGY_ENGINE_IDS,src/shared/engineStatus.ts,191,const,no non-test references; used only by tests: src/shared/__tests__/engineStatus.test.ts,high
+formatDdgPair,src/shared/engineStatus.ts,257,function,no non-test references; used only by tests: src/shared/__tests__/engineStatus.test.ts,high
+describeCoverage,src/shared/engineStatus.ts,1059,function,no non-test references; used only by tests: src/shared/__tests__/engineStatus.test.ts,high
+stripCommentsForScan,src/shared/engineStatus.ts,1147,function,no non-test references; used only by tests: server/tests/sidecar-budget.test.ts,high
+describeAbsence,src/shared/evidenceAvailability.ts,376,function,no non-test references; used only by tests: src/shared/__tests__/evidenceAvailability.test.ts,high
+expressionObservationState,src/shared/expressionModels.ts,36,function,no non-test references; used only by tests: src/shared/__tests__/evidenceContext.test.ts,high
+modelPhenotypeState,src/shared/expressionModels.ts,44,function,no non-test references; used only by tests: src/shared/__tests__/evidenceContext.test.ts,high
+VCEP_REGISTRY_SNAPSHOT,src/shared/insilico/vcepRules.ts,9,const,no non-test references; used only by tests: src/shared/__tests__/vcepRules.test.ts,high
+MouseSystemRow,src/shared/modelOrganisms.ts,102,type,no references anywhere outside its definition,high
+resetNarrativeActivity,src/shared/narrativeResynthesis.ts,72,function,no non-test references; used only by tests: src/hooks/__tests__/useNarrativeResynthesis.test.tsx,high
+narrativeFlightsInFlight,src/shared/narrativeResynthesis.ts,205,function,no non-test references; used only by tests: src/shared/__tests__/narrativeResynthesis.test.ts,high
+resetNarrativeFlights,src/shared/narrativeResynthesis.ts,210,function,no non-test references; used only by tests: src/hooks/__tests__/useNarrativeResynthesis.test.tsx,high
+PerRegionSource,src/shared/perRegions.ts,33,type,no references anywhere outside its definition,high
+getPropertyScaleDefinition,src/shared/residueShiftEvidence.ts,163,function,no non-test references; used only by tests: src/lib/__tests__/residueShiftModel.test.ts,high
+offsetBetweenPositions,src/shared/splicingEvidence.ts,297,function,no non-test references; used only by tests: src/shared/__tests__/splicingEvidence.test.ts,high
+computeConsensusVerdict,src/shared/thresholds/consensus.ts,93,function,no non-test references; used only by tests: server/services/prediction/predictors.test.ts,high
+evaluateRevel,src/shared/thresholds/evaluators.ts,62,function,no non-test references; used only by tests: src/shared/thresholds.test.ts,high
+evaluateCadd,src/shared/thresholds/evaluators.ts,67,function,no non-test references; used only by tests: src/shared/thresholds.test.ts,high
+evaluateAlphaMissense,src/shared/thresholds/evaluators.ts,80,function,no non-test references; used only by tests: src/shared/__tests__/predictorEvidence.test.ts,high
+evaluateBayesdel,src/shared/thresholds/evaluators.ts,91,function,no non-test references; used only by tests: src/shared/thresholds.test.ts,high
+evaluateEsm1b,src/shared/thresholds/evaluators.ts,100,function,no non-test references; used only by tests: src/shared/thresholds.test.ts,high
+acct-alert--danger,src/styles/account.css,131,css-class,not a literal; prefix 'acct-alert--' is built at runtime,low
+acct-alert--success,src/styles/account.css,132,css-class,not a literal; prefix 'acct-alert--' is built at runtime,low
+acct-alert--info,src/styles/account.css,133,css-class,not a literal; prefix 'acct-alert--' is built at runtime,low
+cs-slide-in,src/styles/animations.css,16,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+animate-slide-in,src/styles/animations.css,17,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+animate-spin-hover,src/styles/animations.css,20,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-spinner-sm,src/styles/animations.css,45,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ts-chart-host,src/styles/charts.css,9,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cx-finding-details,src/styles/context-workspace.css,27,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cx-overview,src/styles/context-workspace.css,58,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gantt-bar-genomics,src/styles/dev-console.css,852,css-class,not a literal; prefix 'gantt-bar-' is built at runtime,low
+gantt-bar-structure,src/styles/dev-console.css,853,css-class,not a literal; prefix 'gantt-bar-' is built at runtime,low
+gantt-bar-biophysics,src/styles/dev-console.css,854,css-class,not a literal; prefix 'gantt-bar-' is built at runtime,low
+gantt-bar-clinical,src/styles/dev-console.css,855,css-class,not a literal; prefix 'gantt-bar-' is built at runtime,low
+energetics-workspace,src/styles/energetics.css,19,css-class,not a literal; prefix 'energetics-' is built at runtime,low
+nrg-subject__name,src/styles/energetics.css,354,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+nrg-legend__zero,src/styles/energetics.css,422,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+nrg-cuts__head,src/styles/energetics.css,512,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-panel,src/styles/evidence.css,5,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-panel-header,src/styles/evidence.css,14,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-panel-title,src/styles/evidence.css,25,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-panel-body,src/styles/evidence.css,43,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-panel-footnote,src/styles/evidence.css,46,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-metric-rail,src/styles/evidence.css,62,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-metric,src/styles/evidence.css,69,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-metric-label,src/styles/evidence.css,92,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-metric-value,src/styles/evidence.css,103,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-metric-note,src/styles/evidence.css,116,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-table,src/styles/evidence.css,202,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-table-caption,src/styles/evidence.css,211,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-rank,src/styles/evidence.css,258,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-partner,src/styles/evidence.css,267,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-conf,src/styles/evidence.css,299,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-conf-track,src/styles/evidence.css,304,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-conf-fill,src/styles/evidence.css,314,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-conf-tick,src/styles/evidence.css,330,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-conf-value,src/styles/evidence.css,338,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-empty,src/styles/evidence.css,351,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-empty-title,src/styles/evidence.css,362,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-empty-note,src/styles/evidence.css,369,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-quote,src/styles/evidence.css,380,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-quote-label,src/styles/evidence.css,392,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-residue-list,src/styles/evidence.css,405,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-residue,src/styles/evidence.css,418,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-residue-pos,src/styles/evidence.css,430,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-residue-desc,src/styles/evidence.css,437,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+is-variant,src/styles/evidence.css,447,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-alert,src/styles/evidence.css,456,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-refresh,src/styles/evidence.css,472,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-inline-cta,src/styles/evidence.css,478,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ev-table-scroller,src/styles/evidence.css,527,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-hero__top,src/styles/gene-disease.css,26,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-hero__figure,src/styles/gene-disease.css,27,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-figure,src/styles/gene-disease.css,28,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-hero__figure-label,src/styles/gene-disease.css,29,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-facts,src/styles/gene-disease.css,34,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-hero__footnote,src/styles/gene-disease.css,39,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-rail__section,src/styles/gene-disease.css,77,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ctx-rail__section,src/styles/gene-disease.css,81,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+gd-picker-help,src/styles/gene-disease.css,101,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ins-strong,src/styles/insights.css,25,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ifc-fold__list-row,src/styles/interfaces.css,550,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+jobs-row-notice,src/styles/jobs.css,97,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ls-row-label,src/styles/landscape.css,75,css-class,not a literal; prefix 'ls-' is built at runtime,low
+lsr-eyebrow,src/styles/landscape.css,221,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+landscape-workspace,src/styles/landscape.css,356,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+no-scrollbar,src/styles/layout.css,101,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+app-pane-scroll,src/styles/layout.css,122,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+report-disclosure,src/styles/layout.css,145,css-class,not a literal; prefix 'report-' is built at runtime,low
+report-chevron,src/styles/layout.css,163,css-class,not a literal; prefix 'report-' is built at runtime,low
+report-press,src/styles/layout.css,177,css-class,not a literal; prefix 'report-' is built at runtime,low
+about-kind-dataset,src/styles/layout.css,1620,css-class,not a literal; prefix 'about-kind-' is built at runtime,low
+about-kind-model,src/styles/layout.css,1621,css-class,not a literal; prefix 'about-kind-' is built at runtime,low
+about-kind-service,src/styles/layout.css,1622,css-class,not a literal; prefix 'about-kind-' is built at runtime,low
+about-kind-software,src/styles/layout.css,1623,css-class,not a literal; prefix 'about-kind-' is built at runtime,low
+mx-map-target,src/styles/mechanism-workspace.css,66,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-control-row,src/styles/molstar.css,4,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-slider-track,src/styles/molstar.css,5,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-slider-thumb,src/styles/molstar.css,6,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-viewport-top-left-controls,src/styles/molstar.css,15,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-viewport-controls,src/styles/molstar.css,16,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-animation-viewport-controls,src/styles/molstar.css,17,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-traj-controls,src/styles/molstar.css,18,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+msp-highlight-toast-wrapper,src/styles/molstar.css,19,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+pkg-status__sub,src/styles/packing.css,91,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+pkg-link,src/styles/packing.css,94,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+pkg-actions,src/styles/packing.css,104,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+prd-tally__swatch,src/styles/predictors.css,102,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cx-icon-btn,src/styles/primitives.css,6,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-stat-pill,src/styles/primitives.css,40,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-stat-pill-value,src/styles/primitives.css,51,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-stat-pill-label,src/styles/primitives.css,57,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-card,src/styles/primitives.css,66,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-nested-panel,src/styles/primitives.css,83,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-card-header,src/styles/primitives.css,91,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-sub-card,src/styles/primitives.css,103,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-btn-ghost-accent,src/styles/primitives.css,187,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-chip,src/styles/primitives.css,255,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-path,src/styles/primitives.css,292,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-vus,src/styles/primitives.css,294,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-ben,src/styles/primitives.css,296,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-warn,src/styles/primitives.css,299,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-good,src/styles/primitives.css,301,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-mag,src/styles/primitives.css,303,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-badge-muted,src/styles/primitives.css,305,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-source-chip,src/styles/primitives.css,308,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-plddt-bar,src/styles/primitives.css,324,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-plddt-vhigh,src/styles/primitives.css,331,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-plddt-high,src/styles/primitives.css,332,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-plddt-low,src/styles/primitives.css,333,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-plddt-vlow,src/styles/primitives.css,334,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-live-dot,src/styles/primitives.css,337,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-divider,src/styles/primitives.css,346,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-surface-card,src/styles/primitives.css,353,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-surface-card-2,src/styles/primitives.css,357,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-border-card-sep,src/styles/primitives.css,370,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-step-complete,src/styles/primitives.css,375,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-step-progress,src/styles/primitives.css,376,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-step-pending,src/styles/primitives.css,377,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+report-print-only,src/styles/print.css,4,css-class,not a literal; prefix 'report-' is built at runtime,low
+report-screen-only,src/styles/print.css,8,css-class,not a literal; prefix 'report-' is built at runtime,low
+app-container,src/styles/print.css,127,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+report-masthead,src/styles/print.css,176,css-class,not a literal; prefix 'report-' is built at runtime,low
+report-summary-box,src/styles/print.css,178,css-class,not a literal; prefix 'report-' is built at runtime,low
+ctx-eyebrow,src/styles/rail.css,83,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ctx-finding,src/styles/rail.css,92,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ctx-gap-list,src/styles/rail.css,128,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ctx-trace,src/styles/rail.css,134,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ctx-status-row,src/styles/rail.css,174,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+ctx-button--quiet,src/styles/rail.css,175,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+rail-row,src/styles/rail.css,189,css-class,not a literal; prefix 'rail-' is built at runtime,low
+review-workspace,src/styles/review-workspace.css,3,css-class,not a literal; prefix 'review-' is built at runtime,low
+settings-theme-preview--dark,src/styles/settings.css,169,css-class,not a literal; prefix 'settings-theme-preview--' is built at runtime,low
+s3d-strong,src/styles/structure3d.css,13,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+structure-workspace,src/styles/structure3d.css,51,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-display__note,src/styles/structure3d.css,279,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-guide__item-btn,src/styles/structure3d.css,353,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-guide__clear,src/styles/structure3d.css,355,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-overlay__facts,src/styles/structure3d.css,527,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-sidechain-card,src/styles/structure3d.css,687,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-sidechain-card__head,src/styles/structure3d.css,697,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-sidechain-card__title,src/styles/structure3d.css,704,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-sidechain-card__badge,src/styles/structure3d.css,709,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-sidechain-card__note,src/styles/structure3d.css,729,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-sidechain-card__caveat,src/styles/structure3d.css,735,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+s3d-status-pill,src/styles/structure3d.css,831,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+table-numeric,src/styles/typography-tables.css,4,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+table-th,src/styles/typography-tables.css,11,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+table-pending-summary,src/styles/typography-tables.css,23,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+report-prose-wrapper,src/styles/typography-tables.css,32,css-class,not a literal; prefix 'report-' is built at runtime,low
+report-prose,src/styles/typography-tables.css,38,css-class,not a literal; prefix 'report-' is built at runtime,low
+cs-step-icon-not-started,src/styles/typography-tables.css,86,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-step-icon-in-progress,src/styles/typography-tables.css,89,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+cs-step-icon-complete,src/styles/typography-tables.css,92,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+badge-metric-neutral,src/styles/typography-tables.css,97,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+badge-data-source,src/styles/typography-tables.css,111,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+metric-card,src/styles/typography-tables.css,143,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+metric-card-label,src/styles/typography-tables.css,150,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+metric-card-value,src/styles/typography-tables.css,159,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+metric-card-desc,src/styles/typography-tables.css,169,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+row-subject,src/styles/typography-tables.css,190,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+readout-note,src/styles/typography-tables.css,216,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+readout-inline,src/styles/typography-tables.css,225,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+prose-meta,src/styles/typography-tables.css,243,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+empty-state-box,src/styles/typography-tables.css,273,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+table-container-card,src/styles/typography-tables.css,285,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+table-header-row,src/styles/typography-tables.css,293,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+qe__try,src/styles/variant-workbench.css,170,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+qe__try-label,src/styles/variant-workbench.css,171,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+qe__example,src/styles/variant-workbench.css,172,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+qe__example-note,src/styles/variant-workbench.css,173,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+qe__example-value,src/styles/variant-workbench.css,174,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high
+qe-input--placeholder,src/styles/variant-workbench.css,297,css-class,"no occurrence of the class name in src/server/scripts/e2e (ts, tsx, js, html)",high

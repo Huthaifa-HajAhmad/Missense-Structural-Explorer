@@ -1,3 +1,6 @@
+import { expertPm1Specified, expertPm1StatusOf, type HotspotContext } from "../../shared/hotspotEvidence";
+import { hotspotsSlot } from "../../shared/evidenceKeys";
+import type { ContextLoad } from "../../stores/slices/evidenceContextSlice";
 import React, { useMemo } from "react";
 import { GitBranch, Bot, BookOpen, Sparkles, Pin } from "lucide-react";
 import { AnalysisResult } from "../../types";
@@ -11,7 +14,7 @@ import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
 import { useReviewWorkspace } from '../review/ReviewWorkspace';
-import { deriveConsensus } from '../../lib/insightsConsensus';
+import { stabilityInputFor } from '../../shared/insightsSnapshot';
 import type { EnergeticsData } from '../../types';
 
 /**
@@ -55,19 +58,23 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisResult, isNarrativeLoading = false, foldingEnergetics, foldingDdG, isEvidenceLoading = false }) => {
   const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(analysisResult?.metadata?.gene || s.gene || null, analysisResult?.metadata?.uniprotId, analysisResult?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const expertPm1Status = expertPm1StatusOf(hotspotLoad);
   const w = useReviewWorkspace('insights');
   const { isFolding, foldingStatus } = useFoldxRunState();
 
   const ev = useMemo(
     () => {
       if (!analysisResult) return null;
-      const consensus = deriveConsensus({ result: analysisResult, foldingEnergetics, foldingDdG, isFolding, foldingStatus });
       return buildInsightsEvidence({ result: analysisResult, functionInput: functionEvidenceInputFrom(analysisResult),
-        stability: consensus ? { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing } : null,
-        isLoading: isEvidenceLoading,
+        stability: stabilityInputFor(analysisResult, foldingEnergetics, foldingDdG, { isFolding, foldingStatus }),
+        expertPm1Specified: expertPm1,
+        expertPm1Status,
+        isLoading: isEvidenceLoading || isFolding,
         narrativeDegraded: isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason) });
     },
-    [analysisResult, foldingEnergetics, foldingDdG, isEvidenceLoading, isFolding, foldingStatus]
+    [expertPm1, expertPm1Status, analysisResult, foldingEnergetics, foldingDdG, isEvidenceLoading, isFolding, foldingStatus]
   );
 
   if (!analysisResult || !ev) {
@@ -109,12 +116,12 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
               ? `It proposed ${ev.proposals.length + ev.droppedEngineOwned.length} ${ev.proposals.length + ev.droppedEngineOwned.length === 1 ? "criterion" : "criteria"}.`
               : "It proposed no criteria."}
           </Step>
-          <Step n={3} label="Criteria merge">
+          <Step n={3} label="How the verdict was combined">
             The engine&apos;s codes are kept.
             {ev.droppedEngineOwned.length > 0 && <> Left out, because the engine decides them: {ev.droppedEngineOwned.map(d => d.code).join(", ")}.</>}
             {ev.proposals.length > 0 && <> Listed, not counted: {ev.proposals.map(d => d.code).join(", ")}.</>}
           </Step>
-          <Step n={4} label="Engine record" state={ev.recordMismatch ? "warn" : "done"}>
+          <Step n={4} label="Recorded criteria" state={ev.recordMismatch ? "warn" : "done"}>
             {ev.engineCodes.length
               ? <>{ev.engineCodes.map(c => formatEvidenceCode(c.code)).join(", ")}.</>
               : "No criterion recorded."}{" "}

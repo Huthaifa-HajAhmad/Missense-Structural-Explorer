@@ -56,7 +56,7 @@ export function classifyRows(store: PartnerRowStore, uniprotId: string | null, c
     row.group = groupOf(row);
     const parts = [
       store.evidenceOf.get(row.key) ?? null,
-      row.observed ? `Solved: ${plural(row.observed.total, "structure")}` : null,
+      row.observed ? `Solved: ${plural(row.observed.total, "structure")} of this pair` : null,
       row.intactExperiments !== null || row.intact ? intactLine(row.intact, row.intactExperiments, c.ppi?.lookups?.intact === "ok") : null,
     ].filter((p): p is string => Boolean(p));
     if (row.sites.length && !parts.length) parts.push(`Mapped site ${row.sites.map(rangeText).join(", ")}`);

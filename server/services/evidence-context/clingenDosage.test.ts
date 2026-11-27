@@ -40,6 +40,7 @@ describe('ClinGen dosage adapter', () => {
     expect(positive.status).toBe('ready');
     expect(negative).toMatchObject({ status: 'not-found', record: null, provenance: { source: 'ClinGen dosage sensitivity' } });
     expect(negative.message).toContain('NAE1 in the complete source table');
+    expect(negative.message).toMatch(/^No result\./);
     expect((await loader('NAE1')).provenance?.sha256).toBe(positive.provenance?.sha256);
     expect(fetch).toHaveBeenCalledTimes(1);
   });

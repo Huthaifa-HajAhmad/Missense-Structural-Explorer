@@ -1,3 +1,6 @@
+import { expertPm1Specified, expertPm1StatusOf, type HotspotContext } from "../../shared/hotspotEvidence";
+import { hotspotsSlot } from "../../shared/evidenceKeys";
+import type { ContextLoad } from "../../stores/slices/evidenceContextSlice";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { selectNarrativeEvidence } from "../../hooks/useNarrativeEvidenceContext";
@@ -5,7 +8,8 @@ import { useFoldxRunState } from "../../hooks/useFoldxRunState";
 import type { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { deepEvidenceContextFromStore } from "../../shared/deepModelEvidence";
-import { buildReportDocument, defaultReportSections, type ReportDocument } from "../../shared/reportDocument";
+import { buildReportDocument, defaultReportSections, type ReportBuild } from "../../shared/reportDocument";
+import { useSettings } from "../../context/SettingsContext";
 import { reportInputFromRun, type ReportDraft } from "../../shared/reportInput";
 import { readReportDraft, removeReportDraft, reportDraftKeys, writeReportDraft } from "../../stores/reportDraftStorage";
 
@@ -16,7 +20,7 @@ import { readReportDraft, removeReportDraft, reportDraftKeys, writeReportDraft }
  * It keeps one entry, which is enough for one screen. Two different documents on screen at once would
  * evict each other and each rebuild, which is slower but never wrong.
  */
-let lastBuild: { key: readonly unknown[]; doc: ReportDocument } | null = null;
+let lastBuild: { key: readonly unknown[]; doc: ReportBuild } | null = null;
 const sameKey = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 
 /**
@@ -25,7 +29,9 @@ const sameKey = (a: readonly unknown[], b: readonly unknown[]) => a.length === b
  * `stamped()` builds it again with an export time, so a document is dated when it is exported and never
  * when it is merely looked at (the old page printed today's date every time it rendered).
  */
-export function useReportDocument(result: AnalysisResult | null): { doc: ReportDocument; stamped: () => ReportDocument } {
+export function useReportDocument(result: AnalysisResult | null): { doc: ReportBuild; stamped: () => ReportBuild } {
+  const { settings } = useSettings();
+  const energyUnit = settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol";
   const evidence = useVariantAnalysisStore(useShallow(selectNarrativeEvidence));
   const gene = useVariantAnalysisStore(s => s.gene);
   const variant = useVariantAnalysisStore(s => s.variant);
@@ -34,17 +40,23 @@ export function useReportDocument(result: AnalysisResult | null): { doc: ReportD
   const foldingDdG = useVariantAnalysisStore(s => s.primaryBiophysics?.foldingDdG ?? s.foldingDdG);
   const { isFolding, foldingStatus } = useFoldxRunState();
   const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
+  const isClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading || s.analysisState.isLoading);
   const sections = useVariantAnalysisStore(s => s.reportSections);
   const edits = useVariantAnalysisStore(s => s.reportEdits);
   const meta = useVariantAnalysisStore(s => s.reportMeta);
   const citations = useVariantAnalysisStore(s => s.reportCitations);
 
-  const key = [result, ...Object.values(evidence), gene, variant, uniprotId, foldingEnergetics, foldingDdG, foldingStatus, isFolding, isBiophysicalLoading, sections, edits, meta, citations];
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(result?.metadata?.gene || s.gene || null, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const expertPm1Status = expertPm1StatusOf(hotspotLoad);
+  const key = [expertPm1, expertPm1Status, result, ...Object.values(evidence), gene, variant, uniprotId, foldingEnergetics, foldingDdG, foldingStatus, isFolding, isBiophysicalLoading, isClinicalLoading, sections, edits, meta, citations, energyUnit];
   const build = useCallback(
     (generatedAt: string | null) =>
-      buildReportDocument(
-        reportInputFromRun({
+      buildReportDocument({
+        ...reportInputFromRun({
           result,
+          expertPm1Specified: expertPm1,
+          expertPm1Status,
           narrativeContext: deepEvidenceContextFromStore(evidence),
           gene,
           variant,
@@ -53,11 +65,12 @@ export function useReportDocument(result: AnalysisResult | null): { doc: ReportD
           foldingDdG: foldingDdG as number | null,
           foldingStatus,
           isFolding,
-          isLoading: isBiophysicalLoading,
+          isLoading: isBiophysicalLoading || isClinicalLoading,
           draft: { sections, edits, meta, citations },
           generatedAt,
-        })
-      ),
+        }),
+        energyUnit,
+      }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` lists every value `build` reads.
     key
   );

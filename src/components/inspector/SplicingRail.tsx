@@ -79,7 +79,8 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
     sources.push(["Scores", ev.spliceai.maskText]);
     if (ev.spliceai.provenance?.annotationSet) sources.push(["Transcript set", ev.spliceai.provenance.annotationSet]);
   }
-  if (g.transcriptId) sources.push(["Junction geometry", g.ensemblTranscriptId && g.ensemblTranscriptId !== g.transcriptId ? `${g.transcriptId} (${g.ensemblTranscriptId})` : g.transcriptId]);
+  // No geometry was queried when the refusal is recorded, so no junction transcript is a source.
+  if (g.transcriptId && !g.refusal) sources.push(["Junction geometry",g.ensemblTranscriptId && g.ensemblTranscriptId !== g.transcriptId ? `${g.transcriptId} (${g.ensemblTranscriptId})` : g.transcriptId]);
 
   return (
     <div className="spl-rail" data-testid="splicing-rail">
@@ -127,7 +128,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
                 "Not in payload"
               )}
             </span>
-            <span className="spl-step__sub">Missense and splicing evidence share one PP3/BP4 slot. SpliceAI ≥ 0.20 blocks BP4 and applies splicing PP3 once when PVS1 is absent; splicing BP4 alone is not recorded for missense variants.</span>
+            <span className="spl-step__sub">Missense and splicing evidence share one PP3/BP4 slot. Splicing BP4 alone is not recorded for missense variants.</span>
             {ev.relation === "conflict" && (
               <span className="spl-step__warn">Splicing supports PP3 while the in-silico code is {engineCode}: an earlier engine classified this. Re-run before accepting it.</span>
             )}

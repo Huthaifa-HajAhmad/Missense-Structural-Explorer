@@ -245,7 +245,7 @@ describe("VariantHeader Component Tests", () => {
     expect(panel().getByText("Constrained")).toBeInTheDocument();
     expect(panel().getByText("Not LoF constrained")).toBeInTheDocument(); // 0.71 ≥ 0.45, gnomAD's suggested cut
     // RMC O/E 0.85 is above the calibrated PP2 Supporting edge (0.59) and below the BP1 edge (0.97): no band.
-    expect(panel().getByText("No calibrated band")).toBeInTheDocument();
+    expect(panel().getByText("Not met")).toBeInTheDocument();
 
     // Reference ranges are rendered as threshold ticks on the tracks. 0.36 is both LOEUF's strong cut and
     // the RMC PP2 Moderate edge, so each row's numerals are looked up inside that row.
@@ -601,7 +601,7 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = panel().getByText("No calibrated band").closest("li");
+    const rmcRow = panel().getByText("Not met").closest("li");
     expect(rmcRow).not.toBeNull();
     expect(rmcRow!.getAttribute("title")).not.toContain("p = ");
     expect(panel().getByText("Interval Gln199 to Met555.")).toBeInTheDocument();
@@ -721,7 +721,7 @@ describe("VariantHeader Component Tests", () => {
     // The same severe Z with an O/E outside both PP2 bands claims no PP2.
     rerender(<Chrome gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={withRegionalOe(0.85)} />);
     expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
-    expect(panel().getByText("No calibrated band")).toBeInTheDocument();
+    expect(panel().getByText("Not met")).toBeInTheDocument();
     expect(panel().queryByText(/^PP2 (Moderate|Supporting) band$/)).toBeNull();
   });
 

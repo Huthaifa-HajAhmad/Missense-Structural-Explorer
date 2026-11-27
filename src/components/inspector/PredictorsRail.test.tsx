@@ -136,4 +136,25 @@ describe("PredictorsRail", () => {
     const excludedStep = screen.getByTestId("predictor-rule-trace").children[1];
     expect(excludedStep.getAttribute("data-state")).toBe("done");
   });
+
+  it("prints a regional O/E just inside a PP2 edge with the third decimal, so it does not read as the edge", () => {
+    // 0.3601 is Supporting (above the 0.36 Moderate edge); two decimals would print "0.36" beside "PP2 Supporting".
+    const nearEdge = { ...result, gnomadConstraint: { regionalConstraint: { oeRatio: 0.3601 } } };
+    render(<EvidenceWorkspaceProvider result={nearEdge}><PredictorsRail analysisResult={nearEdge} /></EvidenceWorkspaceProvider>);
+    expect(screen.getByText("Regional O/E 0.360 → PP2 Supporting")).toBeInTheDocument();
+  });
+});
+
+describe("PredictorsRail — one chain line for every variant", () => {
+  it("states the standard order first, then the gene's own rule when one applies", () => {
+    const plain = render(<EvidenceWorkspaceProvider result={result}><PredictorsRail analysisResult={result} /></EvidenceWorkspaceProvider>);
+    expect(screen.getByTestId("predictor-rule-trace").textContent).toContain("Standard order: REVEL → BayesDel noAF → AlphaMissense → ESM1b.");
+    plain.unmount();
+
+    const tp53: any = { ...result, metadata: { ...result.metadata, gene: "TP53" } };
+    render(<EvidenceWorkspaceProvider result={tp53}><PredictorsRail analysisResult={tp53} /></EvidenceWorkspaceProvider>);
+    const trace = screen.getByTestId("predictor-rule-trace").textContent ?? "";
+    expect(trace).toContain("Standard order: REVEL → BayesDel noAF → AlphaMissense → ESM1b.");
+    expect(trace).toContain("This gene: TP53 Variant Curation Expert Panel");
+  });
 });

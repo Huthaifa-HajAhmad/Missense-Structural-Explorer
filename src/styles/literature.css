@@ -172,11 +172,11 @@
   flex: none;
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--cs-accent-clay);
+  border: 1px solid var(--cs-btn-primary-bg);
   border-radius: 8px;
-  background: var(--cs-accent-clay);
-  /* White on the brand clay in both themes: --cs-surface flips to near-black in the dark theme. */
-  color: white;
+  background: var(--cs-btn-primary-bg);
+  /* White ink token on WCAG AA terracotta in both themes (5.71:1; audit finding F14). */
+  color: var(--cs-btn-primary-ink);
   font: inherit;
   font-size: var(--cs-font-size-caption);
   font-weight: var(--cs-font-weight-semibold);

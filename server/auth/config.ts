@@ -17,7 +17,8 @@ export type AuthProvider = "password" | "cloudflare-access";
 const MODES: readonly AuthMode[] = ["legacy", "hybrid", "accounts"];
 const PROVIDERS: readonly AuthProvider[] = ["password", "cloudflare-access"];
 
-export const DEFAULT_PUBLIC_BASE_URL = "https://missense-resolve.duckdns.org";
+// The address users open (the Cloudflare Worker in front of the origin server), used in invite and reset links.
+export const DEFAULT_PUBLIC_BASE_URL = "https://missense-resolve-edge.pedigreepro.workers.dev";
 
 export interface AuthSettings {
   mode: AuthMode;

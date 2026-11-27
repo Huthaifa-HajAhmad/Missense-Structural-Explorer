@@ -12,9 +12,16 @@ function renderPipeline() {
 }
 function seed() {
   const store = useVariantAnalysisStore.getState();
+  // Seed a settled core evidence payload so all evidence lanes are read when the 6 stages settle (advisor Must-fix #3).
   store.setAnalysisState({ isLoading: false, error: null, result: {
     metadata: { gene: "SLC12A4", variant: "p.Gln867His", uniprotId: "Q9UP95", pipelineStages: { core: "complete", landscape: "complete" } },
-    ruleBasedInsights: { acmgVerdict: "Uncertain Significance" }, landscapeData: [{ position: 867 }]
+    ruleBasedInsights: { acmgVerdict: "Uncertain Significance", acmgCriteria: [] },
+    predictorData: { caddPhred: 24.5 },
+    conservationData: { revel: 0.4, spliceai: { max_ds: 0.01, ds_ag: 0.01, ds_al: 0, ds_dg: 0, ds_dl: 0 } },
+    gnomadFrequency: { maxAF: 0.002, groupMaxAF: 0.002, exomeAF: 0.002, exomeAC: 20, exomeAN: 10000 },
+    serviceStatus: { gnomadFrequency: "ok", uniprotFeatures: "ok" },
+    uniprotFeatures: { features: [], subunitComment: "Homodimer." },
+    landscapeData: [{ position: 867 }]
   } as any });
   store.setPdbText("ATOM coordinates");
   return store;

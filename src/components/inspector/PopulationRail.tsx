@@ -8,6 +8,7 @@ import { pm2HoldReason } from "../../shared/frequencyRule";
 import {
   aouSourceLabel,
   formatAlleleFrequency,
+  formatCount,
   formatCutPoint,
   populationReading, frequencyEvidenceForResult } from "../../shared/frequencyEvidence";
 import { gnomadGroupLabel, GRPMAX_GROUPS } from "../../shared/gnomadGroups";
@@ -131,8 +132,8 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
     numberingRemap: (analysisResult as any).numberingRemap ?? null,
   });
   const criteria = acmgCriteriaView(analysisResult.insights?.acmgCriteria, analysisResult.ruleBasedInsights?.acmgCriteria);
-  const pathCount = criteria.filter(c => c.code.toUpperCase().startsWith("P")).length;
-  const benCount = criteria.filter(c => c.code.toUpperCase().startsWith("B")).length;
+  const pathCodes = criteria.filter(c => c.code.toUpperCase().startsWith("P")).map(c => c.code);
+  const benCodes = criteria.filter(c => c.code.toUpperCase().startsWith("B")).map(c => c.code);
   const tier = isManeSelect ? "MANE Select" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned";
   const tierTone = isManeSelect ? "good" : isManePlusClinical ? "accent" : isCanonical ? "warning" : "muted";
 
@@ -179,14 +180,15 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               {inputs && inputs.benignStatistic !== inputs.pm2Statistic ? (
                 <>
                   {/* Two inputs: FAF95 for BA1/BS1 (conservative for benign), the raw grouped maximum for PM2. */}
-                  <span><span className="pop-mono">{formatAlleleFrequency(inputs.benignAf)}</span> · BA1/BS1 read FAF95{criterion.faf95Population ? ` (${gnomadGroupLabel(criterion.faf95Population)})` : ""}</span>
+                  <span><span className="pop-mono">{formatAlleleFrequency(inputs.benignAf)}</span> · BA1 reads FAF95{criterion.faf95Population ? ` (${gnomadGroupLabel(criterion.faf95Population)})` : ""}</span>
+                  {criterion.code !== "BA1" && <span className="rail-step__sub">The BS1 reference value is shown, not counted.</span>}
                   <span><span className="pop-mono">{formatAlleleFrequency(inputs.pm2Af)}</span> · PM2 reads the grouped maximum{criterion.groupMaxPopulation ? ` (${gnomadGroupLabel(criterion.groupMaxPopulation)})` : ""}</span>
                 </>
               ) : (
                 <span className="pop-mono">{criterion.absent ? "0 — no record" : formatAlleleFrequency(reading.ruleAf)}</span>
               )}
               {criterion.usedGroupMax && (
-                <span className="rail-step__sub">Highest of gnomAD&apos;s grpmax groups ({GRPMAX_GROUPS.join(", ")}) with ≥ {FREQ.groupMinAn.toLocaleString("en-GB")} alleles</span>
+                <span className="rail-step__sub">Highest frequency across gnomAD&apos;s ancestry groups (grpmax: {GRPMAX_GROUPS.join(", ")}), each with ≥ {formatCount(FREQ.groupMinAn)} alleles</span>
               )}
               {criterion.combinedCohorts && (
                 <span className="rail-step__warn">
@@ -201,10 +203,15 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               <span className="pop-mono">≤ {formatCutPoint(criterion.pm2Ceiling)}</span>
               {pm2Reached ? (
                 /* The engine's own reason: curated GenCC inheritance first, pLI only without it. */
-                <span className="rail-step__sub" data-testid="ceiling-basis">{criterion.ceilingText ?? (typeof pli === "number" ? `pLI ${pli.toFixed(2)}` : "pLI not available")}</span>
+                <>
+                  <span className="rail-step__sub" data-testid="ceiling-basis">{criterion.ceilingText ?? (typeof pli === "number" ? `pLI ${pli.toFixed(2)}` : "pLI not available")}</span>
+                  {criterion.ceilingBasis?.startsWith("curated") && (
+                    <span className="rail-step__sub" data-testid="ceiling-source">Source: the gene&apos;s GenCC record, not the disease picked on Gene–disease.</span>
+                  )}
+                </>
               ) : (
                 /* BA1/BS1 decided on FAF95 before any ceiling was read — say so instead of implying the ceiling contributed. */
-                <span className="rail-step__sub">The benign cut-points fired before the ceiling was consulted.</span>
+                <span className="rail-step__sub">A benign rule decided this first, so the PM2 ceiling was not checked.</span>
               )}
             </Step>
           )}
@@ -215,7 +222,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           >
             <span className="rail-step__verdict">
               {applied.known ? (
-                applied.code ? <span className="ev-tier chip-code" data-tone={applied.code === "PM2" ? "danger" : "good"}>{applied.code === 'PM2' ? 'PM2 · Supporting' : applied.code}</span> : "None recorded"
+                applied.code ? <span className="ev-tier chip-code" data-tone={applied.code === "PM2" ? "danger" : "good"}>{applied.code === 'PM2' ? 'PM2 · Supporting' : applied.code}</span> : "No criterion"
               ) : supportsCode ? (
                 <>unconfirmed (supports {criterion.code})</>
               ) : criterion.code === "withheld" ? (
@@ -233,7 +240,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
             {bs2Info.recorded && (
               <span className="rail-step__sub" data-testid="bs2-recorded">
                 Also recorded: <span className="ev-tier chip-code" data-tone="good">BS2</span> from{" "}
-                <span className="pop-mono">{evidence.gnomadHomozygotes ?? "—"}</span> gnomAD homozygotes
+                <span className="pop-mono">{formatCount(evidence.gnomadHomozygotes)}</span> gnomAD homozygotes
                 {evidence.candidates ? " (minimum across candidates)" : ""}
               </span>
             )}
@@ -297,7 +304,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
                       ? "gnomAD did not answer within the run's grace window"
                       : "gnomAD itself was not available"
                   }. It has no ancestry groups and no FAF95, so an ancestry-enriched allele can sit above it.`
-                : "BA1 and BS1 read gnomAD's filtering allele frequency (FAF95) when gnomAD reports it, as ClinGen SVI recommends; PM2 reads the raw grouped maximum, which is never lower. Without FAF95 both read the grouped maximum."}
+                : "BA1 reads gnomAD's filtering allele frequency (FAF95) when gnomAD reports it, as ClinGen SVI recommends; PM2 reads the raw grouped maximum, which is never lower. Without FAF95, BA1 reads the grouped maximum. BS1 is never counted here: its value is shown as a reference only."}
             </li>
             <li>The grouped maximum is taken over gnomAD v4.1&apos;s grpmax groups only ({GRPMAX_GROUPS.join(", ")}), from joint exome + genome counts; founder groups (asj, fin, ami), &ldquo;remaining&rdquo; and sex splits are excluded.</li>
             <li>PM2&apos;s ceiling comes from the gene&apos;s curated GenCC inheritance (Definitive, Strong or Moderate records): autosomal recessive only gives the higher ceiling; any other mode the lower one. pLI decides only when no curated record qualifies, and pLI does not establish inheritance.</li>
@@ -347,9 +354,9 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               <span className="pop-mono">{maneRefSeqId}</span>
             </Row>
           )}
-          <Row label="ACMG rules">
+          <Row label="ACMG rules, all tabs">
             <span>
-              <span className="pop-mono">{pathCount}</span> pathogenic · <span className="pop-mono">{benCount}</span> benign
+              {pathCodes.length} pathogenic{pathCodes.length > 0 ? ` (${pathCodes.join(", ")})` : ""} · {benCodes.length} benign{benCodes.length > 0 ? ` (${benCodes.join(", ")})` : ""}
             </span>
           </Row>
         </dl>

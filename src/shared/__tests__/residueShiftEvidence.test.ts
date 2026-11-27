@@ -223,6 +223,12 @@ describe("deriveBiochemicalNarrative", () => {
     expect(narrative.detail).toBeTruthy();
   });
 
+  it("says that no reason was recorded when the narrative is missing and no reason came with it", () => {
+    const narrative = deriveBiochemicalNarrative(null);
+    expect(narrative.reasonLabel).toBeNull();
+    expect(narrative.detail).toMatch(/no reason was recorded/i);
+  });
+
   it("reports loading while synthesis is in flight", () => {
     expect(deriveBiochemicalNarrative("", { isLoading: true }).state).toBe("loading");
   });

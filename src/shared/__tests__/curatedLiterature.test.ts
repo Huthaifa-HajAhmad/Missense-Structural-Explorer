@@ -121,4 +121,11 @@ describe("screening enforces the curated link's own variant", () => {
   it("counts a curated reading for ordering only, with no ACMG surface", () => {
     expect(attentionTier({ tags: [], citedBy: [{ provider: "uniprot", label: "x", detail: "", sourceUrl: "", pmid: "1", retrievedAt: "" }] })).toBe(1);
   });
+
+  it("labels a curated citation without a text mention as a curated citation rather than Variant-anchored (F9)", () => {
+    const result = screen(citation({ title: "Nucleolar p53 turnover", abstract: "No variant mention here." }), [link({ variant: "R408W" })]);
+    const reason = whyRead(result);
+    expect(reason).toContain("Curated variant citation");
+    expect(reason).not.toContain("Variant-anchored");
+  });
 });

@@ -77,7 +77,7 @@ The ACMG rule engine (`server/services/prediction/acmg/`) applies Richards et al
 * **Walker 2023 Splicing `PP3` and `BP4` Gate**: When `PVS1` does not already apply, SpliceAI `max Δ ≥ 0.20` (or the gene's VCEP splicing cutoff) blocks missense `BP4` and applies splicing `PP3` at most once per variant; missing or unverified nucleotide loci withhold `BP4`.
 * **PS1 (Same Amino Acid Substitution)**: ClinVar same-amino-acid pathogenic variants map directly to `PS1` as strong evidence of pathogenicity.
 * **PP5 / BP6 (ClinVar Mapping)**: `PP5` / `BP6` are retired and NOT used, in strict alignment with ClinGen SVI working group guidelines.
-* **BS1 / PM2 / PP2**: `BS1` maps benign frequency thresholds, `PM2` is evaluated at `Supporting` (`PM2_Supporting`), and `PP2` uses gnomAD regional missense constraint (`O/E`) with Chao et al. v3 bands.
+* **BS1 / PM2 / PP2**: `BS1` is not applied: it needs a condition-specific maximum credible allele frequency, and the app-wide 1% cut-point is shown only as a reference. `BA1` reads FAF95. `BS2` is not applied either, because gnomAD does not record whether homozygous participants are unaffected. `PM2` is evaluated at `Supporting` (`PM2_Supporting`), and `PP2` uses gnomAD regional missense constraint (`O/E`) with Chao et al. v3 bands.
   `PM2` is withheld, below its ceiling too, when gnomAD reports two or more homozygotes on an autosome, when All of Us
   is above the ceiling, or when the only frequency is the combined local copy (no ancestry groups) above a tenth of the
   ceiling (`pm2Hold`, `src/shared/frequencyRule.ts`). The 10x margin is an app-defined judgement, not a published cut-point.

@@ -6,7 +6,8 @@
  * invented a "MANE Select" transcript and dated itself at render time.
  */
 import { describe, expect, it } from "vitest";
-import { buildInsightsEvidence } from "../insightsEvidence";
+import { buildInsightsEvidence, TIER_SCOPE_SENTENCE } from "../insightsEvidence";
+import { insightsEvidenceFor } from "../insightsSnapshot";
 import {
   buildReportDocument,
   checksum,
@@ -76,7 +77,7 @@ describe("classification", () => {
     expect(c.counted).toEqual(["PP3"]);
     const rows = c.table!.rows;
     expect(rows.find(r => r[0] === "PP3")![1]).toBe("Supporting");
-    expect(c.text).toContain("counted 1 criterion: PP3");
+    expect(c.text).toContain("Counted: PP3 Supporting.");
   });
 
   it("shows a model proposal once, as not counted, and never lets it turn an engine-owned PM2 row to met", () => {
@@ -137,8 +138,8 @@ describe("evidence blocks", () => {
     const comp = block(doc, "computational");
     expect(comp.counted).toEqual(["PP3"]);
     expect(comp.chips.map(c => c.label)).toContain("PP3 counted");
-    expect(comp.text).toContain("REVEL 0.231, the first calibrated tool with a score, gives BP4");
-    expect(comp.table!.headers).toEqual(["Tool", "Score", "Reading", "Role", "Method and caveats"]);
+    expect(comp.text).toContain("REVEL is the first tool in the standard order that has a score. It gives BP4");
+    expect(comp.table!.headers).toEqual(["Tool", "Score", "Reading", "Status", "Method and caveats"]);
   });
 
   it("prints the stability engines with canonical signs and says it is not an ACMG input", () => {
@@ -150,6 +151,13 @@ describe("evidence blocks", () => {
 
   it("states population absence as a statement", () => {
     expect(block(doc, "population").text).toMatch(/No frequency evidence was counted|No frequency criterion applies/);
+  });
+
+  it("words a missing ClinVar review status as Not reported, as the Clinical tab does", () => {
+    const base = input();
+    const clinvar = { classification: "Uncertain significance", lastEvaluated: "", reviewStatus: "", alleleFrequencies: [], trait: "", uid: "" };
+    const withoutReview = buildReportDocument({ ...base, result: { ...base.result, clinvar } });
+    expect(block(withoutReview, "classification").facts.find(f => f.label === "Review status")?.value).toBe("Not reported");
   });
 
   it("names structure quality gaps instead of leaving them blank", () => {
@@ -293,7 +301,7 @@ describe("json", () => {
     const json: any = renderReportJson(doc);
     const comp = json.blocks.find((b: any) => b.key === "computational");
     expect(comp.authorText).toBe("Mine.");
-    expect(comp.drafted).toContain("REVEL 0.231, the first calibrated tool with a score, gives BP4");
+    expect(comp.drafted).toContain("REVEL is the first tool in the standard order that has a score. It gives BP4");
     expect(json.documentId).toBe(doc.footer.documentId);
     expect(json.schema).toBe("mse.report-document/1");
   });
@@ -326,11 +334,11 @@ describe("report audit regression contracts", () => {
     expect(block(doc, "computational").drafted).toBe(base.drafted);
     expect(block(doc, "computational").stale).toBe(true);
   });
-  it("identifies canonical content without claiming an exact-file checksum", () => {
+  it("identifies the content without claiming an exact-file checksum", () => {
     const doc = buildReportDocument(input());
     const stamped = buildReportDocument(input({ generatedAt: "2030-01-01T00:00:00Z" }));
     expect(stamped.footer.documentId).toBe(doc.footer.documentId);
-    expect(renderReportText(stamped)).toContain("excludes export time and file formatting");
+    expect(renderReportText(stamped)).toContain("not counting export time or file format");
     const changed = buildReportDocument(input({ edits: { summary: { text: "Author", base: "old" } } }));
     expect(changed.footer.documentId).not.toBe(doc.footer.documentId);
   });
@@ -339,4 +347,82 @@ describe("report audit regression contracts", () => {
     expect(block(doc, "literature").references).toEqual([]);
     expect(renderReportHtml(doc)).not.toContain("javascript:");
   });
+});
+
+describe("Report summary wording, run completeness and units (release audit FB1)", () => {
+  const allText = (doc: ReturnType<typeof buildReportDocument>) => doc.blocks.map(b => b.drafted).join("\n");
+
+  it("states the tier scope exactly once in the whole document", () => {
+    const doc = buildReportDocument(input());
+    const occurrences = allText(doc).split(TIER_SCOPE_SENTENCE).length - 1;
+    expect(occurrences).toBe(1);
+    expect(block(doc, "classification").drafted).toContain(TIER_SCOPE_SENTENCE);
+  });
+
+  it("shows the ClinVar assertion with its condition and review status, labelled as not counted as PP5/BP6", () => {
+    const result = { ...nae1(), clinvar: { classification: "Pathogenic", trait: "Li-Fraumeni syndrome", reviewStatus: "reviewed by expert panel", lastEvaluated: "2024-05-01", uid: "12345" } };
+    const doc = buildReportDocument(input({ result, insights: buildInsightsEvidence({ result, functionInput, stability: null }) }));
+    const facts = block(doc, "classification").facts;
+    expect(facts.find(f => f.label === "ClinVar assertion (not counted as PP5/BP6)")?.value).toBe("Pathogenic");
+    expect(facts.find(f => f.label === "Condition")?.value).toBe("Li-Fraumeni syndrome");
+    expect(facts.find(f => f.label === "Review status")?.value).toBe("reviewed by expert panel");
+    expect(block(doc, "population").facts.some(f => f.label.startsWith("ClinVar"))).toBe(false);
+  });
+
+  it("finishes with gaps when an evidence area was not assessed, and lists the gaps in the classification text", () => {
+    const result = { ...nae1(), gnomadFrequency: { exomeAF: null, exomeAC: null, exomeAN: null }, serviceStatus: { gnomadFrequency: "ok" } };
+    const doc = buildReportDocument(input({ result, insights: buildInsightsEvidence({ result, functionInput: { ...functionInput, serviceStatus: "error" }, stability: null }) }));
+    expect(doc.completeness.state).toBe("gaps");
+    expect(block(doc, "classification").drafted).toContain("Evidence gaps.");
+    expect(block(doc, "classification").drafted).toContain("Population (not assessed)");
+  });
+
+  it("is still running while a stability engine is provisional, and says so in the classification text", () => {
+    const result = nae1();
+    const insights = buildInsightsEvidence({
+      result,
+      functionInput,
+      stability: { verdict: "Destabilizing (Engines Agree)", enginesCounted: 2, enginesDestabilizing: 0, provisional: true },
+    });
+    const doc = buildReportDocument(input({ result, insights }));
+    expect(doc.completeness.state).toBe("running");
+    expect(doc.completeness.running).toContain("Stability");
+    expect(block(doc, "classification").drafted).toContain("Still running.");
+  });
+
+  it("says a withheld stability conclusion is withheld, not a direction, in the Stability block", () => {
+    const result = { ...nae1(), disruptionPredictor: { plddt: 20 } };
+    const foldingEnergetics = { rasp: -1.4, thermompnn: -0.1, stabilityoracle: -0.5, structureProvenance: { source: "alphafold" } };
+    const insights = insightsEvidenceFor({ result, foldingEnergetics, foldingDdG: null });
+    const doc = buildReportDocument(input({ result, foldingEnergetics, foldingDdG: null, insights }));
+    expect(block(doc, "stability").drafted).toContain("No stability conclusion:");
+    expect(block(doc, "stability").drafted).not.toMatch(/predict destabilisation|destabilising mark/);
+  });
+
+  it("names the document ID as a fingerprint of the content, as the Report screen does", () => {
+    const text = renderReportText(buildReportDocument(input()));
+    expect(text).toContain("a fingerprint of the content, not counting export time or file format");
+    expect(text).not.toContain("canonical content identifier");
+  });
+
+  it("titles the predictor table's column Status, and reads each tool's use from the predictor model", () => {
+    const table = block(buildReportDocument(input()), "computational").table!;
+    expect(table.headers[3]).toBe("Status");
+    expect(JSON.stringify(table.rows)).not.toContain("Calibrated, fixed order");
+  });
+
+  it("labels the ΔΔG column with the energy unit the user chose, and defaults to kcal/mol", () => {
+    const kcal = buildReportDocument(input());
+    expect(block(kcal, "stability").table?.headers[1]).toBe("ΔΔG (kcal/mol)");
+    const kj = buildReportDocument(input({ energyUnit: "kJ/mol" }));
+    expect(block(kj, "stability").table?.headers[1]).toBe("ΔΔG (kJ/mol)");
+  });
+});
+
+for (const excluded of [false, true]) it(`keeps mandatory gaps when classification is edited and excluded=${excluded}`, () => {
+ const d = buildReportDocument(input({ sections: { ...defaultReportSections(), classification: !excluded }, edits: { classification: { text: "Author wording", base: "" } } }));
+ for (const output of [renderReportText(d), renderReportHtml(d)]) {
+  expect(output).toContain("Finished with gaps");
+  expect(output).toContain("Population (not assessed)");
+ }
 });

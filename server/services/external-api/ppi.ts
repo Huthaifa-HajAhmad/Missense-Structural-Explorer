@@ -259,6 +259,7 @@ const MAX_ENTRIES_TRIED = 4;
 type Experimental =
   | { kind: "found"; pdbText: string; pdbId: string; chain: string; authorResidue: number; method: string | null; resolution: number | null; partners: Array<{ accession: string; name: string }> }
   | { kind: "not-interfacial"; reason: string }
+  | { kind: "unverified"; reason: string }
   | { kind: "none"; reason: string };
 
 /**
@@ -271,8 +272,10 @@ async function experimentalWildType(uniprotId: string, position: number, wtLette
   if (lookup.status !== "ok") {
     return { kind: "none", reason: lookup.status === "none" ? "No solved complex of this protein is in the PDB." : "Solved complexes could not be read from PDBe." };
   }
-  // A fibril or a crystal-packing contact is not a binding complex: neither is a DDMut-PPI wild type.
-  const biological = lookup.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal").map(p => ({ p, view: observedFor(p, uniprotId, position, lookup.coverage) }));
+  // A fibril, crystal-packing contact or short peptide fragment is not a native binding complex: none is a DDMut-PPI wild type.
+  const biological = lookup.partners
+    .filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal" && p.context !== "peptide")
+    .map(p => ({ p, view: observedFor(p, uniprotId, position, lookup.coverage) }));
   const hits = biological.filter(x => x.view.variantAtInterface);
   if (!hits.length) {
     const complexes = new Set(biological.flatMap(x => x.p.pdbEntries)).size;
@@ -290,12 +293,26 @@ async function experimentalWildType(uniprotId: string, position: number, wtLette
         }
       : {
           kind: "none",
-          reason: lookup.partners.some(p => (p.context === "fibril" || p.context === "crystal") && !p.artefact)
-            ? "The only interfaces in solved structures are amyloid fibril stacking, crystal-packing contacts or non-biological partners, and none is a binding complex."
+          reason: lookup.partners.some(p => (p.context === "fibril" || p.context === "crystal" || p.context === "peptide") && !p.artefact)
+            ? "The only interfaces in solved structures are amyloid fibril stacking, crystal-packing contacts, short peptide fragments or non-biological partners, and none is a whole-protein binding complex."
             : "Only construct partners (fusion or crystallisation tags) are in the solved structures.",
         };
   }
-  const entries = [...new Set(hits.flatMap(x => x.view.variantEntries))];
+  const rawEntries = [...new Set(hits.flatMap(x => x.view.variantEntries))];
+  // When PDBe coverage is unavailable, missing the query length, or omits an entry, short peptide
+  // fragments cannot be ruled out (advisor sign-off Finding #6): keep only entries verified against
+  // a known query length, or refuse scoring.
+  const entries = lookup.peptideChecked
+    ? rawEntries
+    : lookup.coverage && (lookup.coverage.length ?? 0) > 0
+      ? rawEntries.filter(id => (lookup.coverage!.entries.get(id)?.length ?? 0) > 0)
+      : [];
+  if (!entries.length) {
+    return {
+      kind: "unverified",
+      reason: "PDBe residue coverage did not verify the query chain span for these entries, so short peptide fragments could not be ruled out before estimating ΔΔG_bind.",
+    };
+  }
   const withExp = await Promise.all(entries.map(async id => ({ id, exp: await fetchEntryExperiment(id, signal) })));
   withExp.sort((a, b) => (a.exp?.resolution ?? 99) - (b.exp?.resolution ?? 99));
 
@@ -381,7 +398,7 @@ export async function analyzeBindingShift(
     if (outcome.status === "running") return { ...base, status: "running", wildType, mutation, reason: "DDMut-PPI is still computing. Ask again shortly; the job is kept." };
     return { ...base, status: "failed", wildType, mutation, reason: outcome.reason };
   }
-  if (exp.kind === "not-interfacial") return { ...base, mutation: uniprotMutation, reason: exp.reason };
+  if (exp.kind === "not-interfacial" || exp.kind === "unverified") return { ...base, mutation: uniprotMutation, reason: exp.reason };
 
   // 2. Boltz-2, only with no solved complex to use.
   let complex = chains;

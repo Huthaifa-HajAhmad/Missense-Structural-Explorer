@@ -103,7 +103,7 @@ describe("External Service Adapters & Registry Tests", () => {
     expect(health.alphagenome).toBeDefined();
     // Default without key should report standby (honest telemetry, no false positive)
     expect(health.alphagenome.healthy).toBe(false);
-    expect(health.alphagenome.message).toContain("Standby");
+    expect(health.alphagenome.message).toBe("AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.");
   });
 
   it("should report AlphaGenome healthy when ALPHAGENOME_API_KEY is configured", async () => {
@@ -235,3 +235,11 @@ describe("SidecarAdapter health probe — cold start vs readiness", () => {
   });
 });
 
+
+it('explains how to set up AlphaGenome when no access key is configured', async () => {
+  vi.stubEnv('ALPHAGENOME_API_KEY', '');
+  vi.stubEnv('ALPHAGENOME_API_URL', '');
+  const health = await new AlphaGenomeAdapter().healthCheck();
+  vi.unstubAllEnvs();
+  expect(health).toMatchObject({ healthy: false, message: 'AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.' });
+});

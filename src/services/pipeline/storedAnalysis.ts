@@ -1,5 +1,6 @@
 import { isBuildDegradedResult } from "../../shared/contracts";
 import { recordsHeldPm2 } from "../../shared/frequencyEvidence";
+import { recordsUnverifiedPs1 } from "../../shared/clinvarPs1";
 import { hasReusableCoreEvidence } from "./resultMerge";
 import { shouldRunBiophysics } from "./biophysicsRetryPolicy";
 import { isFallbackNarrative, type CachedVariantBundle } from "./variantCache";
@@ -20,7 +21,8 @@ import type { PipelineBiophysicalSink, PipelineStructureSink } from "./types";
  */
 export function isServableStoredResult(result: unknown): boolean {
   return hasReusableCoreEvidence(result) && !isBuildDegradedResult(result as Parameters<typeof isBuildDegradedResult>[0])
-    && !recordsHeldPm2(result as Parameters<typeof recordsHeldPm2>[0]);
+    && !recordsHeldPm2(result as Parameters<typeof recordsHeldPm2>[0])
+    && !recordsUnverifiedPs1(result as Parameters<typeof recordsUnverifiedPs1>[0]);
 }
 
 export type ResumableStage = "multimer" | "ppi" | "landscape" | "structural";

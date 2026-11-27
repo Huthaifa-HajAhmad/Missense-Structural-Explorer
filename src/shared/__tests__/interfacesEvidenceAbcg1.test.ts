@@ -105,7 +105,7 @@ describe("Interfaces & PPI — ABCG1 partners (audit 2026-11-26, H1/H2)", () => 
   it("counts six partner proteins once, in the facts, the trace and the summary the chips sit under", () => {
     const ev = abcg1();
     expect(ev.facts.find(f => f.label === "Reported partners")?.value).toBe("6");
-    expect(ev.trace.find(t => t.label === "Partners")?.value).toMatch(/^6 reported partners/);
+    expect(ev.trace.find(t => t.label === "Partners")?.value).toMatch(/^6 partner proteins with binding evidence/);
     expect(ev.partnerSummary).toMatchObject({ binding: 6, association: 500, capped: true });
   });
 });

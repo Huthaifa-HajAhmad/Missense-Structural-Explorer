@@ -1,0 +1,25 @@
+﻿## Agree
+
+Keep the rule-engine scope sentence. Put it beside the tier and carry it into the downloaded report. Separate peptide-only TP53 structures from whole-protein contacts (S2), preserve the peptide observations, and use the same eligible structures for the headline and partner row. Explain why gnomAD alone cannot establish that a carrier was clinically unaffected (S6). Name the source of the inheritance assumption (S7). Fix UROD’s obsolete BS1 test before archiving old reviews. The panel description itself still says “BS1 on afr FAF95.”
+
+## Disagree (with reason)
+
+- **T1/T5.** A provisional flag misses the most consequential example. The ABCG1 capture timed out and Report said “Ready to export” (F2). Establish whether the timeout belonged to the capture tool or the analysis. A stopped capture proves only the last observed state. Derive each conclusion from the inputs it requires. Distinguish running, finished with gaps, and complete. Preserve a completed population finding while FoldX runs. Carry each affected conclusion’s status into navigation, Insights and the export.
+- **S1.** “Leans pathogenic” gives a partial calculation the sound of a clinical judgment. For TP53 R175H, write “Automated tier: uncertain significance. Two criteria counted: PP3 Moderate and PM2 Supporting.” Present the ClinVar assertion separately with its condition and source. Readers can then explain the difference from the report alone.
+- **T6.** Relabelling the ABCG1 transcript leaves a misleading figure. Landscape plots transcript-based records on a different protein’s axis. Show the regional observed-to-expected ratio on its verified transcript coordinates, or withhold its placement until the residue mapping is verified. Apply the same check to plotted points and tooltips.
+- **S3.** Resolve the headline before release. At ABCG1 residue 358, AlphaFold’s local confidence score is 27.2. Suppress a stability conclusion that depends on those coordinates. Keep individual estimates with their template and confidence. A score below 50 concerns coordinate reliability. It supplies no validated cutoff for the accuracy of a combined stability score. [AlphaFold guidance](https://alphafold.ebi.ac.uk/faq)
+- **S4/S5.** Match the expert specification to the condition, inheritance and version. For an applicable rule the app cannot evaluate, record that outcome in the engine and export. TP53’s general BayesDel band, the predictor actually counted, and the expert rule requiring additional inputs are three distinct facts. Identify all three. [ClinGen TP53 specification v2.4](https://cspec.genome.network/cspec/ui/svi/doc/GN009?version=2.4.0)
+
+## Missed
+
+- A shared count or phrase can repeat a false claim perfectly. SOD1’s explanation attributes a prediction to zero methods (B3). TP53 reports 383 of 383 phenotype records shown while 211 summaries are unresolved (C2). Test the underlying sets: retrieved, resolved, displayed and counted. For disease selection, distinguish an empty selection from an actual mismatch (A3).
+- Source identity matters as much as availability. The protein-measurement view leads with an RNA abundance reading (C3). Some papers labelled variant-specific do not identify the variant (F9). Both can mislead a reader even when every source returned successfully.
+- A panel of 14 is a test plan. Group F reviewed four variants, including the incomplete ABCG1 capture. New capture files do not establish review coverage. Report cases reviewed, missing screens and incomplete runs separately.
+- Keep critical qualifications wherever a reader can encounter a conclusion on its own, including the report (T4). For allele-frequency charts, use one unit across the axis. Tooltips can retain the table formatter. Removing the percent sign alone still asks readers to switch scales mentally.
+
+## Release gate
+
+1. Replay fixed inputs for complete, running, timed-out and unavailable cases through the source tab, side panel, Insights and downloaded report. Require agreement on values, criterion strengths, what counted, and reasons for withholding. An incomplete report must identify its gaps in the file itself.
+2. For each expert-panel case, record the allele, condition, assertion source and date, criteria the app can evaluate, and reason for each difference. Have a second reviewer check unexplained differences before release. Agreement on the final tier alone is insufficient.
+3. Exercise ABCG1’s mismatched coordinates, TP53 peptide contacts and expert rules, SOD1’s empty method list, UROD’s withheld BS1 and an empty disease selection. Verify the actual figures, headlines and exported text. List any skipped checks.
+4. Have a teammate open the report independently and identify the variant, disease context, counted evidence and missing results. Verify keyboard access to evidence in scrolling panels, accessible review-star descriptions, and readable contrast for qualifications and export controls. Defer bulk archiving and cosmetic repetition until these checks pass.

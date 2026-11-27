@@ -1,0 +1,5448 @@
+{
+  "seq": 22,
+  "method": "POST",
+  "url": "http://localhost:3200/api/v1/structure/multimer",
+  "status": 200,
+  "requestBody": "{\"gene\":\"TP53\",\"variant\":\"p.Arg175His\",\"uniprotId\":\"P04637\"}",
+  "contentType": "application/json; charset=utf-8",
+  "bodyKind": "json",
+  "body": {
+    "status": "not-requested",
+    "gene": "TP53",
+    "uniprotId": "P04637",
+    "oligomericState": "Homodimer",
+    "chainCount": 2,
+    "chainIds": [
+      "A",
+      "B"
+    ],
+    "complexPdb": null,
+    "ipTm": null,
+    "pTm": null,
+    "interfaceContacts": [],
+    "variantPosition": 175,
+    "variantAtInterface": null,
+    "provenance": "Boltz-2 via JapanFold",
+    "subunitComment": "Forms homodimers and homotetramers (PubMed:19011621). Binds DNA as a homotetramer (PubMed:36108750). Interacts with AXIN1. Probably part of a complex consisting of TP53, HIPK2 and AXIN1 (By similarity). Interacts with histone acetyltransferases EP300 and methyltransferases HRMT1L2 and CARM1, and recruits them to promoters. Interacts (via C-terminus) with TAF1; when TAF1 is part of the TFIID complex. Interacts with ING4; this interaction may be indirect. Found in a complex with CABLES1 and TP73. Interacts with HIPK1, HIPK2, and TP53INP1. Interacts with WWOX. May interact with HCV core protein. Interacts with USP7 and SYVN1. Interacts with HSP90AB1. Interacts with CHD8; leading to recruit histone H1 and prevent transactivation activity (By similarity). Interacts with ARMC10, CDKN2AIP, NUAK1, STK11/LKB1, UHRF2 and E4F1. Interacts with YWHAZ; the interaction enhances TP53 transcriptional activity. Phosphorylation of YWHAZ on 'Ser-58' inhibits this interaction. Interacts (via DNA-binding domain) with MAML1 (via N-terminus). Interacts with MKRN1. Interacts with PML (via C-terminus). Interacts with MDM2; leading to ubiquitination and proteasomal degradation of TP53 (PubMed:10570149, PubMed:19880522, PubMed:22914926, PubMed:8875929). Interacts with PDCD5; the interaction is direct and prevents the interaction between TP53 and MDM2, thereby stabilizing TP53 (PubMed:22914926). Directly interacts with FBXO42; leading to ubiquitination and degradation of TP53. Interacts (phosphorylated at Ser-15 by ATM) with the phosphatase PP2A-PPP2R5C holoenzyme; regulates stress-induced TP53-dependent inhibition of cell proliferation. Interacts with PPP2R2A. Interacts with AURKA, DAXX, BRD7 and TRIM24. Interacts (when monomethylated at Lys-382) with L3MBTL1. Isoform 1 interacts with isoform 2 and with isoform 4. Interacts with GRK5. Binds to the CAK complex (CDK7, cyclin H and MAT1) in response to DNA damage. Interacts with CDK5 in neurons. Interacts with AURKB, SETD2, UHRF2 and NOC2L. Interacts (via N-terminus) with PTK2/FAK1; this promotes ubiquitination by MDM2. Interacts with PTK2B/PYK2; this promotes ubiquitination by MDM2. Interacts with PRKCG. Interacts with PPIF; the association implicates preferentially tetrameric TP53, is induced by oxidative stress and is impaired by cyclosporin A (CsA). Interacts with SNAI1; the interaction induces SNAI1 degradation via MDM2-mediated ubiquitination and inhibits SNAI1-induced cell invasion. Interacts with UBC9. Interacts with ZNF385B; the interaction is direct. Interacts (via DNA-binding domain) with ZNF385A; the interaction is direct and enhances p53/TP53 transactivation functions on cell-cycle arrest target genes, resulting in growth arrest. Interacts with ANKRD2. Interacts with RFFL and RNF34; involved in p53/TP53 ubiquitination. Interacts with MTA1 and COP1. Interacts with CCAR2 (via N-terminus). Interacts with MORC3 (PubMed:17332504). Interacts (via C-terminus) with POU4F2 isoform 1 (via C-terminus) (PubMed:17145718). Interacts (via oligomerization region) with NOP53; the interaction is direct and may prevent the MDM2-mediated proteasomal degradation of TP53 (PubMed:22522597). Interacts with AFG1L; mediates mitochondrial translocation of TP53 (PubMed:27323408). Interacts with UBD (PubMed:25422469). Interacts with TAF6 isoform 1 and isoform 4 (PubMed:20096117). Interacts with C10orf90/FATS; the interaction inhibits binding of TP53 and MDM2 (By similarity). Interacts with NUPR1; interaction is stress-dependent (PubMed:18690848). Forms a complex with EP300 and NUPR1; this complex binds CDKN1A promoter leading to transcriptional induction of CDKN1A (PubMed:18690848). Interacts with PRMT5 in response to DNA damage; the interaction is TTC5/STRAP dependent (PubMed:19011621). Interacts with PPP1R13L (via SH3 domain and ANK repeats); the interaction inhibits pro-apoptotic activity of p53/TP53 (PubMed:12524540). Interacts with PPP1R13B/ASPP1 and TP53BP2/ASPP2; the interactions promotes pro-apoptotic activity (PubMed:12524540). When phosphorylated at Ser-15, interacts with DDX3X and gamma-tubulin (PubMed:28842590). Interacts with KAT7/HBO1; leading to inhibit histone acetyltransferase activity of KAT7/HBO1 (PubMed:17954561). Interacts (via N-terminus) with E3 ubiquitin-protein ligase MUL1; the interaction results in ubiquitination of cytoplasmic TP53 at Lys-24 and subsequent proteasomal degradation (PubMed:21597459). Interacts with S100A4; this interaction promotes TP53 degradation (PubMed:23752197, PubMed:32442400). Interacts with BANP (By similarity). Interacts with TTC5/STRAP; the interaction may result in increased mitochondrial-dependent apoptosis (PubMed:25168243). Interacts with NQO1; this interaction is NADH-dependent, stabilizes TP53 in response to oxidative stress and protects it from ubiquitin-independent degradation by the 20S proteasome (PubMed:15687255). Interacts with DAZAP2 at TP53 target gene promoters; the interaction is triggered by DNA damage and leads to modulation of the expression of a subset of TP53 target genes, reducing DNA damage-induced cell death by limiting the expression of cell death-mediating TP53 target genes (PubMed:33591310). Interacts (via N-terminus) with ZNF768 (via zinc-finger domains); interaction might be facilitated by TP53 oligomerization state (PubMed:34404770). Forms a ternary complex with ALDOB and G6PD; this interaction is direct. ALDOB stabilizes the complex inhibiting G6PD activity and keeping oxidative pentose phosphate metabolism in check. Interacts with MORN3; the interactions mediate post-transcriptional modifications of TP53 by MDM2 and SIRT1 (PubMed:29681526). Interacts with HSPA9/MOT-2; the interaction promotes the degradation of TP53 (PubMed:24625977). Interacts with FBXO22; this interaction promotes TP53 proteasomal degradation (PubMed:26868148) (Microbial infection) Interacts with cancer-associated/HPV E6 viral proteins leading to ubiquitination and degradation of TP53 giving a possible model for cell growth regulation. This complex formation requires an additional factor, E6-AP, which stably associates with TP53 in the presence of E6 (Microbial infection) Interacts with human cytomegalovirus/HHV-5 protein UL123 (Microbial infection) Interacts (via N-terminus) with human adenovirus 5 E1B-55K protein; this interaction leads to the inhibition of TP53 function and/or its degradation (Microbial infection) Interacts with Kaposi's sarcoma-associated herpesvirus/HHV-8 protein ORF45; this interaction results in the cytoplasmic localization of TP53 thereby decreasing its transcriptional activity",
+    "assembly": {
+      "qualifier": null,
+      "statements": [
+        {
+          "kind": "homomer",
+          "label": "Homotetramer",
+          "qualifier": null,
+          "sentence": "Forms homodimers and homotetramers (PubMed:19011621).",
+          "partnerGenes": [],
+          "family": null
+        },
+        {
+          "kind": "homomer",
+          "label": "Homotetramer",
+          "qualifier": null,
+          "sentence": "Binds DNA as a homotetramer (PubMed:36108750).",
+          "partnerGenes": [],
+          "family": null
+        },
+        {
+          "kind": "complex",
+          "label": "Complex subunit",
+          "qualifier": "By similarity",
+          "sentence": "Probably part of a complex consisting of TP53, HIPK2 and AXIN1 (By similarity).",
+          "partnerGenes": [
+            "HIPK2",
+            "AXIN1"
+          ],
+          "family": null
+        },
+        {
+          "kind": "complex",
+          "label": "Complex subunit",
+          "qualifier": null,
+          "sentence": "Interacts (via C-terminus) with TAF1; when TAF1 is part of the TFIID complex.",
+          "partnerGenes": [
+            "TAF1",
+            "TFIID"
+          ],
+          "family": null
+        },
+        {
+          "kind": "homomer",
+          "label": "Homotetramer",
+          "qualifier": null,
+          "sentence": "Interacts with PPIF; the association implicates preferentially tetrameric TP53, is induced by oxidative stress and is impaired by cyclosporin A (CsA).",
+          "partnerGenes": [],
+          "family": null
+        }
+      ],
+      "kind": "homomer",
+      "label": "Homodimer",
+      "copies": 2,
+      "homoAssumed": false,
+      "sentence": "Forms homodimers and homotetramers (PubMed:19011621).",
+      "alsoStated": [
+        "Homotetramer",
+        "Tetramer"
+      ],
+      "partners": []
+    },
+    "experimental": {
+      "status": "ok",
+      "partners": [
+        {
+          "accession": "P04637",
+          "name": "Cellular tumor antigen p53",
+          "residues": [
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            29,
+            30,
+            36,
+            37,
+            40,
+            54,
+            55,
+            93,
+            94,
+            95,
+            96,
+            97,
+            99,
+            100,
+            101,
+            103,
+            105,
+            106,
+            107,
+            114,
+            115,
+            116,
+            117,
+            118,
+            120,
+            123,
+            128,
+            129,
+            136,
+            137,
+            138,
+            139,
+            140,
+            142,
+            148,
+            149,
+            152,
+            156,
+            166,
+            167,
+            169,
+            170,
+            171,
+            172,
+            174,
+            175,
+            176,
+            177,
+            178,
+            179,
+            180,
+            181,
+            182,
+            183,
+            184,
+            185,
+            186,
+            187,
+            188,
+            190,
+            191,
+            196,
+            197,
+            198,
+            199,
+            200,
+            201,
+            202,
+            204,
+            205,
+            206,
+            207,
+            209,
+            210,
+            211,
+            212,
+            221,
+            224,
+            225,
+            226,
+            227,
+            228,
+            233,
+            235,
+            237,
+            239,
+            241,
+            242,
+            243,
+            244,
+            247,
+            248,
+            249,
+            259,
+            260,
+            261,
+            263,
+            264,
+            265,
+            266,
+            267,
+            276,
+            277,
+            280,
+            282,
+            283,
+            286,
+            287,
+            288,
+            289,
+            291,
+            292,
+            293,
+            321,
+            322,
+            323,
+            324,
+            325,
+            326,
+            327,
+            328,
+            329,
+            330,
+            331,
+            332,
+            333,
+            334,
+            335,
+            336,
+            337,
+            338,
+            340,
+            341,
+            342,
+            343,
+            344,
+            345,
+            346,
+            347,
+            348,
+            349,
+            350,
+            351,
+            352,
+            353,
+            354,
+            356
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            2,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3,
+            18,
+            21,
+            19,
+            6,
+            18,
+            5,
+            21,
+            12,
+            7,
+            7,
+            7,
+            5,
+            5,
+            5,
+            5,
+            5,
+            2,
+            9,
+            5,
+            5,
+            1,
+            3,
+            4,
+            11,
+            21,
+            4,
+            3,
+            5,
+            2,
+            5,
+            30,
+            29,
+            18,
+            31,
+            2,
+            2,
+            2,
+            2,
+            25,
+            53,
+            53,
+            32,
+            31,
+            48,
+            3,
+            3,
+            4,
+            4,
+            9,
+            12,
+            7,
+            5,
+            2,
+            2,
+            1,
+            27,
+            34,
+            15,
+            27,
+            17,
+            5,
+            5,
+            5,
+            5,
+            1,
+            13,
+            2,
+            4,
+            6,
+            19,
+            18,
+            17,
+            13,
+            4,
+            22,
+            2,
+            3,
+            7,
+            7,
+            27,
+            49,
+            42,
+            4,
+            1,
+            2,
+            7,
+            5,
+            7,
+            7,
+            10,
+            7,
+            5,
+            9,
+            6,
+            4,
+            3,
+            3,
+            5,
+            5,
+            5,
+            1,
+            1,
+            1,
+            4,
+            1,
+            1,
+            1,
+            3,
+            8,
+            11,
+            21,
+            23,
+            23,
+            23,
+            23,
+            23,
+            23,
+            23,
+            23,
+            23,
+            5,
+            22,
+            23,
+            18,
+            23,
+            14,
+            13,
+            21,
+            23,
+            11,
+            16,
+            23,
+            16,
+            16,
+            16,
+            18,
+            1,
+            14,
+            1
+          ],
+          "pdbEntries": [
+            "1a1u",
+            "1aie",
+            "1c26",
+            "1gzh",
+            "1hs5",
+            "1kzy",
+            "1olg",
+            "1olh",
+            "1pes",
+            "1pet",
+            "1sae",
+            "1saf",
+            "1sak",
+            "1sal",
+            "1tsr",
+            "1tup",
+            "1ycq",
+            "1ycr",
+            "1ycs",
+            "21ex",
+            "2ac0",
+            "2ady",
+            "2ahi",
+            "2ata",
+            "2b3g",
+            "2gs0",
+            "2h1l",
+            "2j0z",
+            "2j10",
+            "2j11",
+            "2k8f",
+            "2l14",
+            "2ly4",
+            "2mej",
+            "2mwy",
+            "2mzd",
+            "2ruk",
+            "2ydr",
+            "2z5s",
+            "2z5t",
+            "3d0a",
+            "3dab",
+            "3dac",
+            "3igk",
+            "3igl",
+            "3kmd",
+            "3kz8",
+            "3q01",
+            "3q05",
+            "3q06",
+            "3sak",
+            "3ts8",
+            "4hfz",
+            "4hje",
+            "4ibu",
+            "4ibv",
+            "4ibw",
+            "4mzr",
+            "4qo1",
+            "4xr8",
+            "5bua",
+            "5ecg",
+            "5lgy",
+            "5mct",
+            "5mcu",
+            "5mcv",
+            "5mcw",
+            "5mf7",
+            "5mg7",
+            "5un8",
+            "6fj5",
+            "6rz3",
+            "6v4f",
+            "6v4h",
+            "6vqo",
+            "6vr1",
+            "6vr5",
+            "6vrm",
+            "6vrn",
+            "6w51",
+            "6xre",
+            "6znc",
+            "7b46",
+            "7b47",
+            "7b48",
+            "7b49",
+            "7b4a",
+            "7b4b",
+            "7b4c",
+            "7b4d",
+            "7b4e",
+            "7b4f",
+            "7b4g",
+            "7b4h",
+            "7b4n",
+            "7bwn",
+            "7eds",
+            "7eeu",
+            "7nmi",
+            "7rm4",
+            "7xzx",
+            "7xzz",
+            "7ygi",
+            "8gcr",
+            "8hll",
+            "8hlm",
+            "8hln",
+            "8j8n",
+            "8oxm",
+            "8oxo",
+            "8r1f",
+            "8r1g",
+            "8rci",
+            "8uqr",
+            "8xcb",
+            "8xce",
+            "9c5s",
+            "9cht",
+            "9eiq",
+            "9ejd",
+            "9ek4",
+            "9fzb",
+            "9g6t",
+            "9obf",
+            "9r04",
+            "9r2m",
+            "9r2p",
+            "9r2q",
+            "9spm",
+            "9spn",
+            "9spo",
+            "9spp",
+            "9spq",
+            "9spr",
+            "9sps",
+            "9u4d",
+            "9yzh"
+          ],
+          "homomeric": true,
+          "artefact": null,
+          "context": "native",
+          "gene": "TP53",
+          "organism": null,
+          "variantAtInterface": true,
+          "variantEntries": [
+            "1tsr",
+            "1tup"
+          ],
+          "modelledEntries": [
+            "1gzh",
+            "1kzy",
+            "1tsr",
+            "1tup",
+            "1ycs",
+            "2ac0",
+            "2ady",
+            "2ahi",
+            "2ata",
+            "2h1l",
+            "2mej",
+            "3d0a",
+            "3igk",
+            "3igl",
+            "3kmd",
+            "3kz8",
+            "3q01",
+            "3q05",
+            "3q06",
+            "3ts8",
+            "4hje",
+            "4ibu",
+            "4ibv",
+            "4ibw",
+            "4mzr",
+            "4qo1",
+            "4xr8",
+            "5bua",
+            "5ecg",
+            "5lgy",
+            "5mct",
+            "5mcu",
+            "5mcv",
+            "5mcw",
+            "5mf7",
+            "5mg7",
+            "6fj5",
+            "6rz3",
+            "6vqo",
+            "6vr1",
+            "6vr5",
+            "6vrm",
+            "6vrn",
+            "6w51",
+            "6xre",
+            "6znc",
+            "7b46",
+            "7b47",
+            "7b48",
+            "7b49",
+            "7b4a",
+            "7b4b",
+            "7b4c",
+            "7b4d",
+            "7b4e",
+            "7b4f",
+            "7b4g",
+            "7b4h",
+            "7b4n",
+            "7eds",
+            "7eeu",
+            "7rm4",
+            "7xzx",
+            "7xzz",
+            "7ygi",
+            "8gcr",
+            "8hll",
+            "8hlm",
+            "8hln",
+            "8j8n",
+            "8r1f",
+            "8r1g",
+            "8rci",
+            "8xcb",
+            "8xce",
+            "9cht",
+            "9fzb",
+            "9g6t",
+            "9r04",
+            "9r2m",
+            "9r2p",
+            "9r2q",
+            "9spm",
+            "9spn",
+            "9spo",
+            "9spp",
+            "9spq",
+            "9spr",
+            "9sps",
+            "9u4d"
+          ],
+          "unmodelled": [
+            {
+              "start": 63,
+              "end": 87
+            },
+            {
+              "start": 361,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P04637",
+          "name": "Cellular tumor antigen p53",
+          "residues": [
+            252,
+            253,
+            254,
+            255,
+            256,
+            257,
+            258
+          ],
+          "support": [
+            1,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "pdbEntries": [
+            "4rp6",
+            "4rp7"
+          ],
+          "homomeric": true,
+          "artefact": null,
+          "context": "fibril",
+          "gene": "TP53",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 251
+            },
+            {
+              "start": 259,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P31947",
+          "name": "14-3-3 protein sigma",
+          "residues": [
+            382,
+            383,
+            384,
+            385,
+            386,
+            387,
+            388,
+            389,
+            390,
+            391,
+            392,
+            393
+          ],
+          "support": [
+            22,
+            4,
+            26,
+            28,
+            28,
+            28,
+            28,
+            6,
+            28,
+            5,
+            21,
+            21
+          ],
+          "pdbEntries": [
+            "3lw1",
+            "5mhc",
+            "5moc",
+            "6r5l",
+            "6rjz",
+            "6rk8",
+            "6rki",
+            "6rkk",
+            "6rkm",
+            "6rl3",
+            "6rl4",
+            "6rl6",
+            "6rm5",
+            "6rm7",
+            "6rwh",
+            "6rwi",
+            "6rws",
+            "6rwu",
+            "6rx2",
+            "6s39",
+            "6s3c",
+            "6s40",
+            "6s9q",
+            "6sin",
+            "6sio",
+            "6sip",
+            "6siq",
+            "6slv"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "SFN",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 381
+            }
+          ]
+        },
+        {
+          "accession": "Q9WYW0",
+          "name": "NAD-dependent protein deacetylase",
+          "residues": [
+            379,
+            380,
+            381,
+            382,
+            383,
+            384,
+            385
+          ],
+          "support": [
+            8,
+            9,
+            9,
+            9,
+            9,
+            9,
+            8
+          ],
+          "pdbEntries": [
+            "1yc5",
+            "2h2d",
+            "2h2f",
+            "2h4f",
+            "2h4h",
+            "2h4j",
+            "2h59",
+            "3pdh",
+            "4buz"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "cobB",
+          "organism": "Thermotoga maritima (strain ATCC 43589 / DSM 3109 / JCM 10099 / NBRC 100826 / MSB8)",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 372
+            },
+            {
+              "start": 386,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q9WYW0",
+          "name": "NAD-dependent protein deacetylase",
+          "residues": [
+            380,
+            381,
+            382,
+            383,
+            384
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "4bv2"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "crystal",
+          "gene": "cobB",
+          "organism": "Thermotoga maritima (strain ATCC 43589 / DSM 3109 / JCM 10099 / NBRC 100826 / MSB8)",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 379
+            },
+            {
+              "start": 385,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P03126",
+          "name": "Protein E6",
+          "residues": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            110,
+            111,
+            113,
+            114,
+            115,
+            116,
+            117,
+            119,
+            128,
+            129,
+            131,
+            144,
+            145,
+            224,
+            225,
+            226,
+            227,
+            228,
+            229,
+            267,
+            268,
+            269,
+            283,
+            286,
+            289,
+            290,
+            291,
+            292,
+            293
+          ],
+          "support": [
+            2,
+            6,
+            6,
+            5,
+            6,
+            6,
+            6,
+            3,
+            1,
+            1,
+            6,
+            6,
+            6,
+            6,
+            2,
+            6,
+            6,
+            2,
+            3,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            4,
+            1,
+            1,
+            5,
+            6,
+            6,
+            1,
+            5,
+            1
+          ],
+          "pdbEntries": [
+            "4xr8",
+            "8gcr",
+            "8r1f",
+            "8r1g",
+            "9cht",
+            "9u4d"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "E6",
+          "organism": "Human papillomavirus type 16",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "4xr8",
+            "8gcr",
+            "8r1f",
+            "8r1g",
+            "9cht",
+            "9u4d"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 89
+            },
+            {
+              "start": 294,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q12888",
+          "name": "TP53-binding protein 1",
+          "residues": [
+            165,
+            167,
+            168,
+            171,
+            177,
+            181,
+            243,
+            244,
+            245,
+            247,
+            248,
+            249,
+            365,
+            366,
+            368,
+            369,
+            370,
+            371,
+            372,
+            375,
+            377,
+            378,
+            379,
+            380,
+            381,
+            382,
+            383,
+            385,
+            386
+          ],
+          "support": [
+            2,
+            2,
+            1,
+            3,
+            3,
+            3,
+            3,
+            3,
+            2,
+            3,
+            3,
+            3,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            2,
+            2,
+            2,
+            2,
+            1
+          ],
+          "pdbEntries": [
+            "1gzh",
+            "1kzy",
+            "2mwo",
+            "2mwp",
+            "4x34",
+            "5ecg"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "TP53BP1",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "1gzh",
+            "1kzy",
+            "5ecg"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 94
+            },
+            {
+              "start": 294,
+              "end": 362
+            },
+            {
+              "start": 388,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q05086",
+          "name": "Ubiquitin-protein ligase E3A",
+          "residues": [
+            108,
+            110,
+            146,
+            147,
+            148,
+            149,
+            223,
+            225,
+            226,
+            228
+          ],
+          "support": [
+            1,
+            2,
+            3,
+            1,
+            5,
+            1,
+            1,
+            1,
+            1,
+            4
+          ],
+          "pdbEntries": [
+            "4xr8",
+            "8gcr",
+            "8r1f",
+            "8r1g",
+            "9cht",
+            "9u4d"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "UBE3A",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "4xr8",
+            "8gcr",
+            "8r1f",
+            "8r1g",
+            "9cht",
+            "9u4d"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 89
+            },
+            {
+              "start": 294,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "A0A140T913",
+          "name": "Major histocompatibility complex, class I, A",
+          "residues": [
+            168,
+            169,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            176
+          ],
+          "support": [
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "pdbEntries": [
+            "6vqo",
+            "6vr1",
+            "6vr5",
+            "6vrm",
+            "6vrn",
+            "6w51"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HLA-A",
+          "organism": null,
+          "variantAtInterface": true,
+          "variantEntries": [
+            "6vqo",
+            "6vr1",
+            "6vr5",
+            "6vrm",
+            "6vrn",
+            "6w51"
+          ],
+          "modelledEntries": [
+            "6vqo",
+            "6vr1",
+            "6vr5",
+            "6vrm",
+            "6vrn",
+            "6w51"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 167
+            },
+            {
+              "start": 177,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q7ZUW7",
+          "name": "Protein Mdm4",
+          "residues": [
+            17,
+            18,
+            19,
+            20,
+            22,
+            23,
+            26,
+            27,
+            28
+          ],
+          "support": [
+            5,
+            5,
+            5,
+            4,
+            5,
+            5,
+            5,
+            5,
+            2
+          ],
+          "pdbEntries": [
+            "2z5s",
+            "2z5t",
+            "3dac",
+            "6v4f",
+            "6v4h"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "mdm4",
+          "organism": "Zebrafish",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 15
+            },
+            {
+              "start": 30,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P45481",
+          "name": "Histone lysine acetyltransferase CREBBP",
+          "residues": [
+            19,
+            20,
+            23,
+            26,
+            27,
+            28,
+            30,
+            33,
+            37,
+            39,
+            40,
+            43,
+            44,
+            45,
+            49,
+            50,
+            52,
+            53,
+            54
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2l14"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "Crebbp",
+          "organism": "Mouse",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 12
+            },
+            {
+              "start": 62,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q07817",
+          "name": "Bcl-2-like protein 1",
+          "residues": [
+            120,
+            121,
+            136,
+            137,
+            139,
+            176,
+            177,
+            178,
+            179,
+            180,
+            181,
+            182,
+            183,
+            184,
+            185,
+            237,
+            239,
+            241,
+            242,
+            243,
+            248,
+            276,
+            277
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2mej"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "BCL2L1",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "2mej"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 95
+            },
+            {
+              "start": 291,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P10415",
+          "name": "Apoptosis regulator Bcl-2",
+          "residues": [
+            183,
+            185,
+            186,
+            187,
+            188,
+            199,
+            200,
+            201,
+            202,
+            203,
+            204,
+            224
+          ],
+          "support": [
+            2,
+            1,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            2,
+            3,
+            3,
+            1
+          ],
+          "pdbEntries": [
+            "8hll",
+            "8hlm",
+            "8hln"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "BCL2",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "8hll",
+            "8hlm",
+            "8hln"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 94
+            },
+            {
+              "start": 289,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "O15151",
+          "name": "Protein Mdm4",
+          "residues": [
+            17,
+            18,
+            19,
+            22,
+            23,
+            25,
+            26,
+            27,
+            28,
+            29
+          ],
+          "support": [
+            1,
+            1,
+            2,
+            2,
+            2,
+            1,
+            2,
+            2,
+            2,
+            1
+          ],
+          "pdbEntries": [
+            "2mwy",
+            "3dab"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "MDM4",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 14
+            },
+            {
+              "start": 30,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P01889",
+          "name": "HLA class I histocompatibility antigen, B alpha chain",
+          "residues": [
+            249,
+            250,
+            251,
+            253,
+            254,
+            255,
+            256,
+            257
+          ],
+          "support": [
+            2,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "pdbEntries": [
+            "9eiq",
+            "9ejd",
+            "9ek4"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HLA-B",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 248
+            },
+            {
+              "start": 258,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q09472",
+          "name": "Histone acetyltransferase p300",
+          "residues": [
+            8,
+            9,
+            10,
+            11,
+            13,
+            17,
+            18,
+            19,
+            21,
+            22,
+            25,
+            26,
+            27,
+            28,
+            30,
+            31,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            43,
+            44,
+            45,
+            46,
+            47,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            56,
+            58
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2k8f",
+            "2mzd"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "EP300",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 60,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P07355",
+          "name": "Annexin A2",
+          "residues": [
+            19,
+            20,
+            22,
+            23,
+            25,
+            26,
+            34,
+            35,
+            36,
+            37,
+            39,
+            40,
+            43,
+            45,
+            46,
+            47,
+            50,
+            51,
+            52,
+            53,
+            54
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "7nmi"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "ANXA2",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 18
+            },
+            {
+              "start": 28,
+              "end": 32
+            },
+            {
+              "start": 56,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q12306",
+          "name": "Small ubiquitin-related modifier",
+          "residues": [
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            114,
+            115,
+            116,
+            117,
+            128,
+            129,
+            144,
+            268,
+            286,
+            289,
+            290,
+            292
+          ],
+          "support": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "pdbEntries": [
+            "8r1f",
+            "8r1g"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "SMT3",
+          "organism": "Baker's yeast",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "8r1f",
+            "8r1g"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 90
+            },
+            {
+              "start": 293,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q00987",
+          "name": "E3 ubiquitin-protein ligase Mdm2",
+          "residues": [
+            17,
+            18,
+            19,
+            20,
+            22,
+            23,
+            25,
+            26,
+            27,
+            28,
+            29
+          ],
+          "support": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1ycr",
+            "4hfz"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "MDM2",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 16
+            },
+            {
+              "start": 30,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q861F7",
+          "name": "MHC class I antigen (Fragment)",
+          "residues": [
+            187,
+            188,
+            189,
+            190,
+            191,
+            192,
+            193,
+            194,
+            195,
+            196,
+            197
+          ],
+          "support": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            1,
+            1,
+            2,
+            2,
+            2,
+            2
+          ],
+          "pdbEntries": [
+            "9obf",
+            "9yzh"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HLA-A",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 186
+            },
+            {
+              "start": 198,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q93009",
+          "name": "Ubiquitin C-terminal hydrolase 7",
+          "residues": [
+            359,
+            360,
+            361,
+            362,
+            364,
+            365,
+            366,
+            367
+          ],
+          "support": [
+            1,
+            1,
+            2,
+            2,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2foj",
+            "2foo"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "USP7",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 357
+            },
+            {
+              "start": 368,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q13315",
+          "name": "Serine-protein kinase ATM",
+          "residues": [
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "support": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "pdbEntries": [
+            "8oxm",
+            "8oxo"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "ATM",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 11
+            },
+            {
+              "start": 19,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P30876",
+          "name": "DNA-directed RNA polymerase II subunit RPB2",
+          "residues": [
+            88,
+            94,
+            97,
+            98,
+            99,
+            100,
+            101,
+            103,
+            179,
+            181,
+            182,
+            184,
+            185,
+            199,
+            200,
+            201,
+            202,
+            221,
+            222,
+            223,
+            224,
+            225,
+            226,
+            227,
+            230,
+            231
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "6xre"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "POLR2B",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "6xre"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 11
+            },
+            {
+              "start": 62,
+              "end": 87
+            },
+            {
+              "start": 352,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P03070",
+          "name": "Large T antigen",
+          "residues": [
+            176,
+            177,
+            178,
+            179,
+            181,
+            239,
+            241,
+            242,
+            243,
+            244,
+            245,
+            246,
+            247,
+            248,
+            273,
+            275,
+            276,
+            277,
+            280,
+            281,
+            284,
+            288
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2h1l"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": null,
+          "organism": "SV40",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "2h1l"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 91
+            },
+            {
+              "start": 290,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P25815",
+          "name": "Protein S100-P",
+          "residues": [
+            19,
+            20,
+            22,
+            23,
+            25,
+            26,
+            34,
+            35,
+            36,
+            37,
+            39,
+            40,
+            43,
+            45,
+            46,
+            47,
+            50,
+            51,
+            52,
+            53,
+            54
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "7nmi"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "S100P",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 18
+            },
+            {
+              "start": 28,
+              "end": 32
+            },
+            {
+              "start": 56,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P27694",
+          "name": "Replication protein A 70 kDa DNA-binding subunit",
+          "residues": [
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            48,
+            50,
+            51,
+            53,
+            54
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2b3g"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "RPA1",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 32
+            },
+            {
+              "start": 57,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P24928",
+          "name": "DNA-directed RNA polymerase II subunit RPB1",
+          "residues": [
+            12,
+            14,
+            15,
+            16,
+            19,
+            20,
+            21,
+            23,
+            30,
+            39,
+            61,
+            117,
+            118,
+            119,
+            121,
+            123,
+            285
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "6xre"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "POLR2A",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "6xre"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 11
+            },
+            {
+              "start": 62,
+              "end": 87
+            },
+            {
+              "start": 352,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q3ZCX4",
+          "name": "Zinc finger protein 568",
+          "residues": [
+            101,
+            102,
+            104,
+            108,
+            109,
+            110,
+            128,
+            129,
+            130,
+            131,
+            164,
+            283,
+            286,
+            289,
+            290,
+            291,
+            292
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "8j8n"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "ZNF568",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "8j8n"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 93
+            },
+            {
+              "start": 292,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P32780",
+          "name": "General transcription factor IIH subunit 1",
+          "residues": [
+            44,
+            45,
+            46,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            60,
+            61,
+            62
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2ruk"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "GTF2H1",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 40
+            },
+            {
+              "start": 63,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P00282",
+          "name": "Azurin",
+          "residues": [
+            139,
+            150,
+            152,
+            153,
+            183,
+            185,
+            186,
+            187,
+            198,
+            199,
+            201,
+            222,
+            225
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "7ygi"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "azu",
+          "organism": "Pseudomonas aeruginosa (strain ATCC 15692 / DSM 22644 / CIP 104116 / JCM 14847 / LMG 12228 / 1C / PRS 101 / PAO1)",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "7ygi"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 91
+            },
+            {
+              "start": 290,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q13625",
+          "name": "Apoptosis-stimulating of p53 protein 2",
+          "residues": [
+            168,
+            178,
+            179,
+            181,
+            182,
+            183,
+            241,
+            242,
+            243,
+            247,
+            248,
+            249,
+            280
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1ycs"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "TP53BP2",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "1ycs"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 96
+            },
+            {
+              "start": 288,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q8WUF5",
+          "name": "RelA-associated inhibitor",
+          "residues": [
+            114,
+            115,
+            117,
+            119,
+            120,
+            122,
+            128,
+            129,
+            282,
+            283,
+            286,
+            290
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "6rz3"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "PPP1R13L",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "6rz3"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 90
+            },
+            {
+              "start": 292,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P09429",
+          "name": "High mobility group protein B1",
+          "residues": [
+            40,
+            41,
+            43,
+            44,
+            45,
+            50,
+            52,
+            53,
+            54,
+            55,
+            56
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2ly4"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HMGB1",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 13
+            },
+            {
+              "start": 61,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P04439",
+          "name": "HLA class I histocompatibility antigen, A alpha chain",
+          "residues": [
+            168,
+            169,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            176
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "7rm4"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HLA-A",
+          "organism": null,
+          "variantAtInterface": true,
+          "variantEntries": [
+            "7rm4"
+          ],
+          "modelledEntries": [
+            "7rm4"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 167
+            },
+            {
+              "start": 177,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P04631",
+          "name": "Protein S100-B",
+          "residues": [
+            377,
+            379,
+            380,
+            382,
+            383,
+            384,
+            385,
+            386,
+            388
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1dt7"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "S100b",
+          "organism": "Rat",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 366
+            },
+            {
+              "start": 389,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q8WLS4",
+          "name": "MHC class I antigen (Fragment)",
+          "residues": [
+            217,
+            218,
+            219,
+            220,
+            221,
+            222,
+            223,
+            224,
+            225
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "21ex"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HLA-A",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 216
+            },
+            {
+              "start": 226,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "A0A6L0XH39",
+          "name": "NAD-dependent protein deacetylase",
+          "residues": [
+            379,
+            380,
+            381,
+            382,
+            383,
+            384,
+            385,
+            386
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "5ol0"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": null,
+          "organism": "Leishmania infantum",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 377
+            },
+            {
+              "start": 387,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "O30124",
+          "name": "NAD-dependent protein deacylase 2",
+          "residues": [
+            380,
+            381,
+            382,
+            383,
+            384,
+            385,
+            386,
+            387
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1ma3"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "cobB2",
+          "organism": "Archaeoglobus fulgidus (strain ATCC 49558 / DSM 4304 / JCM 9628 / NBRC 100126 / VC-16)",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 378
+            },
+            {
+              "start": 388,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "O60502",
+          "name": "Protein O-GlcNAcase",
+          "residues": [
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            153,
+            154
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "5un8"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "OGA",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 145
+            },
+            {
+              "start": 155,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P56273",
+          "name": "E3 ubiquitin-protein ligase Mdm2",
+          "residues": [
+            17,
+            18,
+            19,
+            20,
+            22,
+            23,
+            26,
+            27
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1ycq"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "mdm2",
+          "organism": "African clawed frog",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 16
+            },
+            {
+              "start": 28,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P20248",
+          "name": "Cyclin-A2",
+          "residues": [
+            379,
+            380,
+            381,
+            382,
+            383,
+            385,
+            386
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1h26"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "CCNA2",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 377
+            },
+            {
+              "start": 387,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q96EB6",
+          "name": "NAD-dependent protein deacetylase sirtuin-1",
+          "residues": [
+            379,
+            380,
+            381,
+            382,
+            383,
+            384,
+            385
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "4zzj"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "SIRT1",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 378
+            },
+            {
+              "start": 386,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q9NRG4",
+          "name": "N-lysine methyltransferase SMYD2",
+          "residues": [
+            368,
+            369,
+            370,
+            371,
+            372,
+            373,
+            375
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "3tg5"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "SMYD2",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 367
+            },
+            {
+              "start": 376,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P32776",
+          "name": "General transcription and DNA repair factor IIH subunit TFB1",
+          "residues": [
+            47,
+            50,
+            51,
+            53,
+            54,
+            56
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2gs0"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "TFB1",
+          "organism": "Baker's yeast",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 44
+            },
+            {
+              "start": 59,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q0TR53",
+          "name": "O-GlcNAcase NagJ",
+          "residues": [
+            146,
+            147,
+            148,
+            149,
+            150,
+            151
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2ydr"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "nagJ",
+          "organism": "Clostridium perfringens (strain ATCC 13124 / DSM 756 / JCM 1290 / NCIMB 6125 / NCTC 8237 / Type A)",
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 144
+            },
+            {
+              "start": 153,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q8WTS6",
+          "name": "Histone-lysine N-methyltransferase SETD7",
+          "residues": [
+            369,
+            370,
+            371,
+            372,
+            373,
+            374
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1xqh"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "SETD7",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 368
+            },
+            {
+              "start": 375,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q92793",
+          "name": "Histone lysine acetyltransferase CREBBP",
+          "residues": [
+            380,
+            382,
+            383,
+            384,
+            385
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "1jsp"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "CREBBP",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 366
+            },
+            {
+              "start": 387,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P19388",
+          "name": "DNA-directed RNA polymerases I, II, and III subunit RPABC1",
+          "residues": [
+            14,
+            17,
+            18,
+            19
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "6xre"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "POLR2E",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "6xre"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 11
+            },
+            {
+              "start": 62,
+              "end": 87
+            },
+            {
+              "start": 352,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q9BY41",
+          "name": "Histone deacetylase 8",
+          "residues": [
+            379,
+            380,
+            381,
+            382
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "2v5w"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "HDAC8",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 378
+            },
+            {
+              "start": 383,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Q9NTG7",
+          "name": "NAD-dependent protein deacetylase sirtuin-3, mitochondrial",
+          "residues": [
+            380,
+            381,
+            382
+          ],
+          "support": [
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "4fz3"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "SIRT3",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 378
+            },
+            {
+              "start": 383,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P53803",
+          "name": "DNA-directed RNA polymerases I, II, and III subunit RPABC4",
+          "residues": [
+            185
+          ],
+          "support": [
+            1
+          ],
+          "pdbEntries": [
+            "6xre"
+          ],
+          "homomeric": false,
+          "artefact": null,
+          "context": "native",
+          "gene": "POLR2K",
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "6xre"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 11
+            },
+            {
+              "start": 62,
+              "end": 87
+            },
+            {
+              "start": 352,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "DNA",
+          "name": "DNA",
+          "residues": [
+            101,
+            118,
+            119,
+            120,
+            121,
+            122,
+            123,
+            139,
+            140,
+            164,
+            165,
+            166,
+            167,
+            168,
+            239,
+            240,
+            241,
+            243,
+            248,
+            273,
+            274,
+            275,
+            276,
+            277,
+            279,
+            280,
+            281,
+            283,
+            284,
+            288
+          ],
+          "support": [
+            2,
+            3,
+            30,
+            43,
+            29,
+            10,
+            7,
+            4,
+            1,
+            1,
+            3,
+            1,
+            8,
+            2,
+            40,
+            2,
+            46,
+            3,
+            43,
+            37,
+            12,
+            46,
+            46,
+            42,
+            1,
+            42,
+            2,
+            10,
+            3,
+            6
+          ],
+          "pdbEntries": [
+            "1tsr",
+            "1tup",
+            "2ac0",
+            "2ady",
+            "2ahi",
+            "2ata",
+            "3d0a",
+            "3igk",
+            "3igl",
+            "3kmd",
+            "3kz8",
+            "3q05",
+            "3q06",
+            "3ts8",
+            "4hje",
+            "4ibu",
+            "4ibv",
+            "4ibw",
+            "4mzr",
+            "5bua",
+            "5lgy",
+            "5mct",
+            "5mcu",
+            "5mcv",
+            "5mcw",
+            "5mf7",
+            "5mg7",
+            "6fj5",
+            "6znc",
+            "7b46",
+            "7b49",
+            "7b4a",
+            "7b4d",
+            "7b4e",
+            "7b4f",
+            "7b4g",
+            "7b4h",
+            "7b4n",
+            "7eds",
+            "7eeu",
+            "7xzx",
+            "7xzz",
+            "9r04",
+            "9r2m",
+            "9r2p",
+            "9r2q"
+          ],
+          "homomeric": false,
+          "artefact": "chain with no UniProt record",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "1tsr",
+            "1tup",
+            "2ac0",
+            "2ady",
+            "2ahi",
+            "2ata",
+            "3d0a",
+            "3igk",
+            "3igl",
+            "3kmd",
+            "3kz8",
+            "3q05",
+            "3q06",
+            "3ts8",
+            "4hje",
+            "4ibu",
+            "4ibv",
+            "4ibw",
+            "4mzr",
+            "5bua",
+            "5lgy",
+            "5mct",
+            "5mcu",
+            "5mcv",
+            "5mcw",
+            "5mf7",
+            "5mg7",
+            "6fj5",
+            "6znc",
+            "7b46",
+            "7b49",
+            "7b4a",
+            "7b4d",
+            "7b4e",
+            "7b4f",
+            "7b4g",
+            "7b4h",
+            "7b4n",
+            "7eds",
+            "7eeu",
+            "7xzx",
+            "7xzz",
+            "9r04",
+            "9r2m",
+            "9r2p",
+            "9r2q"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 91
+            },
+            {
+              "start": 294,
+              "end": 320
+            },
+            {
+              "start": 357,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "Other",
+          "name": "Other",
+          "residues": [
+            102,
+            103,
+            104,
+            105,
+            106,
+            108,
+            110,
+            111,
+            112,
+            113,
+            115,
+            116,
+            126,
+            128,
+            129,
+            144,
+            146,
+            147,
+            148,
+            228,
+            282
+          ],
+          "support": [
+            9,
+            8,
+            9,
+            8,
+            8,
+            8,
+            9,
+            9,
+            4,
+            9,
+            7,
+            1,
+            9,
+            9,
+            1,
+            9,
+            9,
+            9,
+            9,
+            9,
+            3
+          ],
+          "pdbEntries": [
+            "8rci",
+            "9fzb",
+            "9spm",
+            "9spn",
+            "9spo",
+            "9spp",
+            "9spq",
+            "9spr",
+            "9sps"
+          ],
+          "homomeric": false,
+          "artefact": "chain with no UniProt record",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "8rci",
+            "9fzb",
+            "9spm",
+            "9spn",
+            "9spo",
+            "9spp",
+            "9spq",
+            "9spr",
+            "9sps"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 93
+            },
+            {
+              "start": 293,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "TR-beta light chain",
+          "name": "TCR 12-6, beta chain",
+          "residues": [
+            171,
+            173,
+            174,
+            175,
+            176
+          ],
+          "support": [
+            1,
+            2,
+            4,
+            3,
+            1
+          ],
+          "pdbEntries": [
+            "6vqo",
+            "6vrm",
+            "6vrn",
+            "7rm4"
+          ],
+          "homomeric": false,
+          "artefact": "antibody or nanobody, a tool binder",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": true,
+          "variantEntries": [
+            "6vqo",
+            "6vrm",
+            "6vrn"
+          ],
+          "modelledEntries": [
+            "6vqo",
+            "6vrm",
+            "6vrn",
+            "7rm4"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 167
+            },
+            {
+              "start": 177,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P0AEX9",
+          "name": "Maltose/maltodextrin-binding periplasmic protein",
+          "residues": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            110,
+            111,
+            114,
+            115,
+            116,
+            117,
+            119,
+            128,
+            129,
+            146,
+            148,
+            149,
+            223,
+            225,
+            226,
+            228,
+            268,
+            286,
+            289,
+            290,
+            292,
+            293
+          ],
+          "support": [
+            1,
+            2,
+            2,
+            1,
+            2,
+            2,
+            2,
+            2,
+            1,
+            2,
+            2,
+            2,
+            2,
+            1,
+            2,
+            2,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "4xr8",
+            "8gcr",
+            "9u4d"
+          ],
+          "homomeric": false,
+          "artefact": "maltose-binding protein fusion tag",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "4xr8",
+            "8gcr",
+            "9u4d"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 89
+            },
+            {
+              "start": 294,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "TR-alpha light chain",
+          "name": "6-11 T cell receptor alpha chain",
+          "residues": [
+            171,
+            172,
+            173,
+            174,
+            175
+          ],
+          "support": [
+            3,
+            2,
+            2,
+            2,
+            1
+          ],
+          "pdbEntries": [
+            "6vqo",
+            "6vrm",
+            "7rm4"
+          ],
+          "homomeric": false,
+          "artefact": "antibody or nanobody, a tool binder",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": true,
+          "variantEntries": [
+            "6vqo"
+          ],
+          "modelledEntries": [
+            "6vqo",
+            "6vrm",
+            "7rm4"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 167
+            },
+            {
+              "start": 177,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "P42212",
+          "name": "Green fluorescent protein",
+          "residues": [
+            326,
+            327,
+            328,
+            329,
+            330,
+            331,
+            332,
+            333,
+            334,
+            335,
+            337,
+            338,
+            340,
+            341,
+            342,
+            345,
+            348,
+            349,
+            352
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "7bwn"
+          ],
+          "homomeric": false,
+          "artefact": "green fluorescent protein tag",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 321
+            },
+            {
+              "start": 357,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "IG-heavy chain",
+          "name": "Nb139 Nanobody against the DNA-binding domain of p53",
+          "residues": [
+            103,
+            208,
+            258,
+            260,
+            261,
+            262,
+            263,
+            264,
+            267
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "4qo1"
+          ],
+          "homomeric": false,
+          "artefact": "antibody or nanobody, a tool binder",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": false,
+          "variantEntries": [],
+          "modelledEntries": [
+            "4qo1"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 91
+            },
+            {
+              "start": 291,
+              "end": 393
+            }
+          ]
+        },
+        {
+          "accession": "IG-light delta chain",
+          "name": "T-cell receptor 38-10, alfa chain",
+          "residues": [
+            171,
+            172,
+            173,
+            174,
+            175
+          ],
+          "support": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "pdbEntries": [
+            "6vrn"
+          ],
+          "homomeric": false,
+          "artefact": "antibody or nanobody, a tool binder",
+          "context": "native",
+          "gene": null,
+          "organism": null,
+          "variantAtInterface": true,
+          "variantEntries": [
+            "6vrn"
+          ],
+          "modelledEntries": [
+            "6vrn"
+          ],
+          "unmodelled": [
+            {
+              "start": 1,
+              "end": 167
+            },
+            {
+              "start": 177,
+              "end": 393
+            }
+          ]
+        }
+      ],
+      "entryKinds": "ok",
+      "crystalChecked": true,
+      "coverageChecked": true,
+      "coverage": {
+        "1a1u": [
+          [
+            326,
+            354
+          ]
+        ],
+        "1aie": [
+          [
+            326,
+            356
+          ]
+        ],
+        "1c26": [
+          [
+            325,
+            356
+          ]
+        ],
+        "1dt7": [
+          [
+            367,
+            388
+          ]
+        ],
+        "1gzh": [
+          [
+            95,
+            290
+          ]
+        ],
+        "1h26": [
+          [
+            378,
+            386
+          ]
+        ],
+        "1hs5": [
+          [
+            324,
+            357
+          ]
+        ],
+        "1jsp": [
+          [
+            367,
+            386
+          ]
+        ],
+        "1kzy": [
+          [
+            95,
+            289
+          ]
+        ],
+        "1ma3": [
+          [
+            379,
+            387
+          ]
+        ],
+        "1olg": [
+          [
+            319,
+            360
+          ]
+        ],
+        "1olh": [
+          [
+            319,
+            360
+          ]
+        ],
+        "1pes": [
+          [
+            325,
+            355
+          ]
+        ],
+        "1pet": [
+          [
+            325,
+            355
+          ]
+        ],
+        "1sae": [
+          [
+            319,
+            360
+          ]
+        ],
+        "1saf": [
+          [
+            319,
+            360
+          ]
+        ],
+        "1sak": [
+          [
+            319,
+            360
+          ]
+        ],
+        "1sal": [
+          [
+            319,
+            360
+          ]
+        ],
+        "1tsr": [
+          [
+            94,
+            289
+          ]
+        ],
+        "1tup": [
+          [
+            94,
+            289
+          ]
+        ],
+        "1xqh": [
+          [
+            369,
+            374
+          ]
+        ],
+        "1yc5": [
+          [
+            373,
+            385
+          ]
+        ],
+        "1ycq": [
+          [
+            17,
+            27
+          ]
+        ],
+        "1ycr": [
+          [
+            17,
+            29
+          ]
+        ],
+        "1ycs": [
+          [
+            97,
+            287
+          ]
+        ],
+        "21ex": [
+          [
+            217,
+            225
+          ]
+        ],
+        "2ac0": [
+          [
+            94,
+            292
+          ]
+        ],
+        "2ady": [
+          [
+            95,
+            292
+          ]
+        ],
+        "2ahi": [
+          [
+            95,
+            293
+          ]
+        ],
+        "2ata": [
+          [
+            94,
+            292
+          ]
+        ],
+        "2b3g": [
+          [
+            33,
+            56
+          ]
+        ],
+        "2foj": [
+          [
+            361,
+            367
+          ]
+        ],
+        "2foo": [
+          [
+            358,
+            363
+          ]
+        ],
+        "2gs0": [
+          [
+            45,
+            58
+          ]
+        ],
+        "2h1l": [
+          [
+            92,
+            289
+          ]
+        ],
+        "2h2d": [
+          [
+            373,
+            385
+          ]
+        ],
+        "2h2f": [
+          [
+            378,
+            384
+          ]
+        ],
+        "2h4f": [
+          [
+            378,
+            385
+          ]
+        ],
+        "2h4h": [
+          [
+            378,
+            385
+          ]
+        ],
+        "2h4j": [
+          [
+            375,
+            385
+          ]
+        ],
+        "2h59": [
+          [
+            380,
+            385
+          ]
+        ],
+        "2j0z": [
+          [
+            326,
+            356
+          ]
+        ],
+        "2j10": [
+          [
+            326,
+            356
+          ]
+        ],
+        "2j11": [
+          [
+            326,
+            356
+          ]
+        ],
+        "2k8f": [
+          [
+            1,
+            39
+          ]
+        ],
+        "2l14": [
+          [
+            13,
+            61
+          ]
+        ],
+        "2ly4": [
+          [
+            14,
+            60
+          ]
+        ],
+        "2mej": [
+          [
+            96,
+            290
+          ]
+        ],
+        "2mwo": [
+          [
+            363,
+            377
+          ]
+        ],
+        "2mwp": [
+          [
+            376,
+            387
+          ]
+        ],
+        "2mwy": [
+          [
+            15,
+            29
+          ]
+        ],
+        "2mzd": [
+          [
+            35,
+            59
+          ]
+        ],
+        "2ruk": [
+          [
+            41,
+            62
+          ]
+        ],
+        "2v5w": [
+          [
+            379,
+            382
+          ]
+        ],
+        "2ydr": [
+          [
+            145,
+            152
+          ]
+        ],
+        "2z5s": [
+          [
+            17,
+            27
+          ]
+        ],
+        "2z5t": [
+          [
+            17,
+            27
+          ]
+        ],
+        "3d0a": [
+          [
+            95,
+            291
+          ]
+        ],
+        "3dab": [
+          [
+            17,
+            28
+          ]
+        ],
+        "3dac": [
+          [
+            17,
+            29
+          ]
+        ],
+        "3igk": [
+          [
+            94,
+            183
+          ],
+          [
+            187,
+            293
+          ]
+        ],
+        "3igl": [
+          [
+            94,
+            183
+          ],
+          [
+            187,
+            293
+          ]
+        ],
+        "3kmd": [
+          [
+            92,
+            291
+          ]
+        ],
+        "3kz8": [
+          [
+            95,
+            184
+          ],
+          [
+            188,
+            292
+          ]
+        ],
+        "3lw1": [
+          [
+            385,
+            391
+          ]
+        ],
+        "3pdh": [
+          [
+            373,
+            385
+          ]
+        ],
+        "3q01": [
+          [
+            94,
+            291
+          ],
+          [
+            322,
+            356
+          ]
+        ],
+        "3q05": [
+          [
+            94,
+            292
+          ],
+          [
+            322,
+            356
+          ]
+        ],
+        "3q06": [
+          [
+            96,
+            292
+          ],
+          [
+            321,
+            354
+          ]
+        ],
+        "3sak": [
+          [
+            319,
+            360
+          ]
+        ],
+        "3tg5": [
+          [
+            368,
+            375
+          ]
+        ],
+        "3ts8": [
+          [
+            94,
+            292
+          ],
+          [
+            322,
+            356
+          ]
+        ],
+        "4buz": [
+          [
+            379,
+            385
+          ]
+        ],
+        "4bv2": [
+          [
+            380,
+            384
+          ]
+        ],
+        "4fz3": [
+          [
+            379,
+            382
+          ]
+        ],
+        "4hfz": [
+          [
+            17,
+            27
+          ]
+        ],
+        "4hje": [
+          [
+            92,
+            291
+          ]
+        ],
+        "4ibu": [
+          [
+            94,
+            291
+          ]
+        ],
+        "4ibv": [
+          [
+            94,
+            183
+          ],
+          [
+            187,
+            293
+          ]
+        ],
+        "4ibw": [
+          [
+            94,
+            182
+          ],
+          [
+            186,
+            293
+          ]
+        ],
+        "4mzr": [
+          [
+            94,
+            292
+          ],
+          [
+            322,
+            356
+          ]
+        ],
+        "4qo1": [
+          [
+            92,
+            290
+          ]
+        ],
+        "4rp6": [
+          [
+            252,
+            258
+          ]
+        ],
+        "4rp7": [
+          [
+            253,
+            258
+          ]
+        ],
+        "4x34": [
+          [
+            377,
+            386
+          ]
+        ],
+        "4xr8": [
+          [
+            94,
+            292
+          ]
+        ],
+        "4zzj": [
+          [
+            379,
+            385
+          ]
+        ],
+        "5bua": [
+          [
+            94,
+            293
+          ]
+        ],
+        "5ecg": [
+          [
+            96,
+            116
+          ],
+          [
+            121,
+            182
+          ],
+          [
+            185,
+            293
+          ]
+        ],
+        "5lgy": [
+          [
+            94,
+            291
+          ]
+        ],
+        "5mct": [
+          [
+            94,
+            293
+          ]
+        ],
+        "5mcu": [
+          [
+            95,
+            291
+          ]
+        ],
+        "5mcv": [
+          [
+            94,
+            293
+          ]
+        ],
+        "5mcw": [
+          [
+            94,
+            292
+          ]
+        ],
+        "5mf7": [
+          [
+            94,
+            114
+          ],
+          [
+            122,
+            182
+          ],
+          [
+            188,
+            293
+          ]
+        ],
+        "5mg7": [
+          [
+            94,
+            182
+          ],
+          [
+            184,
+            293
+          ]
+        ],
+        "5mhc": [
+          [
+            382,
+            393
+          ]
+        ],
+        "5moc": [
+          [
+            382,
+            393
+          ]
+        ],
+        "5ol0": [
+          [
+            378,
+            386
+          ]
+        ],
+        "5un8": [
+          [
+            146,
+            154
+          ]
+        ],
+        "6fj5": [
+          [
+            94,
+            292
+          ]
+        ],
+        "6r5l": [
+          [
+            382,
+            391
+          ]
+        ],
+        "6rjz": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rk8": [
+          [
+            384,
+            391
+          ]
+        ],
+        "6rki": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rkk": [
+          [
+            382,
+            391
+          ]
+        ],
+        "6rkm": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rl3": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rl4": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rl6": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rm5": [
+          [
+            383,
+            390
+          ]
+        ],
+        "6rm7": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rwh": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rwi": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rws": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rwu": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6rx2": [
+          [
+            385,
+            391
+          ]
+        ],
+        "6rz3": [
+          [
+            91,
+            291
+          ]
+        ],
+        "6s39": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6s3c": [
+          [
+            382,
+            391
+          ]
+        ],
+        "6s40": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6s9q": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6sin": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6sio": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6sip": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6siq": [
+          [
+            384,
+            393
+          ]
+        ],
+        "6slv": [
+          [
+            382,
+            393
+          ]
+        ],
+        "6v4f": [
+          [
+            16,
+            29
+          ]
+        ],
+        "6v4h": [
+          [
+            16,
+            29
+          ]
+        ],
+        "6vqo": [
+          [
+            168,
+            176
+          ]
+        ],
+        "6vr1": [
+          [
+            168,
+            176
+          ]
+        ],
+        "6vr5": [
+          [
+            168,
+            176
+          ]
+        ],
+        "6vrm": [
+          [
+            168,
+            176
+          ]
+        ],
+        "6vrn": [
+          [
+            168,
+            176
+          ]
+        ],
+        "6w51": [
+          [
+            168,
+            176
+          ]
+        ],
+        "6xre": [
+          [
+            12,
+            61
+          ],
+          [
+            88,
+            351
+          ]
+        ],
+        "6znc": [
+          [
+            94,
+            182
+          ],
+          [
+            188,
+            225
+          ],
+          [
+            227,
+            293
+          ]
+        ],
+        "7b46": [
+          [
+            96,
+            181
+          ],
+          [
+            185,
+            290
+          ]
+        ],
+        "7b47": [
+          [
+            97,
+            287
+          ]
+        ],
+        "7b48": [
+          [
+            97,
+            289
+          ]
+        ],
+        "7b49": [
+          [
+            94,
+            115
+          ],
+          [
+            119,
+            182
+          ],
+          [
+            185,
+            293
+          ]
+        ],
+        "7b4a": [
+          [
+            94,
+            182
+          ],
+          [
+            188,
+            293
+          ]
+        ],
+        "7b4b": [
+          [
+            97,
+            287
+          ]
+        ],
+        "7b4c": [
+          [
+            95,
+            182
+          ],
+          [
+            185,
+            289
+          ]
+        ],
+        "7b4d": [
+          [
+            94,
+            182
+          ],
+          [
+            186,
+            293
+          ]
+        ],
+        "7b4e": [
+          [
+            94,
+            113
+          ],
+          [
+            122,
+            182
+          ],
+          [
+            185,
+            293
+          ]
+        ],
+        "7b4f": [
+          [
+            94,
+            182
+          ],
+          [
+            187,
+            293
+          ]
+        ],
+        "7b4g": [
+          [
+            94,
+            184
+          ],
+          [
+            187,
+            293
+          ]
+        ],
+        "7b4h": [
+          [
+            94,
+            116
+          ],
+          [
+            120,
+            183
+          ],
+          [
+            187,
+            293
+          ]
+        ],
+        "7b4n": [
+          [
+            94,
+            116
+          ],
+          [
+            119,
+            120
+          ],
+          [
+            122,
+            182
+          ],
+          [
+            188,
+            293
+          ]
+        ],
+        "7bwn": [
+          [
+            322,
+            356
+          ]
+        ],
+        "7eds": [
+          [
+            94,
+            114
+          ],
+          [
+            122,
+            293
+          ]
+        ],
+        "7eeu": [
+          [
+            95,
+            292
+          ]
+        ],
+        "7nmi": [
+          [
+            19,
+            27
+          ],
+          [
+            33,
+            55
+          ]
+        ],
+        "7rm4": [
+          [
+            168,
+            176
+          ]
+        ],
+        "7xzx": [
+          [
+            94,
+            291
+          ]
+        ],
+        "7xzz": [
+          [
+            94,
+            291
+          ]
+        ],
+        "7ygi": [
+          [
+            92,
+            289
+          ]
+        ],
+        "8gcr": [
+          [
+            98,
+            180
+          ],
+          [
+            188,
+            198
+          ],
+          [
+            202,
+            223
+          ],
+          [
+            228,
+            259
+          ],
+          [
+            263,
+            290
+          ]
+        ],
+        "8hll": [
+          [
+            95,
+            288
+          ]
+        ],
+        "8hlm": [
+          [
+            95,
+            288
+          ]
+        ],
+        "8hln": [
+          [
+            95,
+            288
+          ]
+        ],
+        "8j8n": [
+          [
+            94,
+            291
+          ]
+        ],
+        "8oxm": [
+          [
+            12,
+            18
+          ]
+        ],
+        "8oxo": [
+          [
+            12,
+            18
+          ]
+        ],
+        "8r1f": [
+          [
+            91,
+            292
+          ]
+        ],
+        "8r1g": [
+          [
+            91,
+            292
+          ]
+        ],
+        "8rci": [
+          [
+            97,
+            292
+          ]
+        ],
+        "8uqr": [
+          [
+            326,
+            356
+          ]
+        ],
+        "8xcb": [
+          [
+            96,
+            289
+          ]
+        ],
+        "8xce": [
+          [
+            95,
+            289
+          ]
+        ],
+        "9c5s": [
+          [
+            17,
+            30
+          ]
+        ],
+        "9cht": [
+          [
+            94,
+            292
+          ]
+        ],
+        "9eiq": [
+          [
+            249,
+            257
+          ]
+        ],
+        "9ejd": [
+          [
+            250,
+            257
+          ]
+        ],
+        "9ek4": [
+          [
+            249,
+            257
+          ]
+        ],
+        "9fzb": [
+          [
+            96,
+            292
+          ]
+        ],
+        "9g6t": [
+          [
+            95,
+            292
+          ]
+        ],
+        "9obf": [
+          [
+            187,
+            197
+          ]
+        ],
+        "9r04": [
+          [
+            92,
+            291
+          ]
+        ],
+        "9r2m": [
+          [
+            92,
+            291
+          ]
+        ],
+        "9r2p": [
+          [
+            92,
+            291
+          ]
+        ],
+        "9r2q": [
+          [
+            92,
+            291
+          ]
+        ],
+        "9spm": [
+          [
+            97,
+            292
+          ]
+        ],
+        "9spn": [
+          [
+            95,
+            223
+          ],
+          [
+            227,
+            292
+          ]
+        ],
+        "9spo": [
+          [
+            97,
+            224
+          ],
+          [
+            227,
+            292
+          ]
+        ],
+        "9spp": [
+          [
+            97,
+            292
+          ]
+        ],
+        "9spq": [
+          [
+            96,
+            292
+          ]
+        ],
+        "9spr": [
+          [
+            94,
+            290
+          ]
+        ],
+        "9sps": [
+          [
+            96,
+            290
+          ]
+        ],
+        "9u4d": [
+          [
+            90,
+            293
+          ]
+        ],
+        "9yzh": [
+          [
+            187,
+            197
+          ]
+        ]
+      }
+    },
+    "chains": [
+      {
+        "accession": "P04637",
+        "gene": "TP53",
+        "length": 393,
+        "carriesVariant": true,
+        "id": "A"
+      },
+      {
+        "accession": "P04637",
+        "gene": "TP53",
+        "length": 393,
+        "carriesVariant": false,
+        "id": "B"
+      }
+    ]
+  }
+}

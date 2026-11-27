@@ -714,7 +714,7 @@ export function deriveBiochemicalNarrative(
      */
     detail: hasReason
       ? presentation.detail
-      : stripped || "No AI biochemical narrative was returned for this substitution. The derived interpretation in this panel is computed from the residue property scales and is unaffected.",
+      : stripped || "The language model returned no narrative, and no reason was recorded with it. The derived interpretation in this panel is computed from the residue property scales and is unaffected.",
     reasonLabel: hasReason ? presentation.label : null,
     reasonTone: hasReason ? presentation.tone : null,
     retryable: options.retryable ?? presentation.retryable,

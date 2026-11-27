@@ -27,7 +27,7 @@ export function ReviewFrame({ gene, load, selection, onChange, onRetry, embedded
       </select>
     </div>}
     <div className="ctx-field">
-      <span className="ctx-label" id={`${onsetId}-systems`}>Review systems</span>
+      <span className="ctx-label" id={`${onsetId}-systems`}>Body systems</span>
       <div className="ctx-chips" role="group" aria-labelledby={`${onsetId}-systems`}>{REVIEW_SYSTEMS.map(system =>
         <button key={system.id} type="button" className="ctx-chip" aria-pressed={selection.systems.includes(system.id)} onClick={() => onChange(toggleReviewSystem(selection, system.id))}>{system.label}</button>)}</div>
       {hints?.systems && <p className="ctx-caption">{hints.systems}</p>}

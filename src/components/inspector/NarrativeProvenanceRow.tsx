@@ -66,6 +66,8 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         isNarrativeLoading,
         narrativeMode: settings?.narrativeMode,
         narrativeOutdated,
+        // The request was sent and stopped; that is not the same as a missing key.
+        requestStopped: analysisResult?.metadata?.pipelineStages?.narrative === "skipped",
       }),
     [
       isDegraded,
@@ -109,12 +111,12 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
 
   const rows: ReadonlyArray<{ label: string; value: string; muted?: boolean }> = proseIsAi
     ? [
-        { label: "Prose source", value: "AI synthesis" },
+        { label: "Written by", value: "AI model" },
         { label: "Inference model", value: model || "Not recorded", muted: !model },
         { label: "Response format", value: NARRATIVE_SYNTHESIS.responseFormat },
         { label: "Sampling", value: describeSampling(NARRATIVE_SYNTHESIS.temperature) },
       ]
-    : [{ label: "Prose source", value: authorship === "rule-based" ? "Rule-based" : "No narrative" }];
+    : [{ label: "Written by", value: authorship === "rule-based" ? "Rule-based" : "No narrative" }];
 
   return (
     <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-workbench-header-surface space-y-2">
@@ -162,7 +164,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         * from the payload below, so a failed synthesis names the models that were tried.
         */}
       <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">{status.detail}</p>
-      {deepEvidence.present.length > 0 && !narrativeOutdated && <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">Synthesis supports the current deep-model observations. They do not create additional counted ACMG criteria.</p>}
+      {deepEvidence.present.length > 0 && !narrativeOutdated && <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">These observations do not add criteria.</p>}
 
       {attempted.length > 0 && (
         <div

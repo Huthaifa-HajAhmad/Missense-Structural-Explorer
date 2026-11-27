@@ -18,7 +18,7 @@ export function HpaCard({ load, onRetry }: { load?: ContextLoad<HpaResponse>; on
   const id = useId();
   const data = load?.data ?? null;
   return <section className="ctx-card" aria-labelledby={id} data-testid="hpa-card">
-    <div className="ctx-card__head"><h2 id={id}>Protein Atlas</h2><span className="ctx-caption">HPA · tissue, cell type and protein</span></div>
+    <div className="ctx-card__head"><h2 id={id}>Human Protein Atlas (RNA)</h2><span className="ctx-caption">HPA · tissue, cell type and protein</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading the Human Protein Atlas.</div>
       : load.status === 'error' ? <div className="ctx-card__body ctx-notice cx-source-state" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — ${data?.message ?? 'the atlas could not be read.'}`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : data?.status !== 'ready' || !data.rna || !data.cells || !data.protein ? <p className="ctx-card__body">{data?.message}</p>

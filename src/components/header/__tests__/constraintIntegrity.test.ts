@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildConstraintMetrics, buildLoeufMetric, buildMissenseZMetric, buildRmcMetric, constraintSourceLabel, releaseTag, tickLabelAlignments } from "../constraintMetrics";
 import { THRESHOLDS } from "../../../shared/thresholds";
+import { REGIONAL_MAPPING_LIMIT } from "../../../shared/landscapeEvidence";
 import { buildVariantHeaderModel } from "../variantHeaderModel";
 import type { AnalysisResult } from "../../../types";
 const constraint = {
@@ -16,8 +17,12 @@ describe("constraint source, precision and availability", () => {
     expect(buildLoeufMetric(0.359).verdict).toBe("Strong LoF intolerance");
     expect(buildLoeufMetric(0.36).verdict).toBe("LoF constrained");
   });
-  it("shows the explicit regional identity refusal", () => {
-    expect(buildConstraintMetrics(result())[2]).toMatchObject({ marker: null, verdict: "Unverified locus" });
+  it("shows the explicit regional identity refusal in the words the Landscape uses", () => {
+    expect(buildConstraintMetrics(result())[2]).toMatchObject({ marker: null, verdict: REGIONAL_MAPPING_LIMIT.label });
+  });
+  it("words a regional O/E between the PP2 and BP1 bands as not met", () => {
+    const between = buildRmcMetric(true, { isConstrained: false, oeRatio: 0.75, pValue: 0.2, regionText: "A1 to B2" });
+    expect(between).toMatchObject({ verdict: "Not met" });
   });
   it("does not call failed QC a significance failure", () => {
     expect(buildConstraintMetrics(result({ ...constraint, regionalStatus: "failed-qc" }))[2]).toMatchObject({ verdict: "QC warning", marker: null });
@@ -57,12 +62,15 @@ describe("constraint source, precision and availability", () => {
     // Regional O/E is measured against its own release; here it has no value (unverified locus).
     expect(releaseTag(rmc, group)).toBeNull();
     const measured = buildConstraintMetrics(result({ ...constraint, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } }))[2];
+    expect(measured.release).toBe("gnomAD (regional release v4.1.1)");
     expect(releaseTag(measured, group)).toBe("v4.1.1");
   });
-  it("words an unreported regional release without the wrapper parentheses", () => {
+  it("words an unreported regional release concisely in the chip tag while keeping full card provenance", () => {
     const gc = { ...constraint, regionalRelease: undefined, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
     const res = result(gc);
-    expect(releaseTag(buildConstraintMetrics(res)[2], constraintSourceLabel(res))).toBe("regional release unreported");
+    const rmc = buildConstraintMetrics(res)[2];
+    expect(rmc.release).toBe("gnomAD (regional release unreported)");
+    expect(releaseTag(rmc, constraintSourceLabel(res))).toBe("release unreported");
   });
   it("shows no tag when interpretation is withheld, where it would contradict the verdict", () => {
     const older = { ...constraint, provenance: { ...constraint.provenance, release: "2.1.1" }, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
@@ -100,7 +108,7 @@ describe("Regional O/E reads Chao et al. v3's calibrated bands, the engine's PP2
     expect([at(0.36).verdict, at(0.36).tone]).toEqual(["PP2 Moderate band", "path"]);
     expect([at(0.59).verdict, at(0.59).tone]).toEqual(["PP2 Supporting band", "warn"]);
     // UROD's significant interval at 0.81 used to read "Subgenic constrained" in red; no calibrated band holds it.
-    expect([at(0.81).verdict, at(0.81).tone]).toEqual(["No calibrated band", "muted"]);
+    expect([at(0.81).verdict, at(0.81).tone]).toEqual(["Not met", "muted"]);
     expect(at(0.5, false).verdict).toBe("PP2 Supporting band");
   });
   it("names the BP1 band as context the engine does not apply", () => {

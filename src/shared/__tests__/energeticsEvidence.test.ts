@@ -6,7 +6,7 @@ import { stabilityConsensusFor } from "../stabilityConsensus";
 import {
   signedDdgNumber,
   AGREEMENT_CHIP,
-  ENERGETICS_CAVEAT_TEXT,
+  energeticsCaveatDetail,
   LARGE_STRUCTURE_REPAIR_NOTE,
   buildEnergeticsEvidence,
   energeticsAgreementText,
@@ -197,6 +197,13 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     const ev = nae1({ foldingEnergetics: { ...NAE1, foldxMean: 2.12, foldxSd: 0.74, rawDdGs: [2.95, 1.55, 1.61, 2.9, 1.58] } });
     const foldx = ev.readings.find(r => r.key === "foldx")!;
     expect(foldx.note).toBe("Mean of 5 BuildModel runs (+1.55 to +2.95 kcal/mol); run-to-run spread 0.74 kcal/mol, not an error bar. " + LARGE_STRUCTURE_REPAIR_NOTE);
+  });
+
+  it("shows the run range in the unit the user chose", () => {
+    const ev = nae1({ unit: "kJ/mol", foldingEnergetics: { ...NAE1, foldxMean: 2.12, foldxSd: 0.74, rawDdGs: [2.95, 1.55, 1.61, 2.9, 1.58] } });
+    const foldx = ev.readings.find(r => r.key === "foldx")!;
+    expect(foldx.note).toContain("(+6.49 to +12.34 kJ/mol)");
+    expect(foldx.note).not.toContain("kcal/mol");
   });
 
   it("does not apply an AlphaFold pLDDT caveat to an experimental structure", () => {
@@ -448,6 +455,12 @@ describe("FoldX on two templates", () => {
       expect(build({ protvar: 2.4, structureProvenance: experimental }).foldxTemplateCheck).toBeNull();
     });
 
+    it("states the gap between FoldX and ProtVar in the chosen unit", () => {
+      const ev = build({ foldx: 2.6, foldxMean: 2.6, protvar: 1.2, structureProvenance: experimental }, { unit: "kJ/mol" });
+      expect(energeticsSummary(ev).rest.join(" ")).toContain("The two FoldX values differ by 5.86 kJ/mol");
+      expect(energeticsSummary(ev).rest.join(" ")).not.toContain("kcal/mol");
+    });
+
     it("puts ProtVar's row straight after FoldX's, and says so in the finding", () => {
       const ev = build({ foldx: 2.6, foldxMean: 2.6, protvar: 1.2, structureProvenance: experimental });
       expect(ev.readings.slice(0, 2).map(r => r.key)).toEqual(["foldx", "protvar"]);
@@ -552,7 +565,7 @@ describe("a run that is still collecting engines is shown as a snapshot", () => 
     const ev = partial();
     expect(ev.running.map(r => r.name)).toContain("ThermoMPNN");
     expect(ev.agreement.nCounted).toBeGreaterThan(0);
-    expect(ev.agreement.provisional).toBe(true);
+    expect(ev.provisional).toBe(true);
   });
 
   it("says which engines are still running, so the reader knows what may change", () => {
@@ -564,19 +577,19 @@ describe("a run that is still collecting engines is shown as a snapshot", () => 
   it("is final once every engine has settled", () => {
     const ev = partial({ thermompnn: 0.37 }, { thermompnnStatus: "done" });
     expect(ev.running).toHaveLength(0);
-    expect(ev.agreement.provisional).toBe(false);
+    expect(ev.provisional).toBe(false);
     expect(energeticsSummary(ev).rest.join(" ")).not.toContain("still running");
   });
 
   it("is not provisional when nothing has reported yet: there is no reading to qualify", () => {
     const ev = buildEnergeticsEvidence({ foldingEnergetics: {}, thermompnnStatus: "pending", isFolding: true });
     expect(ev.agreement.nCounted).toBe(0);
-    expect(ev.agreement.provisional).toBe(false);
+    expect(ev.provisional).toBe(false);
   });
 
   it("is not held back by ProtVar, a reference lookup that never votes", () => {
     const ev = partial({ thermompnn: 0.37, protvar: null, protvarStatus: "pending" }, { thermompnnStatus: "done" });
-    expect(ev.agreement.provisional).toBe(false);
+    expect(ev.provisional).toBe(false);
   });
 });
 
@@ -593,8 +606,8 @@ describe("which repair the FoldX value rests on", () => {
     expect(ev.structure?.repairMode).toBe(FIX);
     expect(foldx(ev).caveats).toContain("local-repair");
     expect(foldx(ev).note).toContain("repaired locally: 29 of 442 residues could move");
-    expect(ENERGETICS_CAVEAT_TEXT["local-repair"].detail).toMatch(/variants with a measured stability change/);
-    expect(ENERGETICS_CAVEAT_TEXT["local-repair"].detail).toContain(`up to ${LOCAL_REPAIR_BENCHMARK.maxGap.toFixed(2)}`);
+    expect(energeticsCaveatDetail("local-repair", "kcal/mol")).toMatch(/variants with a measured stability change/);
+    expect(energeticsCaveatDetail("local-repair", "kcal/mol")).toContain(`up to ${LOCAL_REPAIR_BENCHMARK.maxGap.toFixed(2)}`);
   });
 
   it("says nothing about a local repair for a whole-chain one", () => {
@@ -659,8 +672,8 @@ describe("hiding pending engines — presentation only", () => {
   it("still reports the hidden engine as running, so the reading stays provisional", () => {
     const shown = buildEnergeticsEvidence(run);
     const hidden = buildEnergeticsEvidence({ ...run, hidePending: true });
-    expect(shown.agreement.provisional).toBe(true);
-    expect(hidden.agreement.provisional).toBe(true);
+    expect(shown.provisional).toBe(true);
+    expect(hidden.provisional).toBe(true);
     expect(hidden.running.map(r => r.key)).toEqual(shown.running.map(r => r.key));
     expect(hidden.coverage.running).toEqual(shown.coverage.running);
   });

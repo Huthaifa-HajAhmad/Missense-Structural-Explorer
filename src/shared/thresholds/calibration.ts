@@ -255,3 +255,14 @@ export function regionalBp1Code(oe: number | null | undefined): RegionalBp1Code 
   if (oe > REGIONAL_MISSENSE_CALIBRATION.bp1.Supporting) return "BP1";
   return null;
 }
+
+/**
+ * An MCR O/E as text. Near a band edge it keeps a third decimal, because two decimals can print the
+ * edge while the value sits on the other side: 0.3601 is Supporting, and "0.36" beside "≤ 0.36" reads
+ * as Moderate. Every surface that prints an O/E uses this.
+ */
+export function formatRegionalOe(oe: number): string {
+  const { pp2, bp1 } = REGIONAL_MISSENSE_CALIBRATION;
+  const edges = [pp2.Moderate, pp2.Supporting, bp1.Supporting, bp1.Moderate];
+  return edges.some((e) => Math.abs(oe - e) < 0.005) ? oe.toFixed(3) : oe.toFixed(2);
+}

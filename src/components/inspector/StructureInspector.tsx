@@ -146,7 +146,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
 
   return (
     <div className="s3d-rail" data-testid="structure-rail" data-mode={model.viewMode}>
-      {selection && <StructureSelectionCard selection={selection} site={site} onReturn={handleReturn} />}
+      {selection && <StructureSelectionCard selection={selection} site={site} onReturn={handleReturn} secondaryReading={canvasSecondaryState === "reading"} />}
 
       <section className="s3d-rsec" aria-labelledby="s3d-rail-fold">
         <h3 className="eyebrow" id="s3d-rail-fold">
@@ -193,7 +193,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
         <section className="s3d-rsec" aria-labelledby="s3d-rail-entries">
           <h3 className="eyebrow" id="s3d-rail-entries">
             <span><Database className="w-3.5 h-3.5" aria-hidden="true" />Experimental structures</span>
-            <span className="s3d-rsec__meta">{experimental.loading ? "Searching PDB" : `${experimental.rows.length} listed`}</span>
+            <span className="s3d-rsec__meta">{experimental.loading ? "Searching PDB" : `${experimental.rows.length} ${experimental.rows.length === 1 ? "entry" : "entries"} for this protein`}</span>
           </h3>
           <p className="s3d-section-intro">Show loads an entry as the wild type. The FoldX variant keeps its own template.</p>
           {experimental.rows.length === 0 ? (

@@ -25,6 +25,23 @@ function Harness({ result }: { result: AnalysisResult }) {
 beforeEach(() => { fetchWithAuth.mockReset(); sessionStorage.clear(); const f = contextWorkspaceFixture(); store.setState({ ...f.state, gene: 'SOD1', variant: f.result.metadata!.variant }); });
 
 describe('production context tabs and linked inspectors', () => {
+  it('keeps the rail reading in the unit of the open expression sub-tab', () => {
+    const f = contextWorkspaceFixture();
+    f.result.predictorData = { ...f.result.predictorData, gnomadVariantId: '21-150-A-G', gnomadVariantAssembly: 'GRCh38' } as AnalysisResult['predictorData'];
+    store.setState({ extraContexts: { ...store.getState().extraContexts, 'pext:SOD1': { status: 'ready', data: {
+      gene: 'SOD1', status: 'ready', geneId: 'G', chrom: '21', flags: [], provenance: null, message: null,
+      regions: [{ start: 100, stop: 200, mean: 0.75, tissues: [] }],
+    } } } });
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    for (const tab of ['Protein measurements', 'Expression at variant']) {
+      fireEvent.click(screen.getByRole('tab', { name: tab }));
+      const trace = screen.getByTestId('context-trace');
+      expect(trace).not.toHaveTextContent('TPM');
+      expect(trace).toHaveTextContent(tab === 'Protein measurements' ? /protein/i : /Coding region 1 of 1 .* pext 0\.75/);
+    }
+    expect(screen.queryByText(/Public age cohorts are independent of disease onset/)).not.toBeInTheDocument();
+  });
   it('shows the disease before review systems in both context summaries', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     for (const tab of ['Go expression', 'Go species']) {
@@ -47,14 +64,14 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
     expect(screen.getByRole('columnheader', { name: 'RNA samples' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Median TPM' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Human Protein Atlas (RNA)' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Protein measurements' }));
-    expect(screen.getByRole('heading', { name: 'Protein Atlas' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Human Protein Atlas (RNA)' })).toBeInTheDocument();
     expect(within(screen.getByTestId('expression-models-screen')).getByText('Review context')).toBeVisible();
     expect(screen.queryByRole('columnheader', { name: 'RNA samples' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
     expect(screen.getByRole('heading', { name: 'Base-level pext' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Human Protein Atlas (RNA)' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('expression-finding')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Coding expression map' })).toBeVisible();
     expect(screen.getByLabelText('Mean pext shading scale from zero to one')).toBeVisible();
@@ -88,7 +105,7 @@ describe('production context tabs and linked inspectors', () => {
     expect(within(reviewRow as HTMLElement).getByRole('button', { name: 'Change review systems' })).toBeVisible();
     expect(screen.queryByText(/Related tissues are listed first/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change review systems' }));
-    const systems = screen.getByRole('group', { name: 'Review systems' });
+    const systems = screen.getByRole('group', { name: 'Body systems' });
     expect(systems.contains(document.activeElement)).toBe(true);
     fireEvent.click(within(systems).getByRole('button', { name: 'Renal' }));
     expect(screen.getByRole('rowheader', { name: 'Kidney cortex' })).toBeVisible();
@@ -100,7 +117,7 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     const summary = within(screen.getByTestId('expression-models-screen')).getByText('Review context').closest('summary')!;
     expect(summary).toHaveTextContent('All systems');
-    const systems = screen.getByRole('group', { name: 'Review systems' });
+    const systems = screen.getByRole('group', { name: 'Body systems' });
     act(() => { fireEvent.click(within(systems).getByRole('button', { name: 'Renal' })); });
     expect(summary).toHaveTextContent('1 system');
     expect(summary).not.toHaveTextContent('1 systems');
@@ -147,7 +164,7 @@ describe('production context tabs and linked inspectors', () => {
     const filter = screen.getByRole('checkbox', { name: 'Selected systems only' });
     expect(filter).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Choose systems' }));
-    const systems = screen.getByRole('group', { name: 'Review systems' });
+    const systems = screen.getByRole('group', { name: 'Body systems' });
     expect(systems.contains(document.activeElement)).toBe(true);
     expect(systems.closest('details')).toHaveAttribute('open');
     expect(screen.getByRole('combobox', { name: 'Disease onset' })).toBeVisible();
@@ -238,8 +255,12 @@ describe('production context tabs and linked inspectors', () => {
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
     expect(inspector.getByText('Median TPM (exact)').parentElement).toHaveTextContent(/^Median TPM \(exact\)0$/);
+    // Search and filters belong to the Tissue explorer; Sampling & coverage follows them.
+    fireEvent.click(screen.getByRole('tab', { name: 'Tissue explorer' }));
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Liver' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
     expect(screen.getByText(/pinned record is outside this view/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Tissue explorer' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Pediatric RNA' }));
     // The source switch and its filters share one row above the records panel.
     const explorer = () => within(screen.getByRole('region', { name: 'Explore source readings' }));
@@ -395,7 +416,7 @@ describe('gene-disease review states', () => {
     const f = contextWorkspaceFixture('Differing assertions'); store.setState(f.state);
     render(<Harness result={f.result} />);
     expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: 'Dosage' })).toHaveAccessibleDescription('ClinGen scored this gene’s dosage sensitivity');
+    expect(screen.getByRole('tab', { name: 'Dosage' })).toHaveAccessibleDescription('Holds a finding this view does not show. ClinGen scored this gene’s dosage sensitivity');
     expect(screen.getByRole('tab', { name: 'Dosage' }).querySelector('.workspace-tabs__mark')).not.toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
     expect(screen.getByRole('tab', { name: 'Dosage' }).querySelector('.workspace-tabs__mark')).toBeNull();
@@ -420,5 +441,39 @@ describe('gene-disease review states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('button', { name: 'Go gene' }));
     expect(screen.getByRole('group', { name: 'GenCC validity classes' })).toBeInTheDocument();
+  });
+  it('lists the gene’s curated diseases before any disease is picked', () => {
+    const f = contextWorkspaceFixture();
+    store.setState({ ...f.state, phenotypeSelections: {} });
+    render(<Harness result={f.result} />);
+    const list = screen.getByRole('table', { name: 'Diseases curated for SOD1' });
+    expect(within(list).getAllByRole('row')).toHaveLength(3);
+    expect(within(list).getByRole('cell', { name: 'Strong, Limited, Disputed Evidence' })).toBeInTheDocument();
+    // The picker still narrows the tab: choosing a disease opens its validity section.
+    fireEvent.click(screen.getByRole('combobox', { name: 'Review SOD1 for' }));
+    fireEvent.click(screen.getByRole('option', { name: /Autosomal dominant/ }));
+    expect(screen.queryByRole('table', { name: 'Diseases curated for SOD1' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('gene-disease-finding')).toBeInTheDocument();
+  });
+  it('gives Sampling & coverage no controls of its own, so it follows the Tissue explorer selection', () => {
+    const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
+    const expressionScreen = within(screen.getByTestId('expression-models-screen'));
+    expect(expressionScreen.getByRole('columnheader', { name: 'RNA samples' })).toBeInTheDocument();
+    expect(expressionScreen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(expressionScreen.queryByRole('checkbox', { name: 'Selected systems only' })).not.toBeInTheDocument();
+    expect(expressionScreen.queryByRole('tablist', { name: 'Evidence sources' })).not.toBeInTheDocument();
+  });
+  it('names pediatric rows by their age band and states the age caveat once on the screen', () => {
+    const f = contextWorkspaceFixture(); store.setState(f.state);
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Pediatric RNA' }));
+    const expressionScreen = within(screen.getByTestId('expression-models-screen'));
+    expect(expressionScreen.getByText(/Brain · Infant \(0 to 2 years\)/, { exact: false })).toBeInTheDocument();
+    expect(expressionScreen.queryByText(/· cohort \d/)).not.toBeInTheDocument();
+    expect(expressionScreen.getAllByText(/independent of disease onset|not disease onset/)).toHaveLength(1);
   });
 });

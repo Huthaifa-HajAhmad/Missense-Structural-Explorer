@@ -92,7 +92,7 @@ test('pext map explains region shading without an unrelated RNA headline', { tag
   await expect(screen.getByTestId('expression-finding')).toHaveCount(0);
   await expect(screen.getByRole('img', /Mean base-level pext across 10 coding regions/)).toBeVisible();
   await screen.getByRole('button', 'Change review systems').tap();
-  await expect(screen.getByRole('group', 'Review systems')).toBeVisible();
+  await expect(screen.getByRole('group', 'Body systems')).toBeVisible();
   await screen.getByRole('button', 'Renal', { exact: true }).tap();
   await expect(screen.getByRole('rowheader', 'Kidney cortex')).toBeVisible();
   await screen.getByText('Other tissues (1)', { exact: true }).tap();

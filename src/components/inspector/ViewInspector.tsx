@@ -1,5 +1,5 @@
 import type { StructureSelection } from "../../shared/structureSelection";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   PanelRightClose,
   PanelRightOpen,
@@ -11,6 +11,7 @@ import { NAV_ICONS, SUB_NAV_ICONS, type NavIcon } from "../ui/navIcons";
 import { revealInspectorSection, useInspectorFocus } from "../../lib/inspectorFocus";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import type { FoldxProgress } from "../../shared/foldxPhase";
+import { buildEnergeticsEvidence } from "../../shared/energeticsEvidence";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
@@ -93,7 +94,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string }> = {
      Each side's renames are kept. */
   energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached" },
   landscape: { title: "Residue inspector", subtitle: "Selection, scores & provenance" },
-  insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace" },
+  insights: { title: "How this verdict was made", subtitle: "The AI model and the rules used" },
   report: { title: "Report builder", subtitle: "Export, contents & review" },
   literature: { title: "Evidence Lineage", subtitle: "How this list was obtained" },
   console: { title: "Developer Console", subtitle: "Telemetry & Logs" },
@@ -383,7 +384,13 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     activeView === "evidence"
       ? findEvidenceTab(normalizeEvidenceTab(activeEvidenceTab || ""))?.subtitle
       : undefined;
-  const headerSubtitle = evidenceSubtitle ?? headerInfo.subtitle;
+  // The FoldX template is named by its PDB entry when it is one, so the 3D rail does not call a crystal template "AlphaFold".
+  const foldxTemplate = useMemo(() => buildEnergeticsEvidence({ foldingEnergetics: foldingEnergetics ?? null }).structure, [foldingEnergetics]);
+  const foldxOnPdb = foldxTemplate && foldxTemplate.source !== "alphafold" && foldxTemplate.pdbId
+    ? `PDB ${foldxTemplate.pdbId}${foldxTemplate.chainId ? `:${foldxTemplate.chainId}` : ""}`
+    : null;
+  const structureSubtitle = activeView === "structure_alphafold" && foldxOnPdb ? `AlphaFold model · FoldX variant on ${foldxOnPdb}` : headerInfo.subtitle;
+  const headerSubtitle = evidenceSubtitle ?? structureSubtitle;
   const pageTitle = activeView === "evidence" && activeEvidenceTab === "gene-disease" ? "Evidence inspector" : headerInfo.title;
   /** While a constraint reading has the rail, the heading names it; Back names the page. */
   const showConstraint = constraintFocus !== null && analysisResult !== null;
@@ -476,7 +483,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       </div>
 
       {/* ── Dynamic Inspector Sub-view ── */}
-      <div ref={bodyRef} className="inspector-body flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4" data-inspector-mode={showConstraint ? "gene-constraint" : "page"}>
+      <div ref={bodyRef} className="inspector-body flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4" data-inspector-mode={showConstraint ? "gene-constraint" : "page"} tabIndex={0} role="region" aria-label={headerTitle}>
         {showConstraint && (
           <ConstraintInspector
             analysisResult={analysisResult}

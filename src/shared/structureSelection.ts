@@ -9,6 +9,7 @@ import { betweenDomainsAt, regionsAt, type BetweenDomains, type RegionFeature, t
 
 export { indexStructureResidues };
 import type { Structure3dEvidence } from './structure3dEvidence';
+import { formatPlddt } from './plddtFormat';
 
 export interface StructurePick { chain: string; resName: string; insertionCode: string; /** Picked on the superposed variant, not the primary coordinates. */ secondary?: boolean }
 
@@ -94,7 +95,7 @@ export function buildStructureSelection(model: Structure3dEvidence, residues: Re
   const copied = channel.inherited ? 'Template ' : 'Cα ';
   const plddt = b !== null && channel.kind === 'plddt' && channel.scale ? b * 100 / channel.scale : null;
   const measurement = b === null ? null : plddt !== null
-    ? { label: `${copied}pLDDT${channel.inherited ? ' (copied)' : ''}`, value: plddt.toFixed(1), note: channel.note }
+    ? { label: `${copied}pLDDT${channel.inherited ? ' (copied)' : ''}`, value: formatPlddt(plddt), note: channel.note }
     : channel.kind === 'temperature-factor'
       ? { label: `${copied}B-factor${channel.inherited ? ' (copied)' : ''}`, value: `${b.toFixed(1)} Å²`, note: channel.note } : null;
   const band = plddt === null ? null : plddtBand(plddt);

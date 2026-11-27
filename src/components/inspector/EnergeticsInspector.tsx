@@ -91,8 +91,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ select
         </table>
         <p className="nrg-step__sub">
           FoldX publishes no threshold; {markText(1.5, unit)} and {markText(0.5, unit)} {unit} are this app&apos;s marks. The{" "}
-          {markText(1, unit)} mark for ThermoMPNN and RaSP is an app-defined local placeholder pending held-out recalibration. StabilityOracle has one mark, {markText(0.2, unit)}, chosen on S669 and checked on Ssym. None is a clinical cut-point.{" "}
-          {FOLDX_HOW_TO_READ}
+          {markText(1, unit)} mark for ThermoMPNN and RaSP is an app-defined local mark, not yet recalibrated on held-out data. StabilityOracle has one mark, {markText(0.2, unit)}, chosen on S669 and checked on Ssym. None is a clinical cut-point.{" "}
+          {FOLDX_HOW_TO_READ(unit)}
         </p>
       </section>
 
@@ -145,8 +145,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({ select
               Positive values predict destabilization and negative values predict stabilization across all four counted engines.
             </li>
             <li>
-              Predictor error is of the order of the marks themselves: on S669 FoldX has RMSE about 1.9–2.0 kcal/mol
-              against experiment, and differences under about 1 kcal/mol between engines are within noise.
+              Predictor error is of the order of the marks themselves: the FoldX test above gives its typical error, and
+              differences under about {markText(1, unit, false)} {unit} between engines are within noise.
             </li>
             <li>
               No calibrated probability is shown. The app has no ΔΔG-to-probability calibration fitted to data,

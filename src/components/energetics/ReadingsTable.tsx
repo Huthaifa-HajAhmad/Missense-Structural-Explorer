@@ -1,11 +1,12 @@
 import { Info, ListChecks } from "lucide-react";
-import { ENGINE_STATE_LABELS, type EnergyEngineId, type EnergyUnit } from "../../shared/engineStatus";
+import { ENGINE_STATE_LABELS, formatDdgValue, type EnergyEngineId, type EnergyUnit } from "../../shared/engineStatus";
 import {
   DDG_AXIS,
   ENERGETICS_CAVEAT_TEXT,
   ENERGETICS_GROUP_LABEL,
   ENERGETICS_GROUP_NOTE,
   absenceText,
+  energeticsCaveatDetail,
   foldxErrorInPlainWords,
   groupEnergeticsReadings,
   markText,
@@ -16,7 +17,7 @@ import {
 import { foldxBandCaveat, foldxMeasuredError } from "../../shared/foldxRepairMode";
 import { DdgRuler } from "./DdgRuler";
 
-function CaveatChips({ caveats, inline = false }: { caveats: EnergeticsReading["caveats"]; inline?: boolean }) {
+function CaveatChips({ caveats, unit, inline = false }: { caveats: EnergeticsReading["caveats"]; unit: EnergyUnit; inline?: boolean }) {
   if (caveats.length === 0) return null;
   return (
     <span className={`nrg-caveats ev-caveats${inline ? " nrg-caveats--inline" : ""}`}>
@@ -25,7 +26,7 @@ function CaveatChips({ caveats, inline = false }: { caveats: EnergeticsReading["
           key={c}
           className="ev-tier"
           data-tone={c === "excluded" || c === "protvar-stand-in" ? "muted" : "warning"}
-          title={ENERGETICS_CAVEAT_TEXT[c].detail}
+          title={energeticsCaveatDetail(c, unit)}
         >
           {ENERGETICS_CAVEAT_TEXT[c].label}
         </span>
@@ -69,10 +70,10 @@ function ReadingRow({
           >
             <Info className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
-          <CaveatChips caveats={titleCaveats} inline />
+          <CaveatChips caveats={titleCaveats} unit={unit} inline />
         </span>
         <span className="nrg-subject__note">{reading.description}</span>
-        <CaveatChips caveats={detailCaveats} />
+        <CaveatChips caveats={detailCaveats} unit={unit} />
         {reading.note && <span className="nrg-subject__note nrg-subject__fact">{reading.note}</span>}
         {foldxErrorInPlainWords(reading, unit) && <span className="nrg-subject__note nrg-subject__fact" data-testid="foldx-error-plain">{foldxErrorInPlainWords(reading, unit)}</span>}
       </th>
@@ -87,9 +88,9 @@ function ReadingRow({
               <span
                 className="nrg-num__error"
                 data-testid="foldx-measured-error"
-                title={foldxBandCaveat(reading.caveats.includes("local-repair"))}
+                title={foldxBandCaveat(reading.caveats.includes("local-repair"), unit)}
               >
-                ±{foldxMeasuredError(reading.caveats.includes("local-repair")).rmse.toFixed(1)} vs measured
+                ±{formatDdgValue(foldxMeasuredError(reading.caveats.includes("local-repair")).rmse, unit, 1)} vs measured
               </span>
             )}
           </>

@@ -20,6 +20,7 @@
  */
 
 import type { AouFrequencyData } from './contracts.ts';
+import { formatAlleleFrequency, formatCount, formatCutPoint } from './frequencyFormat.ts';
 
 export type FrequencyStatistic = 'faf95' | 'group-max' | 'combined' | 'global' | 'absent' | 'clinvar';
 
@@ -133,17 +134,15 @@ export function pm2Hold(
   return null;
 }
 
-const percent = (value: number) => `${Number((value * 100).toPrecision(2))}%`;
-
 /** The hold in one clause, shared by the engine's `unavailable` entry and the Population tab. */
 export function pm2HoldReason(hold: Pm2Hold): string {
   switch (hold.kind) {
     case 'homozygotes':
-      return `${hold.count} homozygotes observed in gnomAD, so the allele is not extremely rare; the count is not used as BS2`;
+      return `${formatCount(hold.count)} homozygotes observed in gnomAD, so the allele is not extremely rare; the count is not used as BS2`;
     case 'all-of-us':
-      return `the All of Us frequency (${percent(hold.af)}) is above the PM2 ceiling`;
+      return `the All of Us frequency (${formatAlleleFrequency(hold.af)}) is above the PM2 ceiling`;
     case 'ancestry-unmeasured':
-      return `the combined frequency ${percent(hold.af)} has no ancestry groups and is above ${percent(hold.floor)} (a tenth of the PM2 ceiling), so it cannot show the allele is rare in every group`;
+      return `the combined frequency ${formatAlleleFrequency(hold.af)} has no ancestry groups and is above ${formatCutPoint(hold.floor)} (a tenth of the PM2 ceiling), so it cannot show the allele is rare in every group`;
   }
 }
 

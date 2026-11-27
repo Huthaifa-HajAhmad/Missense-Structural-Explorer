@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatClinicalDate } from '../population/populationFormat';
+import { formatClinicalDate, namedConditionText } from '../population/populationFormat';
 
 const ORIGINAL_TZ = process.env.TZ;
 afterEach(() => {
@@ -25,5 +25,17 @@ describe('formatClinicalDate', () => {
     expect(formatClinicalDate(null)).toBeNull();
     expect(formatClinicalDate(undefined)).toBeNull();
     expect(formatClinicalDate('not a date')).toBeNull();
+  });
+});
+
+describe('namedConditionText', () => {
+  it('drops ClinVar placeholders and keeps the named conditions', () => {
+    expect(namedConditionText('SOD1-related disorder, not provided, Amyotrophic lateral sclerosis type 1')).toBe('SOD1-related disorder, Amyotrophic lateral sclerosis type 1');
+    expect(namedConditionText('Familial porphyria cutanea tarda, not provided, not specified')).toBe('Familial porphyria cutanea tarda');
+  });
+
+  it('returns null when ClinVar names no condition at all', () => {
+    expect(namedConditionText('not provided')).toBeNull();
+    expect(namedConditionText(null)).toBeNull();
   });
 });

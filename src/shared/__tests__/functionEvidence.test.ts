@@ -259,6 +259,7 @@ describe("buildFunctionEvidence — context for PM1 and mutagenesis at the resid
       status: "ok" as const,
       entryKinds: "ok" as const,
       crystalChecked: true,
+      peptideChecked: true,
       coverageChecked: true,
       coverage: { "1hl5": [[1, 153]] as Array<[number, number]>, "2c9v": [[1, 153]] as Array<[number, number]> },
       partners: [

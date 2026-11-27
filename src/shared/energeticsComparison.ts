@@ -1,6 +1,7 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
-import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, foldxErrorInPlainWords, listNames, signedDdg, signedDdgNumber, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
-import { FIX_SHELL_OFFSET_NOTE } from './foldxRepairMode';
+import { AGREEMENT_CHIP, LARGE_STRUCTURE_REPAIR_NOTE, absenceText, energeticsWithheldText, foldxErrorInPlainWords, listNames, signedDdg, signedDdgNumber, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { fixShellOffsetNote } from './foldxRepairMode';
+import { formatPlddt } from './plddtFormat';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
  * Missing values never become points; filtering never changes agreement or the full-data axis.
@@ -10,19 +11,28 @@ export type EnergySort = 'method' | 'value';
 export interface EnergeticsChartOptions { sort: EnergySort; countedOnly: boolean; showMarks: boolean }
 /** Engines that returned a value — of the engines that CAN count; a reference-only row (ProtVar) is not one. */
 export const returnedEnergyEstimates = (evidence: EnergeticsEvidence) => evidence.readings.filter(r => r.ddg !== null && !r.outcome.engine.referenceOnly).length;
-/** A prominent finding must qualify sparse evidence before presenting its direction. */
+/**
+ * The prominent finding. A withheld direction says so instead; a provisional one opens with the
+ * running engine's name, so the reader sees it before any direction word. A prominent finding must
+ * also qualify sparse evidence before presenting its direction.
+ */
 export function energeticsComparisonHeadline(evidence: EnergeticsEvidence): string {
+  const withheld = energeticsWithheldText(evidence);
+  if (withheld !== null) return withheld;
   const count = evidence.agreement.nCounted;
-  if (count === 0) return 'No usable estimate';
-  if (count === 1) return 'One usable estimate';
-  if (count < MIN_ENGINES_FOR_CONSENSUS) return `${count} usable estimates`;
-  return AGREEMENT_CHIP[evidence.agreement.direction].label;
+  const reading = count === 0 ? 'No usable estimate'
+    : count === 1 ? 'One usable estimate'
+    : count < MIN_ENGINES_FOR_CONSENSUS ? `${count} usable estimates`
+    : AGREEMENT_CHIP[evidence.agreement.direction].label;
+  if (!evidence.provisional) return reading;
+  const running = evidence.runningEngines;
+  return `Provisional: ${listNames(running)} ${running.length === 1 ? 'is' : 'are'} still running. So far: ${reading}`;
 }
 export function energeticsComparisonCautions(evidence: EnergeticsEvidence, unit: EnergyUnit = 'kcal/mol'): string[] {
   const notes: string[] = [];
   const foldxError = evidence.readings.map(r => foldxErrorInPlainWords(r, unit)).find(Boolean);
   if (foldxError) notes.push(foldxError);
-  if (evidence.lowPlddt !== null) notes.push(`Low confidence in the AlphaFold template here (pLDDT ${evidence.lowPlddt.toFixed(1)}); inspect the structure basis.`);
+  if (evidence.lowPlddt !== null) notes.push(`Low confidence in the AlphaFold template here (pLDDT ${formatPlddt(evidence.lowPlddt)}); inspect the structure basis.`);
   const unrepaired = evidence.readings.filter(r => r.caveats.includes('unrepaired-template'));
   if (unrepaired.length) {
     notes.push(`${unrepaired.map(r => r.name).join(', ')} used an unrepaired template, which can distort the estimate.`);
@@ -30,7 +40,7 @@ export function energeticsComparisonCautions(evidence: EnergeticsEvidence, unit:
   }
   // The offset is a limit of the measurement, not a footnote: it belongs in the reading order of the
   // Comparison tab, not only in a hover title (the same reason the unrepaired note is visible here).
-  if (evidence.readings.some(r => r.caveats.includes('local-repair'))) notes.push(FIX_SHELL_OFFSET_NOTE);
+  if (evidence.readings.some(r => r.caveats.includes('local-repair'))) notes.push(fixShellOffsetNote(unit));
   // The cross-check names the other FoldX value beside the caveat it bears on.
   if (evidence.foldxTemplateCheck && (unrepaired.length || evidence.foldxTemplateCheck.state !== 'consistent')) notes.push(evidence.foldxTemplateCheck.headline);
   // A reference-only row is excluded by design, so it is not a caution with a reason to look up.
@@ -77,15 +87,20 @@ export function buildEnergeticsComparison(evidence: EnergeticsEvidence, unit: En
   const padding = (max - min) * 0.12;
   // A negative value's label sits left of its dot, so the stable side needs room for it.
   const leftPadding = extent.some(v => v < 0) ? padding * 1.6 : padding;
+  // Engines and the ProtVar cross-check are counted apart, so the sentence matches the engine count elsewhere.
+  const engineEstimates = readings.filter(r => r.ddg !== null && !r.outcome.engine.referenceOnly).length;
+  const crossChecks = readings.filter(r => r.ddg !== null && r.outcome.engine.referenceOnly).length;
+  const noEstimate = readings.filter(r => r.ddg === null && !r.outcome.engine.referenceOnly).length;
   return {
     readings, points, foldxPair,
     domain: [(min - leftPadding) * factor, (max + padding) * factor] as [number, number],
     missing: readings.filter(r => r.ddg === null).map(r => ({ key: r.key, name: r.name, status: r.outcome.label, reason: absenceText(r) })),
-    summary: `${points.length} displayed estimates. Positive values predict less stable folding; negative values predict more stable folding. ${readings.length - points.length} displayed methods have no estimate. Values are predictions, not a disease classification.`,
+    summary: `${engineEstimates} engine ${engineEstimates === 1 ? 'estimate is' : 'estimates are'} shown${crossChecks ? ', plus the ProtVar cross-check' : ''}. Positive values predict less stable folding; negative values predict more stable folding. ${noEstimate} displayed ${noEstimate === 1 ? 'method has' : 'methods have'} no estimate. Values are predictions, not a disease classification.`,
   };
 }
 
 export function energeticsComparisonFinding(evidence: EnergeticsEvidence): string {
+  if (evidence.withheldReason !== null) return 'Individual estimates are shown below. Read them with the confidence note beneath the chart.';
   const a = evidence.agreement;
   const running = evidence.running.length > 0 || evidence.isFolding;
   if (a.nCounted === 0) {
@@ -104,7 +119,13 @@ export function energeticsComparisonFinding(evidence: EnergeticsEvidence): strin
     return `Most methods predict no destabilisation under their local marks; ${listNames(a.moderate.map(r => r.name))} ${a.moderate.length === 1 ? 'gives' : 'give'} a moderately destabilising reading. This does not establish that the variant is benign.${running ? ' Other results are still being collected.' : ''}`;
   }
   if (a.direction === 'mostly-moderate') {
-    return `Most methods give a moderately destabilising reading under their local marks; ${listNames(a.notDestabilizing.map(r => r.name))} ${a.notDestabilizing.length === 1 ? 'predicts' : 'predict'} no destabilisation. This does not establish that the variant is benign.${running ? ' Other results are still being collected.' : ''}`;
+    // Name only the methods that say what the clause claims: a "no destabilisation" clause needs a method that says it.
+    const exception = a.notDestabilizing.length > 0
+      ? `; ${listNames(a.notDestabilizing.map(r => r.name))} ${a.notDestabilizing.length === 1 ? 'predicts' : 'predict'} no destabilisation`
+      : a.destabilizing.length > 0
+        ? `; ${listNames(a.destabilizing.map(r => r.name))} ${a.destabilizing.length === 1 ? 'is' : 'are'} past the destabilizing mark`
+        : '';
+    return `Most methods give a moderately destabilising reading under their local marks${exception}. This does not establish that the variant is benign.${running ? ' Other results are still being collected.' : ''}`;
   }
   if (a.direction === 'mostly-destabilizing') {
     return `Most methods give a destabilising reading under their local marks; ${listNames(a.moderate.map(r => r.name))} ${a.moderate.length === 1 ? 'sits' : 'sit'} in the moderately destabilising band. This does not establish that the variant is pathogenic.${running ? ' Other results are still being collected.' : ''}`;

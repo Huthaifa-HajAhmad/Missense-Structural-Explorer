@@ -1,3 +1,6 @@
+import { expertPm1Specified, expertPm1StatusOf, type HotspotContext } from "../../shared/hotspotEvidence";
+import { hotspotsSlot } from "../../shared/evidenceKeys";
+import type { ContextLoad } from "./evidenceContextSlice";
 import { StateCreator } from "zustand";
 import { VariantPreset, SearchHistoryItem } from "../../types";
 import { getCachedVariant } from "../../services/pipeline/variantCache";
@@ -8,6 +11,7 @@ import { buildReportDocument } from "../../shared/reportDocument";
 import { deepEvidenceContextFromStore } from "../../shared/deepModelEvidence";
 import { reportInputFromRun } from "../../shared/reportInput";
 import { renderReportText } from "../../shared/reportRender";
+import type { EnergyUnit } from "../../shared/engineStatus";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
 import type { LandscapeOverview, LandscapeResidueItem } from "../../shared/contracts";
 import type { ResidueFocus } from "../../shared/residueFocus";
@@ -139,7 +143,7 @@ export interface SearchActions {
     e: React.FormEvent,
     executeFn: (g: string, v: string, u?: string) => void
   ) => void;
-  handleCopyReport: (result: any) => Promise<void>;
+  handleCopyReport: (result: any, energyUnit?: EnergyUnit) => Promise<void>;
 }
 
 export type SearchSlice = SearchState & SearchActions;
@@ -374,7 +378,7 @@ export const createSearchSlice: StateCreator<
     executeFn(targetGene, targetVariant, targetUniprot);
   },
 
-  handleCopyReport: async (result) => {
+  handleCopyReport: async (result, energyUnit) => {
     if (!result) return;
 
     /*
@@ -386,9 +390,12 @@ export const createSearchSlice: StateCreator<
      * draft from the store, so a block left out or edited in the Report is left out or edited here too.
      */
     const state = get();
-    const doc = buildReportDocument(
-      reportInputFromRun({
+    const hotspotLoad = state.extraContexts[hotspotsSlot(result?.metadata?.gene || state.gene || null, result?.metadata?.uniprotId, result?.transcriptId)] as ContextLoad<HotspotContext> | undefined;
+    const doc = buildReportDocument({
+      ...reportInputFromRun({
         result,
+        expertPm1Specified: Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec)),
+        expertPm1Status: expertPm1StatusOf(hotspotLoad),
         narrativeContext: deepEvidenceContextFromStore(state),
         gene: state.gene || result?.metadata?.gene || "",
         variant: state.variant || result?.metadata?.variant || "",
@@ -397,11 +404,12 @@ export const createSearchSlice: StateCreator<
         foldingDdG: (state.primaryBiophysics?.foldingDdG ?? state.foldingDdG ?? null) as number | null,
         foldingStatus: (state.primaryBiophysics?.foldingStatus ?? state.foldingStatus ?? null) as string | null,
         isFolding: state.primaryBiophysics?.isFolding ?? state.isFolding ?? false,
-        isLoading: state.isBiophysicalLoading,
+        isLoading: state.isBiophysicalLoading || state.isClinicalLoading || state.analysisState.isLoading,
         draft: { sections: state.reportSections, edits: state.reportEdits, meta: state.reportMeta, citations: state.reportCitations },
         generatedAt: new Date().toISOString(),
-      })
-    );
+      }),
+      energyUnit,
+    });
     const reportText = renderReportText(doc);
 
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {

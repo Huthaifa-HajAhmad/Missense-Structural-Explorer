@@ -51,6 +51,23 @@ describe("structure absence reason", () => {
   });
 });
 
+describe("burial and pocket are each said once", () => {
+  it("leaves the measured burial to its own fact, not the finding text", () => {
+    const model = nae1({ disruption: { ...NAE1_RESULT.disruptionPredictor, rsa: 0.22, burialStatus: "boundary" } as any });
+    expect(model.finding.detail).not.toMatch(/relative accessibility/);
+    expect(model.facts.find(f => f.label === "Burial")?.sub).toMatch(/relative accessibility/);
+  });
+});
+
+describe("PDB entry ids", () => {
+  it("print the id in capitals, as the 3D view does", () => {
+    const model = nae1({ pdbId: "1r3q", disruption: { ...NAE1_RESULT.disruptionPredictor, rsa: 0.22, burialStatus: "boundary" } as any });
+    const text = JSON.stringify(model.trace);
+    expect(text).toContain("1R3Q");
+    expect(text).not.toContain("1r3q");
+  });
+});
+
 describe("published residue scales", () => {
   it("reproduces Grantham's matrix values", () => {
     // Grantham 1974 Table 2: Asp–Gly 94, Asp–Glu 45, Leu–Ile 5, Cys–Trp 215.

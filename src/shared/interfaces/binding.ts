@@ -4,6 +4,7 @@
  */
 import type { PpiBindingShift } from "../contracts.ts";
 import { ENGINE_STATE_LABELS } from "../engineStatus.ts";
+import { signedDdg } from "../energeticsEvidence.ts";
 import { DDMUT_PPI_RMSE } from "./constants.ts";
 import { upperIds } from "./format.ts";
 import type { BindingView, BuildInterfacesInput, InterfaceView, ObservedView } from "./types.ts";
@@ -38,15 +39,22 @@ function okView(shift: PpiBindingShift): Partial<BindingView> {
   return {
     state: "ok",
     value: v,
-    valueText: `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(2)} kcal/mol`,
+    valueText: signedDdg(v),
     direction,
     directionText: direction === "weaker" ? "Weaker binding" : direction === "stronger" ? "Stronger binding" : "No change predicted",
     withinError: Math.abs(v) < DDMUT_PPI_RMSE,
   };
 }
 
-function notApplicable(reason: string): Partial<BindingView> {
-  return { state: "not-applicable", stateLabel: ENGINE_STATE_LABELS["not-covered"], reason };
+/** The binding-change card names each cause with one fixed label, never the engine label "Not covered" (B10). */
+export const BINDING_LABEL = {
+  onRequest: "Not run (on request)",
+  noComplex: "No solved complex to score",
+  notMeasured: "Not measured",
+} as const;
+
+function notApplicable(reason: string, stateLabel: string = BINDING_LABEL.notMeasured): Partial<BindingView> {
+  return { state: "not-applicable", stateLabel, reason };
 }
 
 function stateOf(b: BindingInput, plan: string | null): Partial<BindingView> {
@@ -59,14 +67,14 @@ function stateOf(b: BindingInput, plan: string | null): Partial<BindingView> {
   if (shift?.status === "failed") return { state: "failed", stateLabel: ENGINE_STATE_LABELS["upstream-error"], reason: shift.reason ?? "The prediction did not return a value.", canRequest: Boolean(plan) };
   if (shift?.status === "not-applicable") return notApplicable(shift.reason ?? "A binding change cannot be computed for this variant.");
   if (iface.verdict === "pending" || b.solvedPending) return { state: "pending", stateLabel: ENGINE_STATE_LABELS.running, reason: "Waiting for the solved structures." };
-  if (plan) return { state: "ready", reason: `Not run yet. ${plan}`, canRequest: true };
+  if (plan) return { state: "ready", stateLabel: BINDING_LABEL.onRequest, reason: plan, canRequest: true };
   // Keyed on the structures' silence, not the verdict: a built model can make the verdict "not at an interface" while no solved complex models the residue.
-  if (iface.unmodelled) return notApplicable(`${b.resLabel} is not modelled in any solved complex of ${b.gene}, so there is no solved wild type to score on.`);
+  if (iface.unmodelled) return notApplicable(`${b.resLabel} is not modelled in any solved complex of ${b.gene}, so there is no solved wild type to score on.`, BINDING_LABEL.noComplex);
   // "That model it" only when PDBe said which structures do; otherwise every structure of the pair is the denominator.
   if (b.native.length) return notApplicable(`${b.resLabel} is not at the interface in ${b.coverageChecked ? "any solved complex of " + b.gene + " that models it" : "any solved complex of " + b.gene + " (PDBe could not say which of them model it)"}, so no binding change is estimated.`);
   return notApplicable(b.monomer
     ? "UniProt states a monomer, and no solved complex exists: there is no partner chain to bind."
-    : "No solved complex exists, and the curated assembly gives no complex to model.");
+    : "No solved complex exists, and the curated assembly gives no complex to model.", BINDING_LABEL.noComplex);
 }
 
 export function readBinding(b: BindingInput): BindingView {

@@ -6,6 +6,8 @@ import type { FunctionEvidence } from './functionEvidence';
 import { HOTSPOT_GRADE_LABEL, HOTSPOT_LANE_LABEL, HOTSPOT_NOT_MODELLED_NOTE, HOTSPOT_STATE_WORD, RSA_UNIT_NOTE, hotspotRungKey, isInterfaceUnmodelled, type HotspotEvidence } from './hotspotEvidence';
 import type { ResidueContextEvidence } from './residueContextEvidence';
 import { RESIDUE_SCALE_SOURCES } from './residueScales';
+import { reviewStarsText } from './populationFormat';
+import { formatPlddt } from './plddtFormat';
 
 export function hotspotReadings(ev: HotspotEvidence): (EvidenceChartRow & { reportUrl?: string | null })[] {
   if (ev.state !== 'ready') return [];
@@ -55,7 +57,7 @@ export function hotspotReadings(ev: HotspotEvidence): (EvidenceChartRow & { repo
             : ev.model
               ? 'Not on the model'
               : 'No model';
-    const starsText = r.maxStars === null ? '' : ` · ${r.maxStars} of 4 review stars`;
+    const starsText = r.maxStars === null ? '' : ` · ${reviewStarsText(r.maxStars)}`;
     return {
       key: r.key,
       name: `${r.label} · ClinVar P/LP`,
@@ -70,7 +72,7 @@ export function hotspotReadings(ev: HotspotEvidence): (EvidenceChartRow & { repo
         { label: 'gnomAD missense', value: r.gnomad === null ? 'Not read' : String(r.gnomad) },
         { label: 'Sequence distance', value: r.sequenceDistance === 0 ? `0 (at ${ev.residueLabel})` : `${r.sequenceDistance > 0 ? `+${r.sequenceDistance}` : r.sequenceDistance} from ${ev.residueLabel}` },
         { label: '3D Cα–Cα distance', value: dist3d },
-        { label: 'pLDDT', value: r.plddt === null ? 'Not available' : `${r.plddt.toFixed(0)} / 100` },
+        { label: 'pLDDT', value: r.plddt === null ? 'Not available' : `${formatPlddt(r.plddt)} / 100` },
         { label: 'RSA', value: r.rsa === null ? (cols.rsa.reason ?? 'Not measured') : `${Math.round(r.rsa * 100)}%` },
         { label: 'Sites', value: cols.sites.state !== 'ok' ? (cols.sites.reason ?? 'Not read') : r.sites.length ? r.sites.map(s => `${s.name} (${s.evidence})`).join('; ') : 'None' },
         { label: 'Native interfaces', value: cols.interface.state !== 'ok' ? (cols.interface.reason ?? 'Not read') : r.interfaceSupport.length ? r.interfaceSupport.map(x => `${x.label} (${x.k} of ${x.n} structures)`).join('; ') : isInterfaceUnmodelled(r) ? `Not modelled. ${HOTSPOT_NOT_MODELLED_NOTE}` : 'None' },

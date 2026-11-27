@@ -33,6 +33,10 @@ export function clearResidueCoverageCache(): void {
   cache.clear();
 }
 
+export function dropResidueCoverageCache(accession: string): void {
+  cache.delete(accession);
+}
+
 /** Parse a PDBe `unipdb` payload. Exported for tests. */
 export function parseUnipdbCoverage(json: unknown, accession: string): ResidueCoverage {
   const root = (json as Record<string, any> | null)?.[accession] ?? (json as Record<string, any> | null)?.[accession.toLowerCase()];
@@ -79,7 +83,9 @@ export async function fetchResidueCoverage(accession: string, signal?: AbortSign
     if (!res.ok) return null;
     const coverage = parseUnipdbCoverage(await res.json(), accession);
     if (!coverage.entries.size) return null;
-    cache.set(accession, coverage);
+    // Only cache when full protein length is present; partial coverage without length cannot verify
+    // short-peptide spans and must be re-queried on retry.
+    if (coverage.length !== null && coverage.length > 0) cache.set(accession, coverage);
     return coverage;
   } catch (err: any) {
     if (err?.name === "AbortError") throw err;

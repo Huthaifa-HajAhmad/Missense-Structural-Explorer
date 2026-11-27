@@ -6,6 +6,7 @@
 import type { EvidenceChartRow } from './evidenceComparison';
 import { PARTNER_GROUP_LABEL, type InterfacesEvidence } from './interfacesEvidence';
 import { variantNumberingView, type NumberingRemapLike } from './numbering';
+import { formatDdgValue, type EnergyUnit } from './engineStatus';
 
 export function interfaceNumberingNote(result: { metadata?: { variant?: string; uniprotId?: string } | null; numberingRemap?: NumberingRemapLike | null }) {
   const n = variantNumberingView({ variant: result.metadata?.variant ?? '', uniprotId: result.metadata?.uniprotId, numberingRemap: result.numberingRemap });
@@ -14,7 +15,7 @@ export function interfaceNumberingNote(result: { metadata?: { variant?: string; 
 
 export const INTERFACE_LAYERS = [
   ['domains', 'Domains & regions'], ['topology', 'Topology'], ['sites', 'Mapped sites'],
-  ['native', 'Native interfaces'], ['fibril', 'Fibril contacts'], ['crystal', 'Outside assembly'], ['predicted', 'Predicted contacts'],
+  ['native', 'Native interfaces'], ['fibril', 'Fibril contacts'], ['crystal', 'Outside assembly'], ['peptide', 'Peptide-only structures'], ['predicted', 'Predicted contacts'],
 ] as const;
 
 export const INTERFACE_SUPPORT_ROWS = 6;
@@ -23,6 +24,7 @@ export function interfaceSupportGroups(ev: InterfacesEvidence) {
     { label: 'Native interfaces', kind: 'native', source: ev.observed.partners },
     { label: 'Fibril contacts', kind: 'fibril', source: ev.observed.fibrils },
     { label: 'Outside deposited assembly', kind: 'crystal', source: ev.observed.crystals },
+    { label: 'Peptide-only structures', kind: 'peptide', source: ev.observed.peptides },
   ].filter(g => g.source.length).map(g => ({ label: g.label, kind: g.kind, total: g.source.length,
     rows: g.source.slice(0, INTERFACE_SUPPORT_ROWS).map(p => ({ ...p, supportPercent: p.n > 0 && Number.isFinite(p.n) && Number.isFinite(p.k) ? Math.max(0, Math.min(100, p.k / p.n * 100)) : null })) }));
 }
@@ -34,7 +36,8 @@ export function interfaceMapView(ev: InterfacesEvidence, near: boolean, hidden: 
   const bounds = near && ev.position !== null ? { start: Math.max(1, centre - 60), end: Math.min(length, centre + 60) } : { start: 1, end: length };
   const layer = (l: InterfacesEvidence['track'][number]) => l.kind !== 'solved' ? l.kind
     : ev.observed.fibrils.some(p => p.key === l.rowKey) ? 'fibril'
-    : ev.observed.crystals.some(p => p.key === l.rowKey) ? 'crystal' : 'native';
+    : ev.observed.crystals.some(p => p.key === l.rowKey) ? 'crystal'
+    : ev.observed.peptides.some(p => p.key === l.rowKey) ? 'peptide' : 'native';
   // A layer's count is its records (domains, membrane segments, sites, partner interfaces, model
   // contacts), not its lanes: "Domains & regions 1" said nothing about a lane holding six domains.
   const records = (l: InterfacesEvidence['track'][number]) => l.kind === 'solved' ? 1
@@ -64,7 +67,7 @@ export function interfaceReadoutText(r: { k: number; n: number; total?: number }
   return r.n === 0 && (r.total ?? 0) > 0 ? `Not modelled in ${r.total}` : `${r.k} of ${r.n}`;
 }
 
-export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChartRow[] {
+export function interfaceWorkspaceReadings(ev: InterfacesEvidence, unit: EnergyUnit = 'kcal/mol'): EvidenceChartRow[] {
   const rows: EvidenceChartRow[] = ev.track.map(l => ({
     key: l.rowKey ?? `track:${l.key}`, name: l.label, value: null,
     valueText: l.readout ? interfaceReadoutText(l.readout) : l.sub,
@@ -80,13 +83,13 @@ export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChar
       'Sequence positions must refer to the same protein isoform. Check the reference and any recorded remapping above; matching residue numbers alone do not verify sequence identity.'],
   }));
   // Retain solved partners omitted from the bounded figure, using the same keys as source records.
-  for (const p of [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals]) {
+  for (const p of [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals, ...ev.observed.peptides]) {
     if (rows.some(r => r.key === p.key)) continue;
     rows.push({ key: p.key, name: p.label, value: null, valueText: interfaceReadoutText(p), group: 'map', tone: 'neutral',
       description: p.n === 0 ? `${ev.residueLabel} is not modelled in any of the ${p.total} structures in this context.` : `${ev.residueLabel}: ${p.k} of ${p.n} structures that model it, in this context.`,
       facts: [{ label: 'Accession', value: p.accession }, { label: 'Context', value: p.context ?? 'Not reported' },
         { label: 'Entries containing the interface residue', value: p.variantEntries.join(', ') || 'None returned' }],
-      notes: ['Fibril and outside-assembly contacts are read separately from native interfaces.'] });
+      notes: ['Fibril, outside-assembly and peptide-only contacts are read separately from native interfaces.'] });
   }
   for (const g of ev.groups) for (const p of [...g.rows, ...(g.folded?.rows ?? [])]) {
     rows.push({ knowledgeKey: p.physical.score !== null || p.functional.score !== null ? 'string' : 'interfaces', key: `partner:${p.key}`, name: p.gene, value: null, valueText: p.evidence,
@@ -107,7 +110,7 @@ export function interfaceWorkspaceReadings(ev: InterfacesEvidence): EvidenceChar
     notes: ['Confidence is not binding affinity. Contacts in the variant model do not establish loss of wild-type contacts.'] });
   rows.push({ knowledgeKey: 'ddmut_ppi', key: 'binding-change', name: 'Binding energy change', value: ev.binding.value,
     valueText: ev.binding.valueText ?? ev.binding.stateLabel ?? 'No result', description: ev.binding.reason ?? ev.binding.directionText ?? 'DDMut-PPI on a wild-type complex.', group: 'binding', tone: 'neutral',
-    facts: [{ label: 'ΔΔG_bind (kcal/mol)', value: ev.binding.value === null ? 'Not measured' : String(ev.binding.value) },
+    facts: [{ label: `ΔΔG_bind (${unit})`, value: ev.binding.value === null ? 'Not measured' : formatDdgValue(ev.binding.value, unit) },
       { label: 'Wild-type source', value: ev.binding.wildType?.provenance ?? 'Not available' }],
     notes: ['Negative values mean weaker binding under DDMut-PPI’s sign convention. This prediction is not an ACMG input.'] });
   return rows;

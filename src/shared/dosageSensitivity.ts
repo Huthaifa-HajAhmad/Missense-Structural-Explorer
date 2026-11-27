@@ -67,6 +67,7 @@ export const DOSAGE_SCOPE_NOTE: Record<DosageReading['scope'], string> = {
   'same-disease': 'Curated for the selected disease (exact MONDO ID).',
   'other-disease': 'Curated for a different disease than the one selected.',
   unscoped: 'Disease not matched to the selection: no MONDO ID on one side.',
+  'no-selection': 'No disease selected, so this curated disease is not compared with anything.',
 };
 
 /** ClinGen's meaning of each code, in plain words. 0–3 grade evidence for dosage pathogenicity;
@@ -90,23 +91,24 @@ export interface DosageReading {
   key: 'haploinsufficiency' | 'triplosensitivity'; name: 'Haploinsufficiency' | 'Triplosensitivity'; asks: string;
   state: DosageScore['state']; code: DosageCode | null; call: string; tone: DosageTone;
   disease: string | null; diseaseId: string | null; history: string | null;
-  /** Exact-MONDO comparison with the selected disease (its own ID or a MONDO cross-reference);
-   * `unscoped` when either side has no MONDO ID, so an OMIM-keyed frame is never called "other". */
-  scope: 'same-disease' | 'other-disease' | 'unscoped';
+  /** Exact-MONDO comparison with the selected disease (its own ID or a MONDO cross-reference).
+   * `no-selection`: the reader has chosen no disease. `unscoped`: a disease is chosen but either side has no MONDO ID,
+   * so an OMIM-keyed frame is never called "other". */
+  scope: 'same-disease' | 'other-disease' | 'unscoped' | 'no-selection';
 }
 export interface DosageEvidence {
   state: 'ready' | 'not-found' | 'error' | 'loading' | 'not-requested';
   readings: DosageReading[]; evaluatedAt: string | null; reportUrl: string | null; message: string | null;
 }
 
-function reading(key: DosageReading['key'], score: DosageScore, selectedMondo: ReadonlySet<string>): DosageReading {
+function reading(key: DosageReading['key'], score: DosageScore, selectedMondo: ReadonlySet<string> | null): DosageReading {
   const call = score.state === 'scored' ? `${score.code}: ${DOSAGE_CODE_LABELS[score.code as DosageCode]}`
     : score.state === 'not-evaluated' ? 'Not yet evaluated' : 'Not reported';
   return { key, name: key === 'haploinsufficiency' ? 'Haploinsufficiency' : 'Triplosensitivity',
     asks: key === 'haploinsufficiency' ? 'Does losing one gene copy cause disease?' : 'Does an extra gene copy cause disease?',
     state: score.state, code: score.code, call, tone: toneOf(score.code),
     disease: score.disease, diseaseId: score.diseaseId, history: score.history,
-    scope: !score.diseaseId || selectedMondo.size === 0 ? 'unscoped' : selectedMondo.has(score.diseaseId.toUpperCase()) ? 'same-disease' : 'other-disease' };
+    scope: selectedMondo === null ? 'no-selection' : !score.diseaseId || selectedMondo.size === 0 ? 'unscoped' : selectedMondo.has(score.diseaseId.toUpperCase()) ? 'same-disease' : 'other-disease' };
 }
 
 /** The selected frame's MONDO IDs: its own ID and its cross-references. Other namespaces (OMIM, Orphanet) are not compared. */
@@ -124,10 +126,10 @@ export function buildDosageEvidence(load: { status: 'loading' | 'ready' | 'error
   // Retain the guard for cached/legacy payloads that did not pass the current response schema.
   if (data.status === 'not-found') return data.record
     ? { ...empty, state: 'error', message: 'The dosage response contradicts its reported lookup status.' }
-    : { ...empty, state: 'not-found', message: data.message };
+    : { ...empty, state: 'not-found', message: data.message ?? 'No result. No ClinGen dosage curation is listed for this gene. This does not mean copy-number changes are tolerated.' };
   if (!data.record || data.record.symbol !== data.gene || !/^HGNC:\d+$/.test(data.record.geneId)) return { ...empty, state: 'error', message: 'The dosage response did not contain a valid record for this gene.' };
   const r = data.record;
-  const selectedMondo = mondoIds(selectedDiseaseIds);
+  const selectedMondo = selectedDiseaseIds === null ? null : mondoIds(selectedDiseaseIds);
   return { state: 'ready', evaluatedAt: r.evaluatedAt, reportUrl: r.reportUrl, message: null,
     readings: [reading('haploinsufficiency', r.haploinsufficiency, selectedMondo), reading('triplosensitivity', r.triplosensitivity, selectedMondo)] };
 }

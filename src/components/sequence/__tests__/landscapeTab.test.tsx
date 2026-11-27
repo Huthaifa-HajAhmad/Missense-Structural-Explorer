@@ -195,7 +195,8 @@ describe("SequenceVisualizer residue window", () => {
   });
 
   it("says so when the scores for the window could not be fetched, and asks again on Retry for the same span", async () => {
-    landscapeApi.getLandscapeData.mockRejectedValueOnce(new Error("network down")).mockResolvedValue({ landscapeData: [] });
+    const errors = vi.spyOn(console, "error");
+    landscapeApi.getLandscapeData.mockRejectedValueOnce(new Error("network down")).mockResolvedValueOnce({ landscapeData: [] }).mockImplementation(() => new Promise(() => {}));
     renderViewer();
     fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
     const alert = await screen.findByRole("alert");
@@ -207,6 +208,9 @@ describe("SequenceVisualizer residue window", () => {
     await waitFor(() => expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(2));
     expect(landscapeApi.getLandscapeData.mock.calls[1][0].landscapeWindow).toEqual(firstSpan);
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+    expect(landscapeApi.getLandscapeData).toHaveBeenCalledTimes(2);
+    expect(errors.mock.calls.flat().join(" ")).not.toContain("Maximum update depth exceeded");
   });
 
   const pipelineContext = {
@@ -391,18 +395,44 @@ describe("SequenceVisualizer data cautions", () => {
       />
     );
     expect(screen.getByRole("tab", { name: "Whole protein", selected: true })).toBeTruthy();
-    // One collapsed notice that names how many cautions it holds, above the heading.
+    // One notice that names how many cautions it holds, above the heading, open so the reader sees them.
     const summary = screen.getByText("Data cautions (1) — review before comparing scores");
     const notice = summary.closest("details")!;
-    expect(notice.open).toBe(false);
+    expect(notice.open).toBe(true);
     const heading = screen.getByRole("heading", { name: "Residue landscape" });
     expect(notice.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(summary);
-    expect(notice.open).toBe(true);
     expect(within(notice).getByText(/The source stopped at its row limit/)).toBeTruthy();
+    fireEvent.click(summary);
+    expect(notice.open).toBe(false);
+    fireEvent.click(summary);
     // Focus residue no longer carries its own copy: the notice is the one home for cautions.
     fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
     expect(screen.getAllByText(/The source stopped at its row limit/)).toHaveLength(1);
+    sequenceState.sequence = "";
+  });
+});
+
+describe("SequenceVisualizer regional O/E when the run could not place the intervals", () => {
+  it("withholds the overview's regional O/E as the inspector does, not as a number", () => {
+    sequenceState.sequence = "M".repeat(100) + "SGSFVEESPENLLDNDPSFFCRFTVVVATQL" + "A".repeat(50);
+    useVariantAnalysisStore.setState({
+      landscapeOverview: {
+        key: "NAE1|p.Asp116Gly|Q13564",
+        status: "ready",
+        contextStatus: "ready",
+        data: {
+          positions: [],
+          meta: { source: "dbnsfp-local", sourceVersion: "dbNSFP 4.9a", transcriptBasis: "mane", transcript: "ENST1", window: null, referenceSequence: null, cached: false, qualityFlags: [], retrievedAt: "2026-10-15T00:00:00Z" },
+          context: { clinvar: null, gnomad: [], regions: [{ start: 1, end: 50, oe: 0.5, pValue: 0.01 }], regionsStatus: "available", transcript: null, regionsBasis: "gnomAD v4.1.1 genomic intervals", errors: [] }
+        },
+        error: null
+      } as any,
+      analysisState: { isLoading: false, error: null, result: { gnomadConstraint: { regionalStatus: "unverified-locus" } } } as any
+    });
+    render(<SequenceVisualizer uniprotId="Q13564" gene="NAE1" variant="p.Asp116Gly" residueIndex={116} landscapeData={[...rows.values()]} />);
+    expect(screen.getByText("Regional O/E withheld")).toBeTruthy();
+    expect(screen.queryByText(/regional missense O\/E 0\.50/)).toBeNull();
+    useVariantAnalysisStore.setState({ landscapeOverview: null, analysisState: { isLoading: false, error: null, result: null } as any });
     sequenceState.sequence = "";
   });
 });

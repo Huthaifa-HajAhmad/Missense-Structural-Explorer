@@ -19,6 +19,6 @@ export function InterfaceOverview({ ev }: { ev: InterfacesEvidence }) {
       </button>)}
       {g.total > g.rows.length && <button type="button" className="viz-action" onClick={() => w.setView('records')}>View all {g.total} {g.label.toLowerCase()} in assemblies & models</button>}
     </div>)}
-    <footer>Each row keeps its own denominator. Fibril and outside-assembly contacts do not contribute to the native-interface finding.</footer>
+    <footer>Each row keeps its own denominator. Fibril, outside-assembly and peptide-only contacts do not contribute to the native-interface finding.</footer>
   </section>;
 }

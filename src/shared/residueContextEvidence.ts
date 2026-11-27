@@ -326,7 +326,7 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   const d = input.disruption;
   const hasBurialData =
     !!d && (d.burialStatus != null || d.neighborCount != null || d.rsa != null || !!d.sasaUnavailableReason);
-  const structure = d?.structureLabel ?? describeStructureSource(input.pdbId, input.pdbSource);
+  const structure = d?.structureLabel ?? describeStructureSource(input.pdbId?.toUpperCase(), input.pdbSource);
   const burial = hasBurialData
     ? {
         ...deriveBurialEvidence({ burialStatus: d!.burialStatus, neighbourCount: d!.neighborCount, rsa: d!.rsa }),
@@ -390,11 +390,8 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   if (burial) {
     if (burial.status === "undetermined") {
       detailParts.push("Burial was not measured, because the accessibility step did not run.");
-    } else {
-      detailParts.push(
-        `The residue reads as ${burial.label.toLowerCase()} at ${burial.indicators.rsa.valueLabel} relative accessibility.`
-      );
     }
+    // A measured burial is stated once, by its Burial fact and trace step, not repeated in the finding.
   } else {
     detailParts.push(structureReason);
   }

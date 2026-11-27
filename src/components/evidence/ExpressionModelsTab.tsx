@@ -76,7 +76,7 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
       <EvidenceTopic tab="expression-models" view="pext"><PextCard transcript={transcript} load={context.pextLoad} site={site} systems={systems} tissueLabels={gtexLabels} onRetry={context.retryPext} /></EvidenceTopic>
       {/* A plain note, not a fold: these sentences are what stop a reader over-reading TPM or pext. */}
       <section className="xp-guide" aria-labelledby="xp-guide-title"><h2 id="xp-guide-title">How to read this evidence</h2>
-        <p>TPM measures RNA abundance, not pathogenicity. Adult and pediatric RNA use separate views and scales. Review systems bring related tissues forward; they do not establish that an organ was adequately sampled.</p>
+        <p>TPM measures RNA abundance, not pathogenicity. Adult and pediatric RNA use separate views and scales. Body systems bring related tissues forward; they do not establish that an organ was adequately sampled.</p>
         <p>Protein Atlas measurements use a different assay. Pext is the share of the gene’s expression that comes from transcripts including a coding base, not the expression of your selected transcript.</p>
       </section>
     </EvidencePanel>

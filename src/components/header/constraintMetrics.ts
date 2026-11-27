@@ -7,13 +7,14 @@
  * one-line context strip, so the strip's micro-tracks, its reading cards and the inspector's full tracks read the
  * same metric objects.
  */
-import { REGIONAL_MISSENSE_CALIBRATION, REGIONAL_MISSENSE_SOURCE, regionalBp1Code, regionalPp2Code, THRESHOLDS } from "../../shared/thresholds";
+import { formatRegionalOe, REGIONAL_MISSENSE_CALIBRATION, REGIONAL_MISSENSE_SOURCE, regionalBp1Code, regionalPp2Code, THRESHOLDS } from "../../shared/thresholds";
 import { resolveEvidenceAvailability } from "../../shared/evidenceAvailability";
 import { CONSTRAINT_GUIDANCE_URL, CONSTRAINT_RELEASE, type ConstraintMetricKey, type RegionalConstraintStatus } from "../../shared/constraintSource";
 
 export type { ConstraintMetricKey };
 import type { AnalysisResult } from "../../types";
 import { serviceStatusOf } from "../../shared/serviceStatus";
+import { REGIONAL_MAPPING_LIMIT } from "../../shared/landscapeEvidence";
 
 // ─────────────────────────────────────────────
 // Display constants
@@ -392,8 +393,8 @@ export function buildRmcMetric(
     },
   };
   const unavailable: Partial<Record<RegionalConstraintStatus, [string, string]>> = {
-    "unverified-locus": ["Unverified locus", "A verified GRCh38 single-nucleotide locus and transcript are required; protein residue numbers alone are insufficient. PP2 is not tested."],
-    "transcript-mismatch": ["Transcript mismatch", "The annotated transcript is absent from this gene's constraint release; regional evidence is withheld and PP2 is not tested."],
+    "unverified-locus": [REGIONAL_MAPPING_LIMIT.label, "A verified GRCh38 single-nucleotide locus and transcript are required; protein residue numbers alone are insufficient. PP2 is not tested."],
+    "transcript-mismatch": [REGIONAL_MAPPING_LIMIT.label, "The annotated transcript is absent from this gene's constraint release; regional evidence is withheld and PP2 is not tested."],
     "failed-qc": ["QC warning", "The gene or regional interval failed quality checks; no regional reading is made and PP2 is not tested."],
     "invalid-data": ["Invalid data", "The interval or its statistics are invalid or ambiguous; no regional reading is made."],
     "candidates-differ": ["Candidates differ", "The candidate alleles of this protein change fall in different regional intervals, so no single interval is read and PP2 is not tested. No allele was selected."],
@@ -417,10 +418,7 @@ export function buildRmcMetric(
     };
   }
 
-  // An O/E of 0.3601 prints as "0.36" beside a stated edge of "≤ 0.36" while sitting in the Supporting band.
-  // Show the third decimal only where two would contradict the band.
-  const edges = [cal.pp2.Moderate, cal.pp2.Supporting, cal.bp1.Supporting, cal.bp1.Moderate];
-  const value = edges.some((e) => Math.abs(oe - e) < 0.005) ? oe.toFixed(3) : oe.toFixed(2);
+  const value = formatRegionalOe(oe);
   const pText = formatPValue(regional.pValue);
   const region = compactRegion(regional.regionText);
   const blockSpan = region ? region.replace("–", " to ") : null;
@@ -432,7 +430,7 @@ export function buildRmcMetric(
       ? { tone: "warn" as VhTone, verdict: "PP2 Supporting band", fact: `O/E ${value} ≤ ${cal.pp2.Supporting}: calibrated PP2 Supporting.` }
       : bp1
         ? { tone: "muted" as VhTone, verdict: "BP1 band (not applied)", fact: `O/E ${value} > ${bp1 === "BP1_Moderate" ? cal.bp1.Moderate : cal.bp1.Supporting}: the calibrated BP1 ${bp1 === "BP1_Moderate" ? "Moderate" : "Supporting"} band. The engine does not apply BP1 (it needs the gene's curated mechanism).` }
-        : { tone: "muted" as VhTone, verdict: "No calibrated band", fact: `O/E ${value} lies between the PP2 and BP1 bands; no evidence either way.` };
+        : { tone: "muted" as VhTone, verdict: "Not met", fact: `O/E ${value} lies between the PP2 and BP1 bands, so neither is met; no evidence either way.` };
   return {
     key: "regional-oe",
     label: "Regional O/E",
@@ -460,7 +458,7 @@ export function buildConstraintMetrics(analysisResult: AnalysisResult | null | u
     buildMissenseZMetric(gnomad?.missense_z),
     buildLoeufMetric(gnomad?.loeuf),
     buildRmcMetric(gnomad?.hasRegionalData ?? false, gnomad?.regionalConstraint ?? null, gnomad?.regionalStatus,
-      gnomad?.regionalRelease ? `gnomAD v${gnomad.regionalRelease}` : "gnomAD (regional release unreported)"),
+      gnomad?.regionalRelease ? `gnomAD (regional release v${gnomad.regionalRelease})` : "gnomAD (regional release unreported)"),
   ];
   const source = constraintSourceLabel(analysisResult);
   const status = serviceStatusOf(analysisResult)?.gnomadConstraint;
@@ -502,7 +500,12 @@ export function buildConstraintMetrics(analysisResult: AnalysisResult | null | u
  */
 export function releaseTag(metric: Pick<VhMetric, "release" | "marker" | "cutPoints">, groupSource: string): string | null {
   if (metric.marker === null || metric.cutPoints === null || metric.release === groupSource) return null;
-  return metric.release.replace(/^gnomAD \((.*)\)$/, "$1").replace(/^gnomAD /, "");
+  // Keep the strip pill compact ("v4.1.1") so mid-width viewports never overflow; the full
+  // "gnomAD (regional release v4.1.1)" explanation stays on `metric.release`, tooltips, and the card.
+  return metric.release
+    .replace(/^gnomAD \((?:regional )?(.*)\)$/, "$1")
+    .replace(/^release (v)/, "$1")
+    .replace(/^gnomAD /, "");
 }
 
 /** Where the constraint numbers came from, as the inspector's Source section lists them. */

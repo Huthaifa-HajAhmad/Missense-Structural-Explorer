@@ -141,6 +141,7 @@ export async function buildReportDocx(doc: ReportDocument): Promise<Blob> {
     new Paragraph({ text: doc.title, heading: HeadingLevel.TITLE, spacing: { after: 80 } }),
     new Paragraph({ children: [new TextRun({ text: f.useStatement, color: MUTED, italics: true, size: 21 })], spacing: { after: 80 } }),
   ];
+  head.push(new Paragraph({ text: f.completeness }));
   if (doc.meta.preparedBy) head.push(new Paragraph({ children: [new TextRun({ text: `Prepared by: ${doc.meta.preparedBy}`, color: MUTED, size: 21 })] }));
   if (doc.meta.caseRef) head.push(new Paragraph({ children: [new TextRun({ text: `Case reference: ${doc.meta.caseRef}`, color: MUTED, size: 21 })] }));
 
@@ -152,7 +153,7 @@ export async function buildReportDocx(doc: ReportDocument): Promise<Blob> {
     }),
   ];
   if (f.omitted.length) end.push(new Paragraph({ children: [new TextRun({ text: `Not included by the author: ${f.omitted.join("; ")}.`, color: MUTED, size: 18 })], spacing: { after: 60 } }));
-  end.push(new Paragraph({ children: [new TextRun({ text: `Document ID ${f.documentId}: a canonical content identifier, excluding export time and file format; it does not prove authorship.`, color: MUTED, size: 18 })] }));
+  end.push(new Paragraph({ children: [new TextRun({ text: `Document ID ${f.documentId}: a fingerprint of the content, not counting export time or file format. It does not prove authorship.`, color: MUTED, size: 18 })] }));
 
   const file = new Document({
     creator: doc.meta.preparedBy || f.app,

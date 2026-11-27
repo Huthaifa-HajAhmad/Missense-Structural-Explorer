@@ -414,10 +414,11 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
       wildType: { ...baseInput().wildType, provenance: { source: "alphafold", afdbVersion: "v6", excludedExperimental: refused } },
       foldx: { ...baseInput().foldx, template: { source: "alphafold", excludedExperimental: refused } },
     }));
-    expect(m.canvas.primary?.detail).toContain("used because none of the 5 solved structures spanning residue 358 has coordinates for it");
+    // Finding B6: unmodelledSiteText names "entries that span residue N" rather than "solved structures".
+    expect(m.canvas.primary?.detail).toContain("used because none of the 5 entries that span residue 358 has coordinates for it");
     const notice = m.notices.find(n => n.key === "excluded-template");
     expect(notice?.title).toBe("No solved structure shows this residue");
-    expect(notice?.body).toContain("none of the 5 solved structures spanning residue 358 has coordinates for it");
+    expect(notice?.body).toContain("none of the 5 entries that span residue 358 has coordinates for it");
     expect(notice?.body).not.toMatch(/undefined|wild type/);
   });
 

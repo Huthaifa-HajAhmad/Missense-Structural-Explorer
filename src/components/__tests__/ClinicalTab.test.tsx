@@ -429,7 +429,7 @@ describe("ClinicalTab — redesign regressions", () => {
         ruleBasedInsights: { acmgCriteria: [{ code: "BS2", reason: "homozygotes" }] },
       }),
     );
-    expect(screen.getByText("BS2")).toBeTruthy();
+    expect(screen.getByText("BS2 applied")).toBeTruthy();
   });
 
   it("formats the ClinVar evaluation date day-month-year, with review stars", () => {
@@ -506,16 +506,23 @@ describe("ClinicalTab — UROD p.Gly318Arg from gnomAD r4", () => {
     aouLookup: { localTable: "found", remoteDbnsfp: "not-reported" },
     gnomadConstraint: { pli: 0 },
     curatedInheritance: { source: "GenCC", modes: ["Autosomal dominant", "Autosomal recessive", "Semidominant"], recessiveOnly: false, sexOrMitoOnly: false, records: 3 },
-    ruleBasedInsights: { acmgCriteria: [{ code: "BS1" }, { code: "BS2" }] },
+    // The engine records no BS1 (BS1 is not counted in this app) and no BS2 (not counted either).
+    ruleBasedInsights: { acmgCriteria: [] },
     ...overrides,
   });
 
-  it("leads with FAF95, the number BS1 turned on, and names its group", () => {
+  it("leads with FAF95, the number the benign rule read, and records no frequency criterion", () => {
     const { container } = renderTab(urod());
     expect((container.querySelector(".figure-headline") as HTMLElement).textContent).toBe("1.62%");
     expect(screen.getByText("The frequency the rule read")).toBeTruthy();
     expect(screen.getByTestId("rule-source").textContent).toBe("gnomAD filtering allele frequency (FAF95) · African/African American (afr)");
-    expect(screen.getByTestId("verdict-chip").textContent).toBe("BS1");
+    expect(screen.getByTestId("verdict-chip").textContent).toBe("No criterion");
+  });
+
+  it("states that BS1 is not applied, and the verdict chip never says BS1", () => {
+    renderTab(urod());
+    expect(screen.getByText(/BS1 is not applied/)).toBeTruthy();
+    expect(screen.getByTestId("verdict-chip").textContent).not.toBe("BS1");
   });
 
   it("flags a cohort several-fold above a combined local figure, as context only", () => {
@@ -529,5 +536,54 @@ describe("ClinicalTab — UROD p.Gly318Arg from gnomAD r4", () => {
   it("raises no disagreement when the rule read the grouped maximum", () => {
     renderTab(urod());
     expect(screen.queryByTestId("cohort-disagreement")).toBeNull();
+  });
+});
+
+describe("ClinicalTab — intro and ClinVar wording", () => {
+  const sod1 = () => gzf1Result({
+    metadata: { gene: "SOD1", variant: "p.Ala5Val", uniprotId: "P00441" },
+    clinvar: {
+      classification: "Pathogenic", reviewStatus: "criteria provided, multiple submitters, no conflicts", uid: "12345",
+      lastEvaluated: "2026-02-03", trait: "SOD1-related disorder, not provided, Amyotrophic lateral sclerosis type 1",
+    },
+  });
+
+  it("names only the sources the figures come from, not ClinVar, in the intro", () => {
+    const { container } = renderTab(sod1());
+    const intro = container.querySelector(".screen-tab-description")!.textContent ?? "";
+    expect(intro).toContain("gnomAD and All of Us");
+    expect(intro).not.toContain("ClinVar");
+  });
+
+  it("shows the named condition without ClinVar's placeholder", () => {
+    renderTab(sod1());
+    const condition = screen.getByText("Amyotrophic lateral sclerosis type 1", { exact: false });
+    expect(condition.textContent).toBe("SOD1-related disorder, Amyotrophic lateral sclerosis type 1");
+    expect(screen.queryByText(/not provided/)).toBeNull();
+  });
+
+  it("gives the review stars an accessible image role, so the label is allowed", () => {
+    const { container } = renderTab(sod1());
+    const stars = container.querySelector(".pop-stars") as HTMLElement;
+    expect(stars.getAttribute("role")).toBe("img");
+    expect(stars.getAttribute("aria-label")).toBeTruthy();
+  });
+
+  it("writes a missing last-evaluated date as 'Not reported', with a capital", () => {
+    const { container } = renderTab(gzf1Result({ clinvar: { classification: "Pathogenic", reviewStatus: "", uid: "1", trait: "X" } }));
+    expect(container.textContent).toContain("Not reported");
+    expect(container.textContent).not.toContain("not reported");
+  });
+});
+
+describe("ClinicalTab — one vocabulary for a criterion that was not counted", () => {
+  it("words an uncounted BS2 as 'BS2 not applied', never 'not applicable'", () => {
+    const { container } = renderTab(gzf1Result({
+      metadata: { gene: "UROD", variant: "p.Gly318Arg", uniprotId: "P06132" },
+      gnomadFrequency: { maxAF: 0.004872, groupMaxAF: 0.004872, genomeAF: 0.004872, exomeAF: null, genomeAC: 742, exomeAC: null, genomeAN: 152292, exomeAN: null, nHomozygous: 15, dataset: "gnomad_r4" },
+      ruleBasedInsights: { acmgCriteria: [] },
+    }));
+    expect(container.textContent).toContain("BS2 not applied");
+    expect(container.textContent).not.toContain("not applicable");
   });
 });

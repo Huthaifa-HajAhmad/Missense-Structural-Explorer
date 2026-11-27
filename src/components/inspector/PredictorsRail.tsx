@@ -2,11 +2,11 @@ import React, { useMemo } from "react";
 import { PredictorInformationalSummary } from "../evidence/PredictorInformationalSummary";
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 import { buildPredictorComparison } from '../../shared/evidenceComparison';
-import { BookOpen, Database, GitBranch, Ruler, Scale } from "lucide-react";
+import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
-import { REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
+import { formatRegionalOe, REGIONAL_MISSENSE_CALIBRATION } from "../../shared/thresholds/calibration";
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { CHAIN_ORDER_TEXT, activeToolText, disagreementText, noCriterionText } from "../../shared/predictorSummary";
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
@@ -166,9 +166,10 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
                 : "None"}
             </span>
             <span className="prd-step__sub">
+              {`Standard order: ${CHAIN_ORDER_TEXT}.`}
               {primary.vcepRule
-                ? `${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}): ${primary.vcepRule.summary}`
-                : `Order: ${CHAIN_ORDER_TEXT}. Informational tools are listed but never used.`}
+                ? ` This gene: ${primary.vcepRule.vcep} (${primary.vcepRule.cspecId} v${primary.vcepRule.version}): ${primary.vcepRule.summary}`
+                : " Other scores are context only."}
             </span>
           </Step>
           <Step n={3} label="Rule" state={primary.code ? "done" : primary.outcome === "blocked-spliceai" || primary.outcome.startsWith("withheld") ? "warn" : "idle"}>
@@ -182,13 +183,13 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             {primary.vcepNotes.map((note, idx) => (
               <span key={idx} className="prd-step__sub">{note}</span>
             ))}
-            <span className="prd-step__sub">SpliceAI ≥ 0.20 blocks BP4 and applies splicing PP3 once when PVS1 is absent (Walker 2023; VCEP cut-points apply where specified).</span>
+            <span className="prd-step__sub">Splicing rule (Walker 2023; see the Splicing tab): applies splicing PP3 once when PVS1 is absent, and VCEP cut-points apply where specified.</span>
           </Step>
           <Step n={4} label="Regional constraint → PP2" state={ev.engine.pp2Stale ? "warn" : constraint.regionalOe === null ? "idle" : "done"}>
             <span>
               {constraint.regionalOe === null
                 ? `No regional O/E at this variant${constraint.regionalStatus ? ` (${REGIONAL_STATUS_WORDS[constraint.regionalStatus] ?? constraint.regionalStatus})` : ""}, so PP2 was not tested`
-                : `Regional O/E ${constraint.regionalOe.toFixed(2)} → ${constraint.pp2Code === "PP2_Moderate" ? "PP2 Moderate" : constraint.pp2Code === "PP2" ? "PP2 Supporting" : "not met"}`}
+                : `Regional O/E ${formatRegionalOe(constraint.regionalOe)} → ${constraint.pp2Code === "PP2_Moderate" ? "PP2 Moderate" : constraint.pp2Code === "PP2" ? "PP2 Supporting" : "not met"}`}
             </span>
             <span className="prd-step__sub">
               Rule: O/E ≤ {PP2_RULE.pp2.Moderate} Moderate, ≤ {PP2_RULE.pp2.Supporting} Supporting ·{" "}
@@ -200,7 +201,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           </Step>
           <Step n={5} label="BP1" state={ev.engine.bp1Stale ? "warn" : "idle"}>
             <span>Not assessed</span>
-            <span className="prd-step__sub">Needs the gene&apos;s curated disease mechanism; pLI is not that fact.</span>
+            <span className="prd-step__sub">Needs the gene&apos;s curated disease mechanism. The gene&apos;s loss-of-function constraint score (pLI) does not supply it.</span>
             {ev.engine.bp1Stale && (
               <span className="prd-step__warn">This result records BP1 from an earlier engine. Re-run the analysis to refresh it.</span>
             )}
@@ -262,45 +263,6 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
         )}
       </section>
 
-      {/* ── 3. ClinGen points (reference) ── */}
-      <section className="prd-rsec" aria-labelledby="prd-rail-points">
-        <h3 className="eyebrow" id="prd-rail-points">
-          <Scale className="w-3.5 h-3.5" />
-          ClinGen points (reference)
-        </h3>
-        <div
-          className="prd-points"
-          role="img"
-          aria-label={`Tavtigian 2020 point scale: benign at −7 or below, likely benign −6 to −1, uncertain 0 to 5, likely pathogenic 6 to 9, pathogenic 10 or more.${insilicoPoints !== null ? ` The recorded in-silico code is worth ${insilicoPoints > 0 ? "+" : ""}${insilicoPoints}.` : ""}`}
-        >
-          {CLINGEN_CLASS_BANDS.map(b => {
-            const lo = (b.min ?? POINTS_MIN) - 0.5;
-            const hi = (b.max ?? POINTS_MAX - 0.5) + 0.5;
-            const left = pointsPct(Math.max(POINTS_MIN, lo));
-            return (
-              <span key={b.id} className="prd-points__band" data-id={b.id} title={b.label} style={{ left: `${left}%`, width: `${pointsPct(Math.min(POINTS_MAX, hi)) - left}%` }}>
-                {b.id}
-              </span>
-            );
-          })}
-          {[-7, 0, 6, 10].map(t => (
-            <span key={t} className="prd-points__tick" style={{ left: `${pointsPct(t)}%` }}>{t > 0 ? `+${t}` : t}</span>
-          ))}
-          {insilicoPoints !== null && engine.code && (
-            <>
-              <span className="prd-points__mark" style={{ left: `${pointsPct(insilicoPoints)}%` }} />
-              <span className="prd-points__marklabel" style={{ left: `${pointsPct(insilicoPoints)}%` }}>
-                {engine.code.split("_")[0]} {insilicoPoints > 0 ? "+" : "−"}{Math.abs(insilicoPoints)}
-              </span>
-            </>
-          )}
-        </div>
-        <p className="prd-rail-note">
-          Supporting 1, Moderate 2, Strong 4, Very strong 8 points (Tavtigian 2020). The engine classifies with the
-          Richards 2015 combining rules, not by summing points.
-        </p>
-      </section>
-
       {/* ── 4. Method notes ── */}
       <section className="prd-rsec" aria-labelledby="prd-rail-notes" id={INSPECTOR_SECTIONS.thresholdKey} tabIndex={-1}>
         <h3 className="eyebrow" id="prd-rail-notes">
@@ -355,6 +317,39 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               Energetics.
             </li>
           </ul>
+          {/* The ClinGen class scale is a reference for the combined code, moved here from the rail's own section. */}
+          <p className="prd-rail-note">ClinGen points, for reference:</p>
+          <div
+            className="prd-points"
+            role="img"
+            aria-label={`Tavtigian 2020 point scale: benign at −7 or below, likely benign −6 to −1, uncertain 0 to 5, likely pathogenic 6 to 9, pathogenic 10 or more.${insilicoPoints !== null ? ` The recorded in-silico code is worth ${insilicoPoints > 0 ? "+" : ""}${insilicoPoints}.` : ""}`}
+          >
+            {CLINGEN_CLASS_BANDS.map(b => {
+              const lo = (b.min ?? POINTS_MIN) - 0.5;
+              const hi = (b.max ?? POINTS_MAX - 0.5) + 0.5;
+              const left = pointsPct(Math.max(POINTS_MIN, lo));
+              return (
+                <span key={b.id} className="prd-points__band" data-id={b.id} title={b.label} style={{ left: `${left}%`, width: `${pointsPct(Math.min(POINTS_MAX, hi)) - left}%` }}>
+                  {b.id}
+                </span>
+              );
+            })}
+            {[-7, 0, 6, 10].map(t => (
+              <span key={t} className="prd-points__tick" style={{ left: `${pointsPct(t)}%` }}>{t > 0 ? `+${t}` : t}</span>
+            ))}
+            {insilicoPoints !== null && engine.code && (
+              <>
+                <span className="prd-points__mark" style={{ left: `${pointsPct(insilicoPoints)}%` }} />
+                <span className="prd-points__marklabel" style={{ left: `${pointsPct(insilicoPoints)}%` }}>
+                  {engine.code.split("_")[0]} {insilicoPoints > 0 ? "+" : "−"}{Math.abs(insilicoPoints)}
+                </span>
+              </>
+            )}
+          </div>
+          <p className="prd-rail-note">
+            Supporting 1, Moderate 2, Strong 4, Very strong 8 points (Tavtigian 2020). The engine classifies with the
+            Richards 2015 combining rules, not by summing points.
+          </p>
         </details>
       </section>
 

@@ -32,7 +32,7 @@ describe('buildDosageEvidence', () => {
     const load = { status: 'ready' as const, data: response(score(3, 'MONDO:0017623')) };
     expect(buildDosageEvidence(load, 'MONDO:0017623').readings[0].scope).toBe('same-disease');
     expect(buildDosageEvidence(load, 'MONDO:1').readings[0].scope).toBe('other-disease');
-    expect(buildDosageEvidence(load, null).readings[0].scope).toBe('unscoped');
+    expect(buildDosageEvidence(load, null).readings[0].scope).toBe('no-selection');
     expect(buildDosageEvidence({ status: 'ready', data: response(score(0)) }, 'MONDO:1').readings[0].scope).toBe('unscoped');
   });
   it('matches a MONDO cross-reference of an OMIM-keyed frame, and never calls a MONDO-less frame "other"', () => {
@@ -45,6 +45,11 @@ describe('buildDosageEvidence', () => {
     const r = buildDosageEvidence({ status: 'ready', data: response(score(40)) }, null).readings[0];
     expect(r.call).toBe('40: Dosage sensitivity unlikely'); expect(r.tone).toBe('neutral');
     expect(buildDosageEvidence({ status: 'ready', data: response(score(3)) }, null).readings[0].tone).toBe('accent');
+  });
+  it('names an unlisted gene as No result while keeping the scored-zero category', () => {
+    const missing: DosageResponse = { gene: 'X', status: 'not-found', record: null, provenance: null, message: null };
+    expect(buildDosageEvidence({ status: 'ready', data: missing }, null).message).toMatch(/^No result\./);
+    expect(buildDosageEvidence({ status: 'ready', data: response(score(0)) }, null).readings[0].call).toBe('0: No evidence available');
   });
   it('reports each non-ready state rather than a value', () => {
     expect(buildDosageEvidence(undefined, null).state).toBe('not-requested');

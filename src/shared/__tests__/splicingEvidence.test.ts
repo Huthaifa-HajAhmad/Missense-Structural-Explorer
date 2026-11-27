@@ -122,7 +122,7 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     const ev = build({ conservationData: { spliceai: sai(0.03) } });
     const r = ev.readings.find(x => x.key === "spliceai")!;
     expect(r.scale!.bands.find(b => b.active)!.side).toBe("benign");
-    expect(r.call).toEqual({ label: "BP4 · splicing", tone: "good", isCode: true, unapplied: true });
+    expect(r.call).toEqual({ label: "Not counted", tone: "neutral", isCode: false });
   });
 
   it("prints a delta score one way everywhere, never 0.00 for a non-zero score or 0.10 inside BP4", () => {
@@ -525,5 +525,37 @@ describe("VCEP splicing rules and engine-applied SpliceAI state", () => {
       label: "PP3 · splicing",
       unapplied: false,
     });
+  });
+});
+
+describe("one reason when no exact DNA change was established (ABCG1 pattern)", () => {
+  const noGeometry = (refusal: string) => build({
+    conservationData: {
+      spliceProximity: null,
+      spliceai: null,
+      assemblyRefusals: [{ source: "splice-proximity", reason: refusal }],
+    },
+  });
+
+  it("gives the rail the same refusal the screen shows, not 'for this coordinate'", () => {
+    const ev = noGeometry("splice-proximity was not queried: the lookup did not establish a unique nucleotide allele from complete evidence.");
+    expect(ev.geometry.refusal).toMatch(/^Splice-junction geometry was not queried/);
+    expect(ev.spliceai.availability.reason).toBe(ev.geometry.refusal);
+    expect(ev.spliceai.availability.reason).not.toMatch(/for this coordinate/);
+  });
+});
+
+describe("splicing BP4 is never a green call for a missense variant", () => {
+  it("reads a BP4-range score as 'Not counted', with no BP4 call", () => {
+    const ev = build({ conservationData: { spliceai: sai(0.03) } });
+    const r = ev.readings.find(x => x.key === "spliceai")!;
+    expect(r.call).toEqual({ label: "Not counted", tone: "neutral", isCode: false });
+  });
+
+  it("states the card in the lead's words: no PP3 at this score, and splicing BP4 not counted", () => {
+    const ev = build({ conservationData: { spliceai: sai(0.01) } });
+    const predicate = splicingFinding(ev).predicate;
+    expect(predicate).toMatch(/splicing adds no PP3 at this score \(max Δ below 0\.20\); splicing BP4 is not counted for missense variants/);
+    expect(predicate).not.toMatch(/supports BP4/);
   });
 });

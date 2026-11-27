@@ -1,0 +1,596 @@
+{
+ "engine_criteria": [],
+ "stated_records": {
+  "views/view__insights": [
+   "No criterion recorded",
+   "No criterion recorded"
+  ]
+ },
+ "conflicts": {
+  "transcript_enst": {
+   "tabs/clinical__clinical-assertion": [
+    "ENST00000380152.8"
+   ],
+   "tabs/clinical__comparison": [
+    "ENST00000380152.8"
+   ],
+   "tabs/expression-models__expression-at-variant": [
+    "ENST00000380152.8"
+   ],
+   "tabs/function__annotation-details": [
+    "ENST00000380152.8"
+   ],
+   "tabs/function__hotspots": [
+    "ENST00000380152",
+    "ENST00000380152.8"
+   ],
+   "tabs/function__protein-map": [
+    "ENST00000380152.8"
+   ],
+   "tabs/splicing__channel-details": [
+    "ENST00000380152.8"
+   ],
+   "tabs/splicing__score-scales": [
+    "ENST00000380152.8"
+   ],
+   "tabs/splicing__splice-map": [
+    "ENST00000380152.8"
+   ],
+   "views/view__landscape": [
+    "ENST00000380152"
+   ]
+  },
+  "regional_oe": {
+   "tabs/function__hotspots": [
+    "1.03"
+   ],
+   "tabs/predictors__comparison": [
+    "0.36",
+    "1.03"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "0.36",
+    "1.03"
+   ],
+   "tabs/predictors__strength-bands": [
+    "0.36",
+    "1.03"
+   ],
+   "views/view__landscape": [
+    "0.87"
+   ]
+  },
+  "bayesdel": {
+   "tabs/predictors__comparison": [
+    "-0.445",
+    "0.30"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "-0.445",
+    "0.30"
+   ],
+   "tabs/predictors__strength-bands": [
+    "-0.445",
+    "0.30"
+   ],
+   "views/view__report": [
+    "-0.445",
+    "0.30"
+   ]
+  },
+  "criterion:PP3": {
+   "tabs/predictors__comparison": [
+    "PP3",
+    "PP3_Moderate",
+    "PP3_Strong",
+    "PP3_Supporting"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "PP3"
+   ],
+   "tabs/predictors__strength-bands": [
+    "PP3"
+   ],
+   "tabs/splicing__channel-details": [
+    "PP3"
+   ],
+   "tabs/splicing__score-scales": [
+    "PP3"
+   ],
+   "tabs/splicing__splice-map": [
+    "PP3"
+   ],
+   "views/view__about": [
+    "PP3"
+   ],
+   "views/view__insights": [
+    "PP3"
+   ],
+   "views/view__landscape": [
+    "PP3",
+    "PP3_Strong"
+   ],
+   "views/view__report": [
+    "PP3"
+   ]
+  },
+  "criterion:BP4": {
+   "tabs/predictors__comparison": [
+    "BP4",
+    "BP4_Moderate",
+    "BP4_Strong",
+    "BP4_Supporting"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "BP4",
+    "BP4_Moderate"
+   ],
+   "tabs/predictors__strength-bands": [
+    "BP4",
+    "BP4_Moderate"
+   ],
+   "tabs/splicing__channel-details": [
+    "BP4"
+   ],
+   "tabs/splicing__score-scales": [
+    "BP4"
+   ],
+   "tabs/splicing__splice-map": [
+    "BP4"
+   ],
+   "views/view__about": [
+    "BP4"
+   ],
+   "views/view__insights": [
+    "BP4",
+    "BP4_Moderate"
+   ],
+   "views/view__landscape": [
+    "BP4",
+    "BP4_Moderate",
+    "BP4_Strong"
+   ],
+   "views/view__report": [
+    "BP4",
+    "BP4_Moderate"
+   ]
+  },
+  "protein_change": {
+   "views/view__console": [
+    "p.Asn277Lys"
+   ],
+   "views/view__energetics": [
+    "p.Asn277Lys"
+   ],
+   "views/view__landscape": [
+    "p.Asn277Lys"
+   ],
+   "views/view__literature": [
+    "p.Asn277Lys",
+    "p.Ser2616Phe"
+   ],
+   "views/view__report": [
+    "p.Asn277Lys"
+   ]
+  }
+ },
+ "retired_symbol_on": {},
+ "screens": 37,
+ "by_fact": {
+  "grpmax_faf": {
+   "tabs/alphagenome__rank-composition": [
+    "0.1%"
+   ],
+   "tabs/alphagenome__understand-the-score": [
+    "0.1%"
+   ]
+  },
+  "criterion:PM2": {
+   "tabs/alphagenome__rank-composition": [
+    "PM2"
+   ],
+   "tabs/alphagenome__understand-the-score": [
+    "PM2"
+   ],
+   "tabs/clinical__clinical-assertion": [
+    "PM2",
+    "PM2_Supporting"
+   ],
+   "tabs/clinical__comparison": [
+    "PM2",
+    "PM2_Supporting"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "PM2"
+   ],
+   "views/view__about": [
+    "PM2"
+   ],
+   "views/view__insights": [
+    "PM2"
+   ],
+   "views/view__report": [
+    "PM2"
+   ]
+  },
+  "criterion:BS1": {
+   "tabs/alphagenome__rank-composition": [
+    "BS1"
+   ],
+   "tabs/alphagenome__understand-the-score": [
+    "BS1"
+   ],
+   "tabs/clinical__clinical-assertion": [
+    "BS1"
+   ],
+   "tabs/clinical__comparison": [
+    "BS1"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "BS1"
+   ],
+   "views/view__about": [
+    "BS1"
+   ],
+   "views/view__report": [
+    "BS1"
+   ]
+  },
+  "transcript_enst": {
+   "tabs/clinical__clinical-assertion": [
+    "ENST00000380152.8"
+   ],
+   "tabs/clinical__comparison": [
+    "ENST00000380152.8"
+   ],
+   "tabs/expression-models__expression-at-variant": [
+    "ENST00000380152.8"
+   ],
+   "tabs/function__annotation-details": [
+    "ENST00000380152.8"
+   ],
+   "tabs/function__hotspots": [
+    "ENST00000380152",
+    "ENST00000380152.8"
+   ],
+   "tabs/function__protein-map": [
+    "ENST00000380152.8"
+   ],
+   "tabs/splicing__channel-details": [
+    "ENST00000380152.8"
+   ],
+   "tabs/splicing__score-scales": [
+    "ENST00000380152.8"
+   ],
+   "tabs/splicing__splice-map": [
+    "ENST00000380152.8"
+   ],
+   "views/view__landscape": [
+    "ENST00000380152"
+   ]
+  },
+  "transcript_nm": {
+   "tabs/clinical__clinical-assertion": [
+    "NM_000059.4"
+   ],
+   "tabs/clinical__comparison": [
+    "NM_000059.4"
+   ],
+   "tabs/splicing__channel-details": [
+    "NM_000059.4"
+   ],
+   "tabs/splicing__score-scales": [
+    "NM_000059.4"
+   ],
+   "tabs/splicing__splice-map": [
+    "NM_000059.4"
+   ]
+  },
+  "criterion:BA1": {
+   "tabs/clinical__clinical-assertion": [
+    "BA1"
+   ],
+   "tabs/clinical__comparison": [
+    "BA1"
+   ],
+   "views/view__about": [
+    "BA1"
+   ],
+   "views/view__report": [
+    "BA1"
+   ]
+  },
+  "criterion:PM1": {
+   "tabs/function__annotation-details": [
+    "PM1"
+   ],
+   "tabs/function__hotspots": [
+    "PM1"
+   ],
+   "tabs/function__protein-map": [
+    "PM1"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "PM1"
+   ],
+   "views/view__report": [
+    "PM1"
+   ]
+  },
+  "regional_oe": {
+   "tabs/function__hotspots": [
+    "1.03"
+   ],
+   "tabs/predictors__comparison": [
+    "0.36",
+    "1.03"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "0.36",
+    "1.03"
+   ],
+   "tabs/predictors__strength-bands": [
+    "0.36",
+    "1.03"
+   ],
+   "views/view__landscape": [
+    "0.87"
+   ]
+  },
+  "criterion:BP1": {
+   "tabs/function__hotspots": [
+    "BP1"
+   ],
+   "tabs/predictors__comparison": [
+    "BP1"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "BP1"
+   ],
+   "tabs/predictors__strength-bands": [
+    "BP1"
+   ]
+  },
+  "revel": {
+   "tabs/predictors__comparison": [
+    "0.088"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "0.088"
+   ],
+   "tabs/predictors__strength-bands": [
+    "0.088"
+   ],
+   "views/view__insights": [
+    "0.088"
+   ],
+   "views/view__landscape": [
+    "0.088"
+   ],
+   "views/view__report": [
+    "0.088"
+   ]
+  },
+  "bayesdel": {
+   "tabs/predictors__comparison": [
+    "-0.445",
+    "0.30"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "-0.445",
+    "0.30"
+   ],
+   "tabs/predictors__strength-bands": [
+    "-0.445",
+    "0.30"
+   ],
+   "views/view__report": [
+    "-0.445",
+    "0.30"
+   ]
+  },
+  "cadd": {
+   "tabs/predictors__comparison": [
+    "16.7"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "16.7"
+   ],
+   "tabs/predictors__strength-bands": [
+    "16.7"
+   ],
+   "views/view__report": [
+    "16.7"
+   ]
+  },
+  "criterion:PP3": {
+   "tabs/predictors__comparison": [
+    "PP3",
+    "PP3_Moderate",
+    "PP3_Strong",
+    "PP3_Supporting"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "PP3"
+   ],
+   "tabs/predictors__strength-bands": [
+    "PP3"
+   ],
+   "tabs/splicing__channel-details": [
+    "PP3"
+   ],
+   "tabs/splicing__score-scales": [
+    "PP3"
+   ],
+   "tabs/splicing__splice-map": [
+    "PP3"
+   ],
+   "views/view__about": [
+    "PP3"
+   ],
+   "views/view__insights": [
+    "PP3"
+   ],
+   "views/view__landscape": [
+    "PP3",
+    "PP3_Strong"
+   ],
+   "views/view__report": [
+    "PP3"
+   ]
+  },
+  "criterion:BP4": {
+   "tabs/predictors__comparison": [
+    "BP4",
+    "BP4_Moderate",
+    "BP4_Strong",
+    "BP4_Supporting"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "BP4",
+    "BP4_Moderate"
+   ],
+   "tabs/predictors__strength-bands": [
+    "BP4",
+    "BP4_Moderate"
+   ],
+   "tabs/splicing__channel-details": [
+    "BP4"
+   ],
+   "tabs/splicing__score-scales": [
+    "BP4"
+   ],
+   "tabs/splicing__splice-map": [
+    "BP4"
+   ],
+   "views/view__about": [
+    "BP4"
+   ],
+   "views/view__insights": [
+    "BP4",
+    "BP4_Moderate"
+   ],
+   "views/view__landscape": [
+    "BP4",
+    "BP4_Moderate",
+    "BP4_Strong"
+   ],
+   "views/view__report": [
+    "BP4",
+    "BP4_Moderate"
+   ]
+  },
+  "criterion:PVS1": {
+   "tabs/predictors__comparison": [
+    "PVS1"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "PVS1"
+   ],
+   "tabs/predictors__strength-bands": [
+    "PVS1"
+   ],
+   "tabs/splicing__channel-details": [
+    "PVS1"
+   ],
+   "tabs/splicing__score-scales": [
+    "PVS1"
+   ],
+   "tabs/splicing__splice-map": [
+    "PVS1"
+   ],
+   "views/view__report": [
+    "PVS1"
+   ]
+  },
+  "criterion:PP2": {
+   "tabs/predictors__comparison": [
+    "PP2"
+   ],
+   "tabs/predictors__native-score-scales": [
+    "PP2"
+   ],
+   "tabs/predictors__strength-bands": [
+    "PP2"
+   ],
+   "views/view__report": [
+    "PP2"
+   ]
+  },
+  "criterion:PS3": {
+   "tabs/species-models__orthology-screens": [
+    "PS3"
+   ],
+   "tabs/species-models__phenotype-annotations": [
+    "PS3"
+   ],
+   "views/view__report": [
+    "PS3"
+   ]
+  },
+  "criterion:BS3": {
+   "tabs/species-models__orthology-screens": [
+    "BS3"
+   ],
+   "tabs/species-models__phenotype-annotations": [
+    "BS3"
+   ]
+  },
+  "protein_change": {
+   "views/view__console": [
+    "p.Asn277Lys"
+   ],
+   "views/view__energetics": [
+    "p.Asn277Lys"
+   ],
+   "views/view__landscape": [
+    "p.Asn277Lys"
+   ],
+   "views/view__literature": [
+    "p.Asn277Lys",
+    "p.Ser2616Phe"
+   ],
+   "views/view__report": [
+    "p.Asn277Lys"
+   ]
+  },
+  "alphamissense": {
+   "views/view__landscape": [
+    "0.268"
+   ],
+   "views/view__report": [
+    "0.268"
+   ]
+  },
+  "criterion:BS2": {
+   "views/view__report": [
+    "BS2"
+   ]
+  },
+  "criterion:PS1": {
+   "views/view__report": [
+    "PS1"
+   ]
+  },
+  "criterion:PM4": {
+   "views/view__report": [
+    "PM4"
+   ]
+  },
+  "criterion:BP3": {
+   "views/view__report": [
+    "BP3"
+   ]
+  },
+  "criterion:PP1": {
+   "views/view__report": [
+    "PP1"
+   ]
+  },
+  "criterion:PS2": {
+   "views/view__report": [
+    "PS2"
+   ]
+  }
+ }
+}

@@ -33,7 +33,7 @@
  */
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
-import { fetchResidueCoverage, unmodelledStretches, type ResidueCoverage } from "./pdbe-coverage.ts";
+import { clearResidueCoverageCache, dropResidueCoverageCache, fetchResidueCoverage, unmodelledStretches, type ResidueCoverage } from "./pdbe-coverage.ts";
 import { entriesModelling } from "../../../src/shared/residueCoverage.ts";
 
 export interface PdbeInterfacePartner {
@@ -54,7 +54,7 @@ export interface PdbeInterfacePartner {
    * in entries whose biological assembly is a monomer, so the contact is crystal packing; "native":
    * every other structure.
    */
-  context: "native" | "fibril" | "crystal";
+  context: "native" | "fibril" | "crystal" | "peptide";
   /** UniProt gene name of the partner, when read. */
   gene: string | null;
   /** The partner's organism (UniProt common name) when it is not human; null for human or unread. */
@@ -68,7 +68,7 @@ export type PdbeInterfaceLookup =
    * could be told apart from native ones (same RCSB call).
    * `coverage`: which residues each entry models (PDBe unipdb); null when PDBe did not answer.
    */
-  | { status: "ok"; partners: PdbeInterfacePartner[]; entryKinds: "ok" | "failed"; crystalChecked: boolean; coverage: ResidueCoverage | null }
+  | { status: "ok"; partners: PdbeInterfacePartner[]; entryKinds: "ok" | "failed"; crystalChecked: boolean; peptideChecked: boolean; coverage: ResidueCoverage | null }
   | { status: "none"; partners: [] }
   | { status: "error"; partners: []; reason: string };
 
@@ -105,6 +105,7 @@ export function clearPdbeInterfaceCache(): void {
   fibrilCache.clear();
   crystalCache.clear();
   speciesCache.clear();
+  clearResidueCoverageCache();
 }
 
 const ACCESSION_RE = /^[A-Z0-9]{6,10}(?:-\d+)?$/;
@@ -179,22 +180,37 @@ export function isFibrilEntry(entry: { struct?: { title?: string | null } | null
  * Precedence: a fibril entry is never re-classed as a crystal contact, even if its deposited
  * assembly is monomeric.
  */
+// A short observed span in a long query is read as a peptide fragment.
+// Precedence: fibril, crystal packing, peptide fragment, then native.
+const MAX_QUERY_PEPTIDE_SPAN = 30;
+const MIN_FULL_QUERY_LENGTH = 100;
+
 export function splitEntryContexts(
   partners: PdbeInterfacePartner[],
-  kinds: { fibrils: ReadonlySet<string>; crystals: ReadonlySet<string> }
+  kinds: { fibrils: ReadonlySet<string>; crystals: ReadonlySet<string> },
+  coverage: ResidueCoverage | null = null
 ): PdbeInterfacePartner[] {
-  if (!kinds.fibrils.size && !kinds.crystals.size) return partners;
+  const peptides = new Set<string>();
+  if (coverage?.length && coverage.length >= MIN_FULL_QUERY_LENGTH) {
+    for (const [id, ranges] of coverage.entries) {
+      if (!ranges.length) continue;
+      const span = Math.max(...ranges.map(r => r[1])) - Math.min(...ranges.map(r => r[0])) + 1;
+      if (span <= MAX_QUERY_PEPTIDE_SPAN) peptides.add(id);
+    }
+  }
+  if (!kinds.fibrils.size && !kinds.crystals.size && !peptides.size) return partners;
   const isFibril = (e: string) => kinds.fibrils.has(e);
   const isCrystal = (e: string) => !isFibril(e) && kinds.crystals.has(e);
-  const isNative = (e: string) => !isFibril(e) && !isCrystal(e);
+  const isPeptide = (e: string) => !isFibril(e) && !isCrystal(e) && peptides.has(e);
+  const isNative = (e: string) => !isFibril(e) && !isCrystal(e) && !isPeptide(e);
   const out: PdbeInterfacePartner[] = [];
   for (const p of partners) {
-    if (!p.pdbEntries.some(e => isFibril(e) || isCrystal(e))) {
+    if (!p.pdbEntries.some(e => isFibril(e) || isCrystal(e) || isPeptide(e))) {
       out.push(p);
       continue;
     }
-    for (const context of ["native", "fibril", "crystal"] as const) {
-      const keep = context === "fibril" ? isFibril : context === "crystal" ? isCrystal : isNative;
+    for (const context of ["native", "fibril", "crystal", "peptide"] as const) {
+      const keep = context === "fibril" ? isFibril : context === "crystal" ? isCrystal : context === "peptide" ? isPeptide : isNative;
       const pdbEntries = p.pdbEntries.filter(keep);
       if (!pdbEntries.length) continue;
       const residues: number[] = [];
@@ -313,10 +329,11 @@ export function observedFor(
   name: string;
   residues: number[];
   support: number[];
+  residueEntries: string[][];
   pdbEntries: string[];
   homomeric: boolean;
   artefact: string | null;
-  context: "native" | "fibril" | "crystal";
+  context: "native" | "fibril" | "crystal" | "peptide";
   gene: string | null;
   organism: string | null;
   variantAtInterface: boolean;
@@ -341,6 +358,7 @@ export function observedFor(
     name: p.name,
     residues: p.residues,
     support,
+    residueEntries: p.residueEntries,
     pdbEntries: p.pdbEntries,
     homomeric: p.accession.toUpperCase().replace(/-\d+$/, "") === own,
     artefact: p.artefact,
@@ -390,16 +408,28 @@ export async function fetchPdbeInterfaces(uniprotId: string, signal?: AbortSigna
       const sp = speciesCache.get(bareOf(p.accession));
       return sp ? { ...p, gene: sp.gene, organism: sp.organism } : p;
     });
+    const split = splitEntryContexts(named, kinds ?? { fibrils: new Set(), crystals: new Set() }, coverage);
+    // Peptide separation requires both the query protein's full length and observed residue ranges
+    // for every biological native entry. If PDBe coverage failed or omitted an entry, do not claim
+    // peptideChecked=true (otherwise an unchecked short peptide could pass as a native contact).
+    const peptideChecked = Boolean(
+      coverage &&
+      (coverage.length ?? 0) > 0 &&
+      split.every(p => p.artefact || p.context !== "native" || p.pdbEntries.every(id => (coverage.entries.get(id)?.length ?? 0) > 0))
+    );
     const result: PdbeInterfaceLookup = {
       status: "ok",
-      partners: splitEntryContexts(named, kinds ?? { fibrils: new Set(), crystals: new Set() }),
+      partners: split,
       entryKinds: kinds ? "ok" : "failed",
       crystalChecked: Boolean(kinds),
+      peptideChecked,
       coverage,
     };
-    // Cached only when the entry-kind and coverage checks answered: an unchecked list would hide
-    // fibrils, crystal contacts or unmodelled residues for a week.
-    if (kinds && coverage) cache.set(accession, result);
+    // Cached only when the entry-kind, coverage, and peptide checks answered: an unchecked list
+    // would hide fibrils, crystal contacts, short peptides or unmodelled residues for a week.
+    // Also evict any partial coverage entry from pdbe-coverage so a retry can recover cleanly.
+    if (kinds && coverage && peptideChecked) cache.set(accession, result);
+    else if (!peptideChecked) dropResidueCoverageCache(accession);
     return result;
   } catch (err: any) {
     if (err?.name === "AbortError") throw err;

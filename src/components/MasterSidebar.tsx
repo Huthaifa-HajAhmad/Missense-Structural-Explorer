@@ -14,6 +14,9 @@ import type { FoldxPhase } from "../shared/foldxPhase";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { isApplePlatform } from "../shared/platform";
 import { landscapeKey } from "../shared/landscapeEvidence";
+import { expertPm1Specified, expertPm1StatusOf, type HotspotContext } from "../shared/hotspotEvidence";
+import { hotspotsSlot } from "../shared/evidenceKeys";
+import type { ContextLoad } from "../stores/slices/evidenceContextSlice";
 
 import type { MasterView } from "../types/ui";
 export type { MasterView };
@@ -499,6 +502,9 @@ function MasterSidebar({
   const loadingEvidenceTabs = evidenceTabsLoading(EVIDENCE_SUB_ITEMS, isBiophysicalLoading, analysisResult);
   const currentKey = landscapeKey(currentGene, currentVariant, currentUniprotId);
   const overviewStatus = landscapeOverview?.key === currentKey ? landscapeOverview?.status ?? null : null;
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts?.[hotspotsSlot(analysisResult?.metadata?.gene || s.gene || null, analysisResult?.metadata?.uniprotId, analysisResult?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const expertPm1Status = expertPm1StatusOf(hotspotLoad);
   const stageOf = (id: MasterView) =>
     getWorkflowStageStatus({
       ...engineState,
@@ -515,6 +521,8 @@ function MasterSidebar({
       hasStructureCoordinates: Boolean(loadedPdb),
       landscapeOverviewStatus: overviewStatus,
       evidenceTabsLoading: loadingEvidenceTabs,
+      expertPm1Specified: expertPm1,
+      expertPm1Status,
     });
 
   return (

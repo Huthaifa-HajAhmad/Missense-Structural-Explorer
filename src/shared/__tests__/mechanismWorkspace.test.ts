@@ -52,6 +52,42 @@ describe('Mechanism workspace contracts', () => {
     expect(interfaceNumberingNote({ metadata: { variant: 'p.Lys272Asn', uniprotId: 'Q9Y305' }, numberingRemap: { from: { hgvsp: 'p.Lys281Asn', isoform: 'Q9Y305-4' } } })).toMatch(/Reported as p.Lys281Asn.*modelled as p.Lys272Asn/);
     expect(interfaceNumberingNote(F.result)).toContain('do not verify isoform identity');
   });
+  it('keeps peptide-only entries in their own map layer, support group and readings', () => {
+    const ev = interfaces();
+    const pep = {
+      ...ev.observed.partners[0],
+      key: 'solved:HLA-A:peptide',
+      accession: 'A0A140T913',
+      name: 'HLA-A',
+      gene: 'HLA-A',
+      label: 'HLA-A (peptide fragment)',
+      context: 'peptide' as const,
+      k: 6,
+      n: 6,
+      total: 6,
+      variantAtInterface: true,
+      variantEntries: ['6vqo', '6vr1'],
+    };
+    ev.observed.peptides.push(pep);
+    ev.track.push({
+      key: 'solved:HLA-A:peptide',
+      kind: 'solved',
+      label: pep.label,
+      sub: '6 of 6 peptide structures',
+      summary: 'Peptide fragment contact',
+      ranges: [],
+      marks: [{ residue: 5, weight: 1, title: 'Ala5' }],
+      gaps: [],
+      hit: true,
+      readout: { k: 6, n: 6, total: 6 },
+      rowKey: pep.key,
+    });
+    expect(interfaceSupportGroups(ev).some(g => g.kind === 'peptide' && g.rows[0].key === pep.key)).toBe(true);
+    const hidden = interfaceMapView(ev, false, ['peptide']);
+    expect(hidden.layers.some(l => l.id === 'peptide')).toBe(true);
+    expect(hidden.evidence.track.some(l => l.rowKey === pep.key)).toBe(false);
+    expect(interfaceWorkspaceReadings(ev).some(r => r.key === pep.key)).toBe(true);
+  });
 });
 
 describe('interfaceMapView — the topology lane says what its window shows', () => {

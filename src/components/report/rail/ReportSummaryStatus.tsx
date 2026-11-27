@@ -32,6 +32,7 @@ export function ReportSummaryStatus({ result, outdated, busy, onWrite }: {
       isNarrativeLoading: busy,
       narrativeMode: settings?.narrativeMode,
       narrativeOutdated: outdated,
+      requestStopped: result.metadata?.pipelineStages?.narrative === "skipped",
     });
   }, [result, hasConfiguredGeminiKey, serverGeminiReady, busy, settings?.narrativeMode, outdated]);
   const { action } = status;

@@ -110,6 +110,7 @@ async function readExperimental(
     partners: lookup.partners.map(p => observedFor(p, uniprotId, position, coverage)),
     entryKinds: lookup.entryKinds,
     crystalChecked: lookup.crystalChecked,
+    peptideChecked: lookup.peptideChecked,
     coverageChecked: Boolean(coverage),
     ...(coverage
       ? { coverage: Object.fromEntries(entries.flatMap(e => {

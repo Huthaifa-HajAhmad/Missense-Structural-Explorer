@@ -1,3 +1,6 @@
+import { insightsEvidenceFor } from "./insightsSnapshot";
+import { runStatusOf, runStatusText } from "./insightsEvidence";
+import type { ExpertPm1Status } from "./hotspotEvidence.ts";
 import type { AnalysisResult } from "./contracts.ts";
 import { formatDdg, type RemoteStatus } from "./engineStatus.ts";
 import { buildEnergeticsEvidence } from "./energeticsEvidence.ts";
@@ -103,9 +106,11 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   const median = evidence.agreement.median;
   const countedEngines = evidence.agreement.nCounted;
   const valueText = (value: number) => `${value > 0 ? "+" : ""}${formatDdg(value)}`;
+  // A median is a verdict-like number: it waits until the counted engines have finished and none is withheld.
+  const medianIsFinal = !evidence.provisional && evidence.withheldReason === null;
   const ddgText = foldxHasValue
     ? `${evidence.foldxStandIn ? "ProtVar FoldX" : "FoldX"} ΔΔG = ${valueText(foldxReading!.ddg!)}`
-    : median !== null && countedEngines > 1
+    : medianIsFinal && median !== null && countedEngines > 1
       ? `Median ΔΔG = ${valueText(median)} (${countedEngines} engines)`
       : computed
         ? `${computed.name} ΔΔG = ${valueText(computed.ddg!)}`
@@ -237,6 +242,8 @@ export interface WorkflowStageStatusParams {
    * landing makes the workspace USABLE; the row is SETTLED only when no tab is still loading.
    */
   evidenceTabsLoading?: readonly string[];
+  expertPm1Specified?: boolean;
+  expertPm1Status?: ExpertPm1Status;
 }
 
 export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string } {
@@ -385,6 +392,29 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
       return { status: "complete", desc: loaded };
     }
 
+    const hasSummaryEvidence = Boolean(
+      result.ruleBasedInsights ||
+      result.clinvar ||
+      result.predictorData ||
+      result.conservationData ||
+      realAnalysis ||
+      hasRealInsights(result.insights, narrativeStageOf(result))
+    );
+    if ((view === "insights" || view === "report") && result.metadata?.pipelineStages?.core !== "error" && hasSummaryEvidence) {
+      const evidence = insightsEvidenceFor({ result, foldingEnergetics: p.foldingEnergetics ?? result.foldingEnergetics,
+        foldingDdG: p.foldingDdG, isFolding, foldingStatus: p.foldingStatus, isLoading: isFolding || isBiophysicalLoading || isClinicalLoading,
+        expertPm1Specified: p.expertPm1Specified, expertPm1Status: p.expertPm1Status });
+      const run = runStatusOf(evidence!);
+      const baseDesc = runStatusText(run);
+      const desc = run.state !== "running" && isNarrativeLoading ? `${baseDesc.replace(/\.$/, "")} · Optional AI running` : baseDesc;
+      const status = run.state === "running" || (!result.ruleBasedInsights && isNarrativeLoading)
+        ? "progress"
+        : run.state === "gaps"
+          ? "degraded"
+          : "complete";
+      return { status, desc };
+    }
+
     if (view === "insights") {
       if (result.metadata?.pipelineStages?.core === "error") {
         return {
@@ -447,7 +477,7 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
         };
       }
 
-      const hasEvidence = Boolean(result.ruleBasedInsights || result.clinvar || result.predictorData || result.conservationData || result.metadata?.pipelineStages?.core === "complete");
+      const hasEvidence = Boolean(result.ruleBasedInsights || result.clinvar || result.predictorData || result.conservationData);
       if (hasEvidence) {
         return { status: isBiophysicalLoading || isClinicalLoading ? "progress" : "complete",
           desc: isBiophysicalLoading || isClinicalLoading ? "Evidence snapshot available · Sources still loading" : isNarrativeLoading ? "Evidence report ready · Optional AI running" : "Evidence report ready" };
@@ -480,7 +510,7 @@ export function getWorkflowStageStatus(p: WorkflowStageStatusParams): { status: 
         };
       }
 
-      return {
+      return settledWithNothing(result, "Report generation unavailable") ?? {
         status: "pending",
         desc: "Report generation unavailable"
       };

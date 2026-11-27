@@ -77,21 +77,23 @@ export function ContextExplorer({ tab, rows, groups, empty, hasReviewSystems = t
   const chart = useMemo(() => {
     const maximum = page.max || 1;
     const ticks = [0, maximum / 4, maximum / 2, maximum * .75, maximum];
-    return { rows: page.rows.map(r => ({ ...r, name: r.group === 'developmental' ? `${r.name} · cohort ${r.cohort}` : r.name })), domain: [0, maximum] as [number, number], ticks,
+    return { rows: page.rows.map(r => ({ ...r, name: r.group === 'developmental' ? `${r.name} · ${DGTEX_COHORTS[r.cohort as keyof typeof DGTEX_COHORTS]}` : r.name })), domain: [0, maximum] as [number, number], ticks,
       tickLabels: ticks.map(t => t === 0 ? '0' : t < .001 ? t.toExponential(1) : String(Number(t.toPrecision(3)))),
       axisLabel: 'Median gene expression (TPM)', summary: 'Descriptive RNA abundance. No expression or pathogenicity threshold is applied.',
       unplottedHeading: 'Not plotted',
       unplottedBody: 'These tissues have no returned gene median. Missing measurements are not zero.',
       emptyCopy: 'No returned tissue values can plot on this axis. Select a tissue to inspect its sampling context.' };
   }, [page]);
+  // The Sampling & coverage view has no controls of its own: it follows the source, search and filters chosen on Tissue explorer.
+  const followsSelection = expression && w.enabled && !w.comparison;
   const caption = (!config.hideControlsWhenEmpty || page.sourceCount > 0) && <p className="cx-caption" role="status">{page.rows.length} of {page.sourceCount} records shown{page.total !== page.sourceCount ? `; ${page.total} match the filters` : ''}.</p>;
-  const sources = groups.length > 1 && <WorkspaceTabs variant="secondary" id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />;
+  const sources = groups.length > 1 && !followsSelection && <WorkspaceTabs variant="secondary" id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />;
   const inToolbar = !!config.sourcesInToolbar;
   const toolbar = <div className="cx-record-toolbar">
       {inToolbar && sources}
       {toolbarStart}
       {config.captionBeforeControls && caption}
-      {(!config.hideControlsWhenEmpty || page.sourceCount > 0) && <div className="cx-controls">
+      {(!config.hideControlsWhenEmpty || page.sourceCount > 0) && !followsSelection && <div className="cx-controls">
         <label>Search records<input type="search" value={w.query} placeholder={config.searchPlaceholder} onChange={e => w.setOptions({ query: e.target.value })} /></label>
         {group === 'developmental' && <label>Sampled age cohort<select value={w.cohort} onChange={e => w.setOptions({ cohort: e.target.value })}><option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {expression && <label className="cx-check"><input type="checkbox" disabled={expression && !hasReviewSystems} checked={relevantOnly} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />Selected systems only</label>}
@@ -103,8 +105,9 @@ export function ContextExplorer({ tab, rows, groups, empty, hasReviewSystems = t
   return <section ref={explorerRef} className="cx-explorer" aria-label="Explore source readings">
     {!inToolbar && sources}
     {inToolbar && toolbar}
-    <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
+    <div role={sources ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={sources ? `${tab}-sources-tab-${group}` : undefined}>
       {!inToolbar && toolbar}
+      {followsSelection && <p className="cx-caption">Source: {groups.find(g => g.id === group)?.label}, as chosen on Tissue explorer.</p>}
       {group === 'developmental' && page.sourceCount > 0 && <p className="cx-caption">Sampled age is independent of disease onset. Cohorts are descriptive, not a developmental trajectory.</p>}
       {selected && !page.rows.some(r => r.key === selected.key) && <p className="cx-notice">The pinned record is outside this view. Its details remain in the inspector. {config.canRevealPin && <button type="button" className="viz-action" onClick={() => {
         setRevealRequested(true);

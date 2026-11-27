@@ -30,6 +30,7 @@
  *     cut-point gets a DIRECTION (benign side, between, pathogenic side), never a strength.
  */
 import type { AnalysisResult } from "./contracts.ts";
+import { edgeFormatter } from "./edgeFormat.ts";
 import {
   CALIBRATION_SOURCES,
   PP3_BP4_CALIBRATION,
@@ -154,21 +155,19 @@ function ladderColumns(): LadderColumn[] {
   return [...benign, { id: "none", direction: null, strength: null, points: 0, label: "Neither" }, ...path];
 }
 
-const fmtCut = (n: number) => {
-  const s = Math.abs(n) >= 10 ? n.toFixed(1) : Number(n.toFixed(3)).toString();
-  return s.replace("-", "−");
-};
-
 /** "PP3 ≥ 0.644 · 0.773 · 0.932" / "BP4 ≤ 0.290 · 0.183 · …", weakest first, or "No PP3 band". */
 export function calibratedCutLines(tool: CalibratedToolKey): string[] {
   const b = PP3_BP4_CALIBRATION[tool];
   const high = b.orientation === "higher";
+  // Decimals are set per tool, from all its edges, as the Score scales set them.
+  const allEdges = [...Object.values(b.pp3), ...Object.values(b.bp4)].filter((v): v is number => v !== undefined);
+  const fmtEdge = edgeFormatter(allEdges);
   const line = (side: "pp3" | "bp4") => {
     const code = side === "pp3" ? "PP3" : "BP4";
     const vals = [...STRENGTH_ORDER].reverse().map(s => b[side][s]).filter((v): v is number => v !== undefined);
     if (vals.length === 0) return `No ${code} band`;
     const op = (side === "pp3") === high ? "≥" : "≤";
-    return `${code} ${op} ${vals.map(fmtCut).join(" · ")}`;
+    return `${code} ${op} ${vals.map(v => fmtEdge(v).replace("-", "−")).join(" · ")}`;
   };
   return [line("pp3"), line("bp4")];
 }

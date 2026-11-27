@@ -180,7 +180,7 @@ describe("Interfaces & PPI — states and staleness", () => {
     const self = SLC12A4.assembly.experimental.partners[0];
     const native = { ...self, variantAtInterface: false, variantEntries: [] };
     const crystal = { ...self, context: "crystal" as const, pdbEntries: ["7aiq"], modelledEntries: ["7aiq"], variantAtInterface: true, variantEntries: ["7aiq"] };
-    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
+    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true, peptideChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
     expect(ev.observed.partners).toHaveLength(1);
     expect(ev.observed.crystals).toHaveLength(1);
     // The verdict reads native only: no native interface has Gln867 at it.
@@ -196,7 +196,7 @@ describe("Interfaces & PPI — states and staleness", () => {
   it("folds a long set-aside list behind one line", () => {
     const base = { accession: "P0AEX9", name: "MBP", residues: [1], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native" as const, variantAtInterface: false, variantEntries: [] };
     const partners = Array.from({ length: 6 }, (_, i) => ({ ...base, accession: `P0AEY${i}`, name: `Tag ${i}` }));
-    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
+    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true, peptideChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
     expect(ev.observed.artefacts).toHaveLength(6);
     expect(ev.observed.artefactsShown).toHaveLength(4);
     expect(ev.observed.artefactsFold?.rows).toHaveLength(2);
@@ -205,7 +205,7 @@ describe("Interfaces & PPI — states and staleness", () => {
 
   it("sets construct tags aside and does not count them as interfaces", () => {
     const tag = { accession: "P0AEX9", name: "Maltose-binding periplasmic protein", residues: [867], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native", variantAtInterface: true, variantEntries: ["9zzz"] };
-    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [tag], crystalChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
+    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [tag], crystalChecked: true, peptideChecked: true, coverageChecked: true, coverage: SLC12A4.assembly.experimental.coverage } } });
     expect(ev.observed.partners).toHaveLength(0);
     expect(ev.interface.verdict).toBe("not-measured");
     expect(ev.interface.setAside).toMatch(/Maltose-binding .*\(maltose-binding protein fusion tag\) is not a biological interface and is not counted/);

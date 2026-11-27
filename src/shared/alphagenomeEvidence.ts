@@ -33,6 +33,7 @@ import type { AlphaGenomeAviData } from "./contracts";
 import { generateAtlasUrls, parseGenomicCoordinateString, type AtlasUrls } from "./contracts";
 import { resolveSourceAvailability, type EvidenceAvailability } from "./evidenceAvailability";
 import { conservationModelState } from "./conservationProgress";
+import { fallbackLocusSentence, isFallbackLocus, isRetryableFallbackLocus, locusFailureKind } from "./locusResolution";
 
 // ── Features ────────────────────────────────────────────────────────────────────────────────────
 
@@ -253,7 +254,7 @@ export function buildAlphaGenomeEvidence({
    * was still in flight.
    */
   const modelState = alphagenome ? "settled" : conservationModelState(result, "alphagenome", isLoading);
-  const availability = resolveSourceAvailability({
+  const resolved = resolveSourceAvailability({
     source: "alphagenome",
     refusals: result?.conservationData?.assemblyRefusals ?? null,
     value: alphagenome?.aviPhred ?? null,
@@ -264,6 +265,16 @@ export function buildAlphaGenomeEvidence({
       : alphagenome?.message ?? null,
     pending: modelState === "pending",
   });
+  // With no exact DNA change, AlphaGenome was never asked. Say so in the same words the other tabs use.
+  const availability: EvidenceAvailability = !resolved.hasValue && resolved.state !== "pending" && resolved.reason === null && isFallbackLocus(result)
+    ? {
+        ...resolved,
+        reason: fallbackLocusSentence("AlphaGenome", result?.predictorData?.gnomadVariantAssembly ?? null, {
+          retryable: isRetryableFallbackLocus(result),
+          failureKind: locusFailureKind(result),
+        }),
+      }
+    : resolved;
   const assessed = availability.state === "available";
 
   const phred = assessed ? finite(alphagenome?.aviPhred) : null;

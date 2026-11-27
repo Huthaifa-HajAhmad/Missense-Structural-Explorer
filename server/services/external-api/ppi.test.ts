@@ -358,12 +358,25 @@ describe("analyzeBindingShift", () => {
   });
 
   /** PDBe: `iface` for interface_residues (404 = no solved complex); 1abc has residue 116 at author number 216. */
-  function mockServices(opts: { iface: unknown | 404; boltzBodies?: any[]; pdbFormat?: boolean }) {
+  function mockServices(opts: { iface: unknown | 404; boltzBodies?: any[]; pdbFormat?: boolean; coverage?: boolean | "no-length" }) {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (u: any, init: any) => {
       const s = url(u);
       if (s.includes("Q13564.fasta")) return res(`>sp|Q13564\n${WT}\n`);
       if (s.includes("Q8TBC4.fasta")) return res(`>sp|Q8TBC4\n${PARTNER}\n`);
       if (s.includes("interface_residues")) return opts.iface === 404 ? res({}, 404) : res(opts.iface);
+      if (s.includes("uniprot/unipdb/Q13564")) {
+        return opts.coverage === false
+          ? res({}, 500)
+          : res({
+              Q13564: {
+                ...(opts.coverage === "no-length" ? {} : { length: WT.length }),
+                data: [
+                  { accession: "1abc", residues: [{ startIndex: 1, endIndex: WT.length, observed: "Y" }] },
+                  { accession: "2xyz", residues: [{ startIndex: 1, endIndex: WT.length, observed: "Y" }] },
+                ],
+              },
+            });
+      }
       if (s.includes("entry/experiment/1abc")) return res({ "1abc": [{ experimental_method: "X-ray diffraction", resolution: 2.1 }] });
       if (s.includes("entry/experiment/2xyz")) return res({ "2xyz": [{ experimental_method: "X-ray diffraction", resolution: 3.4 }] });
       if (s.includes("mappings/uniprot/1abc")) return res({ "1abc": { UniProt: { Q13564: { mappings: [{ chain_id: "A", unp_start: 1, unp_end: 136, start: { residue_number: 1 } }] } } } });
@@ -411,6 +424,36 @@ describe("analyzeBindingShift", () => {
       wildType: { source: "experimental", pdbId: "1abc", resolution: 2.1, chain: "A", authorResidue: 216 },
     });
     expect(shift).not.toHaveProperty("classification");
+  });
+
+  it("refuses to score DDMut-PPI on solved entries when PDBe coverage failed so short peptides cannot be ruled out", async () => {
+    const bodies: any[] = [];
+    mockServices({ iface: IFACE, boltzBodies: bodies, coverage: false });
+    const ddmut = await import("../stability/ddmut-ppi.ts");
+    const spy = vi.spyOn(ddmut, "evaluateDdmutPpi");
+    const shift = await analyzeBindingShift("NAE1", "p.Asp116Gly", "Q13564", [
+      { id: "A", accession: "Q13564" },
+      { id: "B", accession: "Q8TBC4" },
+    ]);
+    expect(shift.status).toBe("not-applicable");
+    expect(shift.reason).toMatch(/short peptide fragments could not be ruled out/i);
+    expect(bodies).toHaveLength(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("refuses to score DDMut-PPI when PDBe coverage omits protein length so peptide spans cannot be checked", async () => {
+    const bodies: any[] = [];
+    mockServices({ iface: IFACE, boltzBodies: bodies, coverage: "no-length" });
+    const ddmut = await import("../stability/ddmut-ppi.ts");
+    const spy = vi.spyOn(ddmut, "evaluateDdmutPpi");
+    const shift = await analyzeBindingShift("NAE1", "p.Asp116Gly", "Q13564", [
+      { id: "A", accession: "Q13564" },
+      { id: "B", accession: "Q8TBC4" },
+    ]);
+    expect(shift.status).toBe("not-applicable");
+    expect(shift.reason).toMatch(/short peptide fragments could not be ruled out/i);
+    expect(bodies).toHaveLength(0);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("does not estimate a binding change when solved complexes exist and none has the residue at the interface", async () => {

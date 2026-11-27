@@ -142,8 +142,8 @@ export function readFacts(f: FactsInput): InterfacesEvidence["facts"] {
     },
     {
       label: "Binding change",
-      value: b.state === "ok" ? b.valueText! : b.state === "pending" || b.state === "running" ? ENGINE_STATE_LABELS.running : "Not measured",
-      sub: b.state === "ok" ? `${b.directionText}${b.withinError ? ", within the method's error" : ""}` : b.state === "ready" ? "Ready to estimate" : b.stateLabel ?? "",
+      value: b.state === "ok" ? b.valueText! : b.state === "pending" || b.state === "running" ? ENGINE_STATE_LABELS.running : b.stateLabel ?? "Not measured",
+      sub: b.state === "ok" ? `${b.directionText}${b.withinError ? ", within the method's error" : ""}` : "",
       mono: b.state === "ok",
     },
   ];

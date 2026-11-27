@@ -28,8 +28,8 @@ gnomad.broadinstitute.org,server/services/prediction/landscape-context.ts
 grch37.rest.ensembl.org,server/services/translation/coordinate-resolver.ts
 grch37.rest.ensembl.org,server/services/translation/liftover.ts
 gtexportal.org,server/services/evidence-context/gtex.ts
+missense-resolve-edge.pedigreepro.workers.dev,server/auth/config.ts
 missense-resolve.duckdns.org,server/agent/setup-page.ts
-missense-resolve.duckdns.org,server/auth/config.ts
 missense-resolve.duckdns.org,server/express-config.ts
 missense-resolve.duckdns.org,server/services/infra/http-client.ts
 myvariant.info,server/express-config.ts

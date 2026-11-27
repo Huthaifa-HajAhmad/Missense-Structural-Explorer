@@ -118,12 +118,12 @@ const PROVIDER_REPORTS_NOT_INDEXED = "not indexed";
  *
  * Each alternand corresponds to a string this codebase actually produces:
  * `alphagenome-client.ts` ("… API Key is invalid or expired.", "… lacks permission to query
- * Atlas."), `alphagenome-bridge.ts` ("… Key Required / Standby", "… endpoint not configured").
+ * Atlas."), `alphagenome-bridge.ts` ("AlphaGenome is not set up. …", "… endpoint not configured").
  * Without this branch a 401 or a PERMISSION_DENIED fell through to `upstream-error` and offered a
  * retry, which cannot fix a bad key — the user re-evaluates forever.
  */
 const PROVIDER_REPORTS_CREDENTIAL_FAULT =
-  /key required|api key is (?:invalid|expired)|invalid or expired|lacks permission|endpoint not configured|not configured/i;
+  /key required|alphagenome is not set up|api key is (?:invalid|expired)|invalid or expired|lacks permission|endpoint not configured|not configured/i;
 
 /** Non-blank in the sense that matters: there is something to render. */
 function text(v: string | null | undefined): string | null {

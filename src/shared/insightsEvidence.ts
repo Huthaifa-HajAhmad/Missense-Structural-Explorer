@@ -32,11 +32,13 @@ import {
 } from "./acmgCriteriaView.ts";
 import { everyCandidateRead } from "./candidateFrequency.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
+import { PREDICTOR_TOOL_LABEL } from "./insilico/primaryPredictor.ts";
 import { activeToolText, disagreementText, noCriterionText } from "./predictorSummary.ts";
 import { buildFrequencyEvidence, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
-import { buildSplicingEvidence } from "./splicingEvidence.ts";
+import { buildSplicingEvidence, formatDelta } from "./splicingEvidence.ts";
 import { buildFunctionEvidence, type FunctionEvidenceInput } from "./functionEvidence.ts";
 import { buildInterfacesEvidence, isStaleAssembly } from "./interfacesEvidence.ts";
+import { partnerPhrase } from "./interfaces/format.ts";
 import { THRESHOLDS, formatEvidenceCode } from "./thresholds.ts";
 import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
 import { narrativeAuthorshipOfResult } from "./narrativeEvidence.ts";
@@ -85,6 +87,14 @@ export interface StabilityInput {
   verdict: string;
   enginesCounted: number;
   enginesDestabilizing: number;
+  /** Counted engines in the moderately destabilising band. Older callers may omit it. */
+  enginesModerate?: number;
+  /** A stability engine is still running, so the counts may change. Optional: older callers omit it. */
+  provisional?: boolean;
+  /** Display names of the engines still running; named in the lane's sentence. */
+  runningEngines?: string[];
+  /** The sentence that replaces the direction when the engines withhold a conclusion (for example very low confidence). */
+  withheldText?: string | null;
 }
 
 export interface InsightsEvidenceInput {
@@ -101,10 +111,62 @@ export interface InsightsEvidenceInput {
   narrativeDegraded?: boolean;
   /** The deep-model sources this run names to the narrative model (`narrativeDeepEvidenceStatus().present`). */
   deepEnginesNamed?: readonly string[];
+  /** An expert panel's PM1 specification covers this gene, so the panel decides PM1 (see `expertPm1Specified`). */
+  expertPm1Specified?: boolean;
+  /** Tri-state CSpec PM1 applicability: distinguishes loading/unavailable from confirmed not-specified. */
+  expertPm1Status?: "specified" | "not-specified" | "loading" | "unavailable";
 }
 
 export const TIERS = ["Benign", "Likely benign", "Uncertain", "Likely pathogenic", "Pathogenic"] as const;
 export type TierLabel = (typeof TIERS)[number];
+
+/** What the tier counts, and what it does not. Shown once on Insights and once in the Report. */
+export const TIER_SCOPE_SENTENCE =
+  "This tier counts only the criteria the app computes: population frequency, in-silico predictors, regional constraint and protein-domain context. ClinVar assertions are not counted as PP5/BP6; ClinVar is checked only for same-amino-acid PS1 comparators, conservative weighting and fallback allele frequency when gnomAD has no reading. This tier does not include case, segregation, functional or patient phenotype evidence.";
+
+/** The tier's plain-English name, as the headline uses it. */
+const TIER_PHRASE: Record<number, string> = {
+  0: "benign",
+  1: "likely benign",
+  2: "uncertain significance",
+  3: "likely pathogenic",
+  4: "pathogenic",
+};
+
+/** How far the run has got: still running, finished with gaps, or complete. */
+export interface RunStatus {
+  state: "running" | "gaps" | "complete";
+  /** Evidence areas that are still running. */
+  running: string[];
+  /** Evidence areas that were not assessed, and criteria that were withheld. */
+  gaps: string[];
+}
+
+/**
+ * Whether the run is still going, finished with gaps, or complete. Built only from the lane and
+ * criterion states the consolidator already holds, so the Insights, the Report and the export agree.
+ */
+export function runStatusOf(ev: InsightsEvidence): RunStatus {
+  const running = ev.lanes.filter(l => l.state === "pending").map(l => l.name);
+  const gaps = [
+    ...(ev.ready ? [] : ["Rule-engine record (not recorded)"]),
+    ...ev.lanes.filter(l => l.state === "absent").map(l => `${l.name} (not assessed)`),
+    ...ev.criteria.filter(c => c.state === "withheld").map(c => `${formatEvidenceCode(c.code)} (withheld)`),
+  ];
+  const state = ev.pending || running.length > 0 ? "running" : gaps.length > 0 ? "gaps" : "complete";
+  return { state, running: state === "running" && running.length === 0 ? ["analysis in progress"] : running, gaps };
+}
+
+export function runStatusText(run: RunStatus): string {
+  const status = run.state === "running" ? `Still running: ${run.running.join(", ") || "analysis in progress"}.`
+    : run.state === "gaps" ? "Finished with gaps." : "Complete.";
+  return status + (run.gaps.length ? ` Evidence gaps: ${run.gaps.join("; ")}.` : "");
+}
+
+/** A counted criterion with its strength, e.g. "PM2 Supporting" or "PP3 Moderate". */
+function countedLabel(code: string): string {
+  return code.includes("_") ? formatEvidenceCode(code) : `${formatEvidenceCode(code)} ${strengthWord(code)}`;
+}
 
 export function tierIndexOf(verdict: string): number {
   const v = verdict.toLowerCase();
@@ -132,6 +194,18 @@ export interface Contrast { text: string }
 
 export type CriterionState = "met" | "not met" | "withheld" | "not recorded";
 
+const CRITERION_STATE_LABEL: Record<CriterionState, string> = {
+  met: "Met",
+  "not met": "Not met",
+  withheld: "Withheld",
+  "not recorded": "Not recorded",
+};
+
+/** The word a criterion state shows on every surface. Data attributes keep the raw state. */
+export function criterionStateLabel(state: CriterionState): string {
+  return CRITERION_STATE_LABEL[state];
+}
+
 /** One criterion the engine owns, with what happened to it. Plain strings, so a report can print it. */
 export interface CriterionRow {
   code: string;
@@ -153,6 +227,7 @@ export interface NarrativeFacts {
 export interface NeededRow { code: string; title: string; text: string; tab: EvidenceTabId | null }
 
 export interface InsightsEvidence {
+  clinvar: AnalysisResult["clinvar"] | null;
   ready: boolean;
   pending: boolean;
   weighting: string | null;
@@ -387,7 +462,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       const v = pe.primary.vcepRule;
       return `${activeTool} gives ${formatEvidenceCode(ruleCode)} under ${v.vcep} (${v.cspecId} v${v.version}).`;
     }
-    return `${activeTool}, the first calibrated tool with a score, gives ${formatEvidenceCode(ruleCode)}.`;
+    return `${PREDICTOR_TOOL_LABEL[pe.primary.activeTool!]} is the first tool in the standard order that has a score. It gives ${formatEvidenceCode(ruleCode)}.`;
   })();
   const compRest = (() => {
     if (activeTool === null) {
@@ -441,7 +516,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
         : popRead
         ? (fe.criterion.candidatesDisagree ? "Candidate alleles disagree." : fe.criterion.pm2Hold ? "PM2 is withheld." : "No frequency criterion applies.")
         : "No frequency evidence was counted.",
-    rest: popCode
+    // BS2 is never counted here; say why in the engine's own words, as the Population tab does.
+    rest: [popCode
       ? (fe.criterion.predicate ? `${fe.criterion.predicate[0].toUpperCase()}${fe.criterion.predicate.slice(1)}.` : "")
       : fe.applied.suppressed
         ? fe.applied.withheldByWeighting ? `The ${weighting} weighting withheld it; it does not count toward the classification.` : "Inspect Population data for the current reading. Only the engine's recorded criteria count toward the classification."
@@ -453,12 +529,14 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
         : fe.hasProviderFault
           ? "A source failed to answer, so rarity (PM2) was not computed."
           : "Rarity (PM2) was not computed because no frequency was read.",
+      popRead && fe.homozygoteCriterion.reason ? `${fe.homozygoteCriterion.reason}.` : "",
+    ].filter(Boolean).join(" "),
   });
 
   // Splicing ─ context row beside Computational (so PP3 is never counted twice across two lanes).
   const sp = buildSplicingEvidence({ result, isLoading });
   const spState = sp.rule.state;
-  const dsText = sp.rule.maxDs !== null ? sp.rule.maxDs.toFixed(2) : null;
+  const dsText = sp.rule.maxDs !== null ? formatDelta(sp.rule.maxDs) : null;
   lanes.push({
     key: "splicing",
     name: "Splicing",
@@ -475,15 +553,29 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : spState === "between" ? `The splicing prediction sits between the cut-points (max Δ ${dsText}).`
       : spState === "pending" ? "The splicing prediction is still running."
       : "No splicing score was returned.",
-    rest: spState === "no-score" || spState === "pending"
+    rest: spState === "pending"
       ? "The engine withholds missense BP4 until SpliceAI has answered; no separate splicing-only code is added while pending or unscored."
+      : spState === "no-score"
+        ? (sp.geometry.refusal
+          ? "No splicing check was made, because no exact DNA change was established. BP4 is withheld for that reason."
+          : "No splicing score was returned, so the engine withholds missense BP4.")
       : `The ClinGen splicing rule (Walker 2023) reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 (applied once in the Computational lane when PVS1 is absent, blocking BP4) and ≤ ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as clearing the missense BP4 gate.`,
   });
 
   // Function ─ PM1.
-  const fn = buildFunctionEvidence({ ...functionInput, engineCriteria: functionInput.engineCriteria ?? result.ruleBasedInsights?.acmgCriteria ?? null });
+  const expertPm1 = input.expertPm1Specified === true || input.expertPm1Status === "specified";
+  const fn = buildFunctionEvidence({
+    ...functionInput,
+    engineCriteria: functionInput.engineCriteria ?? result.ruleBasedInsights?.acmgCriteria ?? null,
+    expertPm1Specified: expertPm1,
+  });
   const pm1Code = engineCodeFor(engineCodes, ["PM1"]);
   const fnMet = fn.verdict === "met";
+  const pm1Pending = fn.verdict === "not-met" && input.expertPm1Status === "loading";
+  const pm1CspecUnavailable = fn.verdict === "not-met" && input.expertPm1Status === "unavailable";
+  // A feature read that has finished without a table is "not available", a gap. Only a live read is running.
+  const fnRunning = (fn.availability.state === "running" && isLoading) || pm1Pending;
+  const expertPm1Lead = "PM1 not assessed — the expert panel's PM1 specification applies.";
   lanes.push({
     key: "function",
     name: "Protein function",
@@ -494,15 +586,23 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     length: recordedLength(pm1Code),
     unconfirmed: fnMet && !pm1Code,
     contextOnly: false,
-    state: fn.availability.state === "running" ? "pending" : fn.verdict === "not-assessed" ? "absent" : "read",
-    lead: fn.verdict === "met" ? "The residue sits in an experimentally evidenced functional site."
+    state: fnRunning ? "pending" : fn.verdict === "not-assessed" ? "absent" : "read",
+    lead: pm1Pending ? "Checking ClinGen CSpec for an expert-panel PM1 specification."
+      : fn.verdict === "met" ? "The residue sits in an experimentally evidenced functional site."
+      : fn.verdict === "not-assessed" && expertPm1 ? expertPm1Lead
       : fn.verdict === "not-met" ? "The residue is not inside a curated functional site."
       : fn.verdict === "not-assessed" ? "Functional sites were not assessed for this run."
       : "PM1 is supported but withheld.",
-    rest: fn.verdict === "not-met"
-      ? "That is absence of annotation, not evidence of benignity."
+    rest: pm1Pending
+      ? "No experimentally evidenced UniProt site was found; waiting for ClinGen CSpec before settling PM1."
+      : fn.verdict === "not-met"
+        ? pm1CspecUnavailable
+          ? "That is absence of annotation, not evidence of benignity. ClinGen CSpec could not be read, so expert-panel PM1 applicability was not verified."
+          : "That is absence of annotation, not evidence of benignity."
       : fn.verdict === "not-assessed"
-        ? fn.availability.reason
+        ? expertPm1 ? "The expert panel's rule decides this criterion, so the generic site check is not its answer."
+        : fn.availability.state === "running" ? "UniProtKB's feature table did not load for this protein, so functional sites were not read."
+        : fn.availability.reason
         : fn.verdict === "met" ? (fn.engineMismatch ?? "The engine recorded PM1.") : "The cap or weighting withheld it.",
   });
 
@@ -519,11 +619,13 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     length: 1,
     unconfirmed: false,
     contextOnly: true,
-    state: !stability || stability.enginesCounted === 0 ? (isLoading ? "pending" : "absent") : "read",
-    lead: !stability || stability.enginesCounted === 0
-      ? "No stability engine returned a value."
-      : `${stability.enginesDestabilizing} of ${stability.enginesCounted} stability ${plural(stability.enginesCounted, "engine", "engines")} predict destabilisation.`,
-    rest: "A looser fold can still be harmless, so the engine does not count stability.",
+    state: stability?.provisional ? "pending" : !stability || stability.enginesCounted === 0 ? (isLoading ? "pending" : "absent") : "read",
+    lead: stability?.withheldText ?? (!stability || stability.enginesCounted === 0
+      ? (stability?.provisional ? "No stability engine has returned a value yet." : "No stability engine returned a value.")
+      : `${stability.enginesDestabilizing} of ${stability.enginesCounted} stability ${plural(stability.enginesCounted, "engine", "engines")} past their local destabilising mark${stability.provisional ? " so far" : ""}${stability.enginesModerate ? `; ${stability.enginesModerate} in the moderately destabilising band` : ""}.`),
+    rest: stability?.provisional
+      ? `${stability.runningEngines?.length ? `${oxfordList(stability.runningEngines)} ${stability.runningEngines.length === 1 ? "is" : "are"} still running` : "A stability engine is still running"}, so this count may change. A looser fold can still be harmless, so the engine does not count stability.`
+      : "A looser fold can still be harmless, so the engine does not count stability.",
   });
 
   // Assembly ─ context. Read from the Interfaces & PPI model, so the lane and the tab say the same
@@ -556,13 +658,15 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     state: ifcRead ? "read" : isLoading ? "pending" : "absent",
     lead: !ifcRead ? "UniProt's subunit record was not read."
       : ifc.interface.verdict === "at-interface"
-        ? `${ifc.residueLabel} is at an interface: ${ifc.interface.observed ? `${supportPhrase(ifc.interface.observed.k, ifc.interface.observed.n)}` : "in the predicted complex only"}.`
+        ? ifc.interface.observed
+          ? `${ifc.residueLabel} is at the interface with ${partnerPhrase(ifc.interface.observed.partner, ifc.gene)} ${supportPhrase(ifc.interface.observed.k, ifc.interface.observed.n)}.`
+          : `${ifc.residueLabel} is at an interface in the predicted complex only.`
         : asmKind === "unstated" ? "UniProt states no assembly for this protein."
         : asmKind === "monomer" ? "UniProt records this protein as a monomer."
         : `UniProt records a ${ifc.assembly.label.toLowerCase()}${ifc.assembly.qualifier ? ` (${ifc.assembly.qualifier.toLowerCase()})` : ""}.`,
     rest: !ifcRead ? ""
       : ifc.interface.verdict === "at-interface"
-        ? `${ifc.assembly.kind === "unstated" ? "" : `${ifc.assembly.label}${ifc.assembly.qualifier ? ` (${ifc.assembly.qualifier.toLowerCase()})` : ""}. `}Contact is not disruption, and the engine does not read assembly.`
+        ? `${asmKind === "unstated" ? "" : `The ${ifc.gene} ${ifc.assembly.label.toLowerCase()}${ifc.assembly.qualifier ? ` (${ifc.assembly.qualifier.toLowerCase()})` : ""} is listed separately. `}Contact is not disruption, and the engine does not read assembly.`
         : asmKind === "unstated" ? "Not stated is not a monomer. The engine does not read assembly."
         : ifc.interface.verdict === "not-at-interface" && ifc.interface.unmodelled ? `${ifc.residueLabel} is not at an interface in the predicted complex; none of the ${ifc.interface.unmodelled.total} solved structures models it, so they cannot confirm that. The engine does not read assembly.`
         : ifc.interface.verdict === "not-at-interface" ? `${ifc.residueLabel} is not at any native interface in solved structures${ifc.interface.reference ? ` (0 of ${ifc.interface.reference.n})` : ""}${ifc.interface.fibril ? `; it touches another chain only in ${ifc.interface.fibril.k} of ${ifc.interface.fibril.n} amyloid fibril structures` : ""}. The engine does not read assembly.`
@@ -571,8 +675,16 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
         : "The engine does not read assembly.",
   });
 
+  if (ifc.interface.verdict !== "at-interface" && ifc.observed.peptides.some(p => p.variantAtInterface)) {
+    const peptides = ifc.observed.peptides;
+    const k = new Set(peptides.flatMap(p => p.variantEntries)).size;
+    const n = new Set(peptides.flatMap(p => p.modelledEntries ?? p.pdbEntries)).size;
+    lanes[lanes.length - 1].rest += ` The residue touches another chain in ${k} of ${n} short-peptide structures, read apart from native whole-protein interfaces.`;
+  }
+
   // Genome-wide models ─ informational readings; none of them sets PP3/BP4.
-  const lm = pe.readings.filter(r => r.group === "genome" && r.score !== null);
+  const genome = pe.readings.filter(r => r.group === "genome");
+  const lm = genome.filter(r => r.score !== null);
   const lmP = lm.filter(r => r.callTone === "danger").length;
   const lmB = lm.filter(r => r.callTone === "good").length;
   lanes.push({
@@ -587,8 +699,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     contextOnly: true,
     state: lm.length ? "read" : isLoading || pe.pending ? "pending" : "absent",
     lead: lm.length
-      ? `${lm.length} genome-wide ${plural(lm.length, "score", "scores")} (CADD, AlphaGenome) returned; ${lmP} flag the variant and ${lmB} read it as tolerated.`
-      : "No genome-wide score (CADD, AlphaGenome) was returned.",
+      ? `${lm.length} genome-wide ${plural(lm.length, "score", "scores")} (${oxfordList(lm.map(r => r.name))}) returned; ${lmP} flag the variant and ${lmB} read it as tolerated.`
+      : "No genome-wide score returned.",
     rest: "These genome-wide models are informational; none sets PP3/BP4. CADD has published bands but is not in the fixed order.",
   });
 
@@ -596,7 +708,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const agree: Contrast[] = [];
   const differ: Contrast[] = [];
   const readLanes = lanes.filter(l => l.state === "read");
-  const directionName = (lane: Lane) => lane.counted ? lane.name : `${lane.name} (not counted)`;
+  // Each name carries its own tag, so "(not counted)" cannot read as applying to the names before it.
+  const directionName = (lane: Lane) => `${lane.name} (${lane.counted ? "counted" : "not counted"})`;
   for (const lean of ["pathogenic", "benign"] as const) {
     const same = readLanes.filter(l => l.lean === lean);
     if (same.length >= 2) agree.push({ text: `${oxfordList(same.map(directionName))} ${same.length === 2 ? "both" : "all"} point to ${lean}.` });
@@ -612,7 +725,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   }
   for (const l of readLanes) {
     if (l.lean !== "none" && !l.counted && !l.unconfirmed && tierIndex <= 2) {
-      differ.push({ text: `${l.name} leans ${l.lean}, but the engine does not count it, so it does not move the tier.` });
+      differ.push({ text: `${l.name}: ${l.lean} direction, but the engine does not count it, so it does not move the tier.` });
     }
   }
   const countedLanes = lanes.filter(l => l.counted);
@@ -646,23 +759,27 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     const lane = laneKey ? laneOf(laneKey) : null;
     const withheld = base === "PM2" && (fe.criterion.code === "withheld" || fe.applied.suppressed)
       || base === "PM1" && fn.verdict !== "met" && fn.verdict !== "not-met" && fn.verdict !== "not-assessed"
-      || (base === "PP3" || base === "BP4") && lane?.unconfirmed && ((base === "PP3") === (lane.lean === "pathogenic"));
-    if (withheld) return { code: base, strength: DEFAULT_STRENGTH[base], state: "withheld" as const, reason: lane?.lead ?? "Supported but not recorded by the engine.", tab };
+      || base === "PM1" && fn.verdict === "not-assessed" && input.expertPm1Specified === true
+      || (base === "PP3" || base === "BP4") && lane?.unconfirmed && ((base === "PP3") === (lane.lean === "pathogenic"))
+      // The engine stopped before it could check splicing or the predictors, so BP4 was never tested.
+      || base === "BP4" && pe.primary.outcome.startsWith("withheld");
+    const bp4Withheld = base === "BP4" && pe.primary.outcome.startsWith("withheld");
+    if (withheld) return { code: base, strength: DEFAULT_STRENGTH[base], state: "withheld" as const, reason: bp4Withheld ? noCriterionText(pe.primary) : lane?.lead ?? "Supported but not recorded by the engine.", tab };
     const notMetReason = hasRecord
       ? (lane && lane.state === "read" ? lane.lead : NO_RECORD_REASON)
       : "The variant has not been classified.";
     return { code: base, strength: DEFAULT_STRENGTH[base], state: (hasRecord ? "not met" : "not recorded") as CriterionState, reason: notMetReason, tab };
   });
 
-  const finding = {
-    headline: tierIndex >= 3 ? "The counted evidence points to disease-causing."
-      : tierIndex <= 1 ? "The counted evidence points to harmless."
-      : engineCodes.length ? "Not enough evidence either way yet." : "Nothing has been counted yet.",
-    rest: !engineCodes.length
-      ? "The rule engine recorded no criterion for this variant."
-      : `The engine counted ${engineCodes.length} ${engineCodes.length === 1 ? "criterion" : "criteria"}: ${engineCodes.map(c => formatEvidenceCode(c.code)).join(", ")}.`
-        + (proposals.length ? ` The model proposed ${proposals.map(p => p.code).join(", ")}, which the engine cannot compute, so ${proposals.length === 1 ? "it is" : "they are"} not counted.` : ""),
-  };
+  const proposalSentence = proposals.length
+    ? ` The model proposed ${proposals.map(p => p.code).join(", ")}, which the engine cannot compute, so ${proposals.length === 1 ? "it is" : "they are"} not counted.`
+    : "";
+  const finding = !hasRecord
+    ? { headline: "Nothing has been counted yet.", rest: "The rule engine recorded no criterion for this variant." }
+    : {
+        headline: `Automated tier: ${TIER_PHRASE[tierIndex]}.`,
+        rest: (engineCodes.length ? `Counted: ${engineCodes.map(c => countedLabel(c.code)).join(", ")}.` : "No criterion counted.") + proposalSentence,
+      };
 
   const narrative: NarrativeFacts = {
     authorship: narrativeAuthorshipOfResult(result, Boolean(input.narrativeDegraded)),
@@ -673,6 +790,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
 
   return {
     ready: hasRecord,
+    clinvar: result.clinvar ?? null,
     pending: isLoading,
     weighting,
     tier: verdictText ? TIERS[tierIndex] : null,

@@ -16,6 +16,8 @@ import {
 } from "../../../shared/hotspotEvidence";
 import { residueFocus, type ResidueFocus } from "../../../shared/residueFocus";
 import { safeExternalHref } from "../../../shared/externalLink";
+import { reviewStarsText } from "../../../shared/populationFormat";
+import { formatPlddt } from "../../../shared/plddtFormat";
 import { ResearchGuideButton } from "../../knowledge/ResearchGuideButton";
 import { useEvidenceWorkspace } from "../EvidenceWorkspace";
 import { Prose } from "../../ui/Prose";
@@ -148,7 +150,7 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
       </ol>
 
       <div className="hsp-residues">
-        <div className="hsp-residues__bar">
+        {ev.rows.length > 0 && <div className="hsp-residues__bar">
           <h3 className="eyebrow">ClinVar P/LP residues · {ev.rows.length}</h3>
           <span className="hsp-residues__frame">{ev.model ? `3D distances: Cα–Cα on ${ev.model.entryId}${ev.model.version ? ` ${ev.model.version}` : ""}` : ev.modelNote ?? "No model: sequence distances only"}</span>
           <span className="hsp-residues__sort">{ev.model ? "Nearest in 3D first" : "Nearest in sequence first"}</span>
@@ -160,7 +162,7 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
           {tooManyToDraw && (
             <span className="hsp-all3d__note">Too many to draw at once ({ev.rows.length}); pick residues from the table.</span>
           )}
-        </div>
+        </div>}
         {ev.rows.length ? (
           <div className="fnd-table-wrap hsp-table-wrap">
           <table className="fnd-table hsp-table" data-testid="hotspots-table">
@@ -209,11 +211,11 @@ export function HotspotsView({ ev, onShow3d, read = null }: {
                         {r.label}
                       </button>
                     </th>
-                    <td className="fnd-num">{r.plp}{r.maxStars !== null ? <span className="hsp-stars" title="Best ClinVar review status (gold stars)"> · {r.maxStars}★</span> : null}</td>
+                    <td className="fnd-num">{r.plp}{r.maxStars !== null ? <span className="hsp-stars" title="Best ClinVar review status"> · {reviewStarsText(r.maxStars)}</span> : null}</td>
                     <td className="fnd-num">{r.gnomad === null ? "—" : r.gnomad}</td>
                     <td className="fnd-num">{r.sequenceDistance === 0 ? "0" : r.sequenceDistance > 0 ? `+${r.sequenceDistance}` : r.sequenceDistance}</td>
                     <td className="fnd-num">{r.residue === ev.residue ? "here" : r.distanceA === null ? "—" : `${r.distanceA.toFixed(1)} Å`}</td>
-                    <td className="fnd-num">{r.plddt === null ? "—" : r.plddt.toFixed(0)}</td>
+                    <td className="fnd-num">{r.plddt === null ? "—" : formatPlddt(r.plddt)}</td>
                     <td className="fnd-num" title={cols.rsa.state === "ok" ? undefined : none(cols.rsa)}>{r.rsa === null ? "—" : `${Math.round(r.rsa * 100)}%`}</td>
                     <td className="hsp-in hsp-col-text" title={cols.sites.state === "ok" ? undefined : none(cols.sites)}>
                       {cols.sites.state !== "ok" ? "—" : r.sites.length ? r.sites.map((x) => <span key={x.name} className="hsp-site">{x.name}<small> · {x.evidence}</small></span>) : "None"}
@@ -312,7 +314,7 @@ function HotspotMap({
   const variantPct = pct(ev.residue);
   // An empty lane says why it is empty: read and empty, not read, or withheld for numbering.
   const laneEmpty = (count: number | undefined, none: string) =>
-    count ? null : <span className="hsp-map__empty">{ev.variantsWithheld ? "Withheld: numbering differs from the model" : d?.status === "ok" ? none : "Not read"}</span>;
+    count ? null : <span className="hsp-map__empty">{ev.variantsWithheld ? "Withheld (numbering)" : d?.status === "ok" ? none : "Not read"}</span>;
   return (
     <figure className="hsp-map" aria-label={`Germline variants along ${L} residues with hot-spot definitions; the variant at ${ev.residue}`}>
       <div className="hsp-map__plot">

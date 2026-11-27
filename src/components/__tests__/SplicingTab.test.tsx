@@ -66,7 +66,7 @@ describe("SplicingTab — scored variant", () => {
 
     const bp4Render = renderTab(scored(0.03));
     const bp4Chip = screen.getByTestId("splicing-verdict");
-    expect(bp4Chip.textContent).toBe("BP4 · splicing");
+    expect(bp4Chip.textContent).toBe("Not counted");
     expect(bp4Chip.className).toContain("spl-verdict--unapplied");
     bp4Render.unmount();
   });
@@ -257,7 +257,7 @@ describe("SplicingTab — splice map", () => {
   it("labels the distance figure and sets the coverage status and caveat apart", () => {
     renderTab(nae1Reference());
     expect(screen.getByText("Distance to nearest splice junction")).toBeTruthy();
-    expect(screen.getByText(/\+26 from the acceptor/)).toBeTruthy();
+    expect(screen.getByText("Distance to nearest splice junction").parentElement!.textContent).toMatch(/26 bases from the acceptor\s*\(variant at \+26\)/);
     expect(screen.getByText("the 26th base of exon 6 from its acceptor boundary.")).toBeTruthy();
     expect(screen.getByText("Not at the canonical splice dinucleotide.")).toBeTruthy();
     expect(screen.getByText(/Distance from a junction is context/)).toBeTruthy();
@@ -384,5 +384,35 @@ describe("SplicingRail", () => {
     render(<SplicingRail analysisResult={result} />);
     const active = screen.getByTestId("splicing-bands").querySelector("[data-active]");
     expect(active?.textContent).toMatch(/BP4 · splicing.*this variant/);
+  });
+});
+
+describe("SplicingTab — one statement of each rule", () => {
+  const scoredBp4 = () => nae1Reference({
+    conservationData: { spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0, ds_dl: 0, max_ds: 0.01, dp: { ds_al: -12 } } },
+  });
+
+  it("shows 'Not counted', not a green BP4 pill, for a splicing BP4 on a missense variant", () => {
+    renderTab(scoredBp4());
+    const chip = screen.getByTestId("splicing-verdict");
+    expect(chip.textContent).toBe("Not counted");
+    expect(chip.getAttribute("data-tone")).toBe("neutral");
+  });
+
+  it("names the missense predictors as the source of the engine's PP3, not the splicing rule", () => {
+    renderTab(scoredBp4());
+    const fact = screen.getByText("Engine record").closest(".spl-fact") as HTMLElement;
+    expect(fact.textContent).toMatch(/Missense call from the In-silico predictors tab/);
+    expect(fact.textContent).not.toMatch(/blocks BP4/);
+  });
+
+  it("says the position from the junction, and the variant's place in splice-site numbering", () => {
+    renderTab(nae1Reference());
+    expect(screen.getByRole("heading", { name: /Where the variant sits/ }).parentElement!.textContent).toMatch(/26 bases from the acceptor\s*\(variant at \+26\)/);
+  });
+
+  it("states the display filter in one sentence that says where the hidden scores still are", () => {
+    renderTab(scoredBp4());
+    expect(screen.getByText(/Scores below 0\.01 are hidden\. They are still listed in the readings below\./)).toBeTruthy();
   });
 });

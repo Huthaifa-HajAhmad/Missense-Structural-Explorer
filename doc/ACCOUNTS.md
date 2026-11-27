@@ -6,9 +6,10 @@ Design background: [`COMPUTE_ROUTING_PLAN.md`](./COMPUTE_ROUTING_PLAN.md), secti
 
 ## How access works
 
-The live site is `https://missense-resolve.duckdns.org`. **Caddy** runs on the server, answers on ports
+Users reach the site at `https://missense-resolve-edge.pedigreepro.workers.dev`, a Cloudflare Worker that forwards
+requests to the origin server `https://missense-resolve.duckdns.org`. On that server **Caddy** answers on ports
 80 and 443, gets the HTTPS certificate from Let's Encrypt and passes requests to the app
-(`Caddyfile`, `deploy/docker-compose.oci.yml`). There is **no Cloudflare in front of it**: the
+(`Caddyfile`, `deploy/docker-compose.oci.yml`). The Worker is not a Cloudflare Tunnel: the
 `tunnel` service in the compose file is an optional profile that is not running, and the rollout
 driver refuses to deploy while it is.
 
@@ -199,7 +200,7 @@ All optional unless marked. `.env.example` has the same list with comments.
 | `AUTH_MODE` | `legacy` | `legacy`, `hybrid`, `accounts`. |
 | `AUTH_PROVIDER` | `password` | The app's own login; the only one built. |
 | `ADMIN_SETUP_SECRET` | none | Opens `/setup` while no account exists. At least 16 characters. |
-| `PUBLIC_BASE_URL` | `https://missense-resolve.duckdns.org` | The address used in invite and reset links. |
+| `PUBLIC_BASE_URL` | `https://missense-resolve-edge.pedigreepro.workers.dev` | The address used in invite and reset links. |
 | `ACCOUNTS_DB_PATH` | `data/accounts.sqlite` | |
 | `SESSION_TTL_DAYS`, `SESSION_IDLE_HOURS` | 14, 24 | A sign-in lasts at most 14 days, and ends after 24 hours unused. |
 | `APP_API_TOKEN` | **required in production** | The shared token. Read-only once `AUTH_MODE=accounts`. |

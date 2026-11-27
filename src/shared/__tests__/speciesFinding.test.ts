@@ -30,8 +30,8 @@ describe('Species & models answer', () => {
     expect(f.facts.map(x => x.label)).toEqual(['Variant site', 'Orthologs', 'Mouse screen', 'Curated phenotypes']);
     expect(f.facts[0].text).toContain('Gln, the substituted residue, is the normal residue in zebrafish');
     expect(f.facts[1].text).toBe('2 Alliance orthologs in 2 species.');
-    expect(f.facts[2].text).toBe('IMPC phenotyped Xm: a significant difference in 1 of 3 reported categories.');
-    expect(f.facts[3].text).toBe('2 curated records in 1 species. 1 more summary has no resolved term, so this count is partial.');
+    expect(f.facts[2].text).toBe('IMPC phenotyped Xm: a significant difference in 1 of 3 body systems shown in the grid.');
+    expect(f.facts[3].text).toBe('2 resolved records in 1 species, out of 3 summaries retrieved. 1 more summary has no resolved term, so this count is partial.');
   });
 
   it('names the isoform the site was placed on when Ensembl aligned another one', () => {
@@ -45,7 +45,7 @@ describe('Species & models answer', () => {
   it('answers from one-to-one orthologs and counts many-to-many family members apart', () => {
     const fly = { ...hom('NCBITaxon:7227', 'drosophila_melanogaster', 'MACDEFGHIK'), type: 'many:many' };
     const f = speciesFinding(input({ alignment: ready({ ...alignment, homologies: [alignment.homologies[1], alignment.homologies[0], alignment.homologies[2], fly] }) }));
-    expect(f.headline).toBe('Cys3 is the same amino acid in 2 of 3 one-to-one orthologs (mouse, rat).');
+    expect(f.headline).toBe('Cys3 is the same amino acid in 3 of 4 aligned orthologs (2 of 3 one-to-one: mouse, rat).');
     expect(f.facts[0].text).toMatch(/^Same residue in 2 of 3 one-to-one orthologs, and in 1 of 1 records from many-to-many gene families\./);
   });
 
@@ -99,5 +99,16 @@ describe('Species & models answer', () => {
     const unknown = { ...models, impc: { status: 'ready' as const, screens: [{ ...models.impc!.screens[0], phenotypingDataAvailable: null }] } };
     const text = speciesFinding(input({ models: ready(unknown) })).facts[2].text;
     expect(text).toBe('IMPC does not say whether Xm was phenotyped. This is not a normal result.');
+  });
+});
+
+describe('Mouse screen sentence counts the same systems as the grid', () => {
+  const screenWith = (significant: string[], notSignificant: string[]) => ({ ...models, impc: { status: 'ready' as const, screens: [{ mgiId: 'MGI:1', symbol: 'Xm', phenotypeStatus: 'Complete', phenotypingDataAvailable: true, embryoDataAvailable: null, significant, notSignificant }] } });
+  const mouse = (m: ModelOrganismResponse) => speciesFinding(input({ models: ready(m) })).facts[2].text;
+
+  it('says when a category outside the grid grouping is the only one with a difference', () => {
+    expect(mouse(screenWith([], ['skeleton phenotype', 'some unmapped category']))).toBe(
+      'IMPC phenotyped Xm: no significant difference in any of the 1 body system shown in the grid. Outside the grid\'s grouping, 0 of 1 category shows a significant difference.',
+    );
   });
 });

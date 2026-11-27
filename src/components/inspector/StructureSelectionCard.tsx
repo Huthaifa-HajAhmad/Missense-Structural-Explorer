@@ -10,6 +10,8 @@ interface Props {
   selection: StructureSelection;
   site: Structure3dEvidence["site"];
   onReturn: () => void;
+  /** The secondary-structure read is still running: say nothing yet, the fold note carries the state. */
+  secondaryReading?: boolean;
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  * it. Every value names its source in the note under it. The residue code is the heading; the state
  * is a chip beside it, not a word the eye must skip to reach the identity.
  */
-export function StructureSelectionCard({ selection, site, onReturn }: Props) {
+export function StructureSelectionCard({ selection, site, onReturn, secondaryReading = false }: Props) {
   const isAtVariantPosition = Boolean(selection.position && site.position && selection.position === site.position);
   const isAtVariantSite = Boolean(site.canAddressVariantSite && selection.state === "available" && isAtVariantPosition && selection.isQueriedSite !== false);
   const returnText = site.canAddressVariantSite && selection.state === "available" && site.substitution
@@ -61,7 +63,7 @@ export function StructureSelectionCard({ selection, site, onReturn }: Props) {
               </dd>
             </div>
           )}
-          {selection.state === "available" && !selection.secondary && (
+          {selection.state === "available" && !selection.secondary && !secondaryReading && (
             <div className="s3d-facts__row">
               <dt>Secondary structure</dt>
               <dd><span className="s3d-kv__note">No assignment has been read for this model.</span></dd>

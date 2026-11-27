@@ -46,7 +46,7 @@ describe("buildLadderEvidence — NAE1 p.Asp116Gly", () => {
 
   it("writes the cut-points in words, weakest first", () => {
     const revel = build().ladder.find(l => l.key === "revel")!;
-    expect(revel.cutLines).toEqual(["PP3 ≥ 0.644 · 0.773 · 0.932", "BP4 ≤ 0.29 · 0.183 · 0.016 · 0.003"]);
+    expect(revel.cutLines).toEqual(["PP3 ≥ 0.644 · 0.773 · 0.932", "BP4 ≤ 0.290 · 0.183 · 0.016 · 0.003"]);
   });
 
   it("tests PP2 with the engine's calibrated regional rule (Chao et al. v3), never gene Z, never BP1", () => {

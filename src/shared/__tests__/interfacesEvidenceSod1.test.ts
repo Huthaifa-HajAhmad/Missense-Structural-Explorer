@@ -67,7 +67,7 @@ describe("SOD1 p.Ala5Val — who counts as a partner", () => {
     const ccs = [...ev.groups.flatMap(g => [...g.rows, ...(g.folded?.rows ?? [])])].filter(p => p.accession === "O14618" || p.gene === "CCS");
     expect(ccs).toHaveLength(1);
     expect(ccs[0]).toMatchObject({ group: "assembly", accession: "O14618" });
-    expect(ccs[0].evidence).toMatch(/^Heterodimer · Solved: 3 structures · Anti tag coimmunoprecipitation/);
+    expect(ccs[0].evidence).toMatch(/^Heterodimer · Solved: 3 structures of this pair · Anti tag coimmunoprecipitation/);
   });
 
   it("names other species and does not give them a human STRING score", () => {

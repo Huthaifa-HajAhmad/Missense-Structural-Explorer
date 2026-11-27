@@ -6,7 +6,7 @@ export function SplicingRecords({ rows }: { rows: SplicingWorkspaceReading[] }) 
   const workspace = useEvidenceWorkspace('splicing');
   return <section className="spl-section" aria-labelledby="spl-records-title">
     <h2 id="spl-records-title" className="eyebrow">Channel details</h2>
-    <p className="spl-records-caption">Select a reading for its exact values and provenance. Channel offsets are measured from the variant. Rule inputs and context predictions are in Score scales.</p>
+    <p className="spl-records-caption">Select a reading for its exact values and provenance. Values here keep three decimals; the summaries round to two. Channel offsets are measured from the variant. Rule inputs and context predictions are in Score scales.</p>
     <div className="spl-card spl-records-scroll" role="region" aria-label="Splicing channel details" tabIndex={0}>
       <table className="spl-records-table">
         <thead><tr><th scope="col">Reading</th><th scope="col">Exact value</th><th scope="col">Position or context</th></tr></thead>

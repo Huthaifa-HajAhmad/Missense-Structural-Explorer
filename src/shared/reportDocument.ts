@@ -30,7 +30,7 @@
  * invented "MANE Select" transcript; a render-time date; a JSON export that ignored the section
  * ticks; a hash of the input data presented as an integrity check on the report.
  */
-import type { LaneKey } from "./insightsEvidence.ts";
+import { runStatusOf, runStatusText, type LaneKey, type RunStatus } from "./insightsEvidence.ts";
 import { strengthWord } from "./acmgClassifier.ts";
 import { formatEvidenceCode } from "./thresholds.ts";
 import { buildEnergeticsEvidence } from "./energeticsEvidence.ts";
@@ -64,10 +64,21 @@ function canonicalBlock(b: ReportBlock): string {
   ].join("\n");
 }
 
-export function buildReportDocument(input: ReportDocumentInput): ReportDocument {
+/** The document, plus how far the run has got, so the review status and the export agree. */
+export interface ReportBuild extends ReportDocument {
+  completeness: RunStatus;
+}
+
+export function buildReportDocument(input: ReportDocumentInput): ReportBuild {
   const hasResult = Boolean(input.result);
+  const energyUnit = input.energyUnit ?? "kcal/mol";
   // Structure and stability both read the engines' structure record; build it once per document.
-  const energetics = buildEnergeticsEvidence({ foldingEnergetics: input.foldingEnergetics ?? null, foldingDdG: input.foldingDdG ?? null });
+  // The run's pLDDT decides whether a stability direction is withheld, as on the Energetics tab.
+  const energetics = buildEnergeticsEvidence({
+    foldingEnergetics: input.foldingEnergetics ?? null,
+    foldingDdG: input.foldingDdG ?? null,
+    plddt: input.result?.disruptionPredictor?.plddt ?? null,
+  });
   const blocks: ReportBlock[] = BLOCK_ORDER.map(key => {
     let b: ReportBlock;
     if (key === "identity") b = identityBlock(input);
@@ -77,7 +88,7 @@ export function buildReportDocument(input: ReportDocumentInput): ReportDocument 
       b = laneBlock(key as LaneKey, input);
       if (key === "computational") computationalExtras(b, input);
       if (key === "population") populationExtras(b, input);
-      if (key === "stability") stabilityExtras(b, energetics);
+      if (key === "stability") stabilityExtras(b, energetics, energyUnit);
     } else if (key === "structure") b = structureBlock(input, energetics);
     else if (key === "needed") b = neededBlock(input);
     else if (key === "literature") b = literatureBlock(input);
@@ -89,18 +100,21 @@ export function buildReportDocument(input: ReportDocumentInput): ReportDocument 
       b.warnings.push("Automated classification from the criteria this engine can assess. It is not a comprehensive clinical interpretation.");
       b.references = [REPORT_SOURCES[0], REPORT_SOURCES[4]];
       if (b.verdict?.recordMismatch) b.warnings.push("The recorded tier differs from the current combining rule.");
+      // Display the source assertion separately from the computed criteria.
+      const cv = input.result?.clinvar;
+      if (cv) {
+        const uid = cv.uid && /^\d+$/.test(cv.uid) ? cv.uid : null;
+        b.facts.push({ label: "ClinVar assertion (not counted as PP5/BP6)", value: cv.classification },
+          { label: "Condition", value: cv.trait || "Not recorded" },
+          { label: "Review status", value: cv.reviewStatus || "Not reported" },
+          { label: "Last evaluated", value: cv.lastEvaluated || "Not recorded" },
+          { label: "Source", value: uid ? `NCBI ClinVar, variation ${uid}` : "NCBI ClinVar" });
+        if (uid) b.references.push({ label: `ClinVar variation ${uid}`, url: `https://www.ncbi.nlm.nih.gov/clinvar/variation/${uid}/` });
+        b.warnings.push("ClinVar is a source assertion, distinct from the automated classification; review its condition and evidence independently.");
+      }
     }
     if (key === "population") {
       b.warnings.push("The PM2 ceiling uses an app-defined pLI heuristic. pLI measures truncating-variant constraint and does not establish disease-specific inheritance.");
-      const cv = input.result?.clinvar;
-      if (cv) {
-        b.facts.push({ label: "ClinVar assertion", value: cv.classification },
-          { label: "Condition", value: cv.trait || "Not recorded" },
-          { label: "Review status", value: cv.reviewStatus || "Not recorded" },
-          { label: "Last evaluated", value: cv.lastEvaluated || "Not recorded" });
-        if (cv.uid && /^\d+$/.test(cv.uid)) b.references.push({ label: `ClinVar variation ${cv.uid}`, url: `https://www.ncbi.nlm.nih.gov/clinvar/variation/${cv.uid}/` });
-        b.warnings.push("ClinVar is a source assertion, distinct from the automated classification; review its condition and evidence independently.");
-      }
     }
     if (key === "language-models") b.caption = "Individual scores and their calibration are listed once in Computational evidence. These models do not set PP3/BP4 in this engine.";
     // `detail` only says how the screen folds a column, so it stays out of the evidence fingerprint.
@@ -131,21 +145,28 @@ export function buildReportDocument(input: ReportDocumentInput): ReportDocument 
     .map(b => (b.stillCounted.length ? `${b.title} (its ${b.stillCounted.join(", ")} is still counted in the classification)` : b.title));
 
   const shown = blocks.filter(b => b.included && !b.empty);
+  const completeness: RunStatus = input.insights
+    ? runStatusOf(input.insights)
+    : { state: "gaps", running: [], gaps: ["No analysis is loaded"] };
   const documentId = checksum(
-    [input.meta.title, input.meta.preparedBy, input.meta.caseRef, ...shown.map(canonicalBlock), omitted.join(";")].join("\n\n")
+    [runStatusText(completeness), input.meta.title, input.meta.preparedBy, input.meta.caseRef, ...shown.map(canonicalBlock), omitted.join(";")].join("\n\n")
   );
 
   const gene = input.gene || input.result?.metadata?.gene || "";
   const variant = input.variant || input.result?.metadata?.variant || "";
   const subject = [gene, variant].filter(Boolean).join(" ");
 
+
+
   return {
+    completeness,
     title: input.meta.title.trim() || (subject ? `${subject} evidence report` : "Variant evidence report"),
     subject,
     hasResult,
     meta: { preparedBy: input.meta.preparedBy.trim(), caseRef: input.meta.caseRef.trim() },
     blocks,
     footer: {
+      completeness: runStatusText(completeness),
       app: "Missense Structural Explorer",
       repository: APP_REPOSITORY,
       useStatement: RESEARCH_USE_STATEMENT,

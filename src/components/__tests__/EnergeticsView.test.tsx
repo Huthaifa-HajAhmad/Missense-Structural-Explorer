@@ -174,7 +174,7 @@ describe("EnergeticsView — a fully populated run", () => {
 
   it("marks the verdict provisional while an engine is still running, and not once all have settled", () => {
     renderView({ ...settled, thermompnnStatus: "pending", foldingEnergetics: { ...FULL, thermompnn: null } });
-    expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · 1 still running");
+    expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · ThermoMPNN still running");
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent("ThermoMPNN is still running, so this reading may change.");
   });
 
@@ -193,10 +193,10 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(screen.queryByTestId("energetics-provisional")).toBeNull();
   });
 
-  it("marks the default Comparison headline provisional too, not only the records tab", () => {
+  it("opens the default Comparison headline with the provisional statement, before any direction word", () => {
     renderView({ ...settled, thermompnnStatus: "pending", foldingEnergetics: { ...FULL, thermompnn: null } }, { records: false });
     expect(screen.getByTestId("energetics-verdict").tagName).toBe("H2");
-    expect(screen.getByTestId("energetics-provisional")).toHaveTextContent("Provisional · 1 still running");
+    expect(screen.getByTestId("energetics-verdict").textContent).toMatch(/^Provisional: ThermoMPNN is still running\. So far: /);
   });
 
   it("shows no provisional marker on the Comparison headline once every engine has settled", () => {
@@ -241,7 +241,7 @@ describe("EnergeticsView — a fully populated run", () => {
       },
     });
     const note = screen.getByTestId("energetics-excluded-template");
-    expect(note).toHaveTextContent("No experimental structure was used: none of the 5 solved structures spanning residue 358 has coordinates for it.");
+    expect(note).toHaveTextContent("No experimental structure was used: none of the 5 entries that span residue 358 has coordinates for it.");
     expect(note).not.toHaveTextContent("wild type");
   });
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BURIAL_RSA_BANDS,
   PACKING_NEIGHBOUR_BANDS,
+  burialWordLabel,
   classifyBurialRsa,
   deriveBurialEvidence
 } from "../burialEvidence";
@@ -213,5 +214,11 @@ describe("burial band single-source guard", () => {
     expect(source).toMatch(/rsa\s*=\s*round\(sasa\s*\/\s*max_sasa,\s*4\)/);
     // ...and the emission must not re-round a different value into the payload.
     expect(source).not.toMatch(/"rsa":\s*round\(/);
+  });
+});
+
+describe("one name per burial band", () => {
+  it("names each band the same way on every surface", () => {
+    expect([burialWordLabel("core"), burialWordLabel("boundary"), burialWordLabel("surface")]).toEqual(["Core", "Boundary", "Surface"]);
   });
 });

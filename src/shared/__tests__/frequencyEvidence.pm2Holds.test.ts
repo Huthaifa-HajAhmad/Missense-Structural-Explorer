@@ -77,7 +77,7 @@ describe("pm2Hold", () => {
   });
 
   it("words the ancestry hold with the figures it used", () => {
-    expect(pm2HoldReason({ kind: "ancestry-unmeasured", af: 651 / 1613518, floor: 0.0001 })).toContain("0.04%");
+    expect(pm2HoldReason({ kind: "ancestry-unmeasured", af: 651 / 1613518, floor: 0.0001 })).toContain("0.040%");
     expect(pm2HoldReason({ kind: "ancestry-unmeasured", af: 651 / 1613518, floor: 0.0001 })).toContain("0.01%");
   });
 });

@@ -126,3 +126,19 @@ describe("Classification scale", () => {
     expect(within(scale).getByText("Uncertain")).toHaveAttribute("aria-current", "true");
   });
 });
+
+describe("Insights screen headings (release audit FB1)", () => {
+  it("has one level-one heading that names the screen's finding", () => {
+    render(<SettingsProvider><ReviewWorkspaceProvider result={classified}><InsightsScreen evidence={build(classified)} narrative={null} /></ReviewWorkspaceProvider></SettingsProvider>);
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0].textContent).toBe("Rule-engine classification");
+  });
+});
+
+it("shows the separate ClinVar assertion, condition, source and named run gaps", () => {
+ const r = { ...classified, clinvar: { classification: "Pathogenic", trait: "Li-Fraumeni syndrome", uid: "123" } } as any;
+ render(<InsightsScreen evidence={build(r)} narrative={null} />);
+ expect(screen.getByText(/ClinVar assertion: Pathogenic/)).toHaveTextContent("Condition: Li-Fraumeni syndrome. Source: NCBI ClinVar, variation 123");
+ expect(screen.getByRole("status")).toHaveTextContent("Finished with gaps");
+});

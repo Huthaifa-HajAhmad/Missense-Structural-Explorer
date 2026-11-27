@@ -11,7 +11,7 @@ export function BindingCard({ ev, onRequest }: { ev: InterfacesEvidence; onReque
   const b = ev.binding;
   const wt = b.wildType;
   const source = wt ? ` · ${wt.source === "experimental" ? wt.provenance : `${wt.provenance}${wt.ipTm != null ? `, ipTM ${wt.ipTm.toFixed(2)}` : ""}`}` : "";
-  const title = b.state === "pending" || b.state === "running" ? ENGINE_STATE_LABELS.running : b.state === "failed" ? "No value returned" : b.state === "ready" ? "Not measured yet" : "Not measured";
+  const title = b.state === "pending" || b.state === "running" ? ENGINE_STATE_LABELS.running : b.state === "failed" ? "No value returned" : b.stateLabel ?? "Not measured";
   return (
     <section className="ifc-section" aria-labelledby="ifc-bind-title">
       <h2 className="eyebrow" id="ifc-bind-title" data-reading-key="binding-change">
@@ -22,7 +22,7 @@ export function BindingCard({ ev, onRequest }: { ev: InterfacesEvidence; onReque
         <div className="ifc-bind__head">
           <ResearchGuideButton topic="ddmut_ppi" label="How to read binding change" />
           <span className="ifc-hero__figure-label">ΔΔG_bind · DDMut-PPI on a wild-type complex{source}</span>
-          {b.stateLabel && (
+          {b.stateLabel && b.stateLabel !== title && (
             <span className="ev-tier" data-tone={b.state === "failed" ? "warning" : b.state === "pending" || b.state === "running" ? "neutral" : "muted"}>{b.stateLabel}</span>
           )}
         </div>

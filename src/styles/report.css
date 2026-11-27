@@ -87,7 +87,7 @@
   color: var(--cs-text-primary); background: var(--cs-surface);
   border: 1px solid var(--cs-border); border-radius: 8px;
 }
-.rpt-btn[data-variant="primary"] { color: var(--cs-surface); background: var(--cs-accent-clay); border-color: var(--cs-accent-clay); }
+.rpt-btn[data-variant="primary"] { color: var(--cs-btn-primary-ink); background: var(--cs-btn-primary-bg); border-color: var(--cs-btn-primary-bg); }
 .rpt-btn[data-variant="quiet"] { color: var(--cs-text-accent); background: transparent; border-color: transparent; }
 .rpt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .rpt-link {

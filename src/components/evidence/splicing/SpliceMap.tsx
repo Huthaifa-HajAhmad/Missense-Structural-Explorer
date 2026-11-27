@@ -326,7 +326,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
       </header>
       <div className="spl-map-controls">
         <label>Map view <select aria-label="Map view" value={zoom ?? "auto"} onChange={e => setZoom(e.target.value === "auto" ? null : Number(e.target.value))}>
-          <option value="auto">Auto (±{sourceMap.halfWidth} bp)</option>
+          <option value="auto">Auto zoom (±{sourceMap.halfWidth} bp)</option>
           {SPLICE_MAP_STEPS.map(w => <option key={w} value={w}>±{w} bp</option>)}
         </select></label>
         <label>SpliceAI Δ axis <select aria-label="SpliceAI delta axis" value={focusedScore && canFocus ? "focused" : "full"} onChange={e => setFocusedScore(e.target.value === "focused")}>

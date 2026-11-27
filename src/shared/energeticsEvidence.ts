@@ -53,8 +53,10 @@ import {
   type RemoteStatus,
 } from "./engineStatus.ts";
 import type { StructureProvenance } from "./contracts.ts";
-import { FIX_SHELL_MODE, FIX_SHELL_OFFSET_NOTE, REPAIR_MODE_LABEL, foldxMeasuredError, isFoldxRepairMode, type FoldxRepairMode } from "./foldxRepairMode.ts";
+import { FIX_SHELL_MODE, fixShellOffsetNote, REPAIR_MODE_LABEL, foldxMeasuredError, isFoldxRepairMode, type FoldxRepairMode } from "./foldxRepairMode.ts";
+import { STRUCTURE_COLOUR_BANDS } from "./thresholds/constants.ts";
 import { RASP_SOURCE_LABEL, type RaspCoverage, type RaspSource } from "./raspIndex.ts";
+import { formatPlddt } from "./plddtFormat.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,7 +97,8 @@ const LEGACY_REPAIR_SKIP_ABOVE_RESIDUES = 400;
 export const LARGE_STRUCTURE_REPAIR_NOTE =
   `Repair was skipped above ${LEGACY_REPAIR_SKIP_ABOVE_RESIDUES} residues to limit waiting time. This is a deliberate limit, not a repair failure.`;
 
-export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; detail: string }> = {
+/** A caveat's text. The local-repair text states kcal/mol figures, so it is written for the unit on screen. */
+export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; detail: string | ((unit: EnergyUnit) => string) }> = {
   "unrepaired-template": {
     label: "Unrepaired template",
     detail:
@@ -103,7 +106,7 @@ export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; d
   },
   "local-repair": {
     label: "Local repair",
-    detail: FIX_SHELL_OFFSET_NOTE,
+    detail: fixShellOffsetNote,
   },
   "low-plddt": {
     label: "Low pLDDT",
@@ -218,12 +221,13 @@ export interface EnergeticsAgreement {
   median: number | null;
   min: number | null;
   max: number | null;
-  /**
-   * True while a counting engine is still running and at least one has already reported. The reading
-   * is then a snapshot: it can move to another band when the rest arrive, and it is shown as such.
-   */
-  provisional: boolean;
 }
+
+/**
+ * Why no combined stability direction is shown. `very-low-plddt`: the structure is an AlphaFold model and
+ * its confidence at the residue is in AlphaFold's "Very low" band, so the coordinates are unreliable.
+ */
+export type DirectionWithheldReason = "very-low-plddt";
 
 export interface EnergeticsStructure {
   label: string;
@@ -297,6 +301,15 @@ export interface EnergeticsEvidence {
   agreement: EnergeticsAgreement;
   /** Engines still calculating. */
   running: EnergeticsReading[];
+  /**
+   * True while a counting engine is still running and at least one has already reported. The reading
+   * is then a snapshot: it can move to another band when the rest arrive, and it is shown as such.
+   */
+  provisional: boolean;
+  /** Display names of the counting engines still running (empty when none). */
+  runningEngines: string[];
+  /** Set when no combined direction may be shown; the individual estimates still are. */
+  withheldReason: DirectionWithheldReason | null;
   /** Engines without a value that are not running. */
   missing: EnergeticsReading[];
   structure: EnergeticsStructure | null;
@@ -346,6 +359,8 @@ export function finalFoldingStatus(status: string | null | undefined): Energetic
 }
 
 export interface EnergeticsInputs {
+  /** The unit the user chose. Text that quotes a ΔΔG difference is written in it. Default kcal/mol. */
+  unit?: EnergyUnit;
   foldingDdG?: number | null;
   foldingStatus?: "success" | "failed" | "unavailable" | null;
   foldingEnergetics?: Record<string, any> | null;
@@ -381,14 +396,13 @@ function medianOf(values: number[]): number | null {
  * on a repaired template gave 1.55, 1.58, 1.61, 2.90, 2.95. A mean and SD alone hide that two runs
  * disagree with three; the range shows it. Identical runs add nothing, so they add no text.
  */
-function runRange(raw: unknown): string {
+function runRange(raw: unknown, unit: EnergyUnit): string {
   const runs = Array.isArray(raw) ? raw.map(num).filter((v): v is number => v !== null) : [];
   if (runs.length < 2) return "";
   const lo = Math.min(...runs);
   const hi = Math.max(...runs);
-  if (lo.toFixed(2) === hi.toFixed(2)) return "";
-  const signed = (v: number) => (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2).replace(/^-/, "−"));
-  return ` (${signed(lo)} to ${signed(hi)} kcal/mol)`;
+  if (formatDdgValue(lo, unit) === formatDdgValue(hi, unit)) return "";
+  return ` (${signedDdgNumber(lo, unit)} to ${signedDdgNumber(hi, unit)} ${unit})`;
 }
 
 /** Signed canonical ΔΔG, "+2.62" / "−0.36", for sentences. */
@@ -452,6 +466,7 @@ function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStr
 // ---------------------------------------------------------------------------
 
 export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvidence {
+  const unit = input.unit ?? "kcal/mol";
   const e = input.foldingEnergetics ?? null;
   const isFolding = Boolean(input.isFolding);
   const prov: StructureProvenance | null = (e?.structureProvenance as StructureProvenance | undefined) ?? null;
@@ -537,12 +552,12 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     if (outcome.id === "foldx" && has && standIn) {
       note =
         `Precomputed by EBI ProtVar with FoldX on ${protvarModel ?? "the AlphaFold DB model"}` +
-        `${protvarPlddt !== null ? ` (pLDDT ${protvarPlddt.toFixed(1)} at this residue)` : ""}. ` +
+        `${protvarPlddt !== null ? ` (pLDDT ${formatPlddt(protvarPlddt)} at this residue)` : ""}. ` +
         "No local FoldX value exists for this run; it stands in because the template is the AlphaFold model.";
     } else if (outcome.id === "foldx" && has) {
       const parts: string[] = [];
-      if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs${runRange(e?.rawDdGs)}`);
-      if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd)}, not an error bar`);
+      if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs${runRange(e?.rawDdGs, unit)}`);
+      if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd, unit)}, not an error bar`);
       if (outcome.excluded) parts.push(outcome.reason);
       if (repair.repairShell && repair.repairState === "repaired") {
         parts.push(`repaired locally: ${repair.repairShell.movableResidues} of ${repair.repairShell.totalResidues} residues could move`);
@@ -553,7 +568,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     } else if (outcome.id === "protvar" && has) {
       note =
         `Precomputed by EBI ProtVar with FoldX on ${protvarModel ?? "the AlphaFold DB model"}` +
-        `${protvarPlddt !== null ? ` (pLDDT ${protvarPlddt.toFixed(1)} at this residue)` : ""}. ` +
+        `${protvarPlddt !== null ? ` (pLDDT ${formatPlddt(protvarPlddt)} at this residue)` : ""}. ` +
         "Shown as a cross-check: it is FoldX again, on a different template, so it is not counted as a second engine.";
     } else if (outcome.id === "rasp" && has) {
       const src = e?.raspSource as RaspSource | undefined;
@@ -562,10 +577,10 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
         : null;
     } else if (outcome.id === "thermompnn" && has) {
       note =
-        "App-defined +0.5 / +1.0 kcal/mol display marks await held-out recalibration.";
+        `App-defined +${formatDdgValue(0.5, unit, 1)} / +${formatDdgValue(1, unit, 1)} ${unit} display marks await held-out recalibration.`;
     } else if (outcome.id === "stabilityoracle" && has) {
       note =
-        "One +0.2 kcal/mol destabilizing mark, chosen on S669 and checked on Ssym; inputs are rebuilt here from the structure.";
+        `One +${formatDdgValue(0.2, unit, 1)} ${unit} destabilizing mark, chosen on S669 and checked on Ssym; inputs are rebuilt here from the structure.`;
     }
 
     const risk = outcome.risk;
@@ -654,6 +669,9 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
           : "mostly-not-destabilizing";
   }
 
+  // The run's state is about the engines that can count; a reference row keeps its own state in
+  // the table but never holds the stage "running" or reports it "failed".
+  const running = readings.filter(r => isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly);
   const agreement: EnergeticsAgreement = {
     direction,
     verdict: stabilityVerdict(direction, counted.length),
@@ -664,10 +682,6 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     median: medianOf(values),
     min: values.length ? Math.min(...values) : null,
     max: values.length ? Math.max(...values) : null,
-    // A run still in progress is a snapshot; the reference-only rows (ProtVar) never hold a verdict back.
-    provisional:
-      counted.length > 0 &&
-      readings.some(r => isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly),
   };
 
   const structure: EnergeticsStructure | null = prov
@@ -735,6 +749,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
           structure,
           repairState: repair.repairState,
           repairMode: repair.repairMode,
+          unit,
         })
       : null;
 
@@ -744,7 +759,11 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     agreement,
     // The run's state is about the engines that can count; a reference row keeps its own state in
     // the table but never holds the stage "running" or reports it "failed".
-    running: readings.filter(r => isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly),
+    running,
+    // A run still in progress is a snapshot; the reference-only rows (ProtVar) never hold a verdict back.
+    provisional: counted.length > 0 && running.length > 0,
+    runningEngines: running.map(r => r.name),
+    withheldReason: source === "alphafold" && lowPlddt !== null && isVeryLowPlddt(lowPlddt) ? "very-low-plddt" : null,
     missing: readings.filter(r => r.ddg === null && !isStillRunning(r.outcome) && !r.outcome.engine.referenceOnly),
     structure,
     lowPlddt,
@@ -773,8 +792,9 @@ function buildFoldxTemplateCheck(args: {
   structure: EnergeticsStructure | null;
   repairState: EnergeticsStructure["repairState"];
   repairMode: FoldxRepairMode | null;
+  unit: EnergyUnit;
 }): FoldxTemplateCheck {
-  const { local, protvar, protvarModel, structure, repairState } = args;
+  const { local, protvar, protvarModel, structure, repairState, unit } = args;
   const delta = protvar - local;
   const localBand = classifyRawDdg("foldx", local)?.id;
   const protvarBand = classifyRawDdg("foldx", protvar)?.id;
@@ -790,7 +810,7 @@ function buildFoldxTemplateCheck(args: {
 
   const tpl = describeLocalTemplate(structure);
   const protvarTemplate = protvarModel ?? "the AlphaFold DB model";
-  const gap = `${Math.abs(delta).toFixed(2)} kcal/mol`;
+  const gap = formatDdg(Math.abs(delta), unit);
   const headline =
     state === "opposite"
       ? "The two FoldX values point in opposite directions."
@@ -971,6 +991,12 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
     }
   }
 
+  const withheld = energeticsWithheldText(ev);
+  if (withheld !== null) {
+    lead = withheld;
+    tone = "warning";
+  }
+
   if (a.nCounted > 0 && a.nCounted < MIN_ENGINES_FOR_CONSENSUS) {
     tone = "warning";
     rest.push(
@@ -980,7 +1006,7 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
     rest.push(`${returnedCount} of ${coverage.intended} engines returned a value${countedTail}.`);
   }
 
-  if (a.provisional) {
+  if (ev.provisional) {
     tone = "warning";
     rest.push(
       `${named(ev.running)} ${ev.running.length === 1 ? "is" : "are"} still running, so this reading may change.`
@@ -997,9 +1023,10 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
   if (caveated.length) {
     rest.push(`${named(caveated)} ran on an unrepaired template, which can distort its ΔΔG.`);
   }
-  if (ev.lowPlddt !== null && a.nCounted > 0) {
+  // A withheld lead already states the low confidence, so the caveat is not said twice.
+  if (ev.lowPlddt !== null && a.nCounted > 0 && withheld === null) {
     tone = "warning";
-    rest.push(`The AlphaFold model is low-confidence here (pLDDT ${ev.lowPlddt.toFixed(1)}).`);
+    rest.push(`The AlphaFold model is low-confidence here (pLDDT ${formatPlddt(ev.lowPlddt)}).`);
   }
   return { lead, rest, tone };
 }
@@ -1030,6 +1057,21 @@ export function foldxErrorInPlainWords(reading: EnergeticsReading, unit: EnergyU
     `So ${signedDdg(reading.ddg, unit)} could really be anywhere from about ${signedDdg(reading.ddg - rmse, unit)} to ${signedDdg(reading.ddg + rmse, unit)}; ` +
     `${Math.round(withinShare)}% of lab values fell within a range this wide. Use it for the direction of the change, not the exact size.`
   );
+}
+
+/** The AlphaFold "Very low" band is strictly below the lower edge of the Low band. */
+const isVeryLowPlddt = (plddt: number) => plddt < STRUCTURE_COLOUR_BANDS.plddt.find(band => band.label === "Low")!.min;
+
+/** The sentence that replaces the stability direction when `withheldReason` is set; null otherwise. */
+export function energeticsWithheldText(ev: EnergeticsEvidence): string | null {
+  if (ev.withheldReason === null || ev.lowPlddt === null) return null;
+  return `No stability conclusion: AlphaFold's confidence at this residue is very low (pLDDT ${formatPlddt(ev.lowPlddt)}), so the coordinates the estimates use are unreliable.`;
+}
+
+/** A caveat's detail in the unit on screen. */
+export function energeticsCaveatDetail(caveat: EnergeticsCaveat, unit: EnergyUnit): string {
+  const { detail } = ENERGETICS_CAVEAT_TEXT[caveat];
+  return typeof detail === "function" ? detail(unit) : detail;
 }
 
 /** Reason copy for an engine without a value, with the one fact a curator needs about RaSP. */

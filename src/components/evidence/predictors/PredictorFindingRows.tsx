@@ -2,7 +2,7 @@ import React from "react";
 import { ENGINE_STATE_LABELS } from "../../../shared/engineStatus";
 import { PREDICTOR_TOOL_LABEL } from "../../../shared/insilico/primaryPredictor";
 import { formatEvidenceCode } from "../../../shared/thresholds";
-import type { PredictorEvidence, PredictorReading } from "../../../shared/predictorEvidence";
+import { predictorUseLabel, type PredictorEvidence, type PredictorReading } from "../../../shared/predictorEvidence";
 import { CHAIN_ORDER_TEXT } from "../../../shared/predictorSummary";
 import { ScoreRuler } from "./ScoreRuler";
 
@@ -78,7 +78,6 @@ export function ChainRow({ evidence }: { evidence: PredictorEvidence }) {
     : primary.skippedBefore.includes(r.chainKey!) ? "skipped"
     : disagreeing.has(r.chainKey!) ? "disagrees"
     : "after";
-  const roleText = { active: "sets PP3/BP4", skipped: "no score", disagrees: "points the other way", after: "not used for strength" } as const;
   const activeName = primary.activeTool
     ? (chain.find(r => r.chainKey === primary.activeTool)?.name ?? PREDICTOR_TOOL_LABEL[primary.activeTool])
     : null;
@@ -87,7 +86,12 @@ export function ChainRow({ evidence }: { evidence: PredictorEvidence }) {
       ? `ClinGen VCEP · ${primary.vcepRule.cspecId} v${primary.vcepRule.version}`
       : `Fixed order · VCEP advisory (${primary.vcepRule.cspecId} v${primary.vcepRule.version})`)
     : "Fixed order";
-  const sub = primary.vcepRule ? primary.vcepRule.summary : "The first calibrated tool with a score sets PP3/BP4";
+  // When the rule withheld the call, the reason is the line to read, not the general order sentence.
+  const spliceReason = primary.spliceGate && "reason" in primary.spliceGate ? primary.spliceGate.reason : null;
+  const withheldReason = primary.outcome === "blocked-spliceai" || primary.outcome === "withheld-spliceai" ? spliceReason : null;
+  const sub = primary.vcepRule
+    ? primary.vcepRule.summary
+    : withheldReason ?? "The first calibrated tool with a score sets PP3/BP4";
   const keyText = (() => {
     if (primary.outcome === "vcep-excluded") return "Missense computational predictors excluded by ClinGen VCEP.";
     if (primary.criterionSource === "spliceai") {
@@ -118,7 +122,7 @@ export function ChainRow({ evidence }: { evidence: PredictorEvidence }) {
                 className="prd-tally__tool"
                 data-call={CALL_OF[r.signal]}
                 data-role={role}
-                title={`${r.name}: ${r.scoreText} — ${formatEvidenceCode(r.callLabel)} (${roleText[role]})`}
+                title={`${r.name}: ${r.scoreText} — ${formatEvidenceCode(r.callLabel)} (${predictorUseLabel(r, primary)})`}
               >
                 <i className="prd-tally__seg" aria-hidden="true" />
                 <span className="prd-tally__name">{r.name}</span>

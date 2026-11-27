@@ -161,4 +161,11 @@ describe("handleCopyReport", () => {
     await useVariantAnalysisStore.getState().handleCopyReport(null);
     expect(writeText).not.toHaveBeenCalled();
   });
+
+  it("writes the ΔΔG column in the energy unit the user chose", async () => {
+    useVariantAnalysisStore.setState({ foldingEnergetics: { foldx: 2.62, foldxMean: 2.62, thermompnn: -0.36, stabilityoracle: -0.06 } } as any);
+    const writeText = writeClipboard();
+    await useVariantAnalysisStore.getState().handleCopyReport(baseResult(), "kJ/mol");
+    expect(writeText.mock.calls[0][0]).toContain("ΔΔG (kJ/mol)");
+  });
 });

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { evidenceWorkspaceFixture } from './evidenceWorkspaceFixture';
 import { buildFrequencyEvidence, frequencyEvidenceInputFromResult } from '../shared/frequencyEvidence';
-import { buildPredictorEvidence } from '../shared/predictorEvidence';
+import { buildPredictorEvidence, predictorUseLabel } from '../shared/predictorEvidence';
 import { buildLadderEvidence } from '../shared/ladderEvidence';
 import { buildAlphaGenomeEvidence, aviFinding } from '../shared/alphagenomeEvidence';
+import { formatAlleleFrequency } from '../shared/frequencyFormat';
 import { buildAttributionComparison, buildPopulationComparison, buildPredictorComparison, formatAttributionValue, populationLabelWidth, populationRowLabel, POPULATION_LABEL_MAX_PX, POPULATION_LABEL_MIN_PX } from '../shared/evidenceComparison';
 
 describe('Evidence comparison contracts', () => {
@@ -94,6 +95,19 @@ describe('Evidence comparison contracts', () => {
     expect(vectorless.summary).toContain('The score arrived without its feature contributions');
     expect(vectorless.summary).not.toMatch(/of 18 feature contributions returned/);
   });
+  it('prints one allele frequency with the shared formatter on the chart value, the record and the rule input', () => {
+    // The same fact must read the same on every row of the Population chart, not two ways.
+    const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(evidenceWorkspaceFixture()));
+    const model = buildPopulationComparison(evidence);
+    const exomes = model.rows.find(r => r.name === 'gnomAD exomes')!;
+    expect(exomes.valueText).toBe(formatAlleleFrequency(0.0000055));
+    expect(exomes.facts.find(f => f.label === 'Frequency (AF)')?.value.startsWith(formatAlleleFrequency(0.0000055))).toBe(true);
+    expect(model.rows.find(r => r.key === 'frequency-rule-input')?.valueText).toBe(formatAlleleFrequency(0.00008));
+  });
+  it('prints a reported zero frequency as "0" on the chart, the same as the shared formatter', () => {
+    const zero = buildPopulationComparison(buildFrequencyEvidence(frequencyEvidenceInputFromResult(evidenceWorkspaceFixture('Zero'))));
+    expect(zero.rows.find(r => r.name === 'gnomAD exomes')?.valueText).toBe(formatAlleleFrequency(0));
+  });
   it('names the local gnomAD ingest once, exactly as the records row does', () => {
     // frequencyObservationName is the one naming rule: the local ingest label already says "gnomAD",
     // so the generic prefix would have doubled it into "gnomAD gnomad (local dbnsfp, …)".
@@ -119,5 +133,42 @@ describe('Evidence comparison contracts', () => {
     const shown = populationRowLabel(absurd);
     expect(shown.endsWith('…')).toBe(true);
     expect(shown.length * 6.4 + 28).toBeLessThanOrEqual(POPULATION_LABEL_MAX_PX);
+  });
+});
+
+describe('Evidence comparison wording and units (release fix FC-a)', () => {
+  it('writes every allele-frequency tick in percent, with no exponent, so the axis matches its title', () => {
+    const model = buildPopulationComparison(buildFrequencyEvidence(frequencyEvidenceInputFromResult(evidenceWorkspaceFixture())));
+    expect(model.axisLabel).toContain('Allele frequency (%)');
+    for (const label of model.tickLabels) expect(label).toMatch(/^[\d,.]+%$/);
+  });
+
+  it('describes a candidate allele the way the Population rail does: BA1 reads FAF95, BS1 is a reference', () => {
+    const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(evidenceWorkspaceFixture()));
+    const candidate = {
+      key: 'c1', id: 'rs1', change: 'c.1A>G', af: 0.0001, absent: false, decision: 'BA1', benignStatistic: 'faf95',
+      benignAf: 0.00005, note: null, counts: '1 / 100', lifted: false, cdna: null, homozygotes: 0, allOfUs: null, pm2Hold: false,
+    };
+    const model = buildPopulationComparison({ ...evidence, candidates: [candidate] } as any);
+    const row = model.rows.find(r => r.key === 'candidate:c1')!;
+    expect(row.description).toBe('BA1 reads FAF95; the BS1 reference value is shown, not counted.');
+  });
+
+  it('gives each predictor its engine use from the same wording the Predictors rail uses', () => {
+    const result = evidenceWorkspaceFixture();
+    const predictor = buildPredictorEvidence({ result });
+    const ladder = buildLadderEvidence({ result, predictor });
+    const model = buildPredictorComparison(predictor, ladder);
+    for (const reading of predictor.readings) {
+      const row = model.rows.find(r => r.key === reading.key)!;
+      expect(row.facts.find(f => f.label === 'Engine use')?.value).toBe(predictorUseLabel(reading, predictor.primary));
+    }
+  });
+
+  it('does not repeat the "not additional engine criteria" sentence in the predictor summary', () => {
+    const result = evidenceWorkspaceFixture();
+    const predictor = buildPredictorEvidence({ result });
+    const model = buildPredictorComparison(predictor, buildLadderEvidence({ result, predictor }));
+    expect(model.summary).not.toContain('not additional engine criteria');
   });
 });

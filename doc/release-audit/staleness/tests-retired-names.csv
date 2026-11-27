@@ -1,0 +1,77 @@
+kind,file,line,what,retired_terms,role,action
+title,src/components/evidence/__tests__/normalizeEvidenceTab.test.ts,24,sends the retired Structural perturbation tab to Energetics,perturbation,guard,KEEP (redirect guard)
+title,src/components/settings/__tests__/ConnectionsSection.test.tsx,164,"retires optional provider tokens (Tamarind Bio, Hugging Face)",Hugging Face,guard,KEEP (retirement guard)
+title,src/components/__tests__/MasterSidebar.test.tsx,43,offers AlphaFold as the only structure model: the ESMFold view was retired,ESMFold,guard,KEEP (retirement guard)
+title,src/context/__tests__/SettingsContext.test.tsx,93,"scrubs legacy plaintext credentials and retired settings (GPN-MSA, Biohub, ESMFold, Tamarind) from localStorage","GPN, biohub",valid,KEEP (cleanup of saved secrets)
+title,src/context/__tests__/SettingsContext.test.tsx,108,scrubs retired Biohub and Tamarind tokens from session storage,biohub,valid,KEEP (cleanup of saved secrets)
+title,src/hooks/__tests__/useRetiredEvidenceTabRedirect.test.tsx,7,opens Energetics when asked for the retired Structural perturbation tab,perturbation,guard,KEEP (redirect guard)
+title,src/shared/thresholds.test.ts,62,should evaluate ESM-1b scores against the Bergquist 2025 bands,ESM1b,valid,KEEP (ESM1b is a valid dbNSFP score)
+title,src/shared/__tests__/predictorEvidence.test.ts,80,ESM1b runs the other way: more negative is more pathogenic,ESM1b,valid,KEEP
+title,src/shared/__tests__/predictorEvidence.test.ts,221,"shows no row for the retired runtime language models a saved analysis still carries, and keeps ESM1b","ESM-2, SaProt, ESMC",guard,KEEP (retirement guard)
+title,src/shared/__tests__/primaryPredictor.test.ts,21,decidePrimaryInsilico: REVEL -> BayesDel noAF -> AlphaMissense -> ESM1b,ESM1b,valid,KEEP
+title,server/routes/biophysics.test.ts,198,"unregisters retired DynaMut2, DDMut, Tamarind, and ThermoMPNN polling routes",Tamarind,guard,KEEP (retirement guard)
+title,server/services/external-api/gnomad-gene-constraint.test.ts,5,"finds GBA1 in the v4.1.2 table, which still names it GBA",GBA,valid,KEEP (GBA allowed for the constraint table)
+title,server/services/infra/gene-symbols.test.ts,4,gene symbols: GBA was renamed GBA1,GBA,valid,KEEP
+title,server/services/orchestration/core-identity.test.ts,96,records only the AlphaGenome capability: Biohub was retired and no longer shapes a run,biohub,guard,KEEP (retirement guard)
+title,server/services/orchestration/payload-assembler.test.ts,143,names the core VESM-150M evaluation,VESM,stale,UPDATE: asserts a retired model is declared; delete with payload-assembler.ts lines 274-280
+title,server/services/prediction/predictors/vep-orchestrator.test.ts,327,"a gene its sources know by two names (GBA1, formerly GBA)",GBA,valid,KEEP
+title,server/services/stability/energy-models.test.ts,466,reports a wait that ran out as busy ... makes no Tamarind cloud fallback,Tamarind,guard,KEEP (retirement guard)
+title,server/services/stability/foldx-queue-job.test.ts,171,lets StabilityOracle wait ... the model service runs ESM-2 passes ahead of it,ESM-2,stale,UPDATE title and fixture: ESM-2 passes no longer run
+title,server/services/prediction/acmg/pp3-bp4-language-models.test.ts,66,never picks up strength from retired runtime language models,"ESM-2, ESMC, SaProt",guard,KEEP (retirement guard)
+title,src/shared/__tests__/structure3dEvidence.test.ts,153,reads a 0-1 pLDDT scale (ESM Atlas) apart from 0-100,ESM Atlas,valid,KEEP (ESM Atlas is a live fold source; not a retired model)
+title,src/apiClient.test.ts,17,expects a message naming the ESM Atlas limit and EvolutionaryScale/BioHub,"ESM Atlas, biohub",stale,UPDATE: no source file produces this text; the test checks a mock only
+title,tests/energetics-packing.e2e.ts,18,"packing page does not print SaProt, ESM-2, ESMC or VESM","ESM-2, SaProt, ESMC, VESM",guard,KEEP (retirement guard)
+title,tests/proof/predictor-gata4.e2e.ts,36,predictor row shows ESM1b,ESM1b,valid,KEEP
+title,src/shared/__tests__/fixtures/gata4Perturbation.ts,1,fixture named after the retired Structural perturbation tab (GATA4),"perturbation, ESM-2, VESM, SaProt, ESMC",stale,RENAME to a retired-tab fixture; used as guard input by pp3-bp4 test
+title,src/shared/__tests__/fixtures/slc12a4Perturbation.ts,1,fixture named after the retired Structural perturbation tab (SLC12A4),"perturbation, ESM-2, ESMC, SaProt, ESM3",stale,RENAME; holds retired-model results
+title,src/shared/__tests__/fixtures/nae1Result.ts,11,NAE1 result fixture with an ESMC evaluation,ESMC,stale,UPDATE: drop esmcEval from the fixture
+title,tests/fixtures/predictor-gata4.json,27,"predictor fixture carries retired sidecar errors, GPN-Star and ESM-2 labels","ESM-2, VESM, SaProt, GPN-Star",stale,UPDATE: regenerate without retired fields
+fixture-or-assertion,scripts/primary_predictor_benchmark/test_benchmark.py,33;81;82;83;84;85;86;87;289;301;332;344,20 hits,ESM1b,valid,KEEP (valid use)
+fixture-or-assertion,scripts/primary_predictor_benchmark/test_chain_comparison.py,13,1 hits,ESM1b,valid,KEEP (valid use)
+fixture-or-assertion,scripts/tolerance_benchmark/test_metrics.py,9;10;22;24,4 hits,MetaDome,guard,KEEP (guard or comment)
+fixture-or-assertion,server/auth/retired-secrets.test.ts,12;13,2 hits,"HuggingFace, biohub",valid,KEEP (valid use)
+fixture-or-assertion,server/invariants.test.ts,14,1 hits,GBA,valid,KEEP (valid use)
+fixture-or-assertion,server/routes/auth.test.ts,344,1 hits,duckdns,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,server/routes/capabilities-egress.test.ts,12;59,2 hits,"GPN, biohub",guard,KEEP (guard or comment)
+fixture-or-assertion,server/routes/credentials.http.test.ts,123;124,3 hits,"GPN, HuggingFace",guard,KEEP (guard or comment)
+fixture-or-assertion,server/routes/public-endpoints.test.ts,161,1 hits,biohub,guard,KEEP (guard or comment)
+fixture-or-assertion,server/routes/variant/analysis.test.ts,95,1 hits,ESM-2/ESM2,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,server/services/external-api/clinvar.test.ts,18,1 hits,GBA,valid,KEEP (valid use)
+fixture-or-assertion,server/services/external-api/string.test.ts,5;7;8,3 hits,GBA,valid,KEEP (valid use)
+fixture-or-assertion,server/services/infra/analysis-db.test.ts,28;38,2 hits,ESM-3/ESM3,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,server/services/infra/memo.test.ts,9,1 hits,ESM-3/ESM3,guard,KEEP (guard or comment)
+fixture-or-assertion,server/services/infra/provider-pause.test.ts,223,1 hits,biohub,guard,KEEP (guard or comment)
+fixture-or-assertion,server/services/infra/review-fixes.test.ts,157;158;160,3 hits,duckdns,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,server/services/llm/gemini.test.ts,40;52;54,3 hits,"ESM1b, GPN",guard,KEEP (guard or comment)
+fixture-or-assertion,server/services/orchestration/analysis-orchestrator.test.ts,226;586;595;597,4 hits,"ESM-2/ESM2, ESM1b",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,server/services/orchestration/core-singleflight.test.ts,118,1 hits,ESM-2/ESM2,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,server/services/prediction/predictors/conservation-allele.test.ts,27,1 hits,ESM1b,valid,KEEP (valid use)
+fixture-or-assertion,server/services/prediction/predictors/conservation-streaming.test.ts,49;106;123,3 hits,"ConSurf, ESM1b",valid,KEEP (valid use)
+fixture-or-assertion,server/services/prediction/predictors/dbnsfp-sources.test.ts,66,1 hits,ESM1b,valid,KEEP (valid use)
+fixture-or-assertion,server/services/prediction/predictors/predictors-modules.test.ts,195;213,2 hits,ESM1b,valid,KEEP (valid use)
+fixture-or-assertion,server/services/structure/sasa-runner.test.ts,180,1 hits,ESM-3/ESM3,guard,KEEP (guard or comment)
+fixture-or-assertion,server/tests/sidecar-budget.test.ts,56;57;58;59;60;73,6 hits,ESM-2/ESM2,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/api/__tests__/structuralStream.test.ts,26;36,2 hits,"ESM-3/ESM3, SaProt",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/components/__tests__/AboutView.test.tsx,127;154,4 hits,"ESM-2/ESM2, SaProt, VESM, duckdns",guard,KEEP (guard or comment)
+fixture-or-assertion,src/components/__tests__/DevConsolePanel.test.tsx,142,2 hits,"ESM-2/ESM2, SaProt",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/components/__tests__/LiveTelemetrySidecarWarmup.test.tsx,342;343;354,3 hits,SaProt,guard,KEEP (guard or comment)
+fixture-or-assertion,src/components/__tests__/PredictorsTab.test.tsx,26;27;30;58;59;64;65;66;73;234,12 hits,"ESM-2/ESM2, ESM1b, GPN, SaProt, VESM",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/components/__tests__/VariantHeader.test.tsx,324,1 hits,gene-Z,valid,KEEP (valid use)
+fixture-or-assertion,src/components/__tests__/clinicalElevation.test.ts,29,1 hits,perturbation,guard,KEEP (guard or comment)
+fixture-or-assertion,src/components/__tests__/energeticsLabels.guard.test.ts,106,1 hits,perturbation,guard,KEEP (guard or comment)
+fixture-or-assertion,src/components/energetics/PackingView.test.tsx,10;27,3 hits,"SaProt, VESM, perturbation",guard,KEEP (guard or comment)
+fixture-or-assertion,src/components/inspector/EnergeticsInspector.test.tsx,67;118,3 hits,VESM,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/components/inspector/PredictorsRail.test.tsx,41;48;49;50;53;54,11 hits,"ESM-2/ESM2, ESM1b, ESMC, SaProt, VESM",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/context/__tests__/logSource.test.ts,25,1 hits,SaProt,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/hooks/__tests__/useCredentialUseNotice.test.ts,23,1 hits,biohub,guard,KEEP (guard or comment)
+fixture-or-assertion,src/services/pipeline/__tests__/biophysicalService.test.ts,36;43;233,3 hits,"ESM-2/ESM2, SaProt",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/services/pipeline/__tests__/narrativeService.test.ts,334;341;371;622,6 hits,"ESM-2/ESM2, ESMC, SaProt",guard,KEEP (guard or comment)
+fixture-or-assertion,src/services/pipeline/__tests__/resultMerge.test.ts,44;46,2 hits,SaProt,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/shared/__tests__/attributions.test.ts,162;163;196,3 hits,"biohub, duckdns",guard,KEEP (guard or comment)
+fixture-or-assertion,src/shared/__tests__/contracts.test.ts,563;566,2 hits,GPN,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/shared/__tests__/deepModelEvidence.test.ts,116;117;118;119;123;124,8 hits,"ESM-2/ESM2, ESM-3/ESM3, SaProt, VESM",stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/shared/__tests__/energeticsEvidence.test.ts,45;225,3 hits,VESM,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,src/shared/__tests__/predictorRecovery.test.ts,9;10;15,4 hits,ESM1b,valid,KEEP (valid use)
+fixture-or-assertion,src/shared/__tests__/redactSecrets.test.ts,16;21,2 hits,biohub,guard,KEEP (guard or comment)
+fixture-or-assertion,tools/test_engine_resilience.py,25;39,2 hits,VESM,stale,UPDATE: fixture or assertion still uses a retired name
+fixture-or-assertion,tools/test_model_server.py,8;62,5 hits,"ESM-2/ESM2, ESM-3/ESM3, HuggingFace, SaProt, VESM",guard,KEEP (guard or comment)

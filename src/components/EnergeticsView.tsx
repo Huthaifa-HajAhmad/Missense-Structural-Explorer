@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, Scale } from "lucide-react";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 import { ResearchGuideButton } from './knowledge/ResearchGuideButton';
 import type { EnergyEngineId } from '../shared/engineStatus';
-import { AGREEMENT_CHIP, energeticsSummary, signedDdg, signedDdgNumber } from "../shared/energeticsEvidence";
+import { AGREEMENT_CHIP, energeticsSummary, listNames, signedDdg, signedDdgNumber } from "../shared/energeticsEvidence";
 import { energeticsComparisonHeadline, energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates, type EnergeticsChartOptions } from '../shared/energeticsComparison';
 import type { FoldxProgress } from "../shared/foldxPhase";
 import { requestInspectorFocus, INSPECTOR_SECTIONS } from '../lib/inspectorFocus';
@@ -168,14 +168,15 @@ const EnergeticsView = memo(function EnergeticsView({
               Folding stability · ΔΔG
             </span>
             <div className="nrg-verdict-group">
+              {/* The Comparison headline carries the provisional and withheld states itself, so no second badge there. */}
               {tab === 'comparison'
                 ? <h2 className="nrg-finding-heading" data-testid="energetics-verdict">{energeticsComparisonHeadline(evidence)}</h2>
                 : <span className="ev-tier nrg-verdict" data-tone={chip.tone} data-testid="energetics-verdict">
-                    {chip.label}
+                    {evidence.withheldReason !== null ? 'No stability conclusion' : chip.label}
                   </span>}
-              {agreement.provisional && (
+              {tab === 'records' && evidence.provisional && (
                 <span className="nrg-verdict-pending" data-testid="energetics-provisional">
-                  Provisional · {evidence.running.length} still running
+                  Provisional · {listNames(evidence.runningEngines)} still running
                 </span>
               )}
             </div>
@@ -203,7 +204,7 @@ const EnergeticsView = memo(function EnergeticsView({
             )}
             <span>
               {tab === 'records' ? <><strong>{summary.lead}</strong>{summary.rest.map(sentence => ` ${sentence}`).join("")}</>
-                : <><strong>{energeticsComparisonFinding(evidence)}</strong><span className="nrg-summary__coverage">{returnedEnergyEstimates(evidence)} of {evidence.coverage.intended} methods returned a value; {agreement.nCounted} counted.</span></>}
+                : <><strong>{energeticsComparisonFinding(evidence)}</strong><span className="nrg-summary__coverage">{returnedEnergyEstimates(evidence)} of {evidence.coverage.intended} engines returned a value; {agreement.nCounted} counted.</span></>}
             </span>
           </p>
 
@@ -263,6 +264,7 @@ const EnergeticsView = memo(function EnergeticsView({
           foldingStatus={foldingStatus}
           foldingError={run.foldingError}
           site={run.disruptionPredictor ?? result.disruptionPredictor ?? null}
+          unit={unit}
         />}
         </div>
       </div>

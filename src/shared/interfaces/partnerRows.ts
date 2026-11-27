@@ -7,6 +7,7 @@ import type { PpiBindingData, PpiInteractionSite } from "../contracts.ts";
 import { subunitPartnerMentions, type SubunitStatement } from "../multimerAssembly.ts";
 import { bare, statementQualifier } from "./format.ts";
 import type { AssemblyRecord } from "./assembly.ts";
+import { mergeObserved } from "./observed.ts";
 import type { ObservedView, PartnerRow } from "./types.ts";
 
 const emptyCells = () => ({ physical: { score: null, band: null, note: null }, functional: { score: null, band: null, note: null } });
@@ -19,7 +20,7 @@ function blankRow(key: string, gene: string, accession: string | null, organism:
   };
 }
 
-/** The row store: keys by accession first, then by human gene symbol. */
+/** Human partners share a gene row; unnamed proteins use their accession. */
 export class PartnerRowStore {
   readonly rows = new Map<string, PartnerRow>();
   /** Text attached to a row by SUBUNIT ("Homodimer: another copy of ABCG1", "Binds (SUBUNIT)"). */
@@ -126,7 +127,8 @@ export function collectPartnerRows(s: RowSources): PartnerRowStore {
   for (const c of s.intact) if (c.gene && c.accession && !c.organismDiffer && !c.evidence?.organism) accessionOf.set(c.gene.toUpperCase(), c.accession);
   for (const o of s.observed) if (o.gene && !o.organism) accessionOf.set(o.gene.toUpperCase(), o.accession);
   addAssembly(store, s, accessionOf);
-  for (const o of s.observed) {
+  for (const o of mergeObserved(s.observed)) {
+    // Combine accessions of a known gene; unnamed accessions remain separate.
     const row = o.homomeric ? store.upsert(s.gene, s.uniprotId) : o.organism ? store.upsertForeign(o.gene ?? o.name, o.accession, o.organism) : store.upsert(o.gene ?? null, o.accession);
     if (row.gene === o.accession) row.gene = o.gene ?? o.name;
     row.observed = o;

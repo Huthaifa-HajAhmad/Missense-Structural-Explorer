@@ -1,5 +1,6 @@
 import type { PackingEvidence } from "../../shared/packingEvidence";
 import { MarkRuler } from "./MarkRuler";
+import { formatPlddt } from "../../shared/plddtFormat";
 
 /** Two counts on one shared axis from 0: the reference in ink, the mutant in clay. Each count is printed. */
 function CountFigure({ caption, note, rows }: {
@@ -31,8 +32,8 @@ function EnergyFigures({ packing }: { packing: PackingEvidence }) {
     const extent = Math.max(1, Math.ceil(Math.abs(r.value!)));
     return (
       <figure key={r.key}>
-        <figcaption>{r.name}: <strong>{r.text} kcal/mol</strong></figcaption>
-        <MarkRuler value={r.value!} min={-extent} max={extent} marks={[{ value: 0, label: "No change" }]} label={`${r.name}, mutant minus reference, kcal/mol`} format={n => n.toFixed(1)} />
+        <figcaption>{r.name}: <strong>{r.text} {r.unit}</strong></figcaption>
+        <MarkRuler value={r.value!} min={-extent} max={extent} marks={[{ value: 0, label: "No change" }]} label={`${r.name}, mutant minus reference, ${r.unit}`} format={n => n.toFixed(1)} />
         <p>Left of 0: this term is lower in the mutant model than in the reference; right of 0: higher. One energy component, not total stability.</p>
       </figure>
     );
@@ -54,7 +55,7 @@ export function PackingFigures({ packing, position }: { packing: PackingEvidence
       {(method || inputConfidence) && <p className="pkg-dim">
         {method}
         {method && inputConfidence && " · "}
-        {inputConfidence && <>Input model confidence at {position !== null ? `residue ${position}` : "the site"}: pLDDT {inputConfidence.plddt.toFixed(1)}{inputConfidence.band && ` · ${inputConfidence.band}`}</>}
+        {inputConfidence && <>Input model confidence at {position !== null ? `residue ${position}` : "the site"}: pLDDT {formatPlddt(inputConfidence.plddt)}{inputConfidence.band && ` · ${inputConfidence.band}`}</>}
       </p>}
       {lowConfidence && <p className="pkg-callout" data-tone="neutral">Geometry in a low-confidence region describes the model more than the protein.</p>}
       {hasFigures && <div className="pkg-energy-plots">

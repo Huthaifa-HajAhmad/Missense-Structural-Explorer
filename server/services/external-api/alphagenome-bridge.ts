@@ -230,7 +230,7 @@ export async function fetchAlphaGenome(
         featureAttributions: null,
         acmgStrength: "indeterminate",
         atlasUrl: urls.trackPredictionsUrl,
-        message: "AlphaGenome Atlas: Key Required / Standby"
+        message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate."
       };
       return standbyResult;
     }
@@ -504,7 +504,7 @@ export async function fetchAlphaGenomeRegionSaturation(
         exonEnd: exonEnd || null,
         positions: [],
         atlasLocusUrl: locusUrl,
-        message: "AlphaGenome Atlas: Key Required / Standby"
+        message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate."
       };
       return standbyResult;
     }

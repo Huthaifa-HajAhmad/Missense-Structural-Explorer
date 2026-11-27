@@ -2,8 +2,9 @@
  * place zero on a log axis, or turn an absent attribution into zero. Filters do not
  * change domains, shares, engine records or the underlying evidence. */
 import { formatCount, frequencyObservationName, observationAbsence, populationReading, type FrequencyEvidence } from './frequencyEvidence';
+import { formatAlleleFrequency } from './frequencyFormat';
 import { AVI_FEATURES, AVI_GROUP_LABEL, fmtShare, type AlphaGenomeEvidence, type AviFeatureGroup } from './alphagenomeEvidence';
-import { CAVEAT_TEXT, PREDICTOR_GROUP_LABEL, isReadingParticipatingInRule, type PredictorEvidence } from './predictorEvidence';
+import { CAVEAT_TEXT, PREDICTOR_GROUP_LABEL, predictorUseLabel, type PredictorEvidence } from './predictorEvidence';
 import type { LadderEvidence } from './ladderEvidence';
 import type { CandidateAlleleRow } from './candidateFrequencyEvidence';
 import { formatEvidenceCode } from './thresholds';
@@ -34,13 +35,6 @@ export interface EvidenceChartModel {
   emptyCopy: string;
 }
 
-/** One unit across the frequency chart: never mix fractions and percentages on its axis. */
-export function formatFrequencyPercent(af: number): string {
-  if (af === 0) return '0%';
-  const pct = af * 100;
-  return `${pct < .001 ? pct.toExponential(2) : Number(pct.toPrecision(4))}%`;
-}
-
 /* The Population chart's row labels are SVG text, which cannot wrap, and source names are not a fixed length
    ("gnomAD exomes" vs "gnomAD (local dbNSFP, cohorts combined)"). The label column fits the longest name; only a
    name past the cap ends in an ellipsis (its full text stays the reading's name in the inspector). */
@@ -68,10 +62,10 @@ function candidateChartRow(allele: CandidateAlleleRow): EvidenceChartRow {
     knowledgeKey: 'allele_frequency', key: `candidate:${allele.key}`, name: `gnomAD ${allele.change ?? 'allele'} · ${allele.id}`,
     value: allele.af !== null && allele.af > 0 ? Math.log10(allele.af) : null,
     valueText: allele.af === null ? 'No reading'
-      : allele.af === 0 ? (allele.absent ? 'No variant record returned' : '0%')
-      : formatFrequencyPercent(allele.af),
+      : allele.af === 0 && allele.absent ? 'No variant record returned'
+      : formatAlleleFrequency(allele.af),
     description: allele.note ?? (faf95Differs
-      ? 'gnomAD grouped maximum for this candidate allele (BA1/BS1 read FAF95).'
+      ? 'BA1 reads FAF95; the BS1 reference value is shown, not counted.'
       : 'Frequency PM2 reads for this candidate allele (gnomAD grouped maximum).'),
     group: 'gnomad-candidate', tone: 'neutral',
     contextText: allele.counts ? `AC / AN ${allele.counts}` : undefined,
@@ -79,7 +73,7 @@ function candidateChartRow(allele: CandidateAlleleRow): EvidenceChartRow {
       { label: allele.lifted ? 'Candidate allele (GRCh38)' : 'Candidate allele', value: allele.id },
       ...(allele.cdna ? [{ label: 'cDNA change', value: allele.cdna }] : []),
       { label: 'AC / AN (exomes + genomes)', value: allele.counts ?? 'Not reported' },
-      ...(faf95Differs ? [{ label: 'FAF95 (BA1/BS1 input)', value: formatFrequencyPercent(allele.benignAf as number) }] : []),
+      ...(faf95Differs ? [{ label: 'FAF95 (BA1 input)', value: formatAlleleFrequency(allele.benignAf as number) }] : []),
       { label: 'Homozygotes', value: formatCount(allele.homozygotes) },
       ...(allele.allOfUs?.counts ? [{ label: 'All of Us AC / AN', value: allele.allOfUs.counts }] : []),
       { label: 'Supports', value: allele.pm2Hold ? 'PM2 withheld' : allele.decision === null ? 'No reading' : allele.decision === 'none' ? 'No criterion' : allele.decision },
@@ -92,14 +86,14 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
   const rows: EvidenceChartRow[] = evidence.observations.map(o => ({
     knowledgeKey: 'allele_frequency', key: o.key, name: frequencyObservationName(o),
     value: o.availability.state === 'available' && o.af !== null && o.af > 0 ? Math.log10(o.af) : null,
-    valueText: o.af !== null ? formatFrequencyPercent(o.af)
+    valueText: o.af !== null ? formatAlleleFrequency(o.af)
       : evidence.criterion.absent && o.id.startsWith('gnomad') ? 'No variant record returned'
       : o.availability.state === 'no-result' ? 'No frequency returned' : o.availability.label ?? 'No frequency',
     description: o.af === null ? observationAbsence(o) : o.af === 0 ? 'A reported frequency of zero. Zero has no position on a logarithmic axis.' : 'Reported allele frequency in this source.',
     group: o.id, tone: 'neutral',
     contextText: o.ac !== null || o.an !== null ? `AC ${formatCount(o.ac)} · AN ${formatCount(o.an)}` : undefined,
     facts: [{ label: 'Allele count (AC)', value: formatCount(o.ac) }, { label: 'Alleles assessed (AN)', value: formatCount(o.an) },
-      { label: 'Frequency (AF)', value: o.af === null ? 'Not reported' : `${formatFrequencyPercent(o.af)} (${o.af} as a fraction)` },
+      { label: 'Frequency (AF)', value: o.af === null ? 'Not reported' : `${formatAlleleFrequency(o.af)} (${o.af} as a fraction)` },
       { label: 'Dataset', value: o.dataset }, { label: 'Homozygotes', value: formatCount(o.homozygotes) }, { label: 'Heterozygotes', value: formatCount(o.heterozygotes) }],
     notes: ['AC counts copies of the allele; AN counts assessed alleles, not people. Sources can overlap and must not be added together.'],
   }));
@@ -117,7 +111,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
     rows.push({
       knowledgeKey: 'population', key: 'frequency-rule-input', name: 'Engine frequency input',
       value: !c.absent && c.af > 0 ? Math.log10(c.af) : null,
-      valueText: c.absent ? 'Not observed' : formatFrequencyPercent(c.af),
+      valueText: c.absent ? 'Not observed' : formatAlleleFrequency(c.af),
       description: c.absent ? 'Confirmed absence was read by the engine. This is not a measured frequency of zero.' : populationReading(evidence).ruleSource,
       group: 'rule', tone: 'accent',
       contextText: 'Rule input · not a cohort',
@@ -135,7 +129,9 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
   const step = Math.max(1, Math.ceil((hi - lo) / 4));
   const ticks = Array.from({ length: Math.floor((hi - lo) / step) + 1 }, (_, i) => lo + i * step);
   return { rows, domain: [lo - .3, hi + .3], ticks,
-    tickLabels: ticks.map(v => formatFrequencyPercent(10 ** v)), axisLabel: 'Allele frequency (%) · logarithmic scale',
+    // Axis ticks only: a short percentage with at most 4 significant digits, so the labels fit the axis.
+    // Table and record values use formatAlleleFrequency.
+    tickLabels: ticks.map(v => `${new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 }).format(10 ** v * 100)}%`), axisLabel: 'Allele frequency (%) · logarithmic scale',
     unplottedHeading: 'Not plotted',
     unplottedBody: 'Zero and unavailable frequencies cannot sit on a log axis. Their states remain distinct.',
     emptyCopy: 'No values can be plotted on this axis. Inspect the available records below.',
@@ -148,18 +144,12 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
     const calibrated = ladder.ladder.find(l => l.key === r.key);
     const at = calibrated?.at == null || r.cutpoints.bands.length === 0 ? -1 : ladder.columns.findIndex(c => c.id === calibrated.at);
     const toolKey = r.chainKey ?? (r.key === 'cadd' ? 'cadd' : null);
-    const participates = isReadingParticipatingInRule(r, evidence.primary);
     const isCounted = toolKey !== null && toolKey === evidence.primary.activeTool;
-    const engineUse = !participates
-      ? 'Informational · not counted'
-      : isCounted
-      ? (evidence.primary.vcepApplied ? 'Sets PP3/BP4 under gene VCEP specification' : 'Sets PP3/BP4 (first calibrated tool with a score)')
-      : 'Calibrated · used for the disagreement note only';
     return { key: r.key, name: r.name, value: at < 0 ? null : at, valueText: r.availability.state === 'available' ? r.scoreText : (r.availability.label ?? r.callLabel),
       description: r.description, group: PREDICTOR_GROUP_LABEL[r.group], counted: isCounted, knowledgeKey: r.knowledgeKey ?? undefined,
       tone: r.callTone === 'muted' ? 'neutral' : r.callTone,
       facts: [{ label: 'Raw score', value: `${r.scoreText}${r.unit ? ` ${r.unit}` : ''}` },
-        { label: 'Reading', value: formatEvidenceCode(r.callLabel) }, { label: 'Engine use', value: engineUse },
+        { label: 'Reading', value: formatEvidenceCode(r.callLabel) }, { label: 'Engine use', value: predictorUseLabel(r, evidence.primary) },
         { label: 'Cut-point source', value: r.cutpoints.source ?? 'No published cut-point' }, { label: 'Score source', value: r.source }],
       notes: [r.note, r.availability.reason, ...r.caveats.map(c => CAVEAT_TEXT[c].detail),
         ...(calibrated?.cutLines ?? []),
@@ -172,7 +162,7 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
     unplottedHeading: 'Outside the calibrated comparison',
     unplottedBody: 'These tools have no calibrated strength to plot, or no returned score. Select one to inspect its own scale and status.',
     emptyCopy: 'No values can be plotted on this axis. Inspect the available records below.',
-    summary: 'Each dot shows the published calibrated band reached by one predictor. Direction-only and uncalibrated tools remain inspectable below. These individual readings are not additional engine criteria.' };
+    summary: 'Each dot shows the published calibrated band reached by one predictor. Direction-only and uncalibrated tools remain inspectable below.' };
 }
 
 export type AttributionFilter = 'all' | AviFeatureGroup;

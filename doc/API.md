@@ -432,7 +432,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 ### 16a. Engine Capabilities and Remote Providers
 * **Route**: `GET /api/v1/capabilities`
 * **Auth**: None
-* **Description**: Readiness of each engine (FoldX, Box64, RaSP, ThermoMPNN, StabilityOracle, SaProt, JapanFold, P2Rank), plus `egress`, which tells the owner which remote provider is the constraint (WP-I1, WP-I2 and WP-I3, `doc/COMPUTE_ROUTING_PLAN.md`):
+* **Description**: Readiness of each engine (FoldX, Box64, RaSP, ThermoMPNN, StabilityOracle, JapanFold, P2Rank), plus `egress`, which tells the owner which remote provider is the constraint (WP-I1, WP-I2 and WP-I3, `doc/COMPUTE_ROUTING_PLAN.md`):
 
   | `egress` field | meaning |
   | --- | --- |

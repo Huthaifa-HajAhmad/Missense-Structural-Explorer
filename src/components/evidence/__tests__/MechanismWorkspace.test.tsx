@@ -11,7 +11,7 @@ import { mechanismWorkspaceFixture } from '../../../test/mechanismWorkspaceFixtu
 import { resetInterfacesLive } from '../interfaces/interfacesLive';
 import type { AnalysisResult } from '../../../types';
 
-vi.mock('../../../context/SettingsContext', () => ({ useSettings: () => ({ settings: {}, openSettingsTab: vi.fn() }) }));
+vi.mock('../../../context/SettingsContext', () => ({ useSettings: () => ({ settings: {}, openSettingsTab: vi.fn() }), useOptionalSettings: () => ({ settings: {}, openSettingsTab: vi.fn() }) }));
 vi.mock('../../../apiClient', () => ({ useApiClient: () => ({ fetchWithAuth: fetch }), extractErrorMessage: async () => 'Provider error' }));
 vi.mock('../../../stores/useVariantAnalysisStore', () => ({ useVariantAnalysisStore: Object.assign((sel: any) => sel({ analysisState: { isLoading: false } }), { getState: () => ({ analysisState: null, setAnalysisState: vi.fn() }) }) }));
 vi.mock('../../../services/pipeline/variantCache', () => ({ setCachedVariant: vi.fn() }));

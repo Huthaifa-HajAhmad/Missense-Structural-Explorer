@@ -128,7 +128,7 @@ describe("an actionable absence offers the remedy that can actually fix it", () 
   it("sends a rejected credential to Settings", () => {
     renderTab({ alphagenome: { status: "unavailable", aviPhred: null, message: "AlphaGenome API Key is invalid or expired." } });
     expect(screen.getByTestId("avi-status")).toHaveTextContent("Not available here");
-    expect(screen.getByText(/Add or check the AlphaGenome credential in Settings/)).toBeInTheDocument();
+    expect(screen.getByText(/AlphaGenome needs your API key — add it in Settings → Connections/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open connection settings/ })).toBeInTheDocument();
     expect(screen.queryByText(/Re-evaluate the variant to ask the Atlas again/)).not.toBeInTheDocument();
   });
@@ -323,5 +323,25 @@ describe("the wrapper's guard", () => {
   it("renders nothing without a result, and without tripping the hooks order", () => {
     const { container } = render(<AlphaGenomeTab {...({ analysisState: { result: null } } as any)} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("AlphaGenomeTab — no exact DNA change (ABCG1 pattern)", () => {
+  const noLocus = {
+    route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [],
+  };
+
+  it("explains the absence with the locus reason, and does not say no cause was recorded", () => {
+    renderTab({ alphagenome: null, predictorData: { locusResolution: noLocus } });
+    const absence = screen.getByTestId("avi-absence").textContent ?? "";
+    expect(absence).toMatch(/AlphaGenome was not queried/);
+    expect(absence).not.toMatch(/No cause was recorded/);
+  });
+
+  it("draws no empty contribution chart when there is no score", () => {
+    renderTab({ alphagenome: null, predictorData: { locusResolution: noLocus } });
+    fireEvent.click(screen.getByRole("tab", { name: "Understand the score" }));
+    expect(screen.queryByText("What contributes to this score?")).toBeNull();
+    expect(screen.queryByText("Not attributed")).toBeNull();
   });
 });

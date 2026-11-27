@@ -133,11 +133,11 @@ describe("resolveFoldxReadiness", () => {
 
 describe("attachAlphaGenomeKeySource", () => {
   it("records the key source on the AlphaGenome entry without touching the others", () => {
-    const probed = { alphagenome: health({ healthy: false, message: "Standby (API Key Required)" }), clinvar: health() };
+    const probed = { alphagenome: health({ healthy: false, message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate." }), clinvar: health() };
 
     const result = attachAlphaGenomeKeySource(probed, "none");
 
-    expect(result.alphagenome).toMatchObject({ healthy: false, message: "Standby (API Key Required)", keySource: "none" });
+    expect(result.alphagenome).toMatchObject({ healthy: false, message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.", keySource: "none" });
     expect(result.clinvar).toEqual(probed.clinvar);
   });
 
@@ -179,7 +179,7 @@ describe("GET /api/v1/diagnostics — FoldX and AlphaGenome", () => {
 
     healthSpy = vi.spyOn(adapterRegistry, "checkAllHealth").mockResolvedValue({
       ensembl: health(),
-      alphagenome: health({ healthy: false, message: "Standby (API Key Required)" }),
+      alphagenome: health({ healthy: false, message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate." }),
     });
 
     const app = express();
@@ -223,7 +223,7 @@ describe("GET /api/v1/diagnostics — FoldX and AlphaGenome", () => {
 
     expect(body.serviceHealth.alphagenome).toMatchObject({
       healthy: false,
-      message: "Standby (API Key Required)",
+      message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.",
       keySource: "none",
     });
   });

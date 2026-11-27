@@ -10,6 +10,11 @@ import { NAE1_POCKET, NAE1_RESULT } from "../../../shared/__tests__/fixtures/nae
  * same model as the tab. These tests pin what it may claim on the reference variant.
  */
 describe("ResidueShiftInspector", () => {
+  it("heads each rail section at level two, so the heading order runs down from the page heading", () => {
+    render(<ResidueShiftInspector analysisResult={NAE1_RESULT as any} computedPocket={NAE1_POCKET as any} />);
+    expect(screen.getByRole("heading", { level: 2, name: /Trace/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: /Model narrative/ })).toBeInTheDocument();
+  });
   it("waits rather than rendering half a pane when there is no analysis", () => {
     render(<ResidueShiftInspector analysisResult={null} />);
     expect(screen.getByText(/Waiting for the variant analysis/)).toBeInTheDocument();

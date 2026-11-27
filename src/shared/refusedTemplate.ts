@@ -13,6 +13,6 @@ export function otherRefusedChainsText(refused: { otherChainsRefused?: number })
 export function unmodelledSiteText(refused: { unmodelledResidue: number; entries: number }): string {
   const residue = refused.unmodelledResidue;
   return refused.entries === 1
-    ? `the only solved structure spanning residue ${residue} has no coordinates for it`
-    : `none of the ${refused.entries} solved structures spanning residue ${residue} has coordinates for it`;
+    ? `the only entry that spans residue ${residue} has no coordinates for it`
+    : `none of the ${refused.entries} entries that span residue ${residue} has coordinates for it`;
 }

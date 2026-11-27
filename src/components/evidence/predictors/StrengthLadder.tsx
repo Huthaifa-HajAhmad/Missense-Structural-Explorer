@@ -29,7 +29,8 @@ function points(c: LadderColumn) {
   return c.points > 0 ? `+${c.points}` : c.points === 0 ? "0" : `−${Math.abs(c.points)}`;
 }
 
-export function StrengthLadder({ evidence, primaryKey }: { evidence: LadderEvidence; primaryKey: string | null }) {
+/** `statusByKey` holds each tool's one status (`predictorUseLabel`), so the ladder words it the way every other screen does. */
+export function StrengthLadder({ evidence, statusByKey }: { evidence: LadderEvidence; statusByKey: Record<string, string> }) {
   const { columns, ladder, directional } = evidence;
   const nBenign = columns.filter(c => c.direction === "BP4").length;
   const nPath = columns.filter(c => c.direction === "PP3").length;
@@ -80,7 +81,7 @@ export function StrengthLadder({ evidence, primaryKey }: { evidence: LadderEvide
             {l.name}
             <small>
               {l.source}
-              {l.key === primaryKey ? " · sets PP3/BP4" : !l.inChain ? " · not counted" : ""}
+              {statusByKey[l.key] ? ` · ${statusByKey[l.key]}` : ""}
             </small>
           </span>
           {l.at === null ? (
@@ -124,7 +125,7 @@ export function StrengthLadder({ evidence, primaryKey }: { evidence: LadderEvide
                 {d.name}
                 <small>
                   {d.source}
-                  {!d.inChain ? " · not counted" : ""}
+                  {statusByKey[d.key] ? ` · ${statusByKey[d.key]}` : ""}
                 </small>
               </span>
               {d.side === null ? (

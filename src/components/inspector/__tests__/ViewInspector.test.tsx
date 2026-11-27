@@ -129,3 +129,43 @@ describe("ViewInspector reveal path", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe("ViewInspector labels and keyboard access (release fix FC-a)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it("lets a keyboard reader reach the inspector body by a name", () => {
+    renderInspector({ activeView: "insights" });
+    const body = screen.getByRole("region", { name: "How this verdict was made" });
+    expect(body).toHaveAttribute("tabindex", "0");
+    expect(body).toHaveClass("inspector-body");
+  });
+
+  it("titles the Insights rail in plain words", () => {
+    renderInspector({ activeView: "insights" });
+    expect(screen.getByText("How this verdict was made")).toBeInTheDocument();
+    expect(screen.queryByText("Synthesis Provenance")).not.toBeInTheDocument();
+  });
+
+  it("names the PDB entry that the FoldX variant was built on", () => {
+    renderInspector({
+      activeView: "structure_alphafold",
+      foldingEnergetics: { structureProvenance: { source: "experimental", pdbId: "1r3q", chainId: "A" } },
+    });
+    expect(screen.getByText("AlphaFold model · FoldX variant on PDB 1R3Q:A")).toBeInTheDocument();
+    expect(screen.queryByText("AlphaFold model, FoldX variant")).not.toBeInTheDocument();
+  });
+
+  it("keeps the AlphaFold caption when FoldX was built on the AlphaFold model", () => {
+    renderInspector({
+      activeView: "structure_alphafold",
+      foldingEnergetics: { structureProvenance: { source: "alphafold" } },
+    });
+    expect(screen.getByText("AlphaFold model, FoldX variant")).toBeInTheDocument();
+  });
+});

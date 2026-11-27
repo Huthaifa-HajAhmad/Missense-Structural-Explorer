@@ -15,7 +15,8 @@ import { gnomadGroupLabel } from "../../shared/gnomadGroups";
 import type { EvidenceAvailabilityState } from "../../shared/evidenceAvailability";
 import { THRESHOLDS } from "../../shared/thresholds";
 import { FrequencyScale, type ScaleReading } from "./population/FrequencyScale";
-import { classificationTone, formatClinicalDate, reviewStars } from "./population/populationFormat";
+import { classificationTone, formatClinicalDate, namedConditionText, reviewStars } from "./population/populationFormat";
+import { reviewStarsText } from "../../shared/populationFormat";
 import { Prose } from "../ui/Prose";
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
@@ -198,7 +199,7 @@ function NoReadingItem({ line }: { line: SourceLine }) {
 
 function Stars({ count }: { count: number }) {
   return (
-    <span className="pop-stars" aria-label={`${count} of 4 review stars`} title={`${count} of 4 review stars`}>
+    <span className="pop-stars" role="img" aria-label={reviewStarsText(count)} title={reviewStarsText(count)}>
       {[0, 1, 2, 3].map(i => (
         <Star key={i} className="w-3 h-3" data-filled={i < count || undefined} aria-hidden="true" />
       ))}
@@ -369,8 +370,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
       <header>
         <h1 className="screen-title">{evidenceTab('clinical').label}</h1>
         <p className="screen-tab-description">
-          How often this allele has been seen in gnomAD, All of Us and ClinVar submissions — and which
-          ACMG frequency criterion that supports.
+          How often this allele is seen in gnomAD and All of Us, and which ACMG frequency criterion that supports.
         </p>
       </header>
       <EvidenceViewTabs tab="clinical" marks={{ records: clinvarMark(result.clinvar, result.serviceStatus) }} />
@@ -473,7 +473,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
                 data-tone={bs2 ? "good" : "muted"}
                 title={bs2 ? "The engine recorded BS2 for this run" : evidence.homozygoteCriterion.reason ? `BS2 not applied: ${evidence.homozygoteCriterion.reason}` : "The engine did not record BS2 for this run"}
               >
-                {bs2 ? "BS2" : evidence.homozygoteCriterion.applicable ? "No BS2" : "BS2 not applicable"}
+                {bs2 ? "BS2 applied" : evidence.homozygoteCriterion.applicable ? "BS2 not met" : "BS2 not applied"}
                 <span className="sr-only">{bs2 ? " — the engine recorded BS2 for this run" : evidence.homozygoteCriterion.reason ? ` — not applied: ${evidence.homozygoteCriterion.reason}` : " — the engine did not record BS2 for this run"}</span>
               </span>
             )}
@@ -610,7 +610,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
                         data-tone={bs2 ? "good" : "muted"}
                         title={bs2 ? "The engine recorded BS2 for this run" : evidence.homozygoteCriterion.reason ? `BS2 not applied: ${evidence.homozygoteCriterion.reason}` : "The engine did not record BS2 for this run"}
                       >
-                        {bs2 ? "BS2" : evidence.homozygoteCriterion.applicable ? "No BS2" : "BS2 not applicable"}
+                        {bs2 ? "BS2 applied" : evidence.homozygoteCriterion.applicable ? "BS2 not met" : "BS2 not applied"}
                       </span>
                     )}
                   </span>
@@ -670,7 +670,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
                 </div>
                 <div>
                   <dt>Condition</dt>
-                  <dd title={cv?.trait ?? undefined}>{cv?.trait || "Not reported"}</dd>
+                  <dd title={cv?.trait ?? undefined}>{namedConditionText(cv?.trait) ?? (cv?.trait ? "ClinVar names no condition" : "Not reported")}</dd>
                 </div>
               </dl>
             )}
@@ -679,7 +679,7 @@ function ClinicalTabContent({ analysisState, onNavigateToView }: TabComponentPro
               <span>NCBI ClinVar</span>
               {clinvar.availability.hasValue && (
                 <span>
-                  Last evaluated <span className="pop-mono pop-strong">{lastEvaluated ?? "not reported"}</span>
+                  Last evaluated <span className="pop-mono pop-strong">{lastEvaluated ?? "Not reported"}</span>
                 </span>
               )}
             </div>

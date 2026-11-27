@@ -6,7 +6,7 @@ import { EVIDENCE_LEVEL_CODES, EVIDENCE_LEVEL_LABEL, EVIDENCE_LEVEL_MEANING, PM1
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { functionReadings } from '../../shared/molecularWorkspace';
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
-import { buildHotspotEvidence, HOTSPOT_GRADE_LABEL, type HotspotContext } from "../../shared/hotspotEvidence";
+import { buildHotspotEvidence, expertPm1Specified, HOTSPOT_GRADE_LABEL, type HotspotContext } from "../../shared/hotspotEvidence";
 import { hotspotInputFrom } from "../../shared/hotspotInput";
 import { hotspotsSlot } from "../../shared/evidenceKeys";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -39,7 +39,15 @@ function Step({ n, warn, children }: { n: number; warn?: boolean; children: Reac
 
 export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const fndInput = useMemo(() => functionEvidenceInputFrom(analysisResult), [analysisResult]);
-  const ev = useMemo(() => buildFunctionEvidence(fndInput), [fndInput]);
+  // The loader forms its slot from the result's gene or the store's (useEvidenceContext) — the rail uses
+  // the same rule, or a fallback identity would leave it watching a slot nobody fills.
+  const storeGene = useVariantAnalysisStore((st) => st.gene);
+  const hotspotGene = analysisResult.metadata?.gene || storeGene || null;
+  const slot = hotspotsSlot(hotspotGene, analysisResult.metadata?.uniprotId, analysisResult.transcriptId);
+  const hotspotLoad = useVariantAnalysisStore((st) => st.extraContexts[slot]) as ContextLoad<HotspotContext> | undefined;
+  // An expert panel's PM1 rule is read from the same hot-spot context this view shows.
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const ev = useMemo(() => buildFunctionEvidence({ ...fndInput, expertPm1Specified: expertPm1 }), [fndInput, expertPm1]);
   // Natural variants are left out: ECO:0000269 on a variant is a publication reporting it, not an observation
   // of a site, and listing it as "Experimental, counts for PM1" implied the variant rows were evidence for PM1.
   const levelCounts = useMemo(() => {
@@ -47,14 +55,8 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
     for (const r of ev.rows) if (r.evidence !== "match" && r.group !== "variants") counts.set(r.evidence, (counts.get(r.evidence) ?? 0) + 1);
     return counts;
   }, [ev]);
-  // The Hotspots view's trace: each definition with its grade and source, read from the same slot the view reads.
+  // Each hot-spot method keeps its grade and source beside the PM1 rule trace.
   const workspace = useEvidenceWorkspace("function");
-  // The loader forms its slot from the result's gene or the store's (useEvidenceContext) — the rail uses
-  // the same rule, or a fallback identity would leave it watching a slot nobody fills.
-  const storeGene = useVariantAnalysisStore((st) => st.gene);
-  const hotspotGene = analysisResult.metadata?.gene || storeGene || null;
-  const slot = hotspotsSlot(hotspotGene, analysisResult.metadata?.uniprotId, analysisResult.transcriptId);
-  const hotspotLoad = useVariantAnalysisStore((st) => st.extraContexts[slot]) as ContextLoad<HotspotContext> | undefined;
   const hotspotEv = useMemo(
     () => buildHotspotEvidence(hotspotInputFrom(analysisResult, ev, hotspotLoad, fndInput.engineCriteria)),
     [analysisResult, ev, hotspotLoad, fndInput.engineCriteria]
@@ -86,7 +88,7 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
           <ol className="fnd-steps">
             {hotspots.ev.rungs.map((r, i) => (
               <Step key={r.key} n={i + 1} warn={r.state === "failed"}>
-                <span><strong>{HOTSPOT_GRADE_LABEL[r.grade]}</strong> · {r.name}: {r.headline}</span>
+                <span><strong>{HOTSPOT_GRADE_LABEL[r.grade]}</strong> · {r.name}: {r.source.label}</span>
               </Step>
             ))}
             <Step n={hotspots.ev.rungs.length + 1}>
@@ -104,9 +106,9 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
                 <div><dt>Model</dt><dd className="fnd-mono">{modelHref ? <a href={modelHref} target="_blank" rel="noopener noreferrer">{modelLabel}<span className="sr-only"> (opens in a new tab)</span></a> : modelLabel}</dd></div>
               );
             })()}
-            {hotspots.context.cspec.retrievedAt && <div><dt>ClinGen CSpec</dt><dd>Read {hotspots.context.cspec.retrievedAt.slice(0, 10)}</dd></div>}
+            {hotspots.context.cspec.retrievedAt && <div><dt>ClinGen CSpec</dt><dd>Source checked {hotspots.context.cspec.retrievedAt.slice(0, 10)}</dd></div>}
             <div><dt>Published PER</dt><dd>Pérez-Palma et al. 2020; data of 2019 (dlal-group/PERs)</dd></div>
-            <div><dt>3D benchmark</dt><dd>doc/HOTSPOT_3D_DECISION.md (pre-registered)</dd></div>
+            <div><dt>3D benchmark</dt><dd>Pre-registered 3D benchmark, decision record</dd></div>
           </dl>
           ) : (
             <p className="fnd-note" role="status">{hotspots.ev.state === "loading" ? "Reading the hot-spot sources…" : `The sources did not answer: ${hotspots.ev.failure}`}</p>
@@ -216,7 +218,8 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
             {familyBySource.map(([source, matches]) =>
               matches.length > 2 ? (
                 <div key={source} className="fnd-kv__group">
-                  <details className="fnd-notes">
+                  {/* A definition list may hold only terms, descriptions and groups: the folded list sits in a description (axe definition-list). */}
+                  <dd><details className="fnd-notes">
                     <summary>
                       {source} · {matches.length} matches
                     </summary>
@@ -228,7 +231,7 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
                         </div>
                       ))}
                     </dl>
-                  </details>
+                  </details></dd>
                 </div>
               ) : (
                 matches.map((m) => (

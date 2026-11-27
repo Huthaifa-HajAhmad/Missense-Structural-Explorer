@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { ReviewNavigation, useReviewWorkspace } from "../review/ReviewWorkspace";
 import type { InsightsEvidence, EvidenceTabId, CriterionRow } from "../../shared/insightsEvidence";
-import { TIERS, NO_RECORD_REASON } from "../../shared/insightsEvidence";
+import { runStatusOf, runStatusText, TIERS, NO_RECORD_REASON, TIER_SCOPE_SENTENCE, criterionStateLabel } from "../../shared/insightsEvidence";
 import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
 import { formatEvidenceCode } from "../../shared/thresholds";
 import { Prose } from "../ui/Prose";
@@ -31,8 +31,10 @@ function Finding({ ev }: { ev: InsightsEvidence }) {
   const tone = ev.tierIndex >= 3 ? "danger" : ev.tierIndex <= 1 ? "good" : "neutral";
   return (
     <section className="ins-finding" aria-labelledby="ins-finding-h">
-      <h2 className="ins-label ins-finding__label" id="ins-finding-h" data-tone={tone}>Rule-engine classification</h2>
+      <h1 className="ins-label ins-finding__label" id="ins-finding-h" data-tone={tone}>Rule-engine classification</h1>
       <div className="ins-hero__body">
+        <p role="status">{runStatusText(runStatusOf(ev))}</p>
+        {ev.clinvar && <p className="ins-p">ClinVar assertion: {ev.clinvar.classification}. Condition: {ev.clinvar.trait || "Not recorded"}. Source: NCBI ClinVar{ev.clinvar.uid ? `, variation ${ev.clinvar.uid}` : ""}. Not counted as PP5/BP6.</p>}
         <p className="ins-hero__figure">{ev.verdictText ?? "Not classified"}</p>
         {ev.tier && (
           <div className="ins-tiers" role="img" aria-label={`ACMG tier ${ev.tierIndex + 1} of 5: ${ev.tier}`}>
@@ -42,6 +44,7 @@ function Finding({ ev }: { ev: InsightsEvidence }) {
           </div>
         )}
         <Prose className="ins-hero__finding"><strong>{ev.finding.headline}</strong> {ev.finding.rest}</Prose>
+        <p className="ins-p ins-dim">{TIER_SCOPE_SENTENCE}</p>
         {ev.candidateAlleles && (
           <p className="ins-p ins-dim">
             This protein change can come from {ev.candidateAlleles} nucleotide alleles.{" "}
@@ -105,8 +108,8 @@ function RecordsView({ ev, onOpenTab }: { ev: InsightsEvidence; onOpenTab?: (tab
       <header className="ins-view-heading"><h2 id="ins-records-h">Criterion records</h2><p>Every criterion the engine owns, including withheld and missing records. Only recorded criteria enter the classification.</p></header>
       <div className="ins-record-table-wrap"><table className="ins-record-table"><thead><tr><th scope="col">Criterion</th><th scope="col">Engine state</th><th scope="col">Recorded reason</th></tr></thead>
         <tbody>
-          {rows.map(c => <tr key={c.code} data-state={c.state}><th scope="row"><span className="ins-mono">{formatEvidenceCode(c.code)}</span><small>{c.strength}</small></th><td>{c.state}</td><td>{c.reason}{c.tab && <button type="button" className="ins-link" onClick={() => onOpenTab?.(c.tab!)}>Open source tab</button>}</td></tr>)}
-          {silent.length > 0 && <tr data-state="not met"><th scope="row">No criterion recorded</th><td>not met</td><td className="ins-mono">{silent.map(c => formatEvidenceCode(c.code)).join(", ")}</td></tr>}
+          {rows.map(c => <tr key={c.code} data-state={c.state}><th scope="row"><span className="ins-mono">{formatEvidenceCode(c.code)}</span><small>{c.strength}</small></th><td>{criterionStateLabel(c.state)}</td><td>{c.reason}{c.tab && <button type="button" className="ins-link" onClick={() => onOpenTab?.(c.tab!)}>Open source tab</button>}</td></tr>)}
+          {silent.length > 0 && <tr data-state="not met"><th scope="row">No criterion recorded</th><td>{criterionStateLabel("not met")}</td><td className="ins-mono">{silent.map(c => formatEvidenceCode(c.code)).join(", ")}</td></tr>}
         </tbody>
       </table></div>
     </section>

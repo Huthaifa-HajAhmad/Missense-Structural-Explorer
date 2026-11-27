@@ -199,7 +199,7 @@ describe("stability block", () => {
   it("keeps the lane's own state when the consolidator read nothing, and still shows the table", () => {
     const b = blankBlock("stability");
     b.status = "absent";
-    stabilityExtras(b, energetics);
+    stabilityExtras(b, energetics, "kcal/mol");
     expect(b.status).toBe("absent");
     expect(b.table).not.toBeNull();
   });
@@ -208,7 +208,7 @@ describe("stability block", () => {
     const b = blankBlock("stability");
     b.status = "read";
     b.drafted = "lane sentence";
-    stabilityExtras(b, energetics);
+    stabilityExtras(b, energetics, "kcal/mol");
     expect(b.status).toBe("read");
     expect(b.drafted).not.toBe("lane sentence");
   });

@@ -66,7 +66,9 @@ function describe(ev: FunctionEvidence, hidden?: ReadonlySet<LayerKey>): string 
     parts.push(`${disease.length} disease variants at ${ev.density.residues} residues.`);
   } else if (disease.length) parts.push(`Disease variants at ${disease.map((r) => r.start).join(", ")}.`);
   const tm = ev.rows.filter((r) => r.lane === "membrane" && r.type.toLowerCase() === "transmembrane");
-  if (tm.length) parts.push(`${tm.length} transmembrane segments.`);
+  // One span can come from several UniProt feature rows: count spans, not rows.
+  const tmSpans = new Set(tm.map((r) => `${r.start}-${r.end}`)).size;
+  if (tmSpans) parts.push(`${tmSpans} transmembrane segment${tmSpans === 1 ? "" : "s"}.`);
   parts.push(`This variant, ${ev.variantShort}, at ${ev.residue}.`);
   return parts.join(" ");
 }

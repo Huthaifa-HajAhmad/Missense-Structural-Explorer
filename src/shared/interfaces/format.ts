@@ -51,7 +51,7 @@ export function supportText(k: number, n: number): string {
   return `${k} of ${n} solved structures`;
 }
 
-/** A lookup's outcome as one availability state, in the five-state vocabulary. */
+/** A lookup's outcome as one availability state, in the six-state vocabulary (`AvailabilityView` in types.ts). */
 export function availability(
   status: string | undefined,
   hasItems: boolean,
@@ -82,6 +82,7 @@ export function intactLine(e: IntactEvidence | null, experiments: number | null,
 /** Track and table name of a solved partner: "SOD1, other chain", "CCS", "Sod1 (mouse)", "SOD1 fibril". */
 export function observedLabel(p: ObservedInterface, gene: string): string {
   const name = p.gene ?? p.name;
+  if (p.context === "peptide") return `${name} (peptide fragment)`;
   if (p.context === "fibril") return `${p.homomeric ? gene : name} fibril`;
   if (p.context === "crystal") return `${p.homomeric ? gene : name} (outside the assembly)`;
   return p.homomeric ? `${gene}, other chain` : p.organism ? `${name} (${p.organism.toLowerCase()})` : name;

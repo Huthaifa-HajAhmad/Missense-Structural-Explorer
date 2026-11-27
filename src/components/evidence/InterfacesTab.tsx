@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { TabComponentProps } from "./types";
+import { useOptionalSettings } from "../../context/SettingsContext";
+import type { EnergyUnit } from "../../shared/engineStatus";
 import { buildInterfacesEvidence, filterPartnerGroups, type ObservedView } from "../../shared/interfacesEvidence";
 import { interfaceMapView, interfaceNumberingNote, interfaceWorkspaceReadings } from "../../shared/mechanismWorkspace";
 import { evidenceTab } from "../../shared/evidenceTabs";
@@ -57,10 +59,12 @@ export function InterfacesTab({ analysisState, onSelectResidue, onNavigateToView
   // Hover, pin and filter changes re-render this tab; the evidence is rebuilt only when its inputs move.
   const ev = useMemo(() => (result ? buildInterfacesEvidence({ result, assembly, assemblyStatus, assemblyError, modelRequested, ppi, ppiStatus, ppiError, shift, shiftLoading, shiftError }) : null),
     [result, assembly, assemblyStatus, assemblyError, modelRequested, ppi, ppiStatus, ppiError, shift, shiftLoading, shiftError]);
-  const rows = useMemo(() => (ev ? interfaceWorkspaceReadings(ev) : null), [ev]);
+  const settingsCtx = useOptionalSettings();
+  const unit: EnergyUnit = settingsCtx?.settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol";
+  const rows = useMemo(() => (ev ? interfaceWorkspaceReadings(ev, unit) : null), [ev, unit]);
   if (!result || !ev || !rows) return null;
 
-  const solved: ObservedView[] = [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals];
+  const solved: ObservedView[] = [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals, ...ev.observed.peptides];
   // Native interfaces only: a fibril or crystal-packing contact is not an interface to draw on the monomer.
   const show3d = onSelectResidue && onNavigateToView
     ? (p: ObservedView) => {
@@ -130,6 +134,11 @@ export function InterfacesTab({ analysisState, onSelectResidue, onNavigateToView
           </AssemblyRecords>
         )}
         {showRecords && workspace.enabled && <BindingCard ev={ev} onRequest={data.requestShift} />}
+        {showPartners && ev.observed.peptides.length > 0 && <section aria-label="Peptide fragments">
+          <h2>Peptide fragments</h2>
+          <p>These structures contain short fragments of {ev.gene}. They are excluded from whole-protein native interfaces and partner counts.</p>
+          <ul>{ev.observed.peptides.map(p => <li key={p.key}>{p.label}: {p.pdbEntries.map(e => e.toUpperCase()).join(", ")}</li>)}</ul>
+        </section>}
         {showPartners && <PartnersPanel ev={ev} view={partnerView} lookupError={data.ppiError ?? null} onRetry={data.retryLookups} />}
       </EvidencePanel>
       {!workspace.enabled && <BindingCard ev={ev} onRequest={data.requestShift} />}

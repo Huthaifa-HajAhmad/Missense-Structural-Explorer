@@ -9,6 +9,7 @@ import type { AnalysisResult } from "./contracts.ts";
 import type { EvidenceTabId, InsightsEvidence } from "./insightsEvidence.ts";
 import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
 import type { DeepEvidenceContext } from "./deepModelEvidence.ts";
+import type { EnergyUnit } from "./engineStatus.ts";
 
 // ── Blocks ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -222,6 +223,7 @@ export interface ReportBlock {
 }
 
 export interface ReportFooter {
+  completeness: string;
   app: string;
   repository: string;
   useStatement: string;
@@ -277,6 +279,8 @@ export interface ReportDocumentInput {
   meta: { title: string; preparedBy: string; caseRef: string };
   /** ISO time to stamp on the footer; leave null on screen and set it when exporting. */
   generatedAt?: string | null;
+  /** The energy unit the user chose for ΔΔG columns. kcal/mol when omitted. */
+  energyUnit?: EnergyUnit;
 }
 
 export const RESEARCH_USE_STATEMENT =

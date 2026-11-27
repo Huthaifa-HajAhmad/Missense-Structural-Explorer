@@ -129,7 +129,7 @@ describe("EvidenceInspector — clinical pane", () => {
       metadata: { variant: "p.Arg591Trp", uniprotId: "Q9H116", acmgWeighting: "strict-structural" },
       ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
     });
-    expect(screen.getByText("None recorded")).toBeTruthy();
+    expect(screen.getByText("No criterion")).toBeTruthy();
     // Only a weighting that actually suppresses frequency evidence may be named as the cause.
     expect(screen.getByText(/strict-structural weighting is what withholds it/)).toBeTruthy();
   });
@@ -208,7 +208,7 @@ describe("EvidenceInspector — clinical pane, local ingest", () => {
 
   it("shows a recorded BS2 beside an absent frequency criterion", () => {
     render(<EvidenceInspector analysisResult={UROD} activeEvidenceTab="clinical" />);
-    expect(screen.getByText("None recorded")).toBeTruthy();
+    expect(screen.getByText("No criterion")).toBeTruthy();
     expect(screen.getByTestId("bs2-recorded").textContent).toMatch(/BS2 from 15 gnomAD homozygotes/);
   });
 });
@@ -227,10 +227,11 @@ describe("EvidenceInspector — clinical pane, UROD from gnomAD r4", () => {
     ruleBasedInsights: { acmgCriteria: [{ code: "BS1" }, { code: "BS2" }] },
   };
 
-  it("traces both inputs: FAF95 for BA1/BS1 and the grouped maximum for PM2, each with its group", () => {
+  it("traces both inputs: FAF95 for BA1 and the grouped maximum for PM2, each with its group", () => {
     render(<EvidenceInspector analysisResult={UROD_REMOTE} activeEvidenceTab="clinical" />);
     const card = screen.getByTestId("rule-trace");
-    expect(card.textContent).toMatch(/1\.62% · BA1\/BS1 read FAF95 \(African\/African American \(afr\)\)/);
+    expect(card.textContent).toMatch(/1\.62% · BA1 reads FAF95 \(African\/African American \(afr\)\)/);
+    expect(card.textContent).toContain("The BS1 reference value is shown, not counted.");
     expect(card.textContent).toMatch(/1\.70% · PM2 reads the grouped maximum \(African\/African American \(afr\)\)/);
   });
 
@@ -272,6 +273,6 @@ describe("EvidenceInspector — clinical pane, UROD from gnomAD r4", () => {
     // (and rendering the basis as consulted) certified a step the engine never took.
     expect(screen.getByTestId("cut-points").textContent).not.toMatch(/ceiling applied/);
     expect(screen.getByTestId("rule-trace").textContent).toMatch(/PM2 ceiling \(not reached\)/);
-    expect(screen.getByTestId("rule-trace").textContent).toMatch(/The benign cut-points fired before the ceiling was consulted\./);
+    expect(screen.getByTestId("rule-trace").textContent).toMatch(/A benign rule decided this first, so the PM2 ceiling was not checked\./);
   });
 });

@@ -159,7 +159,7 @@ describe("ConstraintInspector content", () => {
     render(<ConstraintInspector analysisResult={RESULT} gene="UROD" variant="p.Gly318Arg" focus={null} />);
     // PP2 calibrated regional rule, Chao et al. v3; replaced gene Z proxy: Z is gene context, not PP2.
     expect(view().getByText("Gene context; PP2 is read from the regional O/E at the variant, not from Z.")).toBeInTheDocument();
-    expect(view().getByText("O/E 0.81 lies between the PP2 and BP1 bands; no evidence either way.")).toBeInTheDocument();
+    expect(view().getByText("O/E 0.81 lies between the PP2 and BP1 bands, so neither is met; no evidence either way.")).toBeInTheDocument();
     expect(view().getByText("Interval Ala290 to Val367, regional chi-square p = 4.0×10⁻⁴ (approximate).")).toBeInTheDocument();
   });
 

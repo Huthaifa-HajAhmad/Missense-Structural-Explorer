@@ -243,8 +243,8 @@
 .rsx-rail { display: flex; flex-direction: column; }
 .rsx-rsec { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid var(--cs-border-subtle); }
 .rsx-rsec:first-child { padding-top: 0; border-top: 0; }
-.rsx-rsec > h3.eyebrow { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.rsx-rsec > h3.eyebrow > span { display: inline-flex; align-items: center; gap: 6px; }
+.rsx-rsec > h2.eyebrow { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rsx-rsec > h2.eyebrow > span { display: inline-flex; align-items: center; gap: 6px; }
 .rsx-rsec:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: var(--cs-radius-sm); }
 
 .rsx-steps { list-style: none; margin: 0; padding: 12px; display: flex; flex-direction: column; border: 1px solid var(--cs-border-subtle); border-radius: 10px; }
@@ -327,7 +327,7 @@
   font-family: var(--cs-font-mono); font-size: 15px; font-weight: var(--cs-font-weight-semibold);
   color: var(--cs-text-primary);
 }
-.rsx-glyph-code--mut { color: var(--cs-accent-clay); }
+.rsx-glyph-code--mut { color: var(--cs-text-accent); }
 .rsx-glyph-role {
   text-transform: uppercase; font-size: 10px; font-weight: var(--cs-font-weight-semibold);
   letter-spacing: 0.05em; color: var(--cs-text-muted);

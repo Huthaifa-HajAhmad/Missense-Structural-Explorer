@@ -367,9 +367,13 @@ missing part. Evidence is `degraded` when ClinVar's lookup failed or timed out, 
 or when gnomAD was read from the local stand-in (combined frequency only: no ancestry groups, no FAF95); an
 answered ClinVar query with no record reads "No record". Structure is `degraded` when coordinates loaded but
 the `multimer` or `ppi` stage ended in `error` (a `skipped` one is still `complete`). Landscape is `degraded`
-when the residue window loaded but the whole-protein overview failed. Energetics adds the AlphaFold pLDDT to
-its row below 70 without changing the status, because low confidence is context, not a failed engine.
-Tested in `workflowStatus.partialOutcomes.test.ts`.
+when the residue window loaded but the whole-protein overview failed. Energetics hides the median ΔΔG while
+counting engines are still running (`provisional`) and adds the AlphaFold pLDDT to its row below 70 without
+changing the status, because low confidence is context, not a failed engine. Insights and Report read the shared
+three-state run status (`runStatusOf` in `insightsEvidence.ts`): `running` → `progress`, `gaps` → `degraded`,
+and `complete` → `complete` (appending `· Optional AI running` while optional narrative synthesis is still in
+flight). Tested in `workflowStatus.partialOutcomes.test.ts`, `workflowStatus.hardening.test.ts`, and
+`pipelineReadiness.test.ts`.
 
 Restoring a saved result (`storedAnalysis.ts`): every route asks `isServableStoredResult`. A saved result that still
 counts a `PM2` today's rule withholds (`recordsHeldPm2`) is not servable, and the server cache treats such a row as
